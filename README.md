@@ -1,50 +1,65 @@
 # MJOLNIR Core - Halo Campaign Evolved Modding Framework
 
+[![Discord](https://img.shields.io/discord/100000000000000000?color=7289da&logo=discord&logoColor=white&label=Discord)](https://discord.gg/9gxYZsByW9)
+
 **MJOLNIR Core** is an open-source modding framework designed for *Halo Campaign Evolved*, built on top of the **RE-UE4SS** (Unreal Engine 4/5 C++ and Lua Scripting System) architecture with Ghidra reverse-engineering tooling integration.
 
-## Targets
+Join our community on **[Discord](https://discord.gg/9gxYZsByW9)** to discuss mod development, reverse engineering, and updates!
 
-- **Game Directory**: `C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved`
-- **Engine Binary**: `Meteorite\Binaries\Win64\HaloCampaignEvolved.exe`
-- **Simulation Layer**: `Meteorite\Binaries\Win64\HaloSimulation_tag_release.dll`
+---
 
-## Architecture & Framework Modules
+## Features & Modules
+
+- **MJOLNIRCore**: Core runtime initialization and `UEHelpers` library for safe UObject queries.
+- **MJOLNIRFlyCam**: Smooth 3D free camera with WASD/IJKL continuous movement, mouse look, speed boosting, and HUD toggle (`F7` / `F8` / `F9`).
+- **MJOLNIRConsoleEnabler**: Developer console hook (`~` / `Tab` / `F10`) for in-game console commands.
+- **MJOLNIRMultiplayer**: Session hosting, map travel, and admin RPC hooks.
+- **MJOLNIRDiscovery**: Diagnostic UFunction dumper and netcode travel logging.
+
+---
+
+## Directory Structure
 
 ```
 c:\haloce\
 ├── mods.json                     # Primary UE4SS mod loader manifest
 ├── mods.txt                      # Fallback mod loader manifest
-├── UE4SS-settings.ini            # Engine configuration & hook settings
+├── UE4SS-settings.ini            # Engine configuration & hook settings (HotReload: Ctrl+R)
 ├── Mods/
 │   ├── MJOLNIRCore/              # Core runtime initialization & UEHelpers library
 │   │   └── Scripts/
-│   │       ├── main.lua
-│   │       └── UEHelpers.lua
-│   ├── MJOLNIRMultiplayer/       # Session hosting, map travel, & admin RPC hooks
+│   ├── MJOLNIRFlyCam/            # Free debug camera & HUD toggle mod
 │   │   └── Scripts/
-│   │       └── main.lua
-│   └── MJOLNIRDiscovery/         # Diagnostic UFunction dumper & netcode URL logging
+│   ├── MJOLNIRConsoleEnabler/    # Console enabler mod
+│   │   └── Scripts/
+│   ├── MJOLNIRMultiplayer/       # Session hosting & travel hooks
+│   │   └── Scripts/
+│   └── MJOLNIRDiscovery/         # Diagnostic UFunction dumper
 │       └── Scripts/
-│           └── main.lua
 └── tools/
-    └── ghidra/
-        └── extract_signatures.py # Ghidra headless script for symbol & signature analysis
+    └── ghidra/                   # Ghidra headless scripts for symbol & signature analysis
 ```
 
-## Installation & Deployment
+---
 
-1. Copy `UE4SS.dll`, `dwmapi.dll` (or proxy DLL of choice), `UE4SS-settings.ini`, `mods.json`, and the `Mods` directory into:
-   `C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Binaries\Win64\`
-2. Launch *Halo Campaign Evolved*.
-3. Press `Ctrl + O` to open the UE4SS Live View Inspector and console.
+## Hotkeys
 
-## Ghidra Reverse Engineering
+| Hotkey | Description |
+| :--- | :--- |
+| **`F8`** | Toggle **FlyCam** ON / OFF (Auto-hides HUD) |
+| **`F7`** | Toggle **HUD Overlay** ON / OFF |
+| **`F9`** | Toggle **Mouse Look** ON / OFF |
+| **`CTRL + R`** | **Hot-Reload All Mods** in-game |
+| **`~` / `Tab` / `F10`** | Open **Developer Console** |
 
-To execute headless symbol extraction using local Ghidra (`C:\tools\ghidra_12.1.2_PUBLIC`):
+---
 
-```cmd
-C:\tools\ghidra_12.1.2_PUBLIC\support\analyzeHeadless.bat C:\ghidra_proj MJOLNIR_Proj -import "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Binaries\Win64\HaloCampaignEvolved.exe" -scriptPath "C:\haloce\tools\ghidra" -postScript extract_signatures.py
-```
+## Community & Discord
+
+Join our Discord server for support, mod creation, and discussion:
+👉 **[https://discord.gg/9gxYZsByW9](https://discord.gg/9gxYZsByW9)**
+
+---
 
 ## License
 
