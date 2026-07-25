@@ -8,6 +8,10 @@
     "enabled": true
   },
   {
+    "name": "MJOLNIRFlyCam",
+    "enabled": true
+  },
+  {
     "name": "MJOLNIRMultiplayer",
     "enabled": true
   },
