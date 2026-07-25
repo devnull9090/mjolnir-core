@@ -1,6 +1,6 @@
 # MJOLNIR Core - Halo Campaign Evolved Modding Framework
 
-[![Discord](https://img.shields.io/discord/100000000000000000?color=7289da&logo=discord&logoColor=white&label=Discord)](https://discord.gg/9gxYZsByW9)
+[![Discord](https://img.shields.io/discord/1530695630597390366?color=7289da&logo=discord&logoColor=white&label=Discord)](https://discord.gg/9gxYZsByW9)
 
 **MJOLNIR Core** is an open-source modding framework designed for *Halo Campaign Evolved*, built on top of the **RE-UE4SS** (Unreal Engine 4/5 C++ and Lua Scripting System) architecture with Ghidra reverse-engineering tooling integration.
 
