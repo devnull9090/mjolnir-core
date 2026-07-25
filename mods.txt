@@ -1,0 +1,4 @@
+MJOLNIRCore : 1
+MJOLNIRConsoleEnabler : 1
+MJOLNIRMultiplayer : 1
+MJOLNIRDiscovery : 1

@@ -1,0 +1,25 @@
+# Build artifacts
+*.obj
+*.dll
+*.exe
+*.pdb
+*.lib
+*.exp
+*.ilk
+
+# Analysis output (generated, not source)
+fname_analysis.txt
+ghidra_results.txt
+
+# IDE / Editor
+.vs/
+.vscode/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Gemini artifacts
+.gemini/
