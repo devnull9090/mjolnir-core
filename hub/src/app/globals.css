@@ -1,26 +1,58 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-background: #06080f;
+  --color-foreground: #e5e7eb;
+  --color-gold: #d4a843;
+  --color-gold-dim: #a67c2e;
+  --color-gold-glow: #d4a84340;
+  --color-surface: #0d1117;
+  --color-surface-raised: #161b22;
+  --color-surface-card: #1a2332;
+  --color-surface-hover: #243044;
+  --color-border: #21262d;
+  --color-border-bright: #30363d;
+  --color-text-muted: #8b949e;
+  --color-text-dim: #6e7681;
+  --color-accent-green: #3fb950;
+  --color-accent-blue: #58a6ff;
+  --color-accent-red: #f85149;
+  --font-sans: var(--font-geist-sans), "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), "JetBrains Mono", monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/* Animated gradient background */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.hero-gradient {
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, #d4a84315 0%, transparent 50%),
+              radial-gradient(ellipse 60% 40% at 80% 60%, #58a6ff08 0%, transparent 50%),
+              var(--color-background);
+}
+
+/* Glow effects */
+.glow-gold {
+  box-shadow: 0 0 60px -12px var(--color-gold-glow),
+              0 0 120px -24px var(--color-gold-glow);
+}
+
+.glow-text {
+  text-shadow: 0 0 40px var(--color-gold-glow);
+}
+
+/* Glass card */
+.glass {
+  background: linear-gradient(135deg, #1a233280 0%, #16192280 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #ffffff08;
 }
