@@ -29,7 +29,7 @@
   },
   "routes": [
     {
-      "pattern": "mjolnircore.com/*",
+      "pattern": "mjolnircore.com",
       "custom_domain": true
     }
   ]
