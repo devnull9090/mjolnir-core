@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Binary, Braces, FileText, FlaskConical, Package } from "lucide-react";
+import { ArrowRight, Binary, Braces, Database, FileText, FlaskConical, Package } from "lucide-react";
 import { getDocNotes } from "@/lib/docs";
+import { getTotals } from "@/lib/tags";
 import { EvidenceBadge, type EvidenceLevel } from "./_components/EvidenceBadge";
+
+const totals = getTotals();
 
 export const metadata: Metadata = {
   title: "Technical Documentation | MJOLNIR Core",
@@ -10,6 +13,14 @@ export const metadata: Metadata = {
 };
 
 const research = [
+  {
+    href: "/docs/tags",
+    title: "Tag definitions",
+    description:
+      `Field-level reference for all ${totals.groups} tag groups: ${totals.fields.toLocaleString()} fields with names, types, byte offsets, and enum options, generated from the shipped game data.`,
+    status: "Verified" as EvidenceLevel,
+    icon: Database,
+  },
   {
     href: "/docs/research/tag-data",
     title: "Blam tag data",

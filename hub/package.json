@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "sync:docs": "node scripts/sync-docs.mjs",
-    "dev": "node scripts/sync-docs.mjs && next dev",
-    "build": "node scripts/sync-docs.mjs && next build",
+    "sync:tags": "node scripts/sync-tag-defs.mjs",
+    "sync": "node scripts/sync-docs.mjs && node scripts/sync-tag-defs.mjs",
+    "dev": "npm run sync && next dev",
+    "build": "npm run sync && next build",
     "start": "next start",
     "lint": "eslint",
     "cf:build": "npx @opennextjs/cloudflare build",

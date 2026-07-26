@@ -182,16 +182,21 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 $env:HCE_PAKS = "<install>\Meteorite\Content\Paks"
 $env:OODLE    = "<UE install>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
 
-cargo run --release -p blam-cli -- groups                          # every group + coverage
-cargo run --release -p blam-cli -- list --group weapon             # tag paths
-cargo run --release -p blam-cli -- layout --group weapon --options # strings, options, fields
-cargo run --release -p blam-cli -- type-codes                      # field type histogram
-
-python tools/iostore/decode_body.py --paks $env:HCE_PAKS --oodle $env:OODLE --survey
+cargo run --release -p blam-cli -- groups                            # every group + tables
+cargo run --release -p blam-cli -- fields --group weapon             # resolved field list
+cargo run --release -p blam-cli -- layout --group camera_track --tables
+cargo run --release -p blam-cli -- types                             # field type vocabulary
+cargo run --release -p blam-cli -- validate --all                    # invariants, all 12,290 tags
+cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 
-`mjolnir groups` currently parses **101/101 groups across all 12,290 shipped payloads**. Nothing is
-written to disk; payloads are read into memory only.
+`mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**, and
+resolves a root struct size for 98.5% of them. `mjolnir defs` writes
+`defs/hce/tag-definitions.json` — 101 groups, 1,779 structs, 13,250 fields — which the hub renders
+as a searchable reference at [`/docs/tags`](https://mjolnircore.com/docs/tags).
+
+Only schema is exported: field names, types, offsets, and enum option names. Tag values are game
+content and are never written. Nothing is written to disk by the inspection commands.
 
 The launcher is excluded from the root Cargo workspace on purpose, so it keeps its own target
 directory and release pipeline. Build it from `apps/launcher` as before.

@@ -20,6 +20,8 @@
 //!
 //! See `docs/tag_body_format.md` for evidence and reproduction.
 
+use std::ops::Range;
+
 use crate::section::{self, Section};
 
 /// Offset of the first child section within `blay`'s content.
@@ -28,6 +30,16 @@ use crate::section::{self, Section};
 /// fill constants `4444`/`CCCC`/`wwww`, a per-group constant, and a table of
 /// counts whose meaning is still unresolved.
 const BLAY_PREAMBLE: usize = 0x4C;
+
+/// Guard against a struct definition that references itself. Real definitions
+/// nest far shallower than this; the limit exists only to stop a cycle.
+const MAX_STRUCT_DEPTH: u32 = 128;
+
+/// Type names whose size is not the value in the type table.
+const PAD: &str = "pad";
+const STRUCT: &str = "struct";
+const ARRAY: &str = "array";
+const TERMINATOR: &str = "terminator X";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -80,6 +92,27 @@ pub struct StructEntry {
     pub aux: [u32; 2],
 }
 
+/// An entry in the `arr!` array table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrayEntry {
+    pub name_offset: u32,
+    /// Number of repetitions.
+    pub count: u32,
+    /// Index of the struct field run holding one element.
+    pub struct_index: u32,
+}
+
+/// An entry in the `sz[]` enum and bitfield table.
+///
+/// `first_option` indexes the shared option table, and the runs tile it
+/// exactly: each entry begins where the previous one ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnumEntry {
+    pub name_offset: u32,
+    pub option_count: u32,
+    pub first_option: u32,
+}
+
 /// A parsed `blay` layout section borrowed from the tag body.
 #[derive(Debug)]
 pub struct Layout<'a> {
@@ -95,6 +128,8 @@ pub struct Layout<'a> {
     pub fields: Vec<FieldEntry>,
     pub blocks: Vec<BlockEntry>,
     pub structs: Vec<StructEntry>,
+    pub arrays: Vec<ArrayEntry>,
+    pub enums: Vec<EnumEntry>,
     /// Every child section of `tgly`, including ones not yet interpreted.
     pub sections: Vec<Section<'a>>,
 }
@@ -194,6 +229,32 @@ impl<'a> Layout<'a> {
             })
             .unwrap_or_default();
 
+        let arrays = section::find(&sections, "arr!")
+            .map(|s| {
+                s.records::<3>()
+                    .into_iter()
+                    .map(|[name_offset, count, struct_index]| ArrayEntry {
+                        name_offset,
+                        count,
+                        struct_index,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let enums = section::find(&sections, "sz[]")
+            .map(|s| {
+                s.records::<3>()
+                    .into_iter()
+                    .map(|[name_offset, option_count, first_option]| EnumEntry {
+                        name_offset,
+                        option_count,
+                        first_option,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Ok(Layout {
             version: blay.version,
             size: blay.size,
@@ -204,6 +265,8 @@ impl<'a> Layout<'a> {
             fields,
             blocks,
             structs,
+            arrays,
+            enums,
             sections,
         })
     }
@@ -264,11 +327,144 @@ impl<'a> Layout<'a> {
         }
     }
 
+    /// The type name of a field, or `""` if its type index is out of range.
+    pub fn type_name_of(&self, field: &FieldEntry) -> &'a str {
+        self.types
+            .get(field.type_index as usize)
+            .and_then(|t| self.string_at(t.name_offset))
+            .unwrap_or("")
+    }
+
+    /// Is this field the `terminator X` that closes a struct's field run?
+    pub fn is_terminator(&self, field: &FieldEntry) -> bool {
+        self.type_name_of(field) == TERMINATOR
+    }
+
+    /// Field index ranges, one per struct, in declaration order.
+    ///
+    /// The field list is a flattened tree: each struct's fields are emitted
+    /// contiguously and closed by a `terminator X`. Structs appear innermost
+    /// first, so the last range is the group's root struct.
+    pub fn struct_ranges(&self) -> Vec<Range<usize>> {
+        let mut out = Vec::new();
+        let mut start = 0usize;
+        for (i, f) in self.fields.iter().enumerate() {
+            if self.is_terminator(f) {
+                out.push(start..i);
+                start = i + 1;
+            }
+        }
+        out
+    }
+
+    /// Map a struct-table index to its field run.
+    ///
+    /// `stv4` is ordered root first, while the terminator-delimited field runs
+    /// are emitted innermost first, so the two are reverses of each other.
+    /// Verified on `water_physics_drag_properties`, where the direct reading
+    /// produces a `drag` -> `velocity to pressure` -> `drag` cycle and the
+    /// reversed reading resolves to the real nesting.
+    pub fn struct_run(&self, struct_index: usize) -> Option<usize> {
+        self.struct_ranges()
+            .len()
+            .checked_sub(1)?
+            .checked_sub(struct_index)
+    }
+
+    fn run_of(ranges: &[Range<usize>], struct_index: usize) -> Option<usize> {
+        ranges.len().checked_sub(1)?.checked_sub(struct_index)
+    }
+
+    /// On-disk size of one field.
+    ///
+    /// Most types take their width from the type table. The exceptions are
+    /// driven by the field's `aux` word: `pad` is `aux` bytes wide, `struct`
+    /// inlines the struct at index `aux`, and `array` repeats an element
+    /// struct `count` times.
+    pub fn field_size(&self, field: &FieldEntry) -> Option<u32> {
+        self.field_size_inner(field, &self.struct_ranges(), 0)
+    }
+
+    fn field_size_inner(
+        &self,
+        field: &FieldEntry,
+        ranges: &[Range<usize>],
+        depth: u32,
+    ) -> Option<u32> {
+        if depth > MAX_STRUCT_DEPTH {
+            return None;
+        }
+        let t = self.types.get(field.type_index as usize)?;
+        match self.string_at(t.name_offset)? {
+            PAD => Some(field.aux),
+            STRUCT => {
+                let run = Self::run_of(ranges, field.aux as usize)?;
+                self.struct_size_inner(run, ranges, depth + 1)
+            }
+            ARRAY => {
+                let a = self.arrays.get(field.aux as usize)?;
+                let run = Self::run_of(ranges, a.struct_index as usize)?;
+                let element = self.struct_size_inner(run, ranges, depth + 1)?;
+                a.count.checked_mul(element)
+            }
+            _ => Some(t.size),
+        }
+    }
+
+    /// Option names for an enum or bitfield field, in declaration order.
+    ///
+    /// Enum and flag fields carry an index into the `sz[]` table in `aux`, and
+    /// that entry names a contiguous run of the shared option table.
+    pub fn field_options(&self, field: &FieldEntry) -> Vec<&'a str> {
+        let Some(e) = self.enums.get(field.aux as usize) else {
+            return Vec::new();
+        };
+        let start = e.first_option as usize;
+        let end = start + e.option_count as usize;
+        self.option_offsets
+            .get(start..end)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|o| self.string_at(*o))
+            .collect()
+    }
+
+    /// Does this field's type carry named options?
+    pub fn has_options(&self, field: &FieldEntry) -> bool {
+        let name = self.type_name_of(field);
+        name.ends_with(" enum") || name.ends_with(" flags")
+    }
+
+    /// Total on-disk size of the struct at `index`, summing its field run.
+    pub fn struct_size(&self, index: usize) -> Option<u32> {
+        self.struct_size_inner(index, &self.struct_ranges(), 0)
+    }
+
+    fn struct_size_inner(
+        &self,
+        index: usize,
+        ranges: &[Range<usize>],
+        depth: u32,
+    ) -> Option<u32> {
+        if depth > MAX_STRUCT_DEPTH {
+            return None;
+        }
+        let range = ranges.get(index)?.clone();
+        self.fields[range].iter().try_fold(0u32, |acc, f| {
+            Some(acc + self.field_size_inner(f, ranges, depth)?)
+        })
+    }
+
+    /// The group's root struct, which is the last field run.
+    pub fn root_struct(&self) -> Option<usize> {
+        self.struct_ranges().len().checked_sub(1)
+    }
+
     /// Sum of every field's type size.
     ///
     /// Returns `None` if any field references a type outside the table. This is
-    /// a flat sum and does not descend into blocks, so it is a lower bound on
-    /// the real struct size rather than a final answer.
+    /// a flat sum over the whole field list and does not respect struct
+    /// boundaries, so it is a diagnostic rather than a real struct size.
     pub fn flat_size(&self) -> Option<u32> {
         self.fields
             .iter()
@@ -306,24 +502,34 @@ mod tests {
             "real vector 3d",
             "orientation",
             "real quaternion",
+            "terminator X",
+            "pad",
+            "struct",
         ] {
             blob.extend_from_slice(s.as_bytes());
             blob.push(0);
         }
         // Offsets: control points 0, block 15, position 21, real vector 3d 30,
-        // orientation 45, real quaternion 57.
+        // orientation 45, real quaternion 57, terminator X 73, pad 86,
+        // struct 90.
 
         let mut tgly_content = section_bytes(b"*rts", 0, &blob);
         tgly_content.extend_from_slice(&section_bytes(b"sz+x", 0, &words(&[15, 21])));
+        // Types: 0 block/12, 1 vector3d/12, 2 quaternion/16, 3 terminator/0,
+        //        4 pad/0, 5 struct/0
         tgly_content.extend_from_slice(&section_bytes(
             b"tfgt",
             0,
-            &words(&[15, 12, 1, 30, 12, 0, 57, 16, 0]),
+            &words(&[
+                15, 12, 1, 30, 12, 0, 57, 16, 0, 73, 0, 0, 86, 0, 0, 90, 0, 0,
+            ]),
         ));
+        // Fields: position(v3), orientation(quat), TERM,
+        //         control points(block), TERM
         tgly_content.extend_from_slice(&section_bytes(
             b"sarg",
             0,
-            &words(&[21, 1, 0, 45, 2, 0, 0, 0, 0]),
+            &words(&[21, 1, 0, 45, 2, 0, 0, 3, 0, 0, 0, 0, 0, 3, 0]),
         ));
         tgly_content.extend_from_slice(&section_bytes(b"2vlb", 0, &words(&[0, 16, 1])));
 
@@ -338,15 +544,15 @@ mod tests {
         let l = Layout::parse(&body).unwrap();
 
         assert_eq!(l.version, 2);
-        assert_eq!(l.strings().len(), 6);
+        assert_eq!(l.strings().len(), 9);
         assert_eq!(l.options(), vec!["block", "position"]);
 
-        assert_eq!(l.types.len(), 3);
+        assert_eq!(l.types.len(), 6);
         assert_eq!(l.string_at(l.types[0].name_offset), Some("block"));
         assert_eq!(l.types[0].size, 12);
         assert_eq!(l.types[2].size, 16);
 
-        assert_eq!(l.fields.len(), 3);
+        assert_eq!(l.fields.len(), 5);
         assert_eq!(l.blocks.len(), 1);
         assert_eq!(l.blocks[0].max_count, 16);
     }
@@ -367,11 +573,149 @@ mod tests {
     }
 
     #[test]
-    fn flat_size_sums_field_type_sizes() {
+    fn terminators_split_the_field_list_into_structs() {
         let body = synth_camera_track();
         let l = Layout::parse(&body).unwrap();
-        // position 12 + orientation 16 + control points block 12
-        assert_eq!(l.flat_size(), Some(40));
+
+        // position+orientation close at field 2; control points closes at 4.
+        assert_eq!(l.struct_ranges(), vec![0..2, 3..4]);
+        // The root is the last run, and structs are emitted innermost first.
+        assert_eq!(l.root_struct(), Some(1));
+    }
+
+    #[test]
+    fn struct_size_sums_its_own_field_run_only() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+
+        // Control point struct: vector3d 12 + quaternion 16.
+        assert_eq!(l.struct_size(0), Some(28));
+        // Root: a single 12-byte block field, not the block's contents.
+        assert_eq!(l.struct_size(1), Some(12));
+        assert_eq!(l.struct_size(99), None);
+    }
+
+    #[test]
+    fn pad_takes_its_width_from_aux() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+        // Type 4 is `pad`, whose table size is 0.
+        let pad = FieldEntry {
+            name_offset: 0,
+            type_index: 4,
+            aux: 24,
+        };
+        assert_eq!(l.field_size(&pad), Some(24));
+    }
+
+    #[test]
+    fn struct_field_inlines_the_referenced_struct() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+        // Type 5 is `struct`. Struct-table index 1 maps to the first field run
+        // (the control point struct), because stv4 is ordered root first.
+        let nested = FieldEntry {
+            name_offset: 0,
+            type_index: 5,
+            aux: 1,
+        };
+        assert_eq!(l.field_size(&nested), Some(28));
+        // Index 0 is the root run, a single 12-byte block field.
+        let root = FieldEntry {
+            name_offset: 0,
+            type_index: 5,
+            aux: 0,
+        };
+        assert_eq!(l.field_size(&root), Some(12));
+    }
+
+    #[test]
+    fn struct_run_reverses_the_struct_table_order() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+        // Two runs: stv4[0] is the root, which is the last run.
+        assert_eq!(l.struct_run(0), Some(1));
+        assert_eq!(l.struct_run(1), Some(0));
+        assert_eq!(l.struct_run(9), None);
+    }
+
+    #[test]
+    fn array_size_is_count_times_element_struct() {
+        let mut blob = Vec::new();
+        for s in [
+            "array",
+            "terminator X",
+            "long integer",
+            "occupancy",
+            "bitvector array",
+        ] {
+            blob.extend_from_slice(s.as_bytes());
+            blob.push(0);
+        }
+        // Offsets: array 0, terminator X 6, long integer 19, occupancy 32,
+        // bitvector array 42.
+
+        let mut tgly_content = section_bytes(b"*rts", 0, &blob);
+        // Types: 0 array/0, 1 terminator/0, 2 long integer/4
+        tgly_content.extend_from_slice(&section_bytes(
+            b"tfgt",
+            0,
+            &words(&[0, 0, 0, 6, 0, 0, 19, 4, 0]),
+        ));
+        // Struct 0 is one long integer; struct 1 holds the array field.
+        tgly_content.extend_from_slice(&section_bytes(
+            b"sarg",
+            0,
+            &words(&[32, 2, 0, 0, 1, 0, 32, 0, 0, 0, 1, 0]),
+        ));
+        // arr![0] = 8 repetitions of struct 0.
+        tgly_content.extend_from_slice(&section_bytes(b"!rra", 0, &words(&[42, 8, 1])));
+
+        let mut blay_content = vec![0u8; BLAY_PREAMBLE];
+        blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));
+        let body = section_bytes(b"yalb", 2, &blay_content);
+
+        let l = Layout::parse(&body).unwrap();
+        assert_eq!(l.arrays.len(), 1);
+        assert_eq!(l.arrays[0].count, 8);
+        // 8 elements of one 4-byte long integer. struct_index 1 maps to run 0.
+        assert_eq!(l.field_size(&l.fields[2]), Some(32));
+    }
+
+    #[test]
+    fn enum_options_come_from_a_run_of_the_shared_table() {
+        let mut blob = Vec::new();
+        for s in [
+            "short enum",
+            "terminator X",
+            "never",
+            "always",
+            "blur",
+            "mode",
+            "mode_enum",
+        ] {
+            blob.extend_from_slice(s.as_bytes());
+            blob.push(0);
+        }
+        // Offsets: short enum 0, terminator X 11, never 24, always 30,
+        // blur 37, mode 42, mode_enum 47.
+
+        let mut tgly_content = section_bytes(b"*rts", 0, &blob);
+        tgly_content.extend_from_slice(&section_bytes(b"sz+x", 0, &words(&[24, 30, 37])));
+        tgly_content.extend_from_slice(&section_bytes(b"tfgt", 0, &words(&[0, 2, 0, 11, 0, 0])));
+        // One short enum field with aux 0, then a terminator.
+        tgly_content.extend_from_slice(&section_bytes(b"sarg", 0, &words(&[42, 0, 0, 0, 1, 0])));
+        // sz![0] = 3 options starting at index 0.
+        tgly_content.extend_from_slice(&section_bytes(b"][zs", 0, &words(&[47, 3, 0])));
+
+        let mut blay_content = vec![0u8; BLAY_PREAMBLE];
+        blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));
+        let body = section_bytes(b"yalb", 2, &blay_content);
+
+        let l = Layout::parse(&body).unwrap();
+        assert_eq!(l.enums.len(), 1);
+        assert!(l.has_options(&l.fields[0]));
+        assert_eq!(l.field_options(&l.fields[0]), vec!["never", "always", "blur"]);
     }
 
     #[test]

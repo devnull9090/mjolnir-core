@@ -9,7 +9,9 @@ use blam_defs::FourCc;
 pub mod layout;
 pub mod section;
 
-pub use layout::{BlockEntry, FieldEntry, Layout, StructEntry, TypeEntry};
+pub use layout::{
+    ArrayEntry, BlockEntry, EnumEntry, FieldEntry, Layout, StructEntry, TypeEntry,
+};
 pub use section::Section;
 
 /// Size of the `.ubulk` container header that precedes the tag body.

@@ -215,6 +215,78 @@ For `default-weapon` the payload is `2,248` bytes; `camera_track` carries `304`.
 "where does the tag data begin" question left open by the previous revision: it begins immediately
 where the layout section ends.
 
+### The `aux` word
+
+**Verified** by histogramming every field of every group (`mjolnir aux`). `aux` is **zero for all
+30-plus plain scalar types** — `real`, `long integer`, `string id`, `tag reference`,
+`real point 3d`, and so on. It carries a payload only for the types whose type-table size is zero
+or whose meaning needs a target:
+
+| Type | `aux` means | Evidence |
+|---|---|---|
+| `pad` | Width in bytes. Observed values 1, 2, 3, 4, 6, 8, 12, 24, up to 60. | Verified |
+| `struct` | Index into the struct table. | Verified |
+| `array` | Index into the `arr!` array table. | Verified |
+| `block` | Index into the `blv2` block table. | Verified |
+| `*_enum`, `*_flags` | Index into the `sz[]` enum table. | Verified |
+| `*_block_index` | Index into the `blv2` block table. | Observed |
+| everything else | Unused, always zero. | Verified |
+
+### `sz[]` enum table and `arr!` array table
+
+Two more standard sections, previously seen empty because the sampled group used neither.
+
+`sz[]` holds `{name_offset, option_count, first_option}`. `first_option` indexes the shared option
+table, and the runs **tile it exactly**: each entry begins where the previous one ended. Worked
+example from `ai_globals`:
+
+```
+scenario_structure_bsp_reference_flags_definition   4 options  from 0
+object_type_enum_definition                        14 options  from 4
+object_source_enum_definition                       6 options  from 18
+ai_reference_frame_flags                            1 option   from 24
+g_firing_position_flags                             9 options  from 25
+```
+
+`0 + 4 = 4`, `4 + 14 = 18`, `18 + 6 = 24`, `24 + 1 = 25`. The running sum holding across every
+entry is what **Verifies** this reading.
+
+`arr!` holds `{name_offset, count, struct_index}`. An array field's size is `count` times the size
+of the referenced struct.
+
+### Struct table ordering
+
+**Verified.** `stv4` is ordered **root first**, while the terminator-delimited field runs are
+emitted **innermost first**. The two are reverses of each other, so a struct-table index `i` maps
+to field run `len - 1 - i`.
+
+Reading the index directly produces false cycles. In `water_physics_drag_properties` the naive
+reading makes `velocity to pressure` contain `drag` and `drag` contain `velocity to pressure`;
+the reversed reading resolves to the real nesting, where `drag` holds the damping values and
+`velocity to pressure` holds a curve. Applying the correction moved whole-corpus size resolution
+from 96.6% to 98.5%.
+
+## Validation
+
+`mjolnir validate --all` checks the recovered model against every shipped tag.
+
+| Check | Result |
+|---|---|
+| Container header parses | 12,290 / 12,290 |
+| Layout section parses | 12,290 / 12,290 |
+| Terminator count equals struct table size | 12,290 / 12,290 |
+| Every field's type index in range | 12,290 / 12,290 |
+| Every `block` field's `aux` indexes `blv2` | 12,290 / 12,290 |
+| Every `struct` field's `aux` indexes a field run | 12,290 / 12,290 |
+| Every `array` field resolves to an in-range struct | 12,290 / 12,290 |
+| `bdat` data section present | 12,290 / 12,290 |
+| Root struct size resolves | 12,111 / 12,290 (98.5%) |
+
+**Open.** Five groups do not resolve a root size: `camera_shake`, `chud_globals_definition`,
+`incident_globals_definition`, `shield_impact`, and `simulated_input`. Each hits the recursion
+guard, which means the struct index correction above is not the whole story for them. They are
+named here so the gap is reproducible rather than hidden.
+
 ## Group Coverage
 
 **Verified:** all 101 shipped groups parse end to end — `blay` version `2`, a `str*` blob, an
@@ -236,16 +308,27 @@ format version.
 
 ## Next Checks
 
-1. Determine how `aux` encodes payload for the zero-size types: `pad` length, `struct` and
-   `array` targets, `custom` semantics, and which option run an enum or bitfield field owns.
+1. Resolve the five groups whose root size still hits the recursion guard:
+   `camera_shake`, `chud_globals_definition`, `incident_globals_definition`, `shield_impact`,
+   `simulated_input`.
 2. Walk the `tgbl` data using the field list and assert it consumes the payload exactly, for all
-   12,290 shipped payloads. This is the round-trip oracle.
-3. Reconstruct the nested struct tree from the flattened field list plus `terminator X` markers,
-   and cross-check against the `stv4` struct table and its GUIDs.
+   12,290 shipped payloads. Block contents live outside the root struct, so this needs the block
+   element layout first.
+3. Interpret the remaining empty sections: `csbn`, `dtnm`, `rcv2`, `]==[`.
 4. Decode the `blay` preamble at body `0x0C`–`0x58` and cross-check against the section sizes it
    appears to duplicate.
 5. Confirm whether the layout section is byte-identical between two tags of the same group and
    group version. If so, definitions can be extracted once per group rather than per tag.
+
+## Published Reference
+
+`mjolnir defs` writes the whole corpus to `defs/hce/tag-definitions.json`: 101 groups, 1,779
+structs, 13,250 fields of which 11,216 are user-visible. The hub renders it as a searchable
+reference at `/docs/tags`, one static page per group.
+
+Only **schema** is published — field names, type names, byte offsets, and enum option names. Tag
+**values** are game content and are never emitted, in line with the repository policy that keeps
+`extract_tags.py` output local.
 6. Establish where the tag *data* begins relative to the layout section.
 
 ## Non-Goals

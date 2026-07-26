@@ -1,9 +1,11 @@
 import type { MetadataRoute } from "next";
 import { getDocNotes } from "@/lib/docs";
+import { getTagGroups } from "@/lib/tags";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://mjolnircore.com";
   const notes = getDocNotes();
+  const tagGroups = getTagGroups();
 
   return [
     {
@@ -12,6 +14,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 1,
     },
+    {
+      url: `${baseUrl}/docs/tags`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.9,
+    },
+    ...tagGroups.map((g) => ({
+      url: `${baseUrl}/docs/tags/${g.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
     {
       url: `${baseUrl}/mods`,
       lastModified: new Date(),
