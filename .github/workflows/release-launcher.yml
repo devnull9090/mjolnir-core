@@ -145,3 +145,50 @@ jobs:
           wrangler r2 object put "mjolnir-releases/launcher/latest/checksums.txt" --file="checksums-${{ github.ref_name }}.txt" --remote
 
           Write-Host "✅ Uploaded to releases.mjolnircore.com"
+
+      - name: Post release notification to Discord
+        if: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL != '' }}
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+        run: |
+          echo "::add-mask::$env:DISCORD_WEBHOOK_URL"
+          $payload = @{
+            username = "MJOLNIR Core Releases"
+            avatar_url = "https://mjolnircore.com/logo-transparent.png"
+            embeds = @(
+              @{
+                title = "🚀 MJOLNIR Launcher ${{ github.ref_name }} Released!"
+                url = "https://mjolnircore.com/download"
+                description = "A new build of the MJOLNIR Core Launcher for Halo Campaign Evolved is now available!"
+                color = 13936707
+                thumbnail = @{
+                  url = "https://mjolnircore.com/logo-transparent.png"
+                }
+                fields = @(
+                  @{
+                    name = "📦 Version"
+                    value = "v${{ steps.checksums.outputs.version }}"
+                    inline = $true
+                  },
+                  @{
+                    name = "🛡️ SHA-256 (MSI)"
+                    value = "`${{ steps.checksums.outputs.msi_hash }}`"
+                    inline = $false
+                  },
+                  @{
+                    name = "🔗 Download Options"
+                    value = "• [Download Page & Verification](https://mjolnircore.com/download)`n• [GitHub Release](https://github.com/devnull9090/mjolnir-core/releases/tag/${{ github.ref_name }})`n• [Direct CDN (.msi)](https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi)"
+                    inline = $false
+                  }
+                )
+                footer = @{
+                  text = "MJOLNIR Core · Halo Campaign Evolved Modding Platform"
+                }
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+              }
+            )
+          } | ConvertTo-Json -Depth 5
+
+          Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK_URL -Method Post -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload))
+          Write-Host "✅ Posted release notification to Discord"
