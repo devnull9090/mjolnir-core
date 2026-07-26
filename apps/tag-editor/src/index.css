@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Shared visual language with the MJOLNIR launcher. */
+@theme {
+  --color-mjolnir-gold: #d4a843;
+  --color-mjolnir-gold-dim: #a67c2e;
+  --color-surface-primary: #0a0e17;
+  --color-surface-secondary: #111827;
+  --color-surface-card: #1a2332;
+  --color-surface-hover: #243044;
+  --color-border-subtle: #2a3a50;
+  --color-text-primary: #e5e7eb;
+  --color-text-secondary: #9ca3af;
+  --color-text-dim: #6b7280;
+  --color-accent-green: #22c55e;
+  --color-accent-red: #ef4444;
+  --color-accent-blue: #3b82f6;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-surface-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+}
+
+/* The tag tree and inspector scroll independently; the shell itself does not. */
+body {
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-hover);
+}

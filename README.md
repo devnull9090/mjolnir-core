@@ -49,7 +49,7 @@ mjolnir-core/
 │   └── blam-cli/                # `mjolnir` command-line tool
 ├── apps/
 │   ├── launcher/                # Tauri desktop mod manager
-│   └── tag-editor/              # (In Progress) Guerilla-style tag editor
+│   └── tag-editor/              # Guerilla-style tag browser (read-only)
 └── hub/                         # Cloudflare mod community platform
 ```
 
@@ -200,6 +200,22 @@ content and are never written. Nothing is written to disk by the inspection comm
 
 The launcher is excluded from the root Cargo workspace on purpose, so it keeps its own target
 directory and release pipeline. Build it from `apps/launcher` as before.
+
+### Tag Editor
+
+`apps/tag-editor` is a Guerilla-style tag browser built on the same stack as the launcher: Tauri 2,
+React 19, Vite, and Tailwind 4. It reads tags from your own installation — nothing is bundled,
+nothing is modified, and no tag content is written to disk.
+
+```powershell
+cd apps/tag-editor
+pnpm install
+pnpm tauri dev
+```
+
+The Paks folder and Oodle DLL are auto-detected on first run, with a manual picker as a fallback.
+This release is **read-only**: it renders the tag tree, the full field list per struct with offsets,
+sizes, enum options, and block limits. Editing and saving are not implemented.
 
 ### Coming Soon
 - **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)

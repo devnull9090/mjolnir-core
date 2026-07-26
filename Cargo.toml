@@ -10,7 +10,7 @@ members = [
 # The launcher ships today with its own lockfile and release pipeline. It is kept
 # out of this workspace deliberately so the restructure cannot change its build
 # output paths. Migrate it separately once the tag editor pipeline is proven.
-exclude = ["apps/launcher/src-tauri"]
+exclude = ["apps/launcher/src-tauri", "apps/tag-editor/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
