@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
@@ -38,14 +38,16 @@ impl Source {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Summarise the shipped tag groups.
+    /// Summarise the shipped tag groups and their definition tables.
     Groups(GroupsArgs),
     /// List tag paths.
     List(ListArgs),
-    /// Print the embedded layout section for one group.
+    /// Print the section tree and definition tables for one group.
     Layout(LayoutArgs),
-    /// Histogram field type codes across groups, to drive type mapping.
-    TypeCodes(TypeCodesArgs),
+    /// Print the resolved field list for one group.
+    Fields(FieldsArgs),
+    /// Histogram definition types across every group.
+    Types(TypesArgs),
 }
 
 #[derive(Args)]
@@ -76,17 +78,29 @@ struct LayoutArgs {
     /// Print the resolved enum and bitfield option names.
     #[arg(long)]
     options: bool,
-    /// Print at most this many field records.
-    #[arg(long, default_value_t = 40)]
-    fields: usize,
+    /// Print the type, block, and struct tables.
+    #[arg(long)]
+    tables: bool,
 }
 
 #[derive(Args)]
-struct TypeCodesArgs {
+struct FieldsArgs {
     #[command(flatten)]
     src: Source,
-    /// Show up to this many example field names per type code.
-    #[arg(long, default_value_t = 4)]
+    /// Group directory name, e.g. `weapon`.
+    #[arg(long)]
+    group: String,
+    /// Maximum fields to print.
+    #[arg(long, default_value_t = 60)]
+    limit: usize,
+}
+
+#[derive(Args)]
+struct TypesArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Show up to this many example groups per type name.
+    #[arg(long, default_value_t = 3)]
     examples: usize,
 }
 
@@ -95,51 +109,55 @@ fn main() -> Result<()> {
         Command::Groups(a) => groups(a),
         Command::List(a) => list(a),
         Command::Layout(a) => layout(a),
-        Command::TypeCodes(a) => type_codes(a),
+        Command::Fields(a) => fields(a),
+        Command::Types(a) => types(a),
     }
 }
 
 fn groups(a: GroupsArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
-    println!("group\tfourcc\tver\tcount\tblay_size\tstrings\toptions\tfields\ttrunc");
+    println!("group\tfourcc\tver\tcount\tstrings\toptions\ttypes\tfields\tblocks\tstructs\tdata");
 
-    let mut truncated = 0usize;
+    let mut parsed = 0usize;
+    let mut with_fields = 0usize;
     for (group, entries) in &by_group {
         let first = entries[0];
         let buf = idx.read(first, None, &a.src.oodle_roots())?;
-        let (cc, ver, blay, nstr, nopt, nfld, trunc) =
-            match TagFile::parse(&buf, Some(first.chunk.length as usize)) {
-                Ok(tag) => match tag.layout() {
-                    Ok(l) => (
-                        tag.header.group.as_str(),
-                        tag.header.group_version,
-                        l.size,
-                        l.strings().len(),
-                        l.option_offsets.len(),
-                        l.fields.len(),
-                        l.options_truncated,
-                    ),
-                    Err(e) => {
-                        eprintln!("{group}: layout parse failed: {e}");
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    eprintln!("{group}: header parse failed: {e}");
-                    continue;
-                }
-            };
-        if trunc {
-            truncated += 1;
+        let tag = match TagFile::parse(&buf, Some(first.chunk.length as usize)) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("{group}: header parse failed: {e}");
+                continue;
+            }
+        };
+        let l = match tag.layout() {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("{group}: layout parse failed: {e}");
+                continue;
+            }
+        };
+        parsed += 1;
+        if !l.fields.is_empty() {
+            with_fields += 1;
         }
+        let data = tag.data().map(|d| d.size).unwrap_or(0);
         println!(
-            "{group}\t{cc}\t{ver}\t{}\t{blay}\t{nstr}\t{nopt}\t{nfld}\t{trunc}",
-            entries.len()
+            "{group}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{data}",
+            tag.header.group,
+            tag.header.group_version,
+            entries.len(),
+            l.strings().len(),
+            l.option_offsets.len(),
+            l.types.len(),
+            l.fields.len(),
+            l.blocks.len(),
+            l.structs.len(),
         );
     }
     println!(
-        "\n{} groups, {} payloads, {truncated} with a truncated option table",
+        "\n{parsed}/{} groups parsed, {with_fields} with a field list, {} payloads",
         by_group.len(),
         idx.tags.len()
     );
@@ -164,101 +182,164 @@ fn list(a: ListArgs) -> Result<()> {
     Ok(())
 }
 
-fn layout(a: LayoutArgs) -> Result<()> {
-    let idx = index::build(&a.src.paks)?;
+/// Read one group's first tag and hand it to `f` as a parsed layout.
+fn with_group<T>(
+    src: &Source,
+    group: &str,
+    f: impl FnOnce(&blam_tag::TagFile<'_>, &blam_tag::Layout<'_>) -> T,
+) -> Result<T> {
+    let idx = index::build(&src.paks)?;
     let by_group = idx.by_group();
     let entries = by_group
-        .get(a.group.as_str())
-        .with_context(|| format!("unknown group {:?}", a.group))?;
+        .get(group)
+        .with_context(|| format!("unknown group {group:?}"))?;
     let entry = entries[0];
-
-    let buf = idx.read(entry, None, &a.src.oodle_roots())?;
+    let buf = idx.read(entry, None, &src.oodle_roots())?;
     let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
     let l = tag.layout()?;
-
-    println!("{} ({}) v{}", a.group, tag.header.group, tag.header.group_version);
-    println!("  path            {}", entry.path);
-    println!("  blay            v{} size {:#x}", l.version, l.size);
-    println!("  strings         {}", l.strings().len());
-    println!("  options         {}", l.option_offsets.len());
-    println!("  field records   {}", l.fields.len());
-    println!("  header words    {:?}", l.header_words);
-
-    if a.options {
-        println!("\n  options:");
-        for (i, o) in l.options().iter().enumerate() {
-            println!("    [{i:>4}] {o}");
-        }
-    }
-
-    println!("\n  fields:");
-    for (i, (name, code, aux)) in l.named_fields().iter().take(a.fields).enumerate() {
-        println!("    [{i:>4}] type {code:>3}  aux {aux:>6}  {name}");
-    }
-    Ok(())
+    Ok(f(&tag, &l))
 }
 
-fn type_codes(a: TypeCodesArgs) -> Result<()> {
+fn layout(a: LayoutArgs) -> Result<()> {
+    with_group(&a.src, &a.group, |tag, l| {
+        println!(
+            "{} ({}) v{}",
+            a.group, tag.header.group, tag.header.group_version
+        );
+        println!("  blay v{} size {}", l.version, l.size);
+        println!("  strings   {}", l.strings().len());
+        println!("  options   {}", l.option_offsets.len());
+        println!("  types     {}", l.types.len());
+        println!("  fields    {}", l.fields.len());
+        println!("  blocks    {}", l.blocks.len());
+        println!("  structs   {}", l.structs.len());
+        if let Some(d) = tag.data() {
+            println!("  data      {} bytes (tgbl)", d.size);
+        }
+        println!("  flat size {:?}", l.flat_size());
+
+        println!("\n  section chain under tgly:");
+        for s in &l.sections {
+            println!("    +{:<8} {}  v{:<3} size {}", s.at, s.name(), s.version, s.size);
+        }
+
+        if a.tables {
+            println!("\n  types:");
+            for (i, t) in l.types.iter().enumerate() {
+                println!(
+                    "    [{i:>3}] size {:>5}  flags {:>3}  {}",
+                    t.size,
+                    t.flags,
+                    l.string_at(t.name_offset).unwrap_or("")
+                );
+            }
+            println!("\n  blocks:");
+            for (i, b) in l.blocks.iter().enumerate() {
+                println!(
+                    "    [{i:>3}] max {:>6}  aux {:>6}  {}",
+                    b.max_count,
+                    b.aux,
+                    l.string_at(b.name_offset).unwrap_or("")
+                );
+            }
+            println!("\n  structs:");
+            for (i, s) in l.structs.iter().enumerate() {
+                let guid: String = s.guid.iter().map(|b| format!("{b:02x}")).collect();
+                println!(
+                    "    [{i:>3}] {guid}  {}",
+                    l.string_at(s.name_offset).unwrap_or("")
+                );
+            }
+        }
+
+        if a.options {
+            println!("\n  options:");
+            for (i, o) in l.options().iter().enumerate() {
+                println!("    [{i:>4}] {o}");
+            }
+        }
+    })
+}
+
+fn fields(a: FieldsArgs) -> Result<()> {
+    with_group(&a.src, &a.group, |_tag, l| {
+        println!("{}: {} fields", a.group, l.fields.len());
+        let mut offset = 0u32;
+        for (i, f) in l.fields.iter().take(a.limit).enumerate() {
+            let (name, type_name, size) = l.field_info(f);
+            let shown = if name.is_empty() { "<unnamed>" } else { name };
+            match size {
+                Some(sz) => {
+                    println!("  [{i:>4}] +{offset:<6} {sz:>4}b  {type_name:<28} {shown}");
+                    offset += sz;
+                }
+                None => println!(
+                    "  [{i:>4}] +{offset:<6}    ?b  <type {}>{:<14} {shown}",
+                    f.type_index, ""
+                ),
+            }
+        }
+    })
+}
+
+fn types(a: TypesArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
     let oodle = a.src.oodle_roots();
 
-    let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
-    let mut examples: BTreeMap<u32, Vec<String>> = BTreeMap::new();
-    let mut aux_values: BTreeMap<u32, BTreeMap<u32, usize>> = BTreeMap::new();
-    let mut parsed = 0usize;
-    let mut failed = 0usize;
+    // type name -> observed sizes -> count
+    let mut sizes: BTreeMap<String, BTreeMap<u32, usize>> = BTreeMap::new();
+    let mut examples: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for (group, entries) in &by_group {
-        let entry = entries[0];
-        let buf = match idx.read(entry, None, &oodle) {
-            Ok(b) => b,
-            Err(_) => {
-                failed += 1;
-                continue;
-            }
+        let Ok(buf) = idx.read(entries[0], None, &oodle) else {
+            continue;
         };
-        let tag = match TagFile::parse(&buf, Some(entry.chunk.length as usize)) {
-            Ok(t) => t,
-            Err(_) => {
-                failed += 1;
-                continue;
-            }
+        let Ok(tag) = TagFile::parse(&buf, Some(entries[0].chunk.length as usize)) else {
+            continue;
         };
-        let l = match tag.layout() {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("{group}: {e}");
-                failed += 1;
-                continue;
-            }
-        };
-        parsed += 1;
+        let Ok(l) = tag.layout() else { continue };
 
-        for (name, code, aux) in l.named_fields() {
-            *counts.entry(code).or_default() += 1;
-            *aux_values.entry(code).or_default().entry(aux).or_default() += 1;
-            let ex = examples.entry(code).or_default();
-            if ex.len() < a.examples && !name.is_empty() && !ex.iter().any(|e| e == name) {
-                ex.push(name.to_string());
+        for t in &l.types {
+            let Some(name) = l.string_at(t.name_offset) else {
+                continue;
+            };
+            if name.is_empty() {
+                continue;
+            }
+            *sizes
+                .entry(name.to_string())
+                .or_default()
+                .entry(t.size)
+                .or_default() += 1;
+            let ex = examples.entry(name.to_string()).or_default();
+            if ex.len() < a.examples && !ex.iter().any(|e| e == group) {
+                ex.push(group.to_string());
             }
         }
     }
 
-    if parsed == 0 {
-        bail!("no layouts parsed");
-    }
-
-    println!("parsed {parsed} groups, {failed} failed\n");
-    println!("code\tcount\tdistinct_aux\ttop_aux\texamples");
-    for (code, count) in &counts {
-        let aux = &aux_values[code];
-        let top = aux.iter().max_by_key(|(_, n)| **n).map(|(v, _)| *v).unwrap_or(0);
+    println!("type\tsize\tgroups\tconsistent\tseen_in");
+    let mut inconsistent = 0usize;
+    for (name, observed) in &sizes {
+        let total: usize = observed.values().sum();
+        let consistent = observed.len() == 1;
+        if !consistent {
+            inconsistent += 1;
+        }
+        let size_repr = observed
+            .iter()
+            .map(|(s, n)| if consistent { s.to_string() } else { format!("{s}:{n}") })
+            .collect::<Vec<_>>()
+            .join(" ");
         println!(
-            "{code}\t{count}\t{}\t{top}\t{}",
-            aux.len(),
-            examples.get(code).map(|e| e.join(" | ")).unwrap_or_default()
+            "{name}\t{size_repr}\t{total}\t{consistent}\t{}",
+            examples.get(name).map(|e| e.join(", ")).unwrap_or_default()
         );
     }
+    println!(
+        "\n{} distinct type names, {inconsistent} with an inconsistent size",
+        sizes.len()
+    );
     Ok(())
 }

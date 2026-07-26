@@ -10,28 +10,25 @@ export const metadata: Metadata = {
 };
 
 const sections: Array<[string, string, string, string]> = [
-  ["0x00", "4", "blay four-CC, stored as the bytes y a l b", "Verified"],
-  ["0x04", "4", "Section version, 2 in all 101 groups", "Verified"],
-  ["0x08", "4", "Section size, measured from body 0x00", "Verified"],
-  ["0x0C", "4", "0xFFFFFFFF", "Verified"],
-  ["0x10", "12", "Fixed ASCII fill: 4444, CCCC, wwww", "Verified"],
-  ["0x1C", "4", "Per-group constant", "Observed"],
-  ["0x20", "56", "Count and size table, uninterpreted", "Observed"],
-  ["0x58", "12", "tgly container section header", "Verified"],
-  ["0x64", "12", "str* string blob section header", "Verified"],
-  ["0x70", "n", "NUL-separated UTF-8 string blob", "Verified"],
-  ["blob end", "12", "x+zs marker, zero word, option count", "Verified"],
-  ["+0x0C", "4n", "String offsets, one per enum or bitfield option", "Observed"],
-  ["after", "n", "Field definition records", "Observed"],
+  ["blay", "layout", "The tag's own field definitions", "Verified"],
+  ["tgly", "container", "Holds every definition table", "Verified"],
+  ["str*", "blob", "NUL-separated UTF-8 strings, referenced by byte offset", "Verified"],
+  ["options", "table", "String offsets, one per enum or bitfield option", "Verified"],
+  ["tgft", "table", "Types: name, on-disk size, composite flag", "Verified"],
+  ["gras", "table", "Fields: name, type index", "Verified"],
+  ["blv2", "table", "Blocks: name, maximum element count", "Verified"],
+  ["stv4", "table", "Structs: 16-byte GUID and name", "Verified"],
+  ["bdat", "data", "The tag's actual field values", "Verified"],
+  ["tgbl", "container", "Wraps the data payload", "Verified"],
 ];
 
 const blobSizes: Array<[string, string, string, string]> = [
   ["character", "char", "1,038", "1,248"],
-  ["biped", "bipd", "1,031", "1,688"],
-  ["chud_definition", "chdt", "899", "2,447"],
-  ["weapon", "weap", "783", "1,312"],
-  ["collision_model", "coll", "270", "120"],
-  ["camera_track", "trak", "10", "0"],
+  ["biped", "bipd", "1,031", "582"],
+  ["weapon", "weap", "783", "503"],
+  ["chud_definition", "chdt", "899", "612"],
+  ["collision_model", "coll", "270", "388"],
+  ["camera_track", "trak", "10", "5"],
 ];
 
 export default function TagFormatPage() {
@@ -87,28 +84,29 @@ export default function TagFormatPage() {
 
       <section className="border-t border-border py-9" aria-labelledby="layout-heading">
         <h2 id="layout-heading" className="text-xl font-bold">
-          Section layout
+          One shape, all the way down
         </h2>
         <p className="mt-3 text-sm leading-6 text-text-muted">
-          Offsets are relative to the start of the tag body, which begins at file offset 0x4C. The
-          section is byte-packed throughout, so the option table routinely starts on an unaligned
-          offset. Do not assume dword alignment.
+          The entire tag body is built from a single repeating shape: a 12-byte header of a
+          four-CC magic, a version, and a content size, followed by that many bytes of content.
+          The size excludes the header. Sections chain as siblings and nest as children at every
+          level, so one generic walker reads the whole file.
         </p>
         <div className="mt-5 overflow-x-auto border border-border">
           <table className="w-full min-w-[620px] text-left text-sm">
             <thead className="bg-surface text-xs uppercase text-text-dim">
               <tr>
-                <th className="px-4 py-3">Offset</th>
-                <th className="px-4 py-3">Size</th>
-                <th className="px-4 py-3">Field</th>
+                <th className="px-4 py-3">Section</th>
+                <th className="px-4 py-3">Kind</th>
+                <th className="px-4 py-3">Contents</th>
                 <th className="px-4 py-3">Evidence</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {sections.map(([offset, size, field, evidence]) => (
-                <tr key={offset + field}>
-                  <td className="px-4 py-3 font-mono text-gold">{offset}</td>
-                  <td className="px-4 py-3 font-mono text-text-dim">{size}</td>
+              {sections.map(([magic, kind, field, evidence]) => (
+                <tr key={magic}>
+                  <td className="px-4 py-3 font-mono text-gold">{magic}</td>
+                  <td className="px-4 py-3 font-mono text-text-dim">{kind}</td>
                   <td className="px-4 py-3 leading-6 text-text-muted">{field}</td>
                   <td className="px-4 py-3 text-xs uppercase text-text-dim">{evidence}</td>
                 </tr>
@@ -117,10 +115,37 @@ export default function TagFormatPage() {
           </table>
         </div>
         <p className="mt-5 text-sm leading-6 text-text-muted">
-          Strings are referenced by byte offset into the blob rather than by index. The 4444, CCCC,
-          and wwww dwords previously recorded as uninterpreted markers are fixed ASCII fill inside
-          the blay header.
+          Strings are referenced by byte offset into the blob rather than by index, and an offset
+          pointing at a NUL resolves to the empty string, which the data uses for unnamed fields
+          such as padding. The blob is byte-packed, so nothing is reliably dword aligned.
         </p>
+      </section>
+
+      <section className="border-t border-border py-9" aria-labelledby="worked-heading">
+        <h2 id="worked-heading" className="text-xl font-bold">
+          A group decoded end to end
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-text-muted">
+          camera_track is the smallest group and decodes completely. This is the real Halo
+          definition, including the engine&apos;s actual 16 control-point limit. Terminator fields
+          delimit struct boundaries, so the field list is a flattened tree rather than a nested
+          one.
+        </p>
+        <pre className="mt-5 overflow-x-auto border border-border bg-surface p-4 text-xs leading-6 text-text-muted">
+          <code>{`types:  [0] block            12b  composite
+        [1] real vector 3d   12b
+        [2] real quaternion  16b
+        [3] terminator X      0b
+
+fields: +0   12b  real vector 3d   position
+        +12  16b  real quaternion  orientation
+        +28   0b  terminator X     <unnamed>
+        +28  12b  block            control points
+        +40   0b  terminator X     <unnamed>
+
+blocks: camera_track_control_point_block  max 16
+        camera_track_block                max 1`}</code>
+        </pre>
       </section>
 
       <section className="border-t border-border py-9" aria-labelledby="sizes-heading">
@@ -137,7 +162,7 @@ export default function TagFormatPage() {
                 <th className="px-4 py-3">Group</th>
                 <th className="px-4 py-3">Four-CC</th>
                 <th className="px-4 py-3 text-right">Strings</th>
-                <th className="px-4 py-3 text-right">Options</th>
+                <th className="px-4 py-3 text-right">Fields</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -162,30 +187,31 @@ export default function TagFormatPage() {
           <div className="flex items-start gap-3 border border-gold/30 bg-gold/5 p-4">
             <EvidenceBadge level="Hypothesis" />
             <div>
-              <p className="text-sm font-semibold">Field records are variable-length</p>
+              <p className="text-sm font-semibold">Zero-size types carry payload elsewhere</p>
               <p className="mt-2 text-sm leading-6 text-text-muted">
-                Records begin with a name offset, a type code, and an auxiliary word. Reading at a
-                fixed 12-byte stride is correct at the start of the table but desynchronizes partway
-                through: later names resolve to byte-shifted substrings such as ong flags for long
-                flags. Certain type codes almost certainly carry trailing inline payload.
+                Five types report a size of zero: array, custom, pad, struct, and terminator. Pad
+                in particular must consume bytes, so the field record&apos;s auxiliary word is
+                presumed to carry the length, the struct target, and the option run an enum or
+                bitfield owns. That mapping is not yet established.
               </p>
             </div>
           </div>
           <div className="flex items-start gap-3 border border-border bg-surface p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
             <div>
-              <p className="text-sm font-semibold">Option table overruns in 16 of 101 groups</p>
+              <p className="text-sm font-semibold">The data walk is not yet proven</p>
               <p className="mt-2 text-sm leading-6 text-text-muted">
-                chud_definition declares 2,964 option entries, which would end 4,908 bytes past its
-                own layout section. The reader flags the condition rather than guessing at it.
+                The decisive test is walking the bdat payload with the field list and asserting it
+                is consumed exactly, for all 12,290 shipped tags. Until that passes, field offsets
+                into the data are inferred rather than confirmed.
               </p>
             </div>
           </div>
         </div>
         <p className="mt-5 text-sm leading-6 text-text-muted">
-          Neither blocks reading tag structure, and both are isolated to the field table. The
-          decisive test for the record encoding is that every name offset must land on a string blob
-          boundary across all 101 groups.
+          A previous revision of this page reported that the option table overran its own section
+          in 16 of 101 groups. That was a misreading: the word in question is a byte size, not an
+          entry count. Read correctly, no group overruns.
         </p>
       </section>
 
@@ -198,9 +224,15 @@ export default function TagFormatPage() {
         </div>
         <p className="mt-4 text-sm leading-6 text-text-muted">
           A Rust workspace under crates/ reads containers and layouts directly. ue-iostore parses UE
-          5.5 IoStore containers, blam-tag parses the container header and layout section, blam-defs
+          5.5 IoStore containers, blam-tag parses the container header and section tree, blam-defs
           holds the shared definition model, and blam-cli exposes it as the mjolnir command. It
-          parses 101 of 101 groups across all 12,290 shipped payloads.
+          parses 101 of 101 groups across all 12,290 shipped payloads and recovers a complete field
+          list for every one.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-text-muted">
+          54 distinct field type names appear across the corpus, and every one has the same size in
+          every group it appears in. That consistency is the strongest available check that the type
+          table decode is correct.
         </p>
       </section>
 
@@ -220,17 +252,17 @@ export default function TagFormatPage() {
           <code>{`$env:HCE_PAKS = "<install>\\Meteorite\\Content\\Paks"
 $env:OODLE    = "<UE>\\Engine\\Binaries\\DotNET\\AutomationTool\\oo2core_9_win64.dll"
 
-# Every group, with layout sizes and coverage
+# Every group, with its definition table sizes
 cargo run --release -p blam-cli -- groups
 
-# One group's strings, options, and field records
-cargo run --release -p blam-cli -- layout --group weapon --options
+# One group's section tree and type, block, and struct tables
+cargo run --release -p blam-cli -- layout --group camera_track --tables
 
-# Field type code histogram across all groups
-cargo run --release -p blam-cli -- type-codes
+# A group's resolved field list with running offsets
+cargo run --release -p blam-cli -- fields --group weapon
 
-# Python explorer used to find the format
-python tools/iostore/decode_body.py --paks $env:HCE_PAKS --oodle $env:OODLE --survey`}</code>
+# The field type vocabulary and its sizes
+cargo run --release -p blam-cli -- types`}</code>
         </pre>
         <p className="mt-5 text-sm text-text-muted">
           Full working notes:{" "}

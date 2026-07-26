@@ -1,92 +1,83 @@
-//! The `blay` layout section: the tag's own description of its fields.
+//! The `blay` layout section: a tag's own description of its fields.
 //!
-//! Structure, offsets relative to the start of the tag body (file `0x4C`):
+//! The tag body is a chain of sections (see [`crate::section`]). The first is
+//! `blay`, the layout, and the second is `bdat`, the data. Inside `blay`:
 //!
 //! ```text
-//! 0x00  'blay'  four-CC                       Verified, 101/101 groups
-//! 0x04  u32     section version, always 2      Verified
-//! 0x08  u32     section size from 0x00         Verified
-//! 0x0C  u32     0xFFFFFFFF                     Verified
-//! 0x10  'wwwwCCCC4444' fixed ASCII fill        Verified
-//! 0x1C  u32     per-group constant             Observed
-//! 0x20  ..0x58  count/size table               Observed
-//! 0x58  'tgly'  container section header       Verified
-//! 0x64  'str*'  string blob section header     Verified
-//! 0x70  blob    NUL-separated UTF-8 strings    Verified
-//!       'x+zs'  option table marker            Verified
-//!       u32     zero                           Verified
-//!       u32     option entry count             Observed
-//!       [u32]   string offsets, one per option Observed
-//!       [12B]   field records                  Observed
+//! blay                       layout root, 0x4C bytes of preamble then children
+//!   tgly                     container for the definition tables
+//!     str*                   NUL-separated UTF-8 string blob
+//!     <options>              enum and bitfield option name offsets
+//!     tgft                   type table:   {name, size_bytes, flags}
+//!     gras                   field list:   {name, type_index, aux}
+//!     blv2                   block table:  {name, max_count, aux}
+//!     stv4                   struct table: {guid[16], name, ...}
 //! ```
+//!
+//! Everything is referenced by byte offset into the string blob rather than by
+//! index, and the whole section is byte-packed, so offsets are frequently not
+//! dword aligned.
 //!
 //! See `docs/tag_body_format.md` for evidence and reproduction.
 
-/// Offsets within the tag body.
-const OFF_BLAY_MAGIC: usize = 0x00;
-const OFF_BLAY_VERSION: usize = 0x04;
-const OFF_BLAY_SIZE: usize = 0x08;
-const OFF_TGLY: usize = 0x58;
-const OFF_STR_MAGIC: usize = 0x64;
-const OFF_STR_SIZE: usize = 0x6C;
-const OFF_STR_BLOB: usize = 0x70;
+use crate::section::{self, Section};
 
-/// Section magics as they appear on disk. Stored little-endian, so a `blay`
-/// four-CC reads as the bytes `y a l b`.
-const MAGIC_BLAY: [u8; 4] = *b"yalb";
-const MAGIC_TGLY: [u8; 4] = *b"ylgt";
-const MAGIC_STR: [u8; 4] = *b"*rts";
-/// Literal bytes `x+zs` that delimit the end of the string blob.
-const MARKER_OPTIONS: [u8; 4] = *b"x+zs";
-
-/// A record from the field definition table.
+/// Offset of the first child section within `blay`'s content.
 ///
-/// **Provisional.** A fixed 12-byte stride reads correctly at the start of the
-/// table but desynchronizes partway through: later names resolve to byte-shifted
-/// substrings (`ong flags` for `long flags`, `bject` for `object`). The records
-/// are therefore variable-length, with some field types carrying trailing inline
-/// payload. Treat [`Layout::fields`] as a diagnostic aid, not ground truth, and
-/// use [`Layout::field_table`] to re-parse once the encoding is settled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FieldRecord {
-    /// Byte offset of the field name within the string blob.
-    pub name_offset: u32,
-    /// On-disk type code. Mapping to semantic types is still being established.
-    pub type_code: u32,
-    /// Auxiliary word; meaning is discriminated by `type_code`.
-    pub aux: u32,
-}
-
-/// Provisional stride for [`FieldRecord`]. See the type's documentation.
-pub const FIELD_RECORD_SIZE: usize = 12;
+/// `blay` carries a fixed preamble before its children: `0xFFFFFFFF`, the ASCII
+/// fill constants `4444`/`CCCC`/`wwww`, a per-group constant, and a table of
+/// counts whose meaning is still unresolved.
+const BLAY_PREAMBLE: usize = 0x4C;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("body is {0} bytes, too short for a blay header")]
     TooShort(usize),
-    #[error("expected blay magic at body 0x00, found {0:?}")]
-    NotBlay([u8; 4]),
+    #[error("expected a blay section at body 0x00, found {0:?}")]
+    NotBlay(String),
     #[error("unsupported blay section version {0} (expected 2)")]
     BadVersion(u32),
-    #[error("expected tgly magic at body 0x58, found {0:?}")]
-    NotTgly([u8; 4]),
-    #[error("expected str* magic at body 0x64, found {0:?}")]
-    NotStr([u8; 4]),
-    #[error("string blob of {size} bytes overruns the {body} byte body")]
-    BlobOverrun { size: usize, body: usize },
-    #[error("expected the x+zs option marker at body {0:#x}")]
-    NoOptionMarker(usize),
+    #[error("blay contains no tgly container")]
+    NoTgly,
+    #[error("tgly contains no str* string blob")]
+    NoStringBlob,
 }
 
-fn u32_at(buf: &[u8], off: usize) -> Option<u32> {
-    buf.get(off..off + 4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+/// An entry in the `tgft` type table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypeEntry {
+    pub name_offset: u32,
+    /// On-disk size of a value of this type, in bytes.
+    pub size: u32,
+    /// Non-zero for composite types such as `block`.
+    pub flags: u32,
 }
 
-fn magic_at(buf: &[u8], off: usize) -> [u8; 4] {
-    buf.get(off..off + 4)
-        .map(|b| <[u8; 4]>::try_from(b).unwrap())
-        .unwrap_or_default()
+/// An entry in the `gras` field list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldEntry {
+    pub name_offset: u32,
+    /// Index into the `tgft` type table.
+    pub type_index: u32,
+    pub aux: u32,
+}
+
+/// An entry in the `blv2` block table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockEntry {
+    pub name_offset: u32,
+    /// Maximum element count Guerilla enforced for this block.
+    pub max_count: u32,
+    pub aux: u32,
+}
+
+/// An entry in the `stv4` struct table. Struct definitions carry a GUID, which
+/// is characteristic of third-generation Blam tag definitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StructEntry {
+    pub guid: [u8; 16],
+    pub name_offset: u32,
+    pub aux: [u32; 2],
 }
 
 /// A parsed `blay` layout section borrowed from the tag body.
@@ -94,117 +85,133 @@ fn magic_at(buf: &[u8], off: usize) -> [u8; 4] {
 pub struct Layout<'a> {
     pub version: u32,
     pub size: u32,
-    /// The `blay` count/size table at body `0x20`..`0x58`, still uninterpreted.
-    pub header_words: [u32; 14],
-    /// NUL-separated UTF-8 string blob. Referenced elsewhere by byte offset.
+    /// The `blay` preamble words at body `0x0C`..`0x58`, still uninterpreted.
+    pub header_words: [u32; 16],
+    /// NUL-separated UTF-8 string blob.
     pub blob: &'a [u8],
-    /// Body offset at which the blob begins.
-    pub blob_start: usize,
     /// String-blob offsets for every enum and bitfield option, in order.
     pub option_offsets: Vec<u32>,
-    /// Entry count declared by the option table header.
-    pub declared_option_count: u32,
-    /// True when the declared option count overruns the layout section. Some
-    /// groups (`chud_definition`, `achievements`) hit this, so the count word's
-    /// semantics are not yet fully settled. See `docs/tag_body_format.md`.
-    pub options_truncated: bool,
-    /// Provisional decode of the field definition table. See [`FieldRecord`].
-    pub fields: Vec<FieldRecord>,
-    /// The raw field table bytes, for re-parsing once the encoding is settled.
-    pub field_table: &'a [u8],
+    pub types: Vec<TypeEntry>,
+    pub fields: Vec<FieldEntry>,
+    pub blocks: Vec<BlockEntry>,
+    pub structs: Vec<StructEntry>,
+    /// Every child section of `tgly`, including ones not yet interpreted.
+    pub sections: Vec<Section<'a>>,
 }
 
 impl<'a> Layout<'a> {
     pub fn parse(body: &'a [u8]) -> Result<Self, Error> {
-        if body.len() < OFF_STR_BLOB {
-            return Err(Error::TooShort(body.len()));
+        let blay = section::read_at(body, 0).ok_or(Error::TooShort(body.len()))?;
+        if !blay.is("blay") {
+            return Err(Error::NotBlay(blay.name()));
+        }
+        if blay.version != 2 {
+            return Err(Error::BadVersion(blay.version));
         }
 
-        let magic = magic_at(body, OFF_BLAY_MAGIC);
-        if magic != MAGIC_BLAY {
-            return Err(Error::NotBlay(magic));
-        }
-        let version = u32_at(body, OFF_BLAY_VERSION).unwrap();
-        if version != 2 {
-            return Err(Error::BadVersion(version));
-        }
-        let size = u32_at(body, OFF_BLAY_SIZE).unwrap();
-
-        let tgly = magic_at(body, OFF_TGLY);
-        if tgly != MAGIC_TGLY {
-            return Err(Error::NotTgly(tgly));
-        }
-        let strm = magic_at(body, OFF_STR_MAGIC);
-        if strm != MAGIC_STR {
-            return Err(Error::NotStr(strm));
-        }
-
-        let mut header_words = [0u32; 14];
+        let mut header_words = [0u32; 16];
         for (i, w) in header_words.iter_mut().enumerate() {
-            *w = u32_at(body, 0x20 + i * 4).unwrap_or(0);
-        }
-
-        let blob_size = u32_at(body, OFF_STR_SIZE).unwrap() as usize;
-        let blob_end = OFF_STR_BLOB + blob_size;
-        if blob_end > body.len() {
-            return Err(Error::BlobOverrun {
-                size: blob_size,
-                body: body.len(),
-            });
-        }
-        let blob = &body[OFF_STR_BLOB..blob_end];
-
-        // The option table follows the blob immediately. The blob is byte
-        // packed, so this offset is frequently not dword aligned.
-        if body.get(blob_end..blob_end + 4) != Some(&MARKER_OPTIONS[..]) {
-            return Err(Error::NoOptionMarker(blob_end));
-        }
-        let declared_option_count = u32_at(body, blob_end + 8).unwrap_or(0);
-        let options_start = blob_end + 12;
-        let layout_end = (OFF_BLAY_MAGIC + size as usize).min(body.len());
-
-        // Clamp to whichever comes first: the declared count, the end of the
-        // layout section, or the end of the body.
-        let available = layout_end.saturating_sub(options_start) / 4;
-        let take = (declared_option_count as usize).min(available);
-        let options_truncated = (declared_option_count as usize) > available;
-
-        let mut option_offsets = Vec::with_capacity(take);
-        for i in 0..take {
-            match u32_at(body, options_start + i * 4) {
-                Some(v) => option_offsets.push(v),
-                None => break,
+            if let Some(b) = blay.content.get(i * 4..i * 4 + 4) {
+                *w = u32::from_le_bytes(b.try_into().unwrap());
             }
         }
 
-        // Field records run from the end of the option table to the end of the
-        // layout section.
-        let fields_start = options_start + option_offsets.len() * 4;
-        let field_table = body.get(fields_start..layout_end).unwrap_or(&[]);
-        let mut fields = Vec::new();
-        for chunk in field_table.chunks_exact(FIELD_RECORD_SIZE) {
-            fields.push(FieldRecord {
-                name_offset: u32::from_le_bytes(chunk[0..4].try_into().unwrap()),
-                type_code: u32::from_le_bytes(chunk[4..8].try_into().unwrap()),
-                aux: u32::from_le_bytes(chunk[8..12].try_into().unwrap()),
-            });
+        // blay's only child is the tgly container, after the fixed preamble.
+        let tgly = section::read_at(blay.content, BLAY_PREAMBLE)
+            .filter(|s| s.is("tgly"))
+            .ok_or(Error::NoTgly)?;
+
+        let sections = section::walk(tgly.content, 0);
+        let blob_section = section::find(&sections, "str*").ok_or(Error::NoStringBlob)?;
+        let blob = blob_section.content;
+
+        // The option table follows the string blob. Its magic varies between
+        // groups, so it is located positionally rather than by name.
+        let mut option_offsets = Vec::new();
+        if let Some(opts) = sections
+            .iter()
+            .find(|s| s.at == blob_section.at + blob_section.total())
+        {
+            option_offsets = opts
+                .content
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                .collect();
         }
 
+        let types = section::find(&sections, "tgft")
+            .map(|s| {
+                s.records::<3>()
+                    .into_iter()
+                    .map(|[name_offset, size, flags]| TypeEntry {
+                        name_offset,
+                        size,
+                        flags,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let fields = section::find(&sections, "gras")
+            .map(|s| {
+                s.records::<3>()
+                    .into_iter()
+                    .map(|[name_offset, type_index, aux]| FieldEntry {
+                        name_offset,
+                        type_index,
+                        aux,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let blocks = section::find(&sections, "blv2")
+            .map(|s| {
+                s.records::<3>()
+                    .into_iter()
+                    .map(|[name_offset, max_count, aux]| BlockEntry {
+                        name_offset,
+                        max_count,
+                        aux,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let structs = section::find(&sections, "stv4")
+            .map(|s| {
+                s.content
+                    .chunks_exact(28)
+                    .map(|c| StructEntry {
+                        guid: c[0..16].try_into().unwrap(),
+                        name_offset: u32::from_le_bytes(c[16..20].try_into().unwrap()),
+                        aux: [
+                            u32::from_le_bytes(c[20..24].try_into().unwrap()),
+                            u32::from_le_bytes(c[24..28].try_into().unwrap()),
+                        ],
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Ok(Layout {
-            version,
-            size,
+            version: blay.version,
+            size: blay.size,
             header_words,
             blob,
-            blob_start: OFF_STR_BLOB,
             option_offsets,
-            declared_option_count,
-            options_truncated,
+            types,
             fields,
-            field_table,
+            blocks,
+            structs,
+            sections,
         })
     }
 
     /// Resolve a string-blob byte offset to its NUL-terminated string.
+    ///
+    /// Returns `Some("")` when the offset points directly at a NUL, which the
+    /// shipped data uses for unnamed fields.
     pub fn string_at(&self, offset: u32) -> Option<&'a str> {
         let start = offset as usize;
         if start >= self.blob.len() {
@@ -244,18 +251,30 @@ impl<'a> Layout<'a> {
             .collect()
     }
 
-    /// Resolve field records to `(name, type_code, aux)`.
-    pub fn named_fields(&self) -> Vec<(&'a str, u32, u32)> {
+    /// Resolve a field to `(field name, type name, type size)`.
+    pub fn field_info(&self, field: &FieldEntry) -> (&'a str, &'a str, Option<u32>) {
+        let name = self.string_at(field.name_offset).unwrap_or("");
+        match self.types.get(field.type_index as usize) {
+            Some(t) => (
+                name,
+                self.string_at(t.name_offset).unwrap_or(""),
+                Some(t.size),
+            ),
+            None => (name, "", None),
+        }
+    }
+
+    /// Sum of every field's type size.
+    ///
+    /// Returns `None` if any field references a type outside the table. This is
+    /// a flat sum and does not descend into blocks, so it is a lower bound on
+    /// the real struct size rather than a final answer.
+    pub fn flat_size(&self) -> Option<u32> {
         self.fields
             .iter()
-            .map(|f| {
-                (
-                    self.string_at(f.name_offset).unwrap_or(""),
-                    f.type_code,
-                    f.aux,
-                )
+            .try_fold(0u32, |acc, f| {
+                self.types.get(f.type_index as usize).map(|t| acc + t.size)
             })
-            .collect()
     }
 }
 
@@ -263,102 +282,117 @@ impl<'a> Layout<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn magic_constants_match_the_documented_byte_order() {
-        // Reading a four-CC means reversing the on-disk bytes.
-        let read = |m: [u8; 4]| -> String {
-            m.iter().rev().map(|b| *b as char).collect()
-        };
-        assert_eq!(read(MAGIC_BLAY), "blay");
-        assert_eq!(read(MAGIC_TGLY), "tgly");
-        assert_eq!(read(MAGIC_STR), "str*");
+    fn section_bytes(magic: &[u8; 4], version: u32, content: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(magic);
+        out.extend_from_slice(&version.to_le_bytes());
+        out.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        out.extend_from_slice(content);
+        out
     }
 
-    /// Build a minimal but structurally valid layout section.
-    fn synth(strings: &[&str], options: &[u32], fields: &[FieldRecord]) -> Vec<u8> {
+    fn words(vals: &[u32]) -> Vec<u8> {
+        vals.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    /// Mirrors the real camera_track layout: a control-points block holding a
+    /// position and an orientation.
+    fn synth_camera_track() -> Vec<u8> {
         let mut blob = Vec::new();
-        for s in strings {
+        for s in [
+            "control points",
+            "block",
+            "position",
+            "real vector 3d",
+            "orientation",
+            "real quaternion",
+        ] {
             blob.extend_from_slice(s.as_bytes());
             blob.push(0);
         }
+        // Offsets: control points 0, block 15, position 21, real vector 3d 30,
+        // orientation 45, real quaternion 57.
 
-        let mut body = vec![0u8; OFF_STR_BLOB];
-        body[OFF_BLAY_MAGIC..4].copy_from_slice(&MAGIC_BLAY);
-        body[OFF_BLAY_VERSION..OFF_BLAY_VERSION + 4].copy_from_slice(&2u32.to_le_bytes());
-        body[OFF_TGLY..OFF_TGLY + 4].copy_from_slice(&MAGIC_TGLY);
-        body[OFF_STR_MAGIC..OFF_STR_MAGIC + 4].copy_from_slice(&MAGIC_STR);
-        body[OFF_STR_SIZE..OFF_STR_SIZE + 4].copy_from_slice(&(blob.len() as u32).to_le_bytes());
-        body.extend_from_slice(&blob);
+        let mut tgly_content = section_bytes(b"*rts", 0, &blob);
+        tgly_content.extend_from_slice(&section_bytes(b"sz+x", 0, &words(&[15, 21])));
+        tgly_content.extend_from_slice(&section_bytes(
+            b"tfgt",
+            0,
+            &words(&[15, 12, 1, 30, 12, 0, 57, 16, 0]),
+        ));
+        tgly_content.extend_from_slice(&section_bytes(
+            b"sarg",
+            0,
+            &words(&[21, 1, 0, 45, 2, 0, 0, 0, 0]),
+        ));
+        tgly_content.extend_from_slice(&section_bytes(b"2vlb", 0, &words(&[0, 16, 1])));
 
-        body.extend_from_slice(&MARKER_OPTIONS);
-        body.extend_from_slice(&0u32.to_le_bytes());
-        body.extend_from_slice(&(options.len() as u32).to_le_bytes());
-        for o in options {
-            body.extend_from_slice(&o.to_le_bytes());
-        }
-        for f in fields {
-            body.extend_from_slice(&f.name_offset.to_le_bytes());
-            body.extend_from_slice(&f.type_code.to_le_bytes());
-            body.extend_from_slice(&f.aux.to_le_bytes());
-        }
-
-        let size = body.len() as u32;
-        body[OFF_BLAY_SIZE..OFF_BLAY_SIZE + 4].copy_from_slice(&size.to_le_bytes());
-        body
+        let mut blay_content = vec![0u8; BLAY_PREAMBLE];
+        blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));
+        section_bytes(b"yalb", 2, &blay_content)
     }
 
     #[test]
-    fn round_trips_strings_options_and_fields() {
-        let fields = [
-            FieldRecord {
-                name_offset: 0,
-                type_code: 4,
-                aux: 0,
-            },
-            FieldRecord {
-                name_offset: 5,
-                type_code: 11,
-                aux: 2,
-            },
-        ];
-        // Blob offsets: "item" at 0, "flags" at 5, "never" at 11.
-        let body = synth(&["item", "flags", "never"], &[5, 11], &fields);
+    fn parses_the_definition_tables() {
+        let body = synth_camera_track();
         let l = Layout::parse(&body).unwrap();
 
         assert_eq!(l.version, 2);
-        assert_eq!(l.string_at(0), Some("item"));
-        assert_eq!(l.string_at(5), Some("flags"));
-        assert_eq!(l.strings().len(), 3);
-        assert_eq!(l.options(), vec!["flags", "never"]);
-        assert_eq!(l.fields, fields);
-        assert_eq!(l.named_fields()[1], ("flags", 11, 2));
+        assert_eq!(l.strings().len(), 6);
+        assert_eq!(l.options(), vec!["block", "position"]);
+
+        assert_eq!(l.types.len(), 3);
+        assert_eq!(l.string_at(l.types[0].name_offset), Some("block"));
+        assert_eq!(l.types[0].size, 12);
+        assert_eq!(l.types[2].size, 16);
+
+        assert_eq!(l.fields.len(), 3);
+        assert_eq!(l.blocks.len(), 1);
+        assert_eq!(l.blocks[0].max_count, 16);
     }
 
     #[test]
-    fn rejects_a_body_without_blay_magic() {
-        let mut body = synth(&["a"], &[], &[]);
+    fn field_info_joins_names_to_the_type_table() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+
+        assert_eq!(
+            l.field_info(&l.fields[0]),
+            ("position", "real vector 3d", Some(12))
+        );
+        assert_eq!(
+            l.field_info(&l.fields[1]),
+            ("orientation", "real quaternion", Some(16))
+        );
+    }
+
+    #[test]
+    fn flat_size_sums_field_type_sizes() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+        // position 12 + orientation 16 + control points block 12
+        assert_eq!(l.flat_size(), Some(40));
+    }
+
+    #[test]
+    fn unnamed_fields_resolve_to_an_empty_string() {
+        let body = synth_camera_track();
+        let l = Layout::parse(&body).unwrap();
+        // Offset 14 is the NUL terminating "control points".
+        assert_eq!(l.string_at(14), Some(""));
+    }
+
+    #[test]
+    fn rejects_a_body_that_is_not_blay() {
+        let mut body = synth_camera_track();
         body[0..4].copy_from_slice(b"zzzz");
         assert!(matches!(Layout::parse(&body), Err(Error::NotBlay(_))));
     }
 
     #[test]
-    fn rejects_a_missing_option_marker() {
-        let mut body = synth(&["a"], &[], &[]);
-        let blob_end = OFF_STR_BLOB + 2;
-        body[blob_end..blob_end + 4].copy_from_slice(b"zzzz");
-        assert!(matches!(
-            Layout::parse(&body),
-            Err(Error::NoOptionMarker(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_a_blob_that_overruns_the_body() {
-        let mut body = synth(&["a"], &[], &[]);
-        body[OFF_STR_SIZE..OFF_STR_SIZE + 4].copy_from_slice(&9999u32.to_le_bytes());
-        assert!(matches!(
-            Layout::parse(&body),
-            Err(Error::BlobOverrun { .. })
-        ));
+    fn rejects_an_unsupported_version() {
+        let mut body = synth_camera_track();
+        body[4..8].copy_from_slice(&9u32.to_le_bytes());
+        assert!(matches!(Layout::parse(&body), Err(Error::BadVersion(9))));
     }
 }

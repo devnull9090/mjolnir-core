@@ -7,8 +7,10 @@
 use blam_defs::FourCc;
 
 pub mod layout;
+pub mod section;
 
-pub use layout::{FieldRecord, Layout};
+pub use layout::{BlockEntry, FieldEntry, Layout, StructEntry, TypeEntry};
+pub use section::Section;
 
 /// Size of the `.ubulk` container header that precedes the tag body.
 pub const HEADER_SIZE: usize = 0x4C;
@@ -116,6 +118,21 @@ impl<'a> TagFile<'a> {
     /// Parse the embedded `blay` layout section.
     pub fn layout(&self) -> Result<Layout<'a>, Error> {
         Ok(Layout::parse(self.body)?)
+    }
+
+    /// Top-level sections of the tag body, normally `blay` then `bdat`.
+    pub fn sections(&self) -> Vec<Section<'a>> {
+        section::walk(self.body, 0)
+    }
+
+    /// The `bdat` data section holding the tag's actual field values.
+    ///
+    /// `bdat` wraps a single `tgbl` child, mirroring how `blay` wraps `tgly`.
+    /// The returned slice is the `tgbl` content.
+    pub fn data(&self) -> Option<Section<'a>> {
+        let sections = self.sections();
+        let bdat = section::find(&sections, "bdat")?;
+        section::read_at(bdat.content, 0).filter(|s| s.is("tgbl"))
     }
 }
 
