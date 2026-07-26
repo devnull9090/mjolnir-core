@@ -4,10 +4,10 @@ export const revalidate = 60; // Cache for 60 seconds
 
 export async function GET() {
   let msiHash: string | null = null;
-  let msiName = "MJOLNIR-Launcher_0.1.2_x64_en-US.msi";
+  let msiName = "MJOLNIR-Launcher_0.1.3_x64_en-US.msi";
   let nsisHash: string | null = null;
-  let nsisName = "MJOLNIR-Launcher_0.1.2_x64-setup.exe";
-  let version = "0.1.2";
+  let nsisName = "MJOLNIR-Launcher_0.1.3_x64-setup.exe";
+  let version = "0.1.3";
 
   try {
     const res = await fetch("https://releases.mjolnircore.com/launcher/latest/checksums.txt", {
