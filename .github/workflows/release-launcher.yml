@@ -152,7 +152,6 @@ jobs:
           Write-Host "✅ Uploaded to releases.mjolnircore.com"
 
       - name: Post release notification to Discord
-        if: "${{ secrets.DISCORD_RELEASE_WEBHOOK_URL != '' }}"
         shell: pwsh
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
@@ -160,6 +159,10 @@ jobs:
           RELEASE_VER: ${{ steps.checksums.outputs.version }}
           MSI_HASH: ${{ steps.checksums.outputs.msi_hash }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
+            Write-Host "ℹ️ DISCORD_RELEASE_WEBHOOK_URL secret not set. Skipping Discord notification."
+            exit 0
+          }
           echo "::add-mask::$env:DISCORD_WEBHOOK_URL"
           $tag = $env:RELEASE_TAG
           $ver = $env:RELEASE_VER
