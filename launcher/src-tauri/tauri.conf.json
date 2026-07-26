@@ -32,5 +32,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://mjolnircore.com/api/releases/latest"
+      ]
+    }
   }
 }

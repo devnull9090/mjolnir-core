@@ -2,6 +2,7 @@ import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import ModList from "./components/ModList";
 import Header from "./components/Header";
+import UpdaterBanner from "./components/UpdaterBanner";
 
 export type View = "mods" | "browse" | "settings";
 
@@ -12,6 +13,7 @@ function App() {
     <div className="flex h-screen w-screen bg-surface-primary">
       <Sidebar activeView={activeView} onNavigate={setActiveView} />
       <div className="flex flex-col flex-1 overflow-hidden">
+        <UpdaterBanner />
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
           {activeView === "mods" && <ModList />}

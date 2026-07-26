@@ -4,10 +4,10 @@ export const revalidate = 60; // Cache for 60 seconds
 
 export async function GET() {
   let msiHash: string | null = null;
-  let msiName = "MJOLNIR-Launcher_0.1.0_x64_en-US.msi";
+  let msiName = "MJOLNIR-Launcher_0.1.1_x64_en-US.msi";
   let nsisHash: string | null = null;
-  let nsisName = "MJOLNIR-Launcher_0.1.0_x64-setup.exe";
-  let version = "0.1.0";
+  let nsisName = "MJOLNIR-Launcher_0.1.1_x64-setup.exe";
+  let version = "0.1.1";
 
   try {
     const res = await fetch("https://releases.mjolnircore.com/launcher/latest/checksums.txt", {
@@ -40,15 +40,27 @@ export async function GET() {
     console.error("Failed to fetch latest checksums:", err);
   }
 
+  const nsisUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe";
+  const msiUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi";
+
   return NextResponse.json({
+    // Standard metadata for web UI & checksum viewer
     version,
+    notes: `MJOLNIR Launcher v${version} release.`,
+    pub_date: new Date().toISOString(),
     msi_name: msiName,
     msi_hash: msiHash,
-    msi_url: `https://releases.mjolnircore.com/launcher/latest/${msiName}`,
+    msi_url: msiUrl,
     nsis_name: nsisName,
     nsis_hash: nsisHash,
-    nsis_url: `https://releases.mjolnircore.com/launcher/latest/${nsisName}`,
+    nsis_url: nsisUrl,
     checksums_url: "https://releases.mjolnircore.com/launcher/latest/checksums.txt",
-    updated_at: new Date().toISOString(),
+    // Tauri v2 plugin-updater format
+    platforms: {
+      "windows-x86_64": {
+        signature: "",
+        url: nsisUrl,
+      },
+    },
   });
 }
