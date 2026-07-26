@@ -37,6 +37,8 @@ jobs:
       - name: Build with OpenNext
         run: pnpm run cf:build
         working-directory: hub
+        env:
+          NEXT_PUBLIC_GTAG_ID: ${{ secrets.GOOGLE_GTAG }}
 
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v4
