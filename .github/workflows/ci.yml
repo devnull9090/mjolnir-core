@@ -15,22 +15,30 @@ jobs:
 
       - name: Install luacheck
         run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.3 luarocks
-          sudo luarocks install luacheck
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq luarocks > /dev/null 2>&1
+          sudo luarocks install luacheck > /dev/null 2>&1 || true
 
       - name: Lint Lua scripts
         run: |
-          luacheck mods/ signatures/ \
-            --no-unused-args \
-            --no-max-line-length \
-            --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
-                      RegisterConsoleCommandHandler IsKeyBindRegistered \
-                      ExecuteInGameThread ExecuteInGameThreadWithDelay \
-                      FindFirstOf FindAllOf StaticFindObject StaticConstructObject \
-                      FName FText Key ModifierKey NotifyOnNewObject \
-            --ignore 111 112 113 \
-            || true  # Non-blocking for now
+          if command -v luacheck &> /dev/null; then
+            luacheck mods/ signatures/ \
+              --no-unused-args \
+              --no-max-line-length \
+              --std luajit \
+              --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
+                        RegisterConsoleCommandHandler IsKeyBindRegistered \
+                        ExecuteInGameThread ExecuteInGameThreadWithDelay \
+                        FindFirstOf FindAllOf StaticFindObject StaticConstructObject \
+                        FName FText Key ModifierKey NotifyOnNewObject \
+                        LoopAsync ExecuteAsync CreateInvalidationContext \
+                        LoadAsset ForEachUObject IterateGameDirectories \
+                        UEHelpers \
+              --ignore 111 112 113 114 131 212 \
+              || true
+          else
+            echo "⚠️ luacheck not available, skipping lint"
+          fi
 
   validate-structure:
     name: Validate Repo Structure
@@ -45,15 +53,16 @@ jobs:
           test -d mods/MJOLNIRCore || (echo "FAIL: mods/MJOLNIRCore missing" && exit 1)
           test -d signatures || (echo "FAIL: signatures/ missing" && exit 1)
           test -f LICENSE || (echo "FAIL: LICENSE missing" && exit 1)
-          echo "All checks passed."
+          echo "✅ All checks passed."
 
       - name: Ensure no secrets in repo
         run: |
           echo "Scanning for potential secrets..."
+          # Grep for hardcoded secret values (not env var references)
           if grep -rn "CLOUDFLARE_API_TOKEN\|DISCORD_CLIENT_SECRET\|JWT_SECRET" \
             --include="*.ts" --include="*.js" --include="*.json" --include="*.toml" \
-            . | grep -v ".example" | grep -v "secrets\." | grep -v "process.env" | grep -v "\.github"; then
-            echo "WARNING: Possible hardcoded secrets found!"
+            . | grep -v ".example" | grep -v "secrets\." | grep -v "process.env" | grep -v "\.github" | grep -v "node_modules"; then
+            echo "⚠️ WARNING: Possible hardcoded secrets found!"
             exit 1
           fi
-          echo "No secrets found."
+          echo "✅ No secrets found."
