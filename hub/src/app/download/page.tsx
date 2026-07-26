@@ -7,6 +7,7 @@ import {
   CheckCircle,
   ExternalLink,
 } from "lucide-react";
+import ChecksumViewer from "./ChecksumViewer";
 
 function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -76,7 +77,7 @@ export default function DownloadPage() {
             </Link>
             <span className="text-sm text-text-dim">or</span>
             <Link
-              href="https://releases.mjolnircore.com/launcher/latest/"
+              href="https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi"
               target="_blank"
               className="px-6 py-3 rounded-xl font-bold border border-border-bright text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-2"
             >
@@ -104,19 +105,9 @@ export default function DownloadPage() {
             {/* Step 1 */}
             <div className="flex items-start gap-3">
               <span className="w-7 h-7 rounded-full bg-gold/15 text-gold text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-              <div>
-                <p className="text-sm font-semibold text-foreground mb-2">Download the checksums file</p>
-                <p className="text-sm text-text-muted mb-2">
-                  Each release includes a <code className="px-1.5 py-0.5 rounded bg-surface-card text-gold text-xs">checksums.txt</code> file
-                  on the{" "}
-                  <Link href="https://github.com/devnull9090/mjolnir-core/releases" target="_blank" className="text-accent-blue hover:underline">
-                    GitHub Releases page
-                  </Link>{" "}
-                  and at{" "}
-                  <Link href="https://releases.mjolnircore.com/launcher/latest/checksums.txt" target="_blank" className="text-accent-blue hover:underline">
-                    releases.mjolnircore.com
-                  </Link>.
-                </p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground mb-3">Official Build Checksums (Latest Release)</p>
+                <ChecksumViewer />
               </div>
             </div>
 

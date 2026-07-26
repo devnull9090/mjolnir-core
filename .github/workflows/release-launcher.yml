@@ -129,13 +129,15 @@ jobs:
           # Upload MSI
           if ("${{ steps.checksums.outputs.msi_path }}" -ne "") {
             wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}" --remote
-            # Also upload as "latest"
             wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}" --remote
+            wrangler r2 object put "mjolnir-releases/launcher/latest/MJOLNIR-Launcher-latest.msi" --file="${{ steps.checksums.outputs.msi_path }}" --remote
           }
 
           # Upload NSIS
           if ("${{ steps.checksums.outputs.nsis_path }}" -ne "") {
             wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.nsis_path }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
+            wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.nsis_path }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
+            wrangler r2 object put "mjolnir-releases/launcher/latest/MJOLNIR-Launcher-latest-setup.exe" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
           }
 
           # Upload checksums
