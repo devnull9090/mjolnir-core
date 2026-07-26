@@ -39,6 +39,7 @@ const MAX_STRUCT_DEPTH: u32 = 128;
 const PAD: &str = "pad";
 const STRUCT: &str = "struct";
 const ARRAY: &str = "array";
+const BLOCK: &str = "block";
 const TERMINATOR: &str = "terminator X";
 
 #[derive(Debug, thiserror::Error)]
@@ -338,6 +339,18 @@ impl<'a> Layout<'a> {
     /// Is this field the `terminator X` that closes a struct's field run?
     pub fn is_terminator(&self, field: &FieldEntry) -> bool {
         self.type_name_of(field) == TERMINATOR
+    }
+
+    /// The `block` fields directly declared by one struct run, in order.
+    pub fn block_fields(&self, run: usize) -> Vec<FieldEntry> {
+        let Some(range) = self.struct_ranges().get(run).cloned() else {
+            return Vec::new();
+        };
+        self.fields[range]
+            .iter()
+            .filter(|f| self.type_name_of(f) == BLOCK)
+            .copied()
+            .collect()
     }
 
     /// Field index ranges, one per struct, in declaration order.

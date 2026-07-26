@@ -287,6 +287,68 @@ from 96.6% to 98.5%.
 guard, which means the struct index correction above is not the whole story for them. They are
 named here so the gap is reproducible rather than hidden.
 
+## The `bdat` Data Payload
+
+**Verified.** Fixed-width fields are packed inline in the element data. Fields whose content is
+variable length instead emit a trailing section, one per field in declaration order:
+
+```
+block:
+  u32   element count
+  u32   flags, not yet interpreted
+  ..    count * element_size bytes of packed element data
+  ..    one `tgst` per element, holding that element's variable-length fields
+```
+
+The section magic identifies the field type:
+
+| Magic | Field type |
+|---|---|
+| `tgbl` | `block` |
+| `tgst` | `struct`, and the per-element wrapper |
+| `tgsi` | `string id` |
+| `tgda` | `data` |
+| `tgrf` | `tag reference` |
+| `tgal` | `array` |
+
+Also seen but not yet attributed: `tgms`, `tgne`, `tgni`, all rare and concentrated in `scenario`.
+
+The root is not special — the outermost `tgbl` is a block holding one element whose struct is the
+group's root. A `struct` field whose target contains nothing variable length emits **no section at
+all**, which the walk must anticipate.
+
+Worked example, `camera_track` (304-byte payload), decomposing with nothing left over:
+
+```
++0    u32 count = 1, u32 flags = 0
++8    12 bytes  root struct (one block field)
++20   tgst      element wrapper
++32     tgbl    control points: count = 9, flags = 1
++44       252 bytes  9 x 28-byte control points
+```
+
+### Coverage
+
+`mjolnir validate --all` walks the payload and asserts it is consumed exactly.
+
+| Result | Count |
+|---|---|
+| Walk succeeds | 1,953 / 12,290 (15.9%) |
+| Of those, consumed **exactly** | 1,939 (99.3%) |
+| Consumed short | 14 |
+| Consumed over | 0 |
+
+**The walk is strict by design.** It fails rather than stopping early, so a short read is never
+mistaken for a complete one. An earlier tolerant version reported 82.5% success, but 7,361 of those
+were silently short — that is a worse outcome than an honest partial result, and it was reverted.
+
+Every group whose walk succeeds is byte-exact, which is strong evidence the model is correct as far
+as it goes. The remaining failures are dominated by one symptom: a per-element `tgst` wrapper is
+expected but the buffer has ended. Simple groups (`camera_track`, `color_table`, `camo`,
+`collision_damage`, `breakable_surface`) all walk exactly; the failures are concentrated in groups
+with multi-element blocks whose elements carry variable-length content, which is the one
+combination not yet observed directly.
+
 ## Group Coverage
 
 **Verified:** all 101 shipped groups parse end to end — `blay` version `2`, a `str*` blob, an
@@ -308,17 +370,16 @@ format version.
 
 ## Next Checks
 
-1. Resolve the five groups whose root size still hits the recursion guard:
+1. Find a block with more than one element whose element struct carries variable-length content,
+   and confirm how the per-element `tgst` wrappers are laid out. This is the dominant remaining
+   data-walk failure.
+2. Attribute the `tgms`, `tgne`, and `tgni` data sections.
+3. Resolve the five groups whose root size still hits the recursion guard:
    `camera_shake`, `chud_globals_definition`, `incident_globals_definition`, `shield_impact`,
    `simulated_input`.
-2. Walk the `tgbl` data using the field list and assert it consumes the payload exactly, for all
-   12,290 shipped payloads. Block contents live outside the root struct, so this needs the block
-   element layout first.
-3. Interpret the remaining empty sections: `csbn`, `dtnm`, `rcv2`, `]==[`.
-4. Decode the `blay` preamble at body `0x0C`–`0x58` and cross-check against the section sizes it
+4. Interpret the remaining empty layout sections: `csbn`, `dtnm`, `rcv2`, `]==[`.
+5. Decode the `blay` preamble at body `0x0C`–`0x58` and cross-check against the section sizes it
    appears to duplicate.
-5. Confirm whether the layout section is byte-identical between two tags of the same group and
-   group version. If so, definitions can be extracted once per group rather than per tag.
 
 ## Published Reference
 

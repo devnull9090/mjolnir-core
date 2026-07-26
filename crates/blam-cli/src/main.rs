@@ -14,6 +14,14 @@ use clap::{Args, Parser, Subcommand};
 mod defs;
 mod index;
 
+fn hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[derive(Parser)]
 #[command(name = "mjolnir", version, about, long_about = None)]
 struct Cli {
@@ -55,6 +63,8 @@ enum Command {
     Validate(ValidateArgs),
     /// Export the definition corpus as JSON.
     Defs(DefsArgs),
+    /// Inspect the bdat data payload for one tag.
+    Data(DataArgs),
 }
 
 #[derive(Args)]
@@ -147,6 +157,21 @@ struct DefsArgs {
     build: String,
 }
 
+#[derive(Args)]
+struct DataArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `camera_track`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select, otherwise the first tag is used.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Hexdump this many bytes of the data payload.
+    #[arg(long, default_value_t = 256)]
+    hexdump: usize,
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Groups(a) => groups(a),
@@ -157,7 +182,99 @@ fn main() -> Result<()> {
         Command::Aux(a) => aux(a),
         Command::Validate(a) => validate(a),
         Command::Defs(a) => export_defs(a),
+        Command::Data(a) => data(a),
     }
+}
+
+fn data(a: DataArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let buf = idx.read(entry, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+    let l = tag.layout()?;
+    let payload = tag.data().context("tag has no bdat section")?;
+
+    println!("{}", entry.path);
+    println!("  chunk         {} bytes", entry.chunk.length);
+    println!("  data (tgbl)   {} bytes", payload.size);
+    let root = l.root_struct();
+    let root_size = root.and_then(|r| l.struct_size(r));
+    println!("  root struct   {root_size:?} bytes");
+
+    if let (Some(run), Some(size)) = (root, root_size) {
+        println!("\n  root fields:");
+        let ranges = l.struct_ranges();
+        let mut offset = 0usize;
+        for f in &l.fields[ranges[run].clone()] {
+            let (name, type_name, _) = l.field_info(f);
+            let width = l.field_size(f).unwrap_or(0) as usize;
+            let bytes = payload.content.get(offset..offset + width).unwrap_or(&[]);
+            let shown = if name.is_empty() { "<unnamed>" } else { name };
+            println!(
+                "    +{offset:<5} {width:>4}b  {type_name:<24} {shown:<36} {}",
+                hex(&bytes[..bytes.len().min(16)])
+            );
+            offset += width;
+        }
+        println!("\n  root consumes {offset} of {} bytes", payload.size);
+        println!("  remaining     {} bytes", payload.size as usize - size as usize);
+    }
+
+    if a.hexdump > 0 {
+        println!("\n  data hexdump:");
+        let end = a.hexdump.min(payload.content.len());
+        for off in (0..end).step_by(16) {
+            let row = &payload.content[off..(off + 16).min(end)];
+            let ascii: String = row
+                .iter()
+                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .collect();
+            println!("    {off:08x}  {:<47}  |{ascii}|", hex(row));
+        }
+    }
+
+    // Every dword-aligned position whose four bytes look like a section magic.
+    let mut magics: BTreeMap<String, usize> = BTreeMap::new();
+    let content = payload.content;
+    for off in 0..content.len().saturating_sub(4) {
+        let cc: String = content[off..off + 4].iter().rev().map(|b| *b as char).collect();
+        if cc.starts_with("tg") && cc.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            *magics.entry(cc).or_default() += 1;
+        }
+    }
+    println!("\n  section magics in the data payload:");
+    for (cc, n) in &magics {
+        println!("    {cc}  x{n}");
+    }
+
+    println!("\n  data walk:");
+    match tag.read_data(&l) {
+        Ok(block) => println!(
+            "    ok - {} element(s), consumed {} of {} bytes{}",
+            block.count,
+            block.consumed,
+            payload.size,
+            if block.consumed == payload.size as usize {
+                " (exact)"
+            } else {
+                " (MISMATCH)"
+            }
+        ),
+        Err(e) => println!("    failed: {e}"),
+    }
+    Ok(())
 }
 
 fn export_defs(a: DefsArgs) -> Result<()> {
@@ -542,6 +659,13 @@ struct Checks {
     root_size_unknown: usize,
     /// A bdat data section is present.
     has_data: usize,
+    /// The data walk succeeded.
+    data_walk_ok: usize,
+    data_walk_failed: usize,
+    /// The data walk consumed the payload exactly.
+    data_exact: usize,
+    data_short: usize,
+    data_over: usize,
 }
 
 fn validate(a: ValidateArgs) -> Result<()> {
@@ -662,6 +786,32 @@ fn validate(a: ValidateArgs) -> Result<()> {
         if tag.data().is_some() {
             c.has_data += 1;
         }
+
+        match tag.read_data(&l) {
+            Ok(block) => {
+                c.data_walk_ok += 1;
+                let payload = tag.data().map(|d| d.size as usize).unwrap_or(0);
+                match block.consumed.cmp(&payload) {
+                    std::cmp::Ordering::Equal => c.data_exact += 1,
+                    std::cmp::Ordering::Less => {
+                        c.data_short += 1;
+                        if a.verbose {
+                            eprintln!(
+                                "{}: walk consumed {} of {payload}",
+                                entry.path, block.consumed
+                            );
+                        }
+                    }
+                    std::cmp::Ordering::Greater => c.data_over += 1,
+                }
+            }
+            Err(e) => {
+                c.data_walk_failed += 1;
+                if a.verbose {
+                    eprintln!("{}: {e}", entry.path);
+                }
+            }
+        }
     }
 
     let pct = |n: usize| {
@@ -715,6 +865,19 @@ fn validate(a: ValidateArgs) -> Result<()> {
         "  bdat data section present    {}  ({:.1}%)",
         c.has_data,
         pct(c.has_data)
+    );
+    println!(
+        "  data walk succeeds           {} ok, {} failed  ({:.1}%)",
+        c.data_walk_ok,
+        c.data_walk_failed,
+        pct(c.data_walk_ok)
+    );
+    println!(
+        "  data walk consumes exactly   {} exact, {} short, {} over  ({:.1}%)",
+        c.data_exact,
+        c.data_short,
+        c.data_over,
+        pct(c.data_exact)
     );
     Ok(())
 }

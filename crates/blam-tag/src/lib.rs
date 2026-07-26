@@ -6,9 +6,11 @@
 
 use blam_defs::FourCc;
 
+pub mod data;
 pub mod layout;
 pub mod section;
 
+pub use data::{Block, Value};
 pub use layout::{
     ArrayEntry, BlockEntry, EnumEntry, FieldEntry, Layout, StructEntry, TypeEntry,
 };
@@ -41,6 +43,10 @@ pub enum Error {
     SizeMismatch { declared: usize, actual: usize },
     #[error("layout section: {0}")]
     Layout(#[from] layout::Error),
+    #[error("data section: {0}")]
+    Data(#[from] data::Error),
+    #[error("tag has no bdat data section")]
+    NoData,
 }
 
 fn u32_at(buf: &[u8], off: usize) -> u32 {
@@ -135,6 +141,15 @@ impl<'a> TagFile<'a> {
         let sections = self.sections();
         let bdat = section::find(&sections, "bdat")?;
         section::read_at(bdat.content, 0).filter(|s| s.is("tgbl"))
+    }
+
+    /// Decode the data payload into a tree of blocks.
+    ///
+    /// The outermost block holds one element, the group's root struct.
+    pub fn read_data(&self, layout: &Layout<'a>) -> Result<data::Block<'a>, Error> {
+        let payload = self.data().ok_or(Error::NoData)?;
+        // The root struct is struct-table index 0.
+        Ok(data::read_block(layout, payload.content, 0)?)
     }
 }
 
