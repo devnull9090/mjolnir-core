@@ -45,6 +45,7 @@ jobs:
         id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || 'dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5OWVJaURPWTRzU3RjUUtTNmFESkhDL0F5bmw3bjdxZUNGQndOd3owRVRTNEFBQkFBQUFBQUFBQUFBQUlBQUFBQWd0dnNBRGk4a0JTVTQ3MTZOQW5nUEJUWXVSbnJQOGhyQ1NFUTJjSXoxNEk4dDNzQkVwdy9XeEVhM3prTno5TjExT0dJeWtmMTVVK3VUQ21VTHlvcFdiT1gyWTRpaG5nN3lmVDFLWVo5Rno0SjFEM0RDUFpWeXRoajlYWC9OMENGYWp3QW9QUVpXTmM9Cg==' }}
         with:
           projectPath: launcher
           tagName: ${{ github.ref_name }}
