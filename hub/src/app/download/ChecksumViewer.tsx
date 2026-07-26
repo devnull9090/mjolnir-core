@@ -47,14 +47,14 @@ export default function ChecksumViewer() {
       {/* MSI Hash Box */}
       {data.msi_hash && (
         <div className="p-4 rounded-xl bg-surface-card border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gold uppercase tracking-wider flex items-center gap-1.5">
-              <Hash className="w-3.5 h-3.5" />
-              MSI Installer ({data.msi_name})
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span className="text-xs font-semibold text-gold uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+              <Hash className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">MSI Installer ({data.msi_name})</span>
             </span>
             <button
               onClick={() => copyToClipboard(data.msi_hash!, "msi")}
-              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0"
             >
               {copiedKey === "msi" ? (
                 <>
@@ -78,14 +78,14 @@ export default function ChecksumViewer() {
       {/* NSIS Executable Hash Box */}
       {data.nsis_hash && (
         <div className="p-4 rounded-xl bg-surface-card border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider flex items-center gap-1.5">
-              <Hash className="w-3.5 h-3.5" />
-              EXE Setup ({data.nsis_name})
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+              <Hash className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">EXE Setup ({data.nsis_name})</span>
             </span>
             <button
               onClick={() => copyToClipboard(data.nsis_hash!, "nsis")}
-              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-accent-blue/40 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-accent-blue/40 transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0"
             >
               {copiedKey === "nsis" ? (
                 <>

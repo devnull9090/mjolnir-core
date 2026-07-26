@@ -92,7 +92,7 @@ export default function DownloadPage() {
             {/* Step 2 */}
             <div className="flex items-start gap-3">
               <span className="w-7 h-7 rounded-full bg-gold/15 text-gold text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-foreground mb-2">Compute the hash of your downloaded file</p>
                 <div className="space-y-3">
                   <div>
@@ -120,7 +120,7 @@ export default function DownloadPage() {
             {/* Step 3 */}
             <div className="flex items-start gap-3">
               <span className="w-7 h-7 rounded-full bg-gold/15 text-gold text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground mb-2">Compare the hashes</p>
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-accent-green/5 border border-accent-green/20">
                   <CheckCircle className="w-4 h-4 text-accent-green flex-shrink-0 mt-0.5" />
