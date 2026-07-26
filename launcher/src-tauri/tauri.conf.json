@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "launcher",
+  "productName": "MJOLNIR-Launcher",
   "version": "0.1.0",
   "identifier": "com.devnull9090.mjolnir-launcher",
   "build": {
@@ -12,9 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "launcher",
-        "width": 800,
-        "height": 600
+        "title": "MJOLNIR Core Launcher",
+        "width": 1000,
+        "height": 680,
+        "resizable": true
       }
     ],
     "security": {
