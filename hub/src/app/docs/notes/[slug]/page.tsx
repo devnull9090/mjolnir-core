@@ -5,8 +5,13 @@ import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
 import { getDocNote, getDocNotes } from "@/lib/docs";
 import { Markdown } from "../../_components/Markdown";
 
-export const dynamicParams = false;
-
+/**
+ * Do not set `dynamicParams = false` here. OpenNext runs with a dummy
+ * incremental cache, so every prerendered page misses the cache at runtime.
+ * Plain static routes survive that by re-rendering, but a disallowed dynamic
+ * param turns the miss into a hard 404. Unknown slugs are still rejected below
+ * via `notFound()`.
+ */
 export function generateStaticParams() {
   return getDocNotes().map((note) => ({ slug: note.slug }));
 }
