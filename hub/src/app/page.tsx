@@ -31,22 +31,13 @@ function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
 
 /* ── Shared icon component ───────────────────────────────────────────── */
 
-function MjolnirIcon() {
+function MjolnirIcon({ className = "w-8 h-8" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className="w-8 h-8" fill="none">
-      <path
-        d="M16 2L4 10v12l12 8 12-8V10L16 2z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        className="text-gold"
-      />
-      <path
-        d="M16 6l-8 5.5v11L16 28l8-5.5v-11L16 6z"
-        fill="currentColor"
-        className="text-gold/20"
-      />
-      <path d="M16 12v8M12 16h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gold" />
-    </svg>
+    <img
+      src="/logo-transparent.png"
+      alt="MJOLNIR Core"
+      className={`${className} object-contain`}
+    />
   );
 }
 

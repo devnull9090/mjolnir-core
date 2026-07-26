@@ -81,6 +81,7 @@ export default function ModsPage() {
       <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
+            <img src="/logo-transparent.png" alt="MJOLNIR Core" className="w-8 h-8 object-contain" />
             <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
             <span className="text-xs text-text-muted font-medium">CORE</span>
           </Link>
