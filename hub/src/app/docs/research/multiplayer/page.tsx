@@ -241,13 +241,12 @@ mjolnir_dump_state`}</code>
 
       <section className="border-t border-border py-9 text-sm text-text-muted">
         <p>
-          Working notes and reproduction history remain in{" "}
+          Working notes and reproduction history are rendered in full at{" "}
           <Link
-            href="https://github.com/devnull9090/mjolnir-core/blob/main/docs/multiplayer_investigation_notes.md"
-            target="_blank"
+            href="/docs/notes/multiplayer-investigation-notes"
             className="text-gold hover:underline"
           >
-            docs/multiplayer_investigation_notes.md
+            Multiplayer investigation notes
           </Link>
           .
         </p>

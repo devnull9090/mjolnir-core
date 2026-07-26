@@ -56,3 +56,21 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid #ffffff08;
 }
+
+/* Rendered research notes: reset the inline code pill inside fenced blocks,
+   and keep table cells from collapsing long identifiers. */
+.markdown pre code {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.markdown table code {
+  white-space: nowrap;
+}
+
+.markdown > *:first-child {
+  margin-top: 0;
+}

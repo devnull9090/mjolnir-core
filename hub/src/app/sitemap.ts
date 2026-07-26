@@ -1,7 +1,9 @@
 import type { MetadataRoute } from "next";
+import { getDocNotes } from "@/lib/docs";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://mjolnircore.com";
+  const notes = getDocNotes();
 
   return [
     {
@@ -29,6 +31,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     },
     {
+      url: `${baseUrl}/docs/research/tag-data`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.7,
+    },
+    {
       url: `${baseUrl}/docs/research/multiplayer`,
       lastModified: new Date(),
       changeFrequency: "weekly",
@@ -40,5 +48,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.7,
     },
+    {
+      url: `${baseUrl}/docs/notes`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.6,
+    },
+    ...notes.map((note) => ({
+      url: `${baseUrl}/docs/notes/${note.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly" as const,
+      priority: 0.5,
+    })),
   ];
 }

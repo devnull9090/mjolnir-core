@@ -12,6 +12,7 @@
 - Update documentation in the same change whenever reverse engineering establishes, refutes, or materially changes a finding.
 - Use `docs/` for investigation logs, raw observations, reproduction steps, and working notes.
 - Use `hub/src/app/docs/` for curated public documentation. Promote only findings whose evidence level is explicit, and link back to the relevant repository research note when practical.
+- `docs/*.md` is published verbatim under `/docs/notes/<slug>`. Add a note to the `ORDER` array in `hub/scripts/sync-docs.mjs` to publish it; that script regenerates `hub/src/generated/docs.json` on every `pnpm dev` and `pnpm build`. Write those files assuming a public audience.
 - Give major targets, including `HaloSimulation_tag_release.dll`, a dedicated public page rather than burying them in a session log.
 - Preserve prior conclusions when they are disproven: mark them superseded and explain the new evidence instead of silently deleting the history.
 

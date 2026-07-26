@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Binary, FlaskConical } from "lucide-react";
+import { ArrowRight, Binary, FileText, FlaskConical, Package } from "lucide-react";
+import { getDocNotes } from "@/lib/docs";
 import { EvidenceBadge, type EvidenceLevel } from "./_components/EvidenceBadge";
 
 export const metadata: Metadata = {
@@ -9,6 +10,14 @@ export const metadata: Metadata = {
 };
 
 const research = [
+  {
+    href: "/docs/research/tag-data",
+    title: "Blam tag data",
+    description:
+      "12,328 real Blam tag files ship inside Unreal packages across 101 classic tag groups. Container format, inventory, and the simulation-versus-rendering split.",
+    status: "Verified" as EvidenceLevel,
+    icon: Package,
+  },
   {
     href: "/docs/research/multiplayer",
     title: "Multiplayer viability",
@@ -35,6 +44,8 @@ const evidenceLevels: Array<{ level: EvidenceLevel; meaning: string }> = [
 ];
 
 export default function DocsPage() {
+  const notes = getDocNotes();
+
   return (
     <main className="mx-auto max-w-4xl">
       <header className="border-b border-border pb-10">
@@ -66,6 +77,38 @@ export default function DocsPage() {
               <span className="mt-5 flex items-center gap-2 text-sm font-semibold text-gold">
                 Read research <ArrowRight className="h-4 w-4" />
               </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="border-t border-border py-10" aria-labelledby="notes-heading">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 id="notes-heading" className="text-xl font-bold">
+            Research notes
+          </h2>
+          <Link href="/docs/notes" className="text-sm font-semibold text-gold hover:underline">
+            View all
+          </Link>
+        </div>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-text-muted">
+          Raw investigation logs rendered from the repository, including reproduction commands and
+          superseded conclusions. The curated pages above summarize what these established.
+        </p>
+        <div className="mt-5 divide-y divide-border border-y border-border">
+          {notes.map((note) => (
+            <Link
+              key={note.slug}
+              href={`/docs/notes/${note.slug}`}
+              className="group flex items-start gap-3 py-4"
+            >
+              <FileText className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+              <div className="min-w-0">
+                <p className="font-semibold group-hover:text-gold">{note.title}</p>
+                <p className="mt-1 line-clamp-2 text-sm leading-6 text-text-muted">
+                  {note.summary}
+                </p>
+              </div>
             </Link>
           ))}
         </div>

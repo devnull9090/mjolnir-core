@@ -136,6 +136,24 @@ analyzeHeadless.bat <project_dir> HCE_Analysis `
 Ghidra 12.1 does not run Python scripts through `analyzeHeadless` unless it is launched through
 PyGhidra. Use the Java probes above for standard headless runs.
 
+### Game Data Analysis
+Read-only IoStore readers for the shipped `.utoc`/`.ucas` containers live in `tools/iostore`. They
+need an `oo2core_9_win64.dll` from a local Unreal Engine install, since UE 5.5 statically links
+Oodle and the game ships no separate DLL.
+
+```powershell
+$paks  = "<install>\Meteorite\Content\Paks"
+$oodle = "<UE install>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
+
+python tools/iostore/dump_index.py   --paks $paks --ext-stats --out out/iostore_paths.tsv
+python tools/iostore/inspect_tags.py --paks $paks --oodle $oodle --per-group 1
+python tools/iostore/zen_class.py    --paks $paks --oodle $oodle --grep-scripts "TagDataAsset$"
+python tools/iostore/extract_tags.py --paks $paks --oodle $oodle --group vehicle --out <dir> --verify
+```
+
+`extract_tags.py` output is copyrighted game content. Keep it local and never commit it.
+See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings these tools produced.
+
 ### Coming Soon
 - **MJOLNIR Launcher**: Tauri desktop app for one-click mod management
 - **MJOLNIR Hub**: Community mod platform (browse, upload, download mods)

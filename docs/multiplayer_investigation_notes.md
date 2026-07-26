@@ -430,6 +430,11 @@ overrides, social options, custom Spartan/Elite loadouts, Megalo, Sandbox, the O
 assault-bomb content. These are stronger evidence than raw strings, but they still do not prove that
 the shipping UI or UE5 bridge exposes a competitive launch path.
 
+> **Refined 2026-07-26:** those counts mixed `.uasset` headers with their `.ubulk` payloads. Counting
+> tags rather than index entries, the build ships `319` multiplayer tags, of which `308` are under
+> `Tags/multiplayer/game_variant_settings`. The content is real Blam tag data, not strings. See
+> [`tag_data_pipeline.md`](tag_data_pipeline.md).
+
 ### CreateBlamEngineShell Result
 
 **Verified by Ghidra decompilation:** the export behaves as:
@@ -597,3 +602,23 @@ mjolnir_dump_state
 5. Activate a competitive variant before attempting custom-map cooking.
 6. Add team spawns, flag stands, boundaries, and objectives to an existing campaign world at runtime.
 7. Only then cook a tiny UE5.5 test world and package it as pak/utoc/ucas.
+
+## 2026-07-26 Follow-Up: Tag Data Pipeline
+
+The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside
+the IoStore containers, each as an Unreal package whose bulk-data segment is a raw Blam tag file
+carrying the `BLAM` signature. Rendering is fully Unreal: zero `render_model` and zero `bitmap` tags
+ship, and object definitions bind to Blueprint actors such as `BP_EliteBipedActor`.
+
+This matters for multiplayer work in three ways:
+
+1. `game_engine_settings-game_engine_settings_definition`,
+  `globals-multiplayer_object_type_list`, `multiplayer_globals-multiplayer_globals`, and `308`
+  `game_variant_settings` tags are dumpable and readable. They should be decoded before further
+  runtime probing, because they define what the simulation believes is available.
+2. There is still no multiplayer `scenario` tag. All `13` scenarios are generated from the solo
+  Unreal worlds under `_Generated_`, alongside their BSP, seam, lighting, and soft-ceiling tags.
+3. A competitive map likely requires both an Unreal world and a generated Blam scenario/BSP set.
+  Cooking a world alone is probably insufficient.
+
+Full analysis and reproduction: [`tag_data_pipeline.md`](tag_data_pipeline.md).

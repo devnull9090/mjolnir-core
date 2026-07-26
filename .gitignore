@@ -44,3 +44,11 @@ target/
 .env.*
 !.env.example
 !.dev.vars.example
+
+# Python
+__pycache__/
+*.pyc
+
+# Extracted game content - NEVER COMMIT
+tagdump/
+*.ubulk

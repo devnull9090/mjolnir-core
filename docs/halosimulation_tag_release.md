@@ -92,6 +92,17 @@ This shape is consistent with the shell output callback layer named by
 The executable contains no contiguous `tag_release` string. The suffix used by the physical DLL is
 selected below this recovered launcher layer.
 
+## Why the Suffix Is `tag_release`
+
+**Verified in the matching host executable:** the reflected enumeration
+`EBlamEngineBuildConfiguration` declares the members `TagPlay`, `TagProfile`, `TagRelease`, and
+`TagTest`. The shipped module is the `TagRelease` configuration of the Blam engine.
+
+In classic Blam terminology a *tag build* consumes individual tag files rather than a compiled cache
+map. The shipped data layout matches: `12,328` real Blam tag files are packaged as Unreal assets and
+there is no `.map` cache anywhere in the install. See
+[`tag_data_pipeline.md`](tag_data_pipeline.md) for the file-level evidence.
+
 ## Multiplayer-Relevant Observations
 
 The DLL contains strings and data definitions for CTF, Slayer, Oddball, King of the Hill,
@@ -122,3 +133,5 @@ For the host-side loader path, run `AnalyzeBlamLoader.java` against an analyzed
 3. Correlate that structure with live `/Script/BlamEngine` objects discovered through UE4SS.
 4. Trace CTF and team-option string references to their owning functions and data tables.
 5. Capture shell output event types while entering, hosting, and joining campaign co-op.
+6. Trace how slot 2's tag initialization resolves an Unreal package path back to a Blam tag, using
+   the packaged tag inventory in [`tag_data_pipeline.md`](tag_data_pipeline.md) as the ground truth.

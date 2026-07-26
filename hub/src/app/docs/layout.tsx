@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Binary, BookOpen, Code, FlaskConical } from "lucide-react";
+import { Binary, BookOpen, Code, FileText, FlaskConical, Package } from "lucide-react";
+import { getDocNotes } from "@/lib/docs";
 
 export const metadata: Metadata = {
   title: "Docs | MJOLNIR Core",
@@ -10,6 +11,11 @@ export const metadata: Metadata = {
 };
 
 const researchLinks = [
+  {
+    href: "/docs/research/tag-data",
+    label: "Blam tag data",
+    icon: Package,
+  },
   {
     href: "/docs/research/multiplayer",
     label: "Multiplayer investigation",
@@ -23,6 +29,10 @@ const researchLinks = [
 ];
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
+  const noteLinks = getDocNotes().map((note) => ({
+    href: `/docs/notes/${note.slug}`,
+    label: note.title,
+  }));
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
@@ -76,6 +86,12 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
             {label}
           </Link>
         ))}
+        <Link
+          href="/docs/notes"
+          className="shrink-0 border border-border px-3 py-2 text-xs font-semibold text-text-muted"
+        >
+          Notes
+        </Link>
       </nav>
 
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -102,6 +118,21 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     {label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-3 text-xs font-bold uppercase text-text-dim">Notes</p>
+              <div className="space-y-1">
+                {noteLinks.map(({ href, label }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="flex items-start gap-2 py-2 text-sm leading-5 text-text-muted hover:text-foreground"
+                  >
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{label}</span>
                   </Link>
                 ))}
               </div>
