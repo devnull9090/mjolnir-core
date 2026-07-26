@@ -1,38 +1,96 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
-interface Mod {
+interface ModEntry {
   name: string;
-  description: string;
   enabled: boolean;
+  description: string;
   version: string;
 }
 
-const DEFAULT_MODS: Mod[] = [
-  { name: "MJOLNIRCore", description: "Core runtime & UEHelpers library", enabled: true, version: "1.0.0" },
-  { name: "MJOLNIRFlyCam", description: "Free debug camera with WASD, mouse look, HUD toggle", enabled: true, version: "1.0.0" },
-  { name: "MJOLNIRConsoleEnabler", description: "UE5 developer console enabler (~ / Tab / F10)", enabled: true, version: "1.0.0" },
-  { name: "MJOLNIRMultiplayer", description: "Session hosting, travel, admin commands", enabled: true, version: "0.1.0" },
-  { name: "MJOLNIRDiscovery", description: "UFunction dumper & travel logging diagnostics", enabled: false, version: "0.1.0" },
-];
+interface GameInfo {
+  found: boolean;
+  install_path: string | null;
+  ue4ss_installed: boolean;
+  mods_path: string | null;
+}
 
 export default function ModList() {
-  const [mods, setMods] = useState<Mod[]>(DEFAULT_MODS);
+  const [mods, setMods] = useState<ModEntry[]>([]);
+  const [gameInfo, setGameInfo] = useState<GameInfo | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const toggleMod = (index: number) => {
-    setMods((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, enabled: !m.enabled } : m))
-    );
+  const loadData = useCallback(async () => {
+    try {
+      const [info, modList] = await Promise.all([
+        invoke<GameInfo>("detect_game"),
+        invoke<ModEntry[]>("get_mods"),
+      ]);
+      setGameInfo(info);
+      setMods(modList);
+    } catch (err) {
+      console.error("Failed to load data:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const toggleMod = async (name: string, enabled: boolean) => {
+    try {
+      await invoke("toggle_mod", { name, enabled });
+      setMods((prev) =>
+        prev.map((m) => (m.name === name ? { ...m, enabled } : m))
+      );
+    } catch (err) {
+      console.error("Failed to toggle mod:", err);
+    }
   };
 
   const enabledCount = mods.filter((m) => m.enabled).length;
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-6 h-6 border-2 border-mjolnir-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div>
+      {/* Game Status */}
+      {gameInfo && !gameInfo.found && (
+        <div className="mb-6 p-4 rounded-xl bg-accent-red/10 border border-accent-red/30 text-sm">
+          <p className="font-semibold text-accent-red">Game Not Found</p>
+          <p className="text-text-secondary mt-1">
+            Could not detect Halo Campaign Evolved. Please install it via Steam.
+          </p>
+        </div>
+      )}
+
+      {gameInfo && gameInfo.found && !gameInfo.ue4ss_installed && (
+        <div className="mb-6 p-4 rounded-xl bg-mjolnir-gold/10 border border-mjolnir-gold/30 text-sm">
+          <p className="font-semibold text-mjolnir-gold">UE4SS Not Installed</p>
+          <p className="text-text-secondary mt-1">
+            UE4SS was not found at{" "}
+            <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">
+              {gameInfo.install_path}\Meteorite\Binaries\Win64\ue4ss\
+            </code>
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-text-primary">Installed Mods</h2>
           <p className="text-sm text-text-secondary mt-1">
-            {enabledCount} of {mods.length} mods enabled
+            {mods.length > 0
+              ? `${enabledCount} of ${mods.length} mods enabled`
+              : "No mods detected — install mods into ue4ss/Mods/"}
           </p>
         </div>
         <button className="px-4 py-2 text-sm font-medium rounded-lg bg-surface-card border border-border-subtle text-text-secondary hover:text-text-primary hover:border-mjolnir-gold/40 transition-all duration-150 cursor-pointer">
@@ -41,7 +99,7 @@ export default function ModList() {
       </div>
 
       <div className="space-y-2">
-        {mods.map((mod, index) => (
+        {mods.map((mod) => (
           <div
             key={mod.name}
             className={`group flex items-center gap-4 p-4 rounded-xl border transition-all duration-200
@@ -53,7 +111,7 @@ export default function ModList() {
           >
             {/* Toggle */}
             <button
-              onClick={() => toggleMod(index)}
+              onClick={() => toggleMod(mod.name, !mod.enabled)}
               className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer flex-shrink-0
                 ${mod.enabled ? "bg-accent-green" : "bg-surface-hover"}`}
             >
@@ -76,7 +134,7 @@ export default function ModList() {
 
             {/* Actions */}
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-              <button className="p-1.5 rounded-md text-text-secondary hover:text-accent-blue hover:bg-surface-hover transition-colors cursor-pointer" title="Settings">
+              <button className="p-1.5 rounded-md text-text-secondary hover:text-accent-blue hover:bg-surface-hover transition-colors cursor-pointer" title="More options">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                 </svg>

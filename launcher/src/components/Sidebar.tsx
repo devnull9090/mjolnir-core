@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { View } from "../App";
 
 const navItems: { id: View; label: string; icon: JSX.Element }[] = [
@@ -71,6 +72,7 @@ export default function Sidebar({ activeView, onNavigate }: SidebarProps) {
       {/* Launch Button */}
       <div className="p-4 border-t border-border-subtle">
         <button
+          onClick={() => invoke("launch_game").catch(console.error)}
           className="w-full py-3 rounded-lg font-bold text-sm tracking-wide uppercase
             bg-gradient-to-r from-mjolnir-gold to-mjolnir-gold-dim
             text-surface-primary
