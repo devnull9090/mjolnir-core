@@ -1,6 +1,6 @@
 [package]
 name = "mjolnir-launcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "MJOLNIR Launcher — Mod manager for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
