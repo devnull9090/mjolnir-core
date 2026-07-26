@@ -1,5 +1,0 @@
-MJOLNIRCore : 1
-MJOLNIRConsoleEnabler : 1
-MJOLNIRFlyCam : 1
-MJOLNIRMultiplayer : 1
-MJOLNIRDiscovery : 0

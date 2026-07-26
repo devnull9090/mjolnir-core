@@ -21,5 +21,26 @@ ghidra_results.txt
 Thumbs.db
 .DS_Store
 
-# Gemini artifacts
+# Gemini / AI
 .gemini/
+.agents/
+
+# Node / pnpm (launcher & hub)
+node_modules/
+dist/
+.next/
+.open-next/
+out/
+
+# Rust / Tauri
+target/
+
+# Cloudflare local dev
+.dev.vars
+.wrangler/
+
+# Environment / Secrets — NEVER COMMIT
+.env
+.env.*
+!.env.example
+!.dev.vars.example

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint-mods:
+    name: Lint Lua Mods
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.3 luarocks
+          sudo luarocks install luacheck
+
+      - name: Lint Lua scripts
+        run: |
+          luacheck mods/ signatures/ \
+            --no-unused-args \
+            --no-max-line-length \
+            --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
+                      RegisterConsoleCommandHandler IsKeyBindRegistered \
+                      ExecuteInGameThread ExecuteInGameThreadWithDelay \
+                      FindFirstOf FindAllOf StaticFindObject StaticConstructObject \
+                      FName FText Key ModifierKey NotifyOnNewObject \
+            --ignore 111 112 113 \
+            || true  # Non-blocking for now
+
+  validate-structure:
+    name: Validate Repo Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          echo "Checking repo structure..."
+          test -f config/UE4SS-settings.ini || (echo "FAIL: config/UE4SS-settings.ini missing" && exit 1)
+          test -d mods/MJOLNIRCore || (echo "FAIL: mods/MJOLNIRCore missing" && exit 1)
+          test -d signatures || (echo "FAIL: signatures/ missing" && exit 1)
+          test -f LICENSE || (echo "FAIL: LICENSE missing" && exit 1)
+          echo "All checks passed."
+
+      - name: Ensure no secrets in repo
+        run: |
+          echo "Scanning for potential secrets..."
+          if grep -rn "CLOUDFLARE_API_TOKEN\|DISCORD_CLIENT_SECRET\|JWT_SECRET" \
+            --include="*.ts" --include="*.js" --include="*.json" --include="*.toml" \
+            . | grep -v ".example" | grep -v "secrets\." | grep -v "process.env" | grep -v "\.github"; then
+            echo "WARNING: Possible hardcoded secrets found!"
+            exit 1
+          fi
+          echo "No secrets found."
