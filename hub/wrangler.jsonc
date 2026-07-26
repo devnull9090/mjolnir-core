@@ -26,11 +26,5 @@
   ],
   "vars": {
     "SITE_URL": "https://mjolnircore.com"
-  },
-  "routes": [
-    {
-      "pattern": "mjolnircore.com",
-      "custom_domain": true
-    }
-  ]
+  }
 }
