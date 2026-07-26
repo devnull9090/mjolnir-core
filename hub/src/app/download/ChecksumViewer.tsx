@@ -54,7 +54,7 @@ export default function ChecksumViewer() {
             </span>
             <button
               onClick={() => copyToClipboard(data.msi_hash!, "msi")}
-              className="px-2.5 py-1 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               {copiedKey === "msi" ? (
                 <>
@@ -85,7 +85,7 @@ export default function ChecksumViewer() {
             </span>
             <button
               onClick={() => copyToClipboard(data.nsis_hash!, "nsis")}
-              className="px-2.5 py-1 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-accent-blue/40 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-md bg-surface-raised border border-border-bright text-xs text-text-muted hover:text-foreground hover:border-accent-blue/40 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               {copiedKey === "nsis" ? (
                 <>

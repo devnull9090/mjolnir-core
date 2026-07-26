@@ -2,9 +2,10 @@ import Link from "next/link";
 import {
   Download,
   Plus,
-  Construction,
   MoreVertical,
 } from "lucide-react";
+import { Navbar } from "../components/Navbar";
+import { Footer } from "../components/Footer";
 
 function DiscordIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -67,35 +68,9 @@ const CATEGORIES = ["all", "camera", "tools", "multiplayer", "framework", "gamep
 export default function ModsPage() {
   return (
     <>
-      {/* Alpha Banner */}
-      <div className="bg-gradient-to-r from-gold/10 via-gold/5 to-gold/10 border-b border-gold/20">
-        <div className="max-w-6xl mx-auto px-6 py-2 flex items-center justify-center gap-2 text-sm">
-          <Construction className="w-4 h-4 text-gold" />
-          <span className="text-gold font-semibold">Alpha</span>
-          <span className="text-text-muted">—</span>
-          <span className="text-text-muted">Mod uploads coming soon. For now, install mods via the launcher.</span>
-        </div>
-      </div>
+      <Navbar />
 
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <img src="/logo-transparent.png" alt="MJOLNIR Core" className="w-8 h-8 object-contain" />
-            <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
-            <span className="text-xs text-text-muted font-medium">CORE</span>
-          </Link>
-          <div className="flex items-center gap-6">
-            <Link href="/mods" className="text-sm text-foreground font-medium">Mods</Link>
-            <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors flex items-center gap-1.5">
-              <DiscordIcon className="w-4 h-4" />
-              Discord
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="pt-12 pb-16 px-6 max-w-6xl mx-auto">
+      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-10">
           <h1 className="text-4xl font-black text-foreground mb-3">Mods</h1>
@@ -161,7 +136,7 @@ export default function ModsPage() {
                     <Download className="w-3 h-3" />
                     Download
                   </button>
-                  <button className="p-1.5 rounded-lg text-text-dim hover:text-foreground hover:bg-surface-card transition-colors cursor-pointer opacity-0 group-hover:opacity-100">
+                  <button className="p-1.5 rounded-lg text-text-dim hover:text-foreground hover:bg-surface-card transition-colors cursor-pointer opacity-100 md:opacity-0 md:group-hover:opacity-100">
                     <MoreVertical className="w-4 h-4" />
                   </button>
                 </div>
@@ -183,6 +158,8 @@ export default function ModsPage() {
           </div>
         </div>
       </main>
+
+      <Footer />
     </>
   );
 }

@@ -91,7 +91,7 @@ export default async function TagGroupPage({ params }: { params: Promise<Params>
           </div>
         </div>
 
-        <dl className="mt-7 grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-5">
+        <dl className="mt-7 grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3 lg:grid-cols-5">
           {[
             ["Fields", summary.visible.toLocaleString()],
             ["Structs", summary.structs.toLocaleString()],

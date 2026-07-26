@@ -100,7 +100,7 @@ const components: Components = {
     </code>
   ),
   table: ({ children }: Kids) => (
-    <div className="mt-5 overflow-x-auto border border-border">
+    <div className="scroll-hint mt-5 overflow-x-auto border border-border">
       <table className="w-full min-w-[420px] text-left text-sm">{children}</table>
     </div>
   ),

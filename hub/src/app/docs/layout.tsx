@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
-import { Binary, BookOpen, Braces, Code, Database, FileText, FlaskConical, Package } from "lucide-react";
+import { Binary, BookOpen, Braces, Database, FileText, FlaskConical, Package } from "lucide-react";
 import { getDocNotes } from "@/lib/docs";
+import { Navbar } from "../components/Navbar";
 
 export const metadata: Metadata = {
   title: "Docs | MJOLNIR Core",
@@ -45,45 +45,16 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
   }));
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
-          <Link href="/" className="flex items-center gap-3">
-            <Image
-              src="/logo-transparent.png"
-              alt="MJOLNIR Core"
-              width={34}
-              height={34}
-              className="object-contain"
-            />
-            <span className="font-bold text-gold">MJOLNIR</span>
-            <span className="text-xs font-semibold uppercase text-text-muted">Docs</span>
-          </Link>
-          <nav className="flex items-center gap-5 text-sm text-text-muted" aria-label="Primary">
-            <Link href="/mods" className="hidden hover:text-foreground sm:block">
-              Mods
-            </Link>
-            <Link href="/download" className="hidden hover:text-foreground sm:block">
-              Download
-            </Link>
-            <Link
-              href="https://github.com/devnull9090/mjolnir-core"
-              target="_blank"
-              className="flex items-center gap-2 hover:text-foreground"
-            >
-              <Code className="h-4 w-4" />
-              <span className="hidden sm:inline">GitHub</span>
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
+      {/* Docs-specific mobile nav pills */}
       <nav
-        className="flex gap-2 overflow-x-auto border-b border-border px-5 py-3 lg:hidden"
+        className="flex gap-2 overflow-x-auto border-b border-border px-5 py-3 pt-32 md:pt-36 lg:hidden"
         aria-label="Documentation"
       >
         <Link
           href="/docs"
-          className="shrink-0 border border-border px-3 py-2 text-xs font-semibold text-text-muted"
+          className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-muted"
         >
           Overview
         </Link>
@@ -91,22 +62,22 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           <Link
             key={href}
             href={href}
-            className="shrink-0 border border-border px-3 py-2 text-xs font-semibold text-text-muted"
+            className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-muted"
           >
             {label}
           </Link>
         ))}
         <Link
           href="/docs/notes"
-          className="shrink-0 border border-border px-3 py-2 text-xs font-semibold text-text-muted"
+          className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-muted"
         >
           Notes
         </Link>
       </nav>
 
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-border px-6 py-10 lg:block">
-          <nav className="sticky top-24 space-y-8" aria-label="Documentation">
+        <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-border px-6 pt-36 pb-10 lg:block">
+          <nav className="sticky top-36 space-y-8" aria-label="Documentation">
             <div>
               <p className="mb-3 text-xs font-bold uppercase text-text-dim">Start</p>
               <Link
@@ -150,7 +121,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </nav>
         </aside>
 
-        <div className="min-w-0 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">{children}</div>
+        <div className="min-w-0 px-5 py-10 sm:px-8 lg:px-12 lg:py-14 lg:pt-36">{children}</div>
       </div>
 
       <footer className="border-t border-border px-5 py-6 text-center text-xs text-text-dim">

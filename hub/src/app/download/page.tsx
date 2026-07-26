@@ -3,10 +3,11 @@ import {
   Download,
   Shield,
   Terminal,
-  Construction,
   CheckCircle,
   ExternalLink,
 } from "lucide-react";
+import { Navbar } from "../components/Navbar";
+import { Footer } from "../components/Footer";
 import ChecksumViewer from "./ChecksumViewer";
 
 function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -20,32 +21,9 @@ function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
 export default function DownloadPage() {
   return (
     <>
-      {/* Alpha Banner */}
-      <div className="bg-gradient-to-r from-gold/10 via-gold/5 to-gold/10 border-b border-gold/20">
-        <div className="max-w-6xl mx-auto px-6 py-2 flex items-center justify-center gap-2 text-sm">
-          <Construction className="w-4 h-4 text-gold" />
-          <span className="text-gold font-semibold">Alpha</span>
-          <span className="text-text-muted">—</span>
-          <span className="text-text-muted">Pre-release build. Expect changes between versions.</span>
-        </div>
-      </div>
+      <Navbar />
 
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <img src="/logo-transparent.png" alt="MJOLNIR Core" className="w-8 h-8 object-contain" />
-            <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
-            <span className="text-xs text-text-muted font-medium">CORE</span>
-          </Link>
-          <div className="flex items-center gap-6">
-            <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">Mods</Link>
-            <Link href="/download" className="text-sm text-foreground font-medium">Download</Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="pt-12 pb-24 px-6 max-w-4xl mx-auto">
+      <main className="pt-32 md:pt-36 pb-24 px-6 max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
@@ -55,7 +33,7 @@ export default function DownloadPage() {
         </div>
 
         {/* Download Card */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-8 mb-8">
+        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8 mb-8">
           <div className="flex items-start gap-4 mb-6">
             <div className="w-14 h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
               <Download className="w-7 h-7" />
@@ -88,7 +66,7 @@ export default function DownloadPage() {
         </div>
 
         {/* Hash Verification */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-8 mb-8">
+        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8 mb-8">
           <div className="flex items-start gap-4 mb-6">
             <div className="w-14 h-14 rounded-xl bg-accent-green/10 text-accent-green flex items-center justify-center flex-shrink-0">
               <Shield className="w-7 h-7" />
@@ -157,7 +135,7 @@ export default function DownloadPage() {
         </div>
 
         {/* System Requirements */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-8">
+        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8">
           <h2 className="text-lg font-bold text-foreground mb-4">System Requirements</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {[
@@ -174,6 +152,8 @@ export default function DownloadPage() {
           </div>
         </div>
       </main>
+
+      <Footer />
     </>
   );
 }
