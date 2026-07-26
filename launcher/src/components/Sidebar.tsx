@@ -1,7 +1,8 @@
+import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { View } from "../App";
 
-const navItems: { id: View; label: string; icon: JSX.Element }[] = [
+const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
   {
     id: "mods",
     label: "My Mods",
