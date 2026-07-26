@@ -1,0 +1,12 @@
+[package]
+name = "blam-defs"
+description = "Blam tag definition model shared by the tag reader, CLI, and editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Binary, BookOpen, Code, FileText, FlaskConical, Package } from "lucide-react";
+import { Binary, BookOpen, Braces, Code, FileText, FlaskConical, Package } from "lucide-react";
 import { getDocNotes } from "@/lib/docs";
 
 export const metadata: Metadata = {
@@ -15,6 +15,11 @@ const researchLinks = [
     href: "/docs/research/tag-data",
     label: "Blam tag data",
     icon: Package,
+  },
+  {
+    href: "/docs/research/tag-format",
+    label: "Self-describing tag layout",
+    icon: Braces,
   },
   {
     href: "/docs/research/multiplayer",

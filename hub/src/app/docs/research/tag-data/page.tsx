@@ -147,8 +147,7 @@ export default function TagDataPage() {
         <p className="mt-3 text-sm leading-6 text-text-muted">
           Verified across 168 sampled payloads covering all 101 shipped groups. Every payload begins
           with a 0x4C-byte header, and header plus payload size equals chunk size in every sample.
-        </p>
-        <div className="mt-5 overflow-x-auto border border-border">
+        </p>        <div className="mt-5 overflow-x-auto border border-border">
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="bg-surface text-xs uppercase text-text-dim">
               <tr>
@@ -168,6 +167,14 @@ export default function TagDataPage() {
             </tbody>
           </table>
         </div>
+        <p className="mt-5 text-sm leading-6 text-text-muted">
+          The body past 0x4C is no longer opaque. Every tag carries a blay layout section describing
+          its own fields, including the original Guerilla field and option names. See{" "}
+          <Link href="/docs/research/tag-format" className="text-gold hover:underline">
+            Self-describing tag layout
+          </Link>
+          .
+        </p>
       </section>
 
       <section className="border-t border-border py-9" aria-labelledby="inventory-heading">

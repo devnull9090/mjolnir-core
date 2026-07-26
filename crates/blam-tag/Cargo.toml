@@ -1,0 +1,12 @@
+[package]
+name = "blam-tag"
+description = "Blam tag container and self-describing blay layout reader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+blam-defs = { path = "../blam-defs" }
+thiserror.workspace = true
+serde.workspace = true

@@ -41,8 +41,16 @@ mjolnir-core/
 ├── native/                      # C source for FName trampoline DLL
 ├── config/                      # Reference UE4SS-settings.ini
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
-├── launcher/                    # (Coming Soon) Tauri desktop mod manager
-└── hub/                         # (Coming Soon) Cloudflare mod community platform
+├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
+├── crates/                      # Rust workspace
+│   ├── ue-iostore/              # UE5 .utoc/.ucas container reader
+│   ├── blam-defs/               # Tag definition model & JSON corpus loader
+│   ├── blam-tag/                # Definition-driven Blam tag reader
+│   └── blam-cli/                # `mjolnir` command-line tool
+├── apps/
+│   ├── launcher/                # Tauri desktop mod manager
+│   └── tag-editor/              # (In Progress) Guerilla-style tag editor
+└── hub/                         # Cloudflare mod community platform
 ```
 
 ---
@@ -154,9 +162,43 @@ python tools/iostore/extract_tags.py --paks $paks --oodle $oodle --group vehicle
 `extract_tags.py` output is copyrighted game content. Keep it local and never commit it.
 See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings these tools produced.
 
+### Tag Definitions
+
+Halo Campaign Evolved tag files are **self-describing**: each one carries a `blay` layout section
+holding its own field names, type names, and enum option names — the same strings Guerilla showed.
+Definitions for all 101 shipped groups are recoverable from the game data alone, with no need to
+recover them from the engine binary. See [`docs/tag_body_format.md`](docs/tag_body_format.md).
+
+The Rust workspace in `crates/` reads containers and layouts natively:
+
+| Crate | Purpose |
+|---|---|
+| `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, Oodle, zlib, partitions) |
+| `blam-defs` | Shared tag definition model and JSON corpus format |
+| `blam-tag` | `0x4C` container header plus the `blay` layout section parser |
+| `blam-cli` | The `mjolnir` command-line tool |
+
+```powershell
+$env:HCE_PAKS = "<install>\Meteorite\Content\Paks"
+$env:OODLE    = "<UE install>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
+
+cargo run --release -p blam-cli -- groups                          # every group + coverage
+cargo run --release -p blam-cli -- list --group weapon             # tag paths
+cargo run --release -p blam-cli -- layout --group weapon --options # strings, options, fields
+cargo run --release -p blam-cli -- type-codes                      # field type histogram
+
+python tools/iostore/decode_body.py --paks $env:HCE_PAKS --oodle $env:OODLE --survey
+```
+
+`mjolnir groups` currently parses **101/101 groups across all 12,290 shipped payloads**. Nothing is
+written to disk; payloads are read into memory only.
+
+The launcher is excluded from the root Cargo workspace on purpose, so it keeps its own target
+directory and release pipeline. Build it from `apps/launcher` as before.
+
 ### Coming Soon
-- **MJOLNIR Launcher**: Tauri desktop app for one-click mod management
-- **MJOLNIR Hub**: Community mod platform (browse, upload, download mods)
+- **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)
+- **MJOLNIR Hub**: Community platform for mods and tools, with submission and moderation
 - **Player Tracker**: Multiplayer stats and leaderboards
 
 ---

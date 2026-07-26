@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ue-iostore",
+    "crates/blam-defs",
+    "crates/blam-tag",
+    "crates/blam-cli",
+]
+
+# The launcher ships today with its own lockfile and release pipeline. It is kept
+# out of this workspace deliberately so the restructure cannot change its build
+# output paths. Migrate it separately once the tag editor pipeline is proven.
+exclude = ["apps/launcher/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/devnull9090/mjolnir-core"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+byteorder = "1"
+flate2 = "1"
+libloading = "0.8"
+memmap2 = "0.9"
+clap = { version = "4", features = ["derive", "env"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

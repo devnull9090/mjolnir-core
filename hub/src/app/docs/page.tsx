@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Binary, FileText, FlaskConical, Package } from "lucide-react";
+import { ArrowRight, Binary, Braces, FileText, FlaskConical, Package } from "lucide-react";
 import { getDocNotes } from "@/lib/docs";
 import { EvidenceBadge, type EvidenceLevel } from "./_components/EvidenceBadge";
 
@@ -17,6 +17,14 @@ const research = [
       "12,328 real Blam tag files ship inside Unreal packages across 101 classic tag groups. Container format, inventory, and the simulation-versus-rendering split.",
     status: "Verified" as EvidenceLevel,
     icon: Package,
+  },
+  {
+    href: "/docs/research/tag-format",
+    title: "Self-describing tag layout",
+    description:
+      "Every tag carries its own field definitions. The blay layout section ships real Guerilla field names, type names, and enum options for all 101 groups.",
+    status: "Verified" as EvidenceLevel,
+    icon: Braces,
   },
   {
     href: "/docs/research/multiplayer",

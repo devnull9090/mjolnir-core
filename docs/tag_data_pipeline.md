@@ -260,10 +260,17 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
 
 ## Next Checks
 
-1. Decode the tag body past `0x4C` and confirm whether the classic `tag_block` / `tag_data` /
-   `tag_reference` field layout is intact.
+1. ~~Decode the tag body past `0x4C` and confirm whether the classic `tag_block` / `tag_data` /
+   `tag_reference` field layout is intact.~~ **Superseded 2026-07-26.** The body is a
+   self-describing `blay` layout section carrying its own string blob and field table. See
+   [`tag_body_format.md`](tag_body_format.md).
 2. Test the `0x34` group-version hypothesis against a known Reach or Halo 4 tag definition set.
-3. Resolve the `blay` / `4444` / `CCCC` / `wwww` markers.
+   **Partly resolved:** the value varies per group and is stable within a group, consistent with a
+   per-group definition version; it is independent of the `blay` section version, which is `2` in
+   all 101 groups.
+3. ~~Resolve the `blay` / `4444` / `CCCC` / `wwww` markers.~~ **Superseded 2026-07-26.** `blay` is
+   the layout section four-CC at body `0x00`; `4444` / `CCCC` / `wwww` are fixed ASCII fill
+   constants at body `0x10`-`0x18`. See [`tag_body_format.md`](tag_body_format.md).
 4. Trace the simulation-side loader that resolves an Unreal package to a tag, starting from shell
    primary slot 2 (see [`halosimulation_tag_release.md`](halosimulation_tag_release.md)).
 5. Read `game_engine_settings-game_engine_settings_definition` and
