@@ -1,9 +1,12 @@
 name: Deploy Hub to Cloudflare
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-    paths: ['hub/**']
+    paths:
+      - 'hub/**'
+      - '.github/workflows/deploy-hub.yml'
 
 jobs:
   deploy:
