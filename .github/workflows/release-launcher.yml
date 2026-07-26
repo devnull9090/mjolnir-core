@@ -148,7 +148,7 @@ jobs:
           Write-Host "✅ Uploaded to releases.mjolnircore.com"
 
       - name: Post release notification to Discord
-        if: secrets.DISCORD_RELEASE_WEBHOOK_URL != ''
+        if: "${{ secrets.DISCORD_RELEASE_WEBHOOK_URL != '' }}"
         shell: pwsh
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
