@@ -1,0 +1,7 @@
+# MJOLNIR Hub - Environment Variables
+# Copy this file to .dev.vars and fill in real values
+# NEVER commit .dev.vars to git
+
+DISCORD_CLIENT_ID=your_discord_app_client_id
+DISCORD_CLIENT_SECRET=your_discord_app_client_secret
+JWT_SECRET=generate_a_random_32_char_string_here

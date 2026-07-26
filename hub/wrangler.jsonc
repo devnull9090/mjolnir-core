@@ -1,0 +1,36 @@
+{
+  "name": "mjolnir-hub",
+  "compatibility_date": "2025-07-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": ".open-next/worker.js",
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mjolnir-db",
+      "database_id": "2bd39427-6b15-48aa-bce7-74913218e245"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MODS_BUCKET",
+      "bucket_name": "mjolnir-mods"
+    },
+    {
+      "binding": "RELEASES_BUCKET",
+      "bucket_name": "mjolnir-releases"
+    }
+  ],
+  "vars": {
+    "SITE_URL": "https://mjolnircore.com"
+  },
+  "routes": [
+    {
+      "pattern": "mjolnircore.com/*",
+      "custom_domain": true
+    }
+  ]
+}
