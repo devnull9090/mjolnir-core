@@ -36,7 +36,7 @@ const FEATURED_MODS = [
   {
     slug: "mjolnir-multiplayer",
     name: "MJOLNIRMultiplayer",
-    description: "Session hosting, server travel, kick/ban admin commands for multiplayer gameplay.",
+    description: "Experimental campaign map travel, listen-server loading, and player admin commands.",
     author: "devnull9090",
     version: "0.1.0",
     downloads: 0,

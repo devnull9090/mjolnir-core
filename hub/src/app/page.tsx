@@ -78,6 +78,9 @@ function Navbar() {
           <span className="text-xs text-text-muted font-medium">CORE</span>
         </Link>
         <div className="hidden md:flex items-center gap-8">
+          <Link href="/docs" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Docs
+          </Link>
           <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Mods
           </Link>
@@ -190,8 +193,8 @@ const features = [
     icon: <Users className="w-6 h-6" />,
   },
   {
-    title: "Hot Reload",
-    description: "Press CTRL+R in-game to instantly reload all Lua mods without restarting. Iterate at the speed of thought.",
+    title: "Runtime Discovery",
+    description: "Inspect live BlamEngine variants, worlds, session state, and network components through evidence-aware console probes.",
     icon: <RefreshCw className="w-6 h-6" />,
   },
   {
@@ -240,7 +243,7 @@ function HotkeysSection() {
     { key: "F8", action: "Toggle FlyCam ON/OFF" },
     { key: "F7", action: "Toggle HUD overlay" },
     { key: "F9", action: "Toggle mouse look" },
-    { key: "CTRL+R", action: "Hot reload all mods" },
+    { key: "F10", action: "Open developer console" },
     { key: "~", action: "Open developer console" },
     { key: "WASD", action: "FlyCam movement" },
   ];
@@ -323,6 +326,9 @@ function Footer() {
           </Link>
           <Link href="/mods" className="hover:text-foreground transition-colors">
             Mods
+          </Link>
+          <Link href="/docs" className="hover:text-foreground transition-colors">
+            Docs
           </Link>
         </div>
       </div>

@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const mods = [
     { id: "1", slug: "mjolnir-flycam", name: "MJOLNIRFlyCam", description: "Free debug camera", author: "devnull9090", version: "1.0.0", category: "camera", downloads: 0, created_at: new Date().toISOString() },
     { id: "2", slug: "mjolnir-console-enabler", name: "MJOLNIRConsoleEnabler", description: "UE5 console enabler", author: "devnull9090", version: "1.0.0", category: "tools", downloads: 0, created_at: new Date().toISOString() },
-    { id: "3", slug: "mjolnir-multiplayer", name: "MJOLNIRMultiplayer", description: "Session hosting & admin", author: "devnull9090", version: "0.1.0", category: "multiplayer", downloads: 0, created_at: new Date().toISOString() },
+    { id: "3", slug: "mjolnir-multiplayer", name: "MJOLNIRMultiplayer", description: "Experimental map travel & admin", author: "devnull9090", version: "0.1.0", category: "multiplayer", downloads: 0, created_at: new Date().toISOString() },
     { id: "4", slug: "mjolnir-core", name: "MJOLNIRCore", description: "Core runtime & UEHelpers", author: "devnull9090", version: "1.0.0", category: "framework", downloads: 0, created_at: new Date().toISOString() },
     { id: "5", slug: "mjolnir-discovery", name: "MJOLNIRDiscovery", description: "UFunction diagnostics", author: "devnull9090", version: "0.1.0", category: "tools", downloads: 0, created_at: new Date().toISOString() },
   ];

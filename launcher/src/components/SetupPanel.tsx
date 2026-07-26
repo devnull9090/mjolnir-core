@@ -180,7 +180,7 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
               { name: "MJOLNIRConsoleEnabler", desc: "Developer console access" },
               { name: "MJOLNIRFlyCam", desc: "Free debug camera (F8 toggle)" },
               { name: "MJOLNIRDiscovery", desc: "Function scanner & diagnostics" },
-              { name: "MJOLNIRMultiplayer", desc: "Session hosting & admin tools" },
+              { name: "MJOLNIRMultiplayer", desc: "Experimental map travel & admin tools" },
             ].map((item) => (
               <div
                 key={item.name}

@@ -35,7 +35,7 @@ mjolnir-core/
 │   ├── MJOLNIRCore/             # Core runtime & UEHelpers library
 │   ├── MJOLNIRFlyCam/           # Free debug camera with WASD, mouse look, HUD toggle
 │   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ / Tab / F10)
-│   ├── MJOLNIRMultiplayer/      # Session hosting & admin commands
+│   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   └── MJOLNIRDiscovery/        # UFunction dumper & travel logging
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
@@ -66,7 +66,18 @@ Smooth free-flying debug camera with continuous WASD movement, mouse viewport lo
 Enables the UE5 developer console in the shipping build.
 
 ### MJOLNIRMultiplayer
-Session hosting, server travel, kick/ban commands via `!kick`, `!ban`, `!travel`.
+Experimental travel probes for verified campaign package paths, listen-server loading, and player
+administration. Runtime travel and session preservation still require in-game verification.
+
+| Command | Purpose |
+| :--- | :--- |
+| `mjolnir_maps` | List verified CU2 root world package keys and paths |
+| `mjolnir_travel a15` | Dispatch plain travel to the A15 campaign world |
+| `mjolnir_listen a15` | Dispatch travel to A15 with `?listen` |
+| `mjolnir_scan_blam` | Dump live BlamEngine classes, functions, and candidate instances |
+| `mjolnir_scan_worlds` | Dump loaded Halo world objects |
+| `mjolnir_trace_network` | Hook co-op session, lobby, and travel lifecycle functions |
+| `mjolnir_dump_state` | Snapshot live variant and Blam network component properties |
 
 ### MJOLNIRCore
 Core framework initialization and `UEHelpers` utility library.
@@ -92,22 +103,38 @@ Core framework initialization and `UEHelpers` utility library.
    ```
 6. Launch the game via Steam
 
-### Hot Reload
-Press **`CTRL + R`** in-game to reload all Lua mods without restarting.
+### Reloading Mods
+UE4SS reads `mods.txt` and loads Lua scripts during process startup in the tested configuration.
+Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not currently install a
+`CTRL+R` reload binding.
 
 ---
 
 ## Development
 
 ### Reverse Engineering
-Ghidra scripts for analyzing `HaloCampaignEvolved.exe`:
-```bash
-# Headless analysis
-analyzeHeadless.bat <project_dir> MJOLNIR_Proj \
-  -import "HaloCampaignEvolved.exe" \
-  -scriptPath "tools/ghidra" \
-  -postScript extract_signatures.py
+Ghidra Java scripts for the simulation factory and host loader path:
+```powershell
+analyzeHeadless.bat <project_dir> HaloSimulation `
+  -import "HaloSimulation_tag_release.dll" `
+  -scriptPath "tools/ghidra" `
+  -postScript AnalyzeBlamShell.java <output_dir>
+
+analyzeHeadless.bat <project_dir> HCE_Analysis `
+  -process "HaloCampaignEvolved.exe" `
+  -noanalysis `
+  -scriptPath "tools/ghidra" `
+  -postScript AnalyzeBlamLoader.java <output_dir>
+
+analyzeHeadless.bat <project_dir> HCE_Analysis `
+  -process "HaloCampaignEvolved.exe" `
+  -noanalysis `
+  -scriptPath "tools/ghidra" `
+  -postScript AnalyzeMultiplayerRuntime.java <output_dir>
 ```
+
+Ghidra 12.1 does not run Python scripts through `analyzeHeadless` unless it is launched through
+PyGhidra. Use the Java probes above for standard headless runs.
 
 ### Coming Soon
 - **MJOLNIR Launcher**: Tauri desktop app for one-click mod management
