@@ -188,11 +188,33 @@ fn toggle_mod(name: String, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn launch_game() -> Result<(), String> {
-    // Launch via Steam protocol
+    if let Some(install_path) = find_game_install() {
+        // Candidate paths for the game executable
+        let candidates = vec![
+            install_path.join("Meteorite/Binaries/Win64/Meteorite-Win64-Shipping.exe"),
+            install_path.join("Meteorite/Binaries/Win64/Meteorite.exe"),
+            install_path.join("Meteorite.exe"),
+            install_path.join("HaloCE.exe"),
+        ];
+
+        for exe in &candidates {
+            if exe.exists() {
+                let working_dir = exe.parent().unwrap_or(&install_path);
+                std::process::Command::new(exe)
+                    .current_dir(working_dir)
+                    .spawn()
+                    .map_err(|e| format!("Failed to launch {}: {}", exe.display(), e))?;
+                return Ok(());
+            }
+        }
+    }
+
+    // Fallback if game directory wasn't found directly
     std::process::Command::new("cmd")
-        .args(["/C", "start", "steam://rungameid/2993530"])
+        .args(["/C", "start", "steam://run/2993530"])
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to launch via Steam: {}", e))?;
+
     Ok(())
 }
 
