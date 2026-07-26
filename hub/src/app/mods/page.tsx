@@ -1,4 +1,18 @@
 import Link from "next/link";
+import {
+  Download,
+  Plus,
+  Construction,
+  MoreVertical,
+} from "lucide-react";
+
+function DiscordIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
+    </svg>
+  );
+}
 
 const FEATURED_MODS = [
   {
@@ -53,8 +67,18 @@ const CATEGORIES = ["all", "camera", "tools", "multiplayer", "framework", "gamep
 export default function ModsPage() {
   return (
     <>
+      {/* Alpha Banner */}
+      <div className="bg-gradient-to-r from-gold/10 via-gold/5 to-gold/10 border-b border-gold/20">
+        <div className="max-w-6xl mx-auto px-6 py-2 flex items-center justify-center gap-2 text-sm">
+          <Construction className="w-4 h-4 text-gold" />
+          <span className="text-gold font-semibold">Alpha</span>
+          <span className="text-text-muted">—</span>
+          <span className="text-text-muted">Mod uploads coming soon. For now, install mods via the launcher.</span>
+        </div>
+      </div>
+
       {/* Navbar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-xl">
+      <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
@@ -62,12 +86,15 @@ export default function ModsPage() {
           </Link>
           <div className="flex items-center gap-6">
             <Link href="/mods" className="text-sm text-foreground font-medium">Mods</Link>
-            <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors">Discord</Link>
+            <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors flex items-center gap-1.5">
+              <DiscordIcon className="w-4 h-4" />
+              Discord
+            </Link>
           </div>
         </div>
       </nav>
 
-      <main className="pt-24 pb-16 px-6 max-w-6xl mx-auto">
+      <main className="pt-12 pb-16 px-6 max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-10">
           <h1 className="text-4xl font-black text-foreground mb-3">Mods</h1>
@@ -124,15 +151,19 @@ export default function ModsPage() {
                     {mod.category}
                   </span>
                   <span className="text-xs text-text-dim flex items-center gap-1">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+                    <Download className="w-3 h-3" />
                     {mod.downloads}
                   </span>
                 </div>
-                <button className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gold/10 text-gold hover:bg-gold/20 transition-colors cursor-pointer">
-                  Download
-                </button>
+                <div className="flex items-center gap-1">
+                  <button className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gold/10 text-gold hover:bg-gold/20 transition-colors cursor-pointer flex items-center gap-1">
+                    <Download className="w-3 h-3" />
+                    Download
+                  </button>
+                  <button className="p-1.5 rounded-lg text-text-dim hover:text-foreground hover:bg-surface-card transition-colors cursor-pointer opacity-0 group-hover:opacity-100">
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -141,12 +172,11 @@ export default function ModsPage() {
         {/* Upload CTA */}
         <div className="mt-16 text-center">
           <div className="inline-flex flex-col items-center p-8 rounded-2xl border border-dashed border-border-bright">
-            <svg className="w-10 h-10 text-text-dim mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-            </svg>
+            <Plus className="w-10 h-10 text-text-dim mb-3" />
             <p className="text-foreground font-semibold mb-1">Share Your Mod</p>
             <p className="text-sm text-text-muted mb-4">Upload your creation for the community</p>
-            <button className="px-5 py-2 rounded-lg text-sm font-medium bg-surface-card border border-border text-text-muted hover:text-foreground hover:border-gold/40 transition-all cursor-pointer">
+            <button className="px-5 py-2 rounded-lg text-sm font-medium bg-surface-card border border-border text-text-muted hover:text-foreground hover:border-gold/40 transition-all cursor-pointer flex items-center gap-2">
+              <DiscordIcon className="w-4 h-4" />
               Sign in with Discord to upload
             </button>
           </div>
