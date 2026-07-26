@@ -1,10 +1,17 @@
 # MJOLNIR Core — Halo Campaign Evolved Modding Platform
 
-[![Discord](https://img.shields.io/discord/100000000000000000?color=7289da&logo=discord&logoColor=white&label=Discord)](https://discord.gg/9gxYZsByW9)
+[![CI](https://github.com/devnull9090/mjolnir-core/actions/workflows/ci.yml/badge.svg)](https://github.com/devnull9090/mjolnir-core/actions/workflows/ci.yml)
+[![Deploy Hub](https://github.com/devnull9090/mjolnir-core/actions/workflows/deploy-hub.yml/badge.svg)](https://github.com/devnull9090/mjolnir-core/actions/workflows/deploy-hub.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-gold.svg)](https://github.com/devnull9090/mjolnir-core/blob/main/LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/9gxYZsByW9)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)](https://store.steampowered.com/app/2993530/Halo_Campaign_Evolved/)
+[![UE5](https://img.shields.io/badge/Engine-Unreal%205.5-313131?logo=unrealengine&logoColor=white)](https://www.unrealengine.com/)
+[![Cloudflare](https://img.shields.io/badge/Hosted%20on-Cloudflare-F38020?logo=cloudflare&logoColor=white)](https://mjolnircore.com)
+[![Tauri](https://img.shields.io/badge/Launcher-Tauri%202-24C8D8?logo=tauri&logoColor=white)](https://tauri.app)
 
 **MJOLNIR Core** is an open-source modding framework and platform for *Halo Campaign Evolved*, built on **RE-UE4SS** (Unreal Engine 4/5 Scripting System).
 
-👉 **[Join the Discord Community](https://discord.gg/9gxYZsByW9)**
+🌐 **[mjolnircore.com](https://mjolnircore.com)** · 💬 **[Join Discord](https://discord.gg/9gxYZsByW9)** · 📦 **[Download Launcher](https://releases.mjolnircore.com/launcher/latest)**
 
 ---
 
