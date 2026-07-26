@@ -31,7 +31,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "headerImage": "nsis-header.png",
+        "sidebarImage": "nsis-sidebar.png",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "installer.nsh"
+      },
+      "wix": {
+        "language": ["en-US"]
+      }
+    }
   },
   "plugins": {
     "updater": {
