@@ -99,7 +99,7 @@ function Navbar() {
             GitHub
           </Link>
           <Link
-            href="https://releases.mjolnircore.com/launcher/latest"
+            href="/download"
             className="px-4 py-2 text-sm font-semibold rounded-lg bg-gold text-background hover:brightness-110 transition-all flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
@@ -142,7 +142,7 @@ function HeroSection() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            href="https://releases.mjolnircore.com/launcher/latest"
+            href="/download"
             className="group px-8 py-4 rounded-xl font-bold text-base bg-gradient-to-r from-gold to-gold-dim text-background hover:brightness-110 transition-all shadow-lg shadow-gold/20 glow-gold flex items-center gap-3"
           >
             <Download className="w-5 h-5" />
@@ -291,7 +291,7 @@ function CTASection() {
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            href="https://releases.mjolnircore.com/launcher/latest"
+            href="/download"
             className="px-8 py-4 rounded-xl font-bold bg-gradient-to-r from-gold to-gold-dim text-background hover:brightness-110 transition-all shadow-lg shadow-gold/20 flex items-center gap-2"
           >
             <Download className="w-5 h-5" />

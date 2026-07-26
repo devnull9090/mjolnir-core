@@ -6,12 +6,17 @@ on:
 
 jobs:
   build-windows:
-    name: Build Windows
+    name: Build & Release
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.ACCOUNT_NAME }}"
+          echo "::add-mask::${{ secrets.CLOUDFLARE_URL }}"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -36,12 +41,105 @@ jobs:
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0
+        id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: launcher
           tagName: ${{ github.ref_name }}
           releaseName: "MJOLNIR Launcher ${{ github.ref_name }}"
-          releaseBody: "Download the MJOLNIR Launcher for Windows. See [CHANGELOG](https://github.com/devnull9090/mjolnir-core/blob/main/CHANGELOG.md) for details."
+          releaseBody: "See release notes below for download links and SHA-256 checksums."
           releaseDraft: true
           prerelease: false
+
+      - name: Compute SHA-256 checksums
+        id: checksums
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace "^launcher-v", ""
+          $artifactsDir = "launcher/src-tauri/target/release/bundle"
+
+          # Find the MSI and NSIS installers
+          $msi = Get-ChildItem -Path "$artifactsDir/msi" -Filter "*.msi" -Recurse | Select-Object -First 1
+          $nsis = Get-ChildItem -Path "$artifactsDir/nsis" -Filter "*.exe" -Recurse | Select-Object -First 1
+
+          $checksumFile = "checksums-${{ github.ref_name }}.txt"
+          "# MJOLNIR Launcher ${{ github.ref_name }} - SHA-256 Checksums" | Out-File $checksumFile
+          "" | Out-File $checksumFile -Append
+
+          if ($msi) {
+            $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
+            "$msiHash  $($msi.Name)" | Out-File $checksumFile -Append
+            echo "msi_hash=$msiHash" >> $env:GITHUB_OUTPUT
+            echo "msi_name=$($msi.Name)" >> $env:GITHUB_OUTPUT
+            echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+            Write-Host "MSI: $msiHash  $($msi.Name)"
+          }
+
+          if ($nsis) {
+            $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLower()
+            "$nsisHash  $($nsis.Name)" | Out-File $checksumFile -Append
+            echo "nsis_hash=$nsisHash" >> $env:GITHUB_OUTPUT
+            echo "nsis_name=$($nsis.Name)" >> $env:GITHUB_OUTPUT
+            echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+            Write-Host "NSIS: $nsisHash  $($nsis.Name)"
+          }
+
+          echo "checksum_file=$checksumFile" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          Get-Content $checksumFile
+
+      - name: Upload checksums to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: checksums-${{ github.ref_name }}.txt
+          body: |
+            ## MJOLNIR Launcher ${{ github.ref_name }}
+
+            Download the MJOLNIR Launcher for Windows.
+
+            ### Downloads
+            | Installer | SHA-256 |
+            | :--- | :--- |
+            | ${{ steps.checksums.outputs.msi_name }} | `${{ steps.checksums.outputs.msi_hash }}` |
+            | ${{ steps.checksums.outputs.nsis_name }} | `${{ steps.checksums.outputs.nsis_hash }}` |
+
+            ### Verify your download
+            ```powershell
+            # PowerShell
+            (Get-FileHash .\MJOLNIR-Launcher*.msi -Algorithm SHA256).Hash
+            ```
+            ```bash
+            # Linux/macOS
+            sha256sum MJOLNIR-Launcher*.msi
+            ```
+
+            Compare the output with the checksums above. They must match exactly.
+
+      - name: Upload to R2 (releases.mjolnircore.com)
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install -g wrangler
+
+          # Upload MSI
+          if ("${{ steps.checksums.outputs.msi_path }}" -ne "") {
+            wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}"
+            # Also upload as "latest"
+            wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}"
+          }
+
+          # Upload NSIS
+          if ("${{ steps.checksums.outputs.nsis_path }}" -ne "") {
+            wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.nsis_name }}" --file="${{ steps.checksums.outputs.nsis_path }}"
+          }
+
+          # Upload checksums
+          wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/checksums.txt" --file="checksums-${{ github.ref_name }}.txt"
+          wrangler r2 object put "mjolnir-releases/launcher/latest/checksums.txt" --file="checksums-${{ github.ref_name }}.txt"
+
+          Write-Host "✅ Uploaded to releases.mjolnircore.com"
