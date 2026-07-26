@@ -2,8 +2,8 @@ name: Release Launcher
 
 on:
   push:
-    tags: ['launcher-v*']
-    branches-ignore: ['**']
+    tags:
+      - 'launcher-v*'
 
 jobs:
   build-windows:
