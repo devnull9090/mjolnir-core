@@ -1,6 +1,7 @@
 import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { View } from "../App";
+import type { UpdateState } from "./UpdaterBanner";
 
 const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
   {
@@ -36,9 +37,12 @@ const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
 interface SidebarProps {
   activeView: View;
   onNavigate: (view: View) => void;
+  updater: UpdateState;
 }
 
-export default function Sidebar({ activeView, onNavigate }: SidebarProps) {
+export default function Sidebar({ activeView, onNavigate, updater }: SidebarProps) {
+  const showUpdateBadge = updater.status === "dismissed" || updater.status === "available" || updater.status === "error";
+
   return (
     <aside className="w-56 bg-surface-secondary border-r border-border-subtle flex flex-col">
       {/* Logo / Brand */}
@@ -69,6 +73,37 @@ export default function Sidebar({ activeView, onNavigate }: SidebarProps) {
           </button>
         ))}
       </nav>
+
+      {/* Update Available Badge */}
+      {showUpdateBadge && updater.version && (
+        <div className="px-3 mb-2">
+          <button
+            onClick={async () => {
+              if (updater.status === "dismissed") {
+                // Re-show the banner
+                await updater.recheck();
+              } else {
+                await updater.handleInstall();
+              }
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium
+              bg-mjolnir-gold/10 border border-mjolnir-gold/30
+              text-mjolnir-gold hover:bg-mjolnir-gold/20
+              transition-all duration-200 cursor-pointer group"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-mjolnir-gold opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-mjolnir-gold" />
+            </span>
+            <span className="flex-1 text-left">
+              v{updater.version} available
+            </span>
+            <svg className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Launch Button */}
       <div className="p-4 border-t border-border-subtle">

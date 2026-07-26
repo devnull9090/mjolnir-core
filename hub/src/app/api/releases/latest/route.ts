@@ -4,12 +4,14 @@ export const revalidate = 60; // Cache for 60 seconds
 
 export async function GET() {
   let msiHash: string | null = null;
-  let msiName = "MJOLNIR-Launcher_0.2.6_x64_en-US.msi";
+  let msiName = "MJOLNIR-Launcher_0.3.0_x64_en-US.msi";
   let nsisHash: string | null = null;
-  let nsisName = "MJOLNIR-Launcher_0.2.6_x64-setup.exe";
-  let version = "0.2.6";
+  let nsisName = "MJOLNIR-Launcher_0.3.0_x64-setup.exe";
+  let version = "0.3.0";
+  let nsisSignature = "";
 
   try {
+    // Fetch checksums for hashes and version info
     const res = await fetch("https://releases.mjolnircore.com/launcher/latest/checksums.txt", {
       next: { revalidate: 60 },
     });
@@ -40,6 +42,18 @@ export async function GET() {
     console.error("Failed to fetch latest checksums:", err);
   }
 
+  // Fetch the NSIS signature for Tauri updater verification
+  try {
+    const sigRes = await fetch("https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe.sig", {
+      next: { revalidate: 60 },
+    });
+    if (sigRes.ok) {
+      nsisSignature = await sigRes.text();
+    }
+  } catch (err) {
+    console.error("Failed to fetch signature:", err);
+  }
+
   const nsisUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe";
   const msiUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi";
 
@@ -58,7 +72,7 @@ export async function GET() {
     // Tauri v2 plugin-updater format
     platforms: {
       "windows-x86_64": {
-        signature: "",
+        signature: nsisSignature,
         url: nsisUrl,
       },
     },

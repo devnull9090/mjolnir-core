@@ -2,19 +2,20 @@ import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import ModList from "./components/ModList";
 import Header from "./components/Header";
-import UpdaterBanner from "./components/UpdaterBanner";
+import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
 import Settings from "./components/Settings";
 
 export type View = "mods" | "browse" | "settings";
 
 function App() {
   const [activeView, setActiveView] = useState<View>("mods");
+  const updater = useUpdater();
 
   return (
     <div className="flex h-screen w-screen bg-surface-primary">
-      <Sidebar activeView={activeView} onNavigate={setActiveView} />
+      <Sidebar activeView={activeView} onNavigate={setActiveView} updater={updater} />
       <div className="flex flex-col flex-1 overflow-hidden">
-        <UpdaterBanner />
+        <UpdaterBanner updater={updater} />
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
           {activeView === "mods" && <ModList />}

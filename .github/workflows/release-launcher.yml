@@ -140,9 +140,19 @@ jobs:
 
           # Upload NSIS
           if ("${{ steps.checksums.outputs.nsis_path }}" -ne "") {
-            wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.nsis_path }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
-            wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.nsis_path }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
+            wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.nsis_name }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
+            wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.nsis_name }}" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
             wrangler r2 object put "mjolnir-releases/launcher/latest/MJOLNIR-Launcher-latest-setup.exe" --file="${{ steps.checksums.outputs.nsis_path }}" --remote
+
+            # Upload NSIS signature file (.sig) for Tauri updater
+            $sigFile = "${{ steps.checksums.outputs.nsis_path }}.sig"
+            if (Test-Path $sigFile) {
+              wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.nsis_name }}.sig" --file="$sigFile" --remote
+              wrangler r2 object put "mjolnir-releases/launcher/latest/MJOLNIR-Launcher-latest-setup.exe.sig" --file="$sigFile" --remote
+              Write-Host "✅ Uploaded signature file"
+            } else {
+              Write-Host "⚠️ No .sig file found at $sigFile"
+            }
           }
 
           # Upload checksums
