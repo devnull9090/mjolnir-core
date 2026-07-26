@@ -49,7 +49,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "MJOLNIR Launcher ${{ github.ref_name }}"
           releaseBody: "See release notes below for download links and SHA-256 checksums."
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
 
       - name: Compute SHA-256 checksums
