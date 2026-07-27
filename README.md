@@ -36,14 +36,15 @@ mjolnir-core/
 │   ├── MJOLNIRFlyCam/           # Free debug camera with WASD, mouse look, HUD toggle
 │   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ / Tab / F10)
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
-│   └── MJOLNIRDiscovery/        # UFunction dumper & travel logging
+│   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
+│   └── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
 ├── config/                      # Reference UE4SS-settings.ini
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
 ├── crates/                      # Rust workspace
-│   ├── ue-iostore/              # UE5 .utoc/.ucas container reader + TOC writer
+│   ├── ue-iostore/              # UE5 .utoc/.ucas reader, TOC writer, container packer
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
 │   ├── blam-tag/                # Blam tag reader, writer and editor
 │   └── blam-cli/                # `mjolnir` command-line tool
@@ -195,6 +196,8 @@ cargo run --release -p blam-cli -- values --group weapon             # fields wi
 cargo run --release -p blam-cli -- roundtrip --all                   # re-serialise, compare bytes
 cargo run --release -p blam-cli -- recode --all                      # decode/encode identity
 cargo run --release -p blam-cli -- toc-roundtrip                     # rewrite every .utoc, compare bytes
+cargo run --release -p blam-cli -- chunk --path assault_rifle-weapon.uasset   # hexdump any chunk
+cargo run --release -p blam-cli -- pack --group weapon --tag assault_rifle-weapon --set "magazines[0].rounds loaded maximum=200" --out-dir mod
 cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```

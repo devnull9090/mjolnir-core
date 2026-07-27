@@ -129,9 +129,20 @@ pub struct Toc {
     pub signature: Vec<u8>,
     /// The directory index, not interpreted here.
     pub directory_index: Vec<u8>,
-    /// Anything after the last known region.
+    /// One metadata record per chunk, `CHUNK_META` bytes each.
+    ///
+    /// Measured as exactly 24 bytes per entry on every shipped container, from
+    /// the single-chunk ones up to `pakchunk0` with 122,800. For version 8 that
+    /// is consistent with a 20-byte `IoHash` plus flags; the contents are not
+    /// interpreted here, only kept per chunk so a container with a different
+    /// number of chunks gets the right number of records.
+    pub chunk_meta: Vec<u8>,
+    /// Anything after the last known region. Empty on every shipped container.
     pub trailing: Vec<u8>,
 }
+
+/// Bytes of metadata carried per chunk, after the directory index.
+pub const CHUNK_META: usize = 24;
 
 impl Toc {
     pub fn read(path: impl AsRef<Path>) -> Result<Toc, Error> {
@@ -212,6 +223,7 @@ impl Toc {
         }
 
         let directory_index = take(&mut pos, dir_index_size);
+        let chunk_meta = take(&mut pos, CHUNK_META * entry_count);
         let trailing = blob[pos.min(blob.len())..].to_vec();
 
         Ok(Toc {
@@ -237,6 +249,7 @@ impl Toc {
             methods,
             signature,
             directory_index,
+            chunk_meta,
             trailing,
         })
     }
@@ -296,8 +309,14 @@ impl Toc {
 
         out.extend_from_slice(&self.signature);
         out.extend_from_slice(&self.directory_index);
+        out.extend_from_slice(&self.chunk_meta);
         out.extend_from_slice(&self.trailing);
         out
+    }
+
+    /// The metadata record for chunk `i`, if present.
+    pub fn meta(&self, i: usize) -> Option<&[u8]> {
+        self.chunk_meta.get(i * CHUNK_META..(i + 1) * CHUNK_META)
     }
 }
 

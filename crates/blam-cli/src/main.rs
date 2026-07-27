@@ -79,6 +79,10 @@ enum Command {
     Set(SetArgs),
     /// Parse each .utoc container index and write it back, comparing bytes.
     TocRoundtrip(SectionsArgs),
+    /// Build an override container holding one edited tag.
+    Pack(PackArgs),
+    /// Hexdump any chunk in the shipped containers, found by path.
+    Chunk(ChunkArgs),
 }
 
 #[derive(Args)]
@@ -214,6 +218,42 @@ struct SetArgs {
 }
 
 #[derive(Args)]
+struct PackArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `weapon`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select.
+    #[arg(long)]
+    tag: Option<String>,
+    /// A field to change, as `path=value`. Repeatable.
+    #[arg(long = "set", value_name = "PATH=VALUE")]
+    sets: Vec<String>,
+    /// Directory to write the container into.
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// Container base name; `.utoc` and `.ucas` are appended.
+    #[arg(long, default_value = "pakchunk999-MJOLNIR-Windows")]
+    name: String,
+}
+
+#[derive(Args)]
+struct ChunkArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Substring of the packaged path, e.g. `assault_rifle-weapon.uasset`.
+    #[arg(long)]
+    path: String,
+    /// Bytes to dump.
+    #[arg(long, default_value_t = 256)]
+    hexdump: usize,
+    /// Report where this little-endian u32 appears in the chunk.
+    #[arg(long)]
+    find_u32: Option<u32>,
+}
+
+#[derive(Args)]
 struct SectionsArgs {
     #[command(flatten)]
     src: Source,
@@ -258,6 +298,8 @@ fn main() -> Result<()> {
         Command::Recode(a) => recode(a),
         Command::Set(a) => set(a),
         Command::TocRoundtrip(a) => toc_roundtrip(a),
+        Command::Pack(a) => pack(a),
+        Command::Chunk(a) => chunk(a),
     }
 }
 
@@ -622,6 +664,260 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
             .unwrap_or_else(|| "-".to_string());
         println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
     }
+    Ok(())
+}
+
+/// Dump a chunk by its packaged path.
+///
+/// The tag index only tracks `.ubulk` payloads; this reaches anything in the
+/// directory index, which is how the `.uasset` package headers are examined.
+fn chunk(a: ChunkArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    for container in &containers {
+        let mut hits: Vec<(&String, &usize)> = container
+            .files
+            .iter()
+            .filter(|(path, _)| path.contains(&a.path))
+            .collect();
+        hits.sort();
+        for (path, index) in hits {
+            let entry = &container.chunks[*index];
+            let bytes =
+                ue_iostore::read_chunk(container, entry, None, &a.src.oodle_roots())?;
+            println!(
+                "{}
+  {} bytes, chunk id {:#018x} index {} type {} ({})",
+                path,
+                bytes.len(),
+                entry.chunk_id,
+                entry.chunk_index,
+                entry.chunk_type,
+                ue_iostore::chunk_type_name(entry.chunk_type)
+            );
+
+            if let Some(want) = a.find_u32 {
+                let needle = want.to_le_bytes();
+                let at: Vec<usize> = bytes
+                    .windows(4)
+                    .enumerate()
+                    .filter(|(_, w)| *w == needle)
+                    .map(|(i, _)| i)
+                    .collect();
+                println!("  {want} appears at {at:?}");
+            }
+
+            let end = a.hexdump.min(bytes.len());
+            for off in (0..end).step_by(16) {
+                let row = &bytes[off..(off + 16).min(end)];
+                let ascii: String = row
+                    .iter()
+                    .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                    .collect();
+                println!("  {off:08x}  {:<47}  |{ascii}|", hex(row));
+            }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+/// Build a container holding one edited tag, to sit alongside the shipped ones.
+///
+/// Nothing in the game's installation is modified: this writes two new files,
+/// and removing them undoes it entirely.
+fn pack(a: PackArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let original = idx.read(entry, None, &a.src.oodle_roots())?;
+    println!("{}", entry.path);
+    println!("  source   {} bytes", original.len());
+
+    // Apply every edit, then re-read the result from scratch so what goes into
+    // the container is judged by what the bytes say, not by what we intended.
+    let mut file = original.clone();
+    for set in &a.sets {
+        let (path, value) = set
+            .split_once('=')
+            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
+        let tag = TagFile::parse(&file, Some(file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
+        // A section-backed value resizes the tag, so it takes the rebuild path.
+        let resizes = target.section.is_some();
+        let parsed = match target.type_name.as_str() {
+            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+            "tag reference" => parse_reference(value)?,
+            _ => blam_tag::value::parse(&l, &target.field, value)?,
+        };
+        let (out, applied) = if resizes {
+            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
+        } else {
+            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
+        };
+        println!(
+            "  edit     {} : {} -> {}",
+            applied.path,
+            applied.before.display(),
+            applied.after.display()
+        );
+        file = out;
+    }
+
+    if file.len() == original.len() {
+        let changed = (0..file.len()).filter(|i| file[*i] != original[*i]).count();
+        println!("  changed  {changed} byte(s), length unchanged");
+    } else {
+        println!(
+            "  changed  payload {} -> {} bytes",
+            original.len(),
+            file.len()
+        );
+    }
+
+    let tag = TagFile::parse(&file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let block = tag.read_data(&l)?;
+    let payload = tag.data().context("patched tag has no bdat section")?;
+    if block.consumed != payload.size as usize {
+        anyhow::bail!("the patched tag no longer walks exactly");
+    }
+
+    // The chunk ID is read straight out of the shipped index, so the override
+    // addresses exactly the chunk the game already asks for.
+    let source = &idx.containers[entry.container];
+    let source_toc = ue_iostore::toc::Toc::read(&source.utoc_path)?;
+    let id = source_toc
+        .chunk_ids
+        .iter()
+        .copied()
+        .find(|c| {
+            c.id == entry.chunk.chunk_id
+                && c.index == entry.chunk.chunk_index
+                && c.kind == entry.chunk.chunk_type
+        })
+        .context("could not find this tag's chunk in its container index")?;
+    println!(
+        "  chunk    id {:#018x} index {} type {} (from {})",
+        id.id,
+        id.index,
+        id.kind,
+        source
+            .utoc_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+
+    // A container ID distinct from every shipped one.
+    let container_id = 0x4D4A_4F4C_4E49_5200u64;
+    let slot = source_toc
+        .chunk_ids
+        .iter()
+        .position(|c| *c == id)
+        .context("chunk vanished from the index")?;
+
+    let mut chunks = vec![ue_iostore::pack::Entry {
+        id,
+        data: file.clone(),
+        meta: source_toc.meta(slot).unwrap_or(&[]).to_vec(),
+    }];
+
+    // The package header carries `BinaryBlobSize`, which the runtime exposes as
+    // a property. If the payload changed length, that copy has to change with
+    // it or the tag is self-inconsistent — and because it is readable in game,
+    // it doubles as proof of whether the override was used at all.
+    if file.len() != original.len() {
+        let pkg_slot = source_toc
+            .chunk_ids
+            .iter()
+            .position(|c| c.id == id.id && c.kind == 1)
+            .context("no package chunk beside this tag's payload")?;
+        let pkg_id = source_toc.chunk_ids[pkg_slot];
+        let pkg_entry = source
+            .chunks
+            .iter()
+            .find(|c| c.chunk_id == pkg_id.id && c.chunk_type == 1)
+            .context("package chunk missing from the container")?;
+        let mut pkg = ue_iostore::read_chunk(source, pkg_entry, None, &a.src.oodle_roots())?;
+
+        let needle = (original.len() as u32).to_le_bytes();
+        let at: Vec<usize> = pkg
+            .windows(4)
+            .enumerate()
+            .filter(|(_, w)| *w == needle)
+            .map(|(i, _)| i)
+            .collect();
+        if at.len() != 1 {
+            anyhow::bail!(
+                "expected exactly one copy of the blob size in the package header, found {}",
+                at.len()
+            );
+        }
+        pkg[at[0]..at[0] + 4].copy_from_slice(&(file.len() as u32).to_le_bytes());
+        println!(
+            "  package  BinaryBlobSize at +{} : {} -> {}",
+            at[0],
+            original.len(),
+            file.len()
+        );
+        chunks.push(ue_iostore::pack::Entry {
+            id: pkg_id,
+            data: pkg,
+            meta: source_toc.meta(pkg_slot).unwrap_or(&[]).to_vec(),
+        });
+    }
+
+    let built = ue_iostore::pack::build(&source_toc, container_id, &chunks);
+
+    std::fs::create_dir_all(&a.out_dir)?;
+    let utoc = a.out_dir.join(format!("{}.utoc", a.name));
+    let ucas = a.out_dir.join(format!("{}.ucas", a.name));
+    std::fs::write(&utoc, &built.utoc)?;
+    std::fs::write(&ucas, &built.ucas)?;
+
+    println!("\n  wrote {} ({} bytes)", utoc.display(), built.utoc.len());
+    println!("  wrote {} ({} bytes)", ucas.display(), built.ucas.len());
+
+    // Read the container back through the ordinary reader, the same path the
+    // game would take, and confirm the edits are visible through it. A
+    // container our own reader cannot use is not worth putting in front of the
+    // game.
+    let check = ue_iostore::load_container(&utoc)?;
+    let chunk = check
+        .chunks
+        .first()
+        .context("the container we just wrote has no chunks")?;
+    let bytes = ue_iostore::read_chunk(&check, chunk, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&bytes, Some(bytes.len()))?;
+    let l = tag.layout()?;
+    let block = tag.read_data(&l)?;
+    let payload = tag.data().context("no bdat section")?;
+    println!("\n  verify   read {} bytes back out of the container", bytes.len());
+    println!("  verify   walks {} of {} bytes", block.consumed, payload.size);
+    for set in &a.sets {
+        if let Some((path, _)) = set.split_once('=') {
+            let t = blam_tag::patch::resolve(&l, &bytes, &block, path)?;
+            println!("  verify   {path} = {}", t.current.display());
+        }
+    }
+    if block.consumed != payload.size as usize {
+        anyhow::bail!("the packed tag does not walk exactly");
+    }
+    println!("\n  This container holds copyrighted game content. Keep it local.");
+    println!("  To undo: delete those two files. Nothing else was modified.");
     Ok(())
 }
 

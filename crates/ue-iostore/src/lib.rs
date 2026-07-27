@@ -12,6 +12,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub mod oodle;
+pub mod pack;
 pub mod toc;
 
 pub const TOC_MAGIC: &[u8; 16] = b"-==--==--==--==-";

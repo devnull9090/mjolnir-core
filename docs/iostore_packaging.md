@@ -1,6 +1,7 @@
 # Getting an Edited Tag Into the Game
 
-**Status:** TOC writing done and verified. Container creation not started.
+**Status:** Containers can be built and the game mounts them. The override does not yet win
+the chunk lookup — see *Current experiment* below, which is where to pick this up.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -135,16 +136,138 @@ Regions that are not yet interpreted — the perfect-hash tables, the signature 
 directory index, and the header padding past byte 100 — are carried verbatim, so nothing is
 lost by round-tripping a container we do not fully understand.
 
-## Remaining work
+## Step 2: building a container — done
 
-3. **Build a one-chunk override container** for a tag whose edit is visually obvious in game —
-   a weapon's damage, a biped's scale — and see whether the game loads it. This answers
-   unknowns 1 to 4 in one experiment, and it is cheap once step 1 works.
-4. **Only then** generalise: multiple tags, compression, and a mod-packaging command.
+**Verified.** `ue_iostore::pack` composes an override container and `mjolnir pack` drives it:
+apply edits to a tag, reuse the chunk ID from the shipped index, and write a `.utoc`/`.ucas`
+pair. Before anything is written it reads the result back through the ordinary reader — the
+same path the game would take — and confirms the edits are visible through it. A container our
+own reader cannot use is not worth putting in front of the game.
 
-Step 3 is the one that decides whether this approach works at all, and it is now the immediate
-next thing: the index can be written, so what is left is composing a new one, writing the
-matching `.ucas`, and finding out whether the game mounts it.
+Modelling the index for writing turned up one thing the reader had missed: the region after the
+directory index is **24 bytes per chunk**, not a fixed file trailer. Measured across every
+shipped container, from the single-chunk ones up to `pakchunk0` with 122,800 chunks. Treating
+it as a trailer produced a 2.9 MB index for a one-chunk container, which is how it was caught.
+
+## Step 3: making the game use it — in progress
+
+This is where the work stands. See *Current experiment* below.
+
+## Current experiment: does an override container win?
+
+**Status as of 2026-07-27: the container mounts, but the shipped chunk still wins.**
+
+This section is the live state of the experiment, written so it can be picked up cold.
+
+### What is installed on the test machine
+
+Not in the repository — these are local, and removing them undoes everything:
+
+```
+<install>/Meteorite/Content/Paks/
+  pakchunk999-MJOLNIR-Windows_P.pak     339 B   stub, copied from pakchunk115-Windows.pak
+  pakchunk999-MJOLNIR-Windows_P.utoc    302 B   built by `mjolnir pack`
+  pakchunk999-MJOLNIR-Windows_P.ucas    36 KB   two chunks, uncompressed
+
+<install>/Meteorite/Binaries/Win64/ue4ss/Mods/MJOLNIRTagProbe/   (+ a line in mods.txt)
+```
+
+Nothing shipped has been modified. Deleting the three `pakchunk999-*` files reverts the game;
+Steam's *Verify integrity of game files* is the backstop.
+
+The container was built with:
+
+```powershell
+mjolnir pack --group weapon --tag "assault_rifle-weapon" `
+  --set "magazines[0].rounds loaded maximum=200" `
+  --set "barrels[0].firing.rounds per second=(2,2)" `
+  --set "item.object.generic hud text=MJOLNIR_PROBE_MARKER" `
+  --out-dir <somewhere>
+```
+
+The third edit resizes the payload from 32,620 to 32,640 bytes, which is deliberate — see the
+instrument below. `pack` then also rewrites the package header chunk so its `BinaryBlobSize`
+agrees.
+
+### The instrument
+
+Tag *values* are not reachable by reflection. Dumping every property of a loaded
+`BlamWeaponTagDataAsset` and its parents yields only:
+
+```
+AssetReference, DefaultAssetReference        blueprint actors
+CookedAssetsReferencedByTag                  TArray
+BinaryBlobSize                               32620
+NativeClass
+```
+
+The Blam payload is an opaque blob parsed natively. But `BinaryBlobSize` **is** reflected, and
+`mjolnir chunk --path assault_rifle-weapon.uasset --find-u32 32620` shows it is stored in the
+**package chunk** (type 1) at offset 208, in exactly one place. So changing the payload length
+and the header together gives a yes/no that the game itself reports:
+
+| `BinaryBlobSize` reads | Meaning |
+|---|---|
+| 32620 | the shipped chunk won |
+| 32640 | our chunk was used |
+
+Read it with the probe mod, in game, holding the weapon:
+
+```
+mjolnir_tag_probe assault_rifle
+```
+
+Output goes to `ue4ss/MJOLNIR_TagProbe.txt`. `mjolnir_tag_classes` lists which tag asset
+classes are loaded, which is useful orientation first.
+
+### What has been settled
+
+1. **Discovery needs a `.pak` sibling.** Every shipped `pakchunkN` has one; only `global.utoc`
+   does not, and that one is mounted explicitly by the engine. A `.utoc`/`.ucas` pair alone was
+   never picked up. Several shipped containers pair a **339-byte stub** `.pak` with a large
+   `.ucas`, so copying a stub is legitimate rather than a hack.
+
+2. **The container does mount.** Attempting to overwrite the `.ucas` while the game ran failed
+   with *device or resource busy*, while the `.utoc` overwrote freely. A process does not hold a
+   handle to a file it never mounted, and read-index-once / hold-data-open is exactly an IoStore
+   mount. This is the strongest evidence available without engine logging, which is compiled out
+   of the shipping build (`Meteorite.log` is 0 bytes).
+
+3. **Our chunk does not win the lookup.** With the container mounted, `BinaryBlobSize` still
+   reads 32620.
+
+4. `pakchunk999` numbering does **not** confer priority. The number identifies which content
+   chunk a file is, not its mount order.
+
+### Next steps
+
+**Currently awaiting a test result:** the three files were renamed to the `_P` patch suffix,
+which is UE's documented way to mount on top of existing content. Re-run the probe. If
+`BinaryBlobSize` is 32640, this is solved and the remaining work is generalisation.
+
+If it still reads 32620, in order of suspicion:
+
+1. **The 24-byte chunk-meta record.** `pack` copies the record belonging to the chunk being
+   overridden. If those bytes are a content hash — plausible for version 8, which replaced the
+   chunk hash with an `IoHash`, and 20 bytes of hash plus 4 of flags fits exactly — then ours is
+   stale and the loader may find our chunk and reject it. Establishing the hash function is the
+   fix. This is the leading theory once priority is ruled out.
+
+2. **First mount wins rather than highest priority.** If the chunk map is built once at startup,
+   an override has to be mounted *before* `pakchunk0`, not after. Testable by naming the
+   container so it sorts first.
+
+3. **The container may need its own `ContainerHeader` (type 6) chunk.** Every shipped container
+   has exactly one. Ours has none, on the theory that a container overriding chunks of an
+   already-declared package does not need to declare it. That theory is untested.
+
+4. **Compression.** Ours stores blocks uncompressed while `pakchunk0` uses Oodle. `pakchunk1`
+   ships uncompressed, so this is legal in general, but not proven legal for an override.
+
+A useful non-obvious check: make the override deliberately **invalid** — corrupt bytes in our
+chunk — and see whether the game breaks. If it does, our chunk is being read and the problem is
+elsewhere. If nothing changes, it is not being read at all. That separates "not selected" from
+"selected and rejected" in one run.
 
 ## Why not a `.pak`
 
