@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Binary, BookOpen, Braces, Database, FileText, FlaskConical, Package } from "lucide-react";
-import { getDocNotes } from "@/lib/docs";
+import { getDocNotes, getGuides } from "@/lib/docs";
 import { Navbar } from "../components/Navbar";
 
 export const metadata: Metadata = {
@@ -43,6 +43,10 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
     href: `/docs/notes/${note.slug}`,
     label: note.title,
   }));
+  const guideLinks = getGuides().map((guide) => ({
+    href: `/docs/guides/${guide.slug}`,
+    label: guide.title,
+  }));
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
@@ -57,6 +61,12 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-muted"
         >
           Overview
+        </Link>
+        <Link
+          href="/docs/guides"
+          className="shrink-0 rounded-lg border border-gold/40 px-3 py-2 text-xs font-semibold text-gold"
+        >
+          Guides
         </Link>
         {researchLinks.map(({ href, label }) => (
           <Link
@@ -87,6 +97,21 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
                 <BookOpen className="h-4 w-4" />
                 Documentation
               </Link>
+            </div>
+            <div>
+              <p className="mb-3 text-xs font-bold uppercase text-text-dim">Guides</p>
+              <div className="space-y-1">
+                {guideLinks.map(({ href, label }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="flex items-start gap-2 py-2 text-sm leading-5 text-text-muted hover:text-foreground"
+                  >
+                    <BookOpen className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{label}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
             <div>
               <p className="mb-3 text-xs font-bold uppercase text-text-dim">Research</p>

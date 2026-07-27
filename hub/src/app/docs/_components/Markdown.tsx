@@ -73,6 +73,31 @@ const components: Components = {
     </blockquote>
   ),
   hr: () => <hr className="mt-10 border-border" />,
+  /**
+   * A plain `img`, not `next/image`. Markdown carries no intrinsic dimensions,
+   * and the optimizer is not wired up on Cloudflare, so the component would
+   * need `fill` plus a sized wrapper to render a screenshot whose size is only
+   * known at author time. These are pre-sized and small; the alt text becomes
+   * the caption, since a guide's screenshots are worth labelling.
+   */
+  img: ({ src, alt }: { src?: string | Blob; alt?: string }) => {
+    if (typeof src !== "string") return null;
+    // Spans, not figure/figcaption: Markdown wraps a standalone image in a
+    // paragraph, and flow content inside a `p` is invalid HTML that React
+    // reports as a hydration error.
+    return (
+      <span className="mt-6 block">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt ?? ""}
+          loading="lazy"
+          className="block w-full border border-border bg-surface"
+        />
+        {alt && <span className="mt-2 block text-xs leading-6 text-text-dim">{alt}</span>}
+      </span>
+    );
+  },
   a: ({ children, href }: Kids & { href?: string }) => {
     if (!href) return <>{children}</>;
     const resolved = resolveHref(href);

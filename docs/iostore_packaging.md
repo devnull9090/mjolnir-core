@@ -1,12 +1,14 @@
 # Getting an Edited Tag Into the Game
 
-**Status:** **Half solved, and the half that is left is specific.** A container named with the
-`_P` patch suffix mounts and wins chunk lookups: the **package** chunk we write is what the game
-reads. The **bulk data** chunk is not — destroying 98% of it changes nothing, even in a
-single-chunk container where it is unambiguously resolvable — so tag payload edits do not reach
-the game. Separately, the packer's **perfect hash is wrong** for containers holding more than one
-chunk, which silently hid one of our two chunks. All of it is A/B measurement in the running game;
-see *Current experiment*.
+**Status:** **Solved. An edited tag runs in the game.** A single-chunk override container named
+with the `_P` patch suffix mounts, wins the chunk lookup, and its Blam payload is what the
+simulation uses. Verified by editing the assault rifle's magazine to 99 rounds and its ammo
+reserve to 900 and reading both off the HUD in mission A30.
+
+One caveat carried forward: the packer's **perfect hash is wrong for containers holding more than
+one chunk**, so multi-chunk containers silently expose only one of their chunks. Single-chunk
+containers — which is all a same-length payload edit needs — are unaffected. See *Current
+experiment*.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -276,52 +278,60 @@ classes are loaded, which is useful orientation first.
 6. **Uncompressed blocks are accepted** in a container whose siblings are Oodle-compressed.
    Ours stores blocks uncompressed and the loader read them, which settles question 3.
 
-### The bulk data chunk is *not* being used
+### The bulk data chunk *is* used — once the container is built correctly
 
-**Answered 2026-07-27. The type-1 package chunk comes from our container; the type-2 bulk chunk
-does not.**
+**Answered 2026-07-27.** A one-chunk container holding a 32,620-byte payload — the shipped length,
+so no package header rewrite is needed — put edited values into the running game:
 
-Destroying the payload changes nothing:
+| Field, in `magazines[0]` | Shipped | Edited to | HUD showed |
+|---|---:|---:|---|
+| `runtime rounds inventory maximum` | 324 | **900** | reserve **900** |
+| `rounds loaded maximum` | 60 | **99** | magazine **99** after a reload |
+| `rounds reloaded` | 36 | 99 | one press filled the magazine |
 
-| Bulk chunk in our `.ucas` | Result |
-|---|---|
-| intact | loads, plays, `BinaryBlobSize` 32640 |
-| 256 bytes at offset 16,384 overwritten | loads, plays, `BinaryBlobSize` 32640 |
-| **32,128 of 32,640 bytes overwritten (98%)** | **loads, plays, `BinaryBlobSize` 32640** |
+900 is not a number that exists in the shipped game. The reserve read `900`, and after one reload
+the magazine read `99` with `861` left — 900 less the 39 it took to top up from 60. That is the
+edit, in the simulation, on screen.
 
-The last row is the one that settles it. Ninety-eight percent of the Blam payload replaced with
-`0xDE`, leaving only the first 512 bytes and the package header chunk intact — and the game
-launched, reached the menu, loaded A30, loaded `assault_rifle-weapon` as a
-`BlamWeaponTagDataAsset`, and rendered and played normally. A payload that was being parsed could
-not survive that. Meanwhile `BinaryBlobSize` still read 32640, which is our value, so the
-container was mounted and winning chunk lookups the whole time.
+`rounds reloaded` is the field that made every earlier ammo reading confusing: a reload adds a
+fixed number of rounds rather than filling the magazine. At the shipped 36 that is why 32 became 68
+and 30 became 66, and why the magazine never showed the 200 an earlier edit had already set.
+Raising it alongside the maximum is what turns a reload into a clean yes/no.
 
-So the two chunks are resolved differently. Whatever the loader does for `ExportBundleData`, it is
-not doing for `BulkData`.
+#### Two things had to be right at once
 
-**It is not a perfect-hash problem, though we do have one — see below.** Two further runs ruled
-that out:
+Earlier runs found the payload apparently ignored — 98% of it overwritten with `0xDE` and the game
+still played. That was true but misread, and a user observation caught it: with the payload
+corrupted the player spawned holding the **pistol and could not switch weapons**; with it intact
+the assault rifle was there as normal. The tag *was* being read. A broken one simply failed to
+produce a usable weapon, and that fallback looked like "nothing happened" in screenshots that were
+being read for ammo counts rather than for which gun was in shot.
 
-| Container | `BinaryBlobSize` | Payload destroyed? | Game |
-|---|---:|---|---|
-| 2 chunks, seeds `[-1, -2]` | 32640 | yes | fine |
-| 2 chunks, seeds **swapped** to `[-2, -1]` | **32620** | yes | fine |
-| **1 chunk — bulk only**, seed `[-1]` | 32620 | yes | fine |
+No earlier run had both of these true:
 
-The last row is conclusive. A single-entry container cannot have a hash collision — `hash % 1` is
-always 0 and the one seed points at the one entry — so the bulk chunk was unambiguously
-resolvable, its payload was 98% `0xDE`, and the game still loaded A30, loaded
-`assault_rifle-weapon`, and played normally.
+1. **The bulk chunk has to be the one the perfect hash resolves to.** In the original two-chunk
+   container it was not — see the hash bug below.
+2. **The payload has to be the length the package header declares.** The earlier payload was 32,640
+   bytes because a marker string had resized it, against a shipped header saying 32,620. Clearing
+   that string returned it to 32,620 and removed the need for a package chunk at all.
 
-So the loader does not read the tag payload from an override container's `BulkData` chunk at all.
-What remains is the old open question 4, now the leading explanation by elimination: **bulk data
-is resolved through metadata the package carries, not by an independent chunk-ID lookup at load.**
-If so, overriding a payload means making the package header point at it, and dropping a replacement
-`BulkData` chunk into a container will never be enough on its own.
+So the working recipe is: **edit only fixed-width fields so the payload keeps its length, and ship
+a single bulk chunk.** No package chunk, no `ContainerHeader`, no compression, and no hash
+collision to worry about.
 
-The next thing to establish is how a package refers to its bulk data. `mjolnir chunk` can dump a
-shipped package chunk; the 104-byte cooked `.uasset` header is small enough to read exhaustively,
-and whatever encodes the payload's location is in there beside `BinaryBlobSize`.
+#### The runs that got there
+
+| Container | Payload | `BinaryBlobSize` | Result |
+|---|---|---:|---|
+| 2 chunks, seeds `[-1, -2]` | intact, 32,640 | 32640 | plays; payload edits do **not** apply |
+| 2 chunks, seeds swapped `[-2, -1]` | intact, 32,640 | 32620 | plays, assault rifle present |
+| 2 chunks, seeds swapped | 98% `0xDE` | 32620 | plays, **pistol only, cannot switch** |
+| 1 chunk, bulk only | 98% `0xDE` | 32620 | plays, **pistol only** |
+| **1 chunk, bulk only** | **edited, 32,620** | 32620 | **99-round magazine, 900 reserve** |
+
+Rows three and four are the ones that were misread at the time: the pistol fallback *was* the
+payload taking effect, and it was recorded as "nothing happened". Row two versus row three is the
+controlled pair — same checkpoint, same container shape, only the payload bytes differ.
 
 ### A real bug found on the way: the perfect hash is wrong for multi-chunk containers
 

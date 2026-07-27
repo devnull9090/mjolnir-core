@@ -83,6 +83,8 @@ enum Command {
     Pack(PackArgs),
     /// Hexdump any chunk in the shipped containers, found by path.
     Chunk(ChunkArgs),
+    /// Print or edit a tag payload already on disk, without the paks or Oodle.
+    TagFile(TagFileArgs),
 }
 
 #[derive(Args)]
@@ -239,6 +241,32 @@ struct PackArgs {
 }
 
 #[derive(Args)]
+struct TagFileArgs {
+    /// A raw tag payload on disk — a bulk-data chunk extracted from a container.
+    #[arg(long)]
+    file: PathBuf,
+    /// Field path to change, e.g. `magazines[0].rounds loaded maximum`.
+    /// Without it, the tag's values are printed instead.
+    #[arg(long)]
+    field: Option<String>,
+    /// New value, in the same form the inspector shows.
+    #[arg(long)]
+    value: Option<String>,
+    /// Write the patched tag here. Without this nothing is written to disk.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Maximum nesting to print.
+    #[arg(long, default_value_t = 3)]
+    depth: u32,
+    /// Maximum block elements to print per block.
+    #[arg(long, default_value_t = 4)]
+    elements: usize,
+    /// Print fields whose value is empty or zero.
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args)]
 struct ChunkArgs {
     #[command(flatten)]
     src: Source,
@@ -300,7 +328,110 @@ fn main() -> Result<()> {
         Command::TocRoundtrip(a) => toc_roundtrip(a),
         Command::Pack(a) => pack(a),
         Command::Chunk(a) => chunk(a),
+        Command::TagFile(a) => tag_file(a),
     }
+}
+
+/// Print or edit a tag payload that is already a file.
+///
+/// Every other command reaches a tag through the shipped containers, which
+/// means Oodle, which means a DLL this repository cannot ship. But a tag's
+/// layout comes from its own header rather than from any external definition,
+/// so bytes on disk are enough — including the uncompressed payload sitting in
+/// an override container we built ourselves.
+fn tag_file(a: TagFileArgs) -> Result<()> {
+    let file = std::fs::read(&a.file)
+        .with_context(|| format!("cannot read {}", a.file.display()))?;
+    let tag = TagFile::parse(&file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let block = tag
+        .read_data(&l)
+        .with_context(|| format!("{} is not readable as a tag", a.file.display()))?;
+
+    let Some(field) = a.field.as_deref() else {
+        let nodes = blam_tag::view::root(&l, &block);
+        println!("{}", a.file.display());
+        println!(
+            "  {} v{} - {} bytes, {} nodes\n",
+            tag.header.group,
+            tag.header.group_version,
+            file.len(),
+            nodes.iter().map(|n| n.len()).sum::<usize>()
+        );
+        for n in &nodes {
+            print_node(
+                n,
+                1,
+                &PrintOpts {
+                    depth: a.depth,
+                    elements: a.elements,
+                    all: a.all,
+                },
+            );
+        }
+        return Ok(());
+    };
+
+    let value = a
+        .value
+        .as_deref()
+        .context("--field needs --value; without both, this prints the tag")?;
+
+    let target = blam_tag::patch::resolve(&l, &file, &block, field)?;
+    let parsed = match target.type_name.as_str() {
+        "tag reference" => parse_reference(value)?,
+        "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+        _ => blam_tag::value::parse(&l, &target.field, value)?,
+    };
+    // A section-backed field resizes the tag, so it takes the rebuild path.
+    let resizes = target.section.is_some();
+    let (patched, applied) = if resizes {
+        blam_tag::patch::set_text(&l, &file, &block, field, &parsed)?
+    } else {
+        blam_tag::patch::set(&l, &file, &block, field, &parsed)?
+    };
+
+    println!("{}", a.file.display());
+    println!("  field    {}  [{}]", applied.path, applied.type_name);
+    println!("  before   {}", applied.before.display());
+    println!("  after    {}", applied.after.display());
+    println!(
+        "  file     {} bytes -> {} bytes",
+        file.len(),
+        patched.len()
+    );
+
+    // Re-reading is the real claim: an edit that does not walk is not an edit.
+    let after = TagFile::parse(&patched, Some(patched.len()))?;
+    let al = after.layout()?;
+    let ab = after.read_data(&al)?;
+    let ap = after.data().context("patched tag has no bdat section")?;
+    println!(
+        "  re-read  {}",
+        blam_tag::patch::resolve(&al, &patched, &ab, field)?.current.display()
+    );
+    println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
+    if ab.consumed != ap.size as usize {
+        anyhow::bail!("the patched tag no longer walks exactly");
+    }
+
+    if patched.len() == file.len() {
+        let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+        println!("  differs  {} byte(s) from the original", d.len());
+        for i in d.iter().take(8) {
+            println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+        }
+    }
+
+    match &a.out {
+        Some(path) => {
+            std::fs::write(path, &patched)?;
+            println!("\n  wrote {}", path.display());
+            println!("  This is game content. Keep it local; the repository does not take tag data.");
+        }
+        None => println!("\n  dry run; pass --out <file> to write the patched tag"),
+    }
+    Ok(())
 }
 
 fn data(a: DataArgs) -> Result<()> {
@@ -1239,12 +1370,30 @@ fn values(a: ValuesArgs) -> Result<()> {
         nodes.iter().map(|n| n.len()).sum::<usize>()
     );
     for n in &nodes {
-        print_node(n, 1, &a);
+        print_node(
+            n,
+            1,
+            &PrintOpts {
+                depth: a.depth,
+                elements: a.elements,
+                all: a.all,
+            },
+        );
     }
     Ok(())
 }
 
-fn print_node(node: &blam_tag::view::Node, depth: u32, a: &ValuesArgs) {
+/// How much of a tag's value tree to print.
+///
+/// Split out from `ValuesArgs` so the same printer serves both the paks-backed
+/// inspector and the file-backed one.
+struct PrintOpts {
+    depth: u32,
+    elements: usize,
+    all: bool,
+}
+
+fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
     use blam_tag::view::Kind;
 
     if depth > a.depth + 1 {

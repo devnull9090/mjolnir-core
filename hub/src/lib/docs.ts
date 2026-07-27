@@ -29,3 +29,16 @@ export function getDocNotes(): DocNote[] {
 export function getDocNote(slug: string): DocNote | null {
   return generated.notes.find((note) => note.slug === slug) ?? null;
 }
+
+/**
+ * Guides are task-shaped: follow one start to finish and you have done the
+ * thing. Notes are the working history behind them. Same Markdown pipeline,
+ * different promise to the reader.
+ */
+export function getGuides(): DocNote[] {
+  return generated.guides;
+}
+
+export function getGuide(slug: string): DocNote | null {
+  return generated.guides.find((guide) => guide.slug === slug) ?? null;
+}
