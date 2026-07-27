@@ -4,6 +4,7 @@
 //! Halo Campaign Evolved. This build is read-only: nothing is written back to
 //! the game, and no tag content is written to disk.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -20,6 +21,19 @@ const MAX_ROWS: usize = 500;
 #[derive(Default)]
 struct AppState {
     catalog: Mutex<Option<Catalog>>,
+    /// Edits the user has made but not exported, per tag index.
+    ///
+    /// Held in memory on purpose. The game loads tags from read-only IoStore
+    /// containers, so there is nowhere to save them back to; an edit is a
+    /// pending change until it is exported to a file.
+    edits: Mutex<BTreeMap<usize, Vec<PendingEdit>>>,
+}
+
+#[derive(Clone, Serialize)]
+struct PendingEdit {
+    path: String,
+    /// The text the user typed, re-parsed against the layout on each read.
+    value: String,
 }
 
 #[derive(Serialize)]
@@ -72,7 +86,21 @@ struct TagView {
     error: Option<String>,
     /// Total nodes in the tree, so the UI can warn before expanding everything.
     node_count: usize,
+    /// Field paths with an unexported edit, so the UI can mark them.
+    edited: Vec<String>,
     fields: Vec<NodeView>,
+}
+
+/// What one applied edit did, for the UI to report.
+#[derive(Serialize)]
+struct EditResult {
+    path: String,
+    #[serde(rename = "type")]
+    type_name: String,
+    before: String,
+    after: String,
+    /// Bytes of the file that changed. Zero when the value was already that.
+    changed_bytes: usize,
 }
 
 fn kind_name(kind: blam_tag::view::Kind) -> &'static str {
@@ -163,15 +191,157 @@ fn search_tags(query: String, state: State<'_, AppState>) -> Result<Vec<TagSumma
     with_catalog(&state, |c| Ok(c.search(&query, MAX_ROWS)))
 }
 
+/// Parse each pending edit against the layout, dropping any that no longer
+/// resolve. A stale edit is reported by the command that made it, not here.
+fn parse_edits(
+    layout: &blam_tag::Layout<'_>,
+    file: &[u8],
+    block: &blam_tag::data::Block<'_>,
+    pending: &[PendingEdit],
+) -> Vec<(String, blam_tag::Scalar)> {
+    pending
+        .iter()
+        .filter_map(|e| {
+            let target = blam_tag::patch::resolve(layout, file, block, &e.path).ok()?;
+            let value = blam_tag::value::parse(layout, &target.field, &e.value).ok()?;
+            Some((e.path.clone(), value))
+        })
+        .collect()
+}
+
+/// The tag as the user currently sees it: the shipped bytes with any pending
+/// edits applied.
+fn patched_bytes(
+    c: &Catalog,
+    index: usize,
+    pending: &[PendingEdit],
+) -> Result<Vec<u8>, String> {
+    let file = c.read_tag(index)?;
+    if pending.is_empty() {
+        return Ok(file);
+    }
+    let entry = c.entry(index).ok_or("tag index out of range")?;
+    let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        .map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let edits = parse_edits(&layout, &file, &block, pending);
+    let (out, _) = blam_tag::patch::set_many(&layout, &file, &block, &edits)
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+#[tauri::command]
+fn set_field(
+    index: usize,
+    path: String,
+    value: String,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    let pending = {
+        let all = state.edits.lock().map_err(|e| e.to_string())?;
+        all.get(&index).cloned().unwrap_or_default()
+    };
+
+    let result = with_catalog(&state, |c| {
+        let file = patched_bytes(c, index, &pending)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+
+        let target = blam_tag::patch::resolve(&layout, &file, &block, &path)
+            .map_err(|e| e.to_string())?;
+        let parsed = blam_tag::value::parse(&layout, &target.field, &value)
+            .map_err(|e| e.to_string())?;
+        let (out, applied) = blam_tag::patch::set(&layout, &file, &block, &path, &parsed)
+            .map_err(|e| e.to_string())?;
+
+        // Refuse the edit unless the result is still a tag that reads back.
+        let after = blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+        let after_layout = after.layout().map_err(|e| e.to_string())?;
+        let after_block = after.read_data(&after_layout).map_err(|e| e.to_string())?;
+        let payload = after.data().ok_or("patched tag has no data section")?;
+        if after_block.consumed != payload.size as usize {
+            return Err("the edit left the tag unreadable and was discarded".to_string());
+        }
+
+        let a = &applied;
+        Ok(EditResult {
+            path: a.path.clone(),
+            type_name: a.type_name.clone(),
+            before: a.before.display(),
+            after: a.after.display(),
+            changed_bytes: a.changed.len(),
+        })
+    })?;
+
+    // Only record once it is known to work.
+    let mut all = state.edits.lock().map_err(|e| e.to_string())?;
+    let list = all.entry(index).or_default();
+    list.retain(|e| e.path != path);
+    list.push(PendingEdit { path, value });
+    Ok(result)
+}
+
+#[tauri::command]
+fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Result<usize, String> {
+    let mut all = state.edits.lock().map_err(|e| e.to_string())?;
+    let list = all.entry(index).or_default();
+    list.retain(|e| e.path != path);
+    let left = list.len();
+    if left == 0 {
+        all.remove(&index);
+    }
+    Ok(left)
+}
+
+#[tauri::command]
+fn revert_tag(index: usize, state: State<'_, AppState>) -> Result<(), String> {
+    state.edits.lock().map_err(|e| e.to_string())?.remove(&index);
+    Ok(())
+}
+
+/// Write the tag, with its pending edits applied, to a file the user chose.
+///
+/// This is how an edit leaves the editor: the game's containers are read-only,
+/// so there is nowhere to save in place. The bytes are game content and stay
+/// wherever the user puts them.
+#[tauri::command]
+fn export_tag(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
+    let pending = {
+        let all = state.edits.lock().map_err(|e| e.to_string())?;
+        all.get(&index).cloned().unwrap_or_default()
+    };
+    with_catalog(&state, |c| {
+        let out = patched_bytes(c, index, &pending)?;
+        std::fs::write(&dest, &out).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(out.len())
+    })
+}
+
 #[tauri::command]
 fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String> {
+    let pending = {
+        let all = state.edits.lock().map_err(|e| e.to_string())?;
+        all.get(&index).cloned().unwrap_or_default()
+    };
+    let edited: Vec<String> = pending.iter().map(|e| e.path.clone()).collect();
+
     with_catalog(&state, |c| {
         let entry = c.entry(index).ok_or("tag index out of range")?;
         let path = entry.path.clone();
         let group = entry.group.clone();
         let chunk_size = entry.chunk.length;
+        let file = patched_bytes(c, index, &pending)?;
 
-        c.with_tag(index, |tag, layout| {
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| format!("{path}: {e}"))?;
+        let layout = tag.layout().map_err(|e| format!("{path}: {e}"))?;
+        let tag = &tag;
+        let layout = &layout;
+        {
             let data_size = tag.data().map(|d| d.size).unwrap_or(0);
 
             // The value tree is the point of the view. When it cannot be read
@@ -193,7 +363,7 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
 
             let node_count = count(&fields);
 
-            TagView {
+            Ok(TagView {
                 path,
                 group,
                 four_cc: tag.header.group.as_str(),
@@ -203,9 +373,10 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
                 data_exact,
                 error,
                 node_count,
+                edited,
                 fields,
-            }
-        })
+            })
+        }
     })
 }
 
@@ -239,6 +410,10 @@ pub fn run() {
             search_tags,
             read_tag,
             read_tag_bytes,
+            set_field,
+            revert_field,
+            revert_tag,
+            export_tag,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

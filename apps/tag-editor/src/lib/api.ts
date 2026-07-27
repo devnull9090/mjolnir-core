@@ -58,7 +58,18 @@ export type TagView = {
   /** Why the values could not be read, when they could not be. */
   error: string | null;
   node_count: number;
+  /** Field paths with an unexported edit. */
+  edited: string[];
   fields: NodeView[];
+};
+
+export type EditResult = {
+  path: string;
+  type: string;
+  before: string;
+  after: string;
+  /** Bytes of the file that changed; 0 when the value was already that. */
+  changed_bytes: number;
 };
 
 export const api = {
@@ -71,4 +82,11 @@ export const api = {
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
+  setField: (index: number, path: string, value: string) =>
+    invoke<EditResult>("set_field", { index, path, value }),
+  revertField: (index: number, path: string) =>
+    invoke<number>("revert_field", { index, path }),
+  revertTag: (index: number) => invoke<void>("revert_tag", { index }),
+  exportTag: (index: number, dest: string) =>
+    invoke<number>("export_tag", { index, dest }),
 };

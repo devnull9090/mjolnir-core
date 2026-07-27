@@ -294,6 +294,49 @@ pub fn set(
     ))
 }
 
+/// Apply several edits at once, returning the new file and what each one did.
+///
+/// Every target is resolved against the *original* buffer before anything is
+/// written. That is sound because an in-place edit never changes a size, so no
+/// field moves; resolving as we went would be resolving against a buffer that
+/// is already half-edited.
+///
+/// An edit that fails leaves the whole set unapplied.
+pub fn set_many(
+    layout: &Layout<'_>,
+    file: &[u8],
+    block: &Block<'_>,
+    edits: &[(String, Scalar)],
+) -> Result<(Vec<u8>, Vec<Applied>), Error> {
+    let mut targets = Vec::with_capacity(edits.len());
+    for (path, value) in edits {
+        targets.push((resolve(layout, file, block, path)?, path, value));
+    }
+
+    let mut out = file.to_vec();
+    let mut applied = Vec::with_capacity(edits.len());
+    for (target, path, value) in targets {
+        let end = target.file_offset + target.size;
+        value::write(layout, &target.field, value, &mut out[target.file_offset..end])?;
+        let first = (target.file_offset..end).find(|i| out[*i] != file[*i]);
+        let changed = match first {
+            Some(start) => {
+                let last = (start..end).rev().find(|i| out[*i] != file[*i]).unwrap_or(start);
+                start..last + 1
+            }
+            None => 0..0,
+        };
+        applied.push(Applied {
+            path: path.clone(),
+            type_name: target.type_name,
+            before: target.current,
+            after: value.clone(),
+            changed,
+        });
+    }
+    Ok((out, applied))
+}
+
 /// Where the `bdat` payload starts within a tag file, for reporting.
 pub fn payload_offset(body_offset: usize) -> usize {
     HEADER_SIZE + body_offset

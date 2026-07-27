@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use blam_tag::TagFile;
 use serde::Serialize;
 use ue_iostore::{ChunkEntry, Container};
 
@@ -188,19 +187,6 @@ impl Catalog {
         self.tags.get(index)
     }
 
-    /// Parse one tag, handing the borrowed view to `f`.
-    pub fn with_tag<T>(
-        &self,
-        index: usize,
-        f: impl FnOnce(&TagFile<'_>, &blam_tag::Layout<'_>) -> T,
-    ) -> Result<T, String> {
-        let entry = self.tags.get(index).ok_or("tag index out of range")?;
-        let buf = self.read_chunk(entry, None)?;
-        let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))
-            .map_err(|e| format!("{}: {e}", entry.path))?;
-        let layout = tag.layout().map_err(|e| format!("{}: {e}", entry.path))?;
-        Ok(f(&tag, &layout))
-    }
 }
 
 #[cfg(test)]
