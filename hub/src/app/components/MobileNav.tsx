@@ -81,8 +81,8 @@ export function MobileNav() {
 
       {/* Drawer panel */}
       <div
-        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-transform duration-300 ease-out md:hidden ${
-          open ? "translate-x-0" : "translate-x-full"
+        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-all duration-300 ease-out md:hidden ${
+          open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 invisible pointer-events-none"
         }`}
         role="dialog"
         aria-modal="true"
