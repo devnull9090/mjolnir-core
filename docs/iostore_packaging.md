@@ -1,7 +1,9 @@
 # Getting an Edited Tag Into the Game
 
-**Status:** Containers can be built and the game mounts them. The override does not yet win
-the chunk lookup — see *Current experiment* below, which is where to pick this up.
+**Status:** **The override wins.** A container named with the `_P` patch suffix is mounted and
+its chunk is used in place of the shipped one, confirmed by A/B measurement in the running game
+— see *Current experiment*. What remains is whether the **bulk data** chunk is used too, not
+whether override containers work at all.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -155,7 +157,33 @@ This is where the work stands. See *Current experiment* below.
 
 ## Current experiment: does an override container win?
 
-**Status as of 2026-07-27: the container mounts, but the shipped chunk still wins.**
+**Answered 2026-07-27: yes, with the `_P` patch suffix.**
+
+| Container present | `BinaryBlobSize` reads |
+|---|---:|
+| `pakchunk999-MJOLNIR-Windows_P.*` installed | **32640** |
+| the same three files moved aside | **32620** |
+
+Both readings come from the same save, the same mission and the same weapon in hand, differing
+only by whether the three files were in `Content/Paks`. 32640 is the size our packer wrote.
+The shipped chunk no longer wins.
+
+Two things confirmed the mount independently along the way. The `.ucas` could not be moved while
+the game ran — *the process cannot access the file because it is being used by another process*
+— while the `.utoc` and `.pak` moved freely, which is read-index-once and hold-data-open, exactly
+an IoStore mount. And the value tracks the files: put them back, it reads 32640 again.
+
+The measurement itself no longer needs a person. It is
+[`game_lua`](game_automation.md) against the running game:
+
+```bash
+node tools/mcp/game/cli.mjs lua 'for _, o in ipairs(mj.find("BlamWeaponTagDataAsset")) do
+  local n = mj.name(o)
+  if n:lower():find("assault", 1, true) then print(n, mj.props(o).BinaryBlobSize) end
+end'
+```
+
+Which is what made the A/B cheap enough to be worth running properly rather than reasoning about.
 
 This section is the live state of the experiment, written so it can be picked up cold.
 
@@ -233,41 +261,52 @@ classes are loaded, which is useful orientation first.
    mount. This is the strongest evidence available without engine logging, which is compiled out
    of the shipping build (`Meteorite.log` is 0 bytes).
 
-3. **Our chunk does not win the lookup.** With the container mounted, `BinaryBlobSize` still
-   reads 32620.
+3. **The `_P` suffix is what makes the override win.** Without it, `BinaryBlobSize` read 32620;
+   with it, 32640. This is UE's documented patch-container convention and it applies here.
 
 4. `pakchunk999` numbering does **not** confer priority. The number identifies which content
    chunk a file is, not its mount order.
 
-### Next steps
+5. **A container overriding an existing package does not need its own `ContainerHeader`.** Ours
+   has no type-6 chunk and is used anyway, which settles open question 2 above.
 
-**Currently awaiting a test result:** the three files were renamed to the `_P` patch suffix,
-which is UE's documented way to mount on top of existing content. Re-run the probe. If
-`BinaryBlobSize` is 32640, this is solved and the remaining work is generalisation.
+6. **Uncompressed blocks are accepted** in a container whose siblings are Oodle-compressed.
+   Ours stores blocks uncompressed and the loader read them, which settles question 3.
 
-If it still reads 32620, in order of suspicion:
+### What is still open
 
-1. **The 24-byte chunk-meta record.** `pack` copies the record belonging to the chunk being
-   overridden. If those bytes are a content hash — plausible for version 8, which replaced the
-   chunk hash with an `IoHash`, and 20 bytes of hash plus 4 of flags fits exactly — then ours is
-   stale and the loader may find our chunk and reject it. Establishing the hash function is the
-   fix. This is the leading theory once priority is ruled out.
+**Is the type-2 bulk data chunk used, or only the type-1 package chunk?** `BinaryBlobSize` lives
+in the package chunk, which `pack` rewrites, so 32640 proves the *package* chunk is ours. It does
+not prove the Blam payload beside it is being read. That is open question 4 from above, and it is
+now the only one left.
 
-2. **First mount wins rather than highest priority.** If the chunk map is built once at startup,
-   an override has to be mounted *before* `pakchunk0`, not after. Testable by naming the
-   container so it sorts first.
+Measuring it is harder than it looks. The obvious route — change a weapon value and see the game
+behave differently — ran into two problems on 2026-07-27:
 
-3. **The container may need its own `ContainerHeader` (type 6) chunk.** Every shipped container
-   has exactly one. Ours has none, on the theory that a container overriding chunks of an
-   already-declared package does not need to declare it. That theory is untested.
+- **Ammo counts are not reachable by reflection.** Not on the pawn, not on the first-person
+  weapon actor, not on any HUD object; a scan of every loaded object for the literal reserve
+  value found nothing. The counts live in the Blam simulation, which is consistent with the tag
+  payload being an opaque blob parsed natively. So the value has to be read off a screenshot, or
+  a native path has to be found.
 
-4. **Compression.** Ours stores blocks uncompressed while `pakchunk0` uses Oodle. `pakchunk1`
-   ships uncompressed, so this is legal in general, but not proven legal for an override.
+- **Screenshot readings were confounded by save state.** With the override the magazine reloaded
+  to 68 rounds and without it to 66, but the two runs resumed from different points, so a
+  two-round gap establishes nothing. Neither matched the 200 the edit set, which is itself worth
+  explaining.
 
-A useful non-obvious check: make the override deliberately **invalid** — corrupt bytes in our
-chunk — and see whether the game breaks. If it does, our chunk is being read and the problem is
-elsewhere. If nothing changes, it is not being read at all. That separates "not selected" from
-"selected and rejected" in one run.
+Two better instruments, in order of preference:
+
+1. **Pick a payload field that surfaces through reflection.** `BinaryBlobSize` worked precisely
+   because it is a reflected property. If any other cooked property is derived from the payload,
+   it can be A/B'd the same way and the answer arrives in one run.
+
+2. **Corrupt the bulk chunk deliberately** and see whether the game breaks. If it does, the
+   payload is being read; if nothing changes, it is not. That separates "not selected" from
+   "selected and used" without needing to interpret a number, and unlike a subtle value change it
+   cannot be confounded by save state.
+
+Both are now cheap to run — see [`game_automation.md`](game_automation.md). A full A/B, launch to
+measurement, is a handful of commands and about four minutes.
 
 ## Why not a `.pak`
 

@@ -37,12 +37,14 @@ mjolnir-core/
 │   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ / Tab / F10)
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
-│   └── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
+│   ├── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
+│   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
 ├── config/                      # Reference UE4SS-settings.ini
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
+├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas reader, TOC writer, container packer
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
