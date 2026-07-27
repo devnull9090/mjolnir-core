@@ -175,7 +175,7 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 |---|---|
 | `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, Oodle, zlib, partitions) |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
-| `blam-tag` | `0x4C` container header plus the `blay` layout section parser |
+| `blam-tag` | `0x4C` container header, the `blay` layout parser, and the `bdat` value walker |
 | `blam-cli` | The `mjolnir` command-line tool |
 
 ```powershell
@@ -187,11 +187,14 @@ cargo run --release -p blam-cli -- fields --group weapon             # resolved 
 cargo run --release -p blam-cli -- layout --group camera_track --tables
 cargo run --release -p blam-cli -- types                             # field type vocabulary
 cargo run --release -p blam-cli -- validate --all                    # invariants, all 12,290 tags
+cargo run --release -p blam-cli -- sections                          # tgly tables + blay preamble
+cargo run --release -p blam-cli -- data --group weapon --trace       # decode one tag's values
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 
-`mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**, and
-resolves a root struct size for 98.5% of them. `mjolnir defs` writes
+`mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
+resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a
+byte-exact value tree. `mjolnir defs` writes
 `defs/hce/tag-definitions.json` — 101 groups, 1,779 structs, 13,250 fields — which the hub renders
 as a searchable reference at [`/docs/tags`](https://mjolnircore.com/docs/tags).
 

@@ -21,15 +21,36 @@
 //! See `docs/tag_body_format.md` for evidence and reproduction.
 
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use crate::section::{self, Section};
 
 /// Offset of the first child section within `blay`'s content.
 ///
 /// `blay` carries a fixed preamble before its children: `0xFFFFFFFF`, the ASCII
-/// fill constants `4444`/`CCCC`/`wwww`, a per-group constant, and a table of
-/// counts whose meaning is still unresolved.
+/// fill constants `4444`/`CCCC`/`wwww`, a per-group constant, two words that
+/// are still unidentified, and then one count per `tgly` child table.
 const BLAY_PREAMBLE: usize = 0x4C;
+
+/// The `tgly` child tables, in the order the `blay` preamble counts them, with
+/// the on-disk width of one record. `str*` is counted in bytes rather than
+/// records, so it carries a width of 1.
+///
+/// Indexed from [`Layout::PREAMBLE_COUNTS`].
+pub const PREAMBLE_TABLES: [(&str, u32); 12] = [
+    ("str*", 1),
+    ("sz+x", 4),
+    ("sz[]", 12),
+    ("csbn", 4),
+    ("dtnm", 4),
+    ("arr!", 12),
+    ("tgft", 12),
+    ("gras", 12),
+    ("stv4", 28),
+    ("blv2", 12),
+    ("rcv2", 12),
+    ("]==[", 24),
+];
 
 /// Guard against a struct definition that references itself. Real definitions
 /// nest far shallower than this; the limit exists only to stop a cycle.
@@ -90,7 +111,14 @@ pub struct BlockEntry {
 pub struct StructEntry {
     pub guid: [u8; 16],
     pub name_offset: u32,
-    pub aux: [u32; 2],
+    /// Index of this struct's first field in the `gras` list.
+    ///
+    /// This is the authoritative struct-to-field-run link. The field list is a
+    /// flattened tree closed by `terminator X` entries, and `first_field` names
+    /// the run start directly, so no ordering assumption is needed.
+    pub first_field: u32,
+    /// Trailing word. Zero in every shipped group.
+    pub aux: u32,
 }
 
 /// An entry in the `arr!` array table.
@@ -119,8 +147,11 @@ pub struct EnumEntry {
 pub struct Layout<'a> {
     pub version: u32,
     pub size: u32,
-    /// The `blay` preamble words at body `0x0C`..`0x58`, still uninterpreted.
-    pub header_words: [u32; 16],
+    /// The `blay` preamble words, body `0x0C`..`0x58`.
+    ///
+    /// Words 0..4 are the fixed markers; words 5..18 are a table of counts and
+    /// sizes for the definition tables that follow. See `docs/tag_body_format.md`.
+    pub header_words: [u32; 19],
     /// NUL-separated UTF-8 string blob.
     pub blob: &'a [u8],
     /// String-blob offsets for every enum and bitfield option, in order.
@@ -133,6 +164,11 @@ pub struct Layout<'a> {
     pub enums: Vec<EnumEntry>,
     /// Every child section of `tgly`, including ones not yet interpreted.
     pub sections: Vec<Section<'a>>,
+    /// Cache for [`Layout::struct_ranges`], which every size and walk query
+    /// hits repeatedly.
+    runs: OnceLock<Vec<Range<usize>>>,
+    /// Cache for [`Layout::struct_run`]: struct-table index to field run.
+    runs_by_struct: OnceLock<Vec<Option<usize>>>,
 }
 
 impl<'a> Layout<'a> {
@@ -145,7 +181,7 @@ impl<'a> Layout<'a> {
             return Err(Error::BadVersion(blay.version));
         }
 
-        let mut header_words = [0u32; 16];
+        let mut header_words = [0u32; 19];
         for (i, w) in header_words.iter_mut().enumerate() {
             if let Some(b) = blay.content.get(i * 4..i * 4 + 4) {
                 *w = u32::from_le_bytes(b.try_into().unwrap());
@@ -161,13 +197,16 @@ impl<'a> Layout<'a> {
         let blob_section = section::find(&sections, "str*").ok_or(Error::NoStringBlob)?;
         let blob = blob_section.content;
 
-        // The option table follows the string blob. Its magic varies between
-        // groups, so it is located positionally rather than by name.
+        // The option table is `sz+x` in all 101 shipped groups and always sits
+        // directly after the string blob. Prefer the name, and fall back to the
+        // position so a group that named it differently still resolves.
         let mut option_offsets = Vec::new();
-        if let Some(opts) = sections
-            .iter()
-            .find(|s| s.at == blob_section.at + blob_section.total())
-        {
+        if let Some(opts) = section::find(&sections, "sz+x").or_else(|| {
+            sections
+                .iter()
+                .find(|s| s.at == blob_section.at + blob_section.total())
+                .copied()
+        }) {
             option_offsets = opts
                 .content
                 .chunks_exact(4)
@@ -221,10 +260,8 @@ impl<'a> Layout<'a> {
                     .map(|c| StructEntry {
                         guid: c[0..16].try_into().unwrap(),
                         name_offset: u32::from_le_bytes(c[16..20].try_into().unwrap()),
-                        aux: [
-                            u32::from_le_bytes(c[20..24].try_into().unwrap()),
-                            u32::from_le_bytes(c[24..28].try_into().unwrap()),
-                        ],
+                        first_field: u32::from_le_bytes(c[20..24].try_into().unwrap()),
+                        aux: u32::from_le_bytes(c[24..28].try_into().unwrap()),
                     })
                     .collect()
             })
@@ -269,7 +306,35 @@ impl<'a> Layout<'a> {
             arrays,
             enums,
             sections,
+            runs: OnceLock::new(),
+            runs_by_struct: OnceLock::new(),
         })
+    }
+
+    /// Index of the first `tgly` table count in [`Layout::header_words`].
+    pub const PREAMBLE_COUNTS: usize = 7;
+
+    /// The count the `blay` preamble declares for each `tgly` child table,
+    /// paired with the count actually present in the section.
+    ///
+    /// The two agree for every shipped tag, which is what turns the preamble
+    /// from an opaque blob into a checkable manifest.
+    pub fn declared_vs_actual(&self) -> Vec<(&'static str, u32, u32)> {
+        PREAMBLE_TABLES
+            .iter()
+            .enumerate()
+            .map(|(i, (name, width))| {
+                let declared = self
+                    .header_words
+                    .get(Self::PREAMBLE_COUNTS + i)
+                    .copied()
+                    .unwrap_or(0);
+                let actual = section::find(&self.sections, name)
+                    .map(|s| if *width <= 1 { s.size } else { s.size / width })
+                    .unwrap_or(0);
+                (*name, declared, actual)
+            })
+            .collect()
     }
 
     /// Resolve a string-blob byte offset to its NUL-terminated string.
@@ -358,34 +423,44 @@ impl<'a> Layout<'a> {
     /// The field list is a flattened tree: each struct's fields are emitted
     /// contiguously and closed by a `terminator X`. Structs appear innermost
     /// first, so the last range is the group's root struct.
-    pub fn struct_ranges(&self) -> Vec<Range<usize>> {
-        let mut out = Vec::new();
-        let mut start = 0usize;
-        for (i, f) in self.fields.iter().enumerate() {
-            if self.is_terminator(f) {
-                out.push(start..i);
-                start = i + 1;
+    pub fn struct_ranges(&self) -> &[Range<usize>] {
+        self.runs.get_or_init(|| {
+            let mut out = Vec::new();
+            let mut start = 0usize;
+            for (i, f) in self.fields.iter().enumerate() {
+                if self.is_terminator(f) {
+                    out.push(start..i);
+                    start = i + 1;
+                }
             }
-        }
-        out
+            out
+        })
     }
 
-    /// Map a struct-table index to its field run.
+    /// Map a struct-table index to its terminator-delimited field run.
     ///
-    /// `stv4` is ordered root first, while the terminator-delimited field runs
-    /// are emitted innermost first, so the two are reverses of each other.
-    /// Verified on `water_physics_drag_properties`, where the direct reading
-    /// produces a `drag` -> `velocity to pressure` -> `drag` cycle and the
-    /// reversed reading resolves to the real nesting.
+    /// `stv4[i].first_field` names the run's first `gras` index directly, so the
+    /// mapping is a lookup rather than an inference.
+    ///
+    /// An earlier revision assumed `stv4` was ordered root first while the field
+    /// runs were emitted innermost first, and reversed the index. That holds
+    /// only for groups whose structs happen to be declared in nesting order. In
+    /// `shield_impact` the real run starts are `{14, 4, 0, 9}`, which the
+    /// reversal maps to `{3, 2, 1, 0}` — right for the root and wrong for the
+    /// other three, producing false cycles that hit the recursion guard.
     pub fn struct_run(&self, struct_index: usize) -> Option<usize> {
-        self.struct_ranges()
-            .len()
-            .checked_sub(1)?
-            .checked_sub(struct_index)
+        *self.struct_run_map().get(struct_index)?
     }
 
-    fn run_of(ranges: &[Range<usize>], struct_index: usize) -> Option<usize> {
-        ranges.len().checked_sub(1)?.checked_sub(struct_index)
+    /// Struct-table index to field run, one slot per `stv4` entry.
+    pub fn struct_run_map(&self) -> &[Option<usize>] {
+        self.runs_by_struct.get_or_init(|| {
+            let ranges = self.struct_ranges();
+            self.structs
+                .iter()
+                .map(|s| ranges.iter().position(|r| r.start == s.first_field as usize))
+                .collect()
+        })
     }
 
     /// On-disk size of one field.
@@ -395,7 +470,7 @@ impl<'a> Layout<'a> {
     /// inlines the struct at index `aux`, and `array` repeats an element
     /// struct `count` times.
     pub fn field_size(&self, field: &FieldEntry) -> Option<u32> {
-        self.field_size_inner(field, &self.struct_ranges(), 0)
+        self.field_size_inner(field, self.struct_ranges(), 0)
     }
 
     fn field_size_inner(
@@ -411,12 +486,12 @@ impl<'a> Layout<'a> {
         match self.string_at(t.name_offset)? {
             PAD => Some(field.aux),
             STRUCT => {
-                let run = Self::run_of(ranges, field.aux as usize)?;
+                let run = self.struct_run(field.aux as usize)?;
                 self.struct_size_inner(run, ranges, depth + 1)
             }
             ARRAY => {
                 let a = self.arrays.get(field.aux as usize)?;
-                let run = Self::run_of(ranges, a.struct_index as usize)?;
+                let run = self.struct_run(a.struct_index as usize)?;
                 let element = self.struct_size_inner(run, ranges, depth + 1)?;
                 a.count.checked_mul(element)
             }
@@ -450,7 +525,7 @@ impl<'a> Layout<'a> {
 
     /// Total on-disk size of the struct at `index`, summing its field run.
     pub fn struct_size(&self, index: usize) -> Option<u32> {
-        self.struct_size_inner(index, &self.struct_ranges(), 0)
+        self.struct_size_inner(index, self.struct_ranges(), 0)
     }
 
     fn struct_size_inner(
@@ -504,6 +579,15 @@ mod tests {
         vals.iter().flat_map(|v| v.to_le_bytes()).collect()
     }
 
+    /// One 28-byte `stv4` record: a 16-byte GUID, then name, first_field, aux.
+    fn struct_record(tag: u8, name_offset: u32, first_field: u32) -> Vec<u8> {
+        let mut out = vec![tag; 16];
+        out.extend_from_slice(&name_offset.to_le_bytes());
+        out.extend_from_slice(&first_field.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out
+    }
+
     /// Mirrors the real camera_track layout: a control-points block holding a
     /// position and an orientation.
     fn synth_camera_track() -> Vec<u8> {
@@ -545,6 +629,11 @@ mod tests {
             &words(&[21, 1, 0, 45, 2, 0, 0, 3, 0, 0, 0, 0, 0, 3, 0]),
         ));
         tgly_content.extend_from_slice(&section_bytes(b"2vlb", 0, &words(&[0, 16, 1])));
+        // stv4 is ordered root first: [0] is the root run starting at field 3,
+        // [1] is the control point run starting at field 0.
+        let mut stv4 = struct_record(0xA0, 0, 3);
+        stv4.extend_from_slice(&struct_record(0xB0, 0, 0));
+        tgly_content.extend_from_slice(&section_bytes(b"4vts", 0, &stv4));
 
         let mut blay_content = vec![0u8; BLAY_PREAMBLE];
         blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));
@@ -591,7 +680,7 @@ mod tests {
         let l = Layout::parse(&body).unwrap();
 
         // position+orientation close at field 2; control points closes at 4.
-        assert_eq!(l.struct_ranges(), vec![0..2, 3..4]);
+        assert_eq!(l.struct_ranges(), [0..2, 3..4]);
         // The root is the last run, and structs are emitted innermost first.
         assert_eq!(l.root_struct(), Some(1));
     }
@@ -643,13 +732,58 @@ mod tests {
     }
 
     #[test]
-    fn struct_run_reverses_the_struct_table_order() {
+    fn struct_run_comes_from_first_field() {
         let body = synth_camera_track();
         let l = Layout::parse(&body).unwrap();
-        // Two runs: stv4[0] is the root, which is the last run.
+        // stv4[0].first_field is 3, which starts the second run; stv4[1] is 0.
+        assert_eq!(l.structs[0].first_field, 3);
         assert_eq!(l.struct_run(0), Some(1));
         assert_eq!(l.struct_run(1), Some(0));
         assert_eq!(l.struct_run(9), None);
+    }
+
+    /// Regression: the mapping used to be inferred by reversing the struct
+    /// table index, which only holds when structs happen to be declared in
+    /// nesting order. Here they are not, and only `first_field` gets it right.
+    #[test]
+    fn struct_run_ignores_struct_table_order() {
+        let mut blob = Vec::new();
+        for s in ["terminator X", "long integer", "real"] {
+            blob.extend_from_slice(s.as_bytes());
+            blob.push(0);
+        }
+        // Offsets: terminator X 0, long integer 13, real 26.
+
+        let mut tgly_content = section_bytes(b"*rts", 0, &blob);
+        // Types: 0 terminator/0, 1 long integer/4, 2 real/4
+        tgly_content.extend_from_slice(&section_bytes(
+            b"tfgt",
+            0,
+            &words(&[0, 0, 0, 13, 4, 0, 26, 4, 0]),
+        ));
+        // Three runs of one field each: 0..0, 2..2, 4..4.
+        tgly_content.extend_from_slice(&section_bytes(
+            b"sarg",
+            0,
+            &words(&[13, 1, 0, 0, 0, 0, 13, 1, 0, 0, 0, 0, 26, 2, 0, 0, 0, 0]),
+        ));
+        // Declared out of nesting order: run starts 2, 4, 0.
+        let mut stv4 = struct_record(0xA0, 0, 2);
+        stv4.extend_from_slice(&struct_record(0xB0, 0, 4));
+        stv4.extend_from_slice(&struct_record(0xC0, 0, 0));
+        tgly_content.extend_from_slice(&section_bytes(b"4vts", 0, &stv4));
+
+        let mut blay_content = vec![0u8; BLAY_PREAMBLE];
+        blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));
+        let body = section_bytes(b"yalb", 2, &blay_content);
+
+        let l = Layout::parse(&body).unwrap();
+        assert_eq!(l.struct_ranges(), [0..1, 2..3, 4..5]);
+        assert_eq!(l.struct_run(0), Some(1));
+        assert_eq!(l.struct_run(1), Some(2));
+        assert_eq!(l.struct_run(2), Some(0));
+        // The old reversal would have produced 2, 1, 0.
+        assert_ne!(l.struct_run(0), Some(2));
     }
 
     #[test]
@@ -683,6 +817,10 @@ mod tests {
         ));
         // arr![0] = 8 repetitions of struct 0.
         tgly_content.extend_from_slice(&section_bytes(b"!rra", 0, &words(&[42, 8, 1])));
+        // [0] is the root run starting at field 2, [1] the element run at 0.
+        let mut stv4 = struct_record(0xA0, 0, 2);
+        stv4.extend_from_slice(&struct_record(0xB0, 32, 0));
+        tgly_content.extend_from_slice(&section_bytes(b"4vts", 0, &stv4));
 
         let mut blay_content = vec![0u8; BLAY_PREAMBLE];
         blay_content.extend_from_slice(&section_bytes(b"ylgt", 4, &tgly_content));

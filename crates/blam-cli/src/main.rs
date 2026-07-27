@@ -65,6 +65,8 @@ enum Command {
     Defs(DefsArgs),
     /// Inspect the bdat data payload for one tag.
     Data(DataArgs),
+    /// Histogram the tgly child sections and the blay preamble across groups.
+    Sections(SectionsArgs),
 }
 
 #[derive(Args)]
@@ -158,6 +160,12 @@ struct DefsArgs {
 }
 
 #[derive(Args)]
+struct SectionsArgs {
+    #[command(flatten)]
+    src: Source,
+}
+
+#[derive(Args)]
 struct DataArgs {
     #[command(flatten)]
     src: Source,
@@ -170,6 +178,12 @@ struct DataArgs {
     /// Hexdump this many bytes of the data payload.
     #[arg(long, default_value_t = 256)]
     hexdump: usize,
+    /// Print the value-tree walk step by step, including on failure.
+    #[arg(long)]
+    trace: bool,
+    /// Maximum trace lines to print.
+    #[arg(long, default_value_t = 200)]
+    trace_limit: usize,
 }
 
 fn main() -> Result<()> {
@@ -183,6 +197,7 @@ fn main() -> Result<()> {
         Command::Validate(a) => validate(a),
         Command::Defs(a) => export_defs(a),
         Command::Data(a) => data(a),
+        Command::Sections(a) => sections(a),
     }
 }
 
@@ -216,11 +231,17 @@ fn data(a: DataArgs) -> Result<()> {
     if let (Some(run), Some(size)) = (root, root_size) {
         println!("\n  root fields:");
         let ranges = l.struct_ranges();
+        // The payload opens with the root block's {count, flags} header; the
+        // root element's packed fields start after it.
+        const ELEMENTS: usize = 8;
         let mut offset = 0usize;
         for f in &l.fields[ranges[run].clone()] {
             let (name, type_name, _) = l.field_info(f);
             let width = l.field_size(f).unwrap_or(0) as usize;
-            let bytes = payload.content.get(offset..offset + width).unwrap_or(&[]);
+            let bytes = payload
+                .content
+                .get(ELEMENTS + offset..ELEMENTS + offset + width)
+                .unwrap_or(&[]);
             let shown = if name.is_empty() { "<unnamed>" } else { name };
             println!(
                 "    +{offset:<5} {width:>4}b  {type_name:<24} {shown:<36} {}",
@@ -248,15 +269,38 @@ fn data(a: DataArgs) -> Result<()> {
     // Every dword-aligned position whose four bytes look like a section magic.
     let mut magics: BTreeMap<String, usize> = BTreeMap::new();
     let content = payload.content;
+    // Magics are stored reversed, so a `tg..` section reads as `..gt` on disk.
+    // Match on those two bytes only: at least one shipped magic carries a NUL
+    // in its third character, so an is-alphanumeric filter hides it.
     for off in 0..content.len().saturating_sub(4) {
-        let cc: String = content[off..off + 4].iter().rev().map(|b| *b as char).collect();
-        if cc.starts_with("tg") && cc.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            *magics.entry(cc).or_default() += 1;
+        if content[off + 3] != b't' || content[off + 2] != b'g' {
+            continue;
         }
+        let cc: String = content[off..off + 4]
+            .iter()
+            .rev()
+            .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+            .collect();
+        *magics.entry(cc).or_default() += 1;
     }
     println!("\n  section magics in the data payload:");
     for (cc, n) in &magics {
         println!("    {cc}  x{n}");
+    }
+
+    if a.trace {
+        let (result, trace) = blam_tag::data::read_block_traced(&l, payload.content, 0);
+        println!("\n  walk trace ({} lines):", trace.len());
+        let skipped = trace.len().saturating_sub(a.trace_limit);
+        if skipped > 0 {
+            println!("    ... {skipped} earlier lines elided ...");
+        }
+        for line in trace.iter().skip(skipped) {
+            println!("    {line}");
+        }
+        if let Err(e) = &result {
+            println!("    !! {e}");
+        }
     }
 
     println!("\n  data walk:");
@@ -273,6 +317,106 @@ fn data(a: DataArgs) -> Result<()> {
             }
         ),
         Err(e) => println!("    failed: {e}"),
+    }
+    Ok(())
+}
+
+/// Which `tgly` child sections carry content, and what the `blay` preamble
+/// words correlate with.
+fn sections(a: SectionsArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let oodle = a.src.oodle_roots();
+
+    // magic -> (groups seen in, groups where size > 0, largest size)
+    let mut seen: BTreeMap<String, (usize, usize, u32)> = BTreeMap::new();
+    // preamble word index -> how many groups it matched each candidate in
+    let mut matches: BTreeMap<usize, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut groups = 0usize;
+
+    for entries in by_group.values() {
+        let Ok(buf) = idx.read(entries[0], None, &oodle) else {
+            continue;
+        };
+        let Ok(tag) = TagFile::parse(&buf, Some(entries[0].chunk.length as usize)) else {
+            continue;
+        };
+        let Ok(l) = tag.layout() else { continue };
+        groups += 1;
+
+        for s in &l.sections {
+            let e = seen.entry(s.name()).or_insert((0, 0, 0));
+            e.0 += 1;
+            if s.size > 0 {
+                e.1 += 1;
+            }
+            e.2 = e.2.max(s.size);
+        }
+
+        // Candidate meanings for each preamble word, tested per group. Every
+        // tgly child contributes its byte size and its size divided by the
+        // plausible record widths, so a count lands whatever the record shape.
+        let mut candidates: Vec<(String, u32)> = vec![
+            ("blob bytes".to_string(), l.blob.len() as u32),
+            ("options".to_string(), l.option_offsets.len() as u32),
+            ("types".to_string(), l.types.len() as u32),
+            ("fields".to_string(), l.fields.len() as u32),
+            ("blocks".to_string(), l.blocks.len() as u32),
+            ("structs".to_string(), l.structs.len() as u32),
+            ("arrays".to_string(), l.arrays.len() as u32),
+            ("enums".to_string(), l.enums.len() as u32),
+        ];
+        for sec in &l.sections {
+            let name = sec.name();
+            candidates.push((format!("{name} bytes"), sec.size));
+            for width in [2u32, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72] {
+                if sec.size % width == 0 {
+                    candidates.push((format!("{name}/{width}"), sec.size / width));
+                }
+            }
+        }
+        for (i, w) in l.header_words.iter().enumerate() {
+            for (name, value) in &candidates {
+                if w == value {
+                    *matches
+                        .entry(i)
+                        .or_default()
+                        .entry(name.clone())
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+
+    println!("{groups} groups
+");
+    println!("tgly child sections:");
+    println!("  magic	groups	non_empty	max_size");
+    for (magic, (n, nonempty, max)) in &seen {
+        println!("  {magic}	{n}	{nonempty}	{max}");
+    }
+
+    println!("
+blay preamble words (body 0x0C..0x4C), matches across groups:");
+    for i in 0..19 {
+        // Only report a candidate that holds for every group.
+        let repr = matches
+            .get(&i)
+            .map(|m| {
+                let mut all: Vec<&str> = m
+                    .iter()
+                    .filter(|(_, v)| **v == groups)
+                    .map(|(k, _)| k.as_str())
+                    .collect();
+                all.sort_unstable();
+                if all.is_empty() {
+                    format!("(no candidate holds for all {groups})")
+                } else {
+                    all.join("  ==  ")
+                }
+            })
+            .unwrap_or_else(|| "-".to_string());
+        println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
     }
     Ok(())
 }
@@ -456,10 +600,17 @@ fn layout(a: LayoutArgs) -> Result<()> {
                 );
             }
             println!("\n  structs:");
+            let ranges = l.struct_ranges();
             for (i, s) in l.structs.iter().enumerate() {
                 let guid: String = s.guid.iter().map(|b| format!("{b:02x}")).collect();
+                let span = l
+                    .struct_run(i)
+                    .and_then(|r| ranges.get(r))
+                    .map(|r| format!("{}..{}", r.start, r.end))
+                    .unwrap_or_else(|| "?".into());
                 println!(
-                    "    [{i:>3}] {guid}  {}",
+                    "    [{i:>3}] first_field {:>5}  fields {span:<14} {guid}  {}",
+                    s.first_field,
                     l.string_at(s.name_offset).unwrap_or("")
                 );
             }
@@ -659,6 +810,15 @@ struct Checks {
     root_size_unknown: usize,
     /// A bdat data section is present.
     has_data: usize,
+    /// Every `blay` preamble count matches the table it counts.
+    preamble_ok: usize,
+    preamble_bad: usize,
+    /// Every `*_block_index` field's aux indexes the block table.
+    block_index_ok: usize,
+    block_index_bad: usize,
+    /// Every `stv4` entry's `first_field` lands on a field run start.
+    struct_first_field_ok: usize,
+    struct_first_field_bad: usize,
     /// The data walk succeeded.
     data_walk_ok: usize,
     data_walk_failed: usize,
@@ -723,7 +883,36 @@ fn validate(a: ValidateArgs) -> Result<()> {
             }
         }
 
+        let preamble: Vec<_> = l
+            .declared_vs_actual()
+            .into_iter()
+            .filter(|(_, declared, actual)| declared != actual)
+            .collect();
+        if preamble.is_empty() {
+            c.preamble_ok += 1;
+        } else {
+            c.preamble_bad += 1;
+            if a.verbose {
+                for (name, declared, actual) in preamble {
+                    eprintln!(
+                        "{}: blay preamble declares {declared} {name} records, section holds {actual}",
+                        entry.path
+                    );
+                }
+            }
+        }
+
+        if l.struct_run_map().iter().all(|r| r.is_some()) {
+            c.struct_first_field_ok += 1;
+        } else {
+            c.struct_first_field_bad += 1;
+            if a.verbose {
+                eprintln!("{}: an stv4 first_field misses a run start", entry.path);
+            }
+        }
+
         let mut type_ok = true;
+        let mut block_index_ok = true;
         let mut block_ok = true;
         let mut struct_ok = true;
         let mut array_bad = false;
@@ -738,8 +927,13 @@ fn validate(a: ValidateArgs) -> Result<()> {
                         block_ok = false;
                     }
                 }
+                name if name.ends_with("block index") => {
+                    if l.blocks.get(f.aux as usize).is_none() {
+                        block_index_ok = false;
+                    }
+                }
                 "struct" => {
-                    if ranges.get(f.aux as usize).is_none() {
+                    if l.struct_run(f.aux as usize).is_none() {
                         struct_ok = false;
                     }
                 }
@@ -747,7 +941,7 @@ fn validate(a: ValidateArgs) -> Result<()> {
                     let in_range = l
                         .arrays
                         .get(f.aux as usize)
-                        .is_some_and(|arr| ranges.get(arr.struct_index as usize).is_some());
+                        .is_some_and(|arr| l.struct_run(arr.struct_index as usize).is_some());
                     if !in_range {
                         array_bad = true;
                     }
@@ -767,6 +961,14 @@ fn validate(a: ValidateArgs) -> Result<()> {
             c.type_index_ok += 1;
         } else {
             c.type_index_bad += 1;
+        }
+        if block_index_ok {
+            c.block_index_ok += 1;
+        } else {
+            c.block_index_bad += 1;
+            if a.verbose {
+                eprintln!("{}: a block-index aux is out of range", entry.path);
+            }
         }
         if block_ok {
             c.block_aux_ok += 1;
@@ -832,6 +1034,18 @@ fn validate(a: ValidateArgs) -> Result<()> {
         pct(c.struct_count_matches)
     );
     println!(
+        "  blay preamble counts match   {} ok, {} bad  ({:.1}%)",
+        c.preamble_ok,
+        c.preamble_bad,
+        pct(c.preamble_ok)
+    );
+    println!(
+        "  stv4 first_field hits a run   {} ok, {} bad  ({:.1}%)",
+        c.struct_first_field_ok,
+        c.struct_first_field_bad,
+        pct(c.struct_first_field_ok)
+    );
+    println!(
         "  field type index in range    {} ok, {} bad  ({:.1}%)",
         c.type_index_ok,
         c.type_index_bad,
@@ -842,6 +1056,12 @@ fn validate(a: ValidateArgs) -> Result<()> {
         c.block_aux_ok,
         c.block_aux_bad,
         pct(c.block_aux_ok)
+    );
+    println!(
+        "  block-index aux in blv2       {} ok, {} bad  ({:.1}%)",
+        c.block_index_ok,
+        c.block_index_bad,
+        pct(c.block_index_ok)
     );
     println!(
         "  struct aux indexes a run     {} ok, {} bad  ({:.1}%)",

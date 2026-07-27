@@ -2,7 +2,7 @@
 
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 **Artifacts:** `Meteorite/Content/Paks/*.utoc` + `*.ucas`, 28 containers
-**Tool:** `tools/iostore/decode_body.py`
+**Tool:** `crates/blam-cli` (`mjolnir`)
 **Date:** 2026-07-26
 
 ## Summary
@@ -32,10 +32,14 @@ cargo run --release -p blam-cli -- groups
 cargo run --release -p blam-cli -- layout --group camera_track --tables
 cargo run --release -p blam-cli -- fields --group weapon
 cargo run --release -p blam-cli -- types
+cargo run --release -p blam-cli -- sections               # tgly tables + blay preamble
+cargo run --release -p blam-cli -- data --group weapon --trace
+cargo run --release -p blam-cli -- validate --all
 ```
 
 The Rust reader in `crates/blam-tag` parses **101/101 groups** across all **12,290** shipped
-payloads, and recovers a complete field list for **101/101**.
+payloads, recovers a complete field list for **101/101**, and decodes the field *values* of
+**12,281 / 12,290** payloads byte for byte.
 
 ## Section Layout
 
@@ -67,8 +71,6 @@ Body offsets below are relative to the start of the tag body, which begins at fi
 `0x4C`. File offsets in the worked example are for `default-weapon.ubulk`
 (`weap`, group version 2, chunk length 27,599).
 
-### `blay` header — body `0x00`, fixed `0x58` bytes
-
 ### `blay` header — body `0x00`
 
 A standard 12-byte section header, followed by a fixed `0x4C`-byte preamble before its first
@@ -84,12 +86,44 @@ child section.
 | `0x14` | 4 | ASCII `CCCC` (`0x43434343`) | Verified |
 | `0x18` | 4 | ASCII `wwww` (`0x77777777`) | Verified |
 | `0x1C` | 4 | Per-group 32-bit value (`weap` = `0xDB837039`) | Observed |
-| `0x20` | `0x38` | Table of counts and sizes, uninterpreted. | Observed |
+| `0x20` | 8 | Two words with no candidate that holds across all 101 groups. | Observed |
+| `0x28` | `0x30` | Record count for each `tgly` child table, in a fixed order. | Verified |
 | `0x58` | — | First child section (`tgly`). | Verified |
 
 The `4444` / `CCCC` / `wwww` dwords recorded as uninterpreted markers in
 [tag_data_pipeline.md](tag_data_pipeline.md) are **fixed ASCII fill constants** at body
 `0x10`–`0x18`. They are group-invariant and carry no per-tag information.
+
+#### The preamble count table — body `0x28`–`0x58`
+
+**Verified.** The twelve words from body `0x28` are a manifest: one record count per `tgly`
+child table, in a fixed order. Each was identified by testing every word against every
+candidate derived from the parsed tables and keeping only candidates that hold in **all 101
+groups**; each of the twelve has exactly one such candidate.
+
+| Body offset | Counts | Record width |
+|---:|---|---:|
+| `0x28` | `str*` string blob | 1 (a byte count, not a record count) |
+| `0x2C` | `sz+x` enum and bitfield options | 4 |
+| `0x30` | `sz[]` enum and bitfield definitions | 12 |
+| `0x34` | `csbn` | 4 |
+| `0x38` | `dtnm` | 4 |
+| `0x3C` | `arr!` arrays | 12 |
+| `0x40` | `tgft` types | 12 |
+| `0x44` | `gras` fields | 12 |
+| `0x48` | `stv4` structs | 28 |
+| `0x4C` | `blv2` blocks | 12 |
+| `0x50` | `rcv2` | 12 |
+| `0x54` | `]==[` | 24 |
+
+`mjolnir validate --all` cross-checks every count against the section it counts:
+**12,290 / 12,290** tags agree on all twelve. That turns the preamble from an opaque blob into
+a checkable manifest, and it is what pins the record widths of `csbn`, `dtnm`, `rcv2` and
+`]==[` — tables that are empty in most groups, so their widths cannot be read off their own
+contents. Reproduce with `mjolnir sections`.
+
+The two words at body `0x20`–`0x28` remain unidentified. No count, byte size, or size-over-width
+quotient from any table matches them across all 101 groups.
 
 Because `size` excludes the header, `blay` content spans `[0x0C, 0x0C + size)` and the `bdat`
 section begins exactly at `0x0C + size`. This was **Verified** against `weap`, where
@@ -124,37 +158,59 @@ Blob sizes range from 12 strings (`breakable_surface`) to 1,038 (`character`). `
 **Note:** the blob is byte-packed, so the section that follows it frequently begins on an offset
 that is not 4-byte aligned. Do not assume dword alignment anywhere in the layout section.
 
-### `x+zs` option table — immediately after the string blob
+### `sz+x` option table — immediately after the string blob
 
-A standard section. Its magic varies between groups (`x+zs` in most, `sz[]` and others
-elsewhere), so it is located positionally as the section following `str*` rather than by name.
-Content is an array of string-blob offsets, one per enum or bitfield option, in declaration
-order. **Verified.**
+A standard section holding an array of string-blob offsets, one per enum or bitfield option, in
+declaration order. **Verified.**
 
 Worked example, `weap` entries 0–16 resolve to the 17 bits of `object flags` in order, then
 `{default, never, always, blur}`, then `{default, small, medium, large}`, then
 `{default, super_floater, …, super_sinker, none}` — contiguous option runs for consecutive
 enum and bitfield definitions.
 
-**Superseded 2026-07-26.** An earlier revision of this note read the section's `size` word as an
-*entry count* and reported that the count overran the enclosing section in 16 of 101 groups. That
-was a misreading: the word is the section size **in bytes**, consistent with every other section.
-`weap` declares `1,312` bytes, which is `328` options, not `1,312`. Reading it as a byte size
-resolves all 16 groups, and no group overruns.
+**Superseded 2026-07-26.** An earlier revision read the section's `size` word as an *entry
+count* and reported that the count overran the enclosing section in 16 of 101 groups. That was a
+misreading: the word is the section size **in bytes**, consistent with every other section.
+`weap` declares `1,312` bytes, which is `328` options, not `1,312`.
+
+**Superseded 2026-07-26.** A later revision said the magic varies between groups and located the
+section positionally. It does not vary: the magic is `sz+x` in **101/101** groups, and the
+`tgly` child chain is in the same fixed order everywhere (see below). The reader now finds it by
+name and keeps the positional lookup only as a fallback.
 
 ### Definition tables
 
 Sibling sections under `tgly`, all using the standard 12-byte header. Empty tables are present
-with `size = 0` rather than omitted. **Verified** across all 101 groups.
+with `size = 0` rather than omitted. **Verified** across all 101 groups, which all carry the
+same twelve children in the same order:
+
+```text
+str*  sz+x  sz[]  csbn  dtnm  arr!  tgft  gras  blv2  rcv2  ]==[  stv4
+```
 
 | Magic | Record | Meaning |
 |---|---|---|
 | `tgft` | `{name_offset, size, flags}` | Type table. `size` is the on-disk width in bytes; `flags` is non-zero for composite types such as `block`. |
 | `gras` | `{name_offset, type_index, aux}` | Field list. `type_index` indexes `tgft`. |
-| `blv2` | `{name_offset, max_count, aux}` | Block table. `max_count` is the element limit Guerilla enforced. |
-| `stv4` | `{guid[16], name_offset, aux[2]}` | Struct table. Struct definitions carry a GUID, characteristic of third-generation Blam. |
+| `blv2` | `{name_offset, max_count, aux}` | Block table. `max_count` is the element limit Guerilla enforced; `aux` is a `stv4` index. |
+| `stv4` | `{guid[16], name_offset, first_field, aux}` | Struct table. `first_field` is a `gras` index; see below. |
 
-Also present, empty in the sampled groups: `sz[]`, `csbn`, `dtnm`, `arr!`, `rcv2`, `]==[`.
+**Superseded 2026-07-26.** An earlier revision listed `sz[]`, `csbn`, `dtnm`, `arr!`, `rcv2` and
+`]==[` as "present, empty in the sampled groups". All twelve tables are present in **101/101**
+groups, and four of the six do carry content somewhere:
+
+| Magic | Groups where non-empty | Largest | Record width |
+|---|---:|---:|---:|
+| `sz[]` | 79 / 101 | 1,476 B | 12 |
+| `arr!` | 12 / 101 | 132 B | 12 |
+| `dtnm` | 41 / 101 | 16 B | 4 |
+| `csbn` | 9 / 101 | 60 B | 4 |
+| `rcv2` | 3 / 101 | 36 B | 12 |
+| `]==[` | 2 / 101 | 72 B | 24 |
+
+`sz[]` and `arr!` are decoded below. `csbn`, `dtnm`, `rcv2` and `]==[` still have no
+interpretation, but their record widths are now known from the preamble manifest, and the groups
+that carry content are named here so the next attempt has somewhere to start.
 
 Worked example — `camera_track`, the smallest group, decodes completely:
 
@@ -225,16 +281,18 @@ or whose meaning needs a target:
 | Type | `aux` means | Evidence |
 |---|---|---|
 | `pad` | Width in bytes. Observed values 1, 2, 3, 4, 6, 8, 12, 24, up to 60. | Verified |
+| `pageable resource` | Unused, always zero; the resource is a section in `bdat`. | Verified |
 | `struct` | Index into the struct table. | Verified |
 | `array` | Index into the `arr!` array table. | Verified |
 | `block` | Index into the `blv2` block table. | Verified |
 | `*_enum`, `*_flags` | Index into the `sz[]` enum table. | Verified |
-| `*_block_index` | Index into the `blv2` block table. | Observed |
+| `*_block_index` | Index into the `blv2` block table. | Verified |
 | everything else | Unused, always zero. | Verified |
 
 ### `sz[]` enum table and `arr!` array table
 
-Two more standard sections, previously seen empty because the sampled group used neither.
+Two more standard sections. Both are present in all 101 groups; `sz[]` carries content in 79 of
+them and `arr!` in 12.
 
 `sz[]` holds `{name_offset, option_count, first_option}`. `first_option` indexes the shared option
 table, and the runs **tile it exactly**: each entry begins where the previous one ended. Worked
@@ -254,17 +312,34 @@ entry is what **Verifies** this reading.
 `arr!` holds `{name_offset, count, struct_index}`. An array field's size is `count` times the size
 of the referenced struct.
 
-### Struct table ordering
+### Struct-to-field-run mapping
 
-**Verified.** `stv4` is ordered **root first**, while the terminator-delimited field runs are
-emitted **innermost first**. The two are reverses of each other, so a struct-table index `i` maps
-to field run `len - 1 - i`.
+**Verified.** `stv4`'s record is `{guid[16], name_offset, first_field, aux}`. `first_field` is
+the index of the struct's first entry in the `gras` field list, which is exactly the start of
+its terminator-delimited run. The struct-to-fields link is therefore a **lookup, not an
+inference**.
 
-Reading the index directly produces false cycles. In `water_physics_drag_properties` the naive
-reading makes `velocity to pressure` contain `drag` and `drag` contain `velocity to pressure`;
-the reversed reading resolves to the real nesting, where `drag` holds the damping values and
-`velocity to pressure` holds a curve. Applying the correction moved whole-corpus size resolution
-from 96.6% to 98.5%.
+`mjolnir validate --all` checks that every `stv4` entry's `first_field` lands on a run start:
+**12,290 / 12,290** tags pass, across every group.
+
+**Superseded 2026-07-26.** An earlier revision did not read `first_field` and instead inferred
+the mapping, on the theory that `stv4` was ordered root first while the field runs were emitted
+innermost first, making the two exact reverses. That holds only for groups whose structs happen
+to be declared in nesting order. `shield_impact` is the counterexample: its real run starts are
+`{14, 4, 0, 9}`, which the reversal maps to `{3, 2, 1, 0}` — correct for the root and wrong for
+the other three. The false cycles that produced are what drove those groups into the recursion
+guard.
+
+Reading `first_field` directly fixes both symptoms at once:
+
+| Measure | Reversal | `first_field` |
+|---|---:|---:|
+| Root struct size resolves | 12,111 / 12,290 (98.5%) | **12,290 / 12,290 (100%)** |
+| Data walk succeeds | 1,953 / 12,290 (15.9%) | **12,281 / 12,290 (99.9%)** |
+
+The five groups previously listed as unresolved — `camera_shake`, `chud_globals_definition`,
+`incident_globals_definition`, `shield_impact` and `simulated_input` — all resolve. They were not
+five separate anomalies; they were the groups where the ordering assumption broke.
 
 ## Validation
 
@@ -275,22 +350,20 @@ from 96.6% to 98.5%.
 | Container header parses | 12,290 / 12,290 |
 | Layout section parses | 12,290 / 12,290 |
 | Terminator count equals struct table size | 12,290 / 12,290 |
+| `blay` preamble counts match their tables | 12,290 / 12,290 |
+| Every `stv4` `first_field` lands on a run start | 12,290 / 12,290 |
 | Every field's type index in range | 12,290 / 12,290 |
 | Every `block` field's `aux` indexes `blv2` | 12,290 / 12,290 |
-| Every `struct` field's `aux` indexes a field run | 12,290 / 12,290 |
+| Every `*_block_index` field's `aux` indexes `blv2` | 12,290 / 12,290 |
+| Every `struct` field's `aux` resolves to a field run | 12,290 / 12,290 |
 | Every `array` field resolves to an in-range struct | 12,290 / 12,290 |
 | `bdat` data section present | 12,290 / 12,290 |
-| Root struct size resolves | 12,111 / 12,290 (98.5%) |
-
-**Open.** Five groups do not resolve a root size: `camera_shake`, `chud_globals_definition`,
-`incident_globals_definition`, `shield_impact`, and `simulated_input`. Each hits the recursion
-guard, which means the struct index correction above is not the whole story for them. They are
-named here so the gap is reproducible rather than hidden.
+| Root struct size resolves | 12,290 / 12,290 |
 
 ## The `bdat` Data Payload
 
 **Verified.** Fixed-width fields are packed inline in the element data. Fields whose content is
-variable length instead emit a trailing section, one per field in declaration order:
+variable length instead write a trailing section, in declaration order:
 
 ```
 block:
@@ -300,24 +373,80 @@ block:
   ..    one `tgst` per element, holding that element's variable-length fields
 ```
 
-The section magic identifies the field type:
-
-| Magic | Field type |
-|---|---|
-| `tgbl` | `block` |
-| `tgst` | `struct`, and the per-element wrapper |
-| `tgsi` | `string id` |
-| `tgda` | `data` |
-| `tgrf` | `tag reference` |
-| `tgal` | `array` |
-
-Also seen but not yet attributed: `tgms`, `tgne`, `tgni`, all rare and concentrated in `scenario`.
-
 The root is not special — the outermost `tgbl` is a block holding one element whose struct is the
-group's root. A `struct` field whose target contains nothing variable length emits **no section at
-all**, which the walk must anticipate.
+group's root.
 
-Worked example, `camera_track` (304-byte payload), decomposing with nothing left over:
+### What each field type writes
+
+**Verified** against every shipped tag: with these rules the walk consumes **12,281 / 12,290**
+payloads byte for byte, and the 9 that fail all fail on one field slot (see *Open* below).
+
+| Field type | Writes |
+|---|---|
+| `block` | `tgbl`: `{count, flags}`, the packed elements, then one `tgst` per element |
+| `struct` | `tgst`, **always** |
+| `string id` | `tgsi` |
+| `data` | `tgda` |
+| `tag reference` | `tgrf` |
+| `pageable resource` | a section whose magic reads `tg?c` |
+| `array` | nothing of its own; its elements' sections follow inline |
+| everything else | nothing; the value is inline in the packed element data |
+
+A block writes its per-element `tgst` wrappers only when the element struct declares at least one
+field that writes. `camera_track`'s 9 control points are position and orientation only, so that
+block carries no wrappers at all.
+
+Four of these rules replace earlier readings, and each was forced by a specific failure.
+
+**A `struct` always writes its `tgst`.** The previous revision said a struct whose target has no
+variable-length content "emits no section at all". It does write one — empty. `structure_seams`
+is the clean case: its `structure_manifest_struct` run declares two `struct` fields that target a
+run of six `long integer`s, and the file writes two empty `tgst` before the next field's `tgbl`.
+Applying this rule alone moved the per-group walk from 81/101 to 93/101, and made every success
+byte-exact.
+
+**An `array` writes no wrapper.** `tgal` appears in the earlier revision's magic table but is
+**never used**: no array in the shipped corpus writes a section of its own. An array is an inline
+repetition — its fixed-width part is already inside the packed element data, counted by
+`field_size` as `count × element_size` — and when its element struct has variable-length content,
+each element's sections simply follow back to back. `game_engine_settings_definition` is the
+worked case: its 8-element `teams` array writes 8 bare `tgsi`, with no `tgal` and no per-element
+`tgst`. An array whose element struct writes nothing does not appear in the stream at all.
+
+**A `pageable resource` writes a section.** The earlier revision treated it as an 8-byte inline
+value only. It also writes a 12-byte section whose magic reads `tg?c`, where the third character
+is `r` when a resource is attached and NUL when it is not. That NUL is why it went unnoticed: a
+four-CC scan that requires printable characters skips it, and the generic section reader rejects
+it. Only three groups declare the type — `model_animation_graph`, `scenario_structure_bsp` and
+`shader` — and `shader` is the tightest evidence: its `render_method_postprocess_block` element
+came up **exactly 12 bytes** short until this section was read.
+
+**A `tgst` of declared size zero has no children**, even when its struct declares fields that
+would write. The section header is the authority on what is present; the shipped scenario tags
+use an empty `tgst` for a struct left at its defaults.
+
+### Reading a nested section strictly
+
+**Verified.** Consuming the outermost payload exactly is *not* sufficient. A parent advances over
+a child by the child's declared size, so bytes left unread **inside** a nested `tgst` are
+invisible to a whole-payload byte count. The walk therefore asserts that every `tgst` is consumed
+exactly, not just the root.
+
+Adding that check is what exposed the `pageable resource` section: before it, `shader` and
+`model_animation_graph` both "passed" while silently skipping 12 bytes inside a nested wrapper.
+
+### The `tgms`, `tgne` and `tgni` magics
+
+**Resolved: they are not sections.** The earlier revision listed them as seen but unattributed,
+found by scanning payloads for `tg`-prefixed four-CCs. Since the walk now consumes 12,281
+payloads byte for byte without ever reading one, every occurrence necessarily falls inside a
+region the walk treats as opaque — packed element data, or the content of a `tgda`, `tgsi` or
+`tgrf`. They are incidental byte patterns, not structure. The same argument disposes of the
+`tgal` occurrences in `scenario`.
+
+### Worked example
+
+`camera_track` (304-byte payload), decomposing with nothing left over:
 
 ```
 +0    u32 count = 1, u32 flags = 0
@@ -333,27 +462,63 @@ Worked example, `camera_track` (304-byte payload), decomposing with nothing left
 
 | Result | Count |
 |---|---|
-| Walk succeeds | 1,953 / 12,290 (15.9%) |
-| Of those, consumed **exactly** | 1,939 (99.3%) |
-| Consumed short | 14 |
+| Walk succeeds | **12,281 / 12,290 (99.9%)** |
+| Of those, consumed **exactly** | 12,281 (100%) |
+| Consumed short | 0 |
 | Consumed over | 0 |
+
+Previous revision, for comparison: 1,953 walks succeeded (15.9%), of which 14 were short.
 
 **The walk is strict by design.** It fails rather than stopping early, so a short read is never
 mistaken for a complete one. An earlier tolerant version reported 82.5% success, but 7,361 of those
 were silently short — that is a worse outcome than an honest partial result, and it was reverted.
+A second tolerance, ending a struct run once its section's content was spent, was tried during
+this revision and then removed: with the rules above correct it never fired on any of the 12,290
+tags, so it could only ever have masked a real gap.
 
-Every group whose walk succeeds is byte-exact, which is strong evidence the model is correct as far
-as it goes. The remaining failures are dominated by one symptom: a per-element `tgst` wrapper is
-expected but the buffer has ended. Simple groups (`camera_track`, `color_table`, `camo`,
-`collision_damage`, `breakable_surface`) all walk exactly; the failures are concentrated in groups
-with multi-element blocks whose elements carry variable-length content, which is the one
-combination not yet observed directly.
+Failures name the field path rather than a buffer offset, which is what makes a new one
+diagnosable:
+
+```
+root.[0].render geometry.compression info constant buffers:
+  expected a tgbl section at offset 134436 of 134468, found "<none>" [63 00 67 74 ...]
+```
+
+**Open — one field slot, 9 tags.** Every remaining failure is the same one:
+`root.[0].effect scenery.[0]` in 9 of the 13 `scenario` tags, which reads 104 of the 164 bytes the
+element's `tgst` declares. The evidence is narrow and specific:
+
+- `scenario_effect_scenery_block` declares `custom, short block index, custom,
+  short block index, struct object data, custom, struct multiplayer data`.
+- The sibling `scenario_scenery_block` declares the same shape but with a fourth `struct`,
+  `permutation data`, exactly where effect scenery has its third `custom`. It walks byte-exact.
+- The file writes three sections for an effect scenery element: `object data` (80 bytes), an
+  **empty `tgst`**, then `multiplayer data` (48 bytes). The empty one sits precisely in the slot
+  where the sibling block has `permutation data`.
+
+So that third `custom` occupies a struct slot and is written as an empty `tgst`, while `custom`
+elsewhere is a Guerilla editor annotation that writes nothing. Three candidate discriminators
+were tested against the whole corpus; all three made matters worse, so none is recorded here as
+the rule:
+
+| Rule tried | Per-group walk |
+|---|---:|
+| No `custom` ever writes (current) | 100 / 101 |
+| `custom` writes when the next field writes | 46 / 101 |
+| `custom` writes when the next field is a `struct` | 77 / 101 |
+| `custom` writes when it sits between two `struct` fields | 92 / 101 |
+
+The discriminator is therefore not the neighbouring field types. The next thing to check is
+whether the three `custom` entries differ within their own `gras` record: all three resolve to
+the empty string, but their `name_offset` values point at different NULs in the string blob and
+have not been compared.
 
 ## Group Coverage
 
 **Verified:** all 101 shipped groups parse end to end — `blay` version `2`, a `str*` blob, an
-option table, a `tgft` type table, a `gras` field list, and a `bdat` data section. `weap` carries
-783 strings, 328 options, 30 types, 503 fields, 30 blocks, and 46 structs.
+option table, a `tgft` type table, a `gras` field list, and a `bdat` data section. All twelve
+`tgly` child tables are present in every group, in the same order. `weap` carries 783 strings,
+328 options, 30 types, 503 fields, 30 blocks, and 46 structs.
 
 Group versions at container header `0x34` vary independently (`bsdt` = 0, `bipd` = 3, `effe` = 4,
 `jpt!` = 6, `coll` = 10), confirming that value is a per-group definition version rather than a
@@ -367,32 +532,37 @@ format version.
 2. It removes `HaloSimulation_tag_release.dll` from the critical path for a tag editor.
 3. Because each tag carries its own layout, a reader can be **fully generic**: no hand-coded
    per-group parsers and no hardcoded offsets.
+4. Values, not just schema, are now readable: 99.9% of shipped payloads decode into a byte-exact
+   value tree, which is what an editor needs in order to show a field's current setting.
 
 ## Next Checks
 
-1. Find a block with more than one element whose element struct carries variable-length content,
-   and confirm how the per-element `tgst` wrappers are laid out. This is the dominant remaining
-   data-walk failure.
-2. Attribute the `tgms`, `tgne`, and `tgni` data sections.
-3. Resolve the five groups whose root size still hits the recursion guard:
-   `camera_shake`, `chud_globals_definition`, `incident_globals_definition`, `shield_impact`,
-   `simulated_input`.
-4. Interpret the remaining empty layout sections: `csbn`, `dtnm`, `rcv2`, `]==[`.
-5. Decode the `blay` preamble at body `0x0C`–`0x58` and cross-check against the section sizes it
-   appears to duplicate.
+1. Identify what distinguishes the `custom` field that occupies a struct slot in
+   `scenario_effect_scenery_block` from the `custom` fields that write nothing. Start by comparing
+   the three entries' `gras` records directly, including their distinct `name_offset` values. This
+   is the only remaining data-walk failure, at 9 of 12,290 tags.
+2. Interpret `csbn`, `dtnm`, `rcv2` and `]==[`. Their record widths are now known (4, 4, 12 and 24
+   bytes) and the groups that populate them are named above, which is where to look.
+3. Identify the two `blay` preamble words at body `0x20`–`0x28`, and the per-group value at
+   `0x1C`.
+4. Confirm what the third character of the `pageable resource` magic (`tg?c`) selects. Only `r`
+   and NUL have been seen, in three groups.
+5. Interpret the `flags` word in a `tgbl` block header. Observed 0 and 1, and it does not decide
+   whether per-element `tgst` wrappers are present — the element struct's field list does.
+6. Test the container-header `0x34` group-version hypothesis against a known Reach or Halo 4 tag
+   definition set.
 
 ## Published Reference
 
 `mjolnir defs` writes the whole corpus to `defs/hce/tag-definitions.json`: 101 groups, 1,779
-structs, 13,250 fields of which 11,216 are user-visible. The hub renders it as a searchable
-reference at `/docs/tags`, one static page per group.
+structs, 13,250 fields of which 11,216 are user-visible, with a root size resolved for 101/101
+groups. The hub renders it as a searchable reference at `/docs/tags`, one static page per group.
 
 Only **schema** is published — field names, type names, byte offsets, and enum option names. Tag
 **values** are game content and are never emitted, in line with the repository policy that keeps
 `extract_tags.py` output local.
-6. Establish where the tag *data* begins relative to the layout section.
 
 ## Non-Goals
 
-No game content is written to disk by `decode_body.py`; payloads are read into memory only.
+No game content is written to disk by any of these tools; payloads are read into memory only.
 Extracted tag data remains local and uncommitted per the repository policy.

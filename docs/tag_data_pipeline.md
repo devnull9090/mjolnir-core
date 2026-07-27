@@ -78,7 +78,10 @@ with a `0x4C`-byte header, and `header + payload_size == chunk_size` holds for e
 magnitude tracks group complexity, but no discriminating check has been run.
 
 The body opens with additional group-invariant marker dwords (`blay`, then `4444`, `CCCC`, `wwww`
-in a `weapon` sample). These are recorded as **Observed** and are not yet interpreted.
+in a `weapon` sample), followed by a per-group value and a table of record counts. **Superseded
+2026-07-26:** the markers are fixed ASCII fill constants and the count table is a manifest for the
+twelve definition tables, checked against them for all 12,290 tags. See
+[`tag_body_format.md`](tag_body_format.md).
 
 ## Unreal Wrapper Classes
 
@@ -270,7 +273,9 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
    all 101 groups.
 3. ~~Resolve the `blay` / `4444` / `CCCC` / `wwww` markers.~~ **Superseded 2026-07-26.** `blay` is
    the layout section four-CC at body `0x00`; `4444` / `CCCC` / `wwww` are fixed ASCII fill
-   constants at body `0x10`-`0x18`. See [`tag_body_format.md`](tag_body_format.md).
+   constants at body `0x10`-`0x18`; body `0x28`-`0x58` is a record-count manifest for the twelve
+   definition tables. Two words at `0x20`-`0x28` and the per-group value at `0x1C` are still
+   unidentified. See [`tag_body_format.md`](tag_body_format.md).
 4. Trace the simulation-side loader that resolves an Unreal package to a tag, starting from shell
    primary slot 2 (see [`halosimulation_tag_release.md`](halosimulation_tag_release.md)).
 5. Read `game_engine_settings-game_engine_settings_definition` and
