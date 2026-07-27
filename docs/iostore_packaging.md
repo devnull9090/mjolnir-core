@@ -2,9 +2,11 @@
 
 **Status:** **Half solved, and the half that is left is specific.** A container named with the
 `_P` patch suffix mounts and wins chunk lookups: the **package** chunk we write is what the game
-reads. The **bulk data** chunk is not — destroying 98% of it changes nothing — so tag payload
-edits still do not reach the game. Both results are A/B measurements in the running game; see
-*Current experiment*.
+reads. The **bulk data** chunk is not — destroying 98% of it changes nothing, even in a
+single-chunk container where it is unambiguously resolvable — so tag payload edits do not reach
+the game. Separately, the packer's **perfect hash is wrong** for containers holding more than one
+chunk, which silently hid one of our two chunks. All of it is A/B measurement in the running game;
+see *Current experiment*.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -297,31 +299,73 @@ container was mounted and winning chunk lookups the whole time.
 So the two chunks are resolved differently. Whatever the loader does for `ExportBundleData`, it is
 not doing for `BulkData`.
 
-Three candidate explanations, none tested:
+**It is not a perfect-hash problem, though we do have one — see below.** Two further runs ruled
+that out:
 
-1. **The bulk chunk ID we emit is not the one the loader asks for.** `pack` reuses the twelve
-   bytes from the shipped index, but the chunk *index* field within the ID may need to differ for
-   bulk data, in which case our chunk is never looked up and `pakchunk0` answers instead. This is
-   the cheapest to check: dump what IDs the shipped container uses for both chunks of one package
-   and compare the index and type fields against ours.
+| Container | `BinaryBlobSize` | Payload destroyed? | Game |
+|---|---:|---|---|
+| 2 chunks, seeds `[-1, -2]` | 32640 | yes | fine |
+| 2 chunks, seeds **swapped** to `[-2, -1]` | **32620** | yes | fine |
+| **1 chunk — bulk only**, seed `[-1]` | 32620 | yes | fine |
 
-2. **Bulk data is resolved at cook time, through an offset the package header carries**, rather
-   than by chunk ID at load. This was open question 4 from the start and the evidence now points
-   at it. If so, overriding bulk data needs the package header to be rewritten to point somewhere
-   reachable, not just the bulk chunk replaced.
+The last row is conclusive. A single-entry container cannot have a hash collision — `hash % 1` is
+always 0 and the one seed points at the one entry — so the bulk chunk was unambiguously
+resolvable, its payload was 98% `0xDE`, and the game still loaded A30, loaded
+`assault_rifle-weapon`, and played normally.
 
-3. **Patch containers may shadow only some chunk types.** Less likely, but it would look exactly
-   like this.
+So the loader does not read the tag payload from an override container's `BulkData` chunk at all.
+What remains is the old open question 4, now the leading explanation by elimination: **bulk data
+is resolved through metadata the package carries, not by an independent chunk-ID lookup at load.**
+If so, overriding a payload means making the package header point at it, and dropping a replacement
+`BulkData` chunk into a container will never be enough on its own.
 
-Note that (1) and (2) predict different fixes, and (1) is much cheaper to rule out, so start
-there.
+The next thing to establish is how a package refers to its bulk data. `mjolnir chunk` can dump a
+shipped package chunk; the 104-byte cooked `.uasset` header is small enough to read exhaustively,
+and whatever encodes the payload's location is in there beside `BinaryBlobSize`.
+
+### A real bug found on the way: the perfect hash is wrong for multi-chunk containers
+
+Independent of the above, and worth fixing regardless.
+
+[`pack.rs`](../crates/ue-iostore/src/pack.rs) writes one seed per chunk, `-1, -2, -3, …`, on the
+theory that seed *i* names entry *i*. It does not. UE picks the seed by hashing the chunk ID:
+
+```
+slot  = hash(chunk_id) % seed_count
+seed  = seeds[slot]
+entry = -seed - 1                      (negative seeds)
+if chunk_ids[entry] != chunk_id: not found
+```
+
+Positional seeds are only correct when every chunk happens to hash to its own slot. For one chunk
+that is guaranteed; for two it is a coin flip; beyond that it is vanishingly unlikely. There is no
+safety net either — `chunks_without_perfect_hash` is written as 0.
+
+**Confirmed by experiment, not by reading.** Swapping the two seed words — an eight-byte edit to a
+302-byte file — flipped `BinaryBlobSize` from 32640 to 32620. That is only possible if the seed
+decides which chunk is reachable, and if both of our chunk IDs land on the same slot. Our two-chunk
+container was therefore only ever exposing *one* of its two chunks, and which one was luck.
+
+This also qualifies two earlier findings. "An override needs no `ContainerHeader`" and
+"uncompressed blocks are accepted" are still true, but they were only ever tested against the one
+chunk that happened to win.
+
+Fix, cheapest first:
+
+1. Emit no perfect hash at all (`seed_count = 0`) and let the reader build a plain map, if this
+   build accepts it.
+2. Otherwise list every chunk in `chunks_without_perfect_hash`, the format's own escape hatch.
+3. Only if neither works, implement `HashChunkIdWithSeed` and solve for seeds.
+
+Prefer 1 or 2: both avoid having to reproduce UE's hash function exactly.
 
 ### What this means for the editor
 
-Editing a tag and shipping the result still does not work end to end. What now works is
-everything up to the payload: containers build, mount, and win, and the package header we write is
-what the game reads. The remaining gap is one specific question about how bulk data is addressed,
-which is a much smaller thing than "does any of this work".
+Editing a tag and shipping the result still does not work end to end. What now works is everything
+up to the payload: containers build, mount, and win chunk lookups, and the package header we write
+is what the game reads. Two things stand between here and a working edit — a packer bug we own
+(the perfect hash) and one unanswered question about how bulk data is addressed. Neither is
+"does any of this work".
 
 ### Notes on measuring this
 
