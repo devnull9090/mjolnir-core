@@ -46,11 +46,11 @@ export default function ChecksumViewer() {
     <div className="space-y-4">
       {/* MSI Hash Box */}
       {data.msi_hash && (
-        <div className="p-4 rounded-xl bg-surface-card border border-border">
+        <div className="p-3 sm:p-4 rounded-xl bg-surface-card border border-border">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <span className="text-xs font-semibold text-gold uppercase tracking-wider flex items-center gap-1.5 min-w-0">
               <Hash className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="truncate">MSI Installer ({data.msi_name})</span>
+              <span className="break-all">MSI Installer ({data.msi_name})</span>
             </span>
             <button
               onClick={() => copyToClipboard(data.msi_hash!, "msi")}
@@ -77,11 +77,11 @@ export default function ChecksumViewer() {
 
       {/* NSIS Executable Hash Box */}
       {data.nsis_hash && (
-        <div className="p-4 rounded-xl bg-surface-card border border-border">
+        <div className="p-3 sm:p-4 rounded-xl bg-surface-card border border-border">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider flex items-center gap-1.5 min-w-0">
               <Hash className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="truncate">EXE Setup ({data.nsis_name})</span>
+              <span className="break-all">EXE Setup ({data.nsis_name})</span>
             </span>
             <button
               onClick={() => copyToClipboard(data.nsis_hash!, "nsis")}
@@ -106,7 +106,7 @@ export default function ChecksumViewer() {
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-text-dim px-1 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-text-dim px-1 pt-1">
         <span>Latest Release: <strong className="text-gold">v{data.version}</strong></span>
         <a
           href={data.checksums_url}

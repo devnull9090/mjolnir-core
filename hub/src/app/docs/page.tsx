@@ -80,7 +80,7 @@ export default function DocsPage() {
         <h2 id="research-heading" className="text-xl font-bold">
           Active research
         </h2>
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           {research.map(({ href, title, description, status, icon: Icon }) => (
             <Link
               key={href}
@@ -139,7 +139,7 @@ export default function DocsPage() {
         </h2>
         <div className="mt-5 divide-y divide-border border-y border-border">
           {evidenceLevels.map(({ level, meaning }) => (
-            <div key={level} className="grid gap-3 py-4 sm:grid-cols-[110px_1fr] sm:items-center">
+            <div key={level} className="grid grid-cols-1 gap-3 py-4 sm:grid-cols-[110px_1fr] sm:items-center">
               <EvidenceBadge level={level} />
               <p className="text-sm leading-6 text-text-muted">{meaning}</p>
             </div>

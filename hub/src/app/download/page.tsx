@@ -23,7 +23,7 @@ export default function DownloadPage() {
     <>
       <Navbar />
 
-      <main className="pt-32 md:pt-36 pb-24 px-6 max-w-4xl mx-auto">
+      <main className="pt-32 md:pt-36 pb-24 px-4 sm:px-6 max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-3xl sm:text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
@@ -33,10 +33,10 @@ export default function DownloadPage() {
         </div>
 
         {/* Download Card */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8 mb-8">
-          <div className="flex items-start gap-4 mb-6">
-            <div className="w-14 h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
-              <Download className="w-7 h-7" />
+        <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8 mb-8">
+          <div className="flex items-start gap-3 sm:gap-4 mb-6">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
+              <Download className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
             <div className="min-w-0">
               <h2 className="text-xl font-bold text-foreground">Windows Installer (.msi)</h2>
@@ -66,10 +66,10 @@ export default function DownloadPage() {
         </div>
 
         {/* Hash Verification */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8 mb-8">
-          <div className="flex items-start gap-4 mb-6">
-            <div className="w-14 h-14 rounded-xl bg-accent-green/10 text-accent-green flex items-center justify-center flex-shrink-0">
-              <Shield className="w-7 h-7" />
+        <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8 mb-8">
+          <div className="flex items-start gap-3 sm:gap-4 mb-6">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-accent-green/10 text-accent-green flex items-center justify-center flex-shrink-0">
+              <Shield className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
             <div className="min-w-0">
               <h2 className="text-xl font-bold text-foreground">Verify Your Download</h2>
@@ -131,7 +131,7 @@ export default function DownloadPage() {
         </div>
 
         {/* System Requirements */}
-        <div className="rounded-2xl bg-surface-raised border border-border p-6 sm:p-8">
+        <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8">
           <h2 className="text-lg font-bold text-foreground mb-4">System Requirements</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {[

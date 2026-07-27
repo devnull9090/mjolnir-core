@@ -67,7 +67,7 @@ export default function TagFormatPage() {
           tables. That work is no longer on the critical path. The strings below came out of a
           shipped weapon tag, and they are the same human-readable names Guerilla displayed:
         </p>
-        <div className="mt-5 border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-xs leading-6 sm:text-sm">
+        <div className="mt-5 overflow-x-auto border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-xs leading-6 sm:text-sm">
           <div className="text-text-muted">object flags</div>
           <div className="text-text-muted">long flags</div>
           <div className="text-text-muted">does not cast shadow</div>

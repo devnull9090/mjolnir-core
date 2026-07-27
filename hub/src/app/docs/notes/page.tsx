@@ -31,7 +31,7 @@ export default function DocNotesPage() {
         <h2 id="notes-heading" className="sr-only">
           Available notes
         </h2>
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {notes.map((note) => (
             <Link
               key={note.slug}
@@ -41,7 +41,7 @@ export default function DocNotesPage() {
               <div className="flex items-start gap-4">
                 <FileText className="mt-1 h-5 w-5 shrink-0 text-gold" />
                 <div className="min-w-0">
-                  <h3 className="text-lg font-bold group-hover:text-gold">{note.title}</h3>
+                  <h3 className="break-words text-lg font-bold group-hover:text-gold">{note.title}</h3>
                   {note.meta.length > 0 && (
                     <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-dim">
                       {note.meta.slice(0, 3).map(({ label, value }) => (

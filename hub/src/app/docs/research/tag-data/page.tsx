@@ -75,7 +75,7 @@ export default function TagDataPage() {
             Simulation versus presentation
           </h2>
         </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="border border-border bg-surface p-5">
             <h3 className="text-sm font-bold uppercase text-accent-green">Blam owns</h3>
             <p className="mt-3 text-sm leading-6 text-text-muted">
@@ -109,7 +109,7 @@ export default function TagDataPage() {
           encrypted. The directory index lists 132,091 entries. There are no loose tag files and no
           .map cache anywhere in the install.
         </p>
-        <dl className="mt-5 grid border-y border-border text-sm sm:grid-cols-[220px_1fr]">
+        <dl className="mt-5 grid grid-cols-1 border-y border-border text-sm sm:grid-cols-[220px_1fr]">
           <dt className="border-b border-border py-3 font-semibold text-text-muted sm:pr-5">
             Entries under Content/Tags
           </dt>
@@ -131,7 +131,7 @@ export default function TagDataPage() {
           a hyphen because Unreal reserves the dot for object paths. The Unreal export is a thin
           104-byte header; the 49,702-byte tag body lives in the bulk-data segment.
         </p>
-        <div className="mt-5 border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-xs leading-6 sm:text-sm">
+        <div className="mt-5 overflow-x-auto border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-xs leading-6 sm:text-sm">
           class = /Script/BlamSynchronization/BlamBipedTagDataAsset
         </div>
         <p className="mt-4 text-sm leading-6 text-text-muted">

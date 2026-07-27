@@ -15,7 +15,7 @@ type Kids = { children?: ReactNode };
 type Anchored = Kids & { id?: string };
 type Cell = Kids & { style?: CSSProperties };
 
-const heading = "scroll-mt-28 font-bold text-foreground";
+const heading = "scroll-mt-28 break-words font-bold text-foreground";
 const linkStyle = "text-gold underline underline-offset-4 hover:text-foreground";
 
 /** Rewrites relative `*.md` links onto their rendered hub route. */
@@ -53,7 +53,9 @@ const components: Components = {
       {children}
     </h4>
   ),
-  p: ({ children }: Kids) => <p className="mt-4 text-sm leading-7 text-text-muted">{children}</p>,
+  p: ({ children }: Kids) => (
+    <p className="mt-4 break-words text-sm leading-7 text-text-muted">{children}</p>
+  ),
   ul: ({ children }: Kids) => (
     <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-7 text-text-muted">{children}</ul>
   ),
@@ -62,7 +64,7 @@ const components: Components = {
       {children}
     </ol>
   ),
-  li: ({ children }: Kids) => <li className="pl-1 marker:text-text-dim">{children}</li>,
+  li: ({ children }: Kids) => <li className="break-words pl-1 marker:text-text-dim">{children}</li>,
   strong: ({ children }: Kids) => <strong className="font-bold text-foreground">{children}</strong>,
   em: ({ children }: Kids) => <em className="italic">{children}</em>,
   blockquote: ({ children }: Kids) => (
@@ -92,10 +94,11 @@ const components: Components = {
       {children}
     </pre>
   ),
-  // The pill styling is reset for `.markdown pre code` in globals.css, so fenced
-  // blocks stay plain while inline code keeps the badge.
+  // The pill styling and the `break-all` are reset for `.markdown pre code` in
+  // globals.css, so fenced blocks stay plain and scroll horizontally while
+  // inline code keeps the badge and breaks long paths instead of overflowing.
   code: ({ children }: Kids) => (
-    <code className="border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.85em] text-gold">
+    <code className="border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.85em] break-all text-gold">
       {children}
     </code>
   ),

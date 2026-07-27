@@ -57,7 +57,7 @@ export default function MultiplayerResearchPage() {
             build does not expose a named multiplayer map in either content index.
           </p>
         </div>
-        <div className="mt-6 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
           {[
             ["132,091", "unique IoStore paths"],
             ["14,240", "umap chunks"],
@@ -91,7 +91,7 @@ export default function MultiplayerResearchPage() {
           <summary className="cursor-pointer text-sm font-semibold text-foreground">
             Root world package paths
           </summary>
-          <ul className="mt-4 grid gap-2 font-mono text-xs text-text-muted sm:grid-cols-2">
+          <ul className="mt-4 grid grid-cols-1 gap-2 font-mono text-xs text-text-muted sm:grid-cols-2">
             {rootMaps.map((path) => (
               <li key={path} className="break-all">
                 {path}
@@ -108,7 +108,7 @@ export default function MultiplayerResearchPage() {
             What remains
           </h2>
         </div>
-        <div className="mt-5 grid gap-5 md:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
           <div className="border border-border p-5">
             <EvidenceBadge level="Verified" />
             <h3 className="mt-4 font-bold">Packaged support assets</h3>

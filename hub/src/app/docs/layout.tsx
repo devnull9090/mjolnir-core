@@ -75,7 +75,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         </Link>
       </nav>
 
-      <div className="mx-auto grid max-w-7xl lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="mx-auto grid grid-cols-1 max-w-7xl lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="hidden min-h-[calc(100vh-4rem)] border-r border-border px-6 pt-36 pb-10 lg:block">
           <nav className="sticky top-36 space-y-8" aria-label="Documentation">
             <div>

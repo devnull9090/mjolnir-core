@@ -51,7 +51,7 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
           <div className="min-w-0">
             <h1 className="break-words text-3xl font-black sm:text-4xl">{note.title}</h1>
             {note.meta.length > 0 && (
-              <dl className="mt-5 grid gap-x-5 text-sm sm:grid-cols-[150px_1fr]">
+              <dl className="mt-5 grid grid-cols-1 gap-x-5 text-sm sm:grid-cols-[150px_1fr]">
                 {note.meta.map(({ label, value }) => (
                   <div key={label} className="contents">
                     <dt className="py-1 font-semibold text-text-dim">{label}</dt>

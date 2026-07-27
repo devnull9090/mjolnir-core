@@ -31,7 +31,7 @@ export default function HaloSimulationPage() {
         </div>
         <div className="flex items-start gap-4">
           <Binary className="mt-1 h-7 w-7 shrink-0 text-gold" />
-          <div>
+          <div className="min-w-0">
             <h1 className="break-words text-3xl font-black sm:text-4xl">
               HaloSimulation_tag_release.dll
             </h1>
@@ -47,7 +47,7 @@ export default function HaloSimulationPage() {
         <h2 id="fingerprint-heading" className="text-xl font-bold">
           Artifact fingerprint
         </h2>
-        <dl className="mt-5 grid border-y border-border text-sm sm:grid-cols-[150px_1fr]">
+        <dl className="mt-5 grid grid-cols-1 border-y border-border text-sm sm:grid-cols-[150px_1fr]">
           <dt className="border-b border-border py-3 font-semibold text-text-muted sm:pr-5">Size</dt>
           <dd className="break-all border-b border-border py-3 font-mono">14,670,608 bytes</dd>
           <dt className="border-b border-border py-3 font-semibold text-text-muted sm:pr-5">SHA-256</dt>
@@ -66,7 +66,7 @@ export default function HaloSimulationPage() {
             Shell factory
           </h2>
         </div>
-        <div className="mt-5 border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-sm">
+        <div className="mt-5 overflow-x-auto border-l-2 border-accent-green bg-surface px-5 py-4 font-mono text-sm">
           bool CreateBlamEngineShell(void* context, void** outShell)
         </div>
         <ul className="mt-5 space-y-3 text-sm leading-6 text-text-muted">
@@ -125,7 +125,7 @@ export default function HaloSimulationPage() {
           UE5 loader path
         </h2>
         <div className="mt-5 space-y-4 text-sm leading-6 text-text-muted">
-          <p>
+          <p className="break-words">
             The matching host is CU2 build 2026.06.26.1097863.1. Its SHA-256 is
             0670FAA751E2553940B90DF6BE43D3B0FF59EA87F22155CF3C3FE9D439367F1D.
           </p>
