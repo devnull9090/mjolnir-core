@@ -293,7 +293,8 @@ usually enough to see what is going on.
 Being explicit, so you do not go hunting:
 
 - **Loading edits into the game.** Writing IoStore containers is not implemented. This is the
-  blocker between an edit and seeing it in Halo.
+  blocker between an edit and seeing it in Halo. What it would take is written up in
+  [`iostore_packaging.md`](iostore_packaging.md).
 - **Adding or removing block elements.** You can change values, not counts.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See

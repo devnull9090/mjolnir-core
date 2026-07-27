@@ -45,11 +45,11 @@ mjolnir-core/
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas container reader
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
-│   ├── blam-tag/                # Definition-driven Blam tag reader
+│   ├── blam-tag/                # Blam tag reader, writer and editor
 │   └── blam-cli/                # `mjolnir` command-line tool
 ├── apps/
 │   ├── launcher/                # Tauri desktop mod manager
-│   └── tag-editor/              # Guerilla-style tag browser (read-only)
+│   └── tag-editor/              # Guerilla-style tag browser and editor
 └── hub/                         # Cloudflare mod community platform
 ```
 
@@ -177,7 +177,7 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 |---|---|
 | `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, Oodle, zlib, partitions) |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
-| `blam-tag` | `0x4C` container header, the `blay` layout parser, and the `bdat` value reader and writer |
+| `blam-tag` | Container header, `blay` layout, `bdat` values: read, decode, edit, write |
 | `blam-cli` | The `mjolnir` command-line tool |
 
 ```powershell
@@ -239,7 +239,8 @@ cannot currently be loaded by the game.
 Exported tags are copyrighted game content. Keep them local; `.gitignore` blocks `*.ubulk`.
 
 See [`docs/tag_editing_guide.md`](docs/tag_editing_guide.md) for a walkthrough of both the editor
-and the `mjolnir` command line.
+and the `mjolnir` command line, and [`docs/iostore_packaging.md`](docs/iostore_packaging.md) for
+what it would take to get an edited tag loading in game.
 
 ### Coming Soon
 - **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)
