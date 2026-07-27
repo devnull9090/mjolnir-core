@@ -9,12 +9,14 @@ use blam_defs::FourCc;
 pub mod data;
 pub mod layout;
 pub mod section;
+pub mod write;
 
 pub use data::{Block, Value};
 pub use layout::{
     ArrayEntry, BlockEntry, EnumEntry, FieldEntry, Layout, StructEntry, TypeEntry,
 };
 pub use section::Section;
+pub use write::write_block;
 
 /// Size of the `.ubulk` container header that precedes the tag body.
 pub const HEADER_SIZE: usize = 0x4C;

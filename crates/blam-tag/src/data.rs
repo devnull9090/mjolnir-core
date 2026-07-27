@@ -7,7 +7,7 @@
 //! ```text
 //! block:
 //!   u32   element count
-//!   u32   flags, not yet interpreted
+//!   u32   flags: 0 when a per-element `tgst` follows, 1 when none does
 //!   ..    count * element_size bytes of packed element data
 //!   ..    one `tgst` per element, each containing that element's variable
 //!         length fields in declaration order
@@ -26,8 +26,10 @@
 //! | `array`             | nothing; its elements' sections follow inline       |
 //! | everything else     | nothing; the value is inline in the element data    |
 //!
-//! A block writes its per-element `tgst` only when the element struct declares
-//! at least one field that writes.
+//! Whether a block writes its per-element `tgst` is decided by the `flags` word
+//! in its own header, not by the element struct's field list. A block whose
+//! elements have nothing variable length still writes one empty `tgst` each
+//! when `flags` is 0.
 //!
 //! The root is not special: the outermost `tgbl` is a block holding one
 //! element whose struct is the group's root.
@@ -158,7 +160,11 @@ pub enum Value<'a> {
     /// A `pageable resource` handle. Its section magic reads `tg?c`, where the
     /// third character is `r` when a resource is attached and NUL when it is
     /// not, so it is matched on `t`, `g` and `c` alone.
-    Resource { kind: u8, body: &'a [u8] },
+    Resource {
+        kind: u8,
+        version: u32,
+        body: &'a [u8],
+    },
 }
 
 impl<'a> Value<'a> {
@@ -177,7 +183,14 @@ pub struct Block<'a> {
     /// Index into the struct table describing one element.
     pub struct_index: usize,
     pub count: u32,
-    /// Second header word. Observed 0 at the root and 1 for nested blocks.
+    /// Second header word, and the authority on whether per-element `tgst`
+    /// wrappers follow the packed element data: `0` means they do, `1` means
+    /// they do not.
+    ///
+    /// This is not derivable from the definition. A block whose elements have
+    /// no variable-length content still writes one empty `tgst` per element
+    /// when this is `0`, which is why the element struct's field list cannot
+    /// stand in for it.
     pub flags: u32,
     pub element_size: u32,
     /// Packed element data, `count * element_size` bytes.
@@ -207,6 +220,21 @@ pub fn read_block<'a>(
     Walker::new(layout, false).block(buf, struct_index, 0)
 }
 
+/// One section the walk read, for format analysis.
+#[derive(Debug, Clone, Copy)]
+pub struct SectionStat {
+    pub magic: [u8; 4],
+    pub version: u32,
+    pub size: u32,
+}
+
+/// Diagnostics gathered alongside a traced walk.
+#[derive(Debug, Default)]
+pub struct WalkReport {
+    pub trace: Vec<String>,
+    pub sections: Vec<SectionStat>,
+}
+
 /// Decode a block, also returning a human-readable trace of the walk.
 ///
 /// The trace is emitted as the walk proceeds, so it is still populated when the
@@ -215,10 +243,16 @@ pub fn read_block_traced<'a>(
     layout: &Layout<'a>,
     buf: &'a [u8],
     struct_index: usize,
-) -> (Result<Block<'a>, Error>, Vec<String>) {
+) -> (Result<Block<'a>, Error>, WalkReport) {
     let mut w = Walker::new(layout, true);
     let result = w.block(buf, struct_index, 0);
-    (result, w.trace)
+    (
+        result,
+        WalkReport {
+            trace: w.trace,
+            sections: w.seen,
+        },
+    )
 }
 
 /// Recursive walk state: the layout, the cached struct runs, and the breadcrumb
@@ -233,6 +267,8 @@ struct Walker<'a, 'l> {
     crumbs: Vec<String>,
     trace: Vec<String>,
     tracing: bool,
+    /// Every section read, recorded only while tracing.
+    seen: Vec<SectionStat>,
 }
 
 impl<'a, 'l> Walker<'a, 'l> {
@@ -246,6 +282,7 @@ impl<'a, 'l> Walker<'a, 'l> {
             crumbs: Vec::new(),
             trace: Vec::new(),
             tracing,
+            seen: Vec::new(),
         }
     }
 
@@ -319,6 +356,16 @@ impl<'a, 'l> Walker<'a, 'l> {
         }
     }
 
+    fn note(&mut self, s: &section::Section<'a>) {
+        if self.tracing {
+            self.seen.push(SectionStat {
+                magic: s.magic,
+                version: s.version,
+                size: s.size,
+            });
+        }
+    }
+
     fn expect(
         &self,
         buf: &'a [u8],
@@ -352,7 +399,7 @@ impl<'a, 'l> Walker<'a, 'l> {
     /// in the third character when no resource is attached, which the printable
     /// check in [`section::read_at`] rejects. Stored magics are reversed, so the
     /// on-disk bytes are `c ? g t`.
-    fn resource(&self, buf: &'a [u8], at: usize) -> Result<(u8, &'a [u8], usize), Error> {
+    fn resource(&self, buf: &'a [u8], at: usize) -> Result<(u8, u32, &'a [u8], usize), Error> {
         let head = buf.get(at..at + section::SECTION_HEADER).filter(|h| {
             h[3] == b't' && h[2] == b'g' && h[0] == b'c'
         });
@@ -373,6 +420,7 @@ impl<'a, 'l> Walker<'a, 'l> {
             }));
         };
         let kind = head[1];
+        let version = u32::from_le_bytes(head[4..8].try_into().unwrap());
         let size = u32::from_le_bytes(head[8..12].try_into().unwrap()) as usize;
         let start = at + section::SECTION_HEADER;
         let body = buf.get(start..start + size).ok_or_else(|| {
@@ -382,7 +430,7 @@ impl<'a, 'l> Walker<'a, 'l> {
                 preview: String::new(),
             })
         })?;
-        Ok((kind, body, section::SECTION_HEADER + size))
+        Ok((kind, version, body, section::SECTION_HEADER + size))
     }
 
     fn block(
@@ -408,7 +456,7 @@ impl<'a, 'l> Walker<'a, 'l> {
             .struct_size(run)
             .ok_or_else(|| self.err(ErrorKind::UnknownElementSize(struct_index)))?;
 
-        let wrapped = self.has_children(run);
+        let wrapped = flags == 0;
         self.log(
             depth,
             format!(
@@ -442,7 +490,7 @@ impl<'a, 'l> Walker<'a, 'l> {
         if wrapped {
             for i in 0..count {
                 self.crumbs.push(format!("[{i}]"));
-                let outcome = self.expect(buf, pos, "tgst").and_then(|wrapper| {
+                let outcome = self.expect(buf, pos, "tgst").inspect(|w| self.note(w)).and_then(|wrapper| {
                     let (kids, used) = self.struct_children(wrapper.content, run, depth + 1)?;
                     if used != wrapper.content.len() {
                         return Err(self.err(ErrorKind::SectionSlack {
@@ -501,7 +549,7 @@ impl<'a, 'l> Walker<'a, 'l> {
             // A `pageable resource` writes a section whose magic the generic
             // reader rejects, so it is read on its own path.
             if type_name == PAGEABLE {
-                let (kind, body, used) = self.resource(buf, pos)?;
+                let (kind, version, body, used) = self.resource(buf, pos)?;
                 self.log(
                     depth,
                     format!(
@@ -511,7 +559,7 @@ impl<'a, 'l> Walker<'a, 'l> {
                         body.len()
                     ),
                 );
-                out.push(Value::Resource { kind, body });
+                out.push(Value::Resource { kind, version, body });
                 pos += used;
                 continue;
             }
@@ -565,6 +613,7 @@ impl<'a, 'l> Walker<'a, 'l> {
 
             self.crumbs.push(crumb(name, type_name));
             let s = self.expect(buf, pos, magic)?;
+            self.note(&s);
             self.log(
                 depth,
                 format!(
@@ -580,7 +629,16 @@ impl<'a, 'l> Walker<'a, 'l> {
                         .blocks
                         .get(field.aux as usize)
                         .ok_or_else(|| self.err(ErrorKind::UnknownElementSize(field.aux as usize)))?;
-                    Value::Block(self.block(s.content, entry.aux as usize, depth + 1)?)
+                    let inner = self.block(s.content, entry.aux as usize, depth + 1)?;
+                    if inner.consumed != s.content.len() {
+                        return Err(self.err(ErrorKind::SectionSlack {
+                            magic: "tgbl",
+                            used: inner.consumed,
+                            declared: s.content.len(),
+                            preview: hex_preview(s.content, inner.consumed),
+                        }));
+                    }
+                    Value::Block(inner)
                 }
                 // A `tgst` of declared size zero carries no children even when
                 // its struct declares fields that would write: the section
@@ -720,7 +778,9 @@ mod tests {
 
         let mut out = words(&[1, 0]);
         out.extend_from_slice(&[0u8; 20]);
-        out.extend_from_slice(&section_bytes(b"tsgt", 0, &inner));
+        // A `tgst` repeats its content size in the version word, as the shipped
+        // data does; the empty one above is size 0, so its version is 0 too.
+        out.extend_from_slice(&section_bytes(b"tsgt", inner.len() as u32, &inner));
         out
     }
 
@@ -752,6 +812,33 @@ mod tests {
             other => panic!("expected an array, got {other:?}"),
         }
         assert!(matches!(kids[2], Value::Resource { kind: b'r', .. }));
+    }
+
+    /// The identity the whole editing path rests on: bytes in, tree, bytes out.
+    #[test]
+    fn a_walked_payload_re_serialises_to_the_same_bytes() {
+        let body = synth_layout();
+        let l = Layout::parse(&body).unwrap();
+        let payload = synth_payload();
+
+        let block = read_block(&l, &payload, 0).expect("walk");
+        assert_eq!(crate::write::write_block(&block), payload);
+    }
+
+    #[test]
+    fn a_block_with_flags_1_has_no_element_wrappers() {
+        let body = synth_layout();
+        let l = Layout::parse(&body).unwrap();
+        // Same root, but flagged as carrying no per-element wrappers, so the
+        // payload is just the header and the packed element.
+        let mut payload = words(&[1, 1]);
+        payload.extend_from_slice(&[0u8; 20]);
+
+        let block = read_block(&l, &payload, 0).expect("walk");
+        assert_eq!(block.flags, 1);
+        assert!(block.children.is_empty());
+        assert_eq!(block.consumed, payload.len());
+        assert_eq!(crate::write::write_block(&block), payload);
     }
 
     #[test]

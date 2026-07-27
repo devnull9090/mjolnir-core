@@ -175,7 +175,7 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 |---|---|
 | `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, Oodle, zlib, partitions) |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
-| `blam-tag` | `0x4C` container header, the `blay` layout parser, and the `bdat` value walker |
+| `blam-tag` | `0x4C` container header, the `blay` layout parser, and the `bdat` value reader and writer |
 | `blam-cli` | The `mjolnir` command-line tool |
 
 ```powershell
@@ -194,7 +194,9 @@ cargo run --release -p blam-cli -- defs                              # export th
 
 `mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
 resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a
-byte-exact value tree. `mjolnir defs` writes
+byte-exact value tree. `mjolnir roundtrip --all` then writes every one of those trees back out
+and confirms **12,281 / 12,281** reproduce the original bytes exactly, across 5.77 GB.
+`mjolnir defs` writes
 `defs/hce/tag-definitions.json` — 101 groups, 1,779 structs, 13,250 fields — which the hub renders
 as a searchable reference at [`/docs/tags`](https://mjolnircore.com/docs/tags).
 

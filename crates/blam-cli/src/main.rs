@@ -67,6 +67,10 @@ enum Command {
     Data(DataArgs),
     /// Histogram the tgly child sections and the blay preamble across groups.
     Sections(SectionsArgs),
+    /// Histogram the version word of every section in the bdat payload.
+    DataVersions(SectionsArgs),
+    /// Re-serialise every tag and check the bytes come back identical.
+    Roundtrip(ValidateArgs),
 }
 
 #[derive(Args)]
@@ -198,6 +202,8 @@ fn main() -> Result<()> {
         Command::Defs(a) => export_defs(a),
         Command::Data(a) => data(a),
         Command::Sections(a) => sections(a),
+        Command::DataVersions(a) => data_versions(a),
+        Command::Roundtrip(a) => roundtrip(a),
     }
 }
 
@@ -289,8 +295,13 @@ fn data(a: DataArgs) -> Result<()> {
     }
 
     if a.trace {
-        let (result, trace) = blam_tag::data::read_block_traced(&l, payload.content, 0);
-        println!("\n  walk trace ({} lines):", trace.len());
+        let (result, report) = blam_tag::data::read_block_traced(&l, payload.content, 0);
+        let trace = &report.trace;
+        println!(
+            "\n  walk trace ({} lines, {} sections):",
+            trace.len(),
+            report.sections.len()
+        );
         let skipped = trace.len().saturating_sub(a.trace_limit);
         if skipped > 0 {
             println!("    ... {skipped} earlier lines elided ...");
@@ -318,6 +329,145 @@ fn data(a: DataArgs) -> Result<()> {
         ),
         Err(e) => println!("    failed: {e}"),
     }
+    Ok(())
+}
+
+/// Read each tag, write the value tree back out, and require the bytes to be
+/// identical. This is the precondition for any editing feature: a writer that
+/// cannot reproduce an untouched tag cannot be trusted with a modified one.
+fn roundtrip(a: ValidateArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let by_group = idx.by_group();
+
+    let targets: Vec<&index::TagEntry> = if a.all {
+        idx.tags.iter().collect()
+    } else {
+        by_group.values().map(|v| v[0]).collect()
+    };
+
+    let (mut checked, mut identical, mut differs, mut unreadable) = (0usize, 0usize, 0usize, 0usize);
+    let mut bytes = 0u64;
+
+    for entry in targets {
+        checked += 1;
+        let Ok(buf) = idx.read(entry, None, &oodle) else {
+            unreadable += 1;
+            continue;
+        };
+        let Ok(tag) = TagFile::parse(&buf, Some(entry.chunk.length as usize)) else {
+            unreadable += 1;
+            continue;
+        };
+        let Ok(l) = tag.layout() else {
+            unreadable += 1;
+            continue;
+        };
+        let Some(payload) = tag.data() else {
+            unreadable += 1;
+            continue;
+        };
+        let block = match tag.read_data(&l) {
+            Ok(b) => b,
+            Err(_) => {
+                unreadable += 1;
+                continue;
+            }
+        };
+
+        let written = blam_tag::write_block(&block);
+        if written == payload.content {
+            identical += 1;
+            bytes += written.len() as u64;
+        } else {
+            differs += 1;
+            if a.verbose {
+                let at = written
+                    .iter()
+                    .zip(payload.content)
+                    .position(|(x, y)| x != y)
+                    .unwrap_or(written.len().min(payload.content.len()));
+                eprintln!(
+                    "{}: wrote {} bytes, original {}, first difference at {at}",
+                    entry.path,
+                    written.len(),
+                    payload.content.len()
+                );
+            }
+        }
+    }
+
+    let pct = |n: usize| {
+        let base = identical + differs;
+        if base == 0 { 0.0 } else { n as f64 * 100.0 / base as f64 }
+    };
+    println!("checked {checked} tags");
+    println!("  not readable, so not round-tripped  {unreadable}");
+    println!(
+        "  re-serialised byte for byte         {identical} ({:.1}%)",
+        pct(identical)
+    );
+    println!("  differs                             {differs}");
+    println!("  bytes reproduced                    {bytes}");
+    Ok(())
+}
+
+/// Is a `bdat` section's version word reconstructable, or must a writer store
+/// it? Tests each magic's version against the candidates a writer could compute.
+fn data_versions(a: SectionsArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let oodle = a.src.oodle_roots();
+
+    // magic -> (total, version==0, version==size, distinct versions)
+    let mut hist: BTreeMap<String, (usize, usize, usize, BTreeMap<u32, usize>)> = BTreeMap::new();
+
+    for entries in by_group.values() {
+        let Ok(buf) = idx.read(entries[0], None, &oodle) else {
+            continue;
+        };
+        let Ok(tag) = TagFile::parse(&buf, Some(entries[0].chunk.length as usize)) else {
+            continue;
+        };
+        let Ok(l) = tag.layout() else { continue };
+        let Some(payload) = tag.data() else { continue };
+
+        let (_, report) = blam_tag::data::read_block_traced(&l, payload.content, 0);
+        for st in &report.sections {
+            let name: String = st
+                .magic
+                .iter()
+                .rev()
+                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .collect();
+            let e = hist.entry(name).or_default();
+            e.0 += 1;
+            if st.version == 0 {
+                e.1 += 1;
+            }
+            if st.version == st.size {
+                e.2 += 1;
+            }
+            *e.3.entry(st.version).or_default() += 1;
+        }
+    }
+
+    println!("magic\tseen\tver==0\tver==size\tdistinct\tsample");
+    for (magic, (total, zero, eq, versions)) in &hist {
+        let sample = versions
+            .iter()
+            .take(5)
+            .map(|(v, n)| format!("{v}x{n}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!(
+            "{magic}\t{total}\t{zero}\t{eq}\t{}\t{sample}",
+            versions.len()
+        );
+    }
+    println!(
+        "\nA writer can regenerate a version word only where one column equals `seen`."
+    );
     Ok(())
 }
 
