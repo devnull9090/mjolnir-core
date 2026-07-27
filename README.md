@@ -43,7 +43,7 @@ mjolnir-core/
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
 ├── crates/                      # Rust workspace
-│   ├── ue-iostore/              # UE5 .utoc/.ucas container reader
+│   ├── ue-iostore/              # UE5 .utoc/.ucas container reader + TOC writer
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
 │   ├── blam-tag/                # Blam tag reader, writer and editor
 │   └── blam-cli/                # `mjolnir` command-line tool
@@ -194,6 +194,7 @@ cargo run --release -p blam-cli -- data --group weapon --trace       # decode on
 cargo run --release -p blam-cli -- values --group weapon             # fields with decoded values
 cargo run --release -p blam-cli -- roundtrip --all                   # re-serialise, compare bytes
 cargo run --release -p blam-cli -- recode --all                      # decode/encode identity
+cargo run --release -p blam-cli -- toc-roundtrip                     # rewrite every .utoc, compare bytes
 cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```

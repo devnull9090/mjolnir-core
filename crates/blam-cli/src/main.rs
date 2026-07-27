@@ -77,6 +77,8 @@ enum Command {
     Recode(ValidateArgs),
     /// Change one field of a tag and report exactly which bytes moved.
     Set(SetArgs),
+    /// Parse each .utoc container index and write it back, comparing bytes.
+    TocRoundtrip(SectionsArgs),
 }
 
 #[derive(Args)]
@@ -255,6 +257,7 @@ fn main() -> Result<()> {
         Command::Values(a) => values(a),
         Command::Recode(a) => recode(a),
         Command::Set(a) => set(a),
+        Command::TocRoundtrip(a) => toc_roundtrip(a),
     }
 }
 
@@ -618,6 +621,60 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
             })
             .unwrap_or_else(|| "-".to_string());
         println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
+    }
+    Ok(())
+}
+
+/// Read every `.utoc`, write it back from the parsed structure, and require the
+/// bytes to match.
+///
+/// The first step towards producing a container of our own: a writer that
+/// cannot reproduce an existing index has the field layout wrong, and would
+/// produce something the game silently refuses.
+fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&a.src.paks)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "utoc"))
+        .collect();
+    paths.sort();
+
+    let (mut ok, mut differs) = (0usize, 0usize);
+    println!("container	bytes	chunks	blocks	dir_index	result");
+    for path in &paths {
+        let original = std::fs::read(path)?;
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let toc = match ue_iostore::toc::Toc::parse(&original) {
+            Ok(t) => t,
+            Err(e) => {
+                println!("{name}	{}	-	-	-	parse failed: {e}", original.len());
+                differs += 1;
+                continue;
+            }
+        };
+        let written = toc.write();
+        let same = written == original;
+        if same {
+            ok += 1;
+        } else {
+            differs += 1;
+        }
+        let first = (0..original.len().min(written.len()))
+            .find(|i| original[*i] != written[*i])
+            .map(|i| format!("differs at 0x{i:X}"))
+            .unwrap_or_else(|| format!("length {} vs {}", original.len(), written.len()));
+        println!(
+            "{name}	{}	{}	{}	{}	{}",
+            original.len(),
+            toc.chunk_ids.len(),
+            toc.blocks.len(),
+            toc.directory_index.len(),
+            if same { "identical".to_string() } else { first }
+        );
+    }
+    println!("
+{ok}/{} reproduced byte for byte, {differs} differ", paths.len());
+    if differs > 0 {
+        anyhow::bail!("{differs} container index(es) did not round-trip");
     }
     Ok(())
 }

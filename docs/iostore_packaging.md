@@ -1,6 +1,6 @@
 # Getting an Edited Tag Into the Game
 
-**Status:** Design and findings. Not implemented.
+**Status:** TOC writing done and verified. Container creation not started.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -62,8 +62,8 @@ otherwise be the hardest unknown.
 
 ## What a writer has to produce
 
-Structurally, a `.utoc` is a header followed by parallel arrays. All of it is already parsed by
-`ue-iostore`, so the field layout is known rather than guessed:
+Structurally, a `.utoc` is a header followed by parallel arrays. All of it is now written as
+well as read — see *Step 1* below:
 
 1. Header — magic `-==--==--==--==-`, version, header size, entry count, compressed-block
    count, block size, compression-method names, directory-index size, partition count and
@@ -105,25 +105,46 @@ These are the real unknowns, in the order they need answering.
    cook time through an offset the package header carries? The tag payload lives in a separate
    chunk from the package, which suggests the former, but that is an inference.
 
-## Suggested order of work
+## Step 1: writing a TOC — done
 
-Each step is verifiable on its own, which is worth more than a large change that either works
-or does not for reasons nobody can localise.
+**Verified.** `ue_iostore::toc` models the index as the format defines it, and writes it back.
+`mjolnir toc-roundtrip` parses every shipped `.utoc` and re-emits it:
 
-1. **Round-trip a TOC.** Write a `.utoc` writer and require it to reproduce `global.utoc`
-   byte for byte from the parsed structure — the same standard the tag reader and writer are
-   held to. 866 bytes with one entry makes this a tight, fast test, and it proves the field
-   layout before anything depends on it.
-2. **Round-trip a bigger one**, `pakchunk115-Windows.utoc` (327 KB), to exercise the directory
-   index and the perfect-hash tables that `global.utoc` does not have.
+| Result | Count |
+|---|---:|
+| Reproduced **byte for byte** | **28 / 28** |
+| Differ | 0 |
+
+That covers `global.utoc` at 866 bytes and `pakchunk0-Windows.utoc` at 26 MB — 122,800 chunk
+entries, 1,099,338 compression blocks and a 7.5 MB directory index — so steps 1 and 2 of the
+original plan are both settled.
+
+The test is not trivially true. Every typed field is re-encoded from its value rather than
+copied, so a wrong width, a wrong byte order or a misplaced field shows up as a mismatch. It
+caught one immediately: the perfect-hash seed count at byte 84 had been skipped, putting
+`partition_size` four bytes early and breaking all 28 at the same offset.
+
+Two details the round-trip pinned down, both easy to get wrong by inspection:
+
+- A **chunk ID mixes byte orders**. The package ID is little-endian, the chunk index that
+  follows it is **big**-endian, then a pad byte, then the type.
+- **Chunk offsets and lengths are five-byte big-endian**, while a compression block's offset is
+  five-byte *little*-endian with three-byte little-endian sizes.
+
+Regions that are not yet interpreted — the perfect-hash tables, the signature block, the
+directory index, and the header padding past byte 100 — are carried verbatim, so nothing is
+lost by round-tripping a container we do not fully understand.
+
+## Remaining work
+
 3. **Build a one-chunk override container** for a tag whose edit is visually obvious in game —
    a weapon's damage, a biped's scale — and see whether the game loads it. This answers
    unknowns 1 to 4 in one experiment, and it is cheap once step 1 works.
 4. **Only then** generalise: multiple tags, compression, and a mod-packaging command.
 
-Step 3 is the one that decides whether this approach works at all. It is worth reaching
-quickly rather than building a polished writer first and discovering the game ignores the
-container.
+Step 3 is the one that decides whether this approach works at all, and it is now the immediate
+next thing: the index can be written, so what is left is composing a new one, writing the
+matching `.ucas`, and finding out whether the game mounts it.
 
 ## Why not a `.pak`
 
