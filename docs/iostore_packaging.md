@@ -1,9 +1,10 @@
 # Getting an Edited Tag Into the Game
 
-**Status:** **The override wins.** A container named with the `_P` patch suffix is mounted and
-its chunk is used in place of the shipped one, confirmed by A/B measurement in the running game
-— see *Current experiment*. What remains is whether the **bulk data** chunk is used too, not
-whether override containers work at all.
+**Status:** **Half solved, and the half that is left is specific.** A container named with the
+`_P` patch suffix mounts and wins chunk lookups: the **package** chunk we write is what the game
+reads. The **bulk data** chunk is not — destroying 98% of it changes nothing — so tag payload
+edits still do not reach the game. Both results are A/B measurements in the running game; see
+*Current experiment*.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can now be read, edited and written back byte-exactly
@@ -273,15 +274,59 @@ classes are loaded, which is useful orientation first.
 6. **Uncompressed blocks are accepted** in a container whose siblings are Oodle-compressed.
    Ours stores blocks uncompressed and the loader read them, which settles question 3.
 
-### What is still open
+### The bulk data chunk is *not* being used
 
-**Is the type-2 bulk data chunk used, or only the type-1 package chunk?** `BinaryBlobSize` lives
-in the package chunk, which `pack` rewrites, so 32640 proves the *package* chunk is ours. It does
-not prove the Blam payload beside it is being read. That is open question 4 from above, and it is
-now the only one left.
+**Answered 2026-07-27. The type-1 package chunk comes from our container; the type-2 bulk chunk
+does not.**
 
-Measuring it is harder than it looks. The obvious route — change a weapon value and see the game
-behave differently — ran into two problems on 2026-07-27:
+Destroying the payload changes nothing:
+
+| Bulk chunk in our `.ucas` | Result |
+|---|---|
+| intact | loads, plays, `BinaryBlobSize` 32640 |
+| 256 bytes at offset 16,384 overwritten | loads, plays, `BinaryBlobSize` 32640 |
+| **32,128 of 32,640 bytes overwritten (98%)** | **loads, plays, `BinaryBlobSize` 32640** |
+
+The last row is the one that settles it. Ninety-eight percent of the Blam payload replaced with
+`0xDE`, leaving only the first 512 bytes and the package header chunk intact — and the game
+launched, reached the menu, loaded A30, loaded `assault_rifle-weapon` as a
+`BlamWeaponTagDataAsset`, and rendered and played normally. A payload that was being parsed could
+not survive that. Meanwhile `BinaryBlobSize` still read 32640, which is our value, so the
+container was mounted and winning chunk lookups the whole time.
+
+So the two chunks are resolved differently. Whatever the loader does for `ExportBundleData`, it is
+not doing for `BulkData`.
+
+Three candidate explanations, none tested:
+
+1. **The bulk chunk ID we emit is not the one the loader asks for.** `pack` reuses the twelve
+   bytes from the shipped index, but the chunk *index* field within the ID may need to differ for
+   bulk data, in which case our chunk is never looked up and `pakchunk0` answers instead. This is
+   the cheapest to check: dump what IDs the shipped container uses for both chunks of one package
+   and compare the index and type fields against ours.
+
+2. **Bulk data is resolved at cook time, through an offset the package header carries**, rather
+   than by chunk ID at load. This was open question 4 from the start and the evidence now points
+   at it. If so, overriding bulk data needs the package header to be rewritten to point somewhere
+   reachable, not just the bulk chunk replaced.
+
+3. **Patch containers may shadow only some chunk types.** Less likely, but it would look exactly
+   like this.
+
+Note that (1) and (2) predict different fixes, and (1) is much cheaper to rule out, so start
+there.
+
+### What this means for the editor
+
+Editing a tag and shipping the result still does not work end to end. What now works is
+everything up to the payload: containers build, mount, and win, and the package header we write is
+what the game reads. The remaining gap is one specific question about how bulk data is addressed,
+which is a much smaller thing than "does any of this work".
+
+### Notes on measuring this
+
+The obvious route — change a weapon value and watch the game behave differently — is a trap, for
+two reasons found on 2026-07-27:
 
 - **Ammo counts are not reachable by reflection.** Not on the pawn, not on the first-person
   weapon actor, not on any HUD object; a scan of every loaded object for the literal reserve
@@ -316,29 +361,24 @@ bytes      0 .. 32640   the Blam payload      (type 2)
 bytes  32640 .. 36268   the package header    (type 1, holds BinaryBlobSize)
 ```
 
-Which is exactly the separation the remaining question needs: corrupting `0..32640` leaves
-`BinaryBlobSize` readable, so one run says both whether the container still mounts *and* whether
-the payload is parsed.
+That separation is what made the answer reachable: corrupting `0..32640` leaves `BinaryBlobSize`
+readable, so one run reports both whether the container still mounts *and* whether the payload is
+parsed. Corrupting the payload is a better instrument than changing a value in it, because it
+needs no interpretation and cannot be confounded by save state — which the ammo readings were.
 
-**Attempted 2026-07-27, not completed.** 256 bytes at offset 16,384 were overwritten with `0xDE`
-and the game launched and reached the frontend menu without complaint — but the frontend does not
-load the assault rifle tag, and the machine locked before a mission could be started, which blocks
-synthetic input. Reaching the menu proves nothing either way. The file has been restored. Redo it
-by starting mission A30 and reading `BinaryBlobSize`.
+The whole run, launch to measurement, is a handful of commands and about four minutes; see
+[`game_automation.md`](game_automation.md). Reproduce it with:
 
-Two better instruments, in order of preference:
+```powershell
+# game must not be running -- it holds the .ucas open while mounted
+$ucas = "<install>\Meteorite\Content\Paks\pakchunk999-MJOLNIR-Windows_P.ucas"
+Copy-Item $ucas "$ucas.bak"
+$bytes = [System.IO.File]::ReadAllBytes($ucas)
+for ($i = 512; $i -lt 32640; $i++) { $bytes[$i] = 0xDE }   # payload only
+[System.IO.File]::WriteAllBytes($ucas, $bytes)
+```
 
-1. **Pick a payload field that surfaces through reflection.** `BinaryBlobSize` worked precisely
-   because it is a reflected property. If any other cooked property is derived from the payload,
-   it can be A/B'd the same way and the answer arrives in one run.
-
-2. **Corrupt the bulk chunk deliberately** and see whether the game breaks. If it does, the
-   payload is being read; if nothing changes, it is not. That separates "not selected" from
-   "selected and used" without needing to interpret a number, and unlike a subtle value change it
-   cannot be confounded by save state.
-
-Both are now cheap to run — see [`game_automation.md`](game_automation.md). A full A/B, launch to
-measurement, is a handful of commands and about four minutes.
+then launch, start A30, and read `BinaryBlobSize`. Restore from the `.bak` afterwards.
 
 ## Why not a `.pak`
 

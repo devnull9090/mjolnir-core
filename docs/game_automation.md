@@ -142,15 +142,19 @@ to be in front. Windows also refuses `SetForegroundWindow` to a process that doe
 the foreground, so the tool taps Alt and attaches to the foreground window's input queue to get
 around it, retrying as the window settles.
 
-None of that helps if the workstation is **locked or on a screensaver**: the interactive desktop is
-switched away, `GetForegroundWindow` returns 0, and no synthetic input can reach the game.
+None of that helps if the workstation is **locked, on a screensaver, or a disconnected Remote
+Desktop session**: the interactive desktop is switched away, `GetForegroundWindow` returns 0, and
+no synthetic input can reach the game. RDP is the one that bites in practice — the session locks
+on idle timeout, and since the automation is doing the work nobody is touching the machine to keep
+it alive. Expect to hit this on any run longer than the timeout.
 `game_input` reports this as a focus warning rather than pretending it worked. Screenshots keep
 working throughout, because `PrintWindow` does not need focus — so a locked machine looks like
 "I can see the game but cannot touch it".
 
 There is no reflection-driven substitute yet. `BPFL_CampaignMenuHelpers` exposes lobby setters
 (`SetClientLobbyMission`, `SetClientLobbyDifficulty`, `StartCountdown`) but no plain "start the
-mission" entry point, so starting a mission still needs real input.
+mission" entry point, so starting a mission still needs real input. Finding one would make the
+whole harness immune to this, and is the single highest-value thing left to add.
 
 **Ammo is not in UE reflection.** Neither the pawn, the first-person weapon actor, nor any HUD
 object holds the round counts the HUD displays; a scan for the literal reserve value across
