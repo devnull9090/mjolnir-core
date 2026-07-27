@@ -231,6 +231,24 @@ fn patched_bytes(
     Ok(out)
 }
 
+/// Parse `group:path`, or `none`, into a tag reference.
+fn parse_reference(text: &str) -> Result<blam_tag::Scalar, String> {
+    let t = text.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("none") {
+        return Ok(blam_tag::Scalar::Reference {
+            group: String::new(),
+            path: String::new(),
+        });
+    }
+    let (group, path) = t
+        .split_once(':')
+        .ok_or("a tag reference is written as <group>:<path>")?;
+    Ok(blam_tag::Scalar::Reference {
+        group: group.trim().to_string(),
+        path: path.trim().to_string(),
+    })
+}
+
 #[tauri::command]
 fn set_field(
     index: usize,
@@ -253,13 +271,25 @@ fn set_field(
 
         let target = blam_tag::patch::resolve(&layout, &file, &block, &path)
             .map_err(|e| e.to_string())?;
-        let parsed = blam_tag::value::parse(&layout, &target.field, &value)
-            .map_err(|e| e.to_string())?;
-        let (out, applied) = blam_tag::patch::set(&layout, &file, &block, &path, &parsed)
-            .map_err(|e| e.to_string())?;
+        // A section-backed value resizes the tag, so it takes the rebuild path
+        // rather than overwriting bytes.
+        let resizes = target.section.is_some();
+        let parsed = match target.type_name.as_str() {
+            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+            "tag reference" => parse_reference(&value)?,
+            _ => blam_tag::value::parse(&layout, &target.field, &value)
+                .map_err(|e| e.to_string())?,
+        };
+        let (out, applied) = if resizes {
+            blam_tag::patch::set_text(&layout, &file, &block, &path, &parsed)
+        } else {
+            blam_tag::patch::set(&layout, &file, &block, &path, &parsed)
+        }
+        .map_err(|e| e.to_string())?;
 
         // Refuse the edit unless the result is still a tag that reads back.
         let after = blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+        let _ = resizes;
         let after_layout = after.layout().map_err(|e| e.to_string())?;
         let after_block = after.read_data(&after_layout).map_err(|e| e.to_string())?;
         let payload = after.data().ok_or("patched tag has no data section")?;

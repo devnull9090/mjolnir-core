@@ -167,7 +167,9 @@ See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings th
 Halo Campaign Evolved tag files are **self-describing**: each one carries a `blay` layout section
 holding its own field names, type names, and enum option names — the same strings Guerilla showed.
 Definitions for all 101 shipped groups are recoverable from the game data alone, with no need to
-recover them from the engine binary. See [`docs/tag_body_format.md`](docs/tag_body_format.md).
+recover them from the engine binary. See [`docs/tag_body_format.md`](docs/tag_body_format.md), and
+[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md) for a practical guide to reading and
+editing tags with the CLI and the editor.
 
 The Rust workspace in `crates/` reads containers and layouts natively:
 
@@ -212,9 +214,9 @@ directory and release pipeline. Build it from `apps/launcher` as before.
 
 ### Tag Editor
 
-`apps/tag-editor` is a Guerilla-style tag browser built on the same stack as the launcher: Tauri 2,
-React 19, Vite, and Tailwind 4. It reads tags from your own installation — nothing is bundled,
-nothing is modified, and no tag content is written to disk.
+`apps/tag-editor` is a Guerilla-style tag browser and editor built on the same stack as the
+launcher: Tauri 2, React 19, Vite, and Tailwind 4. It reads tags from your own installation —
+nothing is bundled, and the installation is never modified.
 
 ```powershell
 cd apps/tag-editor
@@ -223,10 +225,21 @@ pnpm tauri dev
 ```
 
 The Paks folder and Oodle DLL are auto-detected on first run, with a manual picker as a fallback.
-This release is **read-only**: it renders the tag tree and, for each tag, its fields with their
-**decoded values** — enum and bitfield options resolved to names, tag references shown as group
-and path, colours as hex, vectors and bounds as numbers — with blocks and arrays expanding to
-their elements. Editing and saving are not implemented.
+
+It renders the tag tree and, for each tag, its fields with their **decoded values** — enum and
+bitfield options resolved to names, tag references as group and path, colours as hex, vectors and
+bounds as numbers — with blocks and arrays expanding to their elements.
+
+Fields are editable: click a value, type a new one, press Enter. Edits are validated before they
+are kept, marked in the tree, and individually undoable. They are held in memory and leave through
+**Export patched tag…**, because the game loads tags from read-only IoStore containers and there is
+nowhere to save them back to — writing those containers is not implemented yet, so an exported tag
+cannot currently be loaded by the game.
+
+Exported tags are copyrighted game content. Keep them local; `.gitignore` blocks `*.ubulk`.
+
+See [`docs/tag_editing_guide.md`](docs/tag_editing_guide.md) for a walkthrough of both the editor
+and the `mjolnir` command line.
 
 ### Coming Soon
 - **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)

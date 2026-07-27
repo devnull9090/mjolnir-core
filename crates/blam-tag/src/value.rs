@@ -77,6 +77,7 @@ impl Scalar {
             Scalar::BlockIndex(i) => format!("#{i}"),
             Scalar::Text(s) => format!("{s:?}"),
             Scalar::FourCc(s) => s.clone(),
+            Scalar::Reference { group, path } if path.is_empty() && group.is_empty() => "none".to_string(),
             Scalar::Reference { group, path } if path.is_empty() => format!("none ({group})"),
             Scalar::Reference { group, path } => format!("{path} ({group})"),
             Scalar::Color(s) => s.clone(),

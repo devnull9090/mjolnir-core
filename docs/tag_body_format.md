@@ -516,9 +516,10 @@ The encoder is deliberately strict, because its output goes into somebody's game
 - A vector of the wrong arity is refused rather than padded.
 - A value of the wrong kind for the field is refused.
 - A `#rrggbb` colour leaves the alpha byte alone, because it says nothing about alpha.
-- Section-backed types — `string id`, `data`, `tag reference` — are refused outright. Changing one
-  resizes the tag rather than overwriting bytes in place, so it is a different operation and is not
-  smuggled in through this path.
+- Section-backed types — `string id`, `data`, `tag reference` — are refused by the in-place
+  encoder. Changing one resizes the tag, so it is a different operation; see *Resizing a value*
+  below. Routing it through this path would quietly break the guarantee that an edit changes one
+  contiguous range and nothing else.
 
 | Check | Result |
 |---|---:|
@@ -570,15 +571,36 @@ the same policy as the rest of the extracted data.
 
 Three things are deliberately refused:
 
-- **Section-backed fields.** A `string id`, `data` or `tag reference` keeps its payload in a
-  trailing section, so changing one resizes the tag. That is a different operation, and letting it
-  through this path would quietly break the "same length, one range changed" guarantee.
+- **Section-backed fields**, by this path. A `string id`, `data` or `tag reference` keeps its
+  payload in a trailing section, so changing one resizes the tag and breaks the "same length, one
+  range changed" guarantee. `string id` and `tag reference` are editable through the rebuild path
+  below; `data` is not, because its inline structure is not yet interpreted.
 - **Values that do not fit.** Out of range, wrong arity and wrong kind all fail before anything is
   written.
 - **Unknown paths and out-of-range indices**, named precisely: `index 99 is out of range for
   control points, which has 9 element(s)`.
 
 Setting a field to the value it already holds changes nothing at all, and reports so.
+
+### Resizing a value
+
+**Verified.** A `string id` or `tag reference` keeps its value in a trailing section, so
+changing it changes that section's size and every enclosing size with it. Rather than patch
+those up by hand, the data section is serialised again with the new content in place, so the
+sizes come out of the same writer that reproduces all 12,281 readable tags byte for byte.
+
+Setting such a field to the value it already holds reproduces the file **exactly**, which is
+what shows any difference is attributable to the edit and not to the rebuild.
+
+The inline bytes and the section have to be changed together, and they do not agree about what
+they carry:
+
+- A `tag reference`'s 16 inline bytes are `{group four-CC, 0, path length, handle}`. The path
+  length is stored twice — inline and implicitly as the section size — so the inline copy has
+  to be updated or the tag reads back wrong.
+- A `string id`'s 4 inline bytes are **zero even for a populated string**. The length lives
+  only in the section size. Writing a length there, which seemed the obvious symmetry, was
+  caught by the same no-op test: it changed one byte that the shipped data leaves at zero.
 
 ### Bounding the value tree
 

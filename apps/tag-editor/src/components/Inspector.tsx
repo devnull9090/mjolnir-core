@@ -6,18 +6,19 @@ import type { NodeView } from "../lib/api";
 /** Blocks larger than this stay collapsed until asked for. */
 const AUTO_EXPAND_ELEMENTS = 8;
 
-/** Types whose payload lives in a trailing section, so they cannot be edited
- *  in place. Changing one resizes the tag, which is a different operation. */
+/** Types with no editable value of their own. */
 const NOT_EDITABLE = new Set([
-  "string id",
   "data",
-  "tag reference",
   "block",
   "struct",
   "array",
   "pageable resource",
   "api interop",
 ]);
+
+/** Types whose value lives in a trailing section, so changing one resizes the
+ *  tag rather than overwriting bytes. Editable, but worth flagging. */
+const RESIZES = new Set(["string id", "tag reference"]);
 
 function typeColor(type: string): string {
   if (type === "block") return "text-accent-blue";
@@ -40,6 +41,12 @@ function keepTail(text: string, max: number): string {
  * name, and flags read `a | b (0x5)` but are set as `a | b`.
  */
 function editableText(node: NodeView): string {
+  if (node.type === "tag reference") {
+    return node.reference && node.reference.path
+      ? `${node.reference.group}:${node.reference.path}`
+      : "none";
+  }
+  if (node.type === "string id") return node.value.replace(/^"|"$/g, "");
   if (node.type.endsWith("enum")) return node.selected[0] ?? node.value;
   if (node.type.endsWith("flags")) {
     return node.selected.length > 0 ? node.selected.join(" | ") : "none";
@@ -111,9 +118,13 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
             setEditing(true);
           }}
           title={
-            canEdit
-              ? `${node.value}\n\nClick to edit`
-              : `${node.value}\n\n${node.type} values resize the tag, so they cannot be edited in place yet`
+            !canEdit
+              ? `${node.value}\n\n${node.type} values are not editable`
+              : node.type === "tag reference"
+                ? `${node.value}\n\nClick to edit. Written as group:path, or none. Resizes the tag.`
+                : RESIZES.has(node.type)
+                  ? `${node.value}\n\nClick to edit as plain text. Resizes the tag.`
+                  : `${node.value}\n\nClick to edit`
           }
           className={`min-w-0 flex-1 truncate text-right font-mono text-xs ${
             failed

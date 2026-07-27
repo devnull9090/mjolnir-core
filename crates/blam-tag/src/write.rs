@@ -40,46 +40,89 @@ fn section(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {
 /// round-trip compares against.
 pub fn write_block(block: &Block<'_>) -> Vec<u8> {
     let mut out = Vec::with_capacity(block.consumed);
-    write_block_into(&mut out, block);
+    write_block_into(&mut out, block, None);
     out
 }
 
-fn write_block_into(out: &mut Vec<u8>, block: &Block<'_>) {
+/// Replace one section's content while re-serialising.
+///
+/// The section is identified by where its current content sits in `file`, which
+/// every value slice is borrowed from, so there is no ambiguity between two
+/// fields that happen to hold the same bytes.
+pub struct Substitution<'a> {
+    pub file: &'a [u8],
+    /// Byte offset in `file` of the content being replaced.
+    pub at: usize,
+    pub content: Vec<u8>,
+}
+
+impl Substitution<'_> {
+    /// Does `slice` name the section this substitution replaces?
+    fn matches(&self, slice: &[u8]) -> bool {
+        (slice.as_ptr() as usize).saturating_sub(self.file.as_ptr() as usize) == self.at
+    }
+}
+
+/// Serialise a block, swapping one section's content for new bytes.
+///
+/// This is how a resizing edit is made: the tree is written out again with the
+/// new content in place, and every enclosing section's size falls out of the
+/// serialisation rather than having to be patched up by hand. Writing with no
+/// substitution reproduces the original bytes exactly, which is what makes the
+/// change attributable to the edit alone.
+pub fn write_block_subst(block: &Block<'_>, sub: &Substitution<'_>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(block.consumed);
+    write_block_into(&mut out, block, Some(sub));
+    out
+}
+
+fn write_block_into(out: &mut Vec<u8>, block: &Block<'_>, sub: Option<&Substitution<'_>>) {
     out.extend_from_slice(&block.count.to_le_bytes());
     out.extend_from_slice(&block.flags.to_le_bytes());
     out.extend_from_slice(block.elements);
     // One `tgst` per element, present only when the reader found them; a block
     // whose element struct writes nothing has no children at all.
     for element in &block.children {
-        let content = write_children(element);
+        let content = write_children(element, sub);
         section(out, "tgst", content.len() as u32, &content);
     }
 }
 
 /// Serialise one struct run's variable-length fields, in declaration order.
-fn write_children(children: &[Value<'_>]) -> Vec<u8> {
+fn write_children(children: &[Value<'_>], sub: Option<&Substitution<'_>>) -> Vec<u8> {
+    // A substitution replaces the content of exactly one section; everything
+    // else is written back as it was read.
+    let swap = |b: &[u8]| -> Vec<u8> {
+        match sub {
+            Some(s) if s.matches(b) => s.content.clone(),
+            _ => b.to_vec(),
+        }
+    };
+
     let mut out = Vec::new();
     for value in children {
         match value {
             Value::Block(b) => {
-                let content = write_block(b);
+                let mut content = Vec::with_capacity(b.consumed);
+                write_block_into(&mut content, b, sub);
                 section(&mut out, "tgbl", 0, &content);
             }
             Value::Struct { children } => {
-                let content = write_children(children);
+                let content = write_children(children, sub);
                 section(&mut out, "tgst", content.len() as u32, &content);
             }
-            Value::StringId(b) => section(&mut out, "tgsi", 0, b),
-            Value::Data(b) => section(&mut out, "tgda", 0, b),
-            Value::TagRef(b) => section(&mut out, "tgrf", 0, b),
+            Value::StringId(b) => section(&mut out, "tgsi", 0, &swap(b)),
+            Value::Data(b) => section(&mut out, "tgda", 0, &swap(b)),
+            Value::TagRef(b) => section(&mut out, "tgrf", 0, &swap(b)),
             // An array writes no wrapper: its elements' sections follow inline.
             Value::Array { children } => {
                 for element in children {
                     match element {
                         Value::Struct { children } => {
-                            out.extend_from_slice(&write_children(children))
+                            out.extend_from_slice(&write_children(children, sub))
                         }
-                        other => out.extend_from_slice(&write_children(std::slice::from_ref(other))),
+                        other => out
+                            .extend_from_slice(&write_children(std::slice::from_ref(other), sub)),
                     }
                 }
             }

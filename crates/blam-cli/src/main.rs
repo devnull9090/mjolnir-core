@@ -626,6 +626,24 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
 ///
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
+/// Parse `group:path` or `none` into a tag reference.
+fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
+    let t = text.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("none") {
+        return Ok(blam_tag::Scalar::Reference {
+            group: String::new(),
+            path: String::new(),
+        });
+    }
+    let (group, path) = t
+        .split_once(':')
+        .context(r"a tag reference is written as <group>:<path>, e.g. coll:fx\holograms\hologram_01")?;
+    Ok(blam_tag::Scalar::Reference {
+        group: group.trim().to_string(),
+        path: path.trim().to_string(),
+    })
+}
+
 fn set(a: SetArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
@@ -647,8 +665,18 @@ fn set(a: SetArgs) -> Result<()> {
     let block = tag.read_data(&l)?;
 
     let target = blam_tag::patch::resolve(&l, &file, &block, &a.field)?;
-    let parsed = blam_tag::value::parse(&l, &target.field, &a.value)?;
-    let (patched, applied) = blam_tag::patch::set(&l, &file, &block, &a.field, &parsed)?;
+    // A section-backed field resizes the tag, so it takes the rebuild path.
+    let resizes = target.section.is_some();
+    let parsed = match target.type_name.as_str() {
+        "tag reference" => parse_reference(&a.value)?,
+        "string id" => blam_tag::Scalar::Text(a.value.trim_matches('"').to_string()),
+        _ => blam_tag::value::parse(&l, &target.field, &a.value)?,
+    };
+    let (patched, applied) = if resizes {
+        blam_tag::patch::set_text(&l, &file, &block, &a.field, &parsed)?
+    } else {
+        blam_tag::patch::set(&l, &file, &block, &a.field, &parsed)?
+    };
 
     println!("{}", entry.path);
     println!("  field    {}  [{}]", applied.path, applied.type_name);
@@ -660,7 +688,52 @@ fn set(a: SetArgs) -> Result<()> {
     let differing: Vec<usize> = (0..file.len().min(patched.len()))
         .filter(|i| file[*i] != patched[*i])
         .collect();
-    println!("  file     {} bytes, unchanged length {}", file.len(), file.len() == patched.len());
+    if resizes {
+        println!(
+            "  file     {} bytes -> {} bytes (the value resizes its section)",
+            file.len(),
+            patched.len()
+        );
+    } else {
+        println!(
+            "  file     {} bytes, unchanged length {}",
+            file.len(),
+            file.len() == patched.len()
+        );
+    }
+    if resizes {
+        // A resize moves everything after the section, so a byte range says
+        // nothing useful. What matters is that it still reads back correctly.
+        let after = TagFile::parse(&patched, Some(patched.len()))?;
+        let al = after.layout()?;
+        let ab = after.read_data(&al)?;
+        let ap = after.data().context("patched tag has no bdat section")?;
+        println!("  re-read  {}", blam_tag::patch::resolve(&al, &patched, &ab, &a.field)?.current.display());
+        println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
+        // A rebuild that changes nothing must reproduce the file exactly; that
+        // is what shows the difference is the edit and not the rebuild.
+        if patched.len() == file.len() {
+            let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+            println!("  differs  {} byte(s) from the original", d.len());
+            for i in d.iter().take(8) {
+                println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+            }
+        }
+        if ab.consumed != ap.size as usize {
+            anyhow::bail!("the patched tag no longer walks exactly");
+        }
+        match &a.out {
+            Some(path) => {
+                std::fs::write(path, &patched)?;
+                println!("
+  wrote {}", path.display());
+                println!("  This is game content. Keep it local; the repository does not take tag data.");
+            }
+            None => println!("
+  dry run; pass --out <file> to write the patched tag"),
+        }
+        return Ok(());
+    }
     match (differing.first(), differing.last()) {
         (Some(first), Some(last)) => {
             println!(

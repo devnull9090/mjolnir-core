@@ -16,9 +16,11 @@
 //! control points[3].position       into a block element
 //! ```
 //!
-//! Fields whose payload lives in a trailing section — `string id`, `data`,
-//! `tag reference` — are refused. Changing those resizes the tag, which is a
-//! different operation and must not be smuggled through this path.
+//! A field whose payload lives in a trailing section — a `string id` or
+//! `tag reference` — cannot be changed this way, because the new value is a
+//! different length. Those go through [`set_text`], which serialises the data
+//! section again so every enclosing size follows from the writer rather than
+//! being patched up by hand.
 
 use crate::data::Block;
 use crate::layout::{FieldEntry, Layout};
@@ -57,6 +59,9 @@ pub struct Target {
     pub size: usize,
     /// The value currently stored there.
     pub current: Scalar,
+    /// For a section-backed field, where its section's content sits in the file
+    /// and how long it is. `None` for a plain inline field.
+    pub section: Option<(usize, usize)>,
 }
 
 /// Byte offset of `part` inside `whole`.
@@ -158,12 +163,29 @@ pub fn resolve(
             if slice.is_empty() {
                 return Err(Error::NotAValue { at: walked });
             }
+            // A section-backed field shows the section's value, not the
+            // inline handle, and an edit has to reach the section.
+            let section = value.and_then(|v| match v {
+                crate::data::Value::StringId(b)
+                | crate::data::Value::TagRef(b)
+                | crate::data::Value::Data(b) => Some((offset_within(file, b), b.len())),
+                _ => None,
+            });
+            let current = match value {
+                Some(crate::data::Value::StringId(b)) => {
+                    let end = b.iter().position(|c| *c == 0).unwrap_or(b.len());
+                    Scalar::Text(String::from_utf8_lossy(&b[..end]).into_owned())
+                }
+                Some(crate::data::Value::TagRef(b)) => value::reference(b),
+                _ => value::read(layout, &field, slice),
+            };
             return Ok(Target {
                 field,
-                current: value::read(layout, &field, slice),
+                current,
                 type_name,
                 file_offset: offset_within(file, slice),
                 size: size as usize,
+                section,
             });
         }
 
@@ -337,6 +359,151 @@ pub fn set_many(
     Ok((out, applied))
 }
 
+/// Encode a section-backed value into the bytes its section should hold, and
+/// the inline handle that must agree with it.
+///
+/// These two must be changed together. A `tag reference` keeps its group and
+/// path in a `tgrf`, but its 16 inline bytes are
+/// `{group four-CC, 0, path length, handle}` — the length is stored twice, and
+/// leaving the inline copy stale would produce a tag that reads back wrong.
+fn section_bytes(type_name: &str, value: &Scalar) -> Result<(Vec<u8>, Option<Vec<u8>>), Error> {
+    match (type_name, value) {
+        ("string id", Scalar::Text(s)) => {
+            // The section holds the text with no terminator. The inline word is
+            // *not* a length — it is zero on disk even for a populated string,
+            // so it is left alone rather than "corrected".
+            Ok((s.as_bytes().to_vec(), None))
+        }
+        ("tag reference", Scalar::Reference { group, path }) => {
+            let mut content = Vec::new();
+            let mut inline = Vec::new();
+            if path.is_empty() {
+                // An unset reference has no section content and a cleared
+                // group, as the shipped data writes it.
+                inline.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                inline.extend_from_slice(&0u32.to_le_bytes());
+                inline.extend_from_slice(&0u32.to_le_bytes());
+                inline.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+                return Ok((content, Some(inline)));
+            }
+            if group.len() != 4 || !group.is_ascii() {
+                return Err(Error::Write(value::WriteError::OutOfRange {
+                    type_name: type_name.to_string(),
+                    value: format!("group {group:?}"),
+                }));
+            }
+            let cc: Vec<u8> = group.bytes().rev().collect();
+            content.extend_from_slice(&cc);
+            content.extend_from_slice(path.as_bytes());
+
+            inline.extend_from_slice(&cc);
+            inline.extend_from_slice(&0u32.to_le_bytes());
+            inline.extend_from_slice(&(path.len() as u32).to_le_bytes());
+            inline.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            Ok((content, Some(inline)))
+        }
+        _ => Err(Error::Write(value::WriteError::NotEditable {
+            type_name: type_name.to_string(),
+        })),
+    }
+}
+
+/// Change a field whose value lives in a trailing section, resizing the tag.
+///
+/// Unlike [`set`], this cannot be done by overwriting bytes: the new content is
+/// a different length, so every enclosing section's size changes with it.
+/// Rather than patch those up by hand, the payload is serialised again with the
+/// new content in place, so the sizes come out of the same writer that is
+/// checked byte-for-byte against every shipped tag.
+///
+/// Returns the new file and what changed.
+pub fn set_text(
+    layout: &Layout<'_>,
+    file: &[u8],
+    block: &Block<'_>,
+    path: &str,
+    value: &Scalar,
+) -> Result<(Vec<u8>, Applied), Error> {
+    let target = resolve(layout, file, block, path)?;
+    let (content, inline) = section_bytes(&target.type_name, value)?;
+
+    let Some((section_at, _)) = target.section else {
+        return Err(Error::NotAValue {
+            at: path.to_string(),
+        });
+    };
+
+    // The inline handle lives in the packed element data, which the writer
+    // copies verbatim, so it has to be correct before the tree is re-read.
+    let mut staged = file.to_vec();
+    if let Some(inline) = inline {
+        let end = target.file_offset + target.size.min(inline.len());
+        staged[target.file_offset..end].copy_from_slice(&inline[..end - target.file_offset]);
+    }
+
+    let tag = crate::TagFile::parse(&staged, None).map_err(|_| Error::NoData)?;
+    let staged_layout = tag.layout().map_err(|_| Error::NoData)?;
+    let staged_block = tag.read_data(&staged_layout).map_err(|_| Error::NoData)?;
+    // The `bdat` section itself, not the `tgbl` inside it: its offset is where
+    // the rebuilt data section has to start.
+    let sections = tag.sections();
+    let bdat = crate::section::find(&sections, "bdat").ok_or(Error::NoData)?;
+
+    let payload = crate::write::write_block_subst(
+        &staged_block,
+        &crate::write::Substitution {
+            file: &staged,
+            at: section_at,
+            content,
+        },
+    );
+
+    // Reassemble: the header and the whole layout section are untouched; only
+    // the data section is rebuilt, and the container's payload size follows it.
+    let body_before_bdat = bdat.at;
+    let mut out = Vec::with_capacity(HEADER_SIZE + body_before_bdat + payload.len() + 24);
+    out.extend_from_slice(&file[..HEADER_SIZE + body_before_bdat]);
+
+    let tgbl_total = crate::section::SECTION_HEADER + payload.len();
+    out.extend(b"tadb".iter().copied());
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&(tgbl_total as u32).to_le_bytes());
+    out.extend(b"lbgt".iter().copied());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&payload);
+
+    let body_len = out.len() - HEADER_SIZE;
+    out[0x48..0x4C].copy_from_slice(&(body_len as u32).to_le_bytes());
+
+    let changed = if out.len() == file.len() {
+        match (0..file.len()).find(|i| out[*i] != file[*i]) {
+            Some(start) => {
+                let last = (start..file.len())
+                    .rev()
+                    .find(|i| out[*i] != file[*i])
+                    .unwrap_or(start);
+                start..last + 1
+            }
+            None => 0..0,
+        }
+    } else {
+        // The file resized, so a byte range is not the useful description.
+        HEADER_SIZE + body_before_bdat..out.len()
+    };
+
+    Ok((
+        out,
+        Applied {
+            path: path.to_string(),
+            type_name: target.type_name,
+            before: target.current,
+            after: value.clone(),
+            changed,
+        },
+    ))
+}
+
 /// Where the `bdat` payload starts within a tag file, for reporting.
 pub fn payload_offset(body_offset: usize) -> usize {
     HEADER_SIZE + body_offset
@@ -453,6 +620,88 @@ mod tests {
             matches!(&err, Error::NoSuchField { segment, .. } if segment == "nope"),
             "{err}"
         );
+    }
+
+    /// A whole tag file: container header, the layout, then the data section.
+    fn synth_file() -> Vec<u8> {
+        let body_layout = crate::data::tests::synth_layout();
+        let payload = crate::data::tests::synth_payload();
+
+        let mut body = body_layout;
+        // bdat { tgbl { payload } }
+        let tgbl_total = crate::section::SECTION_HEADER + payload.len();
+        body.extend(b"tadb".iter().copied());
+        body.extend_from_slice(&1u32.to_le_bytes());
+        body.extend_from_slice(&(tgbl_total as u32).to_le_bytes());
+        body.extend(b"lbgt".iter().copied());
+        body.extend_from_slice(&0u32.to_le_bytes());
+        body.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        body.extend_from_slice(&payload);
+
+        let mut file = vec![0u8; HEADER_SIZE];
+        file[0x24..0x28].copy_from_slice(&1u32.to_le_bytes());
+        file[0x28..0x2C].copy_from_slice(&2u32.to_le_bytes());
+        file[0x2C..0x30].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        file[0x30..0x34].copy_from_slice(&0x7465_7374u32.to_le_bytes());
+        file[0x3C..0x40].copy_from_slice(b"MALB");
+        file[0x40..0x44].copy_from_slice(b"!gat");
+        file[0x48..0x4C].copy_from_slice(&(body.len() as u32).to_le_bytes());
+        file.extend_from_slice(&body);
+        file
+    }
+
+    /// The identity a resizing edit rests on: rebuilding with the value that is
+    /// already there must reproduce the file exactly, so any difference is
+    /// attributable to the edit and not to the rebuild.
+    #[test]
+    fn a_resize_to_the_same_value_reproduces_the_file() {
+        let file = synth_file();
+        let tag = crate::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+
+        let (out, _) = set_text(
+            &layout,
+            &file,
+            &block,
+            "tags[0].label",
+            &Scalar::Text("aa".into()),
+        )
+        .unwrap();
+        assert_eq!(out, file);
+    }
+
+    #[test]
+    fn a_longer_value_grows_the_file_and_still_reads_back() {
+        let file = synth_file();
+        let tag = crate::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+
+        let (out, applied) = set_text(
+            &layout,
+            &file,
+            &block,
+            "tags[0].label",
+            &Scalar::Text("a_much_longer_value".into()),
+        )
+        .unwrap();
+
+        assert_eq!(applied.before, Scalar::Text("aa".into()));
+        assert_eq!(out.len(), file.len() + ("a_much_longer_value".len() - 2));
+
+        // The rebuilt tag parses, walks exactly, and holds the new value.
+        let after = crate::TagFile::parse(&out, Some(out.len())).unwrap();
+        let after_layout = after.layout().unwrap();
+        let after_block = after.read_data(&after_layout).unwrap();
+        let payload = after.data().unwrap();
+        assert_eq!(after_block.consumed, payload.size as usize);
+        let t = resolve(&after_layout, &out, &after_block, "tags[0].label").unwrap();
+        assert_eq!(t.current, Scalar::Text("a_much_longer_value".into()));
+
+        // The other array element is untouched.
+        let other = resolve(&after_layout, &out, &after_block, "tags[1].label").unwrap();
+        assert_eq!(other.current, Scalar::Text("bb".into()));
     }
 
     #[test]
