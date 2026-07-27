@@ -294,6 +294,38 @@ behave differently — ran into two problems on 2026-07-27:
   two-round gap establishes nothing. Neither matched the 200 the edit set, which is itself worth
   explaining.
 
+#### Where the two chunks live in our container
+
+Decoding `pakchunk999-MJOLNIR-Windows_P.utoc` by hand, so the corrupt-a-chunk test can hit one
+without touching the other. All 302 bytes of it:
+
+| Region | At | Contents |
+|---|---:|---|
+| Header | 0 | version 8, 2 entries, 2 blocks, 64 KiB block size, container ID `MJOLNIR` |
+| Chunk IDs | 144 | entry 0 type **2** (bulk), entry 1 type **1** (package) — same package ID |
+| Offsets/lengths | 168 | entry 0 → logical 0, 32640 · entry 1 → logical 65536, 3628 |
+| Perfect-hash seeds | 188 | two `u32`, no chunks-without-hash array |
+| Compression blocks | **196** | block 0 → `.ucas` 0, 32640 · block 1 → `.ucas` 32640, 3628 |
+
+The subtlety is that chunk offsets are **logical**, not file offsets: entry 1 sits at 65536,
+past the end of a 36,272-byte file, because logical space is quantised to the 64 KiB block size.
+The compression block table is what maps it down. So in the `.ucas`:
+
+```
+bytes      0 .. 32640   the Blam payload      (type 2)
+bytes  32640 .. 36268   the package header    (type 1, holds BinaryBlobSize)
+```
+
+Which is exactly the separation the remaining question needs: corrupting `0..32640` leaves
+`BinaryBlobSize` readable, so one run says both whether the container still mounts *and* whether
+the payload is parsed.
+
+**Attempted 2026-07-27, not completed.** 256 bytes at offset 16,384 were overwritten with `0xDE`
+and the game launched and reached the frontend menu without complaint — but the frontend does not
+load the assault rifle tag, and the machine locked before a mission could be started, which blocks
+synthetic input. Reaching the menu proves nothing either way. The file has been restored. Redo it
+by starting mission A30 and reading `BinaryBlobSize`.
+
 Two better instruments, in order of preference:
 
 1. **Pick a payload field that surfaces through reflection.** `BinaryBlobSize` worked precisely

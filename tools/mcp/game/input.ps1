@@ -54,6 +54,10 @@ public class MjolnirInput {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 
     public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     public const uint KEYEVENTF_KEYUP       = 0x0002;
@@ -125,12 +129,42 @@ if (-not $process) {
     exit 1
 }
 $hwnd = $process.MainWindowHandle
-if ([MjolnirInput]::IsIconic($hwnd)) { [MjolnirInput]::ShowWindow($hwnd, 9) | Out-Null }
-if ([MjolnirInput]::GetForegroundWindow() -ne $hwnd) {
-    [MjolnirInput]::SetForegroundWindow($hwnd) | Out-Null
-    Start-Sleep -Milliseconds 300
+
+# Windows refuses SetForegroundWindow from a process that does not already own
+# the foreground -- which is exactly our situation, and a bare call silently
+# does nothing. Two things get around it, and both are needed in practice: a
+# synthetic Alt tap, which counts as the user interacting with us, and
+# attaching to the foreground window's input queue, which makes the two threads
+# share focus state. Retried, because the first attempt loses a race with a
+# window that is still settling after a launch.
+function Set-GameForeground($hwnd) {
+    if ([MjolnirInput]::IsIconic($hwnd)) { [MjolnirInput]::ShowWindow($hwnd, 9) | Out-Null }   # SW_RESTORE
+
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        if ([MjolnirInput]::GetForegroundWindow() -eq $hwnd) { return $true }
+
+        [MjolnirInput]::Key(0x38, $false, $false)   # Alt down
+        [MjolnirInput]::Key(0x38, $false, $true)    # Alt up
+
+        $foreground = [MjolnirInput]::GetForegroundWindow()
+        $theirs = [MjolnirInput]::GetWindowThreadProcessId($foreground, [IntPtr]::Zero)
+        $ours = [MjolnirInput]::GetCurrentThreadId()
+
+        $attached = $false
+        if ($theirs -ne 0 -and $theirs -ne $ours) {
+            $attached = [MjolnirInput]::AttachThreadInput($ours, $theirs, $true)
+        }
+        [MjolnirInput]::BringWindowToTop($hwnd) | Out-Null
+        [MjolnirInput]::ShowWindow($hwnd, 5) | Out-Null              # SW_SHOW
+        [MjolnirInput]::SetForegroundWindow($hwnd) | Out-Null
+        if ($attached) { [MjolnirInput]::AttachThreadInput($ours, $theirs, $false) | Out-Null }
+
+        Start-Sleep -Milliseconds (200 * $attempt)
+    }
+    return ([MjolnirInput]::GetForegroundWindow() -eq $hwnd)
 }
-$focused = ([MjolnirInput]::GetForegroundWindow() -eq $hwnd)
+
+$focused = Set-GameForeground $hwnd
 
 $parsed = $Steps | ConvertFrom-Json
 if ($parsed -isnot [System.Array]) { $parsed = @($parsed) }

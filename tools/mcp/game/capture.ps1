@@ -26,7 +26,7 @@
 param(
     [string]$ProcessName = "HaloCampaignEvolved",
     [Parameter(Mandatory = $true)][string]$OutFile,
-    [int]$MaxWidth = 1280,
+    [int]$MaxWidth = 800,
     [switch]$ForceForeground
 )
 

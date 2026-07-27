@@ -371,8 +371,8 @@ define({
     type: "object",
     properties: {
       windowed: { type: "boolean", description: "Windowed mode (default true)." },
-      width: { type: "number", description: "Window width, default 1600." },
-      height: { type: "number", description: "Window height, default 900." },
+      width: { type: "number", description: "Window width, default 1280." },
+      height: { type: "number", description: "Window height, default 720." },
       wait_seconds: { type: "number", description: "How long to wait for the bridge, default 180." },
       via: { type: "string", enum: ["steam", "exe"], description: "Launch route, default steam." },
     },
@@ -385,7 +385,7 @@ define({
     const notes = [];
     const windowed = args.windowed !== false;
     if (windowed) {
-      const display = setDisplayMode("windowed", args.width ?? 1600, args.height ?? 900);
+      const display = setDisplayMode("windowed", args.width ?? 1280, args.height ?? 720);
       notes.push(`display: ${display.changed.join(" ")} (original saved to ${path.basename(display.backup)})`);
     }
 
@@ -578,7 +578,12 @@ define({
   inputSchema: {
     type: "object",
     properties: {
-      max_width: { type: "number", description: "Downscale to this width, default 1280." },
+      max_width: {
+        type: "number",
+        description:
+          "Downscale to this width, default 800. Cost scales with area, so doubling the width " +
+          "quadruples the tokens; raise it only when reading small text off the HUD.",
+      },
       foreground: { type: "boolean", description: "Force the focus-stealing capture path." },
     },
   },
@@ -588,7 +593,7 @@ define({
 
     fs.mkdirSync(SCRATCH, { recursive: true });
     const file = path.join(SCRATCH, `shot-${Date.now()}.png`);
-    const flags = ["-ProcessName", PROCESS_NAME, "-OutFile", file, "-MaxWidth", String(args.max_width ?? 1280)];
+    const flags = ["-ProcessName", PROCESS_NAME, "-OutFile", file, "-MaxWidth", String(args.max_width ?? 800)];
     if (args.foreground) flags.push("-ForceForeground");
 
     const result = await powershell(CAPTURE_SCRIPT, flags);

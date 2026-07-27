@@ -117,6 +117,10 @@ frames from this D3D12 title, so screenshots do not need the window focused or o
 `CopyFromScreen` fallback exists for when that stops being true, and the blankness check decides
 between them on evidence rather than assumption.
 
+Screenshots default to **800 px wide**, from a game launched at 1280x720. Cost scales with area,
+so the difference between 800 and 1600 is four times the tokens for the same frame; 800 is still
+comfortably enough to read HUD counters. Raise `max_width` for genuinely small text.
+
 ## Hazards
 
 **`open` from the frontend menu crashes the game.** Verified: `EXCEPTION_ACCESS_VIOLATION`
@@ -132,9 +136,21 @@ objects ran past three minutes and the game was unresponsive throughout. It reco
 heartbeat keeps ticking because the poll thread is separate, but scans should be narrowed to
 candidate classes first.
 
-**`game_input` steals focus.** The game reads RawInput, which only sees what the OS input queue
-actually delivered, so posted messages do not work and the window has to be in front.
-Screenshots do not have this problem.
+**`game_input` steals focus, and needs an unlocked machine.** The game reads RawInput, which only
+sees what the OS input queue actually delivered, so posted messages do not work and the window has
+to be in front. Windows also refuses `SetForegroundWindow` to a process that does not already own
+the foreground, so the tool taps Alt and attaches to the foreground window's input queue to get
+around it, retrying as the window settles.
+
+None of that helps if the workstation is **locked or on a screensaver**: the interactive desktop is
+switched away, `GetForegroundWindow` returns 0, and no synthetic input can reach the game.
+`game_input` reports this as a focus warning rather than pretending it worked. Screenshots keep
+working throughout, because `PrintWindow` does not need focus — so a locked machine looks like
+"I can see the game but cannot touch it".
+
+There is no reflection-driven substitute yet. `BPFL_CampaignMenuHelpers` exposes lobby setters
+(`SetClientLobbyMission`, `SetClientLobbyDifficulty`, `StartCountdown`) but no plain "start the
+mission" entry point, so starting a mission still needs real input.
 
 **Ammo is not in UE reflection.** Neither the pawn, the first-person weapon actor, nor any HUD
 object holds the round counts the HUD displays; a scan for the literal reserve value across
