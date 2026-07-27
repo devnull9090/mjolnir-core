@@ -28,8 +28,10 @@ pub enum Scalar {
     Enum { raw: i64, option: Option<String> },
     /// A bitfield, with the names of the bits that are set.
     Flags { raw: u64, set: Vec<String> },
-    /// An index into a block, or `None` when it is the -1 "unset" sentinel.
-    BlockIndex(Option<i64>),
+    /// An index into a block. Negative means unset; -1 is the usual sentinel,
+    /// but the shipped data also carries other negatives, so the raw value is
+    /// kept rather than collapsed.
+    BlockIndex(i64),
     /// A NUL-padded fixed-width string.
     Text(String),
     /// A four-character code, such as a `tag` group.
@@ -70,8 +72,9 @@ impl Scalar {
                     format!("{} (0x{raw:x})", set.join(" | "))
                 }
             }
-            Scalar::BlockIndex(Some(i)) => format!("#{i}"),
-            Scalar::BlockIndex(None) => "none".to_string(),
+            Scalar::BlockIndex(i) if *i == -1 => "none".to_string(),
+            Scalar::BlockIndex(i) if *i < 0 => format!("none ({i})"),
+            Scalar::BlockIndex(i) => format!("#{i}"),
             Scalar::Text(s) => format!("{s:?}"),
             Scalar::FourCc(s) => s.clone(),
             Scalar::Reference { group, path } if path.is_empty() => format!("none ({group})"),
@@ -157,6 +160,280 @@ pub fn read(layout: &Layout<'_>, field: &FieldEntry, bytes: &[u8]) -> Scalar {
     decode(type_name, bytes, || layout.field_options(field))
 }
 
+/// Why a value could not be written back into a field.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum WriteError {
+    #[error("a {type_name} field cannot hold {value}")]
+    WrongKind {
+        type_name: String,
+        value: &'static str,
+    },
+    #[error("{value} does not fit a {type_name}")]
+    OutOfRange { type_name: String, value: String },
+    #[error("a {type_name} takes {want} value(s), got {got}")]
+    WrongArity {
+        type_name: String,
+        want: usize,
+        got: usize,
+    },
+    #[error("a {type_name} needs {want} bytes, the field has {got}")]
+    Short {
+        type_name: String,
+        want: usize,
+        got: usize,
+    },
+    #[error("{type_name} values are not editable in place")]
+    NotEditable { type_name: String },
+}
+
+/// Encode `value` into `bytes`, the field's own slice of the packed element.
+///
+/// The exact inverse of [`read`], and deliberately strict: a value that does not
+/// fit its field is rejected rather than truncated, because the caller is about
+/// to write this into somebody's game data. Writes nothing on error.
+///
+/// Only the fixed-width part is written. A field whose payload lives in a
+/// trailing section — a `string id`, `data`, `tag reference` — is rejected here,
+/// because changing those resizes the tag rather than overwriting bytes in
+/// place.
+pub fn write(
+    layout: &Layout<'_>,
+    field: &FieldEntry,
+    value: &Scalar,
+    bytes: &mut [u8],
+) -> Result<(), WriteError> {
+    encode(layout.type_name_of(field), value, bytes)
+}
+
+/// [`write`], by type name. The inverse of `decode`.
+pub fn encode(type_name: &str, value: &Scalar, bytes: &mut [u8]) -> Result<(), WriteError> {
+    let type_name = type_name.to_string();
+    let width = width_of(&type_name);
+
+    if let Some(want) = width {
+        if bytes.len() < want {
+            return Err(WriteError::Short {
+                type_name,
+                want,
+                got: bytes.len(),
+            });
+        }
+    }
+
+    match (&type_name[..], value) {
+        // Integers, block indices and enums all land as one little-endian
+        // integer of the type's width; only their range checks differ.
+        ("char integer", Scalar::Int(v)) => put_int(bytes, *v, 1, true, &type_name),
+        ("short integer", Scalar::Int(v)) => put_int(bytes, *v, 2, true, &type_name),
+        ("long integer", Scalar::Int(v)) => put_int(bytes, *v, 4, true, &type_name),
+        ("int64 integer", Scalar::Int(v)) => put_int(bytes, *v, 8, true, &type_name),
+        ("byte integer", Scalar::Int(v)) => put_int(bytes, *v, 1, false, &type_name),
+        ("word integer", Scalar::Int(v)) => put_int(bytes, *v, 2, false, &type_name),
+        ("dword integer", Scalar::Int(v)) => put_int(bytes, *v, 4, false, &type_name),
+
+        ("char block index", Scalar::BlockIndex(v)) => put_int(bytes, *v, 1, true, &type_name),
+        ("short block index" | "custom short block index", Scalar::BlockIndex(v)) => {
+            put_int(bytes, *v, 2, true, &type_name)
+        }
+        ("long block index" | "custom long block index", Scalar::BlockIndex(v)) => {
+            put_int(bytes, *v, 4, true, &type_name)
+        }
+
+        ("char enum", Scalar::Enum { raw, .. }) => put_int(bytes, *raw, 1, false, &type_name),
+        ("short enum", Scalar::Enum { raw, .. }) => put_int(bytes, *raw, 2, false, &type_name),
+        ("long enum", Scalar::Enum { raw, .. }) => put_int(bytes, *raw, 4, false, &type_name),
+
+        ("byte flags", Scalar::Flags { raw, .. }) => {
+            put_int(bytes, *raw as i64, 1, false, &type_name)
+        }
+        ("word flags", Scalar::Flags { raw, .. }) => {
+            put_int(bytes, *raw as i64, 2, false, &type_name)
+        }
+        ("long flags" | "long block flags", Scalar::Flags { raw, .. }) => {
+            put_int(bytes, *raw as i64, 4, false, &type_name)
+        }
+
+        ("real" | "real fraction" | "angle", Scalar::Real(v)) => {
+            bytes[..4].copy_from_slice(&v.to_le_bytes());
+            Ok(())
+        }
+        (_, Scalar::Reals(v)) if width.is_some() => {
+            let want = width.unwrap() / 4;
+            if v.len() != want {
+                return Err(WriteError::WrongArity {
+                    type_name,
+                    want,
+                    got: v.len(),
+                });
+            }
+            for (k, r) in v.iter().enumerate() {
+                bytes[k * 4..k * 4 + 4].copy_from_slice(&r.to_le_bytes());
+            }
+            Ok(())
+        }
+        (_, Scalar::Ints(v)) if width.is_some() => {
+            let want = width.unwrap() / 2;
+            if v.len() != want {
+                return Err(WriteError::WrongArity {
+                    type_name,
+                    want,
+                    got: v.len(),
+                });
+            }
+            for (k, n) in v.iter().enumerate() {
+                put_int(&mut bytes[k * 2..], *n, 2, true, &type_name)?;
+            }
+            Ok(())
+        }
+
+        ("rgb color" | "argb color", Scalar::Color(s)) => put_color(bytes, s, &type_name),
+        ("string" | "long string", Scalar::Text(s)) => put_text(bytes, s, &type_name),
+        ("tag", Scalar::FourCc(s)) => put_four_cc(bytes, s, &type_name),
+
+        // Section-backed and structural types.
+        (
+            "string id" | "data" | "tag reference" | "block" | "struct" | "array"
+            | "pageable resource" | "api interop" | "pad" | "custom" | "terminator X",
+            _,
+        ) => Err(WriteError::NotEditable { type_name }),
+
+        (_, v) => Err(WriteError::WrongKind {
+            type_name,
+            value: kind_name(v),
+        }),
+    }
+}
+
+/// Fixed width of a type, where it has one.
+fn width_of(type_name: &str) -> Option<usize> {
+    Some(match type_name {
+        "char integer" | "byte integer" | "char block index" | "char enum" | "byte flags" => 1,
+        "short integer" | "word integer" | "short block index" | "custom short block index"
+        | "short enum" | "word flags" => 2,
+        "long integer" | "dword integer" | "long block index" | "custom long block index"
+        | "long enum" | "long flags" | "long block flags" | "real" | "real fraction" | "angle"
+        | "rgb color" | "argb color" | "tag" => 4,
+        "int64 integer" | "real bounds" | "angle bounds" | "fraction bounds" | "real point 2d"
+        | "real vector 2d" | "real euler angles 2d" => 8,
+        "short integer bounds" => 4,
+        "rectangle 2d" => 8,
+        "real point 3d" | "real vector 3d" | "real euler angles 3d" | "real rgb color"
+        | "real plane 2d" => 12,
+        "real argb color" | "real plane 3d" | "real quaternion" => 16,
+        "string" => 32,
+        "long string" => 256,
+        _ => return None,
+    })
+}
+
+fn kind_name(v: &Scalar) -> &'static str {
+    match v {
+        Scalar::Int(_) => "an integer",
+        Scalar::Real(_) => "a real",
+        Scalar::Reals(_) => "a real vector",
+        Scalar::Ints(_) => "an integer vector",
+        Scalar::Enum { .. } => "an enum",
+        Scalar::Flags { .. } => "flags",
+        Scalar::BlockIndex(_) => "a block index",
+        Scalar::Text(_) => "text",
+        Scalar::FourCc(_) => "a four-CC",
+        Scalar::Reference { .. } => "a tag reference",
+        Scalar::Color(_) => "a colour",
+        Scalar::Raw(_) => "raw bytes",
+        Scalar::Empty => "no value",
+    }
+}
+
+fn put_int(
+    bytes: &mut [u8],
+    v: i64,
+    n: usize,
+    signed: bool,
+    type_name: &str,
+) -> Result<(), WriteError> {
+    let fits = if signed {
+        // At 8 bytes the range is the whole of i64, and computing the bound
+        // would overflow while checking it.
+        if n >= 8 {
+            true
+        } else {
+            let bits = n * 8 - 1;
+            v >= -(1i64 << bits) && v < (1i64 << bits)
+        }
+    } else {
+        let max = if n >= 8 { u64::MAX } else { (1u64 << (n * 8)) - 1 };
+        v >= 0 && (v as u64) <= max
+    };
+    if !fits {
+        return Err(WriteError::OutOfRange {
+            type_name: type_name.to_string(),
+            value: v.to_string(),
+        });
+    }
+    let raw = v as u64;
+    for (k, b) in bytes.iter_mut().take(n).enumerate() {
+        *b = (raw >> (8 * k)) as u8;
+    }
+    Ok(())
+}
+
+/// `#rgb` forms, written back into the little-endian b, g, r, a order.
+fn put_color(bytes: &mut [u8], s: &str, type_name: &str) -> Result<(), WriteError> {
+    let hex = s.trim_start_matches('#');
+    let bad = || WriteError::OutOfRange {
+        type_name: type_name.to_string(),
+        value: s.to_string(),
+    };
+    let n = |at: usize| u8::from_str_radix(hex.get(at..at + 2).ok_or_else(bad)?, 16).map_err(|_| bad());
+    match hex.len() {
+        6 => {
+            bytes[0] = n(4)?;
+            bytes[1] = n(2)?;
+            bytes[2] = n(0)?;
+            // The alpha byte is left as it was; a `#rrggbb` says nothing about it.
+            Ok(())
+        }
+        8 => {
+            bytes[0] = n(6)?;
+            bytes[1] = n(4)?;
+            bytes[2] = n(2)?;
+            bytes[3] = n(0)?;
+            Ok(())
+        }
+        _ => Err(bad()),
+    }
+}
+
+fn put_text(bytes: &mut [u8], s: &str, type_name: &str) -> Result<(), WriteError> {
+    // One byte is reserved for the terminator, as the shipped data does.
+    if s.len() >= bytes.len() {
+        return Err(WriteError::OutOfRange {
+            type_name: type_name.to_string(),
+            value: format!("{} bytes of text", s.len()),
+        });
+    }
+    bytes[..s.len()].copy_from_slice(s.as_bytes());
+    // Terminate, then leave the rest of the field alone. The shipped data keeps
+    // whatever was in the tail of a fixed-width string — 80 `long string`
+    // fields carry non-zero bytes past their terminator — and readers stop at
+    // the NUL, so clearing the tail would rewrite bytes nobody asked to change.
+    bytes[s.len()] = 0;
+    Ok(())
+}
+
+fn put_four_cc(bytes: &mut [u8], s: &str, type_name: &str) -> Result<(), WriteError> {
+    if s.len() != 4 || !s.is_ascii() {
+        return Err(WriteError::OutOfRange {
+            type_name: type_name.to_string(),
+            value: s.to_string(),
+        });
+    }
+    for (k, c) in s.bytes().rev().enumerate() {
+        bytes[k] = c;
+    }
+    Ok(())
+}
+
 /// Decode by type name. `options` is called only for enum and bitfield types.
 fn decode<'a>(
     type_name: &str,
@@ -227,8 +504,7 @@ fn decode<'a>(
 
 fn block_index(bytes: &[u8], n: usize) -> Scalar {
     match i(bytes, n, true) {
-        Some(v) if v < 0 => Scalar::BlockIndex(None),
-        Some(v) => Scalar::BlockIndex(Some(v)),
+        Some(v) => Scalar::BlockIndex(v),
         None => Scalar::Empty,
     }
 }
@@ -338,11 +614,18 @@ mod tests {
     fn a_block_index_of_minus_one_reads_as_unset() {
         assert_eq!(
             decode("short block index", &[0xFF, 0xFF], none),
-            Scalar::BlockIndex(None)
+            Scalar::BlockIndex(-1)
         );
+        assert_eq!(decode("short block index", &[0xFF, 0xFF], none).display(), "none");
         assert_eq!(
             decode("short block index", &[0x03, 0x00], none),
-            Scalar::BlockIndex(Some(3))
+            Scalar::BlockIndex(3)
+        );
+        // The shipped data carries negatives other than -1; keeping the raw
+        // value is what makes write-back lossless for them.
+        assert_eq!(
+            decode("custom short block index", &[0xFE, 0xFF], none),
+            Scalar::BlockIndex(-2)
         );
     }
 
@@ -472,6 +755,134 @@ mod tests {
         assert_eq!(decode("long integer", &[1, 2], none), Scalar::Empty);
         assert_eq!(decode("real vector 3d", &[0; 4], none), Scalar::Empty);
         assert_eq!(decode("tag", &[], none), Scalar::Empty);
+    }
+
+    /// The property that makes editing safe: decoding a field and writing the
+    /// same value straight back must not disturb a single byte. Anything that
+    /// fails here would corrupt untouched fields on save.
+    #[test]
+    fn decode_then_encode_leaves_the_bytes_alone() {
+        let cases: &[(&str, &[u8])] = &[
+            ("char integer", &[0xF3]),
+            ("byte integer", &[0xC7]),
+            ("short integer", &[0x34, 0xF2]),
+            ("word integer", &[0x34, 0xF2]),
+            ("long integer", &[1, 2, 3, 0x84]),
+            ("dword integer", &[1, 2, 3, 0x84]),
+            ("int64 integer", &[1, 2, 3, 4, 5, 6, 7, 0x81]),
+            ("short block index", &[0xFF, 0xFF]),
+            ("custom short block index", &[0xFE, 0xFF]),
+            ("custom short block index", &[0x00, 0x80]),
+            ("short block index", &[0x07, 0x00]),
+            ("char block index", &[0xFF]),
+            ("long block index", &[9, 0, 0, 0]),
+            ("char enum", &[3]),
+            ("short enum", &[2, 0]),
+            ("long enum", &[4, 0, 0, 0]),
+            ("byte flags", &[0b1011]),
+            ("word flags", &[0x81, 0x02]),
+            ("long flags", &[0x11, 0x22, 0x33, 0x44]),
+            ("real", &[0xCD, 0xCC, 0x8C, 0x3F]),
+            ("angle", &[0xDB, 0x0F, 0x49, 0x40]),
+            ("real point 2d", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0x40]),
+            ("real vector 3d", &[0, 0, 0x80, 0x3F, 0, 0, 0, 0x40, 0, 0, 0x40, 0x40]),
+            (
+                "real quaternion",
+                &[0, 0, 0x80, 0x3F, 0, 0, 0, 0x40, 0, 0, 0x40, 0x40, 0, 0, 0x80, 0x40],
+            ),
+            ("short integer bounds", &[0x01, 0x00, 0xFF, 0xFF]),
+            ("rectangle 2d", &[1, 0, 2, 0, 3, 0, 4, 0]),
+            ("argb color", &[0x33, 0x22, 0x11, 0xFF]),
+            ("tag", b"paew"),
+        ];
+
+        for (type_name, original) in cases {
+            let decoded = decode(type_name, original, none);
+            let mut buf = original.to_vec();
+            encode(type_name, &decoded, &mut buf)
+                .unwrap_or_else(|e| panic!("{type_name}: {e}"));
+            assert_eq!(&buf, original, "{type_name} changed on write-back");
+        }
+    }
+
+    #[test]
+    fn a_rgb_color_leaves_the_alpha_byte_alone() {
+        // `#rrggbb` says nothing about alpha, so it must not clear it.
+        let mut buf = [0x33, 0x22, 0x11, 0xAB];
+        encode("rgb color", &Scalar::Color("#445566".into()), &mut buf).unwrap();
+        assert_eq!(buf, [0x66, 0x55, 0x44, 0xAB]);
+    }
+
+    #[test]
+    fn a_value_that_does_not_fit_is_refused_not_truncated() {
+        let mut buf = [0u8; 1];
+        let err = encode("char integer", &Scalar::Int(200), &mut buf).unwrap_err();
+        assert!(matches!(err, WriteError::OutOfRange { .. }), "{err}");
+        // Nothing was written.
+        assert_eq!(buf, [0]);
+
+        let mut buf = [0u8; 1];
+        assert!(encode("byte integer", &Scalar::Int(-1), &mut buf).is_err());
+        assert!(encode("byte integer", &Scalar::Int(255), &mut buf).is_ok());
+    }
+
+    #[test]
+    fn a_wrong_kind_or_arity_is_refused() {
+        let mut buf = [0u8; 12];
+        assert!(matches!(
+            encode("real vector 3d", &Scalar::Reals(vec![1.0, 2.0]), &mut buf),
+            Err(WriteError::WrongArity { want: 3, got: 2, .. })
+        ));
+        assert!(matches!(
+            encode("long integer", &Scalar::Text("no".into()), &mut buf),
+            Err(WriteError::WrongKind { .. })
+        ));
+    }
+
+    #[test]
+    fn section_backed_types_are_not_editable_in_place() {
+        let mut buf = [0u8; 16];
+        for t in ["string id", "data", "tag reference", "block", "struct"] {
+            assert!(
+                matches!(
+                    encode(t, &Scalar::Text("x".into()), &mut buf),
+                    Err(WriteError::NotEditable { .. })
+                ),
+                "{t} should not be editable in place"
+            );
+        }
+    }
+
+    #[test]
+    fn a_string_longer_than_its_field_is_refused() {
+        // A `string` field is 32 bytes, so 31 characters plus a terminator fit.
+        let mut buf = [0xAAu8; 32];
+        assert!(encode("string", &Scalar::Text("a".repeat(31)), &mut buf).is_ok());
+        assert_eq!(buf[31], 0, "the field must still be terminated");
+        assert!(encode("string", &Scalar::Text("a".repeat(32)), &mut buf).is_err());
+    }
+
+    #[test]
+    fn a_shorter_string_terminates_without_rewriting_the_tail() {
+        let mut buf = [0u8; 32];
+        encode("string", &Scalar::Text("assault_rifle".into()), &mut buf).unwrap();
+        encode("string", &Scalar::Text("smg".into()), &mut buf).unwrap();
+        // What a reader sees is the new value...
+        assert_eq!(decode("string", &buf, none), Scalar::Text("smg".into()));
+        assert_eq!(buf[3], 0, "must be terminated");
+        // ...and the tail is left as it was, which is what makes writing a
+        // decoded value straight back a true identity.
+        assert_eq!(&buf[4..13], b"ult_rifle");
+    }
+
+    #[test]
+    fn a_short_field_is_refused_before_anything_is_written() {
+        let mut buf = [0u8; 2];
+        assert!(matches!(
+            encode("long integer", &Scalar::Int(1), &mut buf),
+            Err(WriteError::Short { want: 4, got: 2, .. })
+        ));
+        assert_eq!(buf, [0, 0]);
     }
 
     #[test]

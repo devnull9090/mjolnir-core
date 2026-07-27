@@ -43,25 +43,42 @@ export function TagTree() {
         </ul>
 
         <ul className="min-w-0 flex-1 overflow-y-auto">
-          {tags.map((t) => (
-            <li key={t.index}>
-              <button
-                type="button"
-                onClick={() => void selectTag(t.index)}
-                className={`block w-full truncate px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
-                  selectedTag === t.index
-                    ? "bg-surface-card text-mjolnir-gold"
-                    : "text-text-secondary"
-                }`}
-                title={t.short}
-              >
-                {t.short}
-                {query && (
-                  <span className="ml-2 text-[10px] text-text-dim">{t.group}</span>
-                )}
-              </button>
-            </li>
-          ))}
+          {tags.map((t) => {
+            // The tag name is the tail of the path, so showing the head and
+            // truncating the end makes every tag in a directory look alike.
+            const cut = t.short.lastIndexOf("/");
+            const dir = cut < 0 ? "" : t.short.slice(0, cut);
+            const name = cut < 0 ? t.short : t.short.slice(cut + 1);
+            return (
+              <li key={t.index}>
+                <button
+                  type="button"
+                  onClick={() => void selectTag(t.index)}
+                  className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
+                    selectedTag === t.index
+                      ? "bg-surface-card text-mjolnir-gold"
+                      : "text-text-secondary"
+                  }`}
+                  title={t.short}
+                >
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                  {dir && (
+                    <span
+                      className="ml-2 min-w-0 shrink truncate text-[10px] text-text-dim"
+                      dir="rtl"
+                    >
+                      {dir}
+                    </span>
+                  )}
+                  {query && (
+                    <span className="ml-2 shrink-0 text-[10px] text-text-dim">
+                      {t.group}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
           {tags.length === 0 && (
             <li className="px-3 py-4 text-xs text-text-dim">
               {selectedGroup || query ? "No tags." : "Select a group."}

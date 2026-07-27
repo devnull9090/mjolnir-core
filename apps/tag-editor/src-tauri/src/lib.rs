@@ -47,6 +47,8 @@ struct NodeView {
     selected: Vec<String>,
     block: Option<String>,
     max_count: Option<u32>,
+    /// Elements this block really has; `children` may hold fewer.
+    count: Option<u32>,
     children: Vec<NodeView>,
 }
 
@@ -114,6 +116,7 @@ fn to_view(node: &blam_tag::view::Node) -> NodeView {
         selected,
         block: node.block_name.clone(),
         max_count: node.max_count,
+        count: node.count,
         children: node.children.iter().map(to_view).collect(),
     }
 }

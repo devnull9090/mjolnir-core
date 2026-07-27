@@ -42,6 +42,8 @@ export type NodeView = {
   selected: string[];
   block: string | null;
   max_count: number | null;
+  /** Elements this block really has; `children` may hold fewer. */
+  count: number | null;
   children: NodeView[];
 };
 

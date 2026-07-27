@@ -189,6 +189,9 @@ cargo run --release -p blam-cli -- types                             # field typ
 cargo run --release -p blam-cli -- validate --all                    # invariants, all 12,290 tags
 cargo run --release -p blam-cli -- sections                          # tgly tables + blay preamble
 cargo run --release -p blam-cli -- data --group weapon --trace       # decode one tag's values
+cargo run --release -p blam-cli -- values --group weapon             # fields with decoded values
+cargo run --release -p blam-cli -- roundtrip --all                   # re-serialise, compare bytes
+cargo run --release -p blam-cli -- recode --all                      # decode/encode identity
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 

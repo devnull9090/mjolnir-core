@@ -12,9 +12,21 @@ function typeColor(type: string): string {
   return "text-text-dim";
 }
 
+/**
+ * Keep the end of a long path rather than the start. A tag path's distinctive
+ * part is its tail, so the usual trailing ellipsis hides exactly what you need.
+ */
+function keepTail(text: string, max: number): string {
+  return text.length <= max ? text : `…${text.slice(text.length - max)}`;
+}
+
 /** A leaf field: name, value, and the type it was decoded as. */
 function Leaf({ node }: { node: NodeView }) {
   const empty = node.value === "";
+  const shown =
+    node.reference && node.reference.path
+      ? `${keepTail(node.reference.path, 52)} (${node.reference.group})`
+      : node.value;
   return (
     <div className="flex items-baseline gap-3 py-0.5">
       <span className="w-14 shrink-0 text-right font-mono text-[10px] text-text-dim">
@@ -29,7 +41,7 @@ function Leaf({ node }: { node: NodeView }) {
         }`}
         title={node.value}
       >
-        {empty ? "—" : node.value}
+        {empty ? "—" : shown}
       </span>
       <span className={`w-36 shrink-0 font-mono text-[10px] ${typeColor(node.type)}`}>
         {node.type}
@@ -48,14 +60,19 @@ function Branch({
   open: boolean;
   onToggle: () => void;
 }) {
-  const count = node.children.length;
+  // `count` is what the tag holds; `children` may be fewer, because a tag like
+  // scenario_structure_bsp has millions of elements and building them all costs
+  // gigabytes. Report the real number and flag when the list is partial.
+  const total = node.count ?? node.children.length;
+  const shown = node.children.length;
+  const partial = shown < total;
   const label =
     node.kind === "block"
-      ? `${count} element${count === 1 ? "" : "s"}${
+      ? `${total} element${total === 1 ? "" : "s"}${
           node.max_count !== null ? ` of ${node.max_count}` : ""
-        }`
+        }${partial ? ` · first ${shown} shown` : ""}`
       : node.kind === "array"
-        ? `array of ${count}`
+        ? `array of ${total}${partial ? ` · first ${shown} shown` : ""}`
         : node.type;
 
   return (
@@ -68,7 +85,7 @@ function Branch({
         {node.offset}
       </span>
       <span className="w-3 shrink-0 font-mono text-[10px] text-text-dim">
-        {count > 0 ? (open ? "▾" : "▸") : " "}
+        {node.children.length > 0 ? (open ? "▾" : "▸") : " "}
       </span>
       <span className="min-w-0 flex-1 truncate text-sm">
         {node.name || <em className="text-text-dim">unnamed</em>}

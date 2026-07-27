@@ -73,6 +73,8 @@ enum Command {
     Roundtrip(ValidateArgs),
     /// Print one tag's fields with their decoded values.
     Values(ValuesArgs),
+    /// Decode and re-encode every field, checking no byte changes.
+    Recode(ValidateArgs),
 }
 
 #[derive(Args)]
@@ -228,6 +230,7 @@ fn main() -> Result<()> {
         Command::DataVersions(a) => data_versions(a),
         Command::Roundtrip(a) => roundtrip(a),
         Command::Values(a) => values(a),
+        Command::Recode(a) => recode(a),
     }
 }
 
@@ -591,6 +594,79 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
             })
             .unwrap_or_else(|| "-".to_string());
         println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
+    }
+    Ok(())
+}
+
+/// Decode every fixed-width field and immediately write the same value back,
+/// requiring the bytes to be unchanged.
+///
+/// This is the property editing rests on. Saving a tag re-encodes every field,
+/// not only the edited one, so any type whose decode and encode disagree would
+/// quietly corrupt fields the user never touched.
+fn recode(a: ValidateArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let by_group = idx.by_group();
+
+    let targets: Vec<&index::TagEntry> = if a.all {
+        idx.tags.iter().collect()
+    } else {
+        by_group.values().map(|v| v[0]).collect()
+    };
+
+    let (mut tags, mut checked, mut stable, mut changed, mut skipped) = (0, 0u64, 0u64, 0u64, 0u64);
+    let mut offenders: BTreeMap<String, u64> = BTreeMap::new();
+
+    for entry in targets {
+        let Ok(buf) = idx.read(entry, None, &oodle) else {
+            continue;
+        };
+        let Ok(tag) = TagFile::parse(&buf, Some(entry.chunk.length as usize)) else {
+            continue;
+        };
+        let Ok(l) = tag.layout() else { continue };
+        let Ok(block) = tag.read_data(&l) else { continue };
+        tags += 1;
+
+        blam_tag::view::visit_fields(&l, &block, &mut |field, bytes| {
+            if bytes.is_empty() {
+                return;
+            }
+            checked += 1;
+            let decoded = blam_tag::value::read(&l, field, bytes);
+            let mut scratch = bytes.to_vec();
+            match blam_tag::value::write(&l, field, &decoded, &mut scratch) {
+                Ok(()) if scratch == bytes => stable += 1,
+                Ok(()) => {
+                    changed += 1;
+                    *offenders
+                        .entry(l.type_name_of(field).to_string())
+                        .or_default() += 1;
+                    if a.verbose {
+                        eprintln!(
+                            "{}: {} field {:?} changed on write-back",
+                            entry.path,
+                            l.type_name_of(field),
+                            l.string_at(field.name_offset).unwrap_or("")
+                        );
+                    }
+                }
+                // Section-backed and structural types are not written in place.
+                Err(_) => skipped += 1,
+            }
+        });
+    }
+
+    println!("checked {tags} tags, {checked} fixed-width fields");
+    println!("  unchanged on write-back      {stable}");
+    println!("  CHANGED                      {changed}");
+    println!("  not editable in place        {skipped}");
+    if !offenders.is_empty() {
+        println!("\n  types that changed:");
+        for (t, n) in &offenders {
+            println!("    {t}\t{n}");
+        }
     }
     Ok(())
 }

@@ -46,6 +46,10 @@ pub struct Node {
     /// enforced.
     pub block_name: Option<String>,
     pub max_count: Option<u32>,
+    /// Elements this block or array actually has. `children` may hold fewer,
+    /// because a tag like `scenario_structure_bsp` has millions of them and
+    /// materialising every one costs gigabytes.
+    pub count: Option<u32>,
     pub children: Vec<Node>,
 }
 
@@ -61,6 +65,7 @@ impl Node {
             options: Vec::new(),
             block_name: None,
             max_count: None,
+            count: None,
             children: Vec::new(),
         }
     }
@@ -81,14 +86,75 @@ fn structural(type_name: &str) -> bool {
     matches!(type_name, "pad" | "terminator X" | "custom")
 }
 
+/// How much of a tag's value tree to materialise, and what to do en route.
+struct Walk<'v> {
+    /// Called with every fixed-width field and the bytes it occupies.
+    visit: &'v mut dyn FnMut(&crate::layout::FieldEntry, &[u8]),
+    /// Whether to allocate `Node`s. A pure visit allocates nothing.
+    build: bool,
+    /// Elements to materialise per block or array when building.
+    max_elements: usize,
+    /// Nodes left in the build budget. A per-block cap alone still allows
+    /// `max_elements` to the power of the nesting depth, so the total is
+    /// bounded too.
+    budget: usize,
+}
+
+/// Default cap on block elements built per node.
+///
+/// A `scenario_structure_bsp` holds millions of elements; building them all
+/// costs tens of gigabytes and no interface can show them at once. Callers that
+/// genuinely need every element should use [`visit_fields`], which walks all of
+/// them without allocating.
+pub const DEFAULT_MAX_ELEMENTS: usize = 64;
+
+/// Default cap on total nodes built for one tag.
+pub const DEFAULT_MAX_NODES: usize = 200_000;
+
 /// Build the value tree for a tag: the fields of the root block's one element.
+///
+/// Blocks and arrays are capped at [`DEFAULT_MAX_ELEMENTS`] materialised
+/// elements; `Node::count` carries how many there really are.
 pub fn root(layout: &Layout<'_>, block: &Block<'_>) -> Vec<Node> {
+    root_capped(layout, block, DEFAULT_MAX_ELEMENTS)
+}
+
+/// [`root`], with an explicit cap on elements built per block.
+pub fn root_capped(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) -> Vec<Node> {
+    let mut walk = Walk {
+        visit: &mut |_, _| {},
+        build: true,
+        max_elements,
+        budget: DEFAULT_MAX_NODES,
+    };
+    run(layout, block, &mut walk)
+}
+
+/// Visit every fixed-width field of every element, allocating nothing.
+///
+/// This is the whole-tag traversal: no cap, no `Node`s. Use it for checks over
+/// the real data, where building the tree would exhaust memory.
+pub fn visit_fields(
+    layout: &Layout<'_>,
+    block: &Block<'_>,
+    visit: &mut dyn FnMut(&crate::layout::FieldEntry, &[u8]),
+) {
+    let mut walk = Walk {
+        visit,
+        build: false,
+        max_elements: usize::MAX,
+        budget: usize::MAX,
+    };
+    run(layout, block, &mut walk);
+}
+
+fn run(layout: &Layout<'_>, block: &Block<'_>, walk: &mut Walk<'_>) -> Vec<Node> {
     let Some(run) = layout.struct_run(block.struct_index) else {
         return Vec::new();
     };
     let bytes = block.element(0).unwrap_or(&[]);
     let values = block.children.first().map(Vec::as_slice).unwrap_or(&[]);
-    fields(layout, run, bytes, values, 0)
+    fields(layout, run, bytes, values, 0, walk)
 }
 
 /// Build the nodes for one struct run against one element's bytes and values.
@@ -98,6 +164,7 @@ fn fields(
     bytes: &[u8],
     values: &[Value<'_>],
     depth: u32,
+    walk: &mut Walk<'_>,
 ) -> Vec<Node> {
     if depth > 64 {
         return Vec::new();
@@ -135,7 +202,9 @@ fn fields(
             .unwrap_or(&[]);
 
         let node = match type_name.as_str() {
-            "block" => block_node(layout, &field, name, type_name.clone(), offset, size, value, depth),
+            "block" => block_node(
+                layout, &field, name, type_name.clone(), offset, size, value, depth, walk,
+            ),
             "struct" => {
                 let children = layout
                     .struct_run(field.aux as usize)
@@ -144,7 +213,7 @@ fn fields(
                             Some(Value::Struct { children }) => children.as_slice(),
                             _ => &[][..],
                         };
-                        fields(layout, target, slice, inner, depth + 1)
+                        fields(layout, target, slice, inner, depth + 1, walk)
                     })
                     .unwrap_or_default();
                 Node {
@@ -163,8 +232,14 @@ fn fields(
                 value,
                 slice,
                 depth,
+                walk,
             ),
             _ => {
+                (walk.visit)(&field, slice);
+                if !walk.build {
+                    offset += size;
+                    continue;
+                }
                 let mut node = Node::leaf(
                     name,
                     type_name.clone(),
@@ -189,7 +264,10 @@ fn fields(
             }
         };
 
-        out.push(node);
+        if walk.build {
+            walk.budget = walk.budget.saturating_sub(1);
+            out.push(node);
+        }
         offset += size;
     }
     out
@@ -218,6 +296,7 @@ fn block_node(
     size: u32,
     value: Option<&Value<'_>>,
     depth: u32,
+    walk: &mut Walk<'_>,
 ) -> Node {
     let entry = layout.blocks.get(field.aux as usize).copied();
     let mut node = Node {
@@ -234,12 +313,26 @@ fn block_node(
         return node;
     };
 
-    for i in 0..inner.count as usize {
+    node.count = Some(inner.count);
+    // A pure visit walks every element; building one stops at the cap.
+    let shown = if walk.build {
+        (inner.count as usize).min(walk.max_elements)
+    } else {
+        inner.count as usize
+    };
+    for i in 0..shown {
+        if walk.build && walk.budget == 0 {
+            break;
+        }
         let bytes = inner.element(i).unwrap_or(&[]);
         let values = inner.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+        let children = fields(layout, run, bytes, values, depth + 1, walk);
+        if !walk.build {
+            continue;
+        }
         node.children.push(Node {
             kind: Kind::Element,
-            children: fields(layout, run, bytes, values, depth + 1),
+            children,
             ..Node::leaf(
                 format!("[{i}]"),
                 String::new(),
@@ -263,6 +356,7 @@ fn array_node(
     value: Option<&Value<'_>>,
     slice: &[u8],
     depth: u32,
+    walk: &mut Walk<'_>,
 ) -> Node {
     let mut node = Node {
         kind: Kind::Array,
@@ -277,7 +371,11 @@ fn array_node(
     };
     let element_size = size.checked_div(entry.count).unwrap_or(0);
 
+    node.count = Some(entry.count);
     for i in 0..entry.count {
+        if walk.build && walk.budget == 0 {
+            break;
+        }
         // An array repeats its element struct inline, so element `i` starts
         // `i * element_size` into the array field's own bytes.
         let start = (i * element_size) as usize;
@@ -291,9 +389,13 @@ fn array_node(
             },
             _ => &[][..],
         };
+        let children = fields(layout, run, bytes, values, depth + 1, walk);
+        if !walk.build {
+            continue;
+        }
         node.children.push(Node {
             kind: Kind::Element,
-            children: fields(layout, run, bytes, values, depth + 1),
+            children,
             ..Node::leaf(
                 format!("[{i}]"),
                 String::new(),
