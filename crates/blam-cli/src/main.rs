@@ -75,6 +75,8 @@ enum Command {
     Values(ValuesArgs),
     /// Decode and re-encode every field, checking no byte changes.
     Recode(ValidateArgs),
+    /// Change one field of a tag and report exactly which bytes moved.
+    Set(SetArgs),
 }
 
 #[derive(Args)]
@@ -189,6 +191,27 @@ struct ValuesArgs {
 }
 
 #[derive(Args)]
+struct SetArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `weapon`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select, otherwise the first tag is used.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Field path, e.g. `unit.object.bounding radius` or `control points[3].position`.
+    #[arg(long)]
+    field: String,
+    /// New value, in the same form the inspector shows.
+    #[arg(long)]
+    value: String,
+    /// Write the patched tag here. Without this nothing is written to disk.
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
+#[derive(Args)]
 struct SectionsArgs {
     #[command(flatten)]
     src: Source,
@@ -231,6 +254,7 @@ fn main() -> Result<()> {
         Command::Roundtrip(a) => roundtrip(a),
         Command::Values(a) => values(a),
         Command::Recode(a) => recode(a),
+        Command::Set(a) => set(a),
     }
 }
 
@@ -594,6 +618,90 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
             })
             .unwrap_or_else(|| "-".to_string());
         println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
+    }
+    Ok(())
+}
+
+/// Change one field and report precisely what that did to the file.
+///
+/// Nothing is written unless `--out` is given, and the patched bytes are read
+/// back and re-walked before anything is reported as a success.
+fn set(a: SetArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let file = idx.read(entry, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&file, Some(entry.chunk.length as usize))?;
+    let l = tag.layout()?;
+    let block = tag.read_data(&l)?;
+
+    let target = blam_tag::patch::resolve(&l, &file, &block, &a.field)?;
+    let parsed = blam_tag::value::parse(&l, &target.field, &a.value)?;
+    let (patched, applied) = blam_tag::patch::set(&l, &file, &block, &a.field, &parsed)?;
+
+    println!("{}", entry.path);
+    println!("  field    {}  [{}]", applied.path, applied.type_name);
+    println!("  before   {}", applied.before.display());
+    println!("  after    {}", applied.after.display());
+
+    // The whole-file diff is the real claim: an in-place edit must not disturb
+    // anything outside the field it names.
+    let differing: Vec<usize> = (0..file.len().min(patched.len()))
+        .filter(|i| file[*i] != patched[*i])
+        .collect();
+    println!("  file     {} bytes, unchanged length {}", file.len(), file.len() == patched.len());
+    match (differing.first(), differing.last()) {
+        (Some(first), Some(last)) => {
+            println!(
+                "  changed  {} byte(s) at 0x{first:X}..=0x{last:X}, inside the field at 0x{:X}..0x{:X}",
+                differing.len(),
+                target.file_offset,
+                target.file_offset + target.size
+            );
+            let inside = differing
+                .iter()
+                .all(|i| *i >= target.file_offset && *i < target.file_offset + target.size);
+            println!("  contained within the field: {inside}");
+            if !inside {
+                anyhow::bail!("the edit changed bytes outside the field it names");
+            }
+        }
+        _ => println!("  changed  nothing; the new value encodes to the same bytes"),
+    }
+
+    // Re-read the patched tag from scratch, so the report is about the file and
+    // not about the in-memory value that produced it.
+    let after = TagFile::parse(&patched, Some(patched.len()))?;
+    let after_layout = after.layout()?;
+    let after_block = after.read_data(&after_layout)?;
+    let payload = after.data().context("patched tag has no bdat section")?;
+    let walked = after_block.consumed == payload.size as usize;
+    let reread = blam_tag::patch::resolve(&after_layout, &patched, &after_block, &a.field)?;
+    println!("  re-read  {}  (walk exact: {walked})", reread.current.display());
+    if !walked {
+        anyhow::bail!("the patched tag no longer walks exactly");
+    }
+
+    match &a.out {
+        Some(path) => {
+            std::fs::write(path, &patched)?;
+            println!("\n  wrote {}", path.display());
+            println!(
+                "  This is game content. Keep it local; the repository does not take tag data."
+            );
+        }
+        None => println!("\n  dry run; pass --out <file> to write the patched tag"),
     }
     Ok(())
 }

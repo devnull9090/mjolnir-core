@@ -192,6 +192,7 @@ cargo run --release -p blam-cli -- data --group weapon --trace       # decode on
 cargo run --release -p blam-cli -- values --group weapon             # fields with decoded values
 cargo run --release -p blam-cli -- roundtrip --all                   # re-serialise, compare bytes
 cargo run --release -p blam-cli -- recode --all                      # decode/encode identity
+cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 

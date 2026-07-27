@@ -39,6 +39,7 @@ cargo run --release -p blam-cli -- roundtrip --all        # re-serialise and com
 cargo run --release -p blam-cli -- data-versions          # bdat section version words
 cargo run --release -p blam-cli -- values --group weapon  # fields with decoded values
 cargo run --release -p blam-cli -- recode --all           # decode/encode identity
+cargo run --release -p blam-cli -- set --group camera_track     --field "control points[3].position" --value "(1.5, 2.5, 3.5)"
 ```
 
 The Rust reader in `crates/blam-tag` parses **101/101 groups** across all **12,290** shipped
@@ -530,6 +531,54 @@ The encoder is deliberately strict, because its output goes into somebody's game
 The traversal that does this allocates nothing. Building the value tree for every tag instead cost
 **29 GB** on `scenario_structure_bsp` alone, which is also why the tree an editor renders is
 bounded — see below.
+
+### Changing a field
+
+**Verified.** A fixed-width field can be changed without rebuilding the tag. Its new value does
+not change any size, so it is written over the bytes the old one occupied and every other byte of
+the file is left exactly as it was.
+
+That is a stronger guarantee than rebuilding would give, and a cheaper one to check: *only these
+bytes changed* is settled by comparing two buffers, and does not depend on the writer being
+correct. `mjolnir set` reports the comparison every time, and refuses to claim success if any byte
+outside the named field moved.
+
+Fields are named by their path in the value tree, the same path a walk failure reports:
+
+```
+mjolnir set --group camera_track --field "control points[3].position" --value "(1.5, 2.5, 3.5)"
+
+  field    control points[3].position  [real vector 3d]
+  before   (-3.522356, 0.00095, 1.838378)
+  after    (1.5, 2.5, 3.5)
+  changed  12 byte(s) at 0x345..=0x350, inside the field at 0x345..0x351
+  contained within the field: true
+  re-read  (1.5, 2.5, 3.5)  (walk exact: true)
+```
+
+The last line matters as much as the rest: the patched bytes are parsed again from scratch, the
+value is read back out of the new file, and the whole payload is re-walked. A tag that no longer
+walks exactly is reported as a failure rather than written.
+
+Values are given in the same form the inspector shows, so one can be copied out, edited and put
+back. Enums and bitfields take option names — `--value "large"`, `--value "weapon can headshot |
+does not cast shadow"` — as well as raw numbers, and a name that does not belong to *that* field's
+option list is refused rather than silently reinterpreted.
+
+Nothing is written to disk without `--out`. What it writes is game content, and stays local under
+the same policy as the rest of the extracted data.
+
+Three things are deliberately refused:
+
+- **Section-backed fields.** A `string id`, `data` or `tag reference` keeps its payload in a
+  trailing section, so changing one resizes the tag. That is a different operation, and letting it
+  through this path would quietly break the "same length, one range changed" guarantee.
+- **Values that do not fit.** Out of range, wrong arity and wrong kind all fail before anything is
+  written.
+- **Unknown paths and out-of-range indices**, named precisely: `index 99 is out of range for
+  control points, which has 9 element(s)`.
+
+Setting a field to the value it already holds changes nothing at all, and reports so.
 
 ### Bounding the value tree
 

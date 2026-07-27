@@ -434,6 +434,145 @@ fn put_four_cc(bytes: &mut [u8], s: &str, type_name: &str) -> Result<(), WriteEr
     Ok(())
 }
 
+/// Parse typed text into a value for a field, ready for [`write`].
+///
+/// Accepts what [`Scalar::display`] produces, so a value can be copied out of
+/// the inspector, edited, and put back. Enums and bitfields accept option names
+/// as well as raw numbers.
+pub fn parse(layout: &Layout<'_>, field: &FieldEntry, text: &str) -> Result<Scalar, ParseError> {
+    parse_as(layout.type_name_of(field), text, &layout.field_options(field))
+}
+
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum ParseError {
+    #[error("{text:?} is not a valid {type_name}")]
+    Invalid { type_name: String, text: String },
+    #[error("{text:?} is not one of the options for this {type_name}")]
+    NoSuchOption { type_name: String, text: String },
+    #[error("{type_name} values cannot be set as text")]
+    Unsupported { type_name: String },
+}
+
+/// [`parse`], by type name.
+pub fn parse_as(type_name: &str, text: &str, options: &[&str]) -> Result<Scalar, ParseError> {
+    let t = text.trim();
+    let invalid = || ParseError::Invalid {
+        type_name: type_name.to_string(),
+        text: text.to_string(),
+    };
+
+    // `(1, 2, 3)` and `1 2 3` are both accepted for vectors.
+    let parts = |s: &str| -> Vec<String> {
+        s.trim_matches(|c| c == '(' || c == ')')
+            .split([',', ' '])
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| p.trim().to_string())
+            .collect()
+    };
+
+    Ok(match type_name {
+        "char integer" | "short integer" | "long integer" | "int64 integer" | "byte integer"
+        | "word integer" | "dword integer" => {
+            Scalar::Int(t.parse::<i64>().map_err(|_| invalid())?)
+        }
+
+        "char block index" | "short block index" | "long block index"
+        | "custom short block index" | "custom long block index" => {
+            if t.eq_ignore_ascii_case("none") {
+                Scalar::BlockIndex(-1)
+            } else {
+                Scalar::BlockIndex(
+                    t.trim_start_matches('#').parse::<i64>().map_err(|_| invalid())?,
+                )
+            }
+        }
+
+        "char enum" | "short enum" | "long enum" => {
+            let raw = match options.iter().position(|o| o.eq_ignore_ascii_case(t)) {
+                Some(k) => k as i64,
+                None => t.parse::<i64>().map_err(|_| ParseError::NoSuchOption {
+                    type_name: type_name.to_string(),
+                    text: text.to_string(),
+                })?,
+            };
+            let option = usize::try_from(raw)
+                .ok()
+                .and_then(|k| options.get(k))
+                .map(|s| s.to_string());
+            Scalar::Enum { raw, option }
+        }
+
+        "byte flags" | "word flags" | "long flags" | "long block flags" => {
+            let raw = if let Some(hex) = t.strip_prefix("0x") {
+                u64::from_str_radix(hex, 16).map_err(|_| invalid())?
+            } else if t.is_empty() || t.eq_ignore_ascii_case("none") {
+                0
+            } else {
+                let mut bits = 0u64;
+                for name in t.split('|').map(str::trim).filter(|n| !n.is_empty()) {
+                    let bit = options
+                        .iter()
+                        .position(|o| o.eq_ignore_ascii_case(name))
+                        .ok_or_else(|| ParseError::NoSuchOption {
+                            type_name: type_name.to_string(),
+                            text: name.to_string(),
+                        })?;
+                    bits |= 1 << bit;
+                }
+                bits
+            };
+            let set = (0..64)
+                .filter(|b| raw & (1 << b) != 0)
+                .map(|b| match options.get(b) {
+                    Some(n) => n.to_string(),
+                    None => format!("bit {b}"),
+                })
+                .collect();
+            Scalar::Flags { raw, set }
+        }
+
+        "real" | "real fraction" | "angle" => {
+            Scalar::Real(t.parse::<f32>().map_err(|_| invalid())?)
+        }
+        "real bounds" | "angle bounds" | "fraction bounds" | "real point 2d"
+        | "real vector 2d" | "real euler angles 2d" | "real point 3d" | "real vector 3d"
+        | "real euler angles 3d" | "real rgb color" | "real plane 2d" | "real argb color"
+        | "real plane 3d" | "real quaternion" => Scalar::Reals(
+            parts(t)
+                .iter()
+                .map(|p| p.parse::<f32>().map_err(|_| invalid()))
+                .collect::<Result<_, _>>()?,
+        ),
+
+        "short integer bounds" | "rectangle 2d" => Scalar::Ints(
+            parts(t)
+                .iter()
+                .map(|p| p.parse::<i64>().map_err(|_| invalid()))
+                .collect::<Result<_, _>>()?,
+        ),
+
+        "rgb color" | "argb color" => {
+            let hex = t.trim_start_matches('#');
+            if !matches!(hex.len(), 6 | 8) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(invalid());
+            }
+            Scalar::Color(format!("#{hex}"))
+        }
+
+        // Quotes are optional, so a value pasted from the inspector works too.
+        "string" | "long string" => {
+            Scalar::Text(t.trim_matches('"').to_string())
+        }
+        "tag" => Scalar::FourCc(t.to_string()),
+
+        other => {
+            return Err(ParseError::Unsupported {
+                type_name: other.to_string(),
+            })
+        }
+    })
+}
+
 /// Decode by type name. `options` is called only for enum and bitfield types.
 fn decode<'a>(
     type_name: &str,

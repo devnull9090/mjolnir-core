@@ -684,7 +684,7 @@ impl<'a, 'l> Walker<'a, 'l> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn section_bytes(magic: &[u8; 4], version: u32, content: &[u8]) -> Vec<u8> {
@@ -720,7 +720,7 @@ mod tests {
     ///                       array tags  -> 2 x run B
     ///                       pageable resource res
     /// ```
-    fn synth_layout() -> Vec<u8> {
+    pub(crate) fn synth_layout() -> Vec<u8> {
         let names = [
             "terminator X",
             "struct",
@@ -779,7 +779,7 @@ mod tests {
 
     /// One root element: 20 bytes packed, then its `tgst` holding an empty
     /// `tgst` for `meta`, two inline `tgsi` for `tags`, and a `tg?c` for `res`.
-    fn synth_payload() -> Vec<u8> {
+    pub(crate) fn synth_payload() -> Vec<u8> {
         let mut inner = section_bytes(b"tsgt", 0, &[]);
         inner.extend_from_slice(&section_bytes(b"isgt", 0, b"aa"));
         inner.extend_from_slice(&section_bytes(b"isgt", 0, b"bb"));
