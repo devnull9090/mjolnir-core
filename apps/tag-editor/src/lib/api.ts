@@ -20,20 +20,29 @@ export type TagSummary = {
   size: number;
 };
 
-export type FieldView = {
-  name: string;
-  type: string;
-  offset: number | null;
-  size: number | null;
-  options: string[];
-  block: string | null;
-  max_count: number | null;
+export type NodeKind = "field" | "struct" | "block" | "element" | "array";
+
+export type Reference = {
+  group: string;
+  path: string;
 };
 
-export type StructView = {
+export type NodeView = {
+  kind: NodeKind;
   name: string;
-  size: number | null;
-  fields: FieldView[];
+  type: string;
+  offset: number;
+  size: number;
+  /** Rendered value; empty when there is nothing to show. */
+  value: string;
+  reference: Reference | null;
+  /** Every option an enum or bitfield can take, in declaration order. */
+  options: string[];
+  /** Which options are actually set on this field. */
+  selected: string[];
+  block: string | null;
+  max_count: number | null;
+  children: NodeView[];
 };
 
 export type TagView = {
@@ -44,7 +53,10 @@ export type TagView = {
   chunk_size: number;
   data_size: number;
   data_exact: boolean;
-  structs: StructView[];
+  /** Why the values could not be read, when they could not be. */
+  error: string | null;
+  node_count: number;
+  fields: NodeView[];
 };
 
 export const api = {

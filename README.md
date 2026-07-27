@@ -219,8 +219,10 @@ pnpm tauri dev
 ```
 
 The Paks folder and Oodle DLL are auto-detected on first run, with a manual picker as a fallback.
-This release is **read-only**: it renders the tag tree, the full field list per struct with offsets,
-sizes, enum options, and block limits. Editing and saving are not implemented.
+This release is **read-only**: it renders the tag tree and, for each tag, its fields with their
+**decoded values** — enum and bitfield options resolved to names, tag references shown as group
+and path, colours as hex, vectors and bounds as numbers — with blocks and arrays expanding to
+their elements. Editing and saving are not implemented.
 
 ### Coming Soon
 - **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)

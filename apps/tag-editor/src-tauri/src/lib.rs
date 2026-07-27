@@ -29,22 +29,31 @@ struct OpenResult {
 }
 
 #[derive(Serialize)]
-struct FieldView {
+struct NodeView {
+    /// `field`, `struct`, `block`, `element` or `array`.
+    kind: &'static str,
     name: String,
     #[serde(rename = "type")]
     type_name: String,
-    offset: Option<u32>,
-    size: Option<u32>,
+    offset: u32,
+    size: u32,
+    /// The value rendered for display, empty when there is nothing to show.
+    value: String,
+    /// Set for a tag reference, so the UI can offer to follow it.
+    reference: Option<Reference>,
+    /// Every option an enum or bitfield can take, in declaration order.
     options: Vec<String>,
+    /// For an enum, which option is selected; for a bitfield, which bits are.
+    selected: Vec<String>,
     block: Option<String>,
     max_count: Option<u32>,
+    children: Vec<NodeView>,
 }
 
 #[derive(Serialize)]
-struct StructView {
-    name: String,
-    size: Option<u32>,
-    fields: Vec<FieldView>,
+struct Reference {
+    group: String,
+    path: String,
 }
 
 #[derive(Serialize)]
@@ -57,7 +66,56 @@ struct TagView {
     data_size: u32,
     /// Whether the value walk succeeded and consumed the payload exactly.
     data_exact: bool,
-    structs: Vec<StructView>,
+    /// Why the values could not be read, when they could not be.
+    error: Option<String>,
+    /// Total nodes in the tree, so the UI can warn before expanding everything.
+    node_count: usize,
+    fields: Vec<NodeView>,
+}
+
+fn kind_name(kind: blam_tag::view::Kind) -> &'static str {
+    use blam_tag::view::Kind;
+    match kind {
+        Kind::Field => "field",
+        Kind::Struct => "struct",
+        Kind::Block => "block",
+        Kind::Element => "element",
+        Kind::Array => "array",
+    }
+}
+
+fn to_view(node: &blam_tag::view::Node) -> NodeView {
+    use blam_tag::Scalar;
+
+    let (reference, selected) = match &node.value {
+        Scalar::Reference { group, path } => (
+            Some(Reference {
+                group: group.clone(),
+                path: path.clone(),
+            }),
+            Vec::new(),
+        ),
+        Scalar::Enum {
+            option: Some(name), ..
+        } => (None, vec![name.clone()]),
+        Scalar::Flags { set, .. } => (None, set.clone()),
+        _ => (None, Vec::new()),
+    };
+
+    NodeView {
+        kind: kind_name(node.kind),
+        name: node.name.clone(),
+        type_name: node.type_name.clone(),
+        offset: node.offset,
+        size: node.size,
+        value: node.value.display(),
+        reference,
+        options: node.options.clone(),
+        selected,
+        block: node.block_name.clone(),
+        max_count: node.max_count,
+        children: node.children.iter().map(to_view).collect(),
+    }
 }
 
 #[tauri::command]
@@ -111,66 +169,26 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
         let chunk_size = entry.chunk.length;
 
         c.with_tag(index, |tag, layout| {
-            let ranges = layout.struct_ranges();
-            let mut structs = Vec::new();
-
-            for (struct_index, entry) in layout.structs.iter().enumerate() {
-                let Some(run) = layout.struct_run(struct_index) else {
-                    continue;
-                };
-                let Some(range) = ranges.get(run) else {
-                    continue;
-                };
-
-                let mut offset = Some(0u32);
-                let mut fields = Vec::new();
-                for f in &layout.fields[range.clone()] {
-                    let type_name = layout.type_name_of(f).to_string();
-                    // Padding and terminators are structural, not user data.
-                    let structural =
-                        matches!(type_name.as_str(), "pad" | "terminator X" | "custom");
-                    let size = layout.field_size(f);
-
-                    if !structural {
-                        let block = layout
-                            .blocks
-                            .get(f.aux as usize)
-                            .filter(|_| type_name == "block");
-                        fields.push(FieldView {
-                            name: layout.string_at(f.name_offset).unwrap_or("").to_string(),
-                            type_name: type_name.clone(),
-                            offset,
-                            size,
-                            options: if layout.has_options(f) {
-                                layout.field_options(f).into_iter().map(String::from).collect()
-                            } else {
-                                Vec::new()
-                            },
-                            block: block
-                                .and_then(|b| layout.string_at(b.name_offset))
-                                .map(String::from),
-                            max_count: block.map(|b| b.max_count),
-                        });
-                    }
-
-                    offset = match (offset, size) {
-                        (Some(o), Some(s)) => Some(o + s),
-                        _ => None,
-                    };
-                }
-
-                structs.push(StructView {
-                    name: layout.string_at(entry.name_offset).unwrap_or("").to_string(),
-                    size: layout.struct_size(run),
-                    fields,
-                });
-            }
-
             let data_size = tag.data().map(|d| d.size).unwrap_or(0);
-            let data_exact = tag
-                .read_data(layout)
-                .map(|b| b.consumed == data_size as usize)
-                .unwrap_or(false);
+
+            // The value tree is the point of the view. When it cannot be read
+            // the reason is shown rather than silently falling back to schema.
+            let (fields, data_exact, error) = match tag.read_data(layout) {
+                Ok(block) => {
+                    let exact = block.consumed == data_size as usize;
+                    (
+                        blam_tag::view::root(layout, &block)
+                            .iter()
+                            .map(to_view)
+                            .collect::<Vec<_>>(),
+                        exact,
+                        None,
+                    )
+                }
+                Err(e) => (Vec::new(), false, Some(e.to_string())),
+            };
+
+            let node_count = count(&fields);
 
             TagView {
                 path,
@@ -180,13 +198,18 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
                 chunk_size,
                 data_size,
                 data_exact,
-                structs,
+                error,
+                node_count,
+                fields,
             }
         })
     })
 }
 
-/// Raw bytes of a tag's data payload, for the hex fallback view.
+fn count(nodes: &[NodeView]) -> usize {
+    nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
+}
+
 #[tauri::command]
 fn read_tag_bytes(
     index: usize,

@@ -132,6 +132,45 @@ const ARRAY: &str = "array";
 const BLOCK: &str = "block";
 const PAGEABLE: &str = "pageable resource";
 
+/// Does this field write a section into the data stream?
+///
+/// This is the single definition of that question. The walk uses it to know
+/// what to read, and anything pairing fields back up with the values it
+/// produced must use it too, or the two will drift out of step.
+pub fn field_writes(layout: &Layout<'_>, field: &crate::layout::FieldEntry) -> bool {
+    field_writes_inner(layout, field, 0)
+}
+
+fn field_writes_inner(layout: &Layout<'_>, field: &crate::layout::FieldEntry, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    match layout.type_name_of(field) {
+        PAGEABLE => true,
+        // An array writes nothing of its own; it appears in the stream only
+        // when its element struct writes something.
+        ARRAY => layout
+            .arrays
+            .get(field.aux as usize)
+            .and_then(|a| layout.struct_run(a.struct_index as usize))
+            .is_some_and(|r| run_writes(layout, r, depth + 1)),
+        other => section_for(other).is_some(),
+    }
+}
+
+/// Does any field of this struct run write a section?
+pub fn run_writes(layout: &Layout<'_>, run: usize, depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    let Some(range) = layout.struct_ranges().get(run).cloned() else {
+        return false;
+    };
+    layout.fields[range]
+        .iter()
+        .any(|f| field_writes_inner(layout, f, depth + 1))
+}
+
 /// Breadcrumb for one field: its name, or its type in angle brackets when the
 /// definition leaves it unnamed.
 fn crumb(name: &str, type_name: &str) -> String {
@@ -313,47 +352,17 @@ impl<'a, 'l> Walker<'a, 'l> {
         }
     }
 
-    /// Does this struct run write anything into the data stream?
-    ///
-    /// Only the run's own fields matter. A `struct` field writes its `tgst`
-    /// whether or not the struct it targets has content of its own, so there is
-    /// nothing to recurse into there; an `array` writes only when its element
-    /// struct does, which is the one recursive case. Memoised per run, because
-    /// a block asks the question once per element otherwise.
+    /// Does this struct run write anything into the data stream? Memoised,
+    /// because a block asks it once per element otherwise.
     fn has_children(&mut self, run: usize) -> bool {
         if let Some(Some(known)) = self.children_memo.get(run) {
             return *known;
         }
-        // Seed pessimistically before recursing so a self-referential
-        // definition resolves instead of looping.
-        if let Some(slot) = self.children_memo.get_mut(run) {
-            *slot = Some(false);
-        }
-        let answer = match self.ranges.get(run).cloned() {
-            Some(range) => range.clone().any(|i| self.field_writes(i)),
-            None => false,
-        };
+        let answer = run_writes(self.layout, run, 0);
         if let Some(slot) = self.children_memo.get_mut(run) {
             *slot = Some(answer);
         }
         answer
-    }
-
-    /// Does the field at `index` write a section into the data stream?
-    fn field_writes(&mut self, index: usize) -> bool {
-        let Some(field) = self.layout.fields.get(index).copied() else {
-            return false;
-        };
-        match self.layout.type_name_of(&field) {
-            PAGEABLE => true,
-            ARRAY => self
-                .layout
-                .arrays
-                .get(field.aux as usize)
-                .and_then(|a| self.run(a.struct_index as usize))
-                .is_some_and(|target| self.has_children(target)),
-            other => section_for(other).is_some(),
-        }
     }
 
     fn note(&mut self, s: &section::Section<'a>) {

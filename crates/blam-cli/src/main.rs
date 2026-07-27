@@ -71,6 +71,8 @@ enum Command {
     DataVersions(SectionsArgs),
     /// Re-serialise every tag and check the bytes come back identical.
     Roundtrip(ValidateArgs),
+    /// Print one tag's fields with their decoded values.
+    Values(ValuesArgs),
 }
 
 #[derive(Args)]
@@ -164,6 +166,27 @@ struct DefsArgs {
 }
 
 #[derive(Args)]
+struct ValuesArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `weapon`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select, otherwise the first tag is used.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Maximum nesting to print.
+    #[arg(long, default_value_t = 3)]
+    depth: u32,
+    /// Maximum block elements to print per block.
+    #[arg(long, default_value_t = 4)]
+    elements: usize,
+    /// Print fields whose value is empty or zero.
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args)]
 struct SectionsArgs {
     #[command(flatten)]
     src: Source,
@@ -204,6 +227,7 @@ fn main() -> Result<()> {
         Command::Sections(a) => sections(a),
         Command::DataVersions(a) => data_versions(a),
         Command::Roundtrip(a) => roundtrip(a),
+        Command::Values(a) => values(a),
     }
 }
 
@@ -569,6 +593,95 @@ blay preamble words (body 0x0C..0x4C), matches across groups:");
         println!("  word {i:>2} (body 0x{:02X})  {repr}", 0x0C + i * 4);
     }
     Ok(())
+}
+
+/// Print a tag's values as an indented tree. This is the same tree the editor
+/// renders, so it doubles as a check on it against real data.
+fn values(a: ValuesArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let buf = idx.read(entry, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+    let l = tag.layout()?;
+    let block = tag
+        .read_data(&l)
+        .with_context(|| format!("{} values are not readable", entry.path))?;
+    let nodes = blam_tag::view::root(&l, &block);
+
+    println!("{}", entry.path);
+    println!(
+        "  {} ({}) v{} - {} nodes\n",
+        a.group,
+        tag.header.group,
+        tag.header.group_version,
+        nodes.iter().map(|n| n.len()).sum::<usize>()
+    );
+    for n in &nodes {
+        print_node(n, 1, &a);
+    }
+    Ok(())
+}
+
+fn print_node(node: &blam_tag::view::Node, depth: u32, a: &ValuesArgs) {
+    use blam_tag::view::Kind;
+
+    if depth > a.depth + 1 {
+        return;
+    }
+    let indent = "  ".repeat(depth as usize);
+    let name = if node.name.is_empty() {
+        "<unnamed>"
+    } else {
+        &node.name
+    };
+
+    match node.kind {
+        Kind::Block => {
+            let limit = node
+                .max_count
+                .map(|m| format!(" of {m}"))
+                .unwrap_or_default();
+            println!(
+                "{indent}{name}  [{} element(s){limit}]  {}",
+                node.children.len(),
+                node.block_name.as_deref().unwrap_or("")
+            );
+        }
+        Kind::Array => println!("{indent}{name}  [array of {}]", node.children.len()),
+        Kind::Element => println!("{indent}{name}"),
+        Kind::Struct => println!("{indent}{name}  ({})", node.type_name),
+        Kind::Field => {
+            let shown = node.value.display();
+            if shown.is_empty() && !a.all {
+                return;
+            }
+            println!("{indent}{name} = {shown}    [{}]", node.type_name);
+        }
+    }
+
+    let limit = if matches!(node.kind, Kind::Block | Kind::Array) {
+        a.elements
+    } else {
+        usize::MAX
+    };
+    for child in node.children.iter().take(limit) {
+        print_node(child, depth + 1, a);
+    }
+    if node.children.len() > limit {
+        println!("{indent}  ... {} more", node.children.len() - limit);
+    }
 }
 
 fn export_defs(a: DefsArgs) -> Result<()> {

@@ -1,5 +1,9 @@
+import { useState } from "react";
 import { useEditor } from "../stores/editor-store";
-import type { FieldView } from "../lib/api";
+import type { NodeView } from "../lib/api";
+
+/** Blocks larger than this stay collapsed until asked for. */
+const AUTO_EXPAND_ELEMENTS = 8;
 
 function typeColor(type: string): string {
   if (type === "block") return "text-accent-blue";
@@ -8,46 +12,105 @@ function typeColor(type: string): string {
   return "text-text-dim";
 }
 
-function FieldRow({ field }: { field: FieldView }) {
+/** A leaf field: name, value, and the type it was decoded as. */
+function Leaf({ node }: { node: NodeView }) {
+  const empty = node.value === "";
   return (
-    <tr className="align-top border-b border-border-subtle/50 last:border-0">
-      <td className="py-1.5 pr-3 text-right font-mono text-[11px] text-text-dim">
-        {field.offset ?? "—"}
-      </td>
-      <td className="py-1.5 pr-3 text-right font-mono text-[11px] text-text-dim">
-        {field.size ?? "—"}
-      </td>
-      <td className="py-1.5 pr-3">
-        <span className="text-sm">
-          {field.name || <em className="text-text-dim">unnamed</em>}
-        </span>
-        {field.block && (
-          <span className="ml-2 font-mono text-[10px] text-text-dim">
-            {field.block}
-            {field.max_count !== null && ` · max ${field.max_count}`}
-          </span>
-        )}
-        {field.options.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {field.options.map((o, i) => (
-              <span
-                key={`${o}-${i}`}
-                className="border border-border-subtle bg-surface-primary px-1 py-px font-mono text-[10px] text-text-secondary"
-              >
-                {o}
-              </span>
-            ))}
-          </div>
-        )}
-      </td>
-      <td className={`py-1.5 font-mono text-[11px] ${typeColor(field.type)}`}>
-        {field.type}
-      </td>
-    </tr>
+    <div className="flex items-baseline gap-3 py-0.5">
+      <span className="w-14 shrink-0 text-right font-mono text-[10px] text-text-dim">
+        {node.offset}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>
+        {node.name || <em className="text-text-dim">unnamed</em>}
+      </span>
+      <span
+        className={`min-w-0 flex-1 truncate text-right font-mono text-xs ${
+          empty ? "text-text-dim" : "text-text-primary"
+        }`}
+        title={node.value}
+      >
+        {empty ? "—" : node.value}
+      </span>
+      <span className={`w-36 shrink-0 font-mono text-[10px] ${typeColor(node.type)}`}>
+        {node.type}
+      </span>
+    </div>
   );
 }
 
-/** Guerilla-style field inspector for the selected tag. */
+/** Header line for anything that expands. */
+function Branch({
+  node,
+  open,
+  onToggle,
+}: {
+  node: NodeView;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const count = node.children.length;
+  const label =
+    node.kind === "block"
+      ? `${count} element${count === 1 ? "" : "s"}${
+          node.max_count !== null ? ` of ${node.max_count}` : ""
+        }`
+      : node.kind === "array"
+        ? `array of ${count}`
+        : node.type;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-baseline gap-3 py-0.5 text-left hover:bg-surface-secondary/40"
+    >
+      <span className="w-14 shrink-0 text-right font-mono text-[10px] text-text-dim">
+        {node.offset}
+      </span>
+      <span className="w-3 shrink-0 font-mono text-[10px] text-text-dim">
+        {count > 0 ? (open ? "▾" : "▸") : " "}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm">
+        {node.name || <em className="text-text-dim">unnamed</em>}
+      </span>
+      <span className="shrink-0 font-mono text-[10px] text-text-dim">{label}</span>
+      {node.block && (
+        <span className="hidden shrink-0 font-mono text-[10px] text-text-dim md:inline">
+          {node.block}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function Node({ node, depth }: { node: NodeView; depth: number }) {
+  // Structs are part of the shape rather than a list, so they open by default.
+  // Blocks and arrays open only when short enough not to bury what follows.
+  const [open, setOpen] = useState(
+    node.kind === "struct" ||
+      (node.kind === "element" && depth < 3) ||
+      node.children.length <= AUTO_EXPAND_ELEMENTS,
+  );
+
+  if (node.kind === "field") {
+    return <Leaf node={node} />;
+  }
+
+  return (
+    <div>
+      <Branch node={node} open={open} onToggle={() => setOpen((v) => !v)} />
+      {open && node.children.length > 0 && (
+        <div className="ml-4 border-l border-border-subtle/60 pl-2">
+          {node.children.map((child, i) => (
+            <Node key={`${child.name}-${i}`} node={child} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Guerilla-style value inspector for the selected tag. */
 export function Inspector() {
   const { tag, tagLoading, selectedTag } = useEditor();
 
@@ -76,57 +139,33 @@ export function Inspector() {
             title={
               tag.data_exact
                 ? "The value walk consumed the data payload exactly."
-                : "Values are not yet readable for this group; the definition is still complete."
+                : "The values shown may be incomplete."
             }
           >
-            {tag.data_exact ? "values decoded" : "definition only"}
+            {tag.data_exact ? "values exact" : "values partial"}
           </span>
         </div>
-        <p className="mt-1 truncate font-mono text-[11px] text-text-secondary">
-          {tag.path}
-        </p>
+        <p className="mt-1 truncate font-mono text-[11px] text-text-secondary">{tag.path}</p>
         <p className="mt-1 font-mono text-[11px] text-text-dim">
           {tag.chunk_size.toLocaleString()} bytes · {tag.data_size.toLocaleString()} bytes of data ·{" "}
-          {tag.structs.length} structs
+          {tag.node_count.toLocaleString()} fields
         </p>
       </header>
 
       <div className="px-6 py-4">
-        {tag.structs.map((struct, i) => (
-          <section key={`${struct.name}-${i}`} className="mb-8">
-            <h2 className="mb-2 flex items-baseline gap-3 font-mono text-sm">
-              <span className="text-text-primary">{struct.name || `struct ${i}`}</span>
-              {i === 0 && (
-                <span className="border border-mjolnir-gold/40 bg-mjolnir-gold/10 px-1.5 text-[10px] uppercase text-mjolnir-gold">
-                  root
-                </span>
-              )}
-              <span className="text-[11px] text-text-dim">
-                {struct.fields.length} fields
-                {struct.size !== null && ` · ${struct.size} B`}
-              </span>
-            </h2>
-            {struct.fields.length === 0 ? (
-              <p className="text-xs text-text-dim">No user-visible fields.</p>
-            ) : (
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-border-subtle text-[10px] uppercase text-text-dim">
-                    <th className="w-14 py-1 pr-3 text-right font-normal">Off</th>
-                    <th className="w-12 py-1 pr-3 text-right font-normal">Size</th>
-                    <th className="py-1 pr-3 text-left font-normal">Field</th>
-                    <th className="w-40 py-1 text-left font-normal">Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {struct.fields.map((f, fi) => (
-                    <FieldRow key={`${f.name}-${fi}`} field={f} />
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-        ))}
+        {tag.error ? (
+          <div className="border border-accent-red/40 bg-accent-red/5 px-4 py-3">
+            <p className="text-sm text-text-primary">This tag&rsquo;s values could not be read.</p>
+            <p className="mt-1 font-mono text-[11px] text-text-secondary">{tag.error}</p>
+            <p className="mt-2 text-xs text-text-dim">
+              The definition is still complete; only the values are affected.
+            </p>
+          </div>
+        ) : tag.fields.length === 0 ? (
+          <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
+        ) : (
+          tag.fields.map((node, i) => <Node key={`${node.name}-${i}`} node={node} depth={0} />)
+        )}
       </div>
     </div>
   );
