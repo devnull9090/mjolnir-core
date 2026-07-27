@@ -26,7 +26,7 @@ export default function DownloadPage() {
       <main className="pt-32 md:pt-36 pb-24 px-6 max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
+          <h1 className="text-3xl sm:text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
           <p className="text-text-muted text-lg max-w-xl mx-auto">
             One-click mod management for Halo Campaign Evolved. Auto-detects your game, installs mods, and launches via Steam.
           </p>
@@ -38,7 +38,7 @@ export default function DownloadPage() {
             <div className="w-14 h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
               <Download className="w-7 h-7" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xl font-bold text-foreground">Windows Installer (.msi)</h2>
               <p className="text-sm text-text-muted mt-1">Requires Windows 10/11 (64-bit) and WebView2 runtime</p>
             </div>
@@ -48,18 +48,18 @@ export default function DownloadPage() {
             <Link
               href="https://github.com/devnull9090/mjolnir-core/releases/latest"
               target="_blank"
-              className="px-6 py-3 rounded-xl font-bold bg-gradient-to-r from-gold to-gold-dim text-background hover:brightness-110 transition-all shadow-lg shadow-gold/20 flex items-center gap-2"
+              className="w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-gold to-gold-dim text-background hover:brightness-110 transition-all shadow-lg shadow-gold/20 flex items-center justify-center gap-2"
             >
-              <GitHubIcon className="w-5 h-5" />
+              <GitHubIcon className="w-5 h-5 flex-shrink-0" />
               Download from GitHub Releases
             </Link>
             <span className="text-sm text-text-dim">or</span>
             <Link
               href="https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi"
               target="_blank"
-              className="px-6 py-3 rounded-xl font-bold border border-border-bright text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center gap-2"
+              className="w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm border border-border-bright text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center justify-center gap-2"
             >
-              <ExternalLink className="w-4 h-4" />
+              <ExternalLink className="w-4 h-4 flex-shrink-0" />
               Download from CDN
             </Link>
           </div>
@@ -71,7 +71,7 @@ export default function DownloadPage() {
             <div className="w-14 h-14 rounded-xl bg-accent-green/10 text-accent-green flex items-center justify-center flex-shrink-0">
               <Shield className="w-7 h-7" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xl font-bold text-foreground">Verify Your Download</h2>
               <p className="text-sm text-text-muted mt-1">
                 Always verify the SHA-256 checksum to ensure your download hasn&apos;t been tampered with.
@@ -100,18 +100,14 @@ export default function DownloadPage() {
                       <Terminal className="w-3 h-3 text-text-dim" />
                       <span className="text-xs text-text-dim font-medium uppercase tracking-wider">PowerShell (Windows)</span>
                     </div>
-                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto">
-                      <code>{`(Get-FileHash .\\MJOLNIR-Launcher*.msi -Algorithm SHA256).Hash`}</code>
-                    </pre>
+                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`(Get-FileHash .\\MJOLNIR-Launcher*.msi -Algorithm SHA256).Hash`}</code></pre>
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <Terminal className="w-3 h-3 text-text-dim" />
                       <span className="text-xs text-text-dim font-medium uppercase tracking-wider">Command Prompt</span>
                     </div>
-                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto">
-                      <code>{`certutil -hashfile MJOLNIR-Launcher.msi SHA256`}</code>
-                    </pre>
+                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`certutil -hashfile MJOLNIR-Launcher.msi SHA256`}</code></pre>
                   </div>
                 </div>
               </div>
