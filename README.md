@@ -15,7 +15,7 @@
   <a href="https://github.com/devnull9090/mjolnir-core/actions/workflows/deploy-hub.yml"><img src="https://github.com/devnull9090/mjolnir-core/actions/workflows/deploy-hub.yml/badge.svg" alt="Deploy Hub"></a>
   <a href="https://github.com/devnull9090/mjolnir-core/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-gold.svg" alt="License: MIT"></a>
   <a href="https://discord.gg/9gxYZsByW9"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://store.steampowered.com/app/2993530/Halo_Campaign_Evolved/"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white" alt="Platform"></a>
+  <a href="https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white" alt="Platform"></a>
   <a href="https://www.unrealengine.com/"><img src="https://img.shields.io/badge/Engine-Unreal%205.5-313131?logo=unrealengine&logoColor=white" alt="UE5"></a>
   <a href="https://mjolnircore.com"><img src="https://img.shields.io/badge/Hosted%20on-Cloudflare-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare"></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/Launcher-Tauri%202-24C8D8?logo=tauri&logoColor=white" alt="Tauri"></a>
@@ -90,6 +90,23 @@ administration. Runtime travel and session preservation still require in-game ve
 | `mjolnir_trace_network` | Hook co-op session, lobby, and travel lifecycle functions |
 | `mjolnir_dump_state` | Snapshot live variant and Blam network component properties |
 
+### MJOLNIRTagProbe
+Reads loaded Blam tag assets from inside the running game, so an override container can be checked
+against what the game actually loaded rather than against inference.
+
+| Command | Purpose |
+| :--- | :--- |
+| `mjolnir_tag_classes` | List which `Blam*TagDataAsset` classes are loaded |
+| `mjolnir_tag_probe [filter]` | Dump loaded tag assets and their properties |
+| `mjolnir_paks` | Report what the mounted file tree can see |
+
+### MJOLNIRBridge
+Turns the running game into something a tool can drive: it watches a request file and runs console
+commands or arbitrary Lua on the game thread, answering back. Paired with `tools/mcp/game`, that
+gives launch, level load, live state reads, input and screenshots without a person at the keyboard.
+Install with `scripts/install-bridge.ps1`; see
+[`docs/game_automation.md`](docs/game_automation.md).
+
 ### MJOLNIRCore
 Core framework initialization and `UEHelpers` utility library.
 
@@ -98,7 +115,7 @@ Core framework initialization and `UEHelpers` utility library.
 ## Quick Start
 
 ### Prerequisites
-- [Halo Campaign Evolved](https://store.steampowered.com/app/2993530/Halo_Campaign_Evolved/) (Steam)
+- [Halo Campaign Evolved](https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/) (Steam)
 - [RE-UE4SS v3.0.1 experimental](https://github.com/UE4SS-RE/RE-UE4SS/releases) (`dwmapi.dll` proxy)
 
 ### Installation
@@ -238,19 +255,20 @@ bounds as numbers — with blocks and arrays expanding to their elements.
 
 Fields are editable: click a value, type a new one, press Enter. Edits are validated before they
 are kept, marked in the tree, and individually undoable. They are held in memory and leave through
-**Export patched tag…**, because the game loads tags from read-only IoStore containers and there is
-nowhere to save them back to — writing those containers is not implemented yet, so an exported tag
-cannot currently be loaded by the game.
+**Export patched tag…**, since the game's own containers are read-only.
+
+An exported tag **does load in game**. `mjolnir pack` builds an override container from it, and the
+game uses it — verified by editing the assault rifle to a 99-round magazine with 900 rounds in
+reserve and reading both off the HUD. Start with
+[`docs/getting_started.md`](docs/getting_started.md), which walks the whole path.
 
 Exported tags are copyrighted game content. Keep them local; `.gitignore` blocks `*.ubulk`.
 
 See [`docs/tag_editing_guide.md`](docs/tag_editing_guide.md) for a walkthrough of both the editor
 and the `mjolnir` command line, and [`docs/iostore_packaging.md`](docs/iostore_packaging.md) for
-what it would take to get an edited tag loading in game.
+how the container format was worked out and what is still open.
 
 ### Coming Soon
-- **MJOLNIR Tag Editor**: Guerilla-style tag browser and inspector (Tauri, in progress)
-- **MJOLNIR Hub**: Community platform for mods and tools, with submission and moderation
 - **Player Tracker**: Multiplayer stats and leaderboards
 
 ---

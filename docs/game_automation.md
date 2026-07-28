@@ -166,5 +166,6 @@ lever that works whatever route the game starts by — Steam's `rungameid` URL i
 way to pass `-windowed`. The original is copied to `GameUserSettings.ini.mjolnir-backup` on the
 first change; `game_display` with `mode: restore` puts it back.
 
-**The Steam app id is 2806050.** The README's 2993530 is a different app; launching it gets
-"game not found". `apps/launcher` and Steam's own `appmanifest_2806050.acf` agree.
+**The Steam app id is 2806050**, per `apps/launcher` and Steam's own `appmanifest_2806050.acf`.
+The README carried 2993530 for a while, which is a different app and gets "game not found" on
+launch; it has been corrected.

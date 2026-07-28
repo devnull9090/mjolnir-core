@@ -736,10 +736,10 @@ format version.
    `0x1C`.
 4. Confirm what the third character of the `pageable resource` magic (`tg?c`) selects. Only `r`
    and NUL have been seen, in three groups.
-5. Package a modified tag so the game loads it. Tags live inside read-only UE5 IoStore
-   containers, so writing one back means emitting an override container, which `ue-iostore`
-   cannot yet do. This, not the tag format, is what stands between an edit and seeing it in
-   game. Design and findings are in [`iostore_packaging.md`](iostore_packaging.md).
+5. ~~Package a modified tag so the game loads it.~~ **Done.** `ue_iostore::pack` emits an override
+   container and the game uses it, verified in mission A30. One constraint remains: the payload has
+   to keep its length, so fixed-width fields only. See
+   [`iostore_packaging.md`](iostore_packaging.md).
 6. Test the container-header `0x34` group-version hypothesis against a known Reach or Halo 4 tag
    definition set.
 

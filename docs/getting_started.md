@@ -96,21 +96,26 @@ Guerilla-style GUI.
 
 ## Step 3 — Understand the ammo fields before changing them
 
-This is where the first attempt went wrong, so it is worth being explicit. The assault rifle's
-magazine block ships as:
+This is where the first attempt went wrong, so it is worth being explicit. Print your own tag's
+magazine block before changing anything:
 
 ```
 rounds total initial             = 180
 rounds total maximum             = 360
-rounds loaded maximum            = 60     <- magazine capacity
+rounds loaded maximum            = ?      <- magazine capacity
 runtime rounds inventory maximum = 324    <- the reserve the HUD shows
-rounds reloaded                  = 36     <- how many a reload transfers
+rounds reloaded                  = 36     <- how many rounds a reload transfers
 ```
 
 **`rounds reloaded` is the trap.** A reload moves a fixed number of rounds into the magazine
-rather than filling it. Raise `rounds loaded maximum` to 200 and leave `rounds reloaded` at 36 and
+rather than filling it. Raise `rounds loaded maximum` to 200, leave `rounds reloaded` at 36, and
 your reloads still add 36 — the magazine creeps up over several reloads and it looks like nothing
-happened. Raise both and one reload gives you a clean answer.
+happened. Raise both and one reload gives a clean answer.
+
+> `rounds loaded maximum` is left as `?` deliberately: the copy this project measured already
+> carried an earlier edit, so its shipped value was never read. Observed reloads reached 68 with
+> the stock tag in place, and a reload cannot exceed capacity, so it is at least that. Read yours
+> rather than trusting a number here — which is the general rule for every field.
 
 So change these together:
 
@@ -147,12 +152,11 @@ Every edit reports what moved:
 
 ```
   field    magazines[0].rounds loaded maximum  [short integer]
-  before   60
+  before   200
   after    99
   file     32620 bytes, unchanged length true
   walk     7269 of 7269 bytes consumed
   differs  1 byte(s) from the original
-           0x2F19: 3c -> 63
 ```
 
 Read those last three lines every time. `walk … consumed` means the patched tag still parses

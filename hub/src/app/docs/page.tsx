@@ -1,7 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Binary, Braces, Database, FileText, FlaskConical, Package } from "lucide-react";
-import { getDocNotes } from "@/lib/docs";
+import {
+  ArrowRight,
+  Binary,
+  BookOpen,
+  Braces,
+  Database,
+  FileText,
+  FlaskConical,
+  Package,
+} from "lucide-react";
+import { getDocNotes, getGuides } from "@/lib/docs";
 import { getTotals } from "@/lib/tags";
 import { EvidenceBadge, type EvidenceLevel } from "./_components/EvidenceBadge";
 
@@ -64,6 +73,7 @@ const evidenceLevels: Array<{ level: EvidenceLevel; meaning: string }> = [
 
 export default function DocsPage() {
   const notes = getDocNotes();
+  const guides = getGuides();
 
   return (
     <main className="mx-auto max-w-4xl">
@@ -96,6 +106,41 @@ export default function DocsPage() {
               <span className="mt-5 flex items-center gap-2 text-sm font-semibold text-gold">
                 Read research <ArrowRight className="h-4 w-4" />
               </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="border-t border-border py-10" aria-labelledby="guides-heading">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 id="guides-heading" className="text-xl font-bold">
+            Guides
+          </h2>
+          <Link href="/docs/guides" className="text-sm font-semibold text-gold hover:underline">
+            View all
+          </Link>
+        </div>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-text-muted">
+          Follow one start to finish and you will have done the thing. New here? Start with{" "}
+          <Link href="/docs/guides/getting-started" className="text-gold hover:underline">
+            your first tag edit
+          </Link>
+          .
+        </p>
+        <div className="mt-5 divide-y divide-border border-y border-border">
+          {guides.map((guide) => (
+            <Link
+              key={guide.slug}
+              href={`/docs/guides/${guide.slug}`}
+              className="group flex items-start gap-3 py-4"
+            >
+              <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+              <div className="min-w-0">
+                <p className="font-semibold group-hover:text-gold">{guide.title}</p>
+                <p className="mt-1 line-clamp-2 text-sm leading-6 text-text-muted">
+                  {guide.summary}
+                </p>
+              </div>
             </Link>
           ))}
         </div>

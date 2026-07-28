@@ -15,10 +15,11 @@ about using it.
 
 1. **Nothing here modifies your game.** Every tool reads the installed containers read-only.
    An edit produces a *new file*; it does not touch the installation.
-2. **Nothing here reaches the game yet.** Halo Campaign Evolved loads tags from UE5 IoStore
-   containers (`.utoc`/`.ucas`), and writing those is not implemented. You can edit a tag and
-   export it, but there is currently no supported way to make the game load the result. If
-   that is what you are here for, this is not ready for you yet.
+2. **An edit can reach the game, in one more step.** This guide covers editing. Turning the
+   result into something Halo loads is `mjolnir pack`, which builds an override container you
+   drop beside the shipped ones — nothing shipped is modified, and deleting three files reverts
+   it. If that is what you are here for, start with
+   [`getting_started.md`](getting_started.md), which walks the whole path end to end.
 
 Extracted and edited tags are **copyrighted game content**. Keep them local. The repository
 ignores `*.ubulk` and `tagdump/` for this reason, and only ever publishes *schema* — field
@@ -167,6 +168,26 @@ the new value in place. The report says so, and shows the new file size:
 Setting one of these to the value it already has reproduces the file **byte for byte**, which
 is how you can tell the rebuild itself is not disturbing anything.
 
+Which kind you are making matters beyond tidiness: a fixed-width edit keeps the payload the
+length the game's package header declares, and that is what lets a single-chunk override
+container load it. See [`getting_started.md`](getting_started.md).
+
+### Editing a tag that is already a file
+
+Every command above reaches its tag through the shipped containers, which means Oodle. If you
+have no `oo2core` DLL, or you want to work on a tag you extracted earlier, `tag-file` takes the
+bytes directly — a tag's layout comes from its own header, so nothing external is needed:
+
+```powershell
+mjolnir tag-file --file ar.tag                      # print every field
+mjolnir tag-file --file ar.tag --depth 3 --all      # deeper, including zeroes
+mjolnir tag-file --file ar.tag `
+  --field "magazines[0].rounds reloaded" --value 99 `
+  --out ar-patched.tag
+```
+
+It reports and verifies exactly as `set` does, and without `--out` it is a dry run.
+
 ### Checking your work
 
 These run over your whole installation and are how the format claims are backed up. They are
@@ -292,9 +313,10 @@ usually enough to see what is going on.
 
 Being explicit, so you do not go hunting:
 
-- **Loading edits into the game.** Writing IoStore containers is not implemented. This is the
-  blocker between an edit and seeing it in Halo. What it would take is written up in
-  [`iostore_packaging.md`](iostore_packaging.md).
+- **Edits that change the payload's length.** Fixed-width fields — integers, reals, enums, flags —
+  edit in place and reach the game fine. A string or block edit resizes the payload, which then
+  needs the package header rewritten too, and the packer's perfect-hash table is only correct for
+  a single-chunk container. See [`iostore_packaging.md`](iostore_packaging.md).
 - **Adding or removing block elements.** You can change values, not counts.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See

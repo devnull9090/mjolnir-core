@@ -583,6 +583,12 @@ The Lua mod does not create or advertise a session. The placeholder URLs and `Pe
 were replaced on 2026-07-26 with verified CU2 world paths and player-controller console dispatch.
 `mjolnir_travel <map>` and `mjolnir_listen <map>` remain unverified until exercised in HCE.
 
+> **Exercised 2026-07-27.** `mjolnir_travel` dispatched from the **frontend menu** crashes the
+> game: `EXCEPTION_ACCESS_VIOLATION` reading `0x1c`, a couple of minutes into the load. `open`
+> skips the setup the campaign flow performs, which is what step 3 below anticipated. Start
+> missions through the menus; travel between levels once already in game is untested.
+> See [`game_automation.md`](game_automation.md).
+
 Runtime discovery commands added in the same pass:
 
 ```text

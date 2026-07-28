@@ -11,20 +11,21 @@ containers — which is all a same-length payload edit needs — are unaffected.
 experiment*.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
-Tags can now be read, edited and written back byte-exactly
-([`tag_body_format.md`](tag_body_format.md), [`tag_editing_guide.md`](tag_editing_guide.md)).
-What is still missing is the last step: making Halo Campaign Evolved *load* the result.
+Tags can be read, edited and written back byte-exactly
+([`tag_body_format.md`](tag_body_format.md), [`tag_editing_guide.md`](tag_editing_guide.md)). This
+note is the last step: making Halo Campaign Evolved *load* the result.
 
-This note records what is established about that, and what is not, so the work can start from
-facts rather than from scratch.
+It is written as a working log, oldest first, so the reasoning stays legible — including two
+conclusions that were wrong and how they were caught. If you only want the recipe, read
+[`getting_started.md`](getting_started.md) instead.
 
-## The problem
+## The problem, as it stood
 
 The game loads tags from UE5 IoStore containers — `.utoc` index plus `.ucas` data — under
-`Meteorite/Content/Paks`. `crates/ue-iostore` reads them. Nothing writes them.
+`Meteorite/Content/Paks`. `crates/ue-iostore` read them; nothing wrote them.
 
-So an edited tag currently has nowhere to go. It exports to a file, and that file is for
-inspection and diffing, not for playing.
+So an edited tag had nowhere to go. It exported to a file, and that file was for inspection and
+diffing, not for playing. `ue_iostore::pack` and `mjolnir pack` now close that gap — see *Step 2*.
 
 ## What is established
 
@@ -283,11 +284,16 @@ classes are loaded, which is useful orientation first.
 **Answered 2026-07-27.** A one-chunk container holding a 32,620-byte payload — the shipped length,
 so no package header rewrite is needed — put edited values into the running game:
 
-| Field, in `magazines[0]` | Shipped | Edited to | HUD showed |
+| Field, in `magazines[0]` | Before | Edited to | HUD showed |
 |---|---:|---:|---|
 | `runtime rounds inventory maximum` | 324 | **900** | reserve **900** |
-| `rounds loaded maximum` | 60 | **99** | magazine **99** after a reload |
+| `rounds loaded maximum` | 200 | **99** | magazine **99** after a reload |
 | `rounds reloaded` | 36 | 99 | one press filled the magazine |
+
+"Before" is what the copy being edited held, not necessarily what ships: this payload already
+carried an earlier edit that set `rounds loaded maximum` to 200, so the shipped magazine capacity
+was never read. The other two are shipped values. Nothing here depends on knowing the difference —
+900 is the number that matters, and it appears in neither.
 
 900 is not a number that exists in the shipped game. The reserve read `900`, and after one reload
 the magazine read `99` with `861` left — 900 less the 39 it took to top up from 60. That is the
@@ -371,11 +377,13 @@ Prefer 1 or 2: both avoid having to reproduce UE's hash function exactly.
 
 ### What this means for the editor
 
-Editing a tag and shipping the result still does not work end to end. What now works is everything
-up to the payload: containers build, mount, and win chunk lookups, and the package header we write
-is what the game reads. Two things stand between here and a working edit — a packer bug we own
-(the perfect hash) and one unanswered question about how bulk data is addressed. Neither is
-"does any of this work".
+Editing a tag and shipping the result **works end to end**, within one constraint: keep the payload
+the same length. Every fixed-width field — integers, reals, enums, flags — qualifies, which is most
+of what anyone wants to change.
+
+Outside that constraint the path is not finished. A string or block edit resizes the payload, which
+needs the package header rewritten to match, which needs a two-chunk container, which is exactly
+what the perfect-hash bug below breaks. Fixing the hash is what opens up the rest.
 
 ### Notes on measuring this
 

@@ -236,7 +236,11 @@ struct PackArgs {
     #[arg(long)]
     out_dir: PathBuf,
     /// Container base name; `.utoc` and `.ucas` are appended.
-    #[arg(long, default_value = "pakchunk999-MJOLNIR-Windows")]
+    ///
+    /// The `_P` suffix is UE's patch-container convention and is what makes the
+    /// override win the chunk lookup. Without it the shipped chunk is used and
+    /// nothing appears to happen, so it is the default rather than an option.
+    #[arg(long, default_value = "pakchunk999-MJOLNIR-Windows_P")]
     name: String,
 }
 
