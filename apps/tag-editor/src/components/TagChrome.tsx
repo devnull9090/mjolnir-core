@@ -2,56 +2,72 @@ import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useEditor } from "../stores/editor-store";
 
+/** Links longer than this start collapsed, so a scenario's hundreds of
+ *  imports do not take over the inspector. */
+const LINKS_COLLAPSED_OVER = 24;
+
 /** Chips for the packages this tag imports; openable ones open in a tab. */
 function LinkedAssets() {
   const links = useEditor((s) => s.tagLinks);
   const openTab = useEditor((s) => s.openTab);
   const [showAll, setShowAll] = useState(false);
+  const [open, setOpen] = useState<boolean | null>(null);
 
   if (links.length === 0) return null;
   const openable = links.filter((l) => l.index !== null);
   const rest = links.filter((l) => l.index === null);
   const shown = showAll ? links : openable;
+  const expanded = open ?? links.length <= LINKS_COLLAPSED_OVER;
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-text-dim">
-        linked
-      </span>
-      {shown.map((l) => (
-        <button
-          key={l.package}
-          type="button"
-          disabled={l.index === null}
-          title={
-            l.index === null
-              ? `${l.package}\n\nAn Unreal ${l.label.startsWith("BP_") ? "Blueprint" : "asset"}; the editor cannot open this kind yet.`
-              : l.package
-          }
-          onClick={() => {
-            if (l.index !== null) {
-              void openTab(l.kind === "texture" ? "texture" : "tag", l.index, l.label);
-            }
-          }}
-          className={`border px-1.5 py-0.5 font-mono text-[10px] ${
-            l.index === null
-              ? "cursor-default border-border-subtle/60 text-text-dim"
-              : l.kind === "texture"
-                ? "border-accent-blue/40 text-accent-blue hover:bg-accent-blue/10"
-                : "border-mjolnir-gold/40 text-mjolnir-gold hover:bg-mjolnir-gold/10"
-          }`}
-        >
-          {l.label}
-        </button>
-      ))}
-      {rest.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          className="font-mono text-[10px] text-text-dim hover:text-text-secondary"
-        >
-          {showAll ? "fewer" : `+${rest.length} unreal`}
-        </button>
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen(!expanded)}
+        className="font-mono text-[10px] uppercase tracking-wider text-text-dim hover:text-text-secondary"
+        title={expanded ? "Collapse the linked packages" : "Show the linked packages"}
+      >
+        {expanded ? "▾" : "▸"} linked · {openable.length} openable
+        {rest.length > 0 ? ` · ${rest.length} unreal` : ""}
+      </button>
+      {expanded && (
+        <div className="mt-1 flex max-h-28 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
+          {shown.map((l) => (
+            <button
+              key={l.package}
+              type="button"
+              disabled={l.index === null}
+              title={
+                l.index === null
+                  ? `${l.package}\n\nAn Unreal ${l.label.startsWith("BP_") ? "Blueprint" : "asset"}; the editor cannot open this kind yet.`
+                  : l.package
+              }
+              onClick={() => {
+                if (l.index !== null) {
+                  void openTab(l.kind === "texture" ? "texture" : "tag", l.index, l.label);
+                }
+              }}
+              className={`border px-1.5 py-0.5 font-mono text-[10px] ${
+                l.index === null
+                  ? "cursor-default border-border-subtle/60 text-text-dim"
+                  : l.kind === "texture"
+                    ? "border-accent-blue/40 text-accent-blue hover:bg-accent-blue/10"
+                    : "border-mjolnir-gold/40 text-mjolnir-gold hover:bg-mjolnir-gold/10"
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+          {rest.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="font-mono text-[10px] text-text-dim hover:text-text-secondary"
+            >
+              {showAll ? "hide unreal" : `+${rest.length} unreal`}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

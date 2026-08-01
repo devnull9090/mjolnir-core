@@ -232,22 +232,29 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  // Enough links to exercise the collapsed state a real scenario triggers.
   tagLinks: async () => [
     {
       package: "/Game/Tags/objects/characters/elite/elite-model",
-      kind: "tag",
+      kind: "tag" as const,
       index: 1,
       label: "elite (hlmt)",
     },
     {
       package: "/Game/characters/GuiltySpark/Textures/T_GuiltySpark_D",
-      kind: "texture",
+      kind: "texture" as const,
       index: 1,
       label: "T_GuiltySpark_D",
     },
+    ...Array.from({ length: 60 }, (_, i) => ({
+      package: `/Game/Tags/sound/dialog/line_${i}-sound`,
+      kind: "tag" as const,
+      index: 0,
+      label: `line_${i} (snd!)`,
+    })),
     {
       package: "/Game/Blueprints/Synchronization/Characters/BP_EliteBipedActor",
-      kind: "asset",
+      kind: "asset" as const,
       index: null,
       label: "BP_EliteBipedActor",
     },

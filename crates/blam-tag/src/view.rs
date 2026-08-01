@@ -185,6 +185,10 @@ fn fields(
         let name = layout.string_at(field.name_offset).unwrap_or("").to_string();
 
         let value = if field_writes(layout, &field) {
+            // A phantom pairs with no field; step over it.
+            while matches!(values.get(next_value), Some(Value::Phantom)) {
+                next_value += 1;
+            }
             let v = values.get(next_value);
             next_value += 1;
             v

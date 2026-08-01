@@ -94,6 +94,8 @@ pub enum ErrorKind {
         declared: usize,
         preview: String,
     },
+    #[error("sections could not be aligned to the struct's declared fields")]
+    AlignFailed,
 }
 
 /// First bytes of `buf` from `at`, as hex, for diagnosing an unread tail.
@@ -204,6 +206,16 @@ pub enum Value<'a> {
         version: u32,
         body: &'a [u8],
     },
+    /// An empty `tgst` the data stream carries but the layout's field list
+    /// does not declare.
+    ///
+    /// The shipped scenario tags write one of these per `effect scenery`
+    /// element, between `object data` and `multiplayer data`: the block's
+    /// type-specific struct was pruned from the field table by the cooker, but
+    /// the writer still emitted its (empty) section. A phantom pairs with no
+    /// field — value consumers skip it — and writes back as an empty `tgst`
+    /// so a rebuild reproduces the original bytes.
+    Phantom,
 }
 
 impl<'a> Value<'a> {
@@ -500,16 +512,7 @@ impl<'a, 'l> Walker<'a, 'l> {
             for i in 0..count {
                 self.crumbs.push(format!("[{i}]"));
                 let outcome = self.expect(buf, pos, "tgst").inspect(|w| self.note(w)).and_then(|wrapper| {
-                    let (kids, used) = self.struct_children(wrapper.content, run, depth + 1)?;
-                    if used != wrapper.content.len() {
-                        return Err(self.err(ErrorKind::SectionSlack {
-                            magic: "tgst",
-                            used,
-                            declared: wrapper.content.len(),
-                            preview: hex_preview(wrapper.content, used),
-                        }));
-                    }
-                    Ok((kids, wrapper.total()))
+                    Ok((self.exact_children(wrapper.content, run, depth + 1)?, wrapper.total()))
                 });
                 self.crumbs.pop();
                 let (kids, used) = outcome?;
@@ -657,19 +660,9 @@ impl<'a, 'l> Walker<'a, 'l> {
                 STRUCT if s.content.is_empty() => Value::Struct {
                     children: Vec::new(),
                 },
-                STRUCT => {
-                    let (children, used) =
-                        self.struct_children(s.content, struct_target.unwrap(), depth + 1)?;
-                    if used != s.content.len() {
-                        return Err(self.err(ErrorKind::SectionSlack {
-                            magic: "tgst",
-                            used,
-                            declared: s.content.len(),
-                            preview: hex_preview(s.content, used),
-                        }));
-                    }
-                    Value::Struct { children }
-                }
+                STRUCT => Value::Struct {
+                    children: self.exact_children(s.content, struct_target.unwrap(), depth + 1)?,
+                },
                 "string id" => Value::StringId(s.content),
                 "data" => Value::Data(s.content),
                 "tag reference" => Value::TagRef(s.content),
@@ -680,6 +673,181 @@ impl<'a, 'l> Walker<'a, 'l> {
             out.push(value);
         }
         Ok((out, pos))
+    }
+
+    /// Read a struct's children, requiring the buffer to be consumed exactly.
+    ///
+    /// The strict declaration-order walk runs first. When it fails, or leaves
+    /// unread bytes, the aligned walk retries: the shipped scenario tags carry
+    /// phantom empty `tgst` sections that no declared field accounts for (see
+    /// [`Value::Phantom`]), which the strict walk mispairs. The original error
+    /// is kept when alignment cannot explain the mismatch either.
+    fn exact_children(
+        &mut self,
+        buf: &'a [u8],
+        run: usize,
+        depth: u32,
+    ) -> Result<Vec<Value<'a>>, Error> {
+        let crumbs_len = self.crumbs.len();
+        let strict = self.struct_children(buf, run, depth).and_then(|(kids, used)| {
+            if used != buf.len() {
+                Err(self.err(ErrorKind::SectionSlack {
+                    magic: "tgst",
+                    used,
+                    declared: buf.len(),
+                    preview: hex_preview(buf, used),
+                }))
+            } else {
+                Ok(kids)
+            }
+        });
+        match strict {
+            Ok(kids) => Ok(kids),
+            Err(original) => {
+                self.crumbs.truncate(crumbs_len);
+                match self.struct_children_aligned(buf, run, depth) {
+                    Ok(kids) => Ok(kids),
+                    Err(_) => Err(original),
+                }
+            }
+        }
+    }
+
+    /// Walk a struct's children by aligning the buffer's sections to the
+    /// run's declared writing fields.
+    ///
+    /// Sections are self-delimiting, so the whole list is enumerated first,
+    /// then matched to the fields in order. A section no field claims is
+    /// tolerated only when it is an **empty** `tgst` — a phantom struct the
+    /// layout does not declare — and only when the remaining fields still
+    /// align with the remaining sections. Runs containing arrays or pageable
+    /// resources are refused: their section use is not one-to-one, so this
+    /// reasoning does not hold for them.
+    fn struct_children_aligned(
+        &mut self,
+        buf: &'a [u8],
+        run: usize,
+        depth: u32,
+    ) -> Result<Vec<Value<'a>>, Error> {
+        if depth > MAX_DEPTH {
+            return Err(self.err(ErrorKind::TooDeep(MAX_DEPTH)));
+        }
+        let mut sections = Vec::new();
+        let mut pos = 0usize;
+        while pos < buf.len() {
+            let Some(s) = section::read_at(buf, pos) else {
+                return Err(self.err(ErrorKind::AlignFailed));
+            };
+            pos += s.total();
+            sections.push(s);
+        }
+
+        let Some(range) = self.ranges.get(run).cloned() else {
+            return Err(self.err(ErrorKind::AlignFailed));
+        };
+        let mut fields = Vec::new();
+        for index in range {
+            let field = self.layout.fields[index];
+            let type_name = self.layout.type_name_of(&field);
+            if type_name == ARRAY || type_name == PAGEABLE {
+                if field_writes(self.layout, &field) {
+                    return Err(self.err(ErrorKind::AlignFailed));
+                }
+                continue;
+            }
+            if let Some(magic) = section_for(type_name) {
+                fields.push((field, type_name, magic));
+            }
+        }
+
+        fn phantom(s: &section::Section<'_>) -> bool {
+            s.is("tgst") && s.content.is_empty()
+        }
+        fn feasible(
+            fields: &[(crate::layout::FieldEntry, &str, &str)],
+            sections: &[section::Section<'_>],
+            fi: usize,
+            sj: usize,
+        ) -> bool {
+            if sj == sections.len() {
+                return fi == fields.len();
+            }
+            let s = &sections[sj];
+            (fi < fields.len() && s.is(fields[fi].2) && feasible(fields, sections, fi + 1, sj + 1))
+                || (phantom(s) && feasible(fields, sections, fi, sj + 1))
+        }
+        if !feasible(&fields, &sections, 0, 0) {
+            return Err(self.err(ErrorKind::AlignFailed));
+        }
+
+        let mut out = Vec::new();
+        let mut fi = 0usize;
+        for sj in 0..sections.len() {
+            let s = sections[sj];
+            let pair = fi < fields.len()
+                && s.is(fields[fi].2)
+                && feasible(&fields, &sections, fi + 1, sj + 1);
+            if pair {
+                let (field, type_name, _) = fields[fi];
+                out.push(self.aligned_value(&field, type_name, &s, depth)?);
+                fi += 1;
+            } else {
+                // Feasibility already vetted this: anything unpaired here is a
+                // phantom.
+                self.log(depth, format!("{} phantom empty tgst", self.path()));
+                out.push(Value::Phantom);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Build one field's value from the section alignment chose for it.
+    fn aligned_value(
+        &mut self,
+        field: &crate::layout::FieldEntry,
+        type_name: &str,
+        s: &section::Section<'a>,
+        depth: u32,
+    ) -> Result<Value<'a>, Error> {
+        let name = self.layout.string_at(field.name_offset).unwrap_or("");
+        self.crumbs.push(crumb(name, type_name));
+        self.note(s);
+        let value = match type_name {
+            BLOCK => {
+                let entry = *self
+                    .layout
+                    .blocks
+                    .get(field.aux as usize)
+                    .ok_or_else(|| self.err(ErrorKind::UnknownElementSize(field.aux as usize)))?;
+                let inner = self.block(s.content, entry.aux as usize, depth + 1)?;
+                if inner.consumed != s.content.len() {
+                    return Err(self.err(ErrorKind::SectionSlack {
+                        magic: "tgbl",
+                        used: inner.consumed,
+                        declared: s.content.len(),
+                        preview: hex_preview(s.content, inner.consumed),
+                    }));
+                }
+                Value::Block(inner)
+            }
+            STRUCT if s.content.is_empty() => Value::Struct {
+                children: Vec::new(),
+            },
+            STRUCT => {
+                let target = self
+                    .run(field.aux as usize)
+                    .ok_or_else(|| self.err(ErrorKind::AlignFailed))?;
+                Value::Struct {
+                    children: self.exact_children(s.content, target, depth + 1)?,
+                }
+            }
+            "string id" => Value::StringId(s.content),
+            "data" => Value::Data(s.content),
+            "tag reference" => Value::TagRef(s.content),
+            _ => return Err(self.err(ErrorKind::AlignFailed)),
+        };
+        self.crumbs.pop();
+        Ok(value)
     }
 }
 
@@ -862,6 +1030,33 @@ pub(crate) mod tests {
         let err = read_block(&l, &payload, 0).unwrap_err();
         assert_eq!(err.path, "root.[0].tags.[0].label");
         assert!(matches!(err.kind, ErrorKind::WrongSection { want: "tgsi", .. }));
+    }
+
+    /// The shipped scenario tags write an empty `tgst` no field declares (the
+    /// cooker pruned the block's type-specific struct from the field table but
+    /// the writer still emitted its section). The walk must place it as a
+    /// phantom, pair the real sections with the declared fields, and write the
+    /// payload back byte for byte.
+    #[test]
+    fn a_phantom_empty_tgst_is_tolerated_and_round_trips() {
+        let body = synth_layout();
+        let l = Layout::parse(&body).unwrap();
+
+        // A block of struct run B (one writing field: `string id label`),
+        // whose element wrapper opens with an undeclared empty `tgst`.
+        let mut inner = section_bytes(b"tsgt", 0, &[]);
+        inner.extend_from_slice(&section_bytes(b"isgt", 0, b"aa"));
+        let mut payload = words(&[1, 0]);
+        payload.extend_from_slice(&[0u8; 4]);
+        payload.extend_from_slice(&section_bytes(b"tsgt", inner.len() as u32, &inner));
+
+        let block = read_block(&l, &payload, 2).expect("walk with phantom");
+        assert_eq!(block.consumed, payload.len(), "must consume the payload exactly");
+        let kids = &block.children[0];
+        assert!(matches!(kids[0], Value::Phantom));
+        assert_eq!(kids[1].as_str(), Some("aa"));
+
+        assert_eq!(crate::write::write_block(&block), payload);
     }
 
     #[test]
