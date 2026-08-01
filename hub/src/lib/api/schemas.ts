@@ -127,6 +127,108 @@ export const ReleaseListSchema = z
   .object({ releases: z.array(ReleaseSchema) })
   .openapi("ReleaseList");
 
+// ── Publishing ────────────────────────────────────────────────────────
+
+export const SLUG = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+export const ModCreateSchema = z
+  .object({
+    slug: z.string().regex(SLUG, "lowercase letters, digits and dashes").openapi({
+      example: "my-texture-pack",
+    }),
+    name: z.string().min(1).max(120),
+    summary: z.string().max(300).optional(),
+    description_md: z.string().max(65536).optional(),
+    category: z.string().max(40).default("gameplay"),
+    license: z.string().max(60).optional(),
+    nsfw: z.boolean().default(false),
+  })
+  .openapi("ModCreate");
+
+export const ReleaseCreateSchema = z
+  .object({
+    version: z.string().regex(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, "semver"),
+    channel: z.enum(["stable", "beta"]).default("stable"),
+    changelog_md: z.string().max(65536).optional(),
+    build_min: z.string().max(80).optional(),
+    build_max: z.string().max(80).optional(),
+  })
+  .openapi("ReleaseCreate");
+
+export const FindingSchema = z
+  .object({
+    level: z.enum(["error", "warning"]),
+    code: z.string().openapi({ example: "forbidden_file" }),
+    message: z.string(),
+  })
+  .openapi("ScanFinding");
+
+export const ReleaseStatusSchema = z
+  .object({
+    id: z.string(),
+    mod_id: z.string(),
+    version: z.string(),
+    status: z.enum(["pending", "scanning", "published", "rejected", "yanked"]),
+    sha256: z.string().nullable(),
+    file_size: z.number().int().nullable(),
+    chunk_count: z.number().int().openapi({
+      description: "IoStore chunks this release claims, once scanned.",
+    }),
+    findings: z.array(FindingSchema),
+    created_at: z.string(),
+  })
+  .openapi("ReleaseStatus");
+
+// ── Conflicts ─────────────────────────────────────────────────────────
+
+export const ConflictEntrySchema = z
+  .object({
+    release_id: z.string(),
+    mod_slug: z.string(),
+    mod_name: z.string(),
+    version: z.string(),
+    shared_chunks: z.number().int().openapi({
+      description: "How many IoStore chunk IDs both releases claim.",
+    }),
+  })
+  .openapi("ConflictEntry");
+
+export const ConflictListSchema = z
+  .object({
+    release_id: z.string(),
+    conflicts: z.array(ConflictEntrySchema),
+  })
+  .openapi("ConflictList");
+
+export const ConflictCheckRequestSchema = z
+  .object({
+    release_ids: z.array(z.string()).min(2).max(50).openapi({
+      description: "Releases a client intends to install together.",
+    }),
+  })
+  .openapi("ConflictCheckRequest");
+
+export const ConflictPairSchema = z
+  .object({
+    a: z.string(),
+    b: z.string(),
+    shared_chunks: z.number().int(),
+    sample_chunk_ids: z.array(z.string()).openapi({
+      description: "Up to 10 shared chunk IDs, hex-encoded 12-byte identifiers.",
+    }),
+  })
+  .openapi("ConflictPair");
+
+export const ConflictCheckResponseSchema = z
+  .object({
+    pairs: z.array(ConflictPairSchema).openapi({
+      description:
+        "Every conflicting pair among the requested releases. Empty means " +
+        "the set installs cleanly in any order.",
+    }),
+  })
+  .openapi("ConflictCheckResponse");
+
 // ── Row mappers (D1 → API shapes) ─────────────────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

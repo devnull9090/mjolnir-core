@@ -315,6 +315,267 @@
           "download_count",
           "created_at"
         ]
+      },
+      "ModCreate": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+            "example": "my-texture-pack"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "description_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 40,
+            "default": "gameplay"
+          },
+          "license": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "nsfw": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ]
+      },
+      "ReleaseCreate": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "default": "stable"
+          },
+          "changelog_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "build_min": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "build_max": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "ReleaseStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "scanning",
+              "published",
+              "rejected",
+              "yanked"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "chunk_count": {
+            "type": "integer",
+            "description": "IoStore chunks this release claims, once scanned."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanFinding"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "version",
+          "status",
+          "sha256",
+          "file_size",
+          "chunk_count",
+          "findings",
+          "created_at"
+        ]
+      },
+      "ScanFinding": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "example": "forbidden_file"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "code",
+          "message"
+        ]
+      },
+      "ConflictList": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictEntry"
+            }
+          }
+        },
+        "required": [
+          "release_id",
+          "conflicts"
+        ]
+      },
+      "ConflictEntry": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "mod_slug": {
+            "type": "string"
+          },
+          "mod_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "shared_chunks": {
+            "type": "integer",
+            "description": "How many IoStore chunk IDs both releases claim."
+          }
+        },
+        "required": [
+          "release_id",
+          "mod_slug",
+          "mod_name",
+          "version",
+          "shared_chunks"
+        ]
+      },
+      "ConflictCheckResponse": {
+        "type": "object",
+        "properties": {
+          "pairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictPair"
+            },
+            "description": "Every conflicting pair among the requested releases. Empty means the set installs cleanly in any order."
+          }
+        },
+        "required": [
+          "pairs"
+        ]
+      },
+      "ConflictPair": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "string"
+          },
+          "b": {
+            "type": "string"
+          },
+          "shared_chunks": {
+            "type": "integer"
+          },
+          "sample_chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 10 shared chunk IDs, hex-encoded 12-byte identifiers."
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "shared_chunks",
+          "sample_chunk_ids"
+        ]
+      },
+      "ConflictCheckRequest": {
+        "type": "object",
+        "properties": {
+          "release_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 50,
+            "description": "Releases a client intends to install together."
+          }
+        },
+        "required": [
+          "release_ids"
+        ]
       }
     },
     "parameters": {}
@@ -592,6 +853,54 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Create a mod",
+        "description": "Creates a draft `content` mod owned by the signed-in user. Script and native mods cannot be created here; they ship from the mjolnir-core repository's release pipeline.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Slug taken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/mods/{slug}": {
@@ -667,6 +976,400 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Create a pending release",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The pending release; upload its archive next.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Release"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner, or not a content mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive": {
+      "put": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Upload the .mjolnir archive",
+        "description": "Raw zip bytes, at most 50 MiB. Re-uploading while pending or rejected replaces the archive and resets the release to pending.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; call /complete to scan and publish.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sha256": {
+                      "type": "string"
+                    },
+                    "file_size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "sha256",
+                    "file_size"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Archive too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/complete": {
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Scan the uploaded archive and publish or reject",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan finished; status says whether it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No archive uploaded, or already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}": {
+      "get": {
+        "tags": [
+          "releases"
+        ],
+        "summary": "Release status and scan findings",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/download": {
+      "get": {
+        "tags": [
+          "releases"
+        ],
+        "summary": "Download the release archive",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The .mjolnir archive (zip)."
+          },
+          "404": {
+            "description": "Not published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/conflicts": {
+      "get": {
+        "tags": [
+          "conflicts"
+        ],
+        "summary": "Published releases that claim any of the same chunks",
+        "description": "Two content releases conflict exactly when their IoStore containers claim at least one chunk ID in common; whichever mounts later wins those chunks. Computed from the uploaded containers, not from author declarations.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conflicting releases, most-overlapping first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conflicts/check": {
+      "post": {
+        "tags": [
+          "conflicts"
+        ],
+        "summary": "Conflict matrix for a set of releases",
+        "description": "The endpoint mod managers integrate against: given the releases a profile intends to install, returns every pair that claims the same chunk. An empty list means any load order works.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConflictCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "All conflicting pairs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictCheckResponse"
                 }
               }
             }

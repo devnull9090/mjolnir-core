@@ -12,6 +12,7 @@ import { cors } from "hono/cors";
 
 import type { ApiEnv } from "./bindings";
 import { loginCallback, loginRedirect, logout, sessionUser } from "./auth";
+import { registerPublishRoutes } from "./publish";
 import {
   ErrorSchema,
   HealthSchema,
@@ -356,6 +357,10 @@ app.openapi(
     return c.json({ releases: rows.results.map(releaseFromRow) }, 200);
   },
 );
+
+// ── Publishing & conflicts ────────────────────────────────────────────
+
+registerPublishRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 
