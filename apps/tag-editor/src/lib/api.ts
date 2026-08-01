@@ -82,6 +82,18 @@ export type TextureView = {
   png: string;
 };
 
+/** One row of the virtual asset filesystem: a folder or an openable asset. */
+export type DirEntry = {
+  name: string;
+  path: string;
+  kind: "dir" | "tag" | "texture";
+  /** Catalog index, for files only. */
+  index: number | null;
+  size: number;
+  /** Assets beneath a folder, at any depth. */
+  children: number | null;
+};
+
 /** One package a tag imports, resolved to something openable when possible. */
 export type LinkedAsset = {
   package: string;
@@ -122,6 +134,8 @@ const tauriApi = {
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   tagLinks: (index: number) => invoke<LinkedAsset[]>("tag_links", { index }),
+  listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  searchFiles: (query: string) => invoke<DirEntry[]>("search_files", { query }),
 };
 
 export type Api = typeof tauriApi;

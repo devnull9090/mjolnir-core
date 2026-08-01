@@ -489,6 +489,21 @@ struct TextureView {
     png: String,
 }
 
+/// List one directory of the virtual asset filesystem.
+#[tauri::command]
+fn list_dir(path: String, state: State<'_, AppState>) -> Result<Vec<catalog::DirEntry>, String> {
+    with_catalog(&state, |c| Ok(c.list_dir(&path)))
+}
+
+/// Search the whole virtual filesystem by path substring.
+#[tauri::command]
+fn search_files(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<catalog::DirEntry>, String> {
+    with_catalog(&state, |c| Ok(c.search_files(&query, MAX_ROWS)))
+}
+
 #[tauri::command]
 fn list_textures(
     query: String,
@@ -593,6 +608,8 @@ pub fn run() {
             read_texture,
             export_texture,
             tag_links,
+            list_dir,
+            search_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

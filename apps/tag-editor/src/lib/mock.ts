@@ -5,6 +5,7 @@
  * imitation of a scenario tag and is not shipped content.
  */
 import type {
+  DirEntry,
   EditResult,
   GroupSummary,
   Install,
@@ -12,6 +13,27 @@ import type {
   TagSummary,
   TagView,
 } from "./api";
+
+/** A slice of the virtual filesystem, shaped like the real one. */
+const mockFiles: Omit<DirEntry, "name" | "children">[] = [
+  { path: "tags/levels/b30/b30.scenario", kind: "tag", index: 0, size: 481_204 },
+  { path: "tags/levels/a30/a30.scenario", kind: "tag", index: 1, size: 371_020 },
+  { path: "tags/objects/characters/elite/elite.biped", kind: "tag", index: 0, size: 49_702 },
+  { path: "tags/objects/characters/elite/elite.model", kind: "tag", index: 0, size: 12_880 },
+  { path: "tags/objects/weapons/rifle/assault_rifle.weapon", kind: "tag", index: 0, size: 22_140 },
+  {
+    path: "textures/characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D",
+    kind: "texture",
+    index: 0,
+    size: 4_818_220,
+  },
+  {
+    path: "textures/characters/GuiltySpark/Textures/T_GuiltySpark_D",
+    kind: "texture",
+    index: 1,
+    size: 6_371_884,
+  },
+];
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -232,6 +254,51 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  listDir: async (path: string) => {
+    const dir = path.replace(/^\/|\/$/g, "");
+    const skip = dir === "" ? 0 : dir.length + 1;
+    const dirs = new Map<string, { count: number; size: number }>();
+    const files: DirEntry[] = [];
+    for (const f of mockFiles) {
+      if (dir !== "" && !f.path.startsWith(`${dir}/`)) continue;
+      const rest = f.path.slice(skip);
+      const cut = rest.indexOf("/");
+      if (cut < 0) {
+        files.push({ ...f, name: rest, children: null });
+      } else {
+        const name = rest.slice(0, cut);
+        const e = dirs.get(name) ?? { count: 0, size: 0 };
+        e.count += 1;
+        e.size += f.size;
+        dirs.set(name, e);
+      }
+    }
+    const rows: DirEntry[] = [...dirs.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, e]) => ({
+        name,
+        path: dir === "" ? name : `${dir}/${name}`,
+        kind: "dir" as const,
+        index: null,
+        size: e.size,
+        children: e.count,
+      }));
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    return [...rows, ...files];
+  },
+  searchFiles: async (query: string) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return mockFiles
+      .filter((f) => f.path.toLowerCase().includes(q))
+      .slice(0, 500)
+      .map((f) => ({
+        ...f,
+        name: f.path.split("/").pop() ?? f.path,
+        children: null,
+      }));
+  },
+
   // Enough links to exercise the collapsed state a real scenario triggers.
   tagLinks: async () => [
     {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   api,
+  type DirEntry,
   type EditResult,
   type GroupSummary,
   type LinkedAsset,
@@ -68,9 +69,17 @@ type EditorState = {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
 
-  /** What the left panel browses: Blam tags or Unreal texture assets. */
-  browse: "tags" | "textures";
-  setBrowse: (browse: "tags" | "textures") => void;
+  /** What the left panel browses: the asset tree, tag groups, or textures. */
+  browse: "files" | "tags" | "textures";
+  setBrowse: (browse: "files" | "tags" | "textures") => void;
+
+  /** Virtual filesystem browser: current directory and its listing. */
+  dir: string;
+  entries: DirEntry[];
+  dirLoading: boolean;
+  fileQuery: string;
+  openDir: (path: string) => Promise<void>;
+  searchFiles: (query: string) => Promise<void>;
   textures: TextureSummary[];
   textureQuery: string;
   searchTextures: (query: string) => Promise<void>;
@@ -236,11 +245,41 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ viewMode: mode });
     },
 
-    browse: "tags",
+    browse: "files",
     setBrowse(browse) {
       set({ browse });
       if (browse === "textures" && get().textures.length === 0) {
         void get().searchTextures("");
+      }
+      if (browse === "files" && get().entries.length === 0 && !get().fileQuery) {
+        void get().openDir(get().dir);
+      }
+    },
+
+    dir: "",
+    entries: [],
+    dirLoading: false,
+    fileQuery: "",
+    async openDir(path) {
+      // Navigating leaves any search behind, the way a file dialog does.
+      set({ dir: path, fileQuery: "", dirLoading: true });
+      try {
+        set({ entries: await api.listDir(path), dirLoading: false });
+      } catch (e) {
+        set({ error: String(e), dirLoading: false });
+      }
+    },
+    async searchFiles(query) {
+      set({ fileQuery: query });
+      if (!query.trim()) {
+        await get().openDir(get().dir);
+        return;
+      }
+      set({ dirLoading: true });
+      try {
+        set({ entries: await api.searchFiles(query), dirLoading: false });
+      } catch (e) {
+        set({ error: String(e), dirLoading: false });
       }
     },
     textures: [],
@@ -289,6 +328,8 @@ export const useEditor = create<EditorState>((set, get) => {
         await api.openInstall(paks, oodle);
         const groups = await api.listGroups();
         set({ status: "ready", groups, paks, oodle, note: null });
+        // The asset tree is the default view, so it is ready on arrival.
+        await get().openDir("");
       } catch (e) {
         set({ status: "error", error: String(e) });
       }

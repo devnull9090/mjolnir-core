@@ -1,6 +1,14 @@
 import { tagLabel, useEditor } from "../stores/editor-store";
+import { FileBrowser } from "./FileBrowser";
 
-/** Left panel: mode tabs, search, and the tag or texture listing. */
+/** What each left-panel mode is for, since three tabs need distinguishing. */
+const MODES = [
+  { id: "files", label: "files", hint: "Browse every asset by path, like a file dialog" },
+  { id: "tags", label: "groups", hint: "Browse tags by their Blam group" },
+  { id: "textures", label: "textures", hint: "Browse texture assets only" },
+] as const;
+
+/** Left panel: mode tabs, search, and the listing for the chosen mode. */
 export function TagTree() {
   const { browse } = useEditor();
   const setBrowse = useEditor((s) => s.setBrowse);
@@ -8,22 +16,29 @@ export function TagTree() {
   return (
     <div className="flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-r border-border-subtle">
       <div className="flex border-b border-border-subtle">
-        {(["tags", "textures"] as const).map((mode) => (
+        {MODES.map((mode) => (
           <button
-            key={mode}
+            key={mode.id}
             type="button"
-            onClick={() => setBrowse(mode)}
+            onClick={() => setBrowse(mode.id)}
+            title={mode.hint}
             className={`flex-1 px-3 py-2 text-xs uppercase tracking-wider ${
-              browse === mode
+              browse === mode.id
                 ? "border-b-2 border-mjolnir-gold text-mjolnir-gold"
                 : "text-text-dim hover:text-text-secondary"
             }`}
           >
-            {mode}
+            {mode.label}
           </button>
         ))}
       </div>
-      {browse === "tags" ? <TagList /> : <TextureList />}
+      {browse === "files" ? (
+        <FileBrowser />
+      ) : browse === "tags" ? (
+        <TagList />
+      ) : (
+        <TextureList />
+      )}
     </div>
   );
 }

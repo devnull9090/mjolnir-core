@@ -32,11 +32,44 @@ pub struct TextureEntry {
     pub short: String,
 }
 
+/// One openable asset, placed in the virtual filesystem the browser walks.
+///
+/// The game ships no directories of its own — every asset is a flat chunk in a
+/// container — so the tree is derived from the package paths. Tags land under
+/// `tags/` named the way Guerilla wrote them (`elite.biped`), textures under
+/// `textures/` at their content-relative path.
+struct VirtualFile {
+    path: String,
+    /// `tag` or `texture`; the index is into that catalog list.
+    kind: &'static str,
+    index: usize,
+    size: u64,
+}
+
+/// One row of a directory listing: a subdirectory or an openable asset.
+#[derive(Debug, Serialize)]
+pub struct DirEntry {
+    /// Display name within its parent, e.g. `characters` or `elite.biped`.
+    pub name: String,
+    /// Full virtual path.
+    pub path: String,
+    /// `dir`, `tag`, or `texture`.
+    pub kind: &'static str,
+    /// Catalog index, for files only.
+    pub index: Option<usize>,
+    /// Payload bytes for a file; total of its contents for a directory.
+    pub size: u64,
+    /// How many assets live under a directory, at any depth.
+    pub children: Option<usize>,
+}
+
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
     containers: Vec<Container>,
     pub tags: Vec<TagEntry>,
     pub textures: Vec<TextureEntry>,
+    /// Every asset by virtual path, sorted, so a listing is a contiguous range.
+    files: Vec<VirtualFile>,
     oodle: Vec<PathBuf>,
 }
 
@@ -158,12 +191,116 @@ impl Catalog {
             .collect();
         textures.sort_by(|a, b| a.short.cmp(&b.short));
 
+        let mut files: Vec<VirtualFile> = tags
+            .iter()
+            .enumerate()
+            .map(|(index, t)| VirtualFile {
+                path: format!("tags/{}.{}", t.short, t.group),
+                kind: "tag",
+                index,
+                size: t.chunk.length,
+            })
+            .chain(textures.iter().enumerate().map(|(index, t)| VirtualFile {
+                path: format!("textures/{}", t.short),
+                kind: "texture",
+                index,
+                size: t.ubulk.map(|(_, c)| c.length).unwrap_or(0),
+            }))
+            .collect();
+        // Sorted so every directory's contents form one contiguous run.
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+
         Ok(Catalog {
             containers,
             tags,
             textures,
+            files,
             oodle: vec![PathBuf::from(oodle)],
         })
+    }
+
+    /// The contiguous run of files under a directory prefix.
+    fn under(&self, dir: &str) -> &[VirtualFile] {
+        let prefix = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", dir.trim_end_matches('/'))
+        };
+        let start = self.files.partition_point(|f| f.path.as_str() < prefix.as_str());
+        let len = self.files[start..]
+            .iter()
+            .take_while(|f| f.path.starts_with(&prefix))
+            .count();
+        &self.files[start..start + len]
+    }
+
+    /// List one directory: its immediate subdirectories, then its assets.
+    pub fn list_dir(&self, dir: &str) -> Vec<DirEntry> {
+        let dir = dir.trim_matches('/');
+        let skip = if dir.is_empty() { 0 } else { dir.len() + 1 };
+
+        let mut dirs: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
+        let mut out = Vec::new();
+        for f in self.under(dir) {
+            let rest = &f.path[skip..];
+            match rest.split_once('/') {
+                Some((name, _)) => {
+                    let e = dirs.entry(name).or_insert((0, 0));
+                    e.0 += 1;
+                    e.1 += f.size;
+                }
+                None => out.push(DirEntry {
+                    name: rest.to_string(),
+                    path: f.path.clone(),
+                    kind: f.kind,
+                    index: Some(f.index),
+                    size: f.size,
+                    children: None,
+                }),
+            }
+        }
+
+        // Directories first, the way a file dialog orders them.
+        let mut rows: Vec<DirEntry> = dirs
+            .into_iter()
+            .map(|(name, (count, size))| DirEntry {
+                name: name.to_string(),
+                path: if dir.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{dir}/{name}")
+                },
+                kind: "dir",
+                index: None,
+                size,
+                children: Some(count),
+            })
+            .collect();
+        rows.sort_by_key(|d| d.name.to_ascii_lowercase());
+        out.sort_by_key(|f| f.name.to_ascii_lowercase());
+        rows.extend(out);
+        rows
+    }
+
+    /// Case-insensitive substring search over the whole virtual tree.
+    pub fn search_files(&self, query: &str, limit: usize) -> Vec<DirEntry> {
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        self.files
+            .iter()
+            .filter(|f| f.path.to_ascii_lowercase().contains(&q))
+            .take(limit)
+            .map(|f| DirEntry {
+                name: f.path.rsplit('/').next().unwrap_or(&f.path).to_string(),
+                path: f.path.clone(),
+                kind: f.kind,
+                index: Some(f.index),
+                size: f.size,
+                children: None,
+            })
+            .collect()
     }
 
     /// Group summaries with their four-CC, sorted by name.
@@ -316,6 +453,90 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A catalog with only the virtual filesystem populated, which is all the
+    /// listing and search paths read.
+    fn with_files(paths: &[(&str, &str)]) -> Catalog {
+        let mut files: Vec<VirtualFile> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, (path, kind))| VirtualFile {
+                path: (*path).to_string(),
+                kind: if *kind == "tag" { "tag" } else { "texture" },
+                index,
+                size: 10,
+            })
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Catalog {
+            containers: Vec::new(),
+            tags: Vec::new(),
+            textures: Vec::new(),
+            files,
+            oodle: Vec::new(),
+        }
+    }
+
+    fn sample() -> Catalog {
+        with_files(&[
+            ("tags/objects/characters/elite/elite.biped", "tag"),
+            ("tags/objects/characters/elite/elite.model", "tag"),
+            ("tags/objects/weapons/rifle/ar.weapon", "tag"),
+            ("textures/characters/GuiltySpark/T_Spark_D", "texture"),
+        ])
+    }
+
+    #[test]
+    fn the_root_lists_the_two_asset_kinds() {
+        let rows = sample().list_dir("");
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["tags", "textures"]);
+        assert!(rows.iter().all(|r| r.kind == "dir"));
+        // A directory counts every asset beneath it, at any depth.
+        assert_eq!(rows[0].children, Some(3));
+        assert_eq!(rows[1].children, Some(1));
+    }
+
+    #[test]
+    fn a_directory_lists_subdirectories_before_files() {
+        let rows = sample().list_dir("tags/objects/characters/elite");
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["elite.biped", "elite.model"]);
+
+        let rows = sample().list_dir("tags/objects");
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["characters", "weapons"]);
+        assert!(rows.iter().all(|r| r.kind == "dir"));
+    }
+
+    /// Matching is bounded at separators: without the trailing one,
+    /// `tags/objects/w` would happily list `weapons`.
+    #[test]
+    fn a_partial_segment_lists_nothing() {
+        assert!(sample().list_dir("tags/objects/w").is_empty());
+    }
+
+    #[test]
+    fn trailing_and_leading_slashes_are_tolerated() {
+        let a = sample().list_dir("tags/objects/");
+        let b = sample().list_dir("/tags/objects");
+        let c = sample().list_dir("tags/objects");
+        assert_eq!(a.len(), c.len());
+        assert_eq!(b.len(), c.len());
+    }
+
+    #[test]
+    fn search_spans_the_tree_and_ignores_case() {
+        let c = sample();
+        let hits = c.search_files("ELITE", 50);
+        assert_eq!(hits.len(), 2);
+        assert!(hits.iter().all(|h| h.kind == "tag"));
+        assert_eq!(hits[0].name, "elite.biped");
+
+        assert_eq!(c.search_files("t_spark", 50).len(), 1);
+        assert!(c.search_files("", 50).is_empty(), "an empty query matches nothing");
+        assert_eq!(c.search_files("e", 1).len(), 1, "the limit is honoured");
+    }
 
     #[test]
     fn splits_group_and_short_path() {
