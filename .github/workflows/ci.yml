@@ -58,11 +58,48 @@ jobs:
       - name: Ensure no secrets in repo
         run: |
           echo "Scanning for potential secrets..."
-          # Grep for hardcoded secret values (not env var references)
+          # Grep for hardcoded secret values. References to the *names* are
+          # fine: env accessors (process.env / c.env), binding type
+          # declarations, and workflow files.
           if grep -rn "CLOUDFLARE_API_TOKEN\|DISCORD_CLIENT_SECRET\|JWT_SECRET" \
             --include="*.ts" --include="*.js" --include="*.json" --include="*.toml" \
-            . | grep -v ".example" | grep -v "secrets\." | grep -v "process.env" | grep -v "\.github" | grep -v "node_modules"; then
+            . | grep -v ".example" | grep -v "secrets\." | grep -v "process.env" \
+              | grep -v "env\." | grep -v "?: string" | grep -v "\.github" | grep -v "node_modules"; then
             echo "⚠️ WARNING: Possible hardcoded secrets found!"
             exit 1
           fi
           echo "✅ No secrets found."
+
+  hub:
+    name: Hub (lint, types, OpenAPI drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: hub/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: hub
+
+      - name: Lint
+        run: pnpm lint
+        working-directory: hub
+
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: hub
+
+      # The committed spec must match what the code generates; a mismatch
+      # means someone changed the API without re-running openapi:export.
+      - name: OpenAPI drift check
+        run: pnpm openapi:check
+        working-directory: hub

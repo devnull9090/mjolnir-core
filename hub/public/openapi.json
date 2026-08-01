@@ -1,0 +1,679 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MJOLNIR Hub API",
+    "version": "1.0.0",
+    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools will use scoped API keys (planned — see the roadmap in docs/hub_architecture.md)."
+  },
+  "servers": [
+    {
+      "url": "https://mjolnircore.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "service": {
+            "type": "string",
+            "enum": [
+              "mjolnir-hub"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "timestamp"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "not_found"
+          },
+          "message": {
+            "type": "string",
+            "example": "No mod with that slug."
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "0198c2f4-6c1e-7c33-a1b0-9a1c2d3e4f56"
+          },
+          "username": {
+            "type": "string",
+            "example": "devnull9090"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord CDN avatar, when the user has one."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "moderator",
+              "admin"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "avatar_url",
+          "role",
+          "created_at"
+        ]
+      },
+      "ModList": {
+        "type": "object",
+        "properties": {
+          "mods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mod"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to fetch the next page; null when exhausted."
+          }
+        },
+        "required": [
+          "mods",
+          "next_cursor"
+        ]
+      },
+      "Mod": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "example": "mjolnir-flycam"
+          },
+          "name": {
+            "type": "string",
+            "example": "MJOLNIRFlyCam"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "content",
+              "script",
+              "native"
+            ],
+            "description": "Trust tier. `content` mods are inert game data and open to community upload. `script` (UE4SS Lua) and `native` (DLL) mods can execute code, so they ship exclusively from the mjolnir-core repository's reviewed, signed CI releases."
+          },
+          "category": {
+            "type": "string",
+            "example": "camera"
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nsfw": {
+            "type": "boolean"
+          },
+          "download_count": {
+            "type": "integer"
+          },
+          "rating_count": {
+            "type": "integer"
+          },
+          "rating_mean": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "author": {
+            "type": "string",
+            "description": "Owner's display name (or Discord username)."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "summary",
+          "type",
+          "category",
+          "license",
+          "nsfw",
+          "download_count",
+          "rating_count",
+          "rating_mean",
+          "author",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "ModDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Mod"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "description_md": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Full mod page body, Markdown."
+              }
+            },
+            "required": [
+              "description_md"
+            ]
+          }
+        ]
+      },
+      "ReleaseList": {
+        "type": "object",
+        "properties": {
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          }
+        },
+        "required": [
+          "releases"
+        ]
+      },
+      "Release": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.2.0"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ]
+          },
+          "changelog_md": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hash of the release archive; verify after download."
+          },
+          "build_min": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Oldest game build this release is declared compatible with."
+          },
+          "build_max": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "download_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "version",
+          "channel",
+          "changelog_md",
+          "file_size",
+          "sha256",
+          "build_min",
+          "build_max",
+          "download_count",
+          "created_at"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Service health",
+        "responses": {
+          "200": {
+            "description": "The service is up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/discord": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Begin Discord OAuth",
+        "description": "Redirects the browser to Discord's consent screen. Pass `next` to return to a specific page after login.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "next",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to Discord."
+          },
+          "500": {
+            "description": "OAuth is not configured on this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/discord/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "OAuth callback",
+        "description": "Discord redirects here; on success a session cookie is set.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "code",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Logged in; redirect to `next`."
+          },
+          "400": {
+            "description": "State mismatch or missing code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is banned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Discord rejected the exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current session",
+        "responses": {
+          "200": {
+            "description": "The signed-in user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign out",
+        "responses": {
+          "200": {
+            "description": "Session cookie cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "List published mods",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination cursor from a previous response."
+            },
+            "required": false,
+            "description": "Opaque pagination cursor from a previous response.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Page size, 1-100."
+            },
+            "required": false,
+            "description": "Page size, 1-100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Search in name and summary."
+            },
+            "required": false,
+            "description": "Search in name and summary.",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "category",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "content",
+                "script",
+                "native"
+              ]
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "newest",
+                "downloads",
+                "rating"
+              ],
+              "default": "newest"
+            },
+            "required": false,
+            "name": "sort",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of mods.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "A mod by slug",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/releases": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "Published releases of a mod, newest first",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The releases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

@@ -12,6 +12,11 @@ export const metadata: Metadata = {
 
 const researchLinks = [
   {
+    href: "/docs/api",
+    label: "API reference",
+    icon: Braces,
+  },
+  {
     href: "/docs/tags",
     label: "Tag definitions",
     icon: Database,
