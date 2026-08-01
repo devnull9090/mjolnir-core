@@ -1,0 +1,221 @@
+name: Release Tag Editor
+
+# The launcher installs this tool by reading
+# releases.mjolnircore.com/tools/tag-editor/latest/manifest.json, so this
+# workflow publishes the portable executable and that manifest alongside the
+# usual installers.
+on:
+  push:
+    tags:
+      - 'tag-editor-v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build & Release
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.ACCOUNT_NAME }}"
+          echo "::add-mask::${{ secrets.CLOUDFLARE_URL }}"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tag-editor/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tag-editor/src-tauri -> target
+
+      - name: Rust tests
+        run: cargo test --release
+        working-directory: apps/tag-editor/src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: apps/tag-editor
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/tag-editor
+          tagName: ${{ github.ref_name }}
+          releaseName: "MJOLNIR Tag Editor ${{ github.ref_name }}"
+          releaseBody: "See release notes below for download links and SHA-256 checksums."
+          releaseDraft: true
+          prerelease: false
+
+      - name: Collect artifacts and write the tool manifest
+        id: artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace "^tag-editor-v", ""
+          $releaseDir = "apps/tag-editor/src-tauri/target/release"
+          $bundleDir = "$releaseDir/bundle"
+
+          # The launcher installs the portable exe, not an installer, so it can
+          # place and replace the tool without a UAC prompt.
+          $exe = Get-Item "$releaseDir/mjolnir-tag-editor.exe"
+          $exeHash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          echo "exe_hash=$exeHash" >> $env:GITHUB_OUTPUT
+
+          $msi = Get-ChildItem -Path "$bundleDir/msi" -Filter "*.msi" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $nsis = Get-ChildItem -Path "$bundleDir/nsis" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          $checksumFile = "checksums-${{ github.ref_name }}.txt"
+          "# MJOLNIR Tag Editor ${{ github.ref_name }} - SHA-256 Checksums" | Out-File $checksumFile
+          "" | Out-File $checksumFile -Append
+          "$exeHash  $($exe.Name)" | Out-File $checksumFile -Append
+
+          if ($msi) {
+            $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
+            "$msiHash  $($msi.Name)" | Out-File $checksumFile -Append
+            echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+            echo "msi_name=$($msi.Name)" >> $env:GITHUB_OUTPUT
+            echo "msi_hash=$msiHash" >> $env:GITHUB_OUTPUT
+          }
+          if ($nsis) {
+            $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLower()
+            "$nsisHash  $($nsis.Name)" | Out-File $checksumFile -Append
+            echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+            echo "nsis_name=$($nsis.Name)" >> $env:GITHUB_OUTPUT
+            echo "nsis_hash=$nsisHash" >> $env:GITHUB_OUTPUT
+          }
+
+          # This is the contract the launcher's tools module reads.
+          $manifest = [ordered]@{
+            id      = "tag-editor"
+            version = $version
+            exe     = $exe.Name
+            url     = "https://releases.mjolnircore.com/tools/tag-editor/$version/$($exe.Name)"
+            sha256  = $exeHash
+            size    = $exe.Length
+          }
+          $manifest | ConvertTo-Json -Depth 3 | Out-File "manifest.json" -Encoding utf8
+
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "checksum_file=$checksumFile" >> $env:GITHUB_OUTPUT
+          Get-Content $checksumFile
+          Get-Content manifest.json
+
+      - name: Upload checksums to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          files: checksums-${{ github.ref_name }}.txt
+          body: |
+            ## MJOLNIR Tag Editor ${{ github.ref_name }}
+
+            Browse and edit the Blam tags and textures inside your installed copy
+            of Halo Campaign Evolved.
+
+            The easiest way to get this is the **Tools** tab in the MJOLNIR
+            Launcher, which installs and updates it for you. The installers below
+            are for using it on its own.
+
+            ### Downloads
+            | File | SHA-256 |
+            | :--- | :--- |
+            | ${{ steps.artifacts.outputs.msi_name }} | `${{ steps.artifacts.outputs.msi_hash }}` |
+            | ${{ steps.artifacts.outputs.nsis_name }} | `${{ steps.artifacts.outputs.nsis_hash }}` |
+            | mjolnir-tag-editor.exe (portable) | `${{ steps.artifacts.outputs.exe_hash }}` |
+
+            ### Verify your download
+            ```powershell
+            (Get-FileHash .\MJOLNIR-Tag-Editor*.msi -Algorithm SHA256).Hash
+            ```
+
+            Compare the output with the checksums above. They must match exactly.
+
+      - name: Upload to R2 (releases.mjolnircore.com)
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install -g wrangler
+
+          $ver = "${{ steps.artifacts.outputs.version }}"
+          $base = "mjolnir-releases/tools/tag-editor"
+
+          # Versioned copy first: the manifest points at it, so it must exist
+          # before `latest/manifest.json` starts advertising it.
+          wrangler r2 object put "$base/$ver/mjolnir-tag-editor.exe" --file="${{ steps.artifacts.outputs.exe_path }}" --remote
+          wrangler r2 object put "$base/latest/mjolnir-tag-editor.exe" --file="${{ steps.artifacts.outputs.exe_path }}" --remote
+
+          if ("${{ steps.artifacts.outputs.msi_path }}" -ne "") {
+            wrangler r2 object put "$base/$ver/${{ steps.artifacts.outputs.msi_name }}" --file="${{ steps.artifacts.outputs.msi_path }}" --remote
+            wrangler r2 object put "$base/latest/MJOLNIR-Tag-Editor-latest.msi" --file="${{ steps.artifacts.outputs.msi_path }}" --remote
+          }
+          if ("${{ steps.artifacts.outputs.nsis_path }}" -ne "") {
+            wrangler r2 object put "$base/$ver/${{ steps.artifacts.outputs.nsis_name }}" --file="${{ steps.artifacts.outputs.nsis_path }}" --remote
+            wrangler r2 object put "$base/latest/MJOLNIR-Tag-Editor-latest-setup.exe" --file="${{ steps.artifacts.outputs.nsis_path }}" --remote
+          }
+
+          wrangler r2 object put "$base/$ver/checksums.txt" --file="${{ steps.artifacts.outputs.checksum_file }}" --remote
+          wrangler r2 object put "$base/latest/checksums.txt" --file="${{ steps.artifacts.outputs.checksum_file }}" --remote
+
+          # Published last: this is what makes the new version live for every
+          # launcher, so nothing advertises a build that is not uploaded yet.
+          wrangler r2 object put "$base/$ver/manifest.json" --file="manifest.json" --remote
+          wrangler r2 object put "$base/latest/manifest.json" --file="manifest.json" --remote
+
+          Write-Host "Uploaded tag-editor $ver to releases.mjolnircore.com"
+
+      - name: Post release notification to Discord
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VER: ${{ steps.artifacts.outputs.version }}
+          EXE_HASH: ${{ steps.artifacts.outputs.exe_hash }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
+            Write-Host "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping Discord notification."
+            exit 0
+          }
+          echo "::add-mask::$env:DISCORD_WEBHOOK_URL"
+          $tag = $env:RELEASE_TAG
+          $ver = $env:RELEASE_VER
+
+          $embedObj = @{
+            username = "MJOLNIR Core Releases"
+            avatar_url = "https://mjolnircore.com/logo-transparent.png"
+            embeds = @(
+              @{
+                title = "🔧 MJOLNIR Tag Editor $tag Released!"
+                url = "https://github.com/devnull9090/mjolnir-core/releases/tag/$tag"
+                description = "Browse and edit the Blam tags and textures inside Halo Campaign Evolved. Install it from the **Tools** tab in the MJOLNIR Launcher."
+                color = 13936707
+                thumbnail = @{ url = "https://mjolnircore.com/logo-transparent.png" }
+                fields = @(
+                  @{ name = "📦 Version"; value = "v$ver"; inline = $true },
+                  @{ name = "🛡️ SHA-256 (portable exe)"; value = "$($env:EXE_HASH)"; inline = $false },
+                  @{ name = "🔗 Get it"; value = "• Launcher → Tools → Install`n• [GitHub Release](https://github.com/devnull9090/mjolnir-core/releases/tag/$tag)"; inline = $false }
+                )
+                footer = @{ text = "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+              }
+            )
+          }
+          $bodyJson = $embedObj | ConvertTo-Json -Depth 5
+          Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK_URL -Method Post -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($bodyJson))
+          Write-Host "Posted release notification to Discord"

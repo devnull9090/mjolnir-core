@@ -4,8 +4,9 @@ import ModList from "./components/ModList";
 import Header from "./components/Header";
 import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
 import Settings from "./components/Settings";
+import Tools from "./components/Tools";
 
-export type View = "mods" | "browse" | "settings";
+export type View = "mods" | "tools" | "browse" | "settings";
 
 function App() {
   const [activeView, setActiveView] = useState<View>("mods");
@@ -19,6 +20,7 @@ function App() {
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
           {activeView === "mods" && <ModList />}
+          {activeView === "tools" && <Tools />}
           {activeView === "browse" && <BrowsePlaceholder />}
           {activeView === "settings" && <Settings />}
         </main>

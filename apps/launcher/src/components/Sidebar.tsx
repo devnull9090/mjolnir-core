@@ -14,6 +14,15 @@ const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: "tools",
+    label: "Tools",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 4a4 4 0 015.66 5.66l-7 7a4 4 0 01-5.66-5.66M14 7l3 3M4.5 19.5l4-4" />
+      </svg>
+    ),
+  },
+  {
     id: "browse",
     label: "Browse Hub",
     icon: (
