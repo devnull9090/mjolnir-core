@@ -24,6 +24,8 @@ const ORDER = [
   "tag_body_format.md",
   "halosimulation_tag_release.md",
   "multiplayer_investigation_notes.md",
+  "mjolnir_format.md",
+  "hub_architecture.md",
 ];
 
 /**

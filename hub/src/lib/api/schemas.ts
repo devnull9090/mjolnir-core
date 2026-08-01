@@ -229,6 +229,84 @@ export const ConflictCheckResponseSchema = z
   })
   .openapi("ConflictCheckResponse");
 
+// ── Media ─────────────────────────────────────────────────────────────
+
+export const MediaSchema = z
+  .object({
+    id: z.string(),
+    mod_id: z.string(),
+    url: z.string().openapi({ description: "Where the image is served from." }),
+    kind: z.enum(["screenshot", "thumbnail"]),
+    alt_text: z.string().openapi({
+      description: "Author-provided description; required on upload.",
+    }),
+    width: z.number().int().nullable(),
+    height: z.number().int().nullable(),
+    position: z.number().int(),
+    created_at: z.string(),
+  })
+  .openapi("Media");
+
+export const MediaListSchema = z.object({ media: z.array(MediaSchema) }).openapi("MediaList");
+
+// ── Ratings ───────────────────────────────────────────────────────────
+
+export const RatingPutSchema = z
+  .object({
+    score: z.number().int().min(1).max(5),
+    review_md: z.string().max(8192).optional(),
+  })
+  .openapi("RatingPut");
+
+export const RatingSummarySchema = z
+  .object({
+    count: z.number().int(),
+    mean: z.number().nullable(),
+    distribution: z.record(z.string(), z.number().int()).openapi({
+      description: "Score → number of ratings, keys '1'..'5'.",
+    }),
+    mine: z.number().int().nullable().openapi({
+      description: "The caller's own score, when signed in and rated.",
+    }),
+    reviews: z.array(
+      z.object({
+        author: z.string(),
+        score: z.number().int(),
+        review_md: z.string(),
+        created_at: z.string(),
+      }),
+    ),
+  })
+  .openapi("RatingSummary");
+
+// ── Comments ──────────────────────────────────────────────────────────
+
+export const CommentCreateSchema = z
+  .object({
+    body_md: z.string().min(1).max(8192),
+    parent_id: z.string().optional(),
+  })
+  .openapi("CommentCreate");
+
+export const CommentSchema = z
+  .object({
+    id: z.string(),
+    mod_id: z.string(),
+    parent_id: z.string().nullable(),
+    author: z.string().nullable().openapi({
+      description: "Null when the comment was deleted.",
+    }),
+    author_avatar: z.string().nullable(),
+    body_md: z.string().nullable(),
+    deleted: z.boolean(),
+    created_at: z.string(),
+  })
+  .openapi("Comment");
+
+export const CommentListSchema = z
+  .object({ comments: z.array(CommentSchema) })
+  .openapi("CommentList");
+
 // ── Row mappers (D1 → API shapes) ─────────────────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

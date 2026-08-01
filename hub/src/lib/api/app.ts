@@ -13,6 +13,7 @@ import { cors } from "hono/cors";
 import type { ApiEnv } from "./bindings";
 import { loginCallback, loginRedirect, logout, sessionUser } from "./auth";
 import { registerPublishRoutes } from "./publish";
+import { registerCommunityRoutes } from "./community";
 import {
   ErrorSchema,
   HealthSchema,
@@ -67,7 +68,17 @@ function decodeCursor(s: string | undefined): Cursor | null {
 
 // ── App ───────────────────────────────────────────────────────────────
 
-export const app = new OpenAPIHono<ApiEnv>().basePath("/api/v1");
+export const app = new OpenAPIHono<ApiEnv>({
+  // Uniform validation failures matching ErrorSchema, instead of raw ZodError.
+  defaultHook: (result, c) => {
+    if (!result.success) {
+      const detail = result.error.issues
+        .map((i) => `${i.path.join(".") || "body"}: ${i.message}`)
+        .join("; ");
+      return c.json({ error: "validation", message: detail }, 400);
+    }
+  },
+}).basePath("/api/v1");
 
 // Fully open reads: any origin may call the API from a browser.
 app.use(
@@ -311,11 +322,19 @@ app.openapi(
     const row = await c.env.DB.prepare(
       `SELECT m.*, COALESCE(u.display_name, u.discord_username) AS author
        FROM mods m JOIN users u ON u.id = m.owner_id
-       WHERE m.slug = ?1 AND m.status = 'published'`,
+       WHERE m.slug = ?1`,
     )
       .bind(slug)
       .first();
     if (!row) return c.json({ error: "not_found" }, 404);
+    if (row.status !== "published") {
+      // Drafts are visible to their owner (and moderators) only, so the
+      // manage flow can run before the first release publishes the mod.
+      const user = await sessionUser(c);
+      if (!user || (row.owner_id !== user.id && user.role === "user")) {
+        return c.json({ error: "not_found" }, 404);
+      }
+    }
     return c.json({ ...modFromRow(row), description_md: (row.description_md as string) ?? null }, 200);
   },
 );
@@ -361,6 +380,10 @@ app.openapi(
 // ── Publishing & conflicts ────────────────────────────────────────────
 
 registerPublishRoutes(app);
+
+// ── Community: media, ratings, comments ───────────────────────────────
+
+registerCommunityRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

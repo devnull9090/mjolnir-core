@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Download, Construction } from "lucide-react";
 import { MobileNav } from "./MobileNav";
+import { AuthButton } from "./AuthButton";
 
 function DiscordIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -88,6 +89,7 @@ export function Navbar() {
             <Download className="w-4 h-4" />
             Download
           </Link>
+          <AuthButton />
         </div>
 
         {/* Mobile hamburger */}
