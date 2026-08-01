@@ -5,6 +5,8 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
+mod tools;
+
 // ─── Manifest URL ───────────────────────────────────────────────────────
 const MANIFEST_URL: &str = "https://releases.mjolnircore.com/modpack/latest/manifest.json";
 const MODPACK_ZIP_URL: &str = "https://releases.mjolnircore.com/modpack/latest/modpack.zip";
@@ -594,6 +596,36 @@ async fn install_modpack(app: AppHandle) -> Result<(), String> {
     result
 }
 
+// ─── Companion tools ────────────────────────────────────────────────────
+
+/// Every tool the launcher can install, with installed and available versions.
+///
+/// This reaches the network, so it runs off the UI thread like the modpack
+/// installer does.
+#[tauri::command]
+async fn get_tools() -> Result<Vec<tools::ToolStatus>, String> {
+    tauri::async_runtime::spawn_blocking(tools::list)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+async fn install_tool(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || tools::install(&app, &id))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+fn launch_tool(id: String) -> Result<(), String> {
+    tools::launch(&id)
+}
+
+#[tauri::command]
+fn uninstall_tool(id: String) -> Result<(), String> {
+    tools::uninstall(&id)
+}
+
 fn emit_progress(app: &AppHandle, stage: &str, message: &str, percent: f32) {
     let _ = app.emit(
         "install-progress",
@@ -865,6 +897,10 @@ pub fn run() {
             install_modpack,
             set_modpack_enabled,
             uninstall_modpack,
+            get_tools,
+            install_tool,
+            launch_tool,
+            uninstall_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
