@@ -26,6 +26,7 @@ const ORDER = [
   "multiplayer_investigation_notes.md",
   "mjolnir_format.md",
   "hub_architecture.md",
+  "contributing_code_mods.md",
 ];
 
 /**

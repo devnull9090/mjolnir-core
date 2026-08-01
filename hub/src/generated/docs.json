@@ -118,6 +118,19 @@
         }
       ],
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/docs/hub_architecture.md"
+    },
+    {
+      "slug": "contributing-code-mods",
+      "title": "Contributing a Code Mod",
+      "summary": "mods — tags, textures, maps, sounds — you don't need any of this: upload a",
+      "body": "**Scope:** UE4SS Lua mods (and, case by case, native DLLs). For content\nmods — tags, textures, maps, sounds — you don't need any of this: upload a\n[`.mjolnir` archive](mjolnir_format.md) at\n[mjolnircore.com/mods/new](https://mjolnircore.com/mods/new).\n\n## Why code is different\n\nA Lua mod running under UE4SS has `io`, `os.execute` and\n`package.loadlib` — it can write files and load native libraries, which\nmakes it exactly as powerful as a DLL. There is no reliable way to scan\nthat power away, so we do not pretend to: **everything that executes ships\nfrom this repository**, where it arrived as a pull request someone read,\nwas built by CI, and is covered by a signature the launcher checks\n([`docs/hub_architecture.md`](hub_architecture.md) §2).\n\nThe trade is real: you cannot ship a script mod in five minutes. In\nexchange, every player who installs one knows a human read every line.\n\n## The pipeline\n\n1. **Fork and branch.** Your mod lives at `mods/<YourModName>/` following\n   the layout of the existing mods (`scripts/main.lua`, optional\n   `mods.json` metadata).\n2. **Lint clean.** CI runs luacheck over `mods/`; the release workflow\n   treats warnings as fatal. Run it locally first.\n3. **Open a pull request** using the code-mod template. Fill in what the\n   mod does, every capability it uses (file I/O, network, input hooks,\n   console commands), and how to test it in game.\n4. **Review.** A maintainer reads the code — all of it. Obfuscated,\n   minified, or needlessly clever code is returned, not debated. Budget a\n   round or two of feedback.\n5. **Release.** Merged mods ship in the next `mods-v*` tag.\n   `release-mods.yml` builds every mod into a versioned zip, writes a\n   manifest with each artifact's SHA-256, signs the manifest with the\n   release key, and publishes to GitHub Releases and\n   `releases.mjolnircore.com/mods/`. The launcher pins\n   [`keys/mod-signing.pub`](../keys/mod-signing.pub) and installs nothing\n   that fails verification.\n\n## Review criteria\n\nWritten down so the bar is legible, not vibes:\n\n- **Capabilities must be declared.** Any use of `io`, `os`, `package`,\n  `loadstring`/`load`, `require` beyond the UE4SS API, or network access\n  must be listed in the PR and justified by the mod's stated purpose. An\n  undeclared capability is an automatic return, however innocent.\n- **No fetched code.** A mod may not download, generate, or otherwise\n  acquire code at runtime. What ships is what runs.\n- **No obfuscation.** If a reviewer cannot read it, it does not merge.\n- **Smallest footprint that works.** Hooks are scoped, polling is\n  justified, nothing rummages outside the game and the mod's own\n  directory.\n- **Plays well with the set.** Mods ship together; a mod that breaks\n  another mod, or the base game outside its stated purpose, is returned.\n\nNative DLLs add: source must build reproducibly in CI from what is in the\nrepo, with no prebuilt binaries in the tree, and the bar for accepting one\nat all is materially higher — expect \"can this be Lua?\" as the first\nquestion.\n\n## Versioning\n\nThe set version (`mods-vX.Y.Z`) is the unit of release; individual mods\ndeclare their own version in their metadata and it appears in the\nmanifest. Yanking a bad set is a new tag, never a mutated old one.",
+      "meta": [
+        {
+          "label": "Scope",
+          "value": "UE4SS Lua mods (and, case by case, native DLLs). For content"
+        }
+      ],
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/docs/contributing_code_mods.md"
     }
   ],
   "guides": [
