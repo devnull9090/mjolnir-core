@@ -11,7 +11,8 @@
     {
       "binding": "DB",
       "database_name": "mjolnir-db",
-      "database_id": "2bd39427-6b15-48aa-bce7-74913218e245"
+      "database_id": "2bd39427-6b15-48aa-bce7-74913218e245",
+      "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [

@@ -10,6 +10,8 @@
     "build": "npm run sync && next build",
     "start": "next start",
     "lint": "eslint",
+    "db:migrate": "wrangler d1 migrations apply mjolnir-db --local",
+    "db:migrate:prod": "wrangler d1 migrations apply mjolnir-db --remote",
     "cf:build": "npx @opennextjs/cloudflare build",
     "preview": "npm run cf:build && npx wrangler dev",
     "deploy": "npm run cf:build && npx wrangler deploy"
