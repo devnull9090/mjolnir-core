@@ -42,13 +42,22 @@ jobs:
         with:
           workspaces: apps/tag-editor/src-tauri -> target
 
-      - name: Rust tests
-        run: cargo test --release
-        working-directory: apps/tag-editor/src-tauri
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: apps/tag-editor
+
+      # Must come before the Rust build below: the `custom-protocol` feature is
+      # on by default, so `generate_context!()` embeds `../dist` at compile time
+      # and fails the build outright when it does not exist yet.
+      - name: Build frontend
+        run: pnpm build
+        working-directory: apps/tag-editor
+
+      # Runs with default features, matching what ships, so this also warms the
+      # cargo cache for the Tauri build rather than forcing a full recompile.
+      - name: Rust tests
+        run: cargo test --release
+        working-directory: apps/tag-editor/src-tauri
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0
