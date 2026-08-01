@@ -1,0 +1,2779 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MJOLNIR Hub API",
+    "version": "1.0.0",
+    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools authenticate with `Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, mods:write, ratings:write, comments:write), minted at /account/api-keys. Any authenticated write may additionally answer 401 (no identity), 403 (missing scope), or 429 (per-subject hourly write budget) with the standard Error shape."
+  },
+  "servers": [
+    {
+      "url": "https://mjolnircore.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "service": {
+            "type": "string",
+            "enum": [
+              "mjolnir-hub"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "timestamp"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "not_found"
+          },
+          "message": {
+            "type": "string",
+            "example": "No mod with that slug."
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "0198c2f4-6c1e-7c33-a1b0-9a1c2d3e4f56"
+          },
+          "username": {
+            "type": "string",
+            "example": "devnull9090"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord CDN avatar, when the user has one."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "moderator",
+              "admin"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "avatar_url",
+          "role",
+          "created_at"
+        ]
+      },
+      "ModList": {
+        "type": "object",
+        "properties": {
+          "mods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mod"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to fetch the next page; null when exhausted."
+          }
+        },
+        "required": [
+          "mods",
+          "next_cursor"
+        ]
+      },
+      "Mod": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "example": "mjolnir-flycam"
+          },
+          "name": {
+            "type": "string",
+            "example": "MJOLNIRFlyCam"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "content",
+              "script",
+              "native"
+            ],
+            "description": "Trust tier. `content` mods are inert game data and open to community upload. `script` (UE4SS Lua) and `native` (DLL) mods can execute code, so they ship exclusively from the mjolnir-core repository's reviewed, signed CI releases."
+          },
+          "category": {
+            "type": "string",
+            "example": "camera"
+          },
+          "license": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nsfw": {
+            "type": "boolean"
+          },
+          "download_count": {
+            "type": "integer"
+          },
+          "rating_count": {
+            "type": "integer"
+          },
+          "rating_mean": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "author": {
+            "type": "string",
+            "description": "Owner's display name (or Discord username)."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "summary",
+          "type",
+          "category",
+          "license",
+          "nsfw",
+          "download_count",
+          "rating_count",
+          "rating_mean",
+          "author",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "ModDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Mod"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "description_md": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Full mod page body, Markdown."
+              }
+            },
+            "required": [
+              "description_md"
+            ]
+          }
+        ]
+      },
+      "ReleaseList": {
+        "type": "object",
+        "properties": {
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          }
+        },
+        "required": [
+          "releases"
+        ]
+      },
+      "Release": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.2.0"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ]
+          },
+          "changelog_md": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hash of the release archive; verify after download."
+          },
+          "build_min": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Oldest game build this release is declared compatible with."
+          },
+          "build_max": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "download_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "version",
+          "channel",
+          "changelog_md",
+          "file_size",
+          "sha256",
+          "build_min",
+          "build_max",
+          "download_count",
+          "created_at"
+        ]
+      },
+      "ModCreate": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+            "example": "my-texture-pack"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "description_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 40,
+            "default": "gameplay"
+          },
+          "license": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "nsfw": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ]
+      },
+      "ReleaseCreate": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "default": "stable"
+          },
+          "changelog_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "build_min": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "build_max": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "ReleaseStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "scanning",
+              "published",
+              "rejected",
+              "yanked"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "chunk_count": {
+            "type": "integer",
+            "description": "IoStore chunks this release claims, once scanned."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanFinding"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "version",
+          "status",
+          "sha256",
+          "file_size",
+          "chunk_count",
+          "findings",
+          "created_at"
+        ]
+      },
+      "ScanFinding": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "example": "forbidden_file"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "code",
+          "message"
+        ]
+      },
+      "ConflictList": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictEntry"
+            }
+          }
+        },
+        "required": [
+          "release_id",
+          "conflicts"
+        ]
+      },
+      "ConflictEntry": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "mod_slug": {
+            "type": "string"
+          },
+          "mod_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "shared_chunks": {
+            "type": "integer",
+            "description": "How many IoStore chunk IDs both releases claim."
+          }
+        },
+        "required": [
+          "release_id",
+          "mod_slug",
+          "mod_name",
+          "version",
+          "shared_chunks"
+        ]
+      },
+      "ConflictCheckResponse": {
+        "type": "object",
+        "properties": {
+          "pairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictPair"
+            },
+            "description": "Every conflicting pair among the requested releases. Empty means the set installs cleanly in any order."
+          }
+        },
+        "required": [
+          "pairs"
+        ]
+      },
+      "ConflictPair": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "string"
+          },
+          "b": {
+            "type": "string"
+          },
+          "shared_chunks": {
+            "type": "integer"
+          },
+          "sample_chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 10 shared chunk IDs, hex-encoded 12-byte identifiers."
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "shared_chunks",
+          "sample_chunk_ids"
+        ]
+      },
+      "ConflictCheckRequest": {
+        "type": "object",
+        "properties": {
+          "release_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 50,
+            "description": "Releases a client intends to install together."
+          }
+        },
+        "required": [
+          "release_ids"
+        ]
+      },
+      "MediaList": {
+        "type": "object",
+        "properties": {
+          "media": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Media"
+            }
+          }
+        },
+        "required": [
+          "media"
+        ]
+      },
+      "Media": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Where the image is served from."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "screenshot",
+              "thumbnail"
+            ]
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Author-provided description; required on upload."
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "position": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "url",
+          "kind",
+          "alt_text",
+          "width",
+          "height",
+          "position",
+          "created_at"
+        ]
+      },
+      "RatingPut": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "review_md": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "score"
+        ]
+      },
+      "RatingSummary": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "mean": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "distribution": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Score → number of ratings, keys '1'..'5'."
+          },
+          "mine": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The caller's own score, when signed in and rated."
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "author": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "integer"
+                },
+                "review_md": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "author",
+                "score",
+                "review_md",
+                "created_at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "count",
+          "mean",
+          "distribution",
+          "mine",
+          "reviews"
+        ]
+      },
+      "CommentList": {
+        "type": "object",
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          }
+        },
+        "required": [
+          "comments"
+        ]
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mod_id": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null when the comment was deleted."
+          },
+          "author_avatar": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body_md": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mod_id",
+          "parent_id",
+          "author",
+          "author_avatar",
+          "body_md",
+          "deleted",
+          "created_at"
+        ]
+      },
+      "CommentCreate": {
+        "type": "object",
+        "properties": {
+          "body_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "parent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body_md"
+        ]
+      },
+      "ApiKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key_prefix": {
+            "type": "string",
+            "example": "mjc_a1b2c3",
+            "description": "For telling keys apart; not the key."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mods:read",
+                "mods:write",
+                "ratings:write",
+                "comments:write"
+              ]
+            }
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "key_prefix",
+          "scopes",
+          "last_used_at",
+          "expires_at",
+          "created_at"
+        ]
+      },
+      "ApiKeyCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiKey"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "The full key. Shown exactly once — store it now.",
+                "example": "mjc_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        ]
+      },
+      "ApiKeyCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "my-mod-manager"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mods:read",
+                "mods:write",
+                "ratings:write",
+                "comments:write"
+              ]
+            },
+            "minItems": 1,
+            "default": [
+              "mods:read"
+            ]
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ReportCreate": {
+        "type": "object",
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "mod",
+              "release",
+              "comment",
+              "media",
+              "user"
+            ]
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "malware",
+              "stolen",
+              "broken",
+              "nsfw",
+              "spam",
+              "other"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "subject_type",
+          "subject_id",
+          "reason"
+        ]
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reporter": {
+            "type": "string"
+          },
+          "subject_type": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reporter",
+          "subject_type",
+          "subject_id",
+          "reason",
+          "detail",
+          "status",
+          "created_at"
+        ]
+      },
+      "ReportDecision": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "resolve",
+              "dismiss"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Service health",
+        "responses": {
+          "200": {
+            "description": "The service is up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/discord": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Begin Discord OAuth",
+        "description": "Redirects the browser to Discord's consent screen. Pass `next` to return to a specific page after login.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "next",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to Discord."
+          },
+          "500": {
+            "description": "OAuth is not configured on this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/discord/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "OAuth callback",
+        "description": "Discord redirects here; on success a session cookie is set.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "code",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Logged in; redirect to `next`."
+          },
+          "400": {
+            "description": "State mismatch or missing code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is banned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Discord rejected the exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current session",
+        "responses": {
+          "200": {
+            "description": "The signed-in user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign out",
+        "responses": {
+          "200": {
+            "description": "Session cookie cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "List published mods",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination cursor from a previous response."
+            },
+            "required": false,
+            "description": "Opaque pagination cursor from a previous response.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Page size, 1-100."
+            },
+            "required": false,
+            "description": "Page size, 1-100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Search in name and summary."
+            },
+            "required": false,
+            "description": "Search in name and summary.",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "category",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "content",
+                "script",
+                "native"
+              ]
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "newest",
+                "downloads",
+                "rating"
+              ],
+              "default": "newest"
+            },
+            "required": false,
+            "name": "sort",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of mods.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Create a mod",
+        "description": "Creates a draft `content` mod owned by the signed-in user. Script and native mods cannot be created here; they ship from the mjolnir-core repository's release pipeline.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Slug taken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "A mod by slug",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/releases": {
+      "get": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "Published releases of a mod, newest first",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The releases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Create a pending release",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The pending release; upload its archive next.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Release"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner, or not a content mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive": {
+      "put": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Upload the .mjolnir archive",
+        "description": "Raw zip bytes, at most 50 MiB. Re-uploading while pending or rejected replaces the archive and resets the release to pending.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; call /complete to scan and publish.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sha256": {
+                      "type": "string"
+                    },
+                    "file_size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "sha256",
+                    "file_size"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Archive too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/complete": {
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Scan the uploaded archive and publish or reject",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan finished; status says whether it published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No archive uploaded, or already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}": {
+      "get": {
+        "tags": [
+          "releases"
+        ],
+        "summary": "Release status and scan findings",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/download": {
+      "get": {
+        "tags": [
+          "releases"
+        ],
+        "summary": "Download the release archive",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The .mjolnir archive (zip)."
+          },
+          "404": {
+            "description": "Not published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/conflicts": {
+      "get": {
+        "tags": [
+          "conflicts"
+        ],
+        "summary": "Published releases that claim any of the same chunks",
+        "description": "Two content releases conflict exactly when their IoStore containers claim at least one chunk ID in common; whichever mounts later wins those chunks. Computed from the uploaded containers, not from author declarations.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conflicting releases, most-overlapping first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conflicts/check": {
+      "post": {
+        "tags": [
+          "conflicts"
+        ],
+        "summary": "Conflict matrix for a set of releases",
+        "description": "The endpoint mod managers integrate against: given the releases a profile intends to install, returns every pair that claims the same chunk. An empty list means any load order works.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConflictCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "All conflicting pairs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictCheckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/media": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "A mod's screenshots",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The images.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Upload a screenshot",
+        "description": "multipart/form-data with `file` (png, jpeg or webp, ≤ 8 MiB) and `alt_text` (required — every image ships with a description).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "alt_text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "alt_text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The stored image.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing alt text or not an image.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Image too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/{id}": {
+      "delete": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Delete a screenshot",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such image.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Serve an image",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The image bytes."
+          },
+          "404": {
+            "description": "No such image.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/ratings/me": {
+      "put": {
+        "tags": [
+          "ratings"
+        ],
+        "summary": "Rate a mod",
+        "description": "One rating per user per mod; calling again replaces yours.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RatingPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/ratings": {
+      "get": {
+        "tags": [
+          "ratings"
+        ],
+        "summary": "Rating summary and recent reviews",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RatingSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "A mod's comment thread",
+        "description": "Flat list, oldest first; `parent_id` links replies. Clients assemble the tree.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The comments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Post a comment",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Posted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad parent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/comments/{id}": {
+      "delete": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Delete a comment",
+        "description": "Author or moderator. Soft delete: the thread keeps its shape, the body is blanked.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not yours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such comment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/api-keys": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List your API keys",
+        "responses": {
+          "200": {
+            "description": "Active (non-revoked) keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "keys": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ApiKey"
+                      }
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Create an API key",
+        "description": "Keys are created from a browser session only — a key cannot mint more keys. The full key appears once in the response and never again.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The key — store it now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Too many keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API keys cannot create keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Revoke an API key",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Report content",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Filed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/reports": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "The report queue (moderators)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved",
+                "dismissed"
+              ],
+              "default": "open"
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reports, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Report"
+                      }
+                    }
+                  },
+                  "required": [
+                    "reports"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/reports/{id}": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Resolve or dismiss a report (moderators)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such open report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/yank": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Yank a published release",
+        "description": "Owner or moderator. A yanked release stops being downloadable and leaves the conflict index, but its record and scan history remain.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not yours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such published release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

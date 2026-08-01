@@ -1,0 +1,151 @@
+name: Release Code Mods
+
+# The trust boundary for anything that executes (docs/hub_architecture.md §2):
+# script and native mods never travel through the hub's open upload. They live
+# in this repository, arrive as reviewed pull requests, and ship only from
+# here — built in CI, hashed, and covered by an Ed25519 signature the launcher
+# pins (keys/mod-signing.pub). A compromised storage bucket therefore cannot
+# ship a payload: nothing installs unless the signed manifest says so.
+
+on:
+  push:
+    tags:
+      - 'mods-v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build, sign & publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same lint gate as CI, but blocking: nothing ships with warnings
+      # suppressed.
+      - name: Lint Lua mods
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq luarocks > /dev/null
+          sudo luarocks install luacheck > /dev/null
+          luacheck mods/ signatures/ \
+            --no-unused-args \
+            --no-max-line-length \
+            --std luajit \
+            --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
+                      RegisterConsoleCommandHandler IsKeyBindRegistered \
+                      ExecuteInGameThread ExecuteInGameThreadWithDelay \
+                      FindFirstOf FindAllOf StaticFindObject StaticConstructObject \
+                      FName FText Key ModifierKey NotifyOnNewObject \
+                      LoopAsync ExecuteAsync CreateInvalidationContext \
+                      LoadAsset ForEachUObject IterateGameDirectories \
+                      UEHelpers \
+            --ignore 111 112 113 114 131 212
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Package each mod and write the manifest
+        id: build
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#mods-v}"
+          mkdir -p dist
+          MANIFEST='{"schema_version":1,"set_version":"'"$VERSION"'","mods":['
+          FIRST=1
+          for dir in mods/*/; do
+            name=$(basename "$dir")
+            file="dist/${name}-${VERSION}.zip"
+            (cd mods && zip -qr "../$file" "$name")
+            sha=$(sha256sum "$file" | cut -d' ' -f1)
+            size=$(stat -c%s "$file")
+            [ $FIRST -eq 1 ] || MANIFEST+=','
+            FIRST=0
+            MANIFEST+='{"id":"'"$name"'","file":"'"${name}-${VERSION}.zip"'","sha256":"'"$sha"'","size":'"$size"',"url":"https://releases.mjolnircore.com/mods/'"$VERSION"'/'"${name}-${VERSION}.zip"'"}'
+            echo "packaged $name ($sha)"
+          done
+          MANIFEST+=']}'
+          echo "$MANIFEST" | node -e "process.stdout.write(JSON.stringify(JSON.parse(require('fs').readFileSync(0,'utf8')), null, 2) + '\n')" > dist/manifest.json
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          cat dist/manifest.json
+
+      - name: Sign the manifest
+        env:
+          MODS_SIGNING_KEY: ${{ secrets.MODS_SIGNING_KEY }}
+        run: node scripts/sign-manifest.mjs dist/manifest.json dist/manifest.json.sig
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum *.zip manifest.json > "checksums-${GITHUB_REF_NAME}.txt"
+          cat "checksums-${GITHUB_REF_NAME}.txt"
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "MJOLNIR Code Mods ${{ github.ref_name }}"
+          files: |
+            dist/*.zip
+            dist/manifest.json
+            dist/manifest.json.sig
+            dist/checksums-${{ github.ref_name }}.txt
+          body: |
+            ## MJOLNIR Code Mods ${{ github.ref_name }}
+
+            The signed set of UE4SS script mods. Every artifact's hash is in
+            `manifest.json`, and `manifest.json.sig` is its Ed25519 signature
+            over the manifest — verify with `keys/mod-signing.pub` from this
+            repository. The launcher does this automatically and installs
+            nothing that fails verification.
+
+            Script mods ship only from this repository's reviewed pull
+            requests — see docs/contributing_code_mods.md to contribute one.
+
+      - name: Upload to R2 (releases.mjolnircore.com)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npm install -g wrangler
+          VER="${{ steps.build.outputs.version }}"
+          BASE="mjolnir-releases/mods"
+
+          # Artifacts first, manifest + signature last: nothing advertises a
+          # file that is not uploaded yet.
+          for f in dist/*.zip; do
+            wrangler r2 object put "$BASE/$VER/$(basename "$f")" --file="$f" --remote
+          done
+          wrangler r2 object put "$BASE/$VER/checksums.txt" --file="dist/checksums-${GITHUB_REF_NAME}.txt" --remote
+          wrangler r2 object put "$BASE/$VER/manifest.json" --file=dist/manifest.json --remote
+          wrangler r2 object put "$BASE/$VER/manifest.json.sig" --file=dist/manifest.json.sig --remote
+          wrangler r2 object put "$BASE/latest/manifest.json" --file=dist/manifest.json --remote
+          wrangler r2 object put "$BASE/latest/manifest.json.sig" --file=dist/manifest.json.sig --remote
+          echo "Uploaded mods $VER"
+
+      - name: Post release notification to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping."
+            exit 0
+          fi
+          echo "::add-mask::$DISCORD_WEBHOOK_URL"
+          VER="${{ steps.build.outputs.version }}"
+          curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d '{
+            "username": "MJOLNIR Core Releases",
+            "avatar_url": "https://mjolnircore.com/logo-transparent.png",
+            "embeds": [{
+              "title": "🧩 MJOLNIR Code Mods '"${GITHUB_REF_NAME}"' Released!",
+              "url": "https://github.com/devnull9090/mjolnir-core/releases/tag/'"${GITHUB_REF_NAME}"'",
+              "description": "Reviewed, built and Ed25519-signed set of UE4SS script mods. The launcher verifies the signature before installing anything.",
+              "color": 13936707,
+              "fields": [{ "name": "📦 Set version", "value": "v'"$VER"'", "inline": true }],
+              "footer": { "text": "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+            }]
+          }'

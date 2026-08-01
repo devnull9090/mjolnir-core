@@ -16,7 +16,7 @@
 //!
 //! See `docs/iostore_packaging.md`.
 
-use crate::toc::{Block, ChunkId, ChunkOffset, Toc};
+use crate::toc::{hash_chunk_id_with_seed, Block, ChunkId, ChunkOffset, Toc};
 
 /// Blocks are stored 16-byte aligned in the `.ucas`; the reader reads the
 /// padded length and trims, so the padding has to actually be there.
@@ -58,6 +58,114 @@ fn empty_directory_index() -> Vec<u8> {
     out.extend_from_slice(&0i32.to_le_bytes()); // files
     out.extend_from_slice(&0i32.to_le_bytes()); // strings
     out
+}
+
+/// The perfect-hash tables for a set of chunk IDs, plus the entry order they
+/// imply.
+///
+/// The reader finds a chunk in two hops: `hash(0, id) % seed_count` picks a
+/// seed, and the seed picks the entry slot — directly when negative
+/// (`-seed - 1`), by rehash (`hash(seed, id) % entry_count`) when positive.
+/// The consequence that makes this a *placement* problem rather than just a
+/// table to emit: the TOC's per-chunk arrays must be ordered so each chunk
+/// sits at the slot its seed sends the reader to.
+///
+/// The earlier version of this packer missed that. It wrote seed `-i - 1`
+/// into table slot `i` in input order, which only agrees with the reader's
+/// seed choice when there is one chunk — the reason multi-chunk containers
+/// silently exposed a single chunk (`docs/iostore_packaging.md`).
+struct PerfectHash {
+    /// One signed seed per table slot; zero means no chunk hashes there.
+    seeds: Vec<i32>,
+    /// Slots findable only by scanning, for buckets no seed could place.
+    overflow: Vec<u32>,
+    /// `entry_at_slot[slot]` is the caller's entry index stored at that slot.
+    entry_at_slot: Vec<usize>,
+}
+
+impl PerfectHash {
+    /// How many seeds to try for one bucket before shunting it to the
+    /// overflow list. Buckets average two chunks, so real searches end within
+    /// a handful of iterations; the cap only bounds pathological inputs such
+    /// as duplicate IDs, which can never be placed.
+    const SEED_LIMIT: i32 = 1 << 20;
+
+    fn generate(ids: &[ChunkId]) -> PerfectHash {
+        let n = ids.len();
+        // The engine's writer sizes the table at half the chunk count. Any
+        // count works — the reader takes it from the header — but matching
+        // keeps our output comparable to shipped containers.
+        let seed_count = (n / 2).max(1);
+
+        let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); seed_count];
+        for (e, id) in ids.iter().enumerate() {
+            buckets[(hash_chunk_id_with_seed(0, id) % seed_count as u64) as usize].push(e);
+        }
+
+        // Big buckets first, while free slots are plentiful.
+        let mut order: Vec<usize> = (0..seed_count).collect();
+        order.sort_by_key(|&b| std::cmp::Reverse(buckets[b].len()));
+
+        let mut seeds = vec![0i32; seed_count];
+        let mut entry_at_slot = vec![usize::MAX; n];
+        let mut taken = vec![false; n];
+        let mut singles: Vec<usize> = Vec::new();
+        let mut spill: Vec<usize> = Vec::new();
+
+        for &b in &order {
+            let bucket = &buckets[b];
+            match bucket.len() {
+                0 => break, // sorted descending: the rest are empty too
+                1 => singles.push(b),
+                _ => {
+                    let seed = (1..=Self::SEED_LIMIT).find(|&seed| {
+                        let mut slots = Vec::with_capacity(bucket.len());
+                        bucket.iter().all(|&e| {
+                            let s = (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
+                            let free = !taken[s] && !slots.contains(&s);
+                            slots.push(s);
+                            free
+                        })
+                    });
+                    match seed {
+                        Some(seed) => {
+                            seeds[b] = seed;
+                            for &e in bucket {
+                                let s = (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
+                                taken[s] = true;
+                                entry_at_slot[s] = e;
+                            }
+                        }
+                        None => spill.extend_from_slice(bucket),
+                    }
+                }
+            }
+        }
+
+        // Chunks alone in their bucket don't need a search: park each in the
+        // next free slot and store the slot in the seed directly.
+        let mut free = (0..n).filter(|&s| !taken[s]);
+        for b in singles {
+            let s = free.next().expect("as many free slots as chunks");
+            entry_at_slot[s] = buckets[b][0];
+            seeds[b] = -(s as i32) - 1;
+        }
+
+        // Unplaceable chunks still occupy slots; the reader finds them by
+        // scanning the overflow list.
+        let mut overflow = Vec::with_capacity(spill.len());
+        for e in spill {
+            let s = free.next().expect("as many free slots as chunks");
+            entry_at_slot[s] = e;
+            overflow.push(s as u32);
+        }
+
+        PerfectHash {
+            seeds,
+            overflow,
+            entry_at_slot,
+        }
+    }
 }
 
 /// Build an override container.
@@ -108,11 +216,30 @@ pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container 
         uncompressed_cursor += used as u64;
     }
 
-    // One seed per chunk. A negative seed means "the entry is at index
-    // -seed - 1", which is how the shipped one-chunk containers are written.
-    let mut perfect_hash = Vec::with_capacity(4 * entries.len());
-    for i in 0..entries.len() {
-        perfect_hash.extend_from_slice(&(-(i as i32) - 1).to_le_bytes());
+    // Build the perfect-hash tables and reorder every per-chunk array to
+    // match: the entry index *is* the hash slot, so the arrays cannot stay in
+    // input order once more than one chunk is present.
+    let hash = PerfectHash::generate(&chunk_ids);
+    let chunk_ids: Vec<ChunkId> = hash.entry_at_slot.iter().map(|&e| chunk_ids[e]).collect();
+    let chunk_offsets: Vec<ChunkOffset> = hash
+        .entry_at_slot
+        .iter()
+        .map(|&e| chunk_offsets[e])
+        .collect();
+    let chunk_meta: Vec<u8> = hash
+        .entry_at_slot
+        .iter()
+        .flat_map(|&e| {
+            chunk_meta[e * crate::toc::CHUNK_META..(e + 1) * crate::toc::CHUNK_META].to_vec()
+        })
+        .collect();
+
+    let mut perfect_hash = Vec::with_capacity(4 * (hash.seeds.len() + hash.overflow.len()));
+    for s in &hash.seeds {
+        perfect_hash.extend_from_slice(&s.to_le_bytes());
+    }
+    for o in &hash.overflow {
+        perfect_hash.extend_from_slice(&o.to_le_bytes());
     }
 
     let toc = Toc {
@@ -127,9 +254,9 @@ pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container 
         encryption_guid: [0; 16],
         flags: crate::FLAG_INDEXED,
         reserved1: template.reserved1,
-        perfect_hash_seed_count: entries.len() as u32,
+        perfect_hash_seed_count: hash.seeds.len() as u32,
         partition_size: template.partition_size,
-        chunks_without_perfect_hash: 0,
+        chunks_without_perfect_hash: hash.overflow.len() as u32,
         header_tail: template.header_tail.clone(),
         chunk_ids,
         chunk_offsets,
@@ -271,36 +398,131 @@ mod tests {
         );
         let toc = Toc::parse(&built.utoc).unwrap();
         // The reader finds a chunk's blocks by dividing its offset by the block
-        // size, so a chunk starting mid-block would read the wrong data.
-        assert_eq!(toc.chunk_offsets[0].offset, 0);
-        assert_eq!(toc.chunk_offsets[1].offset, 64);
+        // size, so a chunk starting mid-block would read the wrong data. The
+        // perfect hash decides which chunk sits at which slot, so assert on
+        // the set of offsets rather than their order.
+        let mut offsets: Vec<u64> = toc.chunk_offsets.iter().map(|o| o.offset).collect();
+        offsets.sort_unstable();
+        assert_eq!(offsets, vec![0, 64]);
+    }
+
+    /// Read a chunk's bytes back out of a built container, resolving it the
+    /// way the engine would.
+    fn read_back(toc: &Toc, ucas: &[u8], cid: ChunkId) -> Option<Vec<u8>> {
+        let slot = toc.find_chunk(&cid)?;
+        assert_eq!(toc.chunk_ids[slot], cid, "slot must hold the chunk asked for");
+        let off = toc.chunk_offsets[slot];
+        let bs = toc.compression_block_size as usize;
+        let mut out = Vec::new();
+        let mut block = off.offset as usize / bs;
+        let mut remaining = off.length as usize;
+        while remaining > 0 {
+            let b = &toc.blocks[block];
+            let take = remaining.min(b.uncompressed_size as usize);
+            out.extend_from_slice(&ucas[b.offset as usize..b.offset as usize + take]);
+            remaining -= take;
+            block += 1;
+        }
+        Some(out)
     }
 
     #[test]
-    fn seeds_point_directly_at_each_entry() {
+    fn a_single_chunk_container_matches_the_shipped_shape() {
+        // pakchunk1-Windows carries exactly this: one seed, and it is -1.
+        let built = build(
+            &template(),
+            0,
+            &[Entry {
+                id: id(7),
+                data: vec![3u8; 8],
+                meta: vec![0; 24],
+            }],
+        );
+        let toc = Toc::parse(&built.utoc).unwrap();
+        assert_eq!(toc.perfect_hash_seed_count, 1);
+        assert_eq!(toc.perfect_hash_seeds(), vec![-1]);
+        assert_eq!(toc.chunks_without_perfect_hash, 0);
+        assert_eq!(toc.find_chunk(&id(7)), Some(0));
+    }
+
+    #[test]
+    fn every_chunk_in_a_multi_chunk_container_resolves() {
+        // The old writer emitted seeds the reader's hash never selects, so a
+        // multi-chunk container silently exposed one chunk. Resolve every
+        // chunk through the reader's own algorithm and check its bytes.
+        let mut t = template();
+        t.compression_block_size = 64;
+
+        for n in [2usize, 3, 7, 25, 200] {
+            let entries: Vec<Entry> = (0..n)
+                .map(|i| Entry {
+                    // Vary every field that feeds the hash, and size chunks
+                    // across block boundaries.
+                    id: ChunkId {
+                        id: 0x1000 + 37 * i as u64,
+                        index: (i % 5) as u16,
+                        pad: 0,
+                        kind: if i % 3 == 0 { 1 } else { 2 },
+                    },
+                    data: vec![i as u8; 40 + (i % 4) * 64],
+                    meta: vec![0; 24],
+                })
+                .collect();
+
+            let built = build(&t, 0xC0FFEE, &entries);
+            let toc = Toc::parse(&built.utoc).unwrap();
+            assert_eq!(toc.chunk_ids.len(), n);
+            assert_eq!(toc.perfect_hash_seed_count as usize, (n / 2).max(1));
+
+            for e in &entries {
+                let data = read_back(&toc, &built.ucas, e.id)
+                    .unwrap_or_else(|| panic!("chunk {:?} of {n} must resolve", e.id));
+                assert_eq!(data, e.data, "chunk {:?} of {n} must round-trip", e.id);
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_records_follow_their_chunks_through_the_permutation() {
+        let entries: Vec<Entry> = (0..8u8)
+            .map(|i| Entry {
+                id: id(100 + i as u64),
+                data: vec![i; 4],
+                meta: vec![i; 24], // distinct per chunk, recognisable
+            })
+            .collect();
+        let built = build(&template(), 0, &entries);
+        let toc = Toc::parse(&built.utoc).unwrap();
+        for e in &entries {
+            let slot = toc.find_chunk(&e.id).expect("resolves");
+            assert_eq!(toc.meta(slot).unwrap(), &e.meta[..], "meta must move with its chunk");
+        }
+    }
+
+    #[test]
+    fn duplicate_ids_fall_back_to_the_overflow_list() {
+        // Two entries with the same ID can never both get a perfect-hash
+        // slot. They must not wedge the seed search; they land in the
+        // overflow list and the scan finds the first.
         let built = build(
             &template(),
             0,
             &[
                 Entry {
-                    id: id(1),
-                    data: vec![0; 4],
+                    id: id(5),
+                    data: vec![1; 4],
                     meta: vec![0; 24],
                 },
                 Entry {
-                    id: id(2),
-                    data: vec![0; 4],
+                    id: id(5),
+                    data: vec![2; 4],
                     meta: vec![0; 24],
                 },
             ],
         );
         let toc = Toc::parse(&built.utoc).unwrap();
-        assert_eq!(toc.perfect_hash_seed_count, 2);
-        let seeds: Vec<i32> = toc
-            .perfect_hash
-            .chunks_exact(4)
-            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
-            .collect();
-        assert_eq!(seeds, vec![-1, -2], "-seed - 1 is the entry index");
+        assert_eq!(toc.chunks_without_perfect_hash, 2);
+        let slot = toc.find_chunk(&id(5)).expect("still findable");
+        assert_eq!(toc.chunk_ids[slot], id(5));
     }
 }

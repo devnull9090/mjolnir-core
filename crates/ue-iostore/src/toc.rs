@@ -45,12 +45,43 @@ impl ChunkId {
         }
     }
 
-    fn write(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(&self.id.to_le_bytes());
-        out.extend_from_slice(&self.index.to_be_bytes());
-        out.push(self.pad);
-        out.push(self.kind);
+    /// The twelve bytes as they sit in the file — the form the perfect hash
+    /// is computed over.
+    pub fn bytes(&self) -> [u8; 12] {
+        let mut out = [0u8; 12];
+        out[0..8].copy_from_slice(&self.id.to_le_bytes());
+        out[8..10].copy_from_slice(&self.index.to_be_bytes());
+        out[10] = self.pad;
+        out[11] = self.kind;
+        out
     }
+
+    fn write(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.bytes());
+    }
+}
+
+/// The hash the engine uses for the perfect-hash tables: FNV-1a's prime over
+/// the twelve raw ID bytes, but multiply-then-xor, seeded either by the FNV
+/// offset basis (seed 0) or by the seed itself.
+///
+/// Two details pinned down empirically against `pakchunk0`'s engine-written
+/// tables (all 122,804 chunks resolve; truncating either one resolves ~0):
+/// the modulo downstream is taken on the **full 64-bit hash**, and the seed
+/// is sign-extended from its signed 32-bit table slot. Only non-negative
+/// seeds are ever hashed in practice — negative table entries mean "direct
+/// index" and are never passed here — but the extension is kept faithful
+/// anyway.
+pub fn hash_chunk_id_with_seed(seed: i32, id: &ChunkId) -> u64 {
+    let mut hash: u64 = if seed != 0 {
+        seed as i64 as u64
+    } else {
+        0xcbf2_9ce4_8422_2325
+    };
+    for b in id.bytes() {
+        hash = hash.wrapping_mul(0x0000_0100_0000_01B3) ^ b as u64;
+    }
+    hash
 }
 
 /// Where a chunk's data sits in the `.ucas`. Both are five-byte big-endian.
@@ -318,6 +349,73 @@ impl Toc {
     pub fn meta(&self, i: usize) -> Option<&[u8]> {
         self.chunk_meta.get(i * CHUNK_META..(i + 1) * CHUNK_META)
     }
+
+    /// The perfect-hash seed table, when the TOC carries one.
+    pub fn perfect_hash_seeds(&self) -> Vec<i32> {
+        self.perfect_hash
+            .get(..4 * self.perfect_hash_seed_count as usize)
+            .unwrap_or(&[])
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    /// The overflow list: entry indices findable only by scanning, because no
+    /// perfect-hash seed places them.
+    pub fn overflow_indices(&self) -> Vec<u32> {
+        if self.version < VER_PERFECT_HASH_WITH_OVERFLOW {
+            return Vec::new();
+        }
+        let start = 4 * self.perfect_hash_seed_count as usize;
+        let len = 4 * self.chunks_without_perfect_hash as usize;
+        self.perfect_hash
+            .get(start..start + len)
+            .unwrap_or(&[])
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    /// Find a chunk's entry index the way the engine does.
+    ///
+    /// This is the reader's algorithm, kept faithful on purpose: it is the
+    /// oracle the packer's tests resolve every chunk through, so a hash table
+    /// the packer writes wrong fails here rather than in the game.
+    ///
+    /// Seed-table slot is `hash(0, id) % seed_count`. A zero seed means no
+    /// chunk hashed there; a negative seed is the entry index directly,
+    /// `-seed - 1`, used for buckets holding one chunk; a positive seed
+    /// rehashes, `hash(seed, id) % entry_count`. Either way the ID at the
+    /// resulting slot must match, otherwise the overflow list is scanned.
+    pub fn find_chunk(&self, id: &ChunkId) -> Option<usize> {
+        let n = self.chunk_ids.len();
+        if n == 0 {
+            return None;
+        }
+
+        let seeds = self.perfect_hash_seeds();
+        if self.version >= VER_PERFECT_HASH && !seeds.is_empty() {
+            let seed = seeds[(hash_chunk_id_with_seed(0, id) % seeds.len() as u64) as usize];
+            if seed != 0 {
+                let slot = if seed < 0 {
+                    (-(seed as i64) - 1) as usize
+                } else {
+                    (hash_chunk_id_with_seed(seed, id) % n as u64) as usize
+                };
+                if slot < n && self.chunk_ids[slot] == *id {
+                    return Some(slot);
+                }
+            }
+            return self
+                .overflow_indices()
+                .into_iter()
+                .map(|i| i as usize)
+                .find(|&i| i < n && self.chunk_ids[i] == *id);
+        }
+
+        // Pre-perfect-hash containers: nothing to consult but the array.
+        self.chunk_ids.iter().position(|c| c == id)
+    }
 }
 
 #[cfg(test)]
@@ -356,5 +454,45 @@ mod tests {
     fn a_short_or_wrong_blob_is_rejected() {
         assert!(matches!(Toc::parse(&[0u8; 200]), Err(Error::BadMagic)));
         assert!(matches!(Toc::parse(&[]), Err(Error::BadMagic)));
+    }
+
+    /// Resolve every chunk of every shipped container through [`Toc::find_chunk`].
+    ///
+    /// This is the ground truth for [`hash_chunk_id_with_seed`]: the seed
+    /// tables in the shipped TOCs were written by the engine, so if our hash
+    /// disagreed with the engine's on any of pakchunk0's 122,800 IDs, some
+    /// lookup here would miss its slot. Ignored by default because it needs
+    /// an installed game; point `MJOLNIR_PAKS` at the `Paks` directory and
+    /// run with `--ignored`.
+    #[test]
+    #[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+    fn every_shipped_chunk_resolves_through_the_perfect_hash() {
+        let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+        let mut containers = 0usize;
+        let mut chunks = 0usize;
+        for entry in std::fs::read_dir(&paks).expect("readable Paks dir") {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "utoc") {
+                continue;
+            }
+            let toc = Toc::read(&path).expect("shipped TOC parses");
+            for (i, id) in toc.chunk_ids.iter().enumerate() {
+                let found = toc.find_chunk(id);
+                // Duplicate IDs cannot occur in one container, so every
+                // chunk must come back as exactly its own slot.
+                assert_eq!(
+                    found,
+                    Some(i),
+                    "{}: chunk {:?} at slot {i} resolved to {:?}",
+                    path.display(),
+                    id,
+                    found
+                );
+            }
+            containers += 1;
+            chunks += toc.chunk_ids.len();
+        }
+        assert!(containers > 0, "no .utoc files under {paks}");
+        eprintln!("resolved {chunks} chunks across {containers} containers");
     }
 }
