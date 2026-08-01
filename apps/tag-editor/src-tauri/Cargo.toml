@@ -9,6 +9,17 @@ edition = "2021"
 name = "tag_editor_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# `generate_context!()` embeds the built web assets only when this is on; the
+# macro reads it as `cfg!(not(feature = "custom-protocol"))`. Without it a
+# packaged build starts and shows "asset not found: index.html".
+#
+# It is on by default so a release build cannot silently ship broken — this CLI
+# does not add it for you. `tauri dev` needs it off to load from the Vite dev
+# server, which is what the `app:dev` script does. Do not remove.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
