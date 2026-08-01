@@ -10,6 +10,8 @@ use ue_iostore::{ChunkEntry, Container};
 pub struct TagEntry {
     pub container: usize,
     pub chunk: ChunkEntry,
+    /// The tag's `.uasset` package header, which carries the import table.
+    pub uasset: Option<(usize, ChunkEntry)>,
     /// Full package path.
     pub path: String,
     /// Group directory name, e.g. `weapon`.
@@ -81,6 +83,8 @@ impl Catalog {
         let containers = ue_iostore::load_all(paks).map_err(|e| e.to_string())?;
 
         let mut tags = Vec::new();
+        // Tag package headers, keyed by path stem, to attach after the scan.
+        let mut tag_uassets: BTreeMap<String, (usize, ChunkEntry)> = BTreeMap::new();
         // Texture candidates by path convention; the format is verified when
         // one is actually opened.
         let mut candidates: BTreeMap<String, (usize, ChunkEntry, Option<(usize, ChunkEntry)>)> =
@@ -88,11 +92,17 @@ impl Catalog {
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
                 let full = c.full_path(rel);
+                if full.contains("/Tags/") && full.ends_with(".uasset") {
+                    let stem = full.trim_end_matches(".uasset").to_string();
+                    tag_uassets.insert(stem, (ci, c.chunks[*chunk_index]));
+                    continue;
+                }
                 if full.contains("/Tags/") && full.ends_with(".ubulk") {
                     if let Some((group, short)) = split_path(&full) {
                         tags.push(TagEntry {
                             container: ci,
                             chunk: c.chunks[*chunk_index],
+                            uasset: None,
                             path: full,
                             group,
                             short,
@@ -128,6 +138,11 @@ impl Catalog {
             }
         }
         tags.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        for t in &mut tags {
+            t.uasset = tag_uassets
+                .get(t.path.trim_end_matches(".ubulk"))
+                .copied();
+        }
 
         let mut textures: Vec<TextureEntry> = candidates
             .into_iter()
@@ -248,6 +263,33 @@ impl Catalog {
             .filter(|(_, t)| q.is_empty() || t.short.to_ascii_lowercase().contains(&q))
             .take(limit)
             .collect()
+    }
+
+    /// Read a tag's `.uasset` package header, which carries its import table.
+    pub fn read_tag_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
+        let t = self.tags.get(index).ok_or("tag index out of range")?;
+        let (ci, chunk) = t.uasset.ok_or("tag has no package header")?;
+        ue_iostore::read_chunk(&self.containers[ci], &chunk, None, &self.oodle)
+            .map_err(|e| format!("{}: {e}", t.short))
+    }
+
+    /// Resolve an imported package name like `/Game/Tags/.../elite-model`
+    /// to a tag index.
+    pub fn tag_by_package(&self, package: &str) -> Option<usize> {
+        let rest = package.strip_prefix("/Game/Tags/")?;
+        let (short, group) = rest.rsplit_once('-')?;
+        self.tags
+            .iter()
+            .position(|t| t.group == group && t.short.eq_ignore_ascii_case(short))
+    }
+
+    /// Resolve an imported package name like `/Game/characters/.../T_x`
+    /// to a texture index.
+    pub fn texture_by_package(&self, package: &str) -> Option<usize> {
+        let rest = package.strip_prefix("/Game/")?;
+        self.textures
+            .iter()
+            .position(|t| t.short.eq_ignore_ascii_case(rest))
     }
 
     /// Read a texture's `.uasset` header package.

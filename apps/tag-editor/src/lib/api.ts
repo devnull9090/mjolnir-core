@@ -82,6 +82,14 @@ export type TextureView = {
   png: string;
 };
 
+/** One package a tag imports, resolved to something openable when possible. */
+export type LinkedAsset = {
+  package: string;
+  kind: "tag" | "texture" | "asset";
+  index: number | null;
+  label: string;
+};
+
 export type EditResult = {
   path: string;
   type: string;
@@ -113,6 +121,7 @@ const tauriApi = {
   readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
+  tagLinks: (index: number) => invoke<LinkedAsset[]>("tag_links", { index }),
 };
 
 export type Api = typeof tauriApi;

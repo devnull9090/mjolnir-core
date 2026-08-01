@@ -1,4 +1,4 @@
-import { useEditor } from "../stores/editor-store";
+import { tagLabel, useEditor } from "../stores/editor-store";
 
 /** Left panel: mode tabs, search, and the tag or texture listing. */
 export function TagTree() {
@@ -32,7 +32,7 @@ export function TagTree() {
 function TagList() {
   const { groups, selectedGroup, tags, query, selectedTag } = useEditor();
   const selectGroup = useEditor((s) => s.selectGroup);
-  const selectTag = useEditor((s) => s.selectTag);
+  const openTab = useEditor((s) => s.openTab);
   const search = useEditor((s) => s.search);
 
   return (
@@ -81,7 +81,7 @@ function TagList() {
               <li key={t.index}>
                 <button
                   type="button"
-                  onClick={() => void selectTag(t.index)}
+                  onClick={() => void openTab("tag", t.index, tagLabel(t))}
                   className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                     selectedTag === t.index
                       ? "bg-surface-card text-mjolnir-gold"
@@ -122,7 +122,7 @@ function TagList() {
 function TextureList() {
   const { textures, textureQuery, selectedTexture } = useEditor();
   const searchTextures = useEditor((s) => s.searchTextures);
-  const selectTexture = useEditor((s) => s.selectTexture);
+  const openTab = useEditor((s) => s.openTab);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -144,7 +144,9 @@ function TextureList() {
             <li key={t.index}>
               <button
                 type="button"
-                onClick={() => void selectTexture(t.index)}
+                onClick={() =>
+                  void openTab("texture", t.index, t.path.split("/").pop() ?? t.path)
+                }
                 className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                   selectedTexture === t.index
                     ? "bg-surface-card text-mjolnir-gold"

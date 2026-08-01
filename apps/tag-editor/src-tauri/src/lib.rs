@@ -13,6 +13,7 @@ use tauri::State;
 pub mod catalog;
 pub mod install;
 pub mod textures;
+pub mod zen;
 
 use catalog::{Catalog, GroupSummary, TagSummary};
 
@@ -415,6 +416,58 @@ fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
 }
 
+/// One package a tag imports, resolved to something openable when possible.
+#[derive(Serialize)]
+struct LinkedAsset {
+    /// Full package name, e.g. `/Game/Blueprints/.../BP_EliteBipedActor`.
+    package: String,
+    /// `tag`, `texture`, or `asset` for kinds the editor cannot open yet.
+    kind: &'static str,
+    /// Catalog index for `tag` and `texture` kinds.
+    index: Option<usize>,
+    /// Display label: the package tail, plus the group for tags.
+    label: String,
+}
+
+/// The packages a tag imports: other tags, and the Unreal presentation
+/// assets (Blueprints, and for some tags textures) it binds to.
+#[tauri::command]
+fn tag_links(index: usize, state: State<'_, AppState>) -> Result<Vec<LinkedAsset>, String> {
+    with_catalog(&state, |c| {
+        let uasset = c.read_tag_uasset(index)?;
+        let mut out = Vec::new();
+        for package in zen::imported_package_names(&uasset) {
+            let tail = package.rsplit('/').next().unwrap_or(&package).to_string();
+            if let Some(ti) = c.tag_by_package(&package) {
+                let (short, group) = tail.rsplit_once('-').unwrap_or((tail.as_str(), ""));
+                out.push(LinkedAsset {
+                    package,
+                    kind: "tag",
+                    index: Some(ti),
+                    label: format!("{short} ({group})"),
+                });
+            } else if let Some(xi) = c.texture_by_package(&package) {
+                out.push(LinkedAsset {
+                    package,
+                    kind: "texture",
+                    index: Some(xi),
+                    label: tail,
+                });
+            } else {
+                out.push(LinkedAsset {
+                    package,
+                    kind: "asset",
+                    index: None,
+                    label: tail,
+                });
+            }
+        }
+        // Openable things first, then the rest, each alphabetical.
+        out.sort_by(|a, b| (a.index.is_none(), &a.label).cmp(&(b.index.is_none(), &b.label)));
+        Ok(out)
+    })
+}
+
 #[derive(Serialize)]
 struct TextureSummary {
     index: usize,
@@ -539,6 +592,7 @@ pub fn run() {
             list_textures,
             read_texture,
             export_texture,
+            tag_links,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

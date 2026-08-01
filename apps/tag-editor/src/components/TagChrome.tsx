@@ -2,6 +2,61 @@ import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useEditor } from "../stores/editor-store";
 
+/** Chips for the packages this tag imports; openable ones open in a tab. */
+function LinkedAssets() {
+  const links = useEditor((s) => s.tagLinks);
+  const openTab = useEditor((s) => s.openTab);
+  const [showAll, setShowAll] = useState(false);
+
+  if (links.length === 0) return null;
+  const openable = links.filter((l) => l.index !== null);
+  const rest = links.filter((l) => l.index === null);
+  const shown = showAll ? links : openable;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-text-dim">
+        linked
+      </span>
+      {shown.map((l) => (
+        <button
+          key={l.package}
+          type="button"
+          disabled={l.index === null}
+          title={
+            l.index === null
+              ? `${l.package}\n\nAn Unreal ${l.label.startsWith("BP_") ? "Blueprint" : "asset"}; the editor cannot open this kind yet.`
+              : l.package
+          }
+          onClick={() => {
+            if (l.index !== null) {
+              void openTab(l.kind === "texture" ? "texture" : "tag", l.index, l.label);
+            }
+          }}
+          className={`border px-1.5 py-0.5 font-mono text-[10px] ${
+            l.index === null
+              ? "cursor-default border-border-subtle/60 text-text-dim"
+              : l.kind === "texture"
+                ? "border-accent-blue/40 text-accent-blue hover:bg-accent-blue/10"
+                : "border-mjolnir-gold/40 text-mjolnir-gold hover:bg-mjolnir-gold/10"
+          }`}
+        >
+          {l.label}
+        </button>
+      ))}
+      {rest.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="font-mono text-[10px] text-text-dim hover:text-text-secondary"
+        >
+          {showAll ? "fewer" : `+${rest.length} unreal`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Header shared by both inspector views: identity, vitals, view toggle. */
 export function TagHeader() {
   const { tag, viewMode } = useEditor();
@@ -46,6 +101,7 @@ export function TagHeader() {
         {tag.chunk_size.toLocaleString()} bytes · {tag.data_size.toLocaleString()} bytes of data ·{" "}
         {tag.node_count.toLocaleString()} fields
       </p>
+      <LinkedAssets />
     </header>
   );
 }

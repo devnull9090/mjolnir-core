@@ -3,6 +3,7 @@ import {
   api,
   type EditResult,
   type GroupSummary,
+  type LinkedAsset,
   type TagSummary,
   type TagView,
   type TextureSummary,
@@ -13,11 +14,25 @@ type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
 export type ViewMode = "form" | "tree";
 
+/** One open document: a tag or a texture, shown as a tab. */
+export type Tab = {
+  id: number;
+  kind: "tag" | "texture";
+  /** Catalog index within its kind. */
+  index: number;
+  label: string;
+};
+
 const VIEW_KEY = "tag-editor-view";
 
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
 }
+
+/** Decoded textures kept per tab; bounded because the PNGs are large. */
+const TEXTURE_CACHE_MAX = 8;
+
+let nextTabId = 1;
 
 type EditorState = {
   status: Status;
@@ -31,9 +46,20 @@ type EditorState = {
   tags: TagSummary[];
   query: string;
 
+  /** Open documents and the one currently shown. */
+  tabs: Tab[];
+  activeTab: number | null;
+  openTab: (kind: Tab["kind"], index: number, label: string) => Promise<void>;
+  activateTab: (id: number) => Promise<void>;
+  closeTab: (id: number) => void;
+  /** Tag indices with unexported edits, for the tab dirty markers. */
+  dirtyTags: Record<number, boolean>;
+
   selectedTag: number | null;
   tag: TagView | null;
   tagLoading: boolean;
+  /** Packages the current tag imports, resolved to openable things. */
+  tagLinks: LinkedAsset[];
   /** The last edit applied, so the UI can confirm what it did. */
   lastEdit: EditResult | null;
   editError: string | null;
@@ -52,211 +78,329 @@ type EditorState = {
   texture: TextureView | null;
   textureLoading: boolean;
   textureError: string | null;
-  selectTexture: (index: number) => Promise<void>;
   exportTexture: (dest: string) => Promise<number | null>;
 
   detect: () => Promise<void>;
   open: (paks: string, oodle: string) => Promise<void>;
   selectGroup: (group: string) => Promise<void>;
   search: (query: string) => Promise<void>;
-  selectTag: (index: number) => Promise<void>;
   setField: (path: string, value: string) => Promise<boolean>;
-  /** Jump to the tag a reference points at, given its four-CC and Blam path. */
+  /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
 };
 
-export const useEditor = create<EditorState>((set, get) => ({
-  status: "idle",
-  error: null,
-  paks: null,
-  oodle: null,
-  note: null,
+/** Tab label for a tag: Guerilla-style `name.group`. */
+export function tagLabel(t: { short: string; group: string }): string {
+  const tail = t.short.split("/").pop() ?? t.short;
+  return `${tail}.${t.group}`;
+}
 
-  groups: [],
-  selectedGroup: null,
-  tags: [],
-  query: "",
+const textureCache = new Map<number, TextureView>();
 
-  selectedTag: null,
-  tag: null,
-  tagLoading: false,
-  lastEdit: null,
-  editError: null,
-
-  viewMode: storedViewMode(),
-  setViewMode(mode) {
-    localStorage.setItem(VIEW_KEY, mode);
-    set({ viewMode: mode });
-  },
-
-  browse: "tags",
-  setBrowse(browse) {
-    set({ browse });
-    if (browse === "textures" && get().textures.length === 0) {
-      void get().searchTextures("");
-    }
-  },
-  textures: [],
-  textureQuery: "",
-  async searchTextures(query) {
-    set({ textureQuery: query });
+export const useEditor = create<EditorState>((set, get) => {
+  /** Load a tag into the active-content slots. */
+  async function loadTag(index: number) {
+    set({
+      selectedTag: index,
+      selectedTexture: null,
+      tagLoading: true,
+      tag: null,
+      tagLinks: [],
+      lastEdit: null,
+      editError: null,
+    });
     try {
-      set({ textures: await api.listTextures(query) });
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-  selectedTexture: null,
-  texture: null,
-  textureLoading: false,
-  textureError: null,
-  async selectTexture(index) {
-    set({ selectedTexture: index, textureLoading: true, texture: null, textureError: null });
-    try {
-      set({ texture: await api.readTexture(index), textureLoading: false });
-    } catch (e) {
-      set({ textureError: String(e), textureLoading: false });
-    }
-  },
-  async exportTexture(dest) {
-    const index = get().selectedTexture;
-    if (index === null) return null;
-    try {
-      return await api.exportTexture(index, dest);
-    } catch (e) {
-      set({ textureError: String(e) });
-      return null;
-    }
-  },
-
-  async detect() {
-    set({ status: "detecting", error: null });
-    try {
-      const found = await api.detectInstall();
-      set({ paks: found.paks, oodle: found.oodle, note: found.note });
-      if (found.paks && found.oodle) {
-        await get().open(found.paks, found.oodle);
-      } else {
-        set({ status: "idle" });
-      }
-    } catch (e) {
-      set({ status: "error", error: String(e) });
-    }
-  },
-
-  async open(paks, oodle) {
-    set({ status: "opening", error: null });
-    try {
-      await api.openInstall(paks, oodle);
-      const groups = await api.listGroups();
-      set({ status: "ready", groups, paks, oodle, note: null });
-    } catch (e) {
-      set({ status: "error", error: String(e) });
-    }
-  },
-
-  async selectGroup(group) {
-    set({ selectedGroup: group, query: "", tags: [] });
-    try {
-      set({ tags: await api.listTags(group) });
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  async search(query) {
-    set({ query });
-    if (!query.trim()) {
-      const group = get().selectedGroup;
-      set({ tags: group ? await api.listTags(group) : [] });
-      return;
-    }
-    try {
-      set({ tags: await api.searchTags(query) });
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  async selectTag(index) {
-    set({ selectedTag: index, tagLoading: true, tag: null, lastEdit: null, editError: null });
-    try {
-      set({ tag: await api.readTag(index), tagLoading: false });
+      const tag = await api.readTag(index);
+      set((s) => ({
+        tag,
+        tagLoading: false,
+        dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+      }));
     } catch (e) {
       set({ error: String(e), tagLoading: false });
+      return;
     }
-  },
-
-  async setField(path, value) {
-    const index = get().selectedTag;
-    if (index === null) return false;
+    // The import links arrive after the tag; they never block it.
     try {
-      const lastEdit = await api.setField(index, path, value);
-      // Re-read so every view of the tag reflects the change, not just this row.
-      set({ lastEdit, editError: null, tag: await api.readTag(index) });
-      return true;
-    } catch (e) {
-      set({ editError: String(e), lastEdit: null });
-      return false;
-    }
-  },
-
-  async followReference(fourCc, path) {
-    // The reference stores a four-CC and a Blam path with backslashes; the
-    // catalog stores group directory names and forward slashes.
-    const group = get()
-      .groups.find((g) => g.four_cc.trim() === fourCc.trim())
-      ?.group;
-    const want = path.replace(/\\/g, "/").toLowerCase();
-    const tail = want.split("/").pop() ?? want;
-    try {
-      const results = await api.searchTags(tail);
-      const hit =
-        results.find(
-          (t) => t.short.toLowerCase() === want && (!group || t.group === group),
-        ) ??
-        results.find(
-          (t) =>
-            t.short.toLowerCase().endsWith(want) && (!group || t.group === group),
-        );
-      if (!hit) return false;
-      if (hit.group !== get().selectedGroup) {
-        await get().selectGroup(hit.group);
-      }
-      await get().selectTag(hit.index);
-      return true;
+      const links = await api.tagLinks(index);
+      if (get().selectedTag === index) set({ tagLinks: links });
     } catch {
-      return false;
+      // A tag without a readable package header simply shows no links.
     }
-  },
+  }
 
-  async revertField(path) {
-    const index = get().selectedTag;
-    if (index === null) return;
-    await api.revertField(index, path);
-    set({ tag: await api.readTag(index), lastEdit: null, editError: null });
-  },
-
-  async revertTag() {
-    const index = get().selectedTag;
-    if (index === null) return;
-    await api.revertTag(index);
-    set({ tag: await api.readTag(index), lastEdit: null, editError: null });
-  },
-
-  async exportTag(dest) {
-    const index = get().selectedTag;
-    if (index === null) return null;
+  /** Load a texture into the active-content slots, via the cache. */
+  async function loadTexture(index: number) {
+    set({ selectedTexture: index, selectedTag: null, textureError: null });
+    const cached = textureCache.get(index);
+    if (cached) {
+      set({ texture: cached, textureLoading: false });
+      return;
+    }
+    set({ textureLoading: true, texture: null });
     try {
-      const written = await api.exportTag(index, dest);
-      set({ editError: null });
-      return written;
+      const texture = await api.readTexture(index);
+      textureCache.set(index, texture);
+      while (textureCache.size > TEXTURE_CACHE_MAX) {
+        const oldest = textureCache.keys().next().value;
+        if (oldest === undefined) break;
+        textureCache.delete(oldest);
+      }
+      // Only show it if this tab is still the active one.
+      if (get().selectedTexture === index) {
+        set({ texture, textureLoading: false });
+      }
     } catch (e) {
-      set({ editError: String(e) });
-      return null;
+      if (get().selectedTexture === index) {
+        set({ textureError: String(e), textureLoading: false });
+      }
     }
-  },
-}));
+  }
+
+  return {
+    status: "idle",
+    error: null,
+    paks: null,
+    oodle: null,
+    note: null,
+
+    groups: [],
+    selectedGroup: null,
+    tags: [],
+    query: "",
+
+    tabs: [],
+    activeTab: null,
+    dirtyTags: {},
+
+    async openTab(kind, index, label) {
+      const existing = get().tabs.find((t) => t.kind === kind && t.index === index);
+      if (existing) {
+        await get().activateTab(existing.id);
+        return;
+      }
+      const tab: Tab = { id: nextTabId++, kind, index, label };
+      set((s) => ({ tabs: [...s.tabs, tab] }));
+      await get().activateTab(tab.id);
+    },
+
+    async activateTab(id) {
+      const tab = get().tabs.find((t) => t.id === id);
+      if (!tab) return;
+      set({ activeTab: id });
+      if (tab.kind === "tag") {
+        await loadTag(tab.index);
+      } else {
+        await loadTexture(tab.index);
+      }
+    },
+
+    closeTab(id) {
+      const { tabs, activeTab } = get();
+      const at = tabs.findIndex((t) => t.id === id);
+      if (at < 0) return;
+      const next = tabs.filter((t) => t.id !== id);
+      set({ tabs: next });
+      if (activeTab !== id) return;
+      const neighbor = next[Math.min(at, next.length - 1)];
+      if (neighbor) {
+        void get().activateTab(neighbor.id);
+      } else {
+        set({
+          activeTab: null,
+          selectedTag: null,
+          tag: null,
+          tagLinks: [],
+          selectedTexture: null,
+          texture: null,
+          textureError: null,
+          lastEdit: null,
+          editError: null,
+        });
+      }
+    },
+
+    selectedTag: null,
+    tag: null,
+    tagLoading: false,
+    tagLinks: [],
+    lastEdit: null,
+    editError: null,
+
+    viewMode: storedViewMode(),
+    setViewMode(mode) {
+      localStorage.setItem(VIEW_KEY, mode);
+      set({ viewMode: mode });
+    },
+
+    browse: "tags",
+    setBrowse(browse) {
+      set({ browse });
+      if (browse === "textures" && get().textures.length === 0) {
+        void get().searchTextures("");
+      }
+    },
+    textures: [],
+    textureQuery: "",
+    async searchTextures(query) {
+      set({ textureQuery: query });
+      try {
+        set({ textures: await api.listTextures(query) });
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    },
+    selectedTexture: null,
+    texture: null,
+    textureLoading: false,
+    textureError: null,
+    async exportTexture(dest) {
+      const index = get().selectedTexture;
+      if (index === null) return null;
+      try {
+        return await api.exportTexture(index, dest);
+      } catch (e) {
+        set({ textureError: String(e) });
+        return null;
+      }
+    },
+
+    async detect() {
+      set({ status: "detecting", error: null });
+      try {
+        const found = await api.detectInstall();
+        set({ paks: found.paks, oodle: found.oodle, note: found.note });
+        if (found.paks && found.oodle) {
+          await get().open(found.paks, found.oodle);
+        } else {
+          set({ status: "idle" });
+        }
+      } catch (e) {
+        set({ status: "error", error: String(e) });
+      }
+    },
+
+    async open(paks, oodle) {
+      set({ status: "opening", error: null });
+      try {
+        await api.openInstall(paks, oodle);
+        const groups = await api.listGroups();
+        set({ status: "ready", groups, paks, oodle, note: null });
+      } catch (e) {
+        set({ status: "error", error: String(e) });
+      }
+    },
+
+    async selectGroup(group) {
+      set({ selectedGroup: group, query: "", tags: [] });
+      try {
+        set({ tags: await api.listTags(group) });
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    },
+
+    async search(query) {
+      set({ query });
+      if (!query.trim()) {
+        const group = get().selectedGroup;
+        set({ tags: group ? await api.listTags(group) : [] });
+        return;
+      }
+      try {
+        set({ tags: await api.searchTags(query) });
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    },
+
+    async setField(path, value) {
+      const index = get().selectedTag;
+      if (index === null) return false;
+      try {
+        const lastEdit = await api.setField(index, path, value);
+        // Re-read so every view of the tag reflects the change, not just
+        // this row.
+        const tag = await api.readTag(index);
+        set((s) => ({
+          lastEdit,
+          editError: null,
+          tag,
+          dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+        }));
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async followReference(fourCc, path) {
+      // The reference stores a four-CC and a Blam path with backslashes; the
+      // catalog stores group directory names and forward slashes.
+      const group = get()
+        .groups.find((g) => g.four_cc.trim() === fourCc.trim())
+        ?.group;
+      const want = path.replace(/\\/g, "/").toLowerCase();
+      const tail = want.split("/").pop() ?? want;
+      try {
+        const results = await api.searchTags(tail);
+        const hit =
+          results.find(
+            (t) => t.short.toLowerCase() === want && (!group || t.group === group),
+          ) ??
+          results.find(
+            (t) =>
+              t.short.toLowerCase().endsWith(want) && (!group || t.group === group),
+          );
+        if (!hit) return false;
+        await get().openTab("tag", hit.index, tagLabel(hit));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    async revertField(path) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      await api.revertField(index, path);
+      const tag = await api.readTag(index);
+      set((s) => ({
+        tag,
+        lastEdit: null,
+        editError: null,
+        dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+      }));
+    },
+
+    async revertTag() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      await api.revertTag(index);
+      const tag = await api.readTag(index);
+      set((s) => ({
+        tag,
+        lastEdit: null,
+        editError: null,
+        dirtyTags: { ...s.dirtyTags, [index]: false },
+      }));
+    },
+
+    async exportTag(dest) {
+      const index = get().selectedTag;
+      if (index === null) return null;
+      try {
+        const written = await api.exportTag(index, dest);
+        set({ editError: null });
+        return written;
+      } catch (e) {
+        set({ editError: String(e) });
+        return null;
+      }
+    },
+  };
+});

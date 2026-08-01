@@ -232,6 +232,26 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  tagLinks: async () => [
+    {
+      package: "/Game/Tags/objects/characters/elite/elite-model",
+      kind: "tag",
+      index: 1,
+      label: "elite (hlmt)",
+    },
+    {
+      package: "/Game/characters/GuiltySpark/Textures/T_GuiltySpark_D",
+      kind: "texture",
+      index: 1,
+      label: "T_GuiltySpark_D",
+    },
+    {
+      package: "/Game/Blueprints/Synchronization/Characters/BP_EliteBipedActor",
+      kind: "asset",
+      index: null,
+      label: "BP_EliteBipedActor",
+    },
+  ],
 };
 
 /** A generated placeholder image so the viewer can be exercised in a browser. */
