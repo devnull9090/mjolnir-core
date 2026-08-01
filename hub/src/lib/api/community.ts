@@ -16,7 +16,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv, SessionUser } from "./bindings";
-import { sessionUser } from "./auth";
+import { requireScoped, sessionUser } from "./auth";
 import {
   CommentCreateSchema,
   CommentListSchema,
@@ -51,14 +51,6 @@ const IMAGE_TYPES: { ext: string; mime: string; match: (b: Uint8Array) => boolea
       b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
   },
 ];
-
-async function requireUser(c: Ctx): Promise<SessionUser> {
-  const user = await sessionUser(c);
-  if (!user) {
-    throw new HTTPException(401, { res: c.json({ error: "unauthenticated" }, 401) });
-  }
-  return user;
-}
 
 async function modBySlug(c: Ctx, slug: string) {
   const mod = await c.env.DB.prepare(
@@ -179,7 +171,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await requireUser(c);
+      const { user } = await requireScoped(c, "mods:write", "media", 60);
       const { slug } = c.req.valid("param");
       const mod = await modBySlug(c, slug);
       if (mod.owner_id !== user.id && user.role === "user") {
@@ -249,7 +241,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await requireUser(c);
+      const { user } = await requireScoped(c, "mods:write", "media", 60);
       const { id } = c.req.valid("param");
       const row = await c.env.DB.prepare(
         `SELECT media.id, media.r2_key, mods.owner_id FROM media
@@ -317,7 +309,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await requireUser(c);
+      const { user } = await requireScoped(c, "ratings:write", "ratings", 60);
       const { slug } = c.req.valid("param");
       const { score, review_md } = c.req.valid("json");
       const mod = await modBySlug(c, slug);
@@ -465,7 +457,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await requireUser(c);
+      const { user } = await requireScoped(c, "comments:write", "comments", 60);
       const { slug } = c.req.valid("param");
       const { body_md, parent_id } = c.req.valid("json");
       const mod = await modBySlug(c, slug);
@@ -506,7 +498,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await requireUser(c);
+      const { user } = await requireScoped(c, "comments:write", "comments", 60);
       const { id } = c.req.valid("param");
       const row = await c.env.DB.prepare(`SELECT user_id FROM comments WHERE id = ?1`)
         .bind(id)

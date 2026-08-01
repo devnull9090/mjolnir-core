@@ -12,6 +12,7 @@
  */
 import type { Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv, SessionUser } from "./bindings";
 import { signSession, verifySession } from "./jwt";
@@ -144,7 +145,18 @@ export async function logout(c: Ctx) {
   return c.json({ ok: true }, 200);
 }
 
-// ── Session lookup ────────────────────────────────────────────────────
+// ── Session & API-key lookup ──────────────────────────────────────────
+
+const USER_COLUMNS = `id, discord_id, discord_username, discord_avatar, display_name,
+            role, trust_level, created_at, banned_at`;
+
+async function loadUser(c: Ctx, id: string): Promise<SessionUser | null> {
+  const user = await c.env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?1`)
+    .bind(id)
+    .first<SessionUser & { banned_at: string | null }>();
+  if (!user || user.banned_at) return null;
+  return user;
+}
 
 /** Resolve the session cookie to a fresh user row; null when signed out. */
 export async function sessionUser(c: Ctx): Promise<SessionUser | null> {
@@ -153,15 +165,112 @@ export async function sessionUser(c: Ctx): Promise<SessionUser | null> {
   if (!secret || !token) return null;
   const claims = await verifySession(token, secret);
   if (!claims) return null;
+  return loadUser(c, claims.sub);
+}
 
-  const user = await c.env.DB.prepare(
-    `SELECT id, discord_id, discord_username, discord_avatar, display_name,
-            role, trust_level, created_at, banned_at
-     FROM users WHERE id = ?1`,
+export async function sha256Hex(input: string | Uint8Array): Promise<string> {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The caller's identity plus what it may do. */
+export interface AuthContext {
+  user: SessionUser;
+  /** null for cookie sessions, which carry every scope. */
+  scopes: string[] | null;
+  /** What rate-limit windows key on: the api key id, or the user id. */
+  subject: string;
+}
+
+/**
+ * Authenticate a request either way: `Authorization: Bearer mjc_…` (scoped
+ * API key, hash-matched) or the session cookie (all scopes). Null when
+ * neither is present and valid.
+ */
+export async function authenticate(c: Ctx): Promise<AuthContext | null> {
+  const header = c.req.header("authorization");
+  if (header?.startsWith("Bearer mjc_")) {
+    const hash = await sha256Hex(header.slice("Bearer ".length));
+    const row = await c.env.DB.prepare(
+      `SELECT id, user_id, scopes, expires_at FROM api_keys
+       WHERE key_hash = ?1 AND revoked_at IS NULL`,
+    )
+      .bind(hash)
+      .first<{ id: string; user_id: string; scopes: string; expires_at: string | null }>();
+    if (!row) return null;
+    if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+    const user = await loadUser(c, row.user_id);
+    if (!user) return null;
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare(`UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?1`)
+        .bind(row.id)
+        .run() as unknown as Promise<unknown>,
+    );
+    return { user, scopes: row.scopes.split(/\s+/).filter(Boolean), subject: `key:${row.id}` };
+  }
+
+  const user = await sessionUser(c);
+  return user ? { user, scopes: null, subject: `user:${user.id}` } : null;
+}
+
+export function hasScope(auth: AuthContext, scope: string): boolean {
+  return auth.scopes === null || auth.scopes.includes(scope);
+}
+
+/**
+ * The one guard scoped, rate-limited writes go through: 401 without an
+ * identity, 403 when a key lacks the scope (cookie sessions carry all
+ * scopes), 429 past the write budget. Throws the response so handlers
+ * stay a straight line.
+ */
+export async function requireScoped(c: Ctx, scope: string, bucket: string, limit: number) {
+  const auth = await authenticate(c);
+  if (!auth) throw new HTTPException(401, { res: c.json({ error: "unauthenticated" }, 401) });
+  if (auth.scopes !== null && !auth.scopes.includes(scope)) {
+    throw new HTTPException(403, {
+      res: c.json({ error: "insufficient_scope", message: `Needs ${scope}.` }, 403),
+    });
+  }
+  if (!(await rateLimit(c, auth.subject, bucket, limit))) {
+    throw new HTTPException(429, { res: c.json({ error: "rate_limited" }, 429) });
+  }
+  return auth;
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────────
+
+/**
+ * Fixed-window counter in D1: at most `limit` counted actions per
+ * `windowSeconds` per subject. Returns true when the action is allowed.
+ * Write endpoints only — reads are protected at the Cloudflare edge.
+ */
+export async function rateLimit(
+  c: Ctx,
+  subject: string,
+  bucket: string,
+  limit: number,
+  windowSeconds = 3600,
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const windowStart = now - (now % windowSeconds);
+  const key = `${subject}|${bucket}|${windowStart}`;
+
+  const row = await c.env.DB.prepare(
+    `INSERT INTO rate_counters (key, count, window_start) VALUES (?1, 1, ?2)
+     ON CONFLICT(key) DO UPDATE SET count = count + 1
+     RETURNING count`,
   )
-    .bind(claims.sub)
-    .first<SessionUser & { banned_at: string | null }>();
+    .bind(key, windowStart)
+    .first<{ count: number }>();
 
-  if (!user || user.banned_at) return null;
-  return user;
+  // Opportunistic cleanup of long-dead windows, off the request path.
+  if ((row?.count ?? 0) === 1) {
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare(`DELETE FROM rate_counters WHERE window_start < ?1`)
+        .bind(now - 7 * 24 * 3600)
+        .run() as unknown as Promise<unknown>,
+    );
+  }
+  return (row?.count ?? 1) <= limit;
 }

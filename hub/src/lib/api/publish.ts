@@ -17,7 +17,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
-import { sessionUser } from "./auth";
+import { requireScoped } from "./auth";
 import {
   ConflictCheckRequestSchema,
   ConflictCheckResponseSchema,
@@ -36,8 +36,6 @@ import { chunkIdToHex } from "./iostore";
 
 type Ctx = Context<ApiEnv>;
 
-const unauthorized = { error: "unauthenticated" } as const;
-
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -49,8 +47,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * 403 and 404 responses on each route — so handlers stay a straight line.
  */
 async function ownedRelease(c: Ctx, releaseId: string) {
-  const user = await sessionUser(c);
-  if (!user) throw new HTTPException(401, { res: c.json(unauthorized, 401) });
+  const { user } = await requireScoped(c, "mods:write", "publish", 60);
   const row = await c.env.DB.prepare(
     `SELECT r.*, m.slug AS mod_slug, m.owner_id, m.type AS mod_type
      FROM mod_releases r JOIN mods m ON m.id = r.mod_id WHERE r.id = ?1`,
@@ -90,8 +87,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await sessionUser(c);
-      if (!user) return c.json(unauthorized, 401);
+      const { user } = await requireScoped(c, "mods:write", "publish", 30);
       const body = c.req.valid("json");
 
       const id = crypto.randomUUID();
@@ -159,8 +155,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       },
     }),
     async (c) => {
-      const user = await sessionUser(c);
-      if (!user) return c.json(unauthorized, 401);
+      const { user } = await requireScoped(c, "mods:write", "publish", 60);
       const { slug } = c.req.valid("param");
       const body = c.req.valid("json");
 

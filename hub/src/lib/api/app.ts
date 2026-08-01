@@ -14,6 +14,8 @@ import type { ApiEnv } from "./bindings";
 import { loginCallback, loginRedirect, logout, sessionUser } from "./auth";
 import { registerPublishRoutes } from "./publish";
 import { registerCommunityRoutes } from "./community";
+import { registerAccountRoutes } from "./account";
+import { registerModerationRoutes } from "./moderation";
 import {
   ErrorSchema,
   HealthSchema,
@@ -34,8 +36,12 @@ export const openApiInfo = {
     description:
       "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. " +
       "Reads are public and unauthenticated. Browser sessions use Discord " +
-      "OAuth with an HttpOnly cookie; third-party tools will use scoped API " +
-      "keys (planned — see the roadmap in docs/hub_architecture.md).",
+      "OAuth with an HttpOnly cookie; third-party tools authenticate with " +
+      "`Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, " +
+      "mods:write, ratings:write, comments:write), minted at /account/api-keys. " +
+      "Any authenticated write may additionally answer 401 (no identity), " +
+      "403 (missing scope), or 429 (per-subject hourly write budget) with " +
+      "the standard Error shape.",
   },
   servers: [
     { url: "https://mjolnircore.com", description: "Production" },
@@ -384,6 +390,11 @@ registerPublishRoutes(app);
 // ── Community: media, ratings, comments ───────────────────────────────
 
 registerCommunityRoutes(app);
+
+// ── API keys & moderation ─────────────────────────────────────────────
+
+registerAccountRoutes(app);
+registerModerationRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 
