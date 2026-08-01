@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isTauri, mockApi } from "./mock";
 
 export type Install = {
   paks: string | null;
@@ -72,7 +73,7 @@ export type EditResult = {
   changed_bytes: number;
 };
 
-export const api = {
+const tauriApi = {
   detectInstall: () => invoke<Install>("detect_install"),
   openInstall: (paks: string, oodle: string) =>
     invoke<{ groups: number; tags: number }>("open_install", { paks, oodle }),
@@ -90,3 +91,11 @@ export const api = {
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
 };
+
+export type Api = typeof tauriApi;
+
+/**
+ * Outside Tauri (plain `vite dev`) the IPC bridge does not exist, so a mock
+ * with sample data stands in and the interface can be reviewed in a browser.
+ */
+export const api: Api = isTauri ? tauriApi : (mockApi as unknown as Api);

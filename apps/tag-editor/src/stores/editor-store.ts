@@ -9,6 +9,14 @@ import {
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
+export type ViewMode = "form" | "tree";
+
+const VIEW_KEY = "tag-editor-view";
+
+function storedViewMode(): ViewMode {
+  return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
+}
+
 type EditorState = {
   status: Status;
   error: string | null;
@@ -28,12 +36,18 @@ type EditorState = {
   lastEdit: EditResult | null;
   editError: string | null;
 
+  /** How the inspector renders: Guerilla-style form or a flat field tree. */
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
+
   detect: () => Promise<void>;
   open: (paks: string, oodle: string) => Promise<void>;
   selectGroup: (group: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   selectTag: (index: number) => Promise<void>;
   setField: (path: string, value: string) => Promise<boolean>;
+  /** Jump to the tag a reference points at, given its four-CC and Blam path. */
+  followReference: (fourCc: string, path: string) => Promise<boolean>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
@@ -56,6 +70,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   tagLoading: false,
   lastEdit: null,
   editError: null,
+
+  viewMode: storedViewMode(),
+  setViewMode(mode) {
+    localStorage.setItem(VIEW_KEY, mode);
+    set({ viewMode: mode });
+  },
 
   async detect() {
     set({ status: "detecting", error: null });
@@ -125,6 +145,35 @@ export const useEditor = create<EditorState>((set, get) => ({
       return true;
     } catch (e) {
       set({ editError: String(e), lastEdit: null });
+      return false;
+    }
+  },
+
+  async followReference(fourCc, path) {
+    // The reference stores a four-CC and a Blam path with backslashes; the
+    // catalog stores group directory names and forward slashes.
+    const group = get()
+      .groups.find((g) => g.four_cc.trim() === fourCc.trim())
+      ?.group;
+    const want = path.replace(/\\/g, "/").toLowerCase();
+    const tail = want.split("/").pop() ?? want;
+    try {
+      const results = await api.searchTags(tail);
+      const hit =
+        results.find(
+          (t) => t.short.toLowerCase() === want && (!group || t.group === group),
+        ) ??
+        results.find(
+          (t) =>
+            t.short.toLowerCase().endsWith(want) && (!group || t.group === group),
+        );
+      if (!hit) return false;
+      if (hit.group !== get().selectedGroup) {
+        await get().selectGroup(hit.group);
+      }
+      await get().selectTag(hit.index);
+      return true;
+    } catch {
       return false;
     }
   },
