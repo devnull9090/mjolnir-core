@@ -23,3 +23,6 @@ dirs = "6"
 blam-defs = { path = "../../../crates/blam-defs" }
 blam-tag = { path = "../../../crates/blam-tag" }
 ue-iostore = { path = "../../../crates/ue-iostore" }
+texture2ddecoder = "0.1"
+png = "0.17"
+base64 = "0.22"

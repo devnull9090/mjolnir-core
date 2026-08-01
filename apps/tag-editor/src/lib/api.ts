@@ -64,6 +64,24 @@ export type TagView = {
   fields: NodeView[];
 };
 
+export type TextureSummary = {
+  index: number;
+  path: string;
+  size: number;
+};
+
+export type TextureView = {
+  path: string;
+  width: number;
+  height: number;
+  format: string;
+  /** The mip that was decoded; 0 unless the full size was too large to ship over IPC. */
+  mip: number;
+  num_mips: number;
+  /** Data URI, ready for an img tag. */
+  png: string;
+};
+
 export type EditResult = {
   path: string;
   type: string;
@@ -90,6 +108,11 @@ const tauriApi = {
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
+  listTextures: (query: string) =>
+    invoke<TextureSummary[]>("list_textures", { query }),
+  readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
+  exportTexture: (index: number, dest: string) =>
+    invoke<number>("export_texture", { index, dest }),
 };
 
 export type Api = typeof tauriApi;

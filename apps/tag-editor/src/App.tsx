@@ -4,10 +4,12 @@ import { SetupPanel } from "./components/SetupPanel";
 import { TagTree } from "./components/TagTree";
 import { Inspector } from "./components/Inspector";
 import { FormInspector } from "./components/FormInspector";
+import { TextureViewer } from "./components/TextureViewer";
 
 export default function App() {
   const status = useEditor((s) => s.status);
   const viewMode = useEditor((s) => s.viewMode);
+  const browse = useEditor((s) => s.browse);
   const detect = useEditor((s) => s.detect);
 
   useEffect(() => {
@@ -21,7 +23,13 @@ export default function App() {
   return (
     <div className="flex h-full min-h-0">
       <TagTree />
-      {viewMode === "form" ? <FormInspector /> : <Inspector />}
+      {browse === "textures" ? (
+        <TextureViewer />
+      ) : viewMode === "form" ? (
+        <FormInspector />
+      ) : (
+        <Inspector />
+      )}
     </div>
   );
 }

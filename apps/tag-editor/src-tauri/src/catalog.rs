@@ -19,10 +19,22 @@ pub struct TagEntry {
     pub short: String,
 }
 
+/// One texture asset: the `.uasset` header package and its `.ubulk` payload.
+pub struct TextureEntry {
+    pub container: usize,
+    pub uasset: ChunkEntry,
+    /// The sibling bulk chunk; a texture without one keeps its (small) mips
+    /// inline and is not supported yet.
+    pub ubulk: Option<(usize, ChunkEntry)>,
+    /// Path with the mount prefix and extension stripped.
+    pub short: String,
+}
+
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
     containers: Vec<Container>,
     pub tags: Vec<TagEntry>,
+    pub textures: Vec<TextureEntry>,
     oodle: Vec<PathBuf>,
 }
 
@@ -69,28 +81,72 @@ impl Catalog {
         let containers = ue_iostore::load_all(paks).map_err(|e| e.to_string())?;
 
         let mut tags = Vec::new();
+        // Texture candidates by path convention; the format is verified when
+        // one is actually opened.
+        let mut candidates: BTreeMap<String, (usize, ChunkEntry, Option<(usize, ChunkEntry)>)> =
+            BTreeMap::new();
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
                 let full = c.full_path(rel);
-                if !full.contains("/Tags/") || !full.ends_with(".ubulk") {
+                if full.contains("/Tags/") && full.ends_with(".ubulk") {
+                    if let Some((group, short)) = split_path(&full) {
+                        tags.push(TagEntry {
+                            container: ci,
+                            chunk: c.chunks[*chunk_index],
+                            path: full,
+                            group,
+                            short,
+                        });
+                    }
                     continue;
                 }
-                if let Some((group, short)) = split_path(&full) {
-                    tags.push(TagEntry {
-                        container: ci,
-                        chunk: c.chunks[*chunk_index],
-                        path: full,
-                        group,
-                        short,
-                    });
+                if full.contains("/Engine/") || full.contains("/Tags/") {
+                    continue;
+                }
+                let is_texture_path = full.rsplit('/').next().is_some_and(|f| {
+                    f.starts_with("T_") || full.contains("/Textures/")
+                });
+                if !is_texture_path {
+                    continue;
+                }
+                let (stem, is_uasset) = if let Some(s) = full.strip_suffix(".uasset") {
+                    (s, true)
+                } else if let Some(s) = full.strip_suffix(".ubulk") {
+                    (s, false)
+                } else {
+                    continue;
+                };
+                let entry = candidates
+                    .entry(stem.to_string())
+                    .or_insert((usize::MAX, c.chunks[*chunk_index], None));
+                if is_uasset {
+                    entry.0 = ci;
+                    entry.1 = c.chunks[*chunk_index];
+                } else {
+                    entry.2 = Some((ci, c.chunks[*chunk_index]));
                 }
             }
         }
         tags.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
 
+        let mut textures: Vec<TextureEntry> = candidates
+            .into_iter()
+            .filter(|(_, (ci, _, _))| *ci != usize::MAX)
+            .map(|(stem, (ci, uasset, ubulk))| TextureEntry {
+                container: ci,
+                uasset,
+                ubulk,
+                short: stem
+                    .trim_start_matches("../../../Meteorite/Content/")
+                    .to_string(),
+            })
+            .collect();
+        textures.sort_by(|a, b| a.short.cmp(&b.short));
+
         Ok(Catalog {
             containers,
             tags,
+            textures,
             oodle: vec![PathBuf::from(oodle)],
         })
     }
@@ -181,6 +237,32 @@ impl Catalog {
     pub fn read_tag(&self, index: usize) -> Result<Vec<u8>, String> {
         let entry = self.tags.get(index).ok_or("tag index out of range")?;
         self.read_chunk(entry, None)
+    }
+
+    /// Case-insensitive substring search over texture paths.
+    pub fn search_textures(&self, query: &str, limit: usize) -> Vec<(usize, &TextureEntry)> {
+        let q = query.trim().to_ascii_lowercase();
+        self.textures
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| q.is_empty() || t.short.to_ascii_lowercase().contains(&q))
+            .take(limit)
+            .collect()
+    }
+
+    /// Read a texture's `.uasset` header package.
+    pub fn read_texture_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
+        let t = self.textures.get(index).ok_or("texture index out of range")?;
+        ue_iostore::read_chunk(&self.containers[t.container], &t.uasset, None, &self.oodle)
+            .map_err(|e| format!("{}: {e}", t.short))
+    }
+
+    /// Read a texture's `.ubulk` payload, if it has one.
+    pub fn read_texture_ubulk(&self, index: usize) -> Result<Vec<u8>, String> {
+        let t = self.textures.get(index).ok_or("texture index out of range")?;
+        let (ci, chunk) = t.ubulk.ok_or("texture has no bulk payload (inline mips)")?;
+        ue_iostore::read_chunk(&self.containers[ci], &chunk, None, &self.oodle)
+            .map_err(|e| format!("{}: {e}", t.short))
     }
 
     pub fn entry(&self, index: usize) -> Option<&TagEntry> {

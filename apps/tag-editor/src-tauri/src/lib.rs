@@ -10,8 +10,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::State;
 
-mod catalog;
-mod install;
+pub mod catalog;
+pub mod install;
+pub mod textures;
 
 use catalog::{Catalog, GroupSummary, TagSummary};
 
@@ -414,6 +415,97 @@ fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
 }
 
+#[derive(Serialize)]
+struct TextureSummary {
+    index: usize,
+    /// Content-relative path without extension.
+    path: String,
+    /// Bulk payload size; zero when the texture keeps its mips inline.
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct TextureView {
+    path: String,
+    width: u32,
+    height: u32,
+    format: String,
+    mip: u32,
+    num_mips: u32,
+    /// Assembled image as a data URI, ready for an `<img>`.
+    png: String,
+}
+
+#[tauri::command]
+fn list_textures(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TextureSummary>, String> {
+    with_catalog(&state, |c| {
+        Ok(c.search_textures(&query, MAX_ROWS)
+            .into_iter()
+            .map(|(index, t)| TextureSummary {
+                index,
+                path: t.short.clone(),
+                size: t.ubulk.map(|(_, ch)| ch.length).unwrap_or(0),
+            })
+            .collect())
+    })
+}
+
+/// Decode a texture and return it as PNG. Large textures are served at the
+/// first mip at or below `max_dim` to keep the IPC payload sane.
+fn decode_texture(
+    c: &Catalog,
+    index: usize,
+    max_dim: u32,
+) -> Result<(textures::VtData, textures::TextureImage), String> {
+    let uasset = c.read_texture_uasset(index)?;
+    let header = textures::zen_header_size(&uasset).ok_or("not a zen package")?;
+    let vt = textures::parse_vt(&uasset[header..])?;
+    let ubulk = c.read_texture_ubulk(index)?;
+    let mut mip = 0;
+    while mip + 1 < vt.num_mips && (vt.width >> mip).max(vt.height >> mip) > max_dim {
+        mip += 1;
+    }
+    let img = textures::assemble_mip(&vt, &ubulk, mip)?;
+    Ok((vt, img))
+}
+
+#[tauri::command]
+fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView, String> {
+    use base64::Engine;
+    with_catalog(&state, |c| {
+        let entry = c.textures.get(index).ok_or("texture index out of range")?;
+        let path = entry.short.clone();
+        let (vt, img) = decode_texture(c, index, 4096)?;
+        let png = textures::to_png(&img)?;
+        Ok(TextureView {
+            path,
+            width: vt.width,
+            height: vt.height,
+            format: img.format.clone(),
+            mip: img.mip,
+            num_mips: vt.num_mips,
+            png: format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png)
+            ),
+        })
+    })
+}
+
+/// Write a texture's top mip as PNG to a file the user chose.
+#[tauri::command]
+fn export_texture(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
+    with_catalog(&state, |c| {
+        let (_, img) = decode_texture(c, index, u32::MAX)?;
+        let png = textures::to_png(&img)?;
+        std::fs::write(&dest, &png).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(png.len())
+    })
+}
+
 #[tauri::command]
 fn read_tag_bytes(
     index: usize,
@@ -444,6 +536,9 @@ pub fn run() {
             revert_field,
             revert_tag,
             export_tag,
+            list_textures,
+            read_texture,
+            export_texture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

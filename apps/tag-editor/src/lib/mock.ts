@@ -217,4 +217,37 @@ export const mockApi = {
     edits.clear();
   },
   exportTag: async () => 0,
+  listTextures: async (query: string) =>
+    [
+      { index: 0, path: "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D", size: 4_818_220 },
+      { index: 1, path: "characters/GuiltySpark/Textures/T_GuiltySpark_D", size: 6_371_884 },
+    ].filter((t) => t.path.toLowerCase().includes(query.toLowerCase())),
+  readTexture: async (index: number) => ({
+    path: index === 0 ? "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D" : "characters/GuiltySpark/Textures/T_GuiltySpark_D",
+    width: 512,
+    height: 256,
+    format: "PF_DXT1",
+    mip: 0,
+    num_mips: 10,
+    png: mockTexturePng(),
+  }),
+  exportTexture: async () => 0,
 };
+
+/** A generated placeholder image so the viewer can be exercised in a browser. */
+function mockTexturePng(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 8; x++) {
+      ctx.fillStyle = (x + y) % 2 ? "#3a4a2a" : "#d4a843";
+      ctx.fillRect(x * 64, y * 64, 64, 64);
+    }
+  }
+  ctx.fillStyle = "#0a0e17";
+  ctx.font = "24px monospace";
+  ctx.fillText("mock texture", 180, 132);
+  return canvas.toDataURL("image/png");
+}

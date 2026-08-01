@@ -5,6 +5,8 @@ import {
   type GroupSummary,
   type TagSummary,
   type TagView,
+  type TextureSummary,
+  type TextureView,
 } from "../lib/api";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
@@ -39,6 +41,19 @@ type EditorState = {
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
+
+  /** What the left panel browses: Blam tags or Unreal texture assets. */
+  browse: "tags" | "textures";
+  setBrowse: (browse: "tags" | "textures") => void;
+  textures: TextureSummary[];
+  textureQuery: string;
+  searchTextures: (query: string) => Promise<void>;
+  selectedTexture: number | null;
+  texture: TextureView | null;
+  textureLoading: boolean;
+  textureError: string | null;
+  selectTexture: (index: number) => Promise<void>;
+  exportTexture: (dest: string) => Promise<number | null>;
 
   detect: () => Promise<void>;
   open: (paks: string, oodle: string) => Promise<void>;
@@ -75,6 +90,46 @@ export const useEditor = create<EditorState>((set, get) => ({
   setViewMode(mode) {
     localStorage.setItem(VIEW_KEY, mode);
     set({ viewMode: mode });
+  },
+
+  browse: "tags",
+  setBrowse(browse) {
+    set({ browse });
+    if (browse === "textures" && get().textures.length === 0) {
+      void get().searchTextures("");
+    }
+  },
+  textures: [],
+  textureQuery: "",
+  async searchTextures(query) {
+    set({ textureQuery: query });
+    try {
+      set({ textures: await api.listTextures(query) });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+  selectedTexture: null,
+  texture: null,
+  textureLoading: false,
+  textureError: null,
+  async selectTexture(index) {
+    set({ selectedTexture: index, textureLoading: true, texture: null, textureError: null });
+    try {
+      set({ texture: await api.readTexture(index), textureLoading: false });
+    } catch (e) {
+      set({ textureError: String(e), textureLoading: false });
+    }
+  },
+  async exportTexture(dest) {
+    const index = get().selectedTexture;
+    if (index === null) return null;
+    try {
+      return await api.exportTexture(index, dest);
+    } catch (e) {
+      set({ textureError: String(e) });
+      return null;
+    }
   },
 
   async detect() {
