@@ -5,10 +5,10 @@ with the `_P` patch suffix mounts, wins the chunk lookup, and its Blam payload i
 simulation uses. Verified by editing the assault rifle's magazine to 99 rounds and its ammo
 reserve to 900 and reading both off the HUD in mission A30.
 
-One caveat carried forward: the packer's **perfect hash is wrong for containers holding more than
-one chunk**, so multi-chunk containers silently expose only one of their chunks. Single-chunk
-containers — which is all a same-length payload edit needs — are unaffected. See *Current
-experiment*.
+One caveat, since resolved: the packer's perfect hash used to be wrong for containers holding
+more than one chunk, so multi-chunk containers silently exposed only one of their chunks. The
+packer now implements the engine's hash and placement for real — see *A real bug found on the
+way* for the history and the fix.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can be read, edited and written back byte-exactly
@@ -341,9 +341,10 @@ controlled pair — same checkpoint, same container shape, only the payload byte
 
 ### A real bug found on the way: the perfect hash is wrong for multi-chunk containers
 
-Independent of the above, and worth fixing regardless.
+**Fixed.** See the end of this section for what the fix turned out to be; the analysis below is
+kept as written because the misread it documents is instructive.
 
-[`pack.rs`](../crates/ue-iostore/src/pack.rs) writes one seed per chunk, `-1, -2, -3, …`, on the
+[`pack.rs`](../crates/ue-iostore/src/pack.rs) wrote one seed per chunk, `-1, -2, -3, …`, on the
 theory that seed *i* names entry *i*. It does not. UE picks the seed by hashing the chunk ID:
 
 ```
@@ -366,14 +367,34 @@ This also qualifies two earlier findings. "An override needs no `ContainerHeader
 "uncompressed blocks are accepted" are still true, but they were only ever tested against the one
 chunk that happened to win.
 
-Fix, cheapest first:
+Fix, cheapest first — as it stood before the fix:
 
 1. Emit no perfect hash at all (`seed_count = 0`) and let the reader build a plain map, if this
    build accepts it.
 2. Otherwise list every chunk in `chunks_without_perfect_hash`, the format's own escape hatch.
 3. Only if neither works, implement `HashChunkIdWithSeed` and solve for seeds.
 
-Prefer 1 or 2: both avoid having to reproduce UE's hash function exactly.
+**What was actually done (2026-08-01): option 3**, because it turned out to be verifiable
+without touching the game. `hash_chunk_id_with_seed` in
+[`toc.rs`](../crates/ue-iostore/src/toc.rs) is the engine's function — FNV-1a's prime over the
+twelve raw ID bytes, multiply-then-xor, seeded by the offset basis or the seed itself. The two
+details a reimplementation could plausibly get wrong were pinned down empirically against the
+shipped tables: the downstream modulo is taken on the **full 64-bit hash** (truncating to 32
+bits first resolves ~0 of pakchunk0's chunks), and the seed is sign-extended from its signed
+32-bit table slot.
+
+`Toc::find_chunk` implements the reader's lookup — seed slot by `hash(0, id) % seed_count`,
+negative seed as direct index, positive seed as rehash, overflow scan as fallback — and an
+ignored test (`MJOLNIR_PAKS=<Paks dir> cargo test -p ue-iostore -- --ignored`) resolves **every
+chunk of every shipped container, 141,564 across 29, through that lookup**. Since those tables
+were written by the engine, agreement at that scale is not luck; the hash is right.
+
+The packer now does real placement: chunks are bucketed by `hash(0) % seed_count`, buckets
+solved largest-first for a positive seed that lands every member in a distinct free slot,
+single-chunk buckets stored as direct negative seeds, and unplaceable buckets (duplicate IDs)
+spilled to `chunks_without_perfect_hash`. The per-chunk TOC arrays are permuted so the entry
+index *is* the hash slot. A one-chunk container still comes out with the shipped shape — one
+seed, `-1` — so nothing about the verified single-chunk recipe changed.
 
 ### What this means for the editor
 
@@ -382,8 +403,9 @@ the same length. Every fixed-width field — integers, reals, enums, flags — q
 of what anyone wants to change.
 
 Outside that constraint the path is not finished. A string or block edit resizes the payload, which
-needs the package header rewritten to match, which needs a two-chunk container, which is exactly
-what the perfect-hash bug below breaks. Fixing the hash is what opens up the rest.
+needs the package header rewritten to match, which needs a two-chunk container. The perfect-hash
+bug that used to block that is fixed; what remains untested in-game is a multi-chunk override
+container as such.
 
 ### Notes on measuring this
 
