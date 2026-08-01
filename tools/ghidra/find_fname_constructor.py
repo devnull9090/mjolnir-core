@@ -2,12 +2,7 @@
 # @category MJOLNIR
 # @description Finds FName::FName(const wchar_t*) constructor and other UE4SS-required symbols
 
-import ghidra.program.model.symbol.*
-import ghidra.program.model.listing.*
-import ghidra.program.model.address.*
-import ghidra.program.model.mem.*
-import ghidra.app.decompiler.*
-import java.io.File
+from java.io import File
 
 outputDir = getScriptArgs()[0] if len(getScriptArgs()) > 0 else "C:\\haloce"
 outputFile = File(outputDir, "ghidra_results.txt")
@@ -22,7 +17,6 @@ def log(msg):
 def getBytes(addr, length):
     """Read bytes from the program at the given address."""
     mem = currentProgram.getMemory()
-    buf = ghidra.program.model.mem.MemBuffer
     result = []
     for i in range(length):
         try:
