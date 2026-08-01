@@ -114,6 +114,9 @@ fn write_children(children: &[Value<'_>], sub: Option<&Substitution<'_>>) -> Vec
             Value::StringId(b) => section(&mut out, "tgsi", 0, &swap(b)),
             Value::Data(b) => section(&mut out, "tgda", 0, &swap(b)),
             Value::TagRef(b) => section(&mut out, "tgrf", 0, &swap(b)),
+            // A phantom is an empty `tgst` the layout does not declare; it is
+            // written back exactly as it was read.
+            Value::Phantom => section(&mut out, "tgst", 0, &[]),
             // An array writes no wrapper: its elements' sections follow inline.
             Value::Array { children } => {
                 for element in children {
@@ -166,6 +169,7 @@ fn children_len(children: &[Value<'_>]) -> usize {
                 })
                 .sum(),
             Value::Resource { body, .. } => SECTION_HEADER + body.len(),
+            Value::Phantom => SECTION_HEADER,
         })
         .sum()
 }

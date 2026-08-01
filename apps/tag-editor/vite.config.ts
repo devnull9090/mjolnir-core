@@ -17,7 +17,10 @@ export default defineConfig({
     hmr: { port: 1431 },
   },
   build: {
-    outDir: "../dist",
+    // Must match src-tauri/tauri.conf.json `frontendDist` ("../dist" relative
+    // to src-tauri, i.e. this app's own dist), or `tauri build` cannot find
+    // the web assets.
+    outDir: "dist",
     emptyOutDir: true,
   },
 });

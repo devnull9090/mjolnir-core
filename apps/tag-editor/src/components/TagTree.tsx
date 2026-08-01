@@ -1,14 +1,57 @@
-import { useEditor } from "../stores/editor-store";
+import { tagLabel, useEditor } from "../stores/editor-store";
+import { FileBrowser } from "./FileBrowser";
 
-/** Group list and tag list. Search spans every group when a query is set. */
+/** What each left-panel mode is for, since three tabs need distinguishing. */
+const MODES = [
+  { id: "files", label: "files", hint: "Browse every asset by path, like a file dialog" },
+  { id: "tags", label: "groups", hint: "Browse tags by their Blam group" },
+  { id: "textures", label: "textures", hint: "Browse texture assets only" },
+] as const;
+
+/** Left panel: mode tabs, search, and the listing for the chosen mode. */
 export function TagTree() {
-  const { groups, selectedGroup, tags, query, selectedTag } = useEditor();
-  const selectGroup = useEditor((s) => s.selectGroup);
-  const selectTag = useEditor((s) => s.selectTag);
-  const search = useEditor((s) => s.search);
+  const { browse } = useEditor();
+  const setBrowse = useEditor((s) => s.setBrowse);
 
   return (
     <div className="flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-r border-border-subtle">
+      <div className="flex border-b border-border-subtle">
+        {MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => setBrowse(mode.id)}
+            title={mode.hint}
+            className={`flex-1 px-3 py-2 text-xs uppercase tracking-wider ${
+              browse === mode.id
+                ? "border-b-2 border-mjolnir-gold text-mjolnir-gold"
+                : "text-text-dim hover:text-text-secondary"
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+      {browse === "files" ? (
+        <FileBrowser />
+      ) : browse === "tags" ? (
+        <TagList />
+      ) : (
+        <TextureList />
+      )}
+    </div>
+  );
+}
+
+/** Group list and tag list. Search spans every group when a query is set. */
+function TagList() {
+  const { groups, selectedGroup, tags, query, selectedTag } = useEditor();
+  const selectGroup = useEditor((s) => s.selectGroup);
+  const openTab = useEditor((s) => s.openTab);
+  const search = useEditor((s) => s.search);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-border-subtle p-3">
         <input
           type="search"
@@ -53,7 +96,7 @@ export function TagTree() {
               <li key={t.index}>
                 <button
                   type="button"
-                  onClick={() => void selectTag(t.index)}
+                  onClick={() => void openTab("tag", t.index, tagLabel(t))}
                   className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                     selectedTag === t.index
                       ? "bg-surface-card text-mjolnir-gold"
@@ -86,6 +129,63 @@ export function TagTree() {
           )}
         </ul>
       </div>
+    </div>
+  );
+}
+
+/** Texture asset list with search. */
+function TextureList() {
+  const { textures, textureQuery, selectedTexture } = useEditor();
+  const searchTextures = useEditor((s) => s.searchTextures);
+  const openTab = useEditor((s) => s.openTab);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border-subtle p-3">
+        <input
+          type="search"
+          value={textureQuery}
+          onChange={(e) => void searchTextures(e.target.value)}
+          placeholder="Search textures…"
+          className="w-full border border-border-subtle bg-surface-card px-3 py-2 text-sm outline-none placeholder:text-text-dim focus:border-mjolnir-gold"
+        />
+      </div>
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {textures.map((t) => {
+          const cut = t.path.lastIndexOf("/");
+          const dir = cut < 0 ? "" : t.path.slice(0, cut);
+          const name = cut < 0 ? t.path : t.path.slice(cut + 1);
+          return (
+            <li key={t.index}>
+              <button
+                type="button"
+                onClick={() =>
+                  void openTab("texture", t.index, t.path.split("/").pop() ?? t.path)
+                }
+                className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
+                  selectedTexture === t.index
+                    ? "bg-surface-card text-mjolnir-gold"
+                    : "text-text-secondary"
+                }`}
+                title={t.path}
+              >
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+                {dir && (
+                  <span
+                    className="ml-2 min-w-0 shrink truncate text-[10px] text-text-dim"
+                    dir="rtl"
+                  >
+                    {dir}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+        {textures.length === 0 && (
+          <li className="px-3 py-4 text-xs text-text-dim">No textures found.</li>
+        )}
+      </ul>
     </div>
   );
 }

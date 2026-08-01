@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isTauri, mockApi } from "./mock";
 
 export type Install = {
   paks: string | null;
@@ -63,6 +64,44 @@ export type TagView = {
   fields: NodeView[];
 };
 
+export type TextureSummary = {
+  index: number;
+  path: string;
+  size: number;
+};
+
+export type TextureView = {
+  path: string;
+  width: number;
+  height: number;
+  format: string;
+  /** The mip that was decoded; 0 unless the full size was too large to ship over IPC. */
+  mip: number;
+  num_mips: number;
+  /** Data URI, ready for an img tag. */
+  png: string;
+};
+
+/** One row of the virtual asset filesystem: a folder or an openable asset. */
+export type DirEntry = {
+  name: string;
+  path: string;
+  kind: "dir" | "tag" | "texture";
+  /** Catalog index, for files only. */
+  index: number | null;
+  size: number;
+  /** Assets beneath a folder, at any depth. */
+  children: number | null;
+};
+
+/** One package a tag imports, resolved to something openable when possible. */
+export type LinkedAsset = {
+  package: string;
+  kind: "tag" | "texture" | "asset";
+  index: number | null;
+  label: string;
+};
+
 export type EditResult = {
   path: string;
   type: string;
@@ -72,7 +111,7 @@ export type EditResult = {
   changed_bytes: number;
 };
 
-export const api = {
+const tauriApi = {
   detectInstall: () => invoke<Install>("detect_install"),
   openInstall: (paks: string, oodle: string) =>
     invoke<{ groups: number; tags: number }>("open_install", { paks, oodle }),
@@ -89,4 +128,20 @@ export const api = {
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
+  listTextures: (query: string) =>
+    invoke<TextureSummary[]>("list_textures", { query }),
+  readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
+  exportTexture: (index: number, dest: string) =>
+    invoke<number>("export_texture", { index, dest }),
+  tagLinks: (index: number) => invoke<LinkedAsset[]>("tag_links", { index }),
+  listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  searchFiles: (query: string) => invoke<DirEntry[]>("search_files", { query }),
 };
+
+export type Api = typeof tauriApi;
+
+/**
+ * Outside Tauri (plain `vite dev`) the IPC bridge does not exist, so a mock
+ * with sample data stands in and the interface can be reviewed in a browser.
+ */
+export const api: Api = isTauri ? tauriApi : (mockApi as unknown as Api);

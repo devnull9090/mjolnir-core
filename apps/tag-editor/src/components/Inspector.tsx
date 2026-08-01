@@ -1,60 +1,17 @@
-import { useEffect, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { useState } from "react";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
+import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
+import { TagHeader, EditBar } from "./TagChrome";
 
 /** Blocks larger than this stay collapsed until asked for. */
 const AUTO_EXPAND_ELEMENTS = 8;
-
-/** Types with no editable value of their own. */
-const NOT_EDITABLE = new Set([
-  "data",
-  "block",
-  "struct",
-  "array",
-  "pageable resource",
-  "api interop",
-]);
-
-/** Types whose value lives in a trailing section, so changing one resizes the
- *  tag rather than overwriting bytes. Editable, but worth flagging. */
-const RESIZES = new Set(["string id", "tag reference"]);
 
 function typeColor(type: string): string {
   if (type === "block") return "text-accent-blue";
   if (type === "tag reference") return "text-mjolnir-gold";
   if (type.endsWith("enum") || type.endsWith("flags")) return "text-accent-green";
   return "text-text-dim";
-}
-
-/**
- * Keep the end of a long path rather than the start. A tag path's distinctive
- * part is its tail, so the usual trailing ellipsis hides exactly what you need.
- */
-function keepTail(text: string, max: number): string {
-  return text.length <= max ? text : `…${text.slice(text.length - max)}`;
-}
-
-/**
- * The value as it should appear in an edit box: what the parser accepts, which
- * is not always what the display shows. An enum reads `large (3)` but is set by
- * name, and flags read `a | b (0x5)` but are set as `a | b`.
- */
-function editableText(node: NodeView): string {
-  if (node.type === "tag reference") {
-    return node.reference && node.reference.path
-      ? `${node.reference.group}:${node.reference.path}`
-      : "none";
-  }
-  if (node.type === "string id") return node.value.replace(/^"|"$/g, "");
-  if (node.type.endsWith("enum")) return node.selected[0] ?? node.value;
-  if (node.type.endsWith("flags")) {
-    return node.selected.length > 0 ? node.selected.join(" | ") : "none";
-  }
-  if (node.type === "string" || node.type === "long string") {
-    return node.value.replace(/^"|"$/g, "");
-  }
-  return node.value.replace(/^\(|\)$/g, "");
 }
 
 /** A leaf field: name, value, and the type it was decoded as. */
@@ -245,69 +202,7 @@ function Node({ node, depth, path }: { node: NodeView; depth: number; path: stri
   );
 }
 
-/** Pending edits, and the only way they leave the editor. */
-function EditBar() {
-  const { tag, lastEdit, editError } = useEditor();
-  const revertTag = useEditor((s) => s.revertTag);
-  const exportTag = useEditor((s) => s.exportTag);
-  const [wrote, setWrote] = useState<string | null>(null);
-
-  useEffect(() => setWrote(null), [tag?.path]);
-
-  if (!tag) return null;
-  const count = tag.edited.length;
-  if (count === 0 && !editError) return null;
-
-  async function onExport() {
-    if (!tag) return;
-    const name = tag.path.split("/").pop() ?? "tag.ubulk";
-    const dest = await save({ defaultPath: name });
-    if (!dest) return;
-    const written = await exportTag(dest);
-    if (written !== null) setWrote(`${written.toLocaleString()} bytes to ${dest}`);
-  }
-
-  return (
-    <div className="border-b border-mjolnir-gold/40 bg-mjolnir-gold/5 px-6 py-2">
-      <div className="flex flex-wrap items-center gap-3 text-xs">
-        <span className="text-mjolnir-gold">
-          {count} unsaved edit{count === 1 ? "" : "s"}
-        </span>
-        <button
-          type="button"
-          onClick={() => void onExport()}
-          disabled={count === 0}
-          className="border border-mjolnir-gold/60 px-2 py-0.5 text-mjolnir-gold hover:bg-mjolnir-gold/10 disabled:opacity-40"
-        >
-          Export patched tag…
-        </button>
-        <button
-          type="button"
-          onClick={() => void revertTag()}
-          disabled={count === 0}
-          className="border border-border-subtle px-2 py-0.5 text-text-secondary hover:bg-surface-hover disabled:opacity-40"
-        >
-          Revert all
-        </button>
-        <span className="ml-auto font-mono text-[10px] text-text-dim">
-          The game&rsquo;s containers are read-only; edits export to a file.
-        </span>
-      </div>
-      {lastEdit && (
-        <p className="mt-1 font-mono text-[10px] text-text-secondary">
-          {lastEdit.path}: {lastEdit.before} → {lastEdit.after} ({lastEdit.changed_bytes}{" "}
-          byte{lastEdit.changed_bytes === 1 ? "" : "s"} changed)
-        </p>
-      )}
-      {editError && (
-        <p className="mt-1 font-mono text-[10px] text-accent-red">{editError}</p>
-      )}
-      {wrote && <p className="mt-1 font-mono text-[10px] text-accent-green">Wrote {wrote}</p>}
-    </div>
-  );
-}
-
-/** Guerilla-style value inspector for the selected tag. */
+/** Flat-tree value inspector for the selected tag. */
 export function Inspector() {
   const { tag, tagLoading, selectedTag } = useEditor();
 
@@ -324,31 +219,7 @@ export function Inspector() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <header className="sticky top-0 z-10 border-b border-border-subtle bg-surface-primary px-6 py-4">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="font-mono text-lg text-mjolnir-gold">{tag.group}</h1>
-          <span className="font-mono text-xs text-text-dim">{tag.four_cc}</span>
-          <span className="font-mono text-xs text-text-dim">v{tag.version}</span>
-          <span
-            className={`ml-auto font-mono text-[11px] ${
-              tag.data_exact ? "text-accent-green" : "text-text-dim"
-            }`}
-            title={
-              tag.data_exact
-                ? "The value walk consumed the data payload exactly."
-                : "The values shown may be incomplete."
-            }
-          >
-            {tag.data_exact ? "values exact" : "values partial"}
-          </span>
-        </div>
-        <p className="mt-1 truncate font-mono text-[11px] text-text-secondary">{tag.path}</p>
-        <p className="mt-1 font-mono text-[11px] text-text-dim">
-          {tag.chunk_size.toLocaleString()} bytes · {tag.data_size.toLocaleString()} bytes of data ·{" "}
-          {tag.node_count.toLocaleString()} fields
-        </p>
-      </header>
-
+      <TagHeader />
       <EditBar />
 
       <div className="px-6 py-4">
