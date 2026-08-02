@@ -1056,6 +1056,78 @@ fn save_installed_version(id: &str, version: &str, tree_sha256: &str) -> Result<
     .map_err(|e| e.to_string())
 }
 
+/// Fold a sorted (relative path, content hash) list into one digest.
+///
+/// Shared by the on-disk walk and the zip read so the two are guaranteed to
+/// agree — if they drifted, every mod would read as modified.
+fn fold_tree(mut files: Vec<(String, String)>) -> String {
+    files.sort();
+    let mut hasher = Sha256::new();
+    for (rel, hash) in &files {
+        hasher.update(rel.as_bytes());
+        hasher.update([0]);
+        hasher.update(hash.as_bytes());
+        hasher.update([b'\n']);
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// The digest a mod's directory *should* have, read from the signed set's own
+/// artifact rather than from anything this launcher wrote down.
+///
+/// This is what makes the badge a statement about content. A launcher that
+/// only trusts its own install record cannot say anything about a mod it did
+/// not install — including every mod installed by a version of itself that
+/// predates digests — even when the bytes are provably the signed ones.
+fn expected_tree_digest(entry: &CodeModEntry) -> Result<String, String> {
+    let mut resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Download failed: {}", resp.status()));
+    }
+    let mut bytes = Vec::new();
+    resp.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    // The manifest is signed, so its hash is authoritative. A zip that does
+    // not match it cannot be used to judge anything.
+    let actual = sha256_hex(&bytes);
+    if actual != entry.sha256 {
+        return Err(format!(
+            "Hash mismatch: manifest says {}, download is {actual}",
+            entry.sha256
+        ));
+    }
+
+    zip_tree_digest(&bytes, &entry.id)
+}
+
+/// The same digest as `tree_digest`, computed over a release zip instead of a
+/// directory. It must select and name exactly the files `code_mods_install`
+/// would extract, or the two would disagree and every mod would read as
+/// modified.
+fn zip_tree_digest(bytes: &[u8], id: &str) -> Result<String, String> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let prefix = format!("{id}/");
+    let mut files = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
+        if file.is_dir() {
+            continue;
+        }
+        let name = file.name().to_string();
+        if name.contains("..") {
+            continue;
+        }
+        // Mirror what install extracts: only the mod's own subtree, and the
+        // path recorded relative to the mod root.
+        let Some(rel) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        files.push((rel.to_string(), sha256_hex(&data)));
+    }
+    Ok(fold_tree(files))
+}
+
 /// A digest over a mod's whole directory: every file's path *and* content,
 /// in a fixed order, so neither renaming, adding nor editing a file can slip
 /// past. Paths are recorded relative to the mod root with `/` separators, so
@@ -1090,16 +1162,7 @@ fn tree_digest(dir: &std::path::Path) -> Result<String, String> {
 
     let mut files = Vec::new();
     walk(dir, dir, &mut files)?;
-    files.sort();
-
-    let mut hasher = Sha256::new();
-    for (rel, hash) in &files {
-        hasher.update(rel.as_bytes());
-        hasher.update([0]);
-        hasher.update(hash.as_bytes());
-        hasher.update([b'\n']);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    Ok(fold_tree(files))
 }
 
 fn signing_key() -> Result<ed25519_dalek::VerifyingKey, String> {
@@ -1197,9 +1260,16 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
             // The badge is a claim about bytes, so it is decided by bytes. A
             // directory carrying the right name but the wrong contents reads
             // as modified, not as signed.
+            //
+            // What the bytes are compared *against* matters as much. A
+            // recorded digest is only a cache of what the signed set said, so
+            // when there is no usable record the answer comes from the set
+            // itself rather than defaulting to "cannot say" — otherwise every
+            // mod installed before digests existed stays unverifiable forever,
+            // even though its contents are provably the signed ones.
             let integrity = match (present, record) {
                 (false, _) => Integrity::NotInstalled,
-                (true, Some(r)) if !r.tree_sha256.is_empty() => {
+                (true, Some(r)) if !r.tree_sha256.is_empty() && r.version == entry.version => {
                     let dir = dir.as_ref().expect("present implies a path");
                     match tree_digest(dir) {
                         Ok(actual) if actual == r.tree_sha256 => Integrity::Verified,
@@ -1207,7 +1277,25 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
                         _ => Integrity::Modified,
                     }
                 }
-                (true, _) => Integrity::Unverified,
+                // Out of date is not the same as tampered with, and the set
+                // only publishes the current release — there is nothing
+                // truthful to compare an older install against.
+                (true, _) if update_available => Integrity::Unverified,
+                (true, _) => {
+                    let dir = dir.as_ref().expect("present implies a path");
+                    match (tree_digest(dir), expected_tree_digest(&entry)) {
+                        (Ok(actual), Ok(expected)) if actual == expected => {
+                            // Cache it, so this costs one download per mod
+                            // ever rather than one per status call.
+                            let _ = save_installed_version(&entry.id, &entry.version, &actual);
+                            Integrity::Verified
+                        }
+                        (Ok(_), Ok(_)) => Integrity::Modified,
+                        // Could not reach the set, or could not read the
+                        // directory. Neither is evidence of anything.
+                        _ => Integrity::Unverified,
+                    }
+                }
             };
             CodeModRow {
                 entry,
@@ -1344,6 +1432,45 @@ mod tests {
 
         fs::rename(scripts.join("main.lua"), scripts.join("other.lua")).unwrap();
         assert_ne!(base, tree_digest(&root).unwrap(), "renamed file must show");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The load-bearing invariant: a directory holding exactly what a release
+    /// zip holds must produce the same digest by both routes. If these two
+    /// ever disagree, every installed mod reads as `modified` and the badge
+    /// becomes noise.
+    #[test]
+    fn the_zip_and_the_directory_agree_on_the_same_content() {
+        let id = "MJOLNIRFlyCam";
+        let root = std::env::temp_dir().join(format!("mjolnir-zip-{}", std::process::id()));
+        let dir = root.join(id);
+        fs::create_dir_all(dir.join("Scripts")).unwrap();
+        fs::write(dir.join("Scripts/main.lua"), b"print('fly')").unwrap();
+        fs::write(dir.join("mod.json"), b"{\"version\":\"1.0.0\"}").unwrap();
+
+        // A zip shaped like the ones CI publishes: rooted at "<ModName>/".
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+            w.add_directory(format!("{id}/"), opts).unwrap();
+            w.start_file(format!("{id}/Scripts/main.lua"), opts).unwrap();
+            std::io::Write::write_all(&mut w, b"print('fly')").unwrap();
+            w.start_file(format!("{id}/mod.json"), opts).unwrap();
+            std::io::Write::write_all(&mut w, b"{\"version\":\"1.0.0\"}").unwrap();
+            w.finish().unwrap();
+        }
+
+        assert_eq!(
+            tree_digest(&dir).unwrap(),
+            zip_tree_digest(&buf, id).unwrap(),
+            "the on-disk walk and the zip read must fold to the same digest"
+        );
+
+        // And an edit on disk must break that agreement.
+        fs::write(dir.join("Scripts/main.lua"), b"print('pwned')").unwrap();
+        assert_ne!(tree_digest(&dir).unwrap(), zip_tree_digest(&buf, id).unwrap());
 
         fs::remove_dir_all(&root).unwrap();
     }

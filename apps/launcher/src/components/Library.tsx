@@ -80,13 +80,16 @@ function TrustBadge({ integrity }: { integrity?: Integrity }) {
       );
     case "unverified":
       return (
-        <Badge tone="amber" title="In the signed set and present on disk, but the launcher has no record of installing it — it came with the modpack, or predates content verification. Reinstall from Browse Hub to verify it.">
+        <Badge tone="amber" title="In the signed set, but the launcher could not check it against the set — usually because the release server was unreachable, or because this install is on an older version than the set publishes.">
           unverified
         </Badge>
       );
     default:
+      // Neutral, not amber. This is the ordinary state for every mod UE4SS
+      // ships with, and amber alongside `unverified` made a healthy library
+      // read as one undifferentiated wall of warnings.
       return (
-        <Badge tone="amber" title="Found in ue4ss/Mods but not part of the signed set — the launcher did not install it and cannot vouch for it.">
+        <Badge title="Found in ue4ss/Mods but not part of the signed set — the launcher did not install it and cannot vouch for it.">
           unmanaged
         </Badge>
       );
