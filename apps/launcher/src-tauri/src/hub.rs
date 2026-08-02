@@ -1116,6 +1116,23 @@ fn signing_key() -> Result<ed25519_dalek::VerifyingKey, String> {
     ed25519_dalek::VerifyingKey::from_bytes(&raw).map_err(|e| e.to_string())
 }
 
+/// Verify a detached base64 Ed25519 signature over `bytes` against the key
+/// compiled into this binary.
+///
+/// Shared with the runtime installer: the runtime bundle carries a DLL that
+/// gets injected into the game process, so it is signed by the same key and
+/// checked by the same code as the Lua mods.
+pub fn verify_signature(bytes: &[u8], sig_b64: &str) -> Result<bool, String> {
+    let sig_bytes = base64_decode(sig_b64.trim()).ok_or("Signature is not valid base64")?;
+    let sig: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Signature is not 64 bytes")?;
+    Ok(signing_key()?
+        .verify_strict(bytes, &ed25519_dalek::Signature::from_bytes(&sig))
+        .is_ok())
+}
+
 fn base64_decode(s: &str) -> Option<Vec<u8>> {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
@@ -1153,17 +1170,7 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         .text()
         .map_err(|e| e.to_string())?;
 
-    let sig_bytes = base64_decode(sig_b64.trim()).ok_or("Signature is not valid base64")?;
-    let sig: [u8; 64] = sig_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| "Signature is not 64 bytes")?;
-    let verified = signing_key()?
-        .verify_strict(
-            &manifest_bytes,
-            &ed25519_dalek::Signature::from_bytes(&sig),
-        )
-        .is_ok();
+    let verified = verify_signature(&manifest_bytes, &sig_b64)?;
 
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
@@ -1357,6 +1364,26 @@ mod tests {
                 .unwrap();
         let rec: InstallRecord = modern.into_iter().next().unwrap().1.into();
         assert_eq!((rec.version.as_str(), rec.tree_sha256.as_str()), ("1.0.0", "ab"));
+    }
+
+    /// The runtime installer gates a DLL injection on this returning false,
+    /// so it must reject rather than error-out-into-success on junk.
+    #[test]
+    fn signature_verification_rejects_what_it_should() {
+        let manifest = br#"{"version":"1.0.0"}"#;
+        // Right shape, wrong signature.
+        let bogus = "A".repeat(86) + "==";
+        assert_eq!(
+            verify_signature(manifest, &bogus),
+            Ok(false),
+            "a well-formed but incorrect signature must verify as false"
+        );
+        // Wrong shape at all.
+        assert!(verify_signature(manifest, "not base64!!").is_err());
+        assert!(
+            verify_signature(manifest, "YWJj").is_err(),
+            "a signature that is not 64 bytes must be an error, not a pass"
+        );
     }
 
     #[test]
