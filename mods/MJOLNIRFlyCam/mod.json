@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "summary": "Smooth free-flying debug camera with WASD movement, mouse viewport look, speed boost, and automatic HUD toggle.",
+  "version": "1.1.0",
+  "summary": "Free-flying detached camera on the numpad (8/2/4/6 move, 9/3 up/down, 5 snap to player) with mouse look, speed boost, HUD toggle, and automatic first-person model hiding.",
   "category": "camera",
   "slug": "mjolnir-flycam"
 }
