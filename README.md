@@ -33,7 +33,7 @@
 mjolnir-core/
 ├── mods/                        # UE4SS Lua mods
 │   ├── MJOLNIRCore/             # Core runtime & UEHelpers library
-│   ├── MJOLNIRFlyCam/           # Free debug camera with WASD, mouse look, HUD toggle
+│   ├── MJOLNIRFlyCam/           # Free debug camera on the numpad, mouse look, HUD toggle
 │   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ / Tab / F10)
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
@@ -61,17 +61,22 @@ mjolnir-core/
 ## Mods
 
 ### MJOLNIRFlyCam
-Smooth free-flying debug camera with continuous WASD movement, mouse viewport look, and HUD overlay toggle.
+Free-flying detached camera on the numpad, with mouse look, speed boost, and automatic
+first-person model hiding. Camera keys live on the numpad because the game's Blam
+simulation reads WASD/mouse directly — the player keeps responding to those even while
+the camera is detached.
 
 | Hotkey | Action |
 | :--- | :--- |
-| `F8` | Toggle FlyCam ON/OFF (auto-hides HUD) |
+| `F8` | Toggle FlyCam ON/OFF (auto-hides HUD and the floating first-person arms/gun) |
 | `F7` | Toggle HUD overlay |
-| `F9` | Toggle mouse look |
-| `W/A/S/D` | Move camera (forward/left/back/right) |
-| `Space / Ctrl` | Ascend / Descend |
+| `F9` / `Numpad 0` | Toggle mouse look |
+| `Numpad 8/2` | Move camera forward / backward |
+| `Numpad 4/6` | Strafe camera left / right |
+| `Numpad 9/3` | Ascend / Descend |
+| `Numpad 5` | Snap camera back to the player |
 | `Left Shift` | Boost speed (3x) |
-| `[ / ]` | Decrease / Increase base speed |
+| `Numpad +/-` or `[ / ]` | Increase / Decrease base speed |
 
 ### MJOLNIRConsoleEnabler
 Enables the UE5 developer console in the shipping build.
