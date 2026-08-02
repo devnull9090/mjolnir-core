@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Pinned upstream inputs for the runtime bundle. release-runtime.yml downloads",
+    "exactly these URLs and refuses to continue unless the bytes hash to sha256.",
+    "",
+    "UE4SS publishes experimental builds under the MOVING tag 'experimental-latest'.",
+    "The asset filename carries the build's git hash, so when that tag moves, the URL",
+    "below 404s and the release fails loudly. That is deliberate: bumping UE4SS is a",
+    "decision, not something a release should do on its own.",
+    "",
+    "To bump: pick the new asset, put its URL and sha256 here, run the workflow, then",
+    "verify in game that all four AOBs still resolve (see signatures/README.md)."
+  ],
+  "ue4ss_version": "3.0.1-1018-g662df915",
+  "release_tag": "experimental-latest",
+  "artifacts": {
+    "ue4ss": {
+      "url": "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/experimental-latest/UE4SS_v3.0.1-1018-g662df915.zip",
+      "sha256": "590ae4c6463db61497123b9ed35373596c39fb27f736e2078a02b476599671ba"
+    },
+    "game_configs": {
+      "url": "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/experimental-latest/zCustomGameConfigs.zip",
+      "sha256": "8da808fdb9321eab2244d3736364e63dcc0814d4f65bfb3e0bbba0ff6d3118a6"
+    }
+  },
+  "game_config_dir": "Halo Campaign Evolved",
+  "_known_good_note": [
+    "The build currently verified in game is NOT this one. Its UE4SS.dll hashes to",
+    "d0107f63e567313cb6a15c505b5db2bdba38130964a04e019bda7611c6178022 and it is no",
+    "longer downloadable — experimental-latest has moved past it. The only surviving",
+    "copies are the developer's install and modpack/latest/modpack.zip in R2, which",
+    "has no versioned path, so the next modpack upload destroys the last copy.",
+    "",
+    "Archive it before that happens:",
+    "  wrangler r2 object get mjolnir-releases/modpack/latest/modpack.zip --file=old.zip --remote",
+    "  wrangler r2 object put mjolnir-releases/runtime/vendor/ue4ss-3.0.1-exp-d0107f63.zip --file=old.zip --remote",
+    "then point artifacts.ue4ss at that immutable URL and drop the moving-tag dependency."
+  ]
+}

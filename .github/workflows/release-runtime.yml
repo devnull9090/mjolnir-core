@@ -1,0 +1,252 @@
+name: Release Runtime
+
+# The runtime bundle: UE4SS itself, the config and AOB signatures that make it
+# work with this game, and the UE4SS infrastructure mods it cannot run without.
+#
+# It ships no MJOLNIR mods and no UE4SS sample mods. Those come from the signed
+# code-mod set (release-mods.yml), which tracks what it installed and can verify
+# it afterwards. The old modpack shipped both, which meant mods arrived by a
+# path the launcher could not attribute or check — a mod could go missing with
+# nothing able to notice, and could never verify as signed.
+#
+# Unlike the modpack this replaces, the manifest is Ed25519-signed with the same
+# key the launcher already pins, and every release keeps a versioned path. The
+# modpack had neither: its manifest was unsigned, so the largest and most
+# privileged artifact in the pipeline — a DLL injected into the game process —
+# was the least verified thing we shipped.
+
+on:
+  push:
+    tags:
+      - 'runtime-v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Assemble, sign & publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Pinned by URL *and* hash. A moving upstream tag can change what a URL
+      # serves; it cannot change what it hashes to without failing here.
+      - name: Fetch pinned UE4SS
+        id: fetch
+        run: |
+          set -euo pipefail
+          LOCK=runtime/ue4ss.lock.json
+          mkdir -p upstream
+
+          fetch() {
+            local key="$1" out="$2"
+            local url sha actual
+            url=$(jq -r ".artifacts.${key}.url" "$LOCK")
+            sha=$(jq -r ".artifacts.${key}.sha256" "$LOCK")
+            echo "::group::$key"
+            echo "url    $url"
+            if ! curl -fsSL "$url" -o "$out"; then
+              echo "::error::$url could not be downloaded. If the asset name has a git hash in it, upstream's moving tag has probably advanced past this build — pick a new one and update $LOCK."
+              exit 1
+            fi
+            actual=$(sha256sum "$out" | cut -d' ' -f1)
+            echo "want   $sha"
+            echo "got    $actual"
+            if [ "$actual" != "$sha" ]; then
+              echo "::error::$key hash mismatch. The URL served different bytes than $LOCK pins. Refusing to build."
+              exit 1
+            fi
+            echo "::endgroup::"
+          }
+
+          fetch ue4ss upstream/ue4ss.zip
+          fetch game_configs upstream/gameconfigs.zip
+
+          echo "ue4ss_version=$(jq -r .ue4ss_version "$LOCK")" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#runtime-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the bundle
+        run: |
+          set -euo pipefail
+          LOCK=runtime/ue4ss.lock.json
+          GAME=$(jq -r .game_config_dir "$LOCK")
+          rm -rf stage && mkdir -p stage/ue4ss/UE4SS_Signatures
+          unzip -q upstream/ue4ss.zip -d _ue4ss
+          unzip -q upstream/gameconfigs.zip -d _cfg
+
+          # ── the loader and the runtime ──
+          cp "$(find _ue4ss -name dwmapi.dll | head -1)" stage/dwmapi.dll
+          cp "$(find _ue4ss -name UE4SS.dll  | head -1)" stage/ue4ss/UE4SS.dll
+          cp "$(find _ue4ss -name LICENSE    | head -1)" stage/ue4ss/LICENSE
+
+          # ── config: ours, always. Upstream ships a game config too, but ours
+          #    is what has been verified against this game build. ──
+          cp config/UE4SS-settings.ini stage/ue4ss/UE4SS-settings.ini
+
+          # ── signatures: upstream is the base layer, ours overlay last ──
+          test -d "_cfg/$GAME/UE4SS_Signatures" || {
+            echo "::error::zCustomGameConfigs.zip has no '$GAME/UE4SS_Signatures'. Upstream may have renamed the game directory — check game_config_dir in $LOCK."
+            exit 1
+          }
+          cp -r "_cfg/$GAME/UE4SS_Signatures/." stage/ue4ss/UE4SS_Signatures/
+          cp signatures/*.lua stage/ue4ss/UE4SS_Signatures/
+          echo "signatures shipped:"
+          find stage/ue4ss/UE4SS_Signatures -name '*.lua' | sed 's|.*UE4SS_Signatures/|  |'
+
+          # ── UE4SS infrastructure only. BPModLoader loads blueprint mods,
+          #    Keybinds owns hotkey dispatch, shared/ is UEHelpers, which the
+          #    signed mods require. The sample mods are demos and do not ship. ──
+          mkdir -p stage/ue4ss/Mods
+          for m in BPML_GenericFunctions BPModLoaderMod Keybinds shared; do
+            src=$(find _ue4ss -type d -name "$m" | head -1)
+            test -n "$src" || { echo "::error::UE4SS zip has no $m"; exit 1; }
+            cp -r "$src" "stage/ue4ss/Mods/$m"
+          done
+
+          # mods.txt is seed state, not content: the launcher must create it if
+          # absent and otherwise leave it alone, or installing the runtime would
+          # erase the player's mod list. Flagged `config` in the manifest below.
+          cat > stage/ue4ss/Mods/mods.txt <<'TXT'
+          BPML_GenericFunctions : 1
+          BPModLoaderMod : 1
+
+          ; Built-in keybinds, do not move up!
+          Keybinds : 1
+          TXT
+
+      # A bundle that quietly regrew a mods half would undo the whole point, so
+      # assert it rather than trusting the steps above to stay correct.
+      - name: Assert the runtime ships no mods
+        run: |
+          set -euo pipefail
+          strays=$(find stage/ue4ss/Mods -maxdepth 1 -mindepth 1 -type d \
+            ! -name BPML_GenericFunctions ! -name BPModLoaderMod \
+            ! -name Keybinds ! -name shared || true)
+          if [ -n "$strays" ]; then
+            echo "::error::the runtime bundle must contain no mods, found:"
+            echo "$strays"
+            exit 1
+          fi
+          echo "clean: infrastructure only"
+
+      - name: Build the manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.fetch.outputs.version }}"
+          cd stage
+          # `config` marks files the installer must not overwrite in place: they
+          # carry player and machine state, not shipped content.
+          find . -type f | sed 's|^\./||' | sort | while read -r p; do
+            case "$p" in
+              ue4ss/UE4SS-settings.ini|ue4ss/Mods/mods.txt) cfg=true ;;
+              *) cfg=false ;;
+            esac
+            jq -n --arg path "$p" --arg sha "$(sha256sum "$p" | cut -d' ' -f1)" \
+                  --argjson size "$(stat -c%s "$p")" --argjson config "$cfg" \
+                  '{path: $path, sha256: $sha, size: $size, config: $config}'
+          done | jq -s --arg v "$VERSION" --arg u "${{ steps.fetch.outputs.ue4ss_version }}" \
+                 '{schema_version: 1, version: $v, ue4ss_version: $u, files: .}' \
+                 > ../manifest.json
+          cd ..
+          jq '{schema_version, version, ue4ss_version, files: (.files | length)}' manifest.json
+
+      - name: Sign the manifest
+        env:
+          MODS_SIGNING_KEY: ${{ secrets.MODS_SIGNING_KEY }}
+        run: node scripts/sign-manifest.mjs manifest.json manifest.json.sig
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Name the roots explicitly: `zip -r … .` can prefix entries with
+          # "./" depending on the zip build, and the launcher joins those
+          # names straight onto the install path.
+          (cd stage && zip -qr ../dist/runtime.zip dwmapi.dll ue4ss)
+          cp manifest.json manifest.json.sig dist/
+          (cd dist && sha256sum runtime.zip manifest.json > "checksums-${GITHUB_REF_NAME}.txt")
+          ls -la dist
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "MJOLNIR Runtime ${{ github.ref_name }}"
+          files: |
+            dist/runtime.zip
+            dist/manifest.json
+            dist/manifest.json.sig
+            dist/checksums-${{ github.ref_name }}.txt
+          body: |
+            ## MJOLNIR Runtime ${{ github.ref_name }}
+
+            UE4SS `${{ steps.fetch.outputs.ue4ss_version }}`, plus the config and
+            AOB signatures verified against this game build, plus the UE4SS
+            infrastructure mods. No MJOLNIR mods and no UE4SS sample mods — those
+            install from the signed code-mod set.
+
+            `manifest.json.sig` is an Ed25519 signature over `manifest.json`,
+            verifiable with `keys/mod-signing.pub`. The launcher checks it and
+            installs nothing that fails.
+
+            Files marked `config` in the manifest — `UE4SS-settings.ini` and
+            `Mods/mods.txt` — are seed state. Installing over an existing setup
+            must leave them alone.
+
+      - name: Upload to R2 (releases.mjolnircore.com)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npm install -g wrangler
+          VER="${{ steps.fetch.outputs.version }}"
+          BASE="mjolnir-releases/runtime"
+
+          # Versioned first and always. The modpack only ever wrote `latest`,
+          # so each upload destroyed the previous build — including the last
+          # copy of a UE4SS the game was known to run with.
+          wrangler r2 object put "$BASE/$VER/runtime.zip"        --file=dist/runtime.zip --remote
+          wrangler r2 object put "$BASE/$VER/checksums.txt"      --file="dist/checksums-${GITHUB_REF_NAME}.txt" --remote
+          wrangler r2 object put "$BASE/$VER/manifest.json"      --file=dist/manifest.json --remote
+          wrangler r2 object put "$BASE/$VER/manifest.json.sig"  --file=dist/manifest.json.sig --remote
+
+          # Artifact before manifest, so `latest` never advertises a file that
+          # is not uploaded yet.
+          wrangler r2 object put "$BASE/latest/runtime.zip"       --file=dist/runtime.zip --remote
+          wrangler r2 object put "$BASE/latest/manifest.json"     --file=dist/manifest.json --remote
+          wrangler r2 object put "$BASE/latest/manifest.json.sig" --file=dist/manifest.json.sig --remote
+          echo "Uploaded runtime $VER"
+
+      - name: Post release notification to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping."
+            exit 0
+          fi
+          echo "::add-mask::$DISCORD_WEBHOOK_URL"
+          VER="${{ steps.fetch.outputs.version }}"
+          curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d '{
+            "username": "MJOLNIR Core Releases",
+            "avatar_url": "https://mjolnircore.com/logo-transparent.png",
+            "embeds": [{
+              "title": "⚙️ MJOLNIR Runtime '"${GITHUB_REF_NAME}"' Released!",
+              "url": "https://github.com/devnull9090/mjolnir-core/releases/tag/'"${GITHUB_REF_NAME}"'",
+              "description": "UE4SS plus the config and signatures this game needs. Ed25519-signed, and the launcher verifies it before installing.",
+              "color": 13936707,
+              "fields": [
+                { "name": "📦 Runtime", "value": "v'"$VER"'", "inline": true },
+                { "name": "🔧 UE4SS", "value": "'"${{ steps.fetch.outputs.ue4ss_version }}"'", "inline": true }
+              ],
+              "footer": { "text": "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+            }]
+          }'
