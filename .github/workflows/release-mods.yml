@@ -54,6 +54,11 @@ jobs:
       # Every mod must declare itself: version, summary and category come
       # from its mod.json, so the manifest — and therefore the launcher and
       # the hub pages — carry per-mod versions, not just the set's.
+      #
+      # `default` is optional and opt-in, and stays that way deliberately: it
+      # is what the launcher installs during setup without asking, so a mod
+      # joins that set by saying so in its own mod.json and getting that line
+      # through review. Absent means false.
       - name: Package each mod and write the manifest
         id: build
         run: |
@@ -77,7 +82,8 @@ jobs:
               --arg url "https://releases.mjolnircore.com/mods/${VERSION}/${name}-${VERSION}.zip" \
               --slurpfile meta "$dir/mod.json" \
               '{id: $id, file: $file, sha256: $sha, size: $size, url: $url,
-                version: $meta[0].version, summary: $meta[0].summary, category: $meta[0].category}
+                version: $meta[0].version, summary: $meta[0].summary, category: $meta[0].category,
+                "default": ($meta[0].default == true)}
                + (if $meta[0].slug then {slug: $meta[0].slug} else {} end)' \
               > "dist/.entry-$name.json"
             echo "packaged $name v$(jq -r .version "$dir/mod.json") ($sha)"

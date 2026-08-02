@@ -21,8 +21,11 @@ exchange, every player who installs one knows a human read every line.
 ## The pipeline
 
 1. **Fork and branch.** Your mod lives at `mods/<YourModName>/` following
-   the layout of the existing mods (`scripts/main.lua`, optional
-   `mods.json` metadata).
+   the layout of the existing mods (`Scripts/main.lua`, plus a `mod.json`
+   declaring `version`, `summary` and `category` — the release workflow
+   fails without all three). `slug` and `default` are optional; see
+   [Shipping by default](#shipping-by-default) before reaching for the
+   latter.
 2. **Lint clean.** CI runs luacheck over `mods/`; the release workflow
    treats warnings as fatal. Run it locally first.
 3. **Open a pull request** using the code-mod template. Fill in what the
@@ -60,6 +63,24 @@ Native DLLs add: source must build reproducibly in CI from what is in the
 repo, with no prebuilt binaries in the tree, and the bar for accepting one
 at all is materially higher — expect "can this be Lua?" as the first
 question.
+
+## Shipping by default
+
+`"default": true` in a mod's `mod.json` puts it in the set the launcher
+installs during setup, without asking. Everything else in the set is
+opt-in from My Mods, which lists the whole set so nothing is hidden —
+just not installed.
+
+The bar is "a MJOLNIR install does not work without this", not "this is
+good and people would like it". Being useful is an argument for being in
+the set, not for being installed unasked. In particular, a mod that opens
+a channel into the running game, dumps engine internals, or is labelled
+experimental does not take the flag no matter how convenient it is for
+the people developing it — `MJOLNIRBridge` evaluates arbitrary Lua on the
+game thread, and is exactly the kind of mod that stays opt-in.
+
+Adding the flag is a reviewed change to a file in this repository like
+any other, and it is reviewed as a decision about every player's machine.
 
 ## Versioning
 

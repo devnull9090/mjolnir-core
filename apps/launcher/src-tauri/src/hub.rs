@@ -27,7 +27,7 @@
 
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
@@ -945,6 +945,15 @@ pub struct CodeModEntry {
     pub summary: String,
     #[serde(default)]
     pub category: String,
+    /// True when a working MJOLNIR install is expected to carry this mod, so
+    /// setup installs it without asking. This is deliberately a flag the mod
+    /// sets for itself rather than something derived from `category`: the
+    /// category is a shelf label, and `tools` holds both the console enabler
+    /// and the Bridge, which is an arbitrary-Lua eval channel that has no
+    /// business being on a player's machine uninvited. Absent means false, so
+    /// a manifest published before this field simply has no defaults.
+    #[serde(default, rename = "default")]
+    pub default_install: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1313,30 +1322,37 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     })
 }
 
-/// Install one mod from the signed set. Refuses outright when the manifest
-/// signature does not verify — an unsigned set does not get to name hashes.
-pub fn code_mods_install(id: String) -> Result<(), String> {
-    let status = code_mods_status()?;
-    if !status.signature_verified {
-        return Err(
-            "The mods manifest signature does not verify against this launcher's key. \
-             Refusing to install anything from it."
-                .into(),
-        );
+/// An unsigned set does not get to name hashes, so nothing installs from one.
+fn require_signed(status: &CodeModsStatus) -> Result<(), String> {
+    if status.signature_verified {
+        return Ok(());
     }
-    let entry = status
-        .mods
-        .iter()
-        .map(|m| &m.entry)
-        .find(|m| m.id == id)
-        .ok_or_else(|| format!("{id} is not in the signed set"))?;
+    Err(
+        "The mods manifest signature does not verify against this launcher's key. \
+         Refusing to install anything from it."
+            .into(),
+    )
+}
 
+/// Where UE4SS loads Lua mods from, or why it cannot.
+fn code_mods_dir() -> Result<PathBuf, String> {
     let (install, _) = crate::find_game_install().ok_or("Game not found")?;
-    let mods_dir = install.join("Meteorite/Binaries/Win64/ue4ss/Mods");
-    if !mods_dir.exists() {
+    let dir = install.join("Meteorite/Binaries/Win64/ue4ss/Mods");
+    if !dir.exists() {
         return Err("UE4SS is not installed. Install the modpack first.".into());
     }
+    Ok(dir)
+}
 
+/// Download one already-verified entry, unpack it, register it with UE4SS and
+/// record what was written.
+///
+/// Kept separate from `code_mods_install` so installing several mods costs one
+/// manifest fetch rather than one per mod: `code_mods_status` re-downloads and
+/// re-verifies the whole set, and can pull entire zips to judge integrity, so
+/// looping over the single-mod entry point would multiply all of that by N.
+fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
+    let id = &entry.id;
     let mut resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Download failed: {}", resp.status()));
@@ -1378,7 +1394,7 @@ pub fn code_mods_install(id: String) -> Result<(), String> {
     let known = content.lines().any(|l| {
         l.split(':')
             .next()
-            .is_some_and(|n| n.trim() == id)
+            .is_some_and(|n| n.trim() == id.as_str())
     });
     if !known {
         let mut updated = content;
@@ -1394,9 +1410,49 @@ pub fn code_mods_install(id: String) -> Result<(), String> {
     // it can also tell "installed" from "installed, then edited". The digest
     // covers the directory rather than the zip, which means leftovers from
     // an earlier modpack are part of what gets verified.
-    let tree = tree_digest(&mods_dir.join(&id))?;
-    save_installed_version(&id, &entry.version, &tree)?;
+    let tree = tree_digest(&mods_dir.join(id))?;
+    save_installed_version(id, &entry.version, &tree)?;
     Ok(())
+}
+
+/// Install one mod from the signed set.
+pub fn code_mods_install(id: String) -> Result<(), String> {
+    let status = code_mods_status()?;
+    require_signed(&status)?;
+    let entry = status
+        .mods
+        .iter()
+        .map(|m| &m.entry)
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("{id} is not in the signed set"))?;
+    install_entry(entry, &code_mods_dir()?)
+}
+
+/// Install every mod the set marks as a default, skipping any already on disk.
+/// Returns the ids it installed, newly-installed only.
+///
+/// Setup used to leave a fresh install with no MJOLNIR mods at all, while the
+/// setup panel listed five of them as though they had shipped — UE4SS arrived
+/// as a loader with nothing to load. This closes that gap, and it installs
+/// only what the set marks rather than everything CI publishes: the diagnostic
+/// and experimental mods, and the Bridge in particular, stay opt-in.
+///
+/// Not idempotent by accident but by intent — an already-present mod is left
+/// exactly as it is, including one the player has since disabled in mods.txt.
+pub fn code_mods_install_defaults() -> Result<Vec<String>, String> {
+    let status = code_mods_status()?;
+    require_signed(&status)?;
+    let mods_dir = code_mods_dir()?;
+
+    let mut installed = Vec::new();
+    for row in &status.mods {
+        if !row.entry.default_install || row.integrity != Integrity::NotInstalled {
+            continue;
+        }
+        install_entry(&row.entry, &mods_dir)?;
+        installed.push(row.entry.id.clone());
+    }
+    Ok(installed)
 }
 
 #[cfg(test)]
@@ -1408,6 +1464,44 @@ mod tests {
         // A bad keys/mod-signing.pub should fail the build's tests, not the
         // first user who tries to install a mod.
         signing_key().expect("pinned public key must parse");
+    }
+
+    /// `default` decides what setup installs unasked, so the field has to
+    /// survive the rename between JSON and Rust — and, just as importantly,
+    /// has to read as false when a manifest predates it. A serde slip either
+    /// way is silent: too eager and every player gets the Bridge, too shy and
+    /// setup goes back to installing nothing.
+    #[test]
+    fn the_default_flag_survives_the_wire_and_is_opt_in() {
+        let manifest: CodeModsManifest = serde_json::from_str(
+            r#"{
+                "schema_version": 1,
+                "set_version": "1.2.3",
+                "mods": [
+                  {"id":"MJOLNIRCore","file":"c.zip","sha256":"a","size":1,
+                   "url":"https://example.invalid/c.zip","version":"1.0.0",
+                   "summary":"","category":"framework","default":true},
+                  {"id":"MJOLNIRBridge","file":"b.zip","sha256":"b","size":1,
+                   "url":"https://example.invalid/b.zip","version":"0.1.0",
+                   "summary":"","category":"tools","default":false},
+                  {"id":"MJOLNIRLegacy","file":"l.zip","sha256":"c","size":1,
+                   "url":"https://example.invalid/l.zip"}
+                ]
+            }"#,
+        )
+        .expect("manifest must parse");
+
+        let flags: Vec<bool> = manifest.mods.iter().map(|m| m.default_install).collect();
+        assert_eq!(
+            flags,
+            vec![true, false, false],
+            "only an explicit `default: true` opts a mod into setup"
+        );
+
+        // And back out again, under the name the manifest uses — a launcher
+        // that renamed it on the way out would break the frontend filter.
+        let json = serde_json::to_value(&manifest.mods[0]).unwrap();
+        assert_eq!(json["default"], serde_json::json!(true));
     }
 
     /// The whole point of the digest: a folder name is not evidence. Editing

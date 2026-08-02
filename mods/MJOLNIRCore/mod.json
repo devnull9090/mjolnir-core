@@ -1,5 +1,6 @@
 {
   "version": "1.0.0",
   "summary": "Core runtime initialization and UEHelpers utility library. Required by all MJOLNIR mods.",
-  "category": "framework"
+  "category": "framework",
+  "default": true
 }

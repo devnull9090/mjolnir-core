@@ -18,6 +18,18 @@ interface InstallProgress {
   percent: number;
 }
 
+interface CodeModRow {
+  id: string;
+  summary: string;
+  default: boolean;
+}
+
+/** Fixed part of the bundle. The mods after it come from the signed set. */
+const RUNTIME_ITEMS = [
+  { name: "UE4SS v3.0.1", desc: "Unreal Engine scripting framework" },
+  { name: "AOB Signatures", desc: "HCE-specific memory patterns" },
+];
+
 interface SetupPanelProps {
   installStatus: InstallStatus;
   onInstallComplete: () => void;
@@ -28,6 +40,16 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [defaults, setDefaults] = useState<CodeModRow[] | null>(null);
+
+  // What setup installs is a question the signed set answers, so ask it rather
+  // than keeping a second copy here. This list used to be hardcoded, and named
+  // five mods that setup had stopped installing entirely.
+  useEffect(() => {
+    invoke<{ mods: CodeModRow[] }>("code_mods_status")
+      .then((s) => setDefaults(s.mods.filter((m) => m.default)))
+      .catch(() => setDefaults(null));
+  }, []);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -102,7 +124,8 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
       <h2 className="text-xl font-bold text-text-primary mb-2">Set Up MJOLNIR Mods</h2>
       <p className="text-sm text-text-secondary max-w-lg mb-2">
         UE4SS and MJOLNIR mods are not installed yet. Click below to download and install
-        the complete modding framework including UE4SS, signature overrides, and all MJOLNIR mods.
+        the modding framework — UE4SS, the signature overrides tuned for this game, and the
+        mods a MJOLNIR install needs to do anything.
       </p>
 
       {installStatus.install_path && (
@@ -174,13 +197,8 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
           </p>
           <div className="space-y-2">
             {[
-              { name: "UE4SS v3.0.1", desc: "Unreal Engine scripting framework" },
-              { name: "AOB Signatures", desc: "HCE-specific memory patterns" },
-              { name: "MJOLNIRCore", desc: "Core framework & UEHelpers library" },
-              { name: "MJOLNIRConsoleEnabler", desc: "Developer console access" },
-              { name: "MJOLNIRFlyCam", desc: "Free debug camera (F8 toggle)" },
-              { name: "MJOLNIRDiscovery", desc: "Function scanner & diagnostics" },
-              { name: "MJOLNIRMultiplayer", desc: "Experimental map travel & admin tools" },
+              ...RUNTIME_ITEMS,
+              ...(defaults ?? []).map((m) => ({ name: m.id, desc: m.summary })),
             ].map((item) => (
               <div
                 key={item.name}
@@ -194,6 +212,10 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
               </div>
             ))}
           </div>
+          <p className="text-xs text-text-secondary mt-3">
+            Everything else in the signed set — the developer, diagnostic and experimental
+            mods — is left off. You can install any of it from My Mods afterwards.
+          </p>
         </div>
       )}
     </div>
