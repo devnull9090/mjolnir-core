@@ -3,37 +3,52 @@
     "Pinned upstream inputs for the runtime bundle. release-runtime.yml downloads",
     "exactly these URLs and refuses to continue unless the bytes hash to sha256.",
     "",
-    "UE4SS publishes experimental builds under the MOVING tag 'experimental-latest'.",
-    "The asset filename carries the build's git hash, so when that tag moves, the URL",
-    "below 404s and the release fails loudly. That is deliberate: bumping UE4SS is a",
-    "decision, not something a release should do on its own.",
+    "Both artifacts are vendored into our own bucket rather than fetched from",
+    "UE4SS's GitHub releases. Upstream publishes experimental builds under the",
+    "MOVING tag 'experimental-latest': the assets under it are replaced as new",
+    "builds land, so a URL that worked yesterday can 404 or serve different bytes",
+    "tomorrow. That already cost us the build below — it is the one verified",
+    "working in game, and it is no longer downloadable from upstream at all.",
     "",
-    "To bump: pick the new asset, put its URL and sha256 here, run the workflow, then",
-    "verify in game that all four AOBs still resolve (see signatures/README.md)."
+    "These vendored keys are immutable by convention: the build identifier is in",
+    "the filename, so bumping UE4SS means uploading a new object and editing this",
+    "file, never overwriting an existing one.",
+    "",
+    "To bump: download the new upstream release, upload it to runtime/vendor/,",
+    "put its URL and sha256 here, then verify in game that all four AOBs still",
+    "resolve before tagging (see signatures/README.md)."
   ],
-  "ue4ss_version": "3.0.1-1018-g662df915",
-  "release_tag": "experimental-latest",
+  "ue4ss_version": "3.0.1-exp-d0107f63",
   "artifacts": {
     "ue4ss": {
-      "url": "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/experimental-latest/UE4SS_v3.0.1-1018-g662df915.zip",
-      "sha256": "590ae4c6463db61497123b9ed35373596c39fb27f736e2078a02b476599671ba"
+      "url": "https://releases.mjolnircore.com/runtime/vendor/ue4ss-3.0.1-exp-d0107f63.zip",
+      "sha256": "e18ee53a0b5de9e36a07448d7551abb33ea8b1cc5e2300c3354b531864acd4db",
+      "_provenance": [
+        "The last modpack.zip, archived verbatim on 2026-08-01 from",
+        "modpack/latest/modpack.zip before anything could overwrite it. It carries",
+        "UE4SS.dll d0107f63e567313cb6a15c505b5db2bdba38130964a04e019bda7611c6178022",
+        "and dwmapi.dll cfbd121b9e464b3ff35baba0f065d860aaffa7eb90f703748cd8e5b7730fa97e,",
+        "both matching the install the four AOB signatures were verified against.",
+        "",
+        "It also contains MJOLNIR mods, because the modpack did. The build copies",
+        "only dwmapi.dll, UE4SS.dll, LICENSE and the four infrastructure mods out",
+        "of it, and asserts afterwards that no mods came along. Archived unmodified",
+        "on purpose: preservation should preserve, not repackage."
+      ]
     },
     "game_configs": {
-      "url": "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/experimental-latest/zCustomGameConfigs.zip",
-      "sha256": "8da808fdb9321eab2244d3736364e63dcc0814d4f65bfb3e0bbba0ff6d3118a6"
+      "url": "https://releases.mjolnircore.com/runtime/vendor/zCustomGameConfigs-2026-07-30.zip",
+      "sha256": "8da808fdb9321eab2244d3736364e63dcc0814d4f65bfb3e0bbba0ff6d3118a6",
+      "_provenance": [
+        "UE4SS zCustomGameConfigs.zip from experimental-latest, mirrored 2026-08-01.",
+        "Supplies the base signature layer; /signatures overlays it. The only file",
+        "we take from here and do not override is gamepass/GUObjectHashTables.lua.",
+        "",
+        "Note that this copy's Steam GUObjectHashTables.lua is the one that stopped",
+        "resolving after the 2026-08-01 game update. Upstream had not fixed it as of",
+        "this mirror, which is why the overlay is load-bearing."
+      ]
     }
   },
-  "game_config_dir": "Halo Campaign Evolved",
-  "_known_good_note": [
-    "The build currently verified in game is NOT this one. Its UE4SS.dll hashes to",
-    "d0107f63e567313cb6a15c505b5db2bdba38130964a04e019bda7611c6178022 and it is no",
-    "longer downloadable — experimental-latest has moved past it. The only surviving",
-    "copies are the developer's install and modpack/latest/modpack.zip in R2, which",
-    "has no versioned path, so the next modpack upload destroys the last copy.",
-    "",
-    "Archive it before that happens:",
-    "  wrangler r2 object get mjolnir-releases/modpack/latest/modpack.zip --file=old.zip --remote",
-    "  wrangler r2 object put mjolnir-releases/runtime/vendor/ue4ss-3.0.1-exp-d0107f63.zip --file=old.zip --remote",
-    "then point artifacts.ue4ss at that immutable URL and drop the moving-tag dependency."
-  ]
+  "game_config_dir": "Halo Campaign Evolved"
 }

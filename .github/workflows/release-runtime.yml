@@ -52,7 +52,7 @@ jobs:
             echo "::group::$key"
             echo "url    $url"
             if ! curl -fsSL "$url" -o "$out"; then
-              echo "::error::$url could not be downloaded. If the asset name has a git hash in it, upstream's moving tag has probably advanced past this build — pick a new one and update $LOCK."
+              echo "::error::$url could not be downloaded. These artifacts are vendored into our own bucket precisely so this cannot happen — if it 404s, the object was deleted or renamed. Check runtime/vendor/ in R2 before editing $LOCK."
               exit 1
             fi
             actual=$(sha256sum "$out" | cut -d' ' -f1)
