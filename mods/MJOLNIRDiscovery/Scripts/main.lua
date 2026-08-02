@@ -84,7 +84,7 @@ local function dumpNetworkFunctions()
         "Host", "Travel", "Server", "Client", "Session", "Lobby",
         "Join", "Start", "Match", "GameMode", "PlayerState", "Network"
     }
-    
+
     local ok, functions = pcall(FindAllOf, "Function")
     if ok and functions then
         local seen = {}

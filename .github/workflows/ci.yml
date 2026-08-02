@@ -25,7 +25,7 @@ jobs:
             luacheck mods/ signatures/ \
               --no-unused-args \
               --no-max-line-length \
-              --std luajit \
+              --std luajit+lua52 \
               --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
                         RegisterConsoleCommandHandler IsKeyBindRegistered \
                         ExecuteInGameThread ExecuteInGameThreadWithDelay \

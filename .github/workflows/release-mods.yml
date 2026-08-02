@@ -30,10 +30,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq luarocks > /dev/null
           sudo luarocks install luacheck > /dev/null
+          # UE4SS runs LuaJIT built with 5.2 compat, so table.pack and friends
+          # are available; luajit+lua52 tells luacheck that rather than us
+          # rewriting correct code to dodge a false positive.
           luacheck mods/ signatures/ \
             --no-unused-args \
             --no-max-line-length \
-            --std luajit \
+            --std luajit+lua52 \
             --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
                       RegisterConsoleCommandHandler IsKeyBindRegistered \
                       ExecuteInGameThread ExecuteInGameThreadWithDelay \
