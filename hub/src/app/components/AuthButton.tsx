@@ -1,59 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { LogOut } from "lucide-react";
 
-interface Me {
-  id: string;
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
-}
+import { useHub } from "./HubKit";
 
-/** Discord sign-in / signed-in chip for the navbar. */
+/**
+ * Discord sign-in / signed-in chip for the navbar. The session comes from
+ * the shared hub context mounted in the root layout, so the page makes one
+ * `/auth/me` call no matter how many components care about the answer.
+ */
 export function AuthButton() {
-  const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = loading
+  const { user, ready, signIn, signOut } = useHub();
 
-  useEffect(() => {
-    fetch("/api/v1/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setMe)
-      .catch(() => setMe(null));
-  }, []);
+  if (!ready) return <div className="w-24" />;
 
-  if (me === undefined) return <div className="w-24" />;
-
-  if (!me) {
+  if (!user) {
     return (
-      <a
-        href={`/api/v1/auth/discord?next=${encodeURIComponent(
-          typeof window !== "undefined" ? window.location.pathname : "/",
-        )}`}
-        className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-[#5865F2]/60 text-[#8b95f6] hover:bg-[#5865F2]/10 transition-colors"
+      <button
+        onClick={signIn}
+        className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-[#5865F2]/60 text-[#8b95f6] hover:bg-[#5865F2]/10 transition-colors cursor-pointer"
       >
         Sign in
-      </a>
+      </button>
     );
   }
 
   return (
     <div className="flex items-center gap-2">
-      {me.avatar_url ? (
+      {user.avatar_url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={me.avatar_url} alt="" className="w-7 h-7 rounded-full" />
+        <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full" />
       ) : null}
       <span className="text-sm text-foreground font-medium max-w-28 truncate">
-        {me.display_name ?? me.username}
+        {user.display_name ?? user.username}
       </span>
       <button
         title="Sign out"
         aria-label="Sign out"
-        onClick={async () => {
-          await fetch("/api/v1/auth/logout", { method: "POST" });
-          setMe(null);
-          window.location.reload();
-        }}
-        className="text-text-muted hover:text-foreground"
+        onClick={signOut}
+        className="text-text-muted hover:text-foreground cursor-pointer"
       >
         <LogOut className="w-4 h-4" />
       </button>

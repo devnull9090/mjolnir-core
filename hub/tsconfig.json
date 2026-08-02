@@ -19,7 +19,11 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // The community UI and API client the launcher shares with this app;
+      // see src/kit/README.md for why it lives here rather than above.
+      "@mjolnir/hub-kit": ["./src/kit/index.ts"],
+      "@mjolnir/hub-kit/*": ["./src/kit/*"]
     }
   },
   "include": [

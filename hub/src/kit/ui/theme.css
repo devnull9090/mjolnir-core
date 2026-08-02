@@ -1,0 +1,27 @@
+/*
+ * The token contract shared components style against.
+ *
+ * Every component in this package refers to colour only through these
+ * variables, never through an app's Tailwind theme names — the website calls
+ * its gold `--color-gold` and the launcher calls it `--color-mjolnir-gold`,
+ * and neither name belongs in shared code. Each app imports this file and
+ * then re-points the variables at its own palette; the values below are the
+ * fallback for anything that forgets to.
+ */
+
+:root {
+  --mj-bg: #06080f;
+  --mj-surface: #111827;
+  --mj-surface-raised: #1a2332;
+  --mj-surface-hover: #243044;
+  --mj-border: #21262d;
+  --mj-border-bright: #30363d;
+  --mj-text: #e5e7eb;
+  --mj-text-muted: #8b949e;
+  --mj-text-dim: #6e7681;
+  --mj-gold: #d4a843;
+  --mj-green: #3fb950;
+  --mj-blue: #58a6ff;
+  --mj-red: #f85149;
+  --mj-amber: #d29922;
+}

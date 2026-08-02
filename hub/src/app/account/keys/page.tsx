@@ -43,11 +43,9 @@ export default function ApiKeysPage() {
     [],
   );
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void load();
   }, [load]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const create = async () => {
     setBusy(true);

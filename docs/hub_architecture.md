@@ -299,10 +299,56 @@ and it is the reason to publish a spec at all. Make it good.
 - **Humans:** Discord OAuth → short-lived JWT in an `HttpOnly; Secure; SameSite=Lax` cookie.
 - **Tools:** API keys, `Authorization: Bearer mjc_...`, hash stored, scoped
   (`mods:read`, `mods:write`, `ratings:write`, `comments:write`), revocable, rate-limited per key.
+- **Desktop clients:** device pairing (below), which is just a supervised way of minting one of
+  those keys.
 - **Public reads:** no auth, IP rate-limited at the Cloudflare edge.
 
 Discord gives role sync for free — a `moderator` role in the guild can map to hub moderation
 rights, so there is no second permission system to maintain.
+
+#### Device pairing
+
+The launcher has no browser session and must never see a Discord password, so it pairs the way a
+TV app does:
+
+```
+POST /v1/auth/device/start                 → { device_code, user_code, verification_url, … }
+    ← launcher shows user_code, opens verification_url in the real browser
+POST /v1/auth/device/approve               session-only; mints the key
+POST /v1/auth/device/token                 poll; the first post-approval poll carries the key
+GET  /v1/auth/device/pending/{user_code}   what the approval page names before you commit
+```
+
+Rules that make it safe rather than merely convenient:
+
+- The **device code** is long, never displayed, and stored only as a SHA-256 — like an API key.
+  The **user code** is short and stored plainly, because a human types it and it dies in ten
+  minutes.
+- **Approval requires a cookie session.** A key cannot pair another device, so a stolen key
+  cannot mint more keys.
+- The minted key carries `mods:read ratings:write comments:write` and expires in 180 days. It
+  **cannot publish** — publishing stays a website flow, so a stolen launcher key cannot push a
+  release.
+- The key is stored between approval and collection (`device_codes.granted_key`) and the
+  delivering poll deletes the row in the same breath, which is what makes delivery exactly-once.
+  An approval nobody ever collects has its key revoked by the cleanup pass.
+- The only attack this flow has is talking someone into approving a code they did not generate.
+  `/link` therefore names the client and says, in as many words, to deny codes that arrived from
+  someone else. That warning is part of the design.
+
+Revocation is ordinary: the pairing shows up under *Account → API keys* like any other key.
+
+### One implementation of the community UI
+
+Ratings, reviews, comments, galleries, mod cards and release lists exist once, in
+`hub/src/kit`, and both the website and the launcher render them. The package is consumed as
+**source** through a bundler alias rather than as a published package, because the two apps have
+separate lockfiles and separate CI jobs; see `hub/src/kit/README.md`.
+
+Shared components style against a `--mj-*` variable contract that each app maps onto its own
+palette, and the API client takes an injectable transport. That transport is the interesting
+part: in the browser it is same-origin `fetch` with the session cookie, and in the launcher it is
+a Tauri command that attaches the paired key **in Rust**. The webview never holds a credential.
 
 ---
 
@@ -323,6 +369,16 @@ by real chunk-ID conflicts.
 API keys and scopes. `POST /v1/conflicts/check`. Published spec at `/docs/api` with a worked
 integration example. Rate limiting, CORS, cursor pagination everywhere. Moderation queue,
 reports, audit log.
+
+**Phase 2.5 — The launcher as a first-class client** *(done)*
+The launcher browses the hub with every filter the API offers (search, category, type, sort,
+cursor pages), shows a mod's real page inside the app — screenshots, description, releases,
+ratings, reviews, comments — and installs, updates, enables, disables or removes any of it per
+profile. Version updates are a hub query per installed mod, not a guess from a cached listing.
+Integrity is checked twice: the archive hash at download, and a re-hash of every cached container
+against what was recorded at install. Any release signature that is present must verify against
+the pinned key or the install is refused. Device pairing gives the launcher an identity, so
+rating and commenting work from the desktop.
 
 **Phase 3 — Code mods**
 `mods/` restructured for community contribution: contributor guide, PR template, a CI job that

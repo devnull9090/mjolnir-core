@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../kit/ui/theme.css";
 
 @theme inline {
   --color-background: #06080f;
@@ -19,6 +20,26 @@
   --color-accent-red: #f85149;
   --font-sans: var(--font-geist-sans), "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-geist-mono), "JetBrains Mono", monospace;
+}
+
+/* Point the shared components' token contract at this site's palette. Their
+   defaults are close but not identical; this is the one place the mapping
+   lives (hub/src/kit/ui/theme.css). */
+:root {
+  --mj-bg: var(--color-background);
+  --mj-surface: var(--color-surface);
+  --mj-surface-raised: var(--color-surface-card);
+  --mj-surface-hover: var(--color-surface-hover);
+  --mj-border: var(--color-border);
+  --mj-border-bright: var(--color-border-bright);
+  --mj-text: var(--color-foreground);
+  --mj-text-muted: var(--color-text-muted);
+  --mj-text-dim: var(--color-text-dim);
+  --mj-gold: var(--color-gold);
+  --mj-green: var(--color-accent-green);
+  --mj-blue: var(--color-accent-blue);
+  --mj-red: var(--color-accent-red);
+  --mj-amber: #d29922;
 }
 
 html,

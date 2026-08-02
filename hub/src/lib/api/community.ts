@@ -15,8 +15,8 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
-import type { ApiEnv, SessionUser } from "./bindings";
-import { requireScoped, sessionUser } from "./auth";
+import type { ApiEnv } from "./bindings";
+import { authenticate, requireScoped } from "./auth";
 import {
   CommentCreateSchema,
   CommentListSchema,
@@ -343,7 +343,9 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       const { slug } = c.req.valid("param");
       const mod = await modBySlug(c, slug);
-      const me = await sessionUser(c);
+      // Either credential identifies "mine": the launcher rates with a
+      // paired API key, and it has to be able to see its own score.
+      const me = (await authenticate(c))?.user ?? null;
 
       const [agg, dist, mine, reviews] = await Promise.all([
         c.env.DB.prepare(`SELECT COUNT(*) AS n, AVG(score) AS mean FROM ratings WHERE mod_id = ?1`)
@@ -411,7 +413,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       const mod = await modBySlug(c, slug);
       const rows = await c.env.DB.prepare(
         `SELECT cm.id, cm.mod_id, cm.parent_id, cm.body_md, cm.deleted_at, cm.created_at,
-                COALESCE(u.display_name, u.discord_username) AS author,
+                COALESCE(u.display_name, u.discord_username) AS author, u.id AS author_id,
                 u.discord_id, u.discord_avatar
          FROM comments cm JOIN users u ON u.id = cm.user_id
          WHERE cm.mod_id = ?1 ORDER BY cm.created_at`,
@@ -425,6 +427,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
             mod_id: r.mod_id as string,
             parent_id: (r.parent_id as string) ?? null,
             author: r.deleted_at ? null : (r.author as string),
+            author_id: r.deleted_at ? null : (r.author_id as string),
             author_avatar:
               !r.deleted_at && r.discord_avatar
                 ? `https://cdn.discordapp.com/avatars/${r.discord_id}/${r.discord_avatar}.png`

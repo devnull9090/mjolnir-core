@@ -3,7 +3,7 @@
   "info": {
     "title": "MJOLNIR Hub API",
     "version": "1.0.0",
-    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools authenticate with `Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, mods:write, ratings:write, comments:write), minted at /account/api-keys. Any authenticated write may additionally answer 401 (no identity), 403 (missing scope), or 429 (per-subject hourly write budget) with the standard Error shape."
+    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools authenticate with `Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, mods:write, ratings:write, comments:write), minted at /account/api-keys. Desktop clients with no browser session pair instead: /auth/device/start, show the user the code, and poll /auth/device/token for a scoped key. Any authenticated write may additionally answer 401 (no identity), 403 (missing scope), or 429 (per-subject hourly write budget) with the standard Error shape."
   },
   "servers": [
     {
@@ -101,6 +101,62 @@
           "avatar_url",
           "role",
           "created_at"
+        ]
+      },
+      "DeviceStart": {
+        "type": "object",
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "description": "Secret for polling. Never display it."
+          },
+          "user_code": {
+            "type": "string",
+            "example": "H7QK-M3XB",
+            "description": "Show this to the user."
+          },
+          "verification_url": {
+            "type": "string",
+            "example": "https://mjolnircore.com/link"
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Seconds to wait between polls."
+          },
+          "expires_in": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device_code",
+          "user_code",
+          "verification_url",
+          "interval",
+          "expires_in"
+        ]
+      },
+      "DevicePoll": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "description": "The minted API key, returned exactly once — on the first poll after approval. Store it; it is not retrievable again."
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "status"
         ]
       },
       "ModList": {
@@ -282,6 +338,13 @@
             ],
             "description": "Hash of the release archive; verify after download."
           },
+          "signature": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base64 Ed25519 signature over the lowercase hex `sha256`, made with the platform release key (keys/mod-signing.pub). Present on signed script/native releases; null for community content uploads, whose integrity rests on `sha256` plus the upload scan. Clients that know the key must reject a release whose signature is present and wrong."
+          },
           "build_min": {
             "type": [
               "string",
@@ -310,6 +373,7 @@
           "changelog_md",
           "file_size",
           "sha256",
+          "signature",
           "build_min",
           "build_max",
           "download_count",
@@ -416,6 +480,12 @@
               "null"
             ]
           },
+          "signature": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "file_size": {
             "type": [
               "integer",
@@ -442,6 +512,7 @@
           "version",
           "status",
           "sha256",
+          "signature",
           "file_size",
           "chunk_count",
           "findings",
@@ -760,6 +831,13 @@
             ],
             "description": "Null when the comment was deleted."
           },
+          "author_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The author's user id, so a client can tell whose comments carry a delete button without matching on display names. Null when deleted."
+          },
           "author_avatar": {
             "type": [
               "string",
@@ -784,6 +862,7 @@
           "mod_id",
           "parent_id",
           "author",
+          "author_id",
           "author_avatar",
           "body_md",
           "deleted",
@@ -1157,7 +1236,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "Current session",
+        "summary": "Who the caller is",
+        "description": "Resolves either credential: the browser session cookie, or a Bearer API key. Desktop clients that paired a key ask this to find out whose account they are acting as.",
         "responses": {
           "200": {
             "description": "The signed-in user.",
@@ -1203,6 +1283,277 @@
                   "required": [
                     "ok"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device/start": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Begin pairing a desktop client",
+        "description": "Returns a short `user_code` to show the user and a secret `device_code` to poll with. Send the user to `verification_url` to approve. Codes live for 10 minutes.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "client_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60,
+                    "default": "MJOLNIR Launcher",
+                    "description": "Shown on the approval page so the user knows what they are approving."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pairing started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceStart"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many handshakes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device/token": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Poll a pairing for its key",
+        "description": "Answers `pending` until the user decides. The first poll after approval carries the key and is the only one that does.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "device_code": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "device_code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current state of the pairing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicePoll"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown device code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Polling too fast.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device/approve": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Approve or deny a pairing code",
+        "description": "Called from a signed-in browser session. Approving mints an API key scoped to mods:read, ratings:write, comments:write and expiring in 180 days, which the waiting client collects on its next poll. Only cookie sessions may approve — a key cannot pair another device.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_code": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 20
+                  },
+                  "approve": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "user_code",
+                  "approve"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "denied"
+                      ]
+                    },
+                    "client_name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "client_name"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API keys cannot approve pairings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such code, or it expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device/pending/{user_code}": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Describe a pending pairing",
+        "description": "Lets the approval page name the client before the user commits. Returns nothing that helps an attacker: the client name is a label the client chose for itself.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "user_code",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pending pairing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client_name": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "client_name",
+                    "expires_at"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

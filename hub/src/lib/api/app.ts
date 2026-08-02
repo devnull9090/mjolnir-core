@@ -11,10 +11,11 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 
 import type { ApiEnv } from "./bindings";
-import { loginCallback, loginRedirect, logout, sessionUser } from "./auth";
+import { authenticate, loginCallback, loginRedirect, logout } from "./auth";
 import { registerPublishRoutes } from "./publish";
 import { registerCommunityRoutes } from "./community";
 import { registerAccountRoutes } from "./account";
+import { registerDeviceRoutes } from "./device";
 import { registerModerationRoutes } from "./moderation";
 import { registerCodeSyncRoutes } from "./codesync";
 import {
@@ -40,6 +41,8 @@ export const openApiInfo = {
       "OAuth with an HttpOnly cookie; third-party tools authenticate with " +
       "`Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, " +
       "mods:write, ratings:write, comments:write), minted at /account/api-keys. " +
+      "Desktop clients with no browser session pair instead: /auth/device/start, " +
+      "show the user the code, and poll /auth/device/token for a scoped key. " +
       "Any authenticated write may additionally answer 401 (no identity), " +
       "403 (missing scope), or 429 (per-subject hourly write budget) with " +
       "the standard Error shape.",
@@ -178,7 +181,11 @@ app.openapi(
     method: "get",
     path: "/auth/me",
     tags: ["auth"],
-    summary: "Current session",
+    summary: "Who the caller is",
+    description:
+      "Resolves either credential: the browser session cookie, or a Bearer " +
+      "API key. Desktop clients that paired a key ask this to find out whose " +
+      "account they are acting as.",
     responses: {
       200: {
         description: "The signed-in user.",
@@ -191,8 +198,9 @@ app.openapi(
     },
   }),
   async (c) => {
-    const user = await sessionUser(c);
-    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const auth = await authenticate(c);
+    if (!auth) return c.json({ error: "unauthenticated" }, 401);
+    const { user } = auth;
     return c.json(
       {
         id: user.id,
@@ -224,6 +232,10 @@ app.openapi(
   }),
   logout,
 );
+
+// ── Device pairing (the launcher's way in) ────────────────────────────
+
+registerDeviceRoutes(app);
 
 // ── Mods ──────────────────────────────────────────────────────────────
 
@@ -336,8 +348,9 @@ app.openapi(
     if (!row) return c.json({ error: "not_found" }, 404);
     if (row.status !== "published") {
       // Drafts are visible to their owner (and moderators) only, so the
-      // manage flow can run before the first release publishes the mod.
-      const user = await sessionUser(c);
+      // manage flow can run before the first release publishes the mod —
+      // from a browser session or from the owner's own API key.
+      const user = (await authenticate(c))?.user;
       if (!user || (row.owner_id !== user.id && user.role === "user")) {
         return c.json({ error: "not_found" }, 404);
       }

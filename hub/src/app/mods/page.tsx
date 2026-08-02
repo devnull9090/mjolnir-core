@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Download, Plus, Star, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { ModCard } from "../components/HubKit";
 import { listPublishedMods } from "@/lib/api/queries";
 
 export const metadata: Metadata = {
@@ -18,18 +19,6 @@ const SORTS = [
   { key: "downloads", label: "Most downloaded" },
   { key: "rating", label: "Top rated" },
 ] as const;
-
-function Stars({ mean, count }: { mean: number | null; count: number }) {
-  if (mean === null || count === 0) {
-    return <span className="text-xs text-text-dim">No ratings yet</span>;
-  }
-  return (
-    <span className="flex items-center gap-1 text-xs text-text-muted">
-      <Star className="w-3.5 h-3.5 fill-gold text-gold" />
-      {mean.toFixed(1)} <span className="text-text-dim">({count})</span>
-    </span>
-  );
-}
 
 export default async function ModsPage({
   searchParams,
@@ -133,37 +122,9 @@ export default async function ModsPage({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {mods.map((mod) => (
-              <Link
-                key={mod.id}
-                href={`/mods/${mod.slug}`}
-                className="group rounded-xl border border-border hover:border-gold/50 transition-colors flex flex-col"
-              >
-                <div className="p-5 pb-3 flex-1">
-                  <div className="flex items-start justify-between mb-3 gap-2">
-                    <div>
-                      <h3 className="text-base font-bold text-foreground group-hover:text-gold transition-colors">
-                        {mod.name}
-                      </h3>
-                      <span className="text-xs text-text-dim">by {mod.author}</span>
-                    </div>
-                    <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-surface-card border border-border text-text-dim">
-                      {mod.category}
-                    </span>
-                  </div>
-                  <p className="text-sm text-text-muted leading-relaxed line-clamp-3">
-                    {mod.summary ?? ""}
-                  </p>
-                </div>
-                <div className="px-5 py-3 border-t border-border/50 flex items-center justify-between">
-                  <Stars mean={mod.rating_mean} count={mod.rating_count} />
-                  <span className="text-xs text-text-dim flex items-center gap-1">
-                    <Download className="w-3 h-3" />
-                    {mod.download_count}
-                  </span>
-                </div>
-              </Link>
+              <ModCard key={mod.id} mod={mod} href={`/mods/${mod.slug}`} />
             ))}
           </div>
         )}

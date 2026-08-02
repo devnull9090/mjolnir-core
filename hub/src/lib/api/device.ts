@@ -1,0 +1,450 @@
+/**
+ * Device pairing for desktop clients.
+ *
+ * The launcher cannot hold a browser session and must never see a Discord
+ * password, so it pairs the way a TV app does (RFC 8628 in shape, not in
+ * wire format): it asks for a handshake, shows the user a short code, the
+ * user approves that code on mjolnircore.com while signed in, and the next
+ * poll hands the launcher an ordinary scoped API key.
+ *
+ * What the launcher gets is deliberately narrow: read, rate, comment. Not
+ * `mods:write` — publishing is a website flow, and a desktop app that could
+ * publish is a desktop app whose stolen key can publish.
+ *
+ * Approval is a confirmed, user-initiated action on a page that names the
+ * client and warns against approving codes someone else read out. That
+ * warning is the only defence against the phishing case this flow has, so
+ * it is part of the design, not decoration.
+ */
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
+
+import type { ApiEnv } from "./bindings";
+import { authenticate, rateLimit, sha256Hex } from "./auth";
+import { mintApiKey } from "./account";
+import { ErrorSchema, UserSchema } from "./schemas";
+
+type Ctx = Context<ApiEnv>;
+
+/** Scopes a paired desktop client receives. */
+export const DEVICE_SCOPES = ["mods:read", "ratings:write", "comments:write"] as const;
+
+const CODE_TTL_SECONDS = 600;
+const POLL_INTERVAL_SECONDS = 3;
+/** Keys minted by pairing expire; a launcher re-pairs rather than holding forever. */
+const KEY_TTL_DAYS = 180;
+
+/**
+ * Digits and letters that survive being read off a screen and typed back:
+ * no 0/O, no 1/I/L, no 5/S, no 2/Z.
+ */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRTUVWXY34679";
+
+function randomUserCode(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]);
+  return `${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+}
+
+function randomDeviceCode(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Where to send the user to approve. The configured site URL wins, so a
+ * spoofed Host header cannot aim a launcher at another page — except on
+ * localhost, where the request origin is what a developer running both
+ * halves locally actually wants.
+ */
+function siteUrl(c: Ctx): string {
+  const origin = new URL(c.req.url).origin;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+  return process.env.SITE_URL ?? c.env.SITE_URL ?? origin;
+}
+
+/**
+ * `expires_at` is stored as an ISO-8601 string, which does **not** order
+ * against SQLite's `datetime('now')` ("2026-08-02 01:00:00"): the `T` at
+ * index 10 sorts above a space, so every same-day ISO timestamp compares as
+ * later than every same-day SQLite one. Comparisons therefore either happen
+ * in JavaScript or bind an ISO bound computed here — never `datetime('now')`.
+ */
+function isoNow(offsetMs = 0): string {
+  return new Date(Date.now() + offsetMs).toISOString();
+}
+
+function expired(expiresAt: string): boolean {
+  return expiresAt <= isoNow();
+}
+
+const DeviceStartSchema = z
+  .object({
+    device_code: z.string().openapi({ description: "Secret for polling. Never display it." }),
+    user_code: z.string().openapi({ example: "H7QK-M3XB", description: "Show this to the user." }),
+    verification_url: z.string().openapi({ example: "https://mjolnircore.com/link" }),
+    interval: z.number().int().openapi({ description: "Seconds to wait between polls." }),
+    expires_in: z.number().int(),
+  })
+  .openapi("DeviceStart");
+
+const DevicePollSchema = z
+  .object({
+    status: z.enum(["pending", "approved", "denied", "expired"]),
+    key: z.string().optional().openapi({
+      description:
+        "The minted API key, returned exactly once — on the first poll after " +
+        "approval. Store it; it is not retrievable again.",
+    }),
+    user: UserSchema.optional(),
+  })
+  .openapi("DevicePoll");
+
+function userPayload(row: {
+  id: string;
+  discord_id: string;
+  discord_username: string;
+  discord_avatar: string | null;
+  display_name: string | null;
+  role: string;
+  created_at: string;
+}) {
+  return {
+    id: row.id,
+    username: row.discord_username,
+    display_name: row.display_name,
+    avatar_url: row.discord_avatar
+      ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar}.png`
+      : null,
+    role: row.role as "user" | "moderator" | "admin",
+    created_at: row.created_at,
+  };
+}
+
+export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
+  // ── Start ───────────────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/auth/device/start",
+      tags: ["auth"],
+      summary: "Begin pairing a desktop client",
+      description:
+        "Returns a short `user_code` to show the user and a secret " +
+        "`device_code` to poll with. Send the user to `verification_url` to " +
+        "approve. Codes live for 10 minutes.",
+      request: {
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                client_name: z.string().min(1).max(60).default("MJOLNIR Launcher").openapi({
+                  description: "Shown on the approval page so the user knows what they are approving.",
+                }),
+              }),
+            },
+          },
+        },
+      },
+      responses: {
+        201: {
+          description: "Pairing started.",
+          content: { "application/json": { schema: DeviceStartSchema } },
+        },
+        429: { description: "Too many handshakes.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const ip = c.req.header("cf-connecting-ip") ?? "local";
+      if (!(await rateLimit(c, `ip:${ip}`, "device_start", 20))) {
+        return c.json({ error: "rate_limited" }, 429);
+      }
+
+      const deviceCode = randomDeviceCode();
+      const userCode = randomUserCode();
+      const expiresAt = isoNow(CODE_TTL_SECONDS * 1000);
+
+      await c.env.DB.prepare(
+        `INSERT INTO device_codes (device_code_hash, user_code, client_name, expires_at)
+         VALUES (?1, ?2, ?3, ?4)`,
+      )
+        .bind(await sha256Hex(deviceCode), userCode, c.req.valid("json").client_name, expiresAt)
+        .run();
+
+      // Expired handshakes are worthless; drop them off the request path.
+      // An approval nobody ever collected leaves a live key behind, so it is
+      // revoked before the row that would have delivered it goes away.
+      const staleBefore = isoNow(-3600_000);
+      c.executionCtx.waitUntil(
+        c.env.DB.batch([
+          c.env.DB.prepare(
+            `UPDATE api_keys SET revoked_at = datetime('now')
+             WHERE revoked_at IS NULL AND id IN (
+               SELECT api_key_id FROM device_codes
+               WHERE api_key_id IS NOT NULL AND granted_key IS NOT NULL
+                 AND expires_at < ?1)`,
+          ).bind(staleBefore),
+          c.env.DB.prepare(`DELETE FROM device_codes WHERE expires_at < ?1`).bind(staleBefore),
+        ]) as unknown as Promise<unknown>,
+      );
+
+      return c.json(
+        {
+          device_code: deviceCode,
+          user_code: userCode,
+          verification_url: `${siteUrl(c)}/link`,
+          interval: POLL_INTERVAL_SECONDS,
+          expires_in: CODE_TTL_SECONDS,
+        },
+        201,
+      );
+    },
+  );
+
+  // ── Poll ────────────────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/auth/device/token",
+      tags: ["auth"],
+      summary: "Poll a pairing for its key",
+      description:
+        "Answers `pending` until the user decides. The first poll after " +
+        "approval carries the key and is the only one that does.",
+      request: {
+        body: {
+          content: {
+            "application/json": { schema: z.object({ device_code: z.string().min(1) }) },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Current state of the pairing.",
+          content: { "application/json": { schema: DevicePollSchema } },
+        },
+        404: { description: "Unknown device code.", content: { "application/json": { schema: ErrorSchema } } },
+        429: { description: "Polling too fast.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { device_code } = c.req.valid("json");
+      const hash = await sha256Hex(device_code);
+
+      // Budgets one pairing generously but caps a code-guessing loop: at
+      // 3-second intervals a well-behaved client uses 200 of these.
+      if (!(await rateLimit(c, `device:${hash.slice(0, 32)}`, "device_poll", 400))) {
+        return c.json({ error: "rate_limited" }, 429);
+      }
+
+      const row = await c.env.DB.prepare(
+        `SELECT device_code_hash, status, user_id, granted_key, expires_at
+         FROM device_codes WHERE device_code_hash = ?1`,
+      )
+        .bind(hash)
+        .first<{
+          device_code_hash: string;
+          status: string;
+          user_id: string | null;
+          granted_key: string | null;
+          expires_at: string;
+        }>();
+      if (!row) return c.json({ error: "not_found" }, 404);
+
+      if (row.status === "denied") {
+        await c.env.DB.prepare(`DELETE FROM device_codes WHERE device_code_hash = ?1`)
+          .bind(hash)
+          .run();
+        return c.json({ status: "denied" as const }, 200);
+      }
+      if (row.status !== "approved" && expired(row.expires_at)) {
+        await c.env.DB.prepare(`DELETE FROM device_codes WHERE device_code_hash = ?1`)
+          .bind(hash)
+          .run();
+        return c.json({ status: "expired" as const }, 200);
+      }
+      if (row.status !== "approved" || !row.user_id) {
+        return c.json({ status: "pending" as const }, 200);
+      }
+
+      // Approved. The key is handed over once and the handshake is spent —
+      // deleting the row here is what makes "exactly once" true even if two
+      // polls race, because only the first sees a non-null granted_key.
+      const user = await c.env.DB.prepare(
+        `SELECT id, discord_id, discord_username, discord_avatar, display_name, role, created_at
+         FROM users WHERE id = ?1`,
+      )
+        .bind(row.user_id)
+        .first<Parameters<typeof userPayload>[0]>();
+      const key = row.granted_key;
+      await c.env.DB.prepare(`DELETE FROM device_codes WHERE device_code_hash = ?1`)
+        .bind(hash)
+        .run();
+
+      return c.json(
+        {
+          status: "approved" as const,
+          ...(key ? { key } : {}),
+          ...(user ? { user: userPayload(user) } : {}),
+        },
+        200,
+      );
+    },
+  );
+
+  // ── Approve or deny ─────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/auth/device/approve",
+      tags: ["auth"],
+      summary: "Approve or deny a pairing code",
+      description:
+        "Called from a signed-in browser session. Approving mints an API " +
+        `key scoped to ${DEVICE_SCOPES.join(", ")} and expiring in ${KEY_TTL_DAYS} days, ` +
+        "which the waiting client collects on its next poll. Only cookie " +
+        "sessions may approve — a key cannot pair another device.",
+      request: {
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                user_code: z.string().min(4).max(20),
+                approve: z.boolean(),
+              }),
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Decision recorded.",
+          content: {
+            "application/json": {
+              schema: z.object({
+                status: z.enum(["approved", "denied"]),
+                client_name: z.string(),
+              }),
+            },
+          },
+        },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "API keys cannot approve pairings.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such code, or it expired.", content: { "application/json": { schema: ErrorSchema } } },
+        409: { description: "Already decided.", content: { "application/json": { schema: ErrorSchema } } },
+        429: { description: "Too many attempts.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      if (auth.scopes !== null) {
+        return c.json(
+          {
+            error: "session_required",
+            message: "Pairings are approved from a signed-in browser, not from an API key.",
+          },
+          403,
+        );
+      }
+      // A wrong code should cost something: user codes are short, and this
+      // is the only endpoint that can be used to hunt for one.
+      if (!(await rateLimit(c, auth.subject, "device_approve", 30))) {
+        return c.json({ error: "rate_limited" }, 429);
+      }
+
+      const { user_code, approve } = c.req.valid("json");
+      const code = user_code.trim().toUpperCase();
+      const row = await c.env.DB.prepare(
+        `SELECT device_code_hash, client_name, status, expires_at FROM device_codes
+         WHERE user_code = ?1`,
+      )
+        .bind(code)
+        .first<{
+          device_code_hash: string;
+          client_name: string;
+          status: string;
+          expires_at: string;
+        }>();
+      if (!row || expired(row.expires_at)) {
+        return c.json({ error: "not_found", message: "That code is unknown or has expired." }, 404);
+      }
+      if (row.status !== "pending") {
+        return c.json({ error: "already_decided", message: `Already ${row.status}.` }, 409);
+      }
+
+      if (!approve) {
+        await c.env.DB.prepare(
+          `UPDATE device_codes SET status = 'denied' WHERE device_code_hash = ?1`,
+        )
+          .bind(row.device_code_hash)
+          .run();
+        return c.json({ status: "denied" as const, client_name: row.client_name }, 200);
+      }
+
+      const expiresAt = new Date(Date.now() + KEY_TTL_DAYS * 86400_000).toISOString();
+      const minted = await mintApiKey(
+        c.env.DB,
+        auth.user.id,
+        row.client_name,
+        DEVICE_SCOPES,
+        expiresAt,
+      );
+      await c.env.DB.prepare(
+        `UPDATE device_codes
+         SET status = 'approved', user_id = ?2, api_key_id = ?3, granted_key = ?4
+         WHERE device_code_hash = ?1 AND status = 'pending'`,
+      )
+        .bind(row.device_code_hash, auth.user.id, minted.id, minted.key)
+        .run();
+
+      return c.json({ status: "approved" as const, client_name: row.client_name }, 200);
+    },
+  );
+
+  // ── What a code is for, before approving it ─────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/auth/device/pending/{user_code}",
+      tags: ["auth"],
+      summary: "Describe a pending pairing",
+      description:
+        "Lets the approval page name the client before the user commits. " +
+        "Returns nothing that helps an attacker: the client name is a label " +
+        "the client chose for itself.",
+      request: { params: z.object({ user_code: z.string() }) },
+      responses: {
+        200: {
+          description: "The pending pairing.",
+          content: {
+            "application/json": {
+              schema: z.object({ client_name: z.string(), expires_at: z.string() }),
+            },
+          },
+        },
+        404: { description: "Unknown or expired.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const code = c.req.valid("param").user_code.trim().toUpperCase();
+      const row = await c.env.DB.prepare(
+        `SELECT client_name, expires_at FROM device_codes
+         WHERE user_code = ?1 AND status = 'pending'`,
+      )
+        .bind(code)
+        .first<{ client_name: string; expires_at: string }>();
+      if (!row || expired(row.expires_at)) return c.json({ error: "not_found" }, 404);
+      return c.json({ client_name: row.client_name, expires_at: row.expires_at }, 200);
+    },
+  );
+}

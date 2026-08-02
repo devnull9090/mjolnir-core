@@ -361,6 +361,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
             | "published"
             | "rejected",
           sha256: (release.sha256 as string) ?? null,
+          signature: (release.signature as string) ?? null,
           file_size: (release.file_size as number) ?? null,
           chunk_count: scan.verdict === "pass" ? scan.chunkIds.length : 0,
           findings: scan.findings,
@@ -414,6 +415,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           version: release.version as string,
           status: release.status as "pending" | "scanning" | "published" | "rejected" | "yanked",
           sha256: (release.sha256 as string) ?? null,
+          signature: (release.signature as string) ?? null,
           file_size: (release.file_size as number) ?? null,
           chunk_count: chunks?.n ?? 0,
           findings: scan ? JSON.parse(scan.findings) : [],
