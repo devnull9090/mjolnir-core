@@ -95,10 +95,7 @@ Write-Host "[4/7] Copying signatures..."
 $sigDir = Join-Path $ue4ssDir "UE4SS_Signatures"
 New-Item -ItemType Directory -Path $sigDir -Force | Out-Null
 
-# Copy repo's own signatures first
-Get-ChildItem (Join-Path $RepoRoot "signatures") -File | ForEach-Object {
-    Copy-Item $_.FullName (Join-Path $sigDir $_.Name)
-}
+# Upstream first, ours last — see the overwrite note below.
 
 # Copy Game Pass signatures from the custom game configs
 $gameConfigsZip = Join-Path (Split-Path $Ue4ssZipPath -Parent) "zCustomGameConfigs.zip"
@@ -110,10 +107,15 @@ if (Test-Path $gameConfigsZip) {
 
     $hceSigDir = Join-Path $cfgExtract "Halo Campaign Evolved\UE4SS_Signatures"
     if (Test-Path $hceSigDir) {
-        # Copy upstream Steam signatures (overwrite repo's if newer)
+        # Upstream Steam signatures form the base layer. Ours overwrite them
+        # below, which is the opposite of what this script used to do: it
+        # copied ours in first and let upstream win, so repo signatures never
+        # actually shipped. That masked the fact that they were the unshipped
+        # trampoline set (now in native/signatures), and it meant a fix made
+        # here could not reach users.
         Get-ChildItem $hceSigDir -File | ForEach-Object {
             Copy-Item $_.FullName (Join-Path $sigDir $_.Name) -Force
-            Write-Host "    Steam sig: $($_.Name)" -ForegroundColor DarkGray
+            Write-Host "    Steam sig (upstream): $($_.Name)" -ForegroundColor DarkGray
         }
 
         # Copy Game Pass signatures into gamepass/ subdirectory
@@ -132,6 +134,16 @@ if (Test-Path $gameConfigsZip) {
 } else {
     Write-Host "  No zCustomGameConfigs.zip found alongside UE4SS zip. Skipping Game Pass signatures."
     Write-Host "  To include Game Pass support, place zCustomGameConfigs.zip in the same directory as the UE4SS zip."
+}
+
+# Ours last, so a fix in the repo actually reaches users. Upstream's Steam
+# GUObjectHashTables.lua baked two RIP-relative displacements in as literal
+# bytes and stopped resolving after the 2026-08-01 game update; /signatures
+# carries the wildcarded fix. See signatures/README.md.
+Write-Host "  Overlaying repo signatures..."
+Get-ChildItem (Join-Path $RepoRoot "signatures") -File -Filter "*.lua" | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $sigDir $_.Name) -Force
+    Write-Host "    Steam sig (repo): $($_.Name)" -ForegroundColor DarkGray
 }
 
 # ── Copy MJOLNIR mods ──
