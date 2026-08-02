@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Diagnostic UFunction dumper and netcode travel URL logging for reverse engineering.",
+  "category": "tools"
+}

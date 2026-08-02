@@ -16,6 +16,7 @@ import { registerPublishRoutes } from "./publish";
 import { registerCommunityRoutes } from "./community";
 import { registerAccountRoutes } from "./account";
 import { registerModerationRoutes } from "./moderation";
+import { registerCodeSyncRoutes } from "./codesync";
 import {
   ErrorSchema,
   HealthSchema,
@@ -395,6 +396,10 @@ registerCommunityRoutes(app);
 
 registerAccountRoutes(app);
 registerModerationRoutes(app);
+
+// ── Signed code-mod mirror ────────────────────────────────────────────
+
+registerCodeSyncRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

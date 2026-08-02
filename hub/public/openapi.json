@@ -1012,6 +1012,25 @@
         "required": [
           "action"
         ]
+      },
+      "CodeSyncResult": {
+        "type": "object",
+        "properties": {
+          "set_version": {
+            "type": "string"
+          },
+          "mods_synced": {
+            "type": "integer"
+          },
+          "releases_created": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "set_version",
+          "mods_synced",
+          "releases_created"
+        ]
       }
     },
     "parameters": {}
@@ -1728,6 +1747,9 @@
         "responses": {
           "200": {
             "description": "The .mjolnir archive (zip)."
+          },
+          "302": {
+            "description": "Signed code-mod artifact; redirect to its canonical URL."
           },
           "404": {
             "description": "Not published.",
@@ -2763,6 +2785,47 @@
           },
           "404": {
             "description": "No such published release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/code-mods/sync": {
+      "post": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "Mirror the signed code-mod set onto hub pages",
+        "description": "Fetches the latest signed release manifest, verifies its Ed25519 signature against the platform's committed public key, and upserts a hub mod page and release per entry. Idempotent; callable by anyone because the signature, not the caller, is the authority. CI calls it after every code-mods release.",
+        "responses": {
+          "200": {
+            "description": "What the sync did.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeSyncResult"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Manifest unreachable, unparseable, or its signature failed.",
             "content": {
               "application/json": {
                 "schema": {

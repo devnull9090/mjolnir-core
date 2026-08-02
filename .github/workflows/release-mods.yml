@@ -48,27 +48,41 @@ jobs:
         with:
           node-version: 22
 
+      # Every mod must declare itself: version, summary and category come
+      # from its mod.json, so the manifest — and therefore the launcher and
+      # the hub pages — carry per-mod versions, not just the set's.
       - name: Package each mod and write the manifest
         id: build
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#mods-v}"
           mkdir -p dist
-          MANIFEST='{"schema_version":1,"set_version":"'"$VERSION"'","mods":['
-          FIRST=1
           for dir in mods/*/; do
             name=$(basename "$dir")
+            test -f "$dir/mod.json" || { echo "::error::mods/$name/mod.json is missing"; exit 1; }
+            jq -e '.version and .summary and .category' "$dir/mod.json" > /dev/null \
+              || { echo "::error::mods/$name/mod.json needs version, summary, category"; exit 1; }
             file="dist/${name}-${VERSION}.zip"
             (cd mods && zip -qr "../$file" "$name")
             sha=$(sha256sum "$file" | cut -d' ' -f1)
             size=$(stat -c%s "$file")
-            [ $FIRST -eq 1 ] || MANIFEST+=','
-            FIRST=0
-            MANIFEST+='{"id":"'"$name"'","file":"'"${name}-${VERSION}.zip"'","sha256":"'"$sha"'","size":'"$size"',"url":"https://releases.mjolnircore.com/mods/'"$VERSION"'/'"${name}-${VERSION}.zip"'"}'
-            echo "packaged $name ($sha)"
+            jq -n \
+              --arg id "$name" \
+              --arg file "${name}-${VERSION}.zip" \
+              --arg sha "$sha" \
+              --argjson size "$size" \
+              --arg url "https://releases.mjolnircore.com/mods/${VERSION}/${name}-${VERSION}.zip" \
+              --slurpfile meta "$dir/mod.json" \
+              '{id: $id, file: $file, sha256: $sha, size: $size, url: $url,
+                version: $meta[0].version, summary: $meta[0].summary, category: $meta[0].category}
+               + (if $meta[0].slug then {slug: $meta[0].slug} else {} end)' \
+              > "dist/.entry-$name.json"
+            echo "packaged $name v$(jq -r .version "$dir/mod.json") ($sha)"
           done
-          MANIFEST+=']}'
-          echo "$MANIFEST" | node -e "process.stdout.write(JSON.stringify(JSON.parse(require('fs').readFileSync(0,'utf8')), null, 2) + '\n')" > dist/manifest.json
+          jq -s --arg set "$VERSION" \
+            '{schema_version: 1, set_version: $set, mods: .}' \
+            dist/.entry-*.json > dist/manifest.json
+          rm dist/.entry-*.json
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           cat dist/manifest.json
 
@@ -126,6 +140,13 @@ jobs:
           wrangler r2 object put "$BASE/latest/manifest.json" --file=dist/manifest.json --remote
           wrangler r2 object put "$BASE/latest/manifest.json.sig" --file=dist/manifest.json.sig --remote
           echo "Uploaded mods $VER"
+
+      # Give each mod its hub page. The endpoint re-verifies the signature
+      # server-side, so this is a nudge, not a trusted write.
+      - name: Sync hub pages
+        run: |
+          curl -sS -X POST https://mjolnircore.com/api/v1/code-mods/sync | tee sync.json
+          test "$(jq -r '.mods_synced // 0' sync.json)" -gt 0
 
       - name: Post release notification to Discord
         env:

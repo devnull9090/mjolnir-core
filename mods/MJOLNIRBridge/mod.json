@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Remote control: run Lua and console commands in the game from outside it.",
+  "category": "tools"
+}

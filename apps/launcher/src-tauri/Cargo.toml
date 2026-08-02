@@ -1,9 +1,14 @@
 [package]
 name = "mjolnir-launcher"
-version = "0.3.3"
+version = "0.4.0"
 description = "MJOLNIR Launcher — Mod manager for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
+
+# Standalone on purpose: the root workspace excludes this package, and this
+# table stops cargo from walking further up and adopting whatever workspace
+# happens to sit above the checkout (git worktrees nest under the main one).
+[workspace]
 
 [lib]
 name = "launcher_lib"
@@ -24,3 +29,6 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 sha2 = "0.10"
 hex = "0.4"
 zip = "2"
+# Verifies the code-mods release manifest against the pinned public key
+# (keys/mod-signing.pub); see src/hub.rs.
+ed25519-dalek = "2"

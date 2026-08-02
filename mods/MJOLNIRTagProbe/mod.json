@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Read loaded Blam tag assets from inside the running game.",
+  "category": "tools"
+}
