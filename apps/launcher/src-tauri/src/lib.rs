@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
+mod hub;
 mod tools;
 
 // ─── Manifest URL ───────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ fn cached_manifest_path() -> PathBuf {
 }
 
 /// Find HCE install and return (path, platform)
-fn find_game_install() -> Option<(PathBuf, String)> {
+pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
     // Check Steam locations first
     let steam_dirs = vec![
         r"C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved",
@@ -626,6 +627,92 @@ fn uninstall_tool(id: String) -> Result<(), String> {
     tools::uninstall(&id)
 }
 
+// ─── Hub: content mods, profiles, signed code mods ─────────────────────
+// All of these reach the network or walk the Paks directory, so they run
+// off the UI thread like the other installers.
+
+#[tauri::command]
+async fn hub_list_mods(query: Option<String>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::list_mods(query))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_install(slug: String) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::install(slug))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_uninstall(slug: String) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::uninstall(slug))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+fn hub_state() -> hub::HubState {
+    hub::get_state()
+}
+
+#[tauri::command]
+async fn hub_set_order(slug: String, index: usize) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::set_order(slug, index))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_set_enabled(slug: String, enabled: bool) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::set_enabled(slug, enabled))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_profile_create(name: String, copy_active: bool) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::profile_create(name, copy_active))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_profile_switch(name: String) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::profile_switch(name))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_profile_delete(name: String) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::profile_delete(name))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_check_conflicts() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(hub::check_conflicts)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn code_mods_status() -> Result<hub::CodeModsStatus, String> {
+    tauri::async_runtime::spawn_blocking(hub::code_mods_status)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn code_mods_install(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hub::code_mods_install(id))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
 fn emit_progress(app: &AppHandle, stage: &str, message: &str, percent: f32) {
     let _ = app.emit(
         "install-progress",
@@ -901,6 +988,18 @@ pub fn run() {
             install_tool,
             launch_tool,
             uninstall_tool,
+            hub_list_mods,
+            hub_install,
+            hub_uninstall,
+            hub_state,
+            hub_set_order,
+            hub_set_enabled,
+            hub_profile_create,
+            hub_profile_switch,
+            hub_profile_delete,
+            hub_check_conflicts,
+            code_mods_status,
+            code_mods_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
