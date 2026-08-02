@@ -954,6 +954,26 @@ pub struct CodeModsManifest {
     pub mods: Vec<CodeModEntry>,
 }
 
+/// What the bytes on disk are actually worth.
+///
+/// Membership in the signed set is a property of *content*, not of a folder
+/// name — anyone can create `Mods/MJOLNIRFlyCam`. So the launcher records a
+/// digest of the tree it extracted and re-computes it on every status call.
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum Integrity {
+    /// No directory for this mod.
+    NotInstalled,
+    /// On disk and byte-identical to what this launcher installed.
+    Verified,
+    /// On disk, but the tree no longer hashes to the recorded digest.
+    Modified,
+    /// On disk with no digest on record — shipped by the modpack, or
+    /// installed by a launcher too old to have recorded one. Not a claim of
+    /// authenticity in either direction.
+    Unverified,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CodeModRow {
     #[serde(flatten)]
@@ -961,6 +981,7 @@ pub struct CodeModRow {
     /// What this launcher last installed, when it did.
     pub installed_version: Option<String>,
     pub update_available: bool,
+    pub integrity: Integrity,
 }
 
 #[derive(Debug, Serialize)]
@@ -971,29 +992,114 @@ pub struct CodeModsStatus {
     pub mods: Vec<CodeModRow>,
 }
 
-/// id → version this launcher installed, kept in the config dir. A mod
+/// id → what this launcher installed, kept in the config dir. A mod
 /// directory that exists without a record (shipped by the old monolithic
 /// modpack) counts as installed at an unknown version.
 fn installed_versions_path() -> PathBuf {
     config_dir().join("code_mods_installed.json")
 }
 
-fn load_installed_versions() -> std::collections::HashMap<String, String> {
-    fs::read_to_string(installed_versions_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InstallRecord {
+    pub version: String,
+    /// Digest of the mod's file tree as it stood immediately after install.
+    /// Empty for records written before content verification existed.
+    #[serde(default)]
+    pub tree_sha256: String,
 }
 
-fn save_installed_version(id: &str, version: &str) -> Result<(), String> {
+/// Records used to be a bare version string. Read both shapes so upgrading
+/// the launcher does not silently forget what is installed.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawRecord {
+    Legacy(String),
+    Full(InstallRecord),
+}
+
+impl From<RawRecord> for InstallRecord {
+    fn from(raw: RawRecord) -> Self {
+        match raw {
+            RawRecord::Legacy(version) => InstallRecord {
+                version,
+                tree_sha256: String::new(),
+            },
+            RawRecord::Full(rec) => rec,
+        }
+    }
+}
+
+fn load_installed_versions() -> std::collections::HashMap<String, InstallRecord> {
+    fs::read_to_string(installed_versions_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<std::collections::HashMap<String, RawRecord>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, v)| (k, v.into()))
+        .collect()
+}
+
+fn save_installed_version(id: &str, version: &str, tree_sha256: &str) -> Result<(), String> {
     let mut map = load_installed_versions();
-    map.insert(id.to_string(), version.to_string());
+    map.insert(
+        id.to_string(),
+        InstallRecord {
+            version: version.to_string(),
+            tree_sha256: tree_sha256.to_string(),
+        },
+    );
     fs::create_dir_all(config_dir()).map_err(|e| e.to_string())?;
     fs::write(
         installed_versions_path(),
         serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
+}
+
+/// A digest over a mod's whole directory: every file's path *and* content,
+/// in a fixed order, so neither renaming, adding nor editing a file can slip
+/// past. Paths are recorded relative to the mod root with `/` separators, so
+/// the digest does not change with the install location.
+fn tree_digest(dir: &std::path::Path) -> Result<String, String> {
+    fn walk(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        out: &mut Vec<(String, String)>,
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            let kind = entry.file_type().map_err(|e| e.to_string())?;
+            if kind.is_dir() {
+                walk(root, &path, out)?;
+            } else if kind.is_file() {
+                let rel = path
+                    .strip_prefix(root)
+                    .map_err(|e| e.to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+                out.push((rel, sha256_hex(&bytes)));
+            }
+            // Symlinks are neither followed nor hashed: a link is not content,
+            // and following one would let a mod dir reach outside itself.
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    walk(dir, dir, &mut files)?;
+    files.sort();
+
+    let mut hasher = Sha256::new();
+    for (rel, hash) in &files {
+        hasher.update(rel.as_bytes());
+        hasher.update([0]);
+        hasher.update(hash.as_bytes());
+        hasher.update([b'\n']);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn signing_key() -> Result<ed25519_dalek::VerifyingKey, String> {
@@ -1008,6 +1114,23 @@ fn signing_key() -> Result<ed25519_dalek::VerifyingKey, String> {
         .and_then(|s| s.try_into().ok())
         .ok_or("Compiled-in public key is not 32 bytes")?;
     ed25519_dalek::VerifyingKey::from_bytes(&raw).map_err(|e| e.to_string())
+}
+
+/// Verify a detached base64 Ed25519 signature over `bytes` against the key
+/// compiled into this binary.
+///
+/// Shared with the runtime installer: the runtime bundle carries a DLL that
+/// gets injected into the game process, so it is signed by the same key and
+/// checked by the same code as the Lua mods.
+pub fn verify_signature(bytes: &[u8], sig_b64: &str) -> Result<bool, String> {
+    let sig_bytes = base64_decode(sig_b64.trim()).ok_or("Signature is not valid base64")?;
+    let sig: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Signature is not 64 bytes")?;
+    Ok(signing_key()?
+        .verify_strict(bytes, &ed25519_dalek::Signature::from_bytes(&sig))
+        .is_ok())
 }
 
 fn base64_decode(s: &str) -> Option<Vec<u8>> {
@@ -1047,17 +1170,7 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         .text()
         .map_err(|e| e.to_string())?;
 
-    let sig_bytes = base64_decode(sig_b64.trim()).ok_or("Signature is not valid base64")?;
-    let sig: [u8; 64] = sig_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| "Signature is not 64 bytes")?;
-    let verified = signing_key()?
-        .verify_strict(
-            &manifest_bytes,
-            &ed25519_dalek::Signature::from_bytes(&sig),
-        )
-        .is_ok();
+    let verified = verify_signature(&manifest_bytes, &sig_b64)?;
 
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
@@ -1069,11 +1182,11 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         .mods
         .into_iter()
         .map(|entry| {
-            let present = mods_dir
-                .as_ref()
-                .is_some_and(|d| d.join(&entry.id).is_dir());
+            let dir = mods_dir.as_ref().map(|d| d.join(&entry.id));
+            let present = dir.as_ref().is_some_and(|d| d.is_dir());
+            let record = versions.get(&entry.id);
             let installed_version = if present {
-                Some(versions.get(&entry.id).cloned().unwrap_or_default())
+                Some(record.map(|r| r.version.clone()).unwrap_or_default())
             } else {
                 None
             };
@@ -1081,10 +1194,26 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
                 &installed_version,
                 Some(v) if *v != entry.version
             );
+            // The badge is a claim about bytes, so it is decided by bytes. A
+            // directory carrying the right name but the wrong contents reads
+            // as modified, not as signed.
+            let integrity = match (present, record) {
+                (false, _) => Integrity::NotInstalled,
+                (true, Some(r)) if !r.tree_sha256.is_empty() => {
+                    let dir = dir.as_ref().expect("present implies a path");
+                    match tree_digest(dir) {
+                        Ok(actual) if actual == r.tree_sha256 => Integrity::Verified,
+                        // An unreadable tree is not a passing tree.
+                        _ => Integrity::Modified,
+                    }
+                }
+                (true, _) => Integrity::Unverified,
+            };
             CodeModRow {
                 entry,
                 installed_version,
                 update_available,
+                integrity,
             }
         })
         .collect();
@@ -1173,8 +1302,12 @@ pub fn code_mods_install(id: String) -> Result<(), String> {
     }
 
     // Remember what shipped, so the next status can tell "installed" from
-    // "installed but the set moved on".
-    save_installed_version(&id, &entry.version)?;
+    // "installed but the set moved on" — and hash the tree as extracted, so
+    // it can also tell "installed" from "installed, then edited". The digest
+    // covers the directory rather than the zip, which means leftovers from
+    // an earlier modpack are part of what gets verified.
+    let tree = tree_digest(&mods_dir.join(&id))?;
+    save_installed_version(&id, &entry.version, &tree)?;
     Ok(())
 }
 
@@ -1187,6 +1320,70 @@ mod tests {
         // A bad keys/mod-signing.pub should fail the build's tests, not the
         // first user who tries to install a mod.
         signing_key().expect("pinned public key must parse");
+    }
+
+    /// The whole point of the digest: a folder name is not evidence. Editing
+    /// a file, adding one, or renaming one must all move the hash.
+    #[test]
+    fn the_tree_digest_covers_content_and_layout() {
+        let root = std::env::temp_dir().join(format!("mjolnir-tree-{}", std::process::id()));
+        let scripts = root.join("Scripts");
+        fs::create_dir_all(&scripts).unwrap();
+        fs::write(scripts.join("main.lua"), b"print('hi')").unwrap();
+        let base = tree_digest(&root).unwrap();
+
+        fs::write(scripts.join("main.lua"), b"print('pwned')").unwrap();
+        assert_ne!(base, tree_digest(&root).unwrap(), "edited file must show");
+
+        fs::write(scripts.join("main.lua"), b"print('hi')").unwrap();
+        assert_eq!(base, tree_digest(&root).unwrap(), "restored file must match");
+
+        fs::write(scripts.join("extra.lua"), b"").unwrap();
+        assert_ne!(base, tree_digest(&root).unwrap(), "added file must show");
+        fs::remove_file(scripts.join("extra.lua")).unwrap();
+
+        fs::rename(scripts.join("main.lua"), scripts.join("other.lua")).unwrap();
+        assert_ne!(base, tree_digest(&root).unwrap(), "renamed file must show");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn install_records_read_both_the_old_and_new_shape() {
+        let legacy: std::collections::HashMap<String, RawRecord> =
+            serde_json::from_str(r#"{"MJOLNIRFlyCam":"1.0.0"}"#).unwrap();
+        let rec: InstallRecord = legacy.into_iter().next().unwrap().1.into();
+        assert_eq!(rec.version, "1.0.0");
+        assert!(
+            rec.tree_sha256.is_empty(),
+            "a legacy record claims no digest, so it must verify as unverified rather than pass"
+        );
+
+        let modern: std::collections::HashMap<String, RawRecord> =
+            serde_json::from_str(r#"{"MJOLNIRFlyCam":{"version":"1.0.0","tree_sha256":"ab"}}"#)
+                .unwrap();
+        let rec: InstallRecord = modern.into_iter().next().unwrap().1.into();
+        assert_eq!((rec.version.as_str(), rec.tree_sha256.as_str()), ("1.0.0", "ab"));
+    }
+
+    /// The runtime installer gates a DLL injection on this returning false,
+    /// so it must reject rather than error-out-into-success on junk.
+    #[test]
+    fn signature_verification_rejects_what_it_should() {
+        let manifest = br#"{"version":"1.0.0"}"#;
+        // Right shape, wrong signature.
+        let bogus = "A".repeat(86) + "==";
+        assert_eq!(
+            verify_signature(manifest, &bogus),
+            Ok(false),
+            "a well-formed but incorrect signature must verify as false"
+        );
+        // Wrong shape at all.
+        assert!(verify_signature(manifest, "not base64!!").is_err());
+        assert!(
+            verify_signature(manifest, "YWJj").is_err(),
+            "a signature that is not 64 bytes must be an error, not a pass"
+        );
     }
 
     #[test]

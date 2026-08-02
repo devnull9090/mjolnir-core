@@ -1,14 +1,24 @@
 # MJOLNIR Hub — Mod Distribution Architecture
 
-**Status:** Proposal. Nothing here is built yet.
+**Status:** Partly built. Phases 2.5 and 3 have shipped; Phase 0's prerequisites and Phases 1
+and 4 have not. Section headings note what is live.
 **Scope:** How mods are published, verified, delivered, ordered, and de-conflicted; how the
 public API is shaped; and where the trust boundary sits between community content and code.
 
-The hub today is a shell: [`hub/src/app/api/mods/route.ts`](../hub/src/app/api/mods/route.ts)
-returns a hardcoded array, `schema.sql` has never been applied to a live D1, and the launcher
-installs exactly one thing — a monolithic modpack zip from R2
-([`lib.rs:640`](../apps/launcher/src-tauri/src/lib.rs)). Every design decision below is
-therefore still cheap to make.
+This document was written when the hub was a shell and the launcher installed exactly one
+thing — a monolithic modpack zip from R2. That model is now gone. The launcher installs from
+two separate, independently signed sources:
+
+- **The runtime bundle** (`runtime/latest`) — UE4SS, the AOB signatures and config tuned for
+  this game build, and the UE4SS infrastructure mods. Built by
+  [`release-runtime.yml`](../.github/workflows/release-runtime.yml) from inputs pinned in
+  [`runtime/ue4ss.lock.json`](../runtime/ue4ss.lock.json).
+- **The signed code-mod set** (`mods/latest`) — every MJOLNIR Lua mod, one artifact each, built
+  by [`release-mods.yml`](../.github/workflows/release-mods.yml).
+
+Splitting them is what makes the trust story in §2 and §4 real rather than aspirational: the
+modpack carried both, so mods arrived by a path the launcher could neither attribute nor
+verify.
 
 ---
 
@@ -94,7 +104,8 @@ and it is a sharper differentiator than a faster upload button.
 
 ## 3. Mods, releases, profiles, collections
 
-The current "one modpack" model has to invert. Four concepts, kept strictly separate:
+The "one modpack" model this section set out to invert is gone; mods and profiles are live, and
+collections are not. Four concepts, kept strictly separate:
 
 - **Mod** — the unit of authorship and identity. Has a slug, an owner, a page, a rating.
 - **Release** — an immutable, versioned artifact of a mod. Semver, a channel (`stable`/`beta`),
@@ -163,6 +174,18 @@ first-class field with community "works for me" signals per build, and mass-flag
 `needs-revalidation` the day a patch lands. Getting this wrong turns every game update into a
 wave of "the launcher broke my game" reports.
 
+Content is not the only thing a patch invalidates. UE4SS finds engine internals by AOB scan, and
+those patterns are per-build too. On 2026-08-01 a game update moved the binary layout and one
+signature stopped resolving; UE4SS retried 1476 times and then killed the process. The failure
+mode is a hard crash with the reason buried in `ue4ss/UE4SS.log`, which no user will read.
+
+The mitigation is a discipline, documented in [`signatures/README.md`](../signatures/README.md):
+never bake a RIP-relative displacement or a TLS slot index into a pattern — wildcard it and
+decode it at runtime, so the instruction *shape* is the anchor rather than build-specific
+offsets. Every signature that followed that rule survived the update; the one that did not was
+the one that broke. Worth surfacing "UE4SS failed to inject" as a first-class launcher state
+rather than leaving it to the log.
+
 ### Ship deltas, not assets
 
 A `_P` container derived from a base-game tag contains Halo asset data. Redistributing that is a
@@ -176,12 +199,30 @@ art. Wholly original content (new textures, new models) ships whole, as it shoul
 This constrains the packer — it needs an "apply patch to base chunk, then pack" path — so it
 belongs in the design now rather than as a retrofit.
 
-### Signing
+### Signing *(live)*
 
-CI signs each release manifest with an Ed25519 key; the launcher pins the public key. The
-pattern already exists for the Tauri updater (`TAURI_SIGNING_PRIVATE_KEY`). This means a
-compromised R2 bucket cannot ship a malicious payload, which matters more once the launcher
-installs things automatically.
+CI signs each release manifest with an Ed25519 key; the launcher pins the public key
+(`keys/mod-signing.pub`, compiled into the binary) and refuses to install from a manifest whose
+signature is missing or does not verify. This means a compromised R2 bucket cannot ship a
+malicious payload, which matters more once the launcher installs things automatically.
+
+That claim was false for most of the bucket until 2026-08-01. The code-mod manifest was signed,
+but the modpack's was not — so the largest and most privileged artifact we shipped, a DLL
+injected into the game process, was the *least* verified thing in the pipeline. It was also
+manually assembled and uploaded, with no CI provenance at all. The runtime bundle that replaced
+it is signed with the same key and checked by the same code
+([`hub::verify_signature`](../apps/launcher/src-tauri/src/hub.rs)).
+
+Two rules the signing story depends on, both learned the hard way:
+
+- **Sign the manifest, not just the files.** The manifest names the hashes everything else is
+  checked against, so per-file hashes in an unsigned manifest attest to nothing — whoever
+  controls the bucket controls both.
+- **Never publish only to `latest/`.** The modpack did, so each upload destroyed its
+  predecessor. When a game update broke an AOB signature, the last UE4SS build known to work was
+  recoverable only because a copy still happened to be in the bucket. Every release now writes a
+  versioned path first, and upstream inputs are vendored into `runtime/vendor/` under immutable
+  keys rather than fetched from a tag that moves.
 
 ---
 
@@ -380,10 +421,18 @@ against what was recorded at install. Any release signature that is present must
 the pinned key or the install is refused. Device pairing gives the launcher an identity, so
 rating and commenting work from the desktop.
 
-**Phase 3 — Code mods**
+**Phase 3 — Code mods** *(done)*
 `mods/` restructured for community contribution: contributor guide, PR template, a CI job that
 builds and signs Lua and native mods into per-mod release artifacts, and a launcher path that
 installs only hash-matched signed builds. Publish the review criteria so the bar is legible.
+
+The launcher's "signed" badge is a claim about bytes, not about a directory name: it records a
+digest of each mod's file tree at install and re-checks it, so a folder carrying a signed mod's
+name but different contents reads as `modified` rather than `signed`. The runtime that hosts
+these mods was split out and signed at the same time (§4, Signing).
+
+Still open from this phase: the review criteria are not published, and §9's second open question
+— who reviews — is unanswered.
 
 **Phase 4 — The differentiators**
 Collections. Delta/patch content mods against the user's own install. Field-level tag merging

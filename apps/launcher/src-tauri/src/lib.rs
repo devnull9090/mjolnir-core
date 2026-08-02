@@ -8,9 +8,20 @@ use tauri::{AppHandle, Emitter};
 mod hub;
 mod tools;
 
-// ─── Manifest URL ───────────────────────────────────────────────────────
-const MANIFEST_URL: &str = "https://releases.mjolnircore.com/modpack/latest/manifest.json";
-const MODPACK_ZIP_URL: &str = "https://releases.mjolnircore.com/modpack/latest/modpack.zip";
+// ─── Runtime bundle ─────────────────────────────────────────────────────
+//
+// UE4SS, the config and AOB signatures tuned for this game, and the UE4SS
+// infrastructure mods. It used to be `modpack`, which also carried the
+// MJOLNIR mods; those now install from the signed code-mod set, which records
+// what it put down and can verify it afterwards (see hub::code_mods_status).
+//
+// The bundle's manifest is Ed25519-signed by the same key as the mods
+// manifest, and this launcher refuses to install from it unsigned — it drops
+// a DLL that gets injected into the game process, so it is the last thing
+// that should be taken on trust.
+const RUNTIME_BASE: &str = "https://releases.mjolnircore.com/runtime/latest";
+const MANIFEST_URL: &str = "https://releases.mjolnircore.com/runtime/latest/manifest.json";
+const RUNTIME_ZIP_URL: &str = "https://releases.mjolnircore.com/runtime/latest/runtime.zip";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -72,6 +83,15 @@ pub struct ManifestFile {
     pub path: String,
     pub sha256: String,
     pub size: u64,
+    /// Seed state rather than shipped content — `UE4SS-settings.ini` and
+    /// `mods.txt`. Written once when absent, then never touched again: they
+    /// hold the player's mod list and machine-specific tuning, and the
+    /// installer used to overwrite them on every reinstall.
+    ///
+    /// Defaulted, so a manifest published before this field existed reads as
+    /// "all content", which is how the old modpack behaved.
+    #[serde(default)]
+    pub config: bool,
 }
 
 /// Detailed install status
@@ -609,6 +629,13 @@ fn verify_install() -> Result<VerifyResult, String> {
     let mut missing = Vec::new();
 
     for entry in &manifest.files {
+        // Config files are the player's, not ours. They are expected to
+        // diverge from the manifest, so counting them as failures would
+        // report a broken install to anyone who changed a setting.
+        if entry.config {
+            continue;
+        }
+
         let file_path = bin_dir.join(&entry.path);
         checked += 1;
 
@@ -836,8 +863,10 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
         ));
     }
 
-    // 1. Download manifest
-    emit_progress(app, "downloading", "Fetching modpack manifest...", 0.0);
+    // 1. Download manifest and check its signature before trusting a byte of
+    //    it. The manifest names the hashes everything else is checked against,
+    //    so an unsigned one can authorise whatever it likes.
+    emit_progress(app, "downloading", "Fetching runtime manifest...", 0.0);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -856,21 +885,48 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
         ));
     }
 
-    let manifest: ModpackManifest = manifest_resp
-        .json()
+    let manifest_bytes = manifest_resp
+        .bytes()
+        .map_err(|e| format!("Failed to read manifest: {}", e))?;
+
+    emit_progress(app, "downloading", "Verifying manifest signature...", 3.0);
+    let sig_resp = client
+        .get(format!("{RUNTIME_BASE}/manifest.json.sig"))
+        .send()
+        .map_err(|e| format!("Failed to fetch manifest signature: {}", e))?;
+    if !sig_resp.status().is_success() {
+        return Err(format!(
+            "The runtime manifest has no signature ({}). Refusing to install: \
+             this bundle injects a DLL into the game process.",
+            sig_resp.status()
+        ));
+    }
+    let sig_b64 = sig_resp
+        .text()
+        .map_err(|e| format!("Failed to read manifest signature: {}", e))?;
+
+    if !hub::verify_signature(&manifest_bytes, &sig_b64)? {
+        return Err(
+            "The runtime manifest signature does not verify against this launcher's key. \
+             Refusing to install anything from it."
+                .into(),
+        );
+    }
+
+    let manifest: ModpackManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("Failed to parse manifest: {}", e))?;
 
-    // 2. Download modpack zip
-    emit_progress(app, "downloading", "Downloading modpack...", 5.0);
+    // 2. Download the runtime bundle
+    emit_progress(app, "downloading", "Downloading runtime...", 5.0);
 
     let zip_resp = client
-        .get(MODPACK_ZIP_URL)
+        .get(RUNTIME_ZIP_URL)
         .send()
-        .map_err(|e| format!("Failed to download modpack: {}", e))?;
+        .map_err(|e| format!("Failed to download runtime: {}", e))?;
 
     if !zip_resp.status().is_success() {
         return Err(format!(
-            "Modpack download failed with status: {}",
+            "Runtime download failed with status: {}",
             zip_resp.status()
         ));
     }
@@ -910,7 +966,20 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
     emit_progress(app, "downloading", "Download complete.", 60.0);
 
     // 3. Extract zip
-    emit_progress(app, "extracting", "Extracting modpack...", 62.0);
+    emit_progress(app, "extracting", "Extracting runtime...", 62.0);
+
+    // Files the manifest marks as config are seed state: write them when they
+    // are absent, never over the top of what is already there. Reinstalling
+    // used to replace UE4SS-settings.ini and mods.txt unconditionally, which
+    // discarded engine-version overrides, crash workarounds and the player's
+    // entire mod list.
+    let config_paths: std::collections::HashSet<&str> = manifest
+        .files
+        .iter()
+        .filter(|f| f.config)
+        .map(|f| f.path.as_str())
+        .collect();
+    let mut preserved: Vec<String> = Vec::new();
 
     let cursor = io::Cursor::new(&zip_bytes);
     let mut archive =
@@ -929,7 +998,18 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
             continue;
         }
 
+        // A zip entry decides where it lands, so refuse any that climbs out
+        // of the install directory.
+        if name.contains("..") {
+            return Err(format!("Refusing to extract a path with '..': {name}"));
+        }
+
         let out_path = bin_dir.join(&name);
+
+        if config_paths.contains(name.as_str()) && out_path.exists() {
+            preserved.push(name.clone());
+            continue;
+        }
 
         // Create parent dirs
         if let Some(parent) = out_path.parent() {
@@ -963,6 +1043,13 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
     for (i, entry) in manifest.files.iter().enumerate() {
         let file_path = bin_dir.join(&entry.path);
 
+        // A preserved config file is *expected* not to match the manifest —
+        // that is the point of preserving it. Checking it would report a
+        // corrupt install every time someone edited their settings.
+        if entry.config && preserved.iter().any(|p| p == &entry.path) {
+            continue;
+        }
+
         if file_path.exists() {
             if let Ok(hash) = sha256_file(&file_path) {
                 if hash != entry.sha256 {
@@ -988,7 +1075,12 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
     save_cached_manifest(&manifest)?;
 
     if verify_failed.is_empty() {
-        emit_progress(app, "done", "Installation complete! All files verified.", 100.0);
+        let note = match preserved.len() {
+            0 => "Installation complete! All files verified.".to_string(),
+            1 => format!("Installation complete. Kept your {}.", preserved[0]),
+            n => format!("Installation complete. Kept your {n} existing config files."),
+        };
+        emit_progress(app, "done", &note, 100.0);
         Ok(())
     } else {
         emit_progress(
@@ -1111,4 +1203,59 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The old modpack manifest has no `config` key. Reading one must not
+    /// start preserving arbitrary files — every entry is content, which is
+    /// exactly how that manifest behaved when it was published.
+    #[test]
+    fn a_manifest_without_config_flags_reads_as_all_content() {
+        let json = r#"{
+            "version": "1.0.0",
+            "ue4ss_version": "3.0.1",
+            "files": [
+                {"path": "dwmapi.dll", "sha256": "ab", "size": 71680},
+                {"path": "ue4ss/UE4SS-settings.ini", "sha256": "cd", "size": 275}
+            ]
+        }"#;
+        let m: ModpackManifest = serde_json::from_str(json).expect("legacy manifest must parse");
+        assert_eq!(m.files.len(), 2);
+        assert!(
+            m.files.iter().all(|f| !f.config),
+            "an absent flag must default to content, not to preserved"
+        );
+    }
+
+    #[test]
+    fn the_runtime_manifest_marks_seed_state_and_nothing_else() {
+        let json = r#"{
+            "schema_version": 1,
+            "version": "1.0.0",
+            "ue4ss_version": "3.0.1-1018-g662df915",
+            "files": [
+                {"path": "ue4ss/UE4SS.dll", "sha256": "ab", "size": 16519168, "config": false},
+                {"path": "ue4ss/UE4SS-settings.ini", "sha256": "cd", "size": 7640, "config": true},
+                {"path": "ue4ss/Mods/mods.txt", "sha256": "ef", "size": 96, "config": true}
+            ]
+        }"#;
+        let m: ModpackManifest = serde_json::from_str(json).expect("runtime manifest must parse");
+        let preserved: Vec<&str> = m
+            .files
+            .iter()
+            .filter(|f| f.config)
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(
+            preserved,
+            ["ue4ss/UE4SS-settings.ini", "ue4ss/Mods/mods.txt"],
+            "only the player's settings and mod list are preserved"
+        );
+        // schema_version is additive; an older launcher must ignore it rather
+        // than fail to read the manifest at all.
+        assert_eq!(m.ue4ss_version, "3.0.1-1018-g662df915");
+    }
 }
