@@ -29,6 +29,7 @@ interface CodeModRow {
   category: string;
   installed_version: string | null;
   update_available: boolean;
+  integrity: "not_installed" | "verified" | "modified" | "unverified";
 }
 
 interface CodeModsStatus {
@@ -99,6 +100,9 @@ export function CodeModsPanel() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {status.mods.map((m) => {
             const installed = m.installed_version !== null;
+            // "Installed" is only a resting state when the bytes still check
+            // out; anything else offers the fix, which is always a reinstall.
+            const repairable = installed && m.integrity !== "verified";
             return (
               <div
                 key={m.id}
@@ -110,6 +114,22 @@ export function CodeModsPanel() {
                     <Badge>v{m.version}</Badge>
                     {m.category && <Badge>{m.category}</Badge>}
                     {m.update_available && <Badge tone="gold">update</Badge>}
+                    {m.integrity === "verified" && (
+                      <Badge tone="blue" title="The installed files still hash to what the launcher extracted.">
+                        <ShieldIcon className="w-3 h-3" />
+                        verified
+                      </Badge>
+                    )}
+                    {m.integrity === "modified" && (
+                      <Badge tone="red" title="The installed files have changed since the launcher extracted them.">
+                        modified
+                      </Badge>
+                    )}
+                    {m.integrity === "unverified" && (
+                      <Badge tone="amber" title="Present on disk, but not installed by this launcher — nothing to check it against.">
+                        unverified
+                      </Badge>
+                    )}
                   </div>
                   {m.summary && (
                     <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{m.summary}</p>
@@ -121,7 +141,9 @@ export function CodeModsPanel() {
                 <ActionButton
                   size="sm"
                   disabled={
-                    !!busy || (installed && !m.update_available) || !status.signature_verified
+                    !!busy ||
+                    (installed && !m.update_available && !repairable) ||
+                    !status.signature_verified
                   }
                   title={
                     status.signature_verified
@@ -134,9 +156,11 @@ export function CodeModsPanel() {
                     ? "Installing…"
                     : m.update_available
                       ? "Update"
-                      : installed
-                        ? "Installed"
-                        : "Install"}
+                      : repairable
+                        ? "Reinstall"
+                        : installed
+                          ? "Installed"
+                          : "Install"}
                 </ActionButton>
               </div>
             );

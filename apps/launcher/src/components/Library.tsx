@@ -37,18 +37,60 @@ interface InstallStatus {
   ue4ss_version: string | null;
 }
 
+type Integrity = "not_installed" | "verified" | "modified" | "unverified";
+
 interface CodeModRow {
   id: string;
   version: string;
   summary: string;
   installed_version: string | null;
   update_available: boolean;
+  integrity: Integrity;
 }
 
 interface CodeModsStatus {
   set_version: string;
   signature_verified: boolean;
   mods: CodeModRow[];
+}
+
+/**
+ * What the launcher is willing to say about a mod's bytes.
+ *
+ * Being named after a signed mod is not the same as being one, so `signed`
+ * is spent only where the installed tree still hashes to what was extracted.
+ * The other three states each say something different and none of them is
+ * an accusation: a modpack-shipped mod is `unverified` because this launcher
+ * never installed it, not because anything is wrong with it.
+ */
+function TrustBadge({ integrity }: { integrity?: Integrity }) {
+  switch (integrity) {
+    case "verified":
+      return (
+        <Badge tone="blue" title="Installed from the Ed25519-signed set, and the files on disk still match what was installed.">
+          <ShieldIcon className="w-3 h-3" />
+          signed
+        </Badge>
+      );
+    case "modified":
+      return (
+        <Badge tone="red" title="This mod is in the signed set, but its files have changed since the launcher installed them. Reinstall it from Browse Hub to get the signed copy back.">
+          modified
+        </Badge>
+      );
+    case "unverified":
+      return (
+        <Badge tone="amber" title="In the signed set and present on disk, but the launcher has no record of installing it — it came with the modpack, or predates content verification. Reinstall from Browse Hub to verify it.">
+          unverified
+        </Badge>
+      );
+    default:
+      return (
+        <Badge tone="amber" title="Found in ue4ss/Mods but not part of the signed set — the launcher did not install it and cannot vouch for it.">
+          unmanaged
+        </Badge>
+      );
+  }
 }
 
 export default function Library({
@@ -242,22 +284,7 @@ export default function Library({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-sm">{mod.name}</span>
                     <Badge>v{fromSet?.installed_version || mod.version}</Badge>
-                    {fromSet ? (
-                      <Badge
-                        tone="blue"
-                        title="Part of the Ed25519-signed set the launcher verifies"
-                      >
-                        <ShieldIcon className="w-3 h-3" />
-                        signed
-                      </Badge>
-                    ) : (
-                      <Badge
-                        tone="amber"
-                        title="Found in ue4ss/Mods but not part of the signed set — the launcher did not install it and cannot vouch for it."
-                      >
-                        unmanaged
-                      </Badge>
-                    )}
+                    <TrustBadge integrity={fromSet?.integrity} />
                     {fromSet?.update_available && (
                       <Badge tone="gold">v{fromSet.version} available</Badge>
                     )}
