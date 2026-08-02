@@ -841,6 +841,16 @@ async fn code_mods_install(id: String) -> Result<(), String> {
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
+/// Install the set's default mods. Exposed on its own as well as being part of
+/// setup, so a player who cleared them out can get back to a working baseline
+/// without hunting down which mods that meant.
+#[tauri::command]
+async fn code_mods_install_defaults() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(hub::code_mods_install_defaults)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
 fn emit_progress(app: &AppHandle, stage: &str, message: &str, percent: f32) {
     let _ = app.emit(
         "install-progress",
@@ -1074,20 +1084,40 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
     // 5. Save manifest
     save_cached_manifest(&manifest)?;
 
+    // 6. The default mods from the signed set.
+    //
+    //    The runtime bundle ships no MJOLNIR mods on purpose — CI asserts it —
+    //    so up to here setup produces a loader with nothing to load, while the
+    //    setup panel lists mods as part of what it installs. Installing the
+    //    set's defaults is what makes that list true.
+    //
+    //    A failure here does not fail the install. UE4SS is down and every one
+    //    of these is a click away in My Mods, so an unreachable release server
+    //    is worth a sentence, not a rolled-back setup.
+    emit_progress(app, "extracting", "Installing default mods...", 98.0);
+    let mods_note = match hub::code_mods_install_defaults() {
+        Ok(ids) if ids.is_empty() => String::new(),
+        Ok(ids) => format!(" Installed {}.", ids.join(", ")),
+        Err(e) => {
+            eprintln!("Default mods were not installed: {e}");
+            " Default mods could not be installed — add them from My Mods.".to_string()
+        }
+    };
+
     if verify_failed.is_empty() {
         let note = match preserved.len() {
             0 => "Installation complete! All files verified.".to_string(),
             1 => format!("Installation complete. Kept your {}.", preserved[0]),
             n => format!("Installation complete. Kept your {n} existing config files."),
         };
-        emit_progress(app, "done", &note, 100.0);
+        emit_progress(app, "done", &format!("{note}{mods_note}"), 100.0);
         Ok(())
     } else {
         emit_progress(
             app,
             "done",
             &format!(
-                "Installation complete with {} verification warning(s).",
+                "Installation complete with {} verification warning(s).{mods_note}",
                 verify_failed.len()
             ),
             100.0,
@@ -1200,6 +1230,7 @@ pub fn run() {
             hub_sign_out,
             code_mods_status,
             code_mods_install,
+            code_mods_install_defaults,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

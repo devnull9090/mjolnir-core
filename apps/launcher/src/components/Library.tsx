@@ -11,6 +11,12 @@
  * upgrades them. The two kinds of mod stay visibly distinct — one is game
  * data ordered by load order, the other is code toggled through UE4SS — but
  * they live under one heading.
+ *
+ * The signed script set is the one deliberate exception to "Browse Hub finds
+ * new things". Setup installs only the framework mods, so a fresh install
+ * gives no sign that a fly camera or a tag probe exists; since the set is
+ * small, fixed and already fetched to annotate the rows above, the rest of it
+ * is listed here as installable rather than hidden behind another tab.
  */
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -43,6 +49,7 @@ interface CodeModRow {
   id: string;
   version: string;
   summary: string;
+  category: string;
   installed_version: string | null;
   update_available: boolean;
   integrity: Integrity;
@@ -115,6 +122,8 @@ export default function Library({
   const [signed, setSigned] = useState<CodeModsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -143,6 +152,19 @@ export default function Library({
       setScripts((prev) => prev.map((m) => (m.name === name ? { ...m, enabled } : m)));
     } catch (err) {
       console.error("Failed to toggle mod:", err);
+    }
+  };
+
+  const installScript = async (id: string) => {
+    setInstalling(id);
+    setInstallError(null);
+    try {
+      await invoke("code_mods_install", { id });
+      await load();
+    } catch (err) {
+      setInstallError(`Could not install ${id}: ${String(err)}`);
+    } finally {
+      setInstalling(null);
     }
   };
 
@@ -184,6 +206,11 @@ export default function Library({
   const contentCount =
     library.state?.profiles.find((p) => p.name === library.state?.active)?.entries.length ?? 0;
   const setById = new Map(signed?.mods.map((m) => [m.id, m]) ?? []);
+  // The rest of the signed set, listed here rather than only under Browse Hub.
+  // Setup installs the framework mods and nothing else, which is the right
+  // default but leaves no hint that a fly camera or a tag probe exists at all
+  // — so "what else is there?" gets answered on the screen where mods live.
+  const available = signed?.mods.filter((m) => m.integrity === "not_installed") ?? [];
 
   return (
     <div className="space-y-8">
@@ -257,6 +284,7 @@ export default function Library({
         </div>
 
         {library.error && <ErrorNote>{library.error}</ErrorNote>}
+        {installError && <ErrorNote>{installError}</ErrorNote>}
 
         <div className="space-y-2">
           {scripts.map((mod) => {
@@ -308,10 +336,53 @@ export default function Library({
 
           {scripts.length === 0 && (
             <p className="text-sm text-text-secondary border border-dashed border-border-subtle rounded-xl p-6 text-center">
-              No script mods installed — the signed set is on the Browse Hub tab.
+              No script mods installed
+              {available.length > 0
+                ? " — install any of the signed set below."
+                : ". The signed set could not be reached; try again from Browse Hub."}
             </p>
           )}
         </div>
+
+        {/* ── The rest of the set: not installed, one click away ── */}
+        {available.length > 0 && (
+          <div className="mt-6">
+            <div className="mb-3">
+              <h4 className="text-sm font-bold">Available to install</h4>
+              <p className="text-xs text-text-secondary mt-0.5">
+                Part of the Ed25519-signed set, not installed here. The launcher verifies
+                each download against the signed manifest before it writes anything.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {available.map((mod) => (
+                <div
+                  key={mod.id}
+                  className="flex items-center gap-4 p-4 rounded-xl border border-dashed border-border-subtle bg-surface-primary"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-text-secondary">{mod.id}</span>
+                      <Badge>v{mod.version}</Badge>
+                      {mod.category && <Badge tone="blue">{mod.category}</Badge>}
+                    </div>
+                    <p className="text-xs text-text-secondary mt-0.5 truncate">{mod.summary}</p>
+                  </div>
+
+                  <ActionButton
+                    size="sm"
+                    tone="neutral"
+                    disabled={installing !== null}
+                    onClick={() => installScript(mod.id)}
+                  >
+                    {installing === mod.id ? "Installing…" : "Install"}
+                  </ActionButton>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {contentCount === 0 && scripts.length === 0 && (
