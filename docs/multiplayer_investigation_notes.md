@@ -723,7 +723,10 @@ start. That is the discriminating experiment.
 
 1. Cook a minimal UE 5.5 world, package it at a `Testing_*` path
    ([`iostore_packaging.md`](iostore_packaging.md)), and re-run the launch. `true` + load =
-   custom maps through the front door.
+   custom maps through the front door. **Tooling ready 2026-08-02:**
+   [`unreal/MJOLNIRMapKit`](../unreal/MJOLNIRMapKit/README.md) is the template project
+   (plane + PlayerStart + tagged spawn markers, generate/package/install scripts). Blocked
+   only on a UE 5.5.x install; run remains unexecuted.
 2. If the sim rejects it, generate minimal scenario/BSP tags for the world
    ([`tag_data_pipeline.md`](tag_data_pipeline.md)) and retry.
 3. Probe `Options.GameVariant`: enumerate what variant classes
