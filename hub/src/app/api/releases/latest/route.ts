@@ -42,9 +42,23 @@ export async function GET() {
     console.error("Failed to fetch latest checksums:", err);
   }
 
+  // Everything below is served from the immutable per-release directory
+  // rather than from latest/.
+  //
+  // latest/ is a mutable key behind a 4-hour CDN cache, so for hours after a
+  // release the binary served there can still be the previous version while
+  // this endpoint already advertises the new signature. The updater then
+  // downloads bytes that its signature does not cover and refuses the update.
+  // Discovery still reads latest/checksums.txt — a stale read there only
+  // delays the announcement, because version, signature and binary are then
+  // all taken from that same release and cannot disagree with each other.
+  const releaseDir = `https://releases.mjolnircore.com/launcher/launcher-v${version}`;
+  const nsisUrl = `${releaseDir}/${nsisName}`;
+  const msiUrl = `${releaseDir}/${msiName}`;
+
   // Fetch the NSIS signature for Tauri updater verification
   try {
-    const sigRes = await fetch("https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe.sig", {
+    const sigRes = await fetch(`${nsisUrl}.sig`, {
       next: { revalidate: 60 },
     });
     if (sigRes.ok) {
@@ -53,9 +67,6 @@ export async function GET() {
   } catch (err) {
     console.error("Failed to fetch signature:", err);
   }
-
-  const nsisUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe";
-  const msiUrl = "https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi";
 
   return NextResponse.json({
     // Standard metadata for web UI & checksum viewer
