@@ -191,12 +191,14 @@ export function useUpdates(updater: UpdateState): UpdatesState {
         restarts: true,
         apply: updater.handleInstall,
       });
+    } else if (updater.checkError) {
+      failed.push("launcher releases");
     }
 
     setItems(found);
     setWarnings(failed);
     setLoading(false);
-  }, [updater.status, updater.version, updater.handleInstall]);
+  }, [updater.status, updater.version, updater.checkError, updater.handleInstall]);
 
   useEffect(() => {
     void refresh();

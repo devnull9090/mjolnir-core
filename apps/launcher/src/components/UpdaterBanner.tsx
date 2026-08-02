@@ -9,6 +9,13 @@ export interface UpdateState {
   version: string | null;
   downloadedBytes: number;
   totalBytes: number;
+  /**
+   * Why the last check failed, if it did. A failed check and "you are up to
+   * date" look identical from the outside, which is how a missing updater
+   * capability once hid every launcher update from every player. Anything
+   * that goes wrong here gets said out loud now.
+   */
+  checkError: string | null;
   handleInstall: () => Promise<void>;
   dismiss: () => void;
   recheck: () => Promise<void>;
@@ -20,6 +27,7 @@ export function useUpdater(): UpdateState {
   const [version, setVersion] = useState<string | null>(null);
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   // These are memoised because the update manager keys an effect on their
   // identity: a fresh function every render would re-check for updates on
@@ -28,6 +36,7 @@ export function useUpdater(): UpdateState {
     try {
       setStatus("checking");
       const updateResult = await check();
+      setCheckError(null);
       if (updateResult) {
         setUpdate(updateResult);
         setVersion(updateResult.version);
@@ -36,7 +45,8 @@ export function useUpdater(): UpdateState {
         setStatus("idle");
       }
     } catch (err) {
-      console.log("Update check failed:", err);
+      console.error("Update check failed:", err);
+      setCheckError(String(err));
       setStatus("idle");
     }
   }, []);
@@ -85,6 +95,7 @@ export function useUpdater(): UpdateState {
     version,
     downloadedBytes,
     totalBytes,
+    checkError,
     handleInstall,
     dismiss,
     recheck: checkForUpdates,
