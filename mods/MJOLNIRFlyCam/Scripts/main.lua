@@ -169,7 +169,6 @@ local function RestoreVisibility()
     SavedVisibility = {}
 end
 
-local ESlateVisibility_Visible = 0
 local ESlateVisibility_Collapsed = 1
 
 local function SetHUDVisible(visible)
