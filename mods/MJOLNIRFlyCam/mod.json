@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "summary": "Smooth free-flying debug camera with WASD movement, mouse viewport look, speed boost, and automatic HUD toggle.",
+  "category": "camera",
+  "slug": "mjolnir-flycam"
+}

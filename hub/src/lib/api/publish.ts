@@ -435,22 +435,28 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       request: { params: z.object({ id: z.string() }) },
       responses: {
         200: { description: "The .mjolnir archive (zip)." },
+        302: { description: "Signed code-mod artifact; redirect to its canonical URL." },
         404: { description: "Not published.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
     async (c) => {
       const { id } = c.req.valid("param");
       const release = await c.env.DB.prepare(
-        `SELECT r.r2_key, r.mod_id, m.slug, r.version FROM mod_releases r
+        `SELECT r.r2_key, r.download_url, r.mod_id, m.slug, r.version FROM mod_releases r
          JOIN mods m ON m.id = r.mod_id
          WHERE r.id = ?1 AND r.status = 'published'`,
       )
         .bind(id)
-        .first<{ r2_key: string; mod_id: string; slug: string; version: string }>();
-      if (!release?.r2_key) return c.json({ error: "not_found" }, 404);
-
-      const obj = await c.env.MODS_BUCKET.get(release.r2_key);
-      if (!obj) return c.json({ error: "not_found" }, 404);
+        .first<{
+          r2_key: string | null;
+          download_url: string | null;
+          mod_id: string;
+          slug: string;
+          version: string;
+        }>();
+      if (!release || (!release.r2_key && !release.download_url)) {
+        return c.json({ error: "not_found" }, 404);
+      }
 
       // Counter rollups; good enough until download volume argues for
       // Analytics Engine (docs/hub_architecture.md §6).
@@ -465,6 +471,14 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         ]) as unknown as Promise<unknown>,
       );
 
+      // Signed code-mod artifacts live in the releases bucket; redirect to
+      // the exact URL the signed manifest named.
+      if (release.download_url) {
+        return c.redirect(release.download_url, 302);
+      }
+
+      const obj = await c.env.MODS_BUCKET.get(release.r2_key!);
+      if (!obj) return c.json({ error: "not_found" }, 404);
       return c.body(obj.body as unknown as ReadableStream, 200, {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="${release.slug}-${release.version}.mjolnir"`,

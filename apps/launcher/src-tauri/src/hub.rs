@@ -547,6 +547,13 @@ pub struct CodeModEntry {
     pub sha256: String,
     pub size: u64,
     pub url: String,
+    /// Per-mod fields; defaulted so a launcher can read older manifests.
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub category: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -557,12 +564,45 @@ pub struct CodeModsManifest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CodeModRow {
+    #[serde(flatten)]
+    pub entry: CodeModEntry,
+    /// What this launcher last installed, when it did.
+    pub installed_version: Option<String>,
+    pub update_available: bool,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CodeModsStatus {
     pub set_version: String,
     /// True iff manifest.json.sig verifies against the compiled-in key.
     pub signature_verified: bool,
-    pub mods: Vec<CodeModEntry>,
-    pub installed: Vec<String>,
+    pub mods: Vec<CodeModRow>,
+}
+
+/// id → version this launcher installed, kept in the config dir. A mod
+/// directory that exists without a record (shipped by the old monolithic
+/// modpack) counts as installed at an unknown version.
+fn installed_versions_path() -> PathBuf {
+    config_dir().join("code_mods_installed.json")
+}
+
+fn load_installed_versions() -> std::collections::HashMap<String, String> {
+    fs::read_to_string(installed_versions_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_installed_version(id: &str, version: &str) -> Result<(), String> {
+    let mut map = load_installed_versions();
+    map.insert(id.to_string(), version.to_string());
+    fs::create_dir_all(config_dir()).map_err(|e| e.to_string())?;
+    fs::write(
+        installed_versions_path(),
+        serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn signing_key() -> Result<ed25519_dalek::VerifyingKey, String> {
@@ -631,23 +671,37 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
-    let installed = crate::find_game_install()
-        .map(|(p, _)| {
-            let mods_dir = p.join("Meteorite/Binaries/Win64/ue4ss/Mods");
-            manifest
-                .mods
-                .iter()
-                .filter(|m| mods_dir.join(&m.id).is_dir())
-                .map(|m| m.id.clone())
-                .collect()
+    let mods_dir = crate::find_game_install()
+        .map(|(p, _)| p.join("Meteorite/Binaries/Win64/ue4ss/Mods"));
+    let versions = load_installed_versions();
+    let mods = manifest
+        .mods
+        .into_iter()
+        .map(|entry| {
+            let present = mods_dir
+                .as_ref()
+                .is_some_and(|d| d.join(&entry.id).is_dir());
+            let installed_version = if present {
+                Some(versions.get(&entry.id).cloned().unwrap_or_default())
+            } else {
+                None
+            };
+            let update_available = matches!(
+                &installed_version,
+                Some(v) if *v != entry.version
+            );
+            CodeModRow {
+                entry,
+                installed_version,
+                update_available,
+            }
         })
-        .unwrap_or_default();
+        .collect();
 
     Ok(CodeModsStatus {
         set_version: manifest.set_version,
         signature_verified: verified,
-        mods: manifest.mods,
-        installed,
+        mods,
     })
 }
 
@@ -665,6 +719,7 @@ pub fn code_mods_install(id: String) -> Result<(), String> {
     let entry = status
         .mods
         .iter()
+        .map(|m| &m.entry)
         .find(|m| m.id == id)
         .ok_or_else(|| format!("{id} is not in the signed set"))?;
 
@@ -725,6 +780,10 @@ pub fn code_mods_install(id: String) -> Result<(), String> {
         updated.push_str(&format!("{id} : 1\n"));
         fs::write(&mods_txt, updated).map_err(|e| e.to_string())?;
     }
+
+    // Remember what shipped, so the next status can tell "installed" from
+    // "installed but the set moved on".
+    save_installed_version(&id, &entry.version)?;
     Ok(())
 }
 

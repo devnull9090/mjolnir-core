@@ -49,18 +49,22 @@ interface ConflictPair {
   shared_chunks: number;
 }
 
-interface CodeModEntry {
+interface CodeModRow {
   id: string;
   file: string;
   sha256: string;
   size: number;
+  version: string;
+  summary: string;
+  category: string;
+  installed_version: string | null;
+  update_available: boolean;
 }
 
 interface CodeModsStatus {
   set_version: string;
   signature_verified: boolean;
-  mods: CodeModEntry[];
-  installed: string[];
+  mods: CodeModRow[];
 }
 
 export default function Browse() {
@@ -315,14 +319,27 @@ export default function Browse() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {codeMods.mods.map((m) => {
-              const installed = codeMods.installed.includes(m.id);
+              const installed = m.installed_version !== null;
               return (
                 <div
                   key={m.id}
                   className="bg-surface-secondary border border-border-subtle rounded-xl px-4 py-3 flex items-center gap-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="font-semibold">{m.id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{m.id}</span>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-hover text-text-secondary">
+                        v{m.version}
+                      </span>
+                      {m.update_available && (
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-mjolnir-gold/15 text-mjolnir-gold">
+                          update
+                        </span>
+                      )}
+                    </div>
+                    {m.summary && (
+                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{m.summary}</p>
+                    )}
                     <p className="text-xs text-text-secondary font-mono truncate" title={m.sha256}>
                       sha256 {m.sha256.slice(0, 16)}…
                     </p>
@@ -341,10 +358,16 @@ export default function Browse() {
                         setBusy(null);
                       }
                     }}
-                    disabled={!!busy || installed || !codeMods.signature_verified}
+                    disabled={!!busy || (installed && !m.update_available) || !codeMods.signature_verified}
                     className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border border-mjolnir-gold/40 text-mjolnir-gold hover:bg-mjolnir-gold/10 disabled:opacity-40 cursor-pointer"
                   >
-                    {installed ? "Installed" : busy === m.id ? "Installing…" : "Install"}
+                    {busy === m.id
+                      ? "Installing…"
+                      : m.update_available
+                        ? "Update"
+                        : installed
+                          ? "Installed"
+                          : "Install"}
                   </button>
                 </div>
               );
