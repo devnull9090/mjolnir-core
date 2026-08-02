@@ -542,6 +542,60 @@ fn get_install_status() -> InstallStatus {
     }
 }
 
+/// What the modpack row of the update manager needs: the version installed
+/// here against the version the release bucket is publishing.
+#[derive(Debug, Serialize)]
+pub struct ModpackUpdate {
+    pub installed_version: Option<String>,
+    pub latest_version: String,
+    pub latest_ue4ss_version: String,
+    pub update_available: bool,
+    pub file_count: usize,
+}
+
+/// Ask the release bucket what the current modpack is.
+///
+/// `get_install_status` only ever reports the cached manifest, which answers
+/// "what is installed" and cannot answer "is it current" — so this is the
+/// one call that reaches the network, and the update manager owns it.
+#[tauri::command]
+async fn check_modpack_update() -> Result<ModpackUpdate, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let installed = load_cached_manifest();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("HTTP client error: {e}"))?;
+        let resp = client
+            .get(MANIFEST_URL)
+            .send()
+            .map_err(|e| format!("Cannot reach the release server: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!("Manifest request returned {}", resp.status()));
+        }
+        let latest: ModpackManifest = resp
+            .json()
+            .map_err(|e| format!("Cannot read the manifest: {e}"))?;
+
+        let installed_version = installed.as_ref().map(|m| m.version.clone());
+        // Any difference counts, not just "newer": the modpack is published
+        // as a whole and a mismatch means the install is not what ships.
+        let update_available = installed_version
+            .as_deref()
+            .is_none_or(|v| v != latest.version);
+
+        Ok(ModpackUpdate {
+            installed_version,
+            latest_version: latest.version,
+            latest_ue4ss_version: latest.ue4ss_version,
+            update_available,
+            file_count: latest.files.len(),
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
 #[tauri::command]
 fn verify_install() -> Result<VerifyResult, String> {
     let bin_dir = get_bin_dir().ok_or("Game not found")?;
@@ -631,18 +685,65 @@ fn uninstall_tool(id: String) -> Result<(), String> {
 // All of these reach the network or walk the Paks directory, so they run
 // off the UI thread like the other installers.
 
+/// The one door the webview has onto the hub API.
+///
+/// Everything the Browse view reads — listings, mod pages, ratings,
+/// comments, conflicts — comes through here, so the paired API key stays in
+/// this process and the page never holds a credential.
 #[tauri::command]
-async fn hub_list_mods(query: Option<String>) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || hub::list_mods(query))
+async fn hub_api(
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::api(method, path, body))
         .await
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
 #[tauri::command]
-async fn hub_install(slug: String) -> Result<hub::HubState, String> {
-    tauri::async_runtime::spawn_blocking(move || hub::install(slug))
+async fn hub_install(slug: String, release_id: Option<String>) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || hub::install(slug, release_id))
         .await
         .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_check_updates() -> Result<Vec<hub::UpdateInfo>, String> {
+    tauri::async_runtime::spawn_blocking(hub::check_updates)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_verify_installed() -> Result<Vec<hub::VerifiedMod>, String> {
+    tauri::async_runtime::spawn_blocking(hub::verify_installed)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+fn hub_auth_status() -> Option<hub::HubUser> {
+    hub::auth_status()
+}
+
+#[tauri::command]
+async fn hub_auth_start() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(hub::auth_start)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_auth_poll() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(hub::auth_poll)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+fn hub_sign_out() -> Result<(), String> {
+    hub::sign_out()
 }
 
 #[tauri::command]
@@ -980,6 +1081,7 @@ pub fn run() {
             save_settings,
             get_build_info,
             get_install_status,
+            check_modpack_update,
             verify_install,
             install_modpack,
             set_modpack_enabled,
@@ -988,7 +1090,7 @@ pub fn run() {
             install_tool,
             launch_tool,
             uninstall_tool,
-            hub_list_mods,
+            hub_api,
             hub_install,
             hub_uninstall,
             hub_state,
@@ -998,6 +1100,12 @@ pub fn run() {
             hub_profile_switch,
             hub_profile_delete,
             hub_check_conflicts,
+            hub_check_updates,
+            hub_verify_installed,
+            hub_auth_status,
+            hub_auth_start,
+            hub_auth_poll,
+            hub_sign_out,
             code_mods_status,
             code_mods_install,
         ])

@@ -18,8 +18,17 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* Shared with the hub website, compiled from source; mirrors the aliases
+       in vite.config.ts. See hub/src/kit/README.md. */
+    "paths": {
+      "@mjolnir/hub-kit": ["../../hub/src/kit/index.ts"],
+      "@mjolnir/hub-kit/*": ["../../hub/src/kit/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../hub/src/kit"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

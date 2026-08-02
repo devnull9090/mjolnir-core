@@ -28,6 +28,7 @@
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -55,9 +56,31 @@ pub struct InstalledHubMod {
     pub name: String,
     pub release_id: String,
     pub version: String,
+    /// The archive hash the hub published, checked at download time.
     pub sha256: String,
     /// Basenames (no extension) of the containers in this release's cache.
     pub containers: Vec<String>,
+    /// Fields added after the first shipping format; defaulted so an older
+    /// hub_state.json still loads instead of resetting somebody's profiles.
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Unix seconds; the webview formats it.
+    #[serde(default)]
+    pub installed_at: Option<u64>,
+    /// Whether the release carried an Ed25519 signature this launcher
+    /// checked against its pinned key. False means hash-pinning only, which
+    /// is all a community content upload has.
+    #[serde(default)]
+    pub signature_verified: bool,
+    /// `<container>.<ext>` → SHA-256 of the unpacked file, recorded at
+    /// install so a later verify can tell a cache that rotted or was edited
+    /// from one that still holds what the hub shipped.
+    #[serde(default)]
+    pub container_hashes: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -236,20 +259,44 @@ fn materialize(state: &HubState) -> Result<(), String> {
 
 // ─── Hub browsing & install ─────────────────────────────────────────────
 
-/// Pass a hub listing through so the webview does not need its own HTTP
-/// stack or error handling for offline machines.
-pub fn list_mods(query: Option<String>) -> Result<serde_json::Value, String> {
-    let mut url = format!("{}/mods?limit=50", hub_api());
-    if let Some(q) = query {
-        if !q.trim().is_empty() {
-            url.push_str(&format!("&q={}", urlencode(q.trim())));
-        }
+/// Every hub call the webview makes goes through here.
+///
+/// Not because the webview could not `fetch` — because of what it would have
+/// to hold to do it. A paired API key lives in the config directory and is
+/// attached in this process; the page never sees it, so a compromised
+/// webview cannot read the credential out and use it elsewhere. The webview
+/// names a path below /api/v1 and gets status plus body back.
+pub fn api(
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    // The webview picks the path, so the path may not pick the host.
+    if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
+        return Err(format!("Refusing to call {path}: paths are relative to the hub API"));
     }
-    let resp = http()?.get(&url).send().map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("Hub returned {}", resp.status()));
+
+    let url = format!("{}{}", hub_api(), path);
+    let client = http()?;
+    let mut req = match method.to_ascii_uppercase().as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        other => return Err(format!("Unsupported method {other}")),
+    };
+    if let Some(auth) = load_auth() {
+        req = req.bearer_auth(auth.key);
     }
-    resp.json().map_err(|e| e.to_string())
+    if let Some(json) = body {
+        req = req.json(&json);
+    }
+
+    let resp = req.send().map_err(|e| format!("Cannot reach the hub: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().unwrap_or_default();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    Ok(serde_json::json!({ "status": status, "body": parsed }))
 }
 
 fn urlencode(s: &str) -> String {
@@ -263,53 +310,134 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-#[derive(Deserialize)]
+fn get_json(url: &str) -> Result<serde_json::Value, String> {
+    let resp = http()?.get(url).send().map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Hub returned {} for {url}", resp.status()));
+    }
+    resp.json().map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct HubRelease {
     id: String,
     version: String,
+    #[serde(default)]
+    channel: String,
+    #[serde(default)]
+    signature: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct HubReleaseStatus {
     sha256: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
     status: String,
 }
 
-/// Install a mod's newest published release and add it to the end of the
-/// active profile's load order.
-pub fn install(slug: String) -> Result<HubState, String> {
+/// Sort key for a version: numeric components, then whether it is a final
+/// release (1.0.0 outranks 1.0.0-beta.1), then the pre-release tag.
+fn version_key(v: &str) -> (Vec<u64>, bool, String) {
+    let (core, tag) = match v.split_once('-') {
+        Some((c, t)) => (c, t.to_string()),
+        None => (v, String::new()),
+    };
+    let parts = core
+        .split('.')
+        .map(|p| p.parse::<u64>().unwrap_or(0))
+        .collect();
+    (parts, tag.is_empty(), tag)
+}
+
+/// True when `candidate` is strictly newer than `installed`.
+fn is_newer(candidate: &str, installed: &str) -> bool {
+    version_key(candidate) > version_key(installed)
+}
+
+/// The release a plain "install" or "update" should take: the highest
+/// stable version, or the highest of anything when a mod has only betas.
+fn newest_release(releases: &[HubRelease]) -> Option<&HubRelease> {
+    let stable: Vec<&HubRelease> = releases.iter().filter(|r| r.channel != "beta").collect();
+    let pool = if stable.is_empty() {
+        releases.iter().collect::<Vec<_>>()
+    } else {
+        stable
+    };
+    pool.into_iter().max_by(|a, b| {
+        version_key(&a.version).cmp(&version_key(&b.version))
+    })
+}
+
+fn fetch_releases(slug: &str) -> Result<Vec<HubRelease>, String> {
+    let value = get_json(&format!("{}/mods/{slug}/releases", hub_api()))?;
+    serde_json::from_value(value["releases"].clone()).map_err(|e| e.to_string())
+}
+
+/// Check a release signature against the pinned platform key.
+///
+/// The signature covers the lowercase hex SHA-256 of the archive, so
+/// verifying it plus the download hash pins the exact bytes. Community
+/// content uploads carry no signature — they are hash-pinned by the hub's
+/// scan record instead — but a signature that is *present and wrong* means
+/// something is impersonating the platform, and that install is refused.
+fn check_release_signature(sha256_hex: &str, signature_b64: &str) -> Result<(), String> {
+    let raw = base64_decode(signature_b64.trim()).ok_or("Release signature is not valid base64")?;
+    let sig: [u8; 64] = raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Release signature is not 64 bytes")?;
+    signing_key()?
+        .verify_strict(
+            sha256_hex.as_bytes(),
+            &ed25519_dalek::Signature::from_bytes(&sig),
+        )
+        .map_err(|_| {
+            "Release signature does not verify against this launcher's key. Refusing to install."
+                .to_string()
+        })
+}
+
+/// Install a mod, or a specific release of it, and put it in the active
+/// profile's load order.
+///
+/// Installing over an existing entry — which is what updating is — keeps
+/// that entry's position and enabled flag: an update must not silently
+/// reorder a profile the player tuned, and must not re-enable something
+/// they turned off.
+///
+/// Nothing permanent happens until the bytes prove they are the bytes the
+/// hub described: the archive is hashed against the release record, and any
+/// signature the release carries is checked against the pinned key.
+pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, String> {
     let client = http()?;
     let api = hub_api();
 
-    // Mod page (for the display name) and newest release.
-    let mod_page: serde_json::Value = client
-        .get(format!("{api}/mods/{slug}"))
-        .send()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
+    let mod_page = get_json(&format!("{api}/mods/{slug}"))?;
     let name = mod_page["name"].as_str().unwrap_or(&slug).to_string();
+    let mod_type = mod_page["type"].as_str().unwrap_or("content");
+    if mod_type != "content" {
+        return Err(format!(
+            "{name} is a {mod_type} mod — it executes code, so it installs from the \
+             signed set under Code mods, not from a hub archive."
+        ));
+    }
 
-    let releases: serde_json::Value = client
-        .get(format!("{api}/mods/{slug}/releases"))
-        .send()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
-    let release: HubRelease = serde_json::from_value(
-        releases["releases"]
-            .get(0)
+    let releases = fetch_releases(&slug)?;
+    let release = match &release_id {
+        Some(id) => releases
+            .iter()
+            .find(|r| &r.id == id)
+            .cloned()
+            .ok_or("That release is not published")?,
+        None => newest_release(&releases)
             .cloned()
             .ok_or("This mod has no published releases")?,
-    )
-    .map_err(|e| e.to_string())?;
+    };
 
-    let status: HubReleaseStatus = client
-        .get(format!("{api}/releases/{}", release.id))
-        .send()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
+    let status: HubReleaseStatus =
+        serde_json::from_value(get_json(&format!("{api}/releases/{}", release.id))?)
+            .map_err(|e| e.to_string())?;
     if status.status != "published" {
         return Err(format!("Release is {}, not published", status.status));
     }
@@ -331,6 +459,14 @@ pub fn install(slug: String) -> Result<HubState, String> {
             "Hash mismatch: hub says {expected}, download is {actual}. Refusing to install."
         ));
     }
+    let signature = status.signature.or(release.signature.clone());
+    let signature_verified = match &signature {
+        Some(sig) if !sig.is_empty() => {
+            check_release_signature(&expected, sig)?;
+            true
+        }
+        _ => false,
+    };
 
     // Unpack the containers into this release's cache.
     let release_cache = cache_dir().join(&release.id);
@@ -339,6 +475,7 @@ pub fn install(slug: String) -> Result<HubState, String> {
 
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let mut containers = Vec::new();
+    let mut container_hashes = std::collections::BTreeMap::new();
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
         let path = file.name().to_string();
@@ -352,6 +489,7 @@ pub fn install(slug: String) -> Result<HubState, String> {
         };
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        container_hashes.insert(format!("{stem}.{ext}"), sha256_hex(&data));
         fs::write(release_cache.join(format!("{stem}.{ext}")), data).map_err(|e| e.to_string())?;
         if ext == "utoc" {
             containers.push(stem);
@@ -363,6 +501,13 @@ pub fn install(slug: String) -> Result<HubState, String> {
     containers.sort();
 
     let mut state = load_state();
+    // Replacing an install leaves the previous release's cache behind;
+    // clear it so updating does not grow the cache without bound.
+    if let Some(previous) = state.installed.iter().find(|m| m.slug == slug) {
+        if previous.release_id != release.id {
+            let _ = fs::remove_dir_all(cache_dir().join(&previous.release_id));
+        }
+    }
     state.installed.retain(|m| m.slug != slug);
     state.installed.push(InstalledHubMod {
         slug: slug.clone(),
@@ -371,6 +516,12 @@ pub fn install(slug: String) -> Result<HubState, String> {
         version: release.version,
         sha256: expected,
         containers,
+        summary: mod_page["summary"].as_str().map(str::to_string),
+        author: mod_page["author"].as_str().map(str::to_string),
+        category: mod_page["category"].as_str().map(str::to_string),
+        installed_at: Some(now_unix()),
+        signature_verified,
+        container_hashes,
     });
     let active = state.active.clone();
     for profile in &mut state.profiles {
@@ -384,6 +535,108 @@ pub fn install(slug: String) -> Result<HubState, String> {
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+// ─── Updates ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct UpdateInfo {
+    pub slug: String,
+    pub name: String,
+    pub installed_version: String,
+    pub latest_version: String,
+    pub latest_release_id: String,
+    pub channel: String,
+    pub changelog: Option<String>,
+}
+
+/// What the hub has that is newer than what is installed.
+///
+/// One request per installed mod, which is fine at the scale a profile
+/// reaches, and it keeps the answer honest — the hub decides what "newest"
+/// means for a mod, not a cached listing.
+pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
+    let state = load_state();
+    let mut out = Vec::new();
+    for inst in &state.installed {
+        let releases = match fetch_releases(&inst.slug) {
+            Ok(r) => r,
+            // One unreachable or deleted mod must not hide every other
+            // update; skip it and report the rest.
+            Err(_) => continue,
+        };
+        let Some(latest) = newest_release(&releases) else {
+            continue;
+        };
+        if is_newer(&latest.version, &inst.version) {
+            let detail = get_json(&format!("{}/releases/{}", hub_api(), latest.id)).ok();
+            out.push(UpdateInfo {
+                slug: inst.slug.clone(),
+                name: inst.name.clone(),
+                installed_version: inst.version.clone(),
+                latest_version: latest.version.clone(),
+                latest_release_id: latest.id.clone(),
+                channel: latest.channel.clone(),
+                changelog: detail
+                    .as_ref()
+                    .and_then(|d| d["changelog_md"].as_str())
+                    .map(str::to_string),
+            });
+        }
+    }
+    Ok(out)
+}
+
+// ─── Integrity of what is on disk ───────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct VerifiedMod {
+    pub slug: String,
+    pub ok: bool,
+    /// Cache files whose bytes no longer hash to what was installed.
+    pub tampered: Vec<String>,
+    pub missing: Vec<String>,
+    pub signature_verified: bool,
+}
+
+/// Re-hash every cached container against what was recorded at install.
+///
+/// The download check proves the bytes were right when they arrived; this
+/// proves they still are. Anything that edits the cache afterwards — a
+/// half-finished write, a disk fault, another program — shows up here
+/// rather than as a game that crashes for no visible reason.
+pub fn verify_installed() -> Vec<VerifiedMod> {
+    let state = load_state();
+    state
+        .installed
+        .iter()
+        .map(|inst| {
+            let dir = cache_dir().join(&inst.release_id);
+            let mut tampered = Vec::new();
+            let mut missing = Vec::new();
+            for (file, expected) in &inst.container_hashes {
+                match fs::read(dir.join(file)) {
+                    Ok(bytes) if sha256_hex(&bytes) == *expected => {}
+                    Ok(_) => tampered.push(file.clone()),
+                    Err(_) => missing.push(file.clone()),
+                }
+            }
+            VerifiedMod {
+                slug: inst.slug.clone(),
+                ok: tampered.is_empty() && missing.is_empty(),
+                tampered,
+                missing,
+                signature_verified: inst.signature_verified,
+            }
+        })
+        .collect()
 }
 
 pub fn uninstall(slug: String) -> Result<HubState, String> {
@@ -536,6 +789,144 @@ pub fn check_conflicts() -> Result<serde_json::Value, String> {
         return Err(format!("Hub returned {}", resp.status()));
     }
     resp.json().map_err(|e| e.to_string())
+}
+
+// ─── Identity: pairing this launcher with a hub account ─────────────────
+//
+// The launcher has no browser session and will never ask for a Discord
+// password. It pairs the way a TV app does: ask the hub for a handshake,
+// show the short code, let the user approve it at mjolnircore.com/link in a
+// real browser, then collect a scoped API key on the next poll.
+//
+// The key is stored in the launcher's config directory and only ever leaves
+// this process as an Authorization header — see `api` above. It carries
+// mods:read, ratings:write and comments:write; it cannot publish anything.
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HubUser {
+    pub id: String,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub role: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct StoredAuth {
+    key: String,
+    user: HubUser,
+}
+
+fn auth_path() -> PathBuf {
+    config_dir().join("hub_auth.json")
+}
+
+fn load_auth() -> Option<StoredAuth> {
+    fs::read_to_string(auth_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn save_auth(auth: &StoredAuth) -> Result<(), String> {
+    fs::create_dir_all(config_dir()).map_err(|e| e.to_string())?;
+    fs::write(
+        auth_path(),
+        serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// The pairing in flight. Held in memory, not on disk: an interrupted
+/// pairing should die with the process rather than linger as a credential
+/// waiting to be collected.
+fn pending_device() -> &'static Mutex<Option<String>> {
+    static PENDING: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(None))
+}
+
+/// Who this launcher is signed in as, without ever handing out the key.
+pub fn auth_status() -> Option<HubUser> {
+    load_auth().map(|a| a.user)
+}
+
+/// Begin pairing: returns the code to show and the page to open.
+pub fn auth_start() -> Result<serde_json::Value, String> {
+    let resp = http()?
+        .post(format!("{}/auth/device/start", hub_api()))
+        .json(&serde_json::json!({ "client_name": "MJOLNIR Launcher" }))
+        .send()
+        .map_err(|e| format!("Cannot reach the hub: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Hub returned {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+    let device_code = body["device_code"]
+        .as_str()
+        .ok_or("Hub did not return a device code")?
+        .to_string();
+    *pending_device().lock().map_err(|e| e.to_string())? = Some(device_code);
+
+    let user_code = body["user_code"].as_str().unwrap_or_default();
+    Ok(serde_json::json!({
+        "user_code": user_code,
+        // Prefilled so approving is a click, not a transcription.
+        "verification_url": format!(
+            "{}?code={}",
+            body["verification_url"].as_str().unwrap_or("https://mjolnircore.com/link"),
+            urlencode(user_code),
+        ),
+        "interval": body["interval"].as_u64().unwrap_or(3),
+        "expires_in": body["expires_in"].as_u64().unwrap_or(600),
+    }))
+}
+
+/// Poll the pairing started by `auth_start`. On approval the key is stored
+/// and the signed-in user returned; the webview never sees the key.
+pub fn auth_poll() -> Result<serde_json::Value, String> {
+    let device_code = pending_device()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No pairing in progress")?;
+
+    let resp = http()?
+        .post(format!("{}/auth/device/token", hub_api()))
+        .json(&serde_json::json!({ "device_code": device_code }))
+        .send()
+        .map_err(|e| format!("Cannot reach the hub: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Hub returned {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+    let status = body["status"].as_str().unwrap_or("pending").to_string();
+
+    if status == "approved" {
+        let key = body["key"]
+            .as_str()
+            .ok_or("Approved, but the hub sent no key. Start pairing again.")?
+            .to_string();
+        let user: HubUser =
+            serde_json::from_value(body["user"].clone()).map_err(|e| e.to_string())?;
+        save_auth(&StoredAuth {
+            key,
+            user: user.clone(),
+        })?;
+        *pending_device().lock().map_err(|e| e.to_string())? = None;
+        return Ok(serde_json::json!({ "status": status, "user": user }));
+    }
+    if status == "denied" || status == "expired" {
+        *pending_device().lock().map_err(|e| e.to_string())? = None;
+    }
+    Ok(serde_json::json!({ "status": status }))
+}
+
+/// Forget the paired key locally. The key itself stays valid until it is
+/// revoked at mjolnircore.com/account/keys — this launcher cannot revoke it,
+/// because a credential that can revoke credentials is a bigger credential.
+pub fn sign_out() -> Result<(), String> {
+    let _ = fs::remove_file(auth_path());
+    *pending_device().lock().map_err(|e| e.to_string())? = None;
+    Ok(())
 }
 
 // ─── Signed code mods ───────────────────────────────────────────────────
@@ -818,6 +1209,61 @@ mod tests {
         assert_eq!(sanitize("../evil pack!"), "evilpack");
     }
 
+    #[test]
+    fn versions_compare_numerically_not_lexically() {
+        assert!(is_newer("1.10.0", "1.9.0"), "10 > 9, not '10' < '9'");
+        assert!(is_newer("2.0.0", "1.99.99"));
+        assert!(!is_newer("1.0.0", "1.0.0"));
+        assert!(!is_newer("1.0.0", "1.0.1"));
+        // A final release outranks its own pre-releases.
+        assert!(is_newer("1.0.0", "1.0.0-beta.2"));
+        assert!(!is_newer("1.0.0-beta.2", "1.0.0"));
+    }
+
+    fn release(id: &str, version: &str, channel: &str) -> HubRelease {
+        HubRelease {
+            id: id.into(),
+            version: version.into(),
+            channel: channel.into(),
+            signature: None,
+        }
+    }
+
+    #[test]
+    fn newest_release_prefers_stable_over_a_higher_beta() {
+        let releases = vec![
+            release("a", "1.0.0", "stable"),
+            release("b", "1.1.0", "beta"),
+            release("c", "0.9.0", "stable"),
+        ];
+        assert_eq!(newest_release(&releases).unwrap().id, "a");
+    }
+
+    #[test]
+    fn newest_release_falls_back_to_beta_only_mods() {
+        let releases = vec![release("a", "0.1.0", "beta"), release("b", "0.2.0", "beta")];
+        assert_eq!(newest_release(&releases).unwrap().id, "b");
+        assert!(newest_release(&[]).is_none());
+    }
+
+    #[test]
+    fn the_api_proxy_refuses_to_be_pointed_at_another_host() {
+        // The webview chooses the path; it must not get to choose the host,
+        // because this is the call that attaches the paired API key.
+        for path in [
+            "https://evil.example/steal",
+            "//evil.example/steal",
+            "mods",
+            "http://localhost:9/x",
+        ] {
+            let err = api("GET".into(), path.into(), None).unwrap_err();
+            assert!(
+                err.contains("relative to the hub API"),
+                "{path} must be rejected before any request, got: {err}"
+            );
+        }
+    }
+
     /// The whole content-mod loop against a live hub and the real game
     /// install: install → containers in Paks → conflicts → reorder →
     /// disable → uninstall leaves Paks clean. Ignored because it needs the
@@ -841,7 +1287,7 @@ mod tests {
                 .collect()
         };
 
-        let state = install(slug.clone()).expect("install succeeds");
+        let state = install(slug.clone(), None).expect("install succeeds");
         assert!(state.installed.iter().any(|m| m.slug == slug));
         let files = managed(&paks);
         assert!(!files.is_empty(), "containers materialized into Paks");

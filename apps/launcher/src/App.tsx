@@ -1,29 +1,81 @@
 import { useState } from "react";
 import Sidebar from "./components/Sidebar";
-import ModList from "./components/ModList";
+import Library from "./components/Library";
 import Header from "./components/Header";
 import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
 import Settings from "./components/Settings";
 import Tools from "./components/Tools";
 import Browse from "./components/Browse";
+import Updates from "./components/Updates";
+import { ModDetail } from "./components/hub/ModDetail";
+import { HubShell } from "./hub/HubShell";
+import { useHubLibrary } from "./hub/library";
+import { useUpdates } from "./updates/useUpdates";
 
-export type View = "mods" | "tools" | "browse" | "settings";
+/**
+ * Three views answer three different questions, and nothing answers two:
+ * My Mods is what is installed, Browse Hub is what exists, Updates is what
+ * is out of date. Tools and Settings sit outside that loop.
+ */
+export type View = "mods" | "tools" | "browse" | "updates" | "settings";
 
 function App() {
-  const [activeView, setActiveView] = useState<View>("mods");
   const updater = useUpdater();
 
   return (
+    // One hub session for the whole app: the account, the pairing dialog and
+    // the API client are shared by My Mods and Browse Hub alike.
+    <HubShell>
+      <AppBody updater={updater} />
+    </HubShell>
+  );
+}
+
+function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
+  const [activeView, setActiveView] = useState<View>("mods");
+  const [openMod, setOpenMod] = useState<string | null>(null);
+  // Both the library and the update manager read this; keeping one instance
+  // means one set of hub calls and no disagreement about what is installed.
+  const library = useHubLibrary();
+  const updates = useUpdates(updater);
+
+  const showMod = (slug: string) => setOpenMod(slug);
+  const goTo = (view: View) => {
+    setOpenMod(null);
+    setActiveView(view);
+  };
+
+  return (
     <div className="flex h-screen w-screen bg-surface-primary">
-      <Sidebar activeView={activeView} onNavigate={setActiveView} updater={updater} />
+      <Sidebar
+        activeView={activeView}
+        onNavigate={goTo}
+        updater={updater}
+        updateCount={updates.items.length}
+      />
       <div className="flex flex-col flex-1 overflow-hidden">
-        <UpdaterBanner updater={updater} />
+        <UpdaterBanner updater={updater} onOpenUpdates={() => goTo("updates")} />
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
-          {activeView === "mods" && <ModList />}
-          {activeView === "tools" && <Tools />}
-          {activeView === "browse" && <Browse />}
-          {activeView === "settings" && <Settings />}
+          {openMod ? (
+            <ModDetail slug={openMod} library={library} onBack={() => setOpenMod(null)} />
+          ) : (
+            <>
+              {activeView === "mods" && (
+                <Library
+                  library={library}
+                  updateCount={updates.items.length}
+                  onOpenMod={showMod}
+                  onGoToUpdates={() => goTo("updates")}
+                  onGoToBrowse={() => goTo("browse")}
+                />
+              )}
+              {activeView === "tools" && <Tools />}
+              {activeView === "browse" && <Browse library={library} onOpenMod={showMod} />}
+              {activeView === "updates" && <Updates updates={updates} />}
+              {activeView === "settings" && <Settings />}
+            </>
+          )}
         </main>
       </div>
     </div>

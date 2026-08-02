@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { check, Update } from "@tauri-apps/plugin-updater";
 
 export type UpdateStatus = "idle" | "checking" | "available" | "dismissed" | "downloading" | "done" | "error";
@@ -21,7 +21,10 @@ export function useUpdater(): UpdateState {
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
 
-  const checkForUpdates = async () => {
+  // These are memoised because the update manager keys an effect on their
+  // identity: a fresh function every render would re-check for updates on
+  // every render, forever.
+  const checkForUpdates = useCallback(async () => {
     try {
       setStatus("checking");
       const updateResult = await check();
@@ -36,13 +39,13 @@ export function useUpdater(): UpdateState {
       console.log("Update check failed:", err);
       setStatus("idle");
     }
-  };
-
-  useEffect(() => {
-    checkForUpdates();
   }, []);
 
-  const handleInstall = async () => {
+  useEffect(() => {
+    void checkForUpdates();
+  }, [checkForUpdates]);
+
+  const handleInstall = useCallback(async () => {
     if (!update) return;
 
     try {
@@ -66,12 +69,15 @@ export function useUpdater(): UpdateState {
     } catch (err) {
       console.error("Failed to install update:", err);
       setStatus("error");
+      // The manager applies items in sequence and reports per-row failures;
+      // it can only do that if a failed install actually rejects.
+      throw err;
     }
-  };
+  }, [update]);
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     setStatus("dismissed");
-  };
+  }, []);
 
   return {
     update,
@@ -87,9 +93,11 @@ export function useUpdater(): UpdateState {
 
 interface UpdaterBannerProps {
   updater: UpdateState;
+  /** Sends the player to the manager, where this update sits alongside the rest. */
+  onOpenUpdates?: () => void;
 }
 
-export default function UpdaterBanner({ updater }: UpdaterBannerProps) {
+export default function UpdaterBanner({ updater, onOpenUpdates }: UpdaterBannerProps) {
   const { update, status, downloadedBytes, totalBytes, handleInstall, dismiss } = updater;
 
   // Don't show if idle, checking, dismissed, or no update
@@ -118,6 +126,14 @@ export default function UpdaterBanner({ updater }: UpdaterBannerProps) {
             >
               Update Now
             </button>
+            {onOpenUpdates && (
+              <button
+                onClick={onOpenUpdates}
+                className="px-2 py-1 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all cursor-pointer"
+              >
+                All updates
+              </button>
+            )}
             <button
               onClick={dismiss}
               className="px-2 py-1 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all cursor-pointer"
