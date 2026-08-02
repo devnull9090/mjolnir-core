@@ -58,3 +58,15 @@ allocates is a build-time detail.
 3. Re-scan only after clearing any cache: UE4SS's `InvalidateCacheIfDLLDiffers`
    watches its own DLL, **not** the game executable, so a game update does not
    invalidate a cached scan on its own.
+
+This bit on the 2026-07-31 CU3 update: `FName_Constructor.lua` failed even though
+its pattern was verified present — exactly once — both in the CU3 exe on disk and
+in the live process via `ReadProcessMemory`. The pattern was fine. Recovery was
+deleting `ue4ss/cache` and relaunching (with `SigScannerNumThreads = 1` also set;
+which of the two mattered was not bisected). Clear the cache **first**, before
+touching any pattern — a stale cache can impersonate a broken signature.
+
+Known looseness: `GUObjectHashTables.lua` resolved to different addresses on
+different CU3 launches at the same image base, so its pattern matches more than
+one site. It has worked regardless; tighten it if hash-table lookups ever
+misbehave.

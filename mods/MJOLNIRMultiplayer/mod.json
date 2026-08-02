@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
-  "summary": "Experimental campaign map travel, listen-server loading, and player admin commands.",
+  "version": "0.2.0",
+  "summary": "Campaign-flow mission launching (mjolnir_mission), debug menu access, listen-server experiments, and player admin commands.",
   "category": "multiplayer"
 }

@@ -151,10 +151,14 @@ it alive. Expect to hit this on any run longer than the timeout.
 working throughout, because `PrintWindow` does not need focus — so a locked machine looks like
 "I can see the game but cannot touch it".
 
-There is no reflection-driven substitute yet. `BPFL_CampaignMenuHelpers` exposes lobby setters
-(`SetClientLobbyMission`, `SetClientLobbyDifficulty`, `StartCountdown`) but no plain "start the
-mission" entry point, so starting a mission still needs real input. Finding one would make the
-whole harness immune to this, and is the single highest-value thing left to add.
+~~There is no reflection-driven substitute yet.~~ **Superseded 2026-08-02:** there is one.
+`BlamCampaignFlowGameSubsystem:SetAndBeginCampaign(Campaign, ScenarioName, Options)` starts a
+mission from pure reflection — verified launching A15 from the frontend and traveling A15→A30
+mid-mission on CU3. It validates assets synchronously and returns `false` instead of crashing
+when a world is missing, which also retires the frontend-`open` hazard for mission starts. The
+game's own hidden debug menu (`WBP_MainMenu:OnToggleDebugMenu`) drives the same path. See
+[`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md) for the full recipe;
+`mjolnir_mission` in `MJOLNIRMultiplayer` wraps it.
 
 **Ammo is not in UE reflection.** Neither the pawn, the first-person weapon actor, nor any HUD
 object holds the round counts the HUD displays; a scan for the literal reserve value across

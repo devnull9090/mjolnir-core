@@ -609,6 +609,129 @@ mjolnir_dump_state
 6. Add team spawns, flag stands, boundaries, and objectives to an existing campaign world at runtime.
 7. Only then cook a tiny UE5.5 test world and package it as pak/utoc/ucas.
 
+## 2026-08-02 Follow-Up: CU3 — the game ships a working debug map-select menu
+
+**Game build:** `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3` (read off the live Test
+options panel). Host SHA-256
+`4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753`, written to disk 2026-07-31.
+All findings below were made against CU3, both the on-disk IoStore index and the live process.
+
+### UE4SS injection broke on the CU3 update — and the AOB was not the problem
+
+**Observed:** after the update, UE4SS died with `Fatal Error: AOB scans could not be completed`
+for `FName_Constructor.lua`, while the other three signatures resolved. The installed pattern
+was found **exactly once** in the CU3 exe on disk (file offset `0x36FC730`, `.text`), and a
+`ReadProcessMemory` probe at the matching RVA (`0x36FD130`) returned the identical bytes in the
+live process. The bytes were right; the scanner missed them.
+
+**Recovery sequence (Observed, not fully bisected):** setting `SigScannerNumThreads = 1` alone
+did not fix it; deleting `ue4ss/cache` and relaunching with 1 thread did. The scan cache is a
+known trap — `InvalidateCacheIfDLLDiffers` watches UE4SS's own DLL, not the game exe — so
+**always clear `ue4ss/cache` after a game update** before diagnosing signatures. Whether the
+thread count mattered is unproven; both changes are currently in place and injection is
+verified working on CU3. See `signatures/README.md` for the triage procedure.
+
+Also observed: `GUObjectHashTables.lua` resolved to different addresses on different launches
+with the same image base, so its wildcarded pattern matches more than one site. It works, but
+the ambiguity is worth tightening.
+
+### UI widget inventory: the co-op layer ships, the competitive layer does not
+
+**Verified** from the complete CU3 IoStore directory index (132,093 entries, all 28 containers)
+by enumerating every `WBP_*` widget blueprint (~240 unique):
+
+Ships: `WBP_ClientLobby` (host, mission, difficulty, skulls, crossplay, squad list),
+`WBP_MatchStartCountdown` ("Game is starting" / "Cancel Countdown"), the Squad suite
+(`WBP_SquadWidget`, voice, splitscreen entries), the Roster suite (add friends, invite,
+report player, profile), `WBP_Meteorite_Chat`, `WBP_MeteoriteSessionInProgress`,
+`WBP_LoadingWaitStatus` with per-player entries, `WBP_MeteoriteSplitscreenSignIn`, and the
+input action `IA_BlamShowScoreboard`.
+
+Absent: any matchmaking browser, playlist or game-variant picker, Slayer/CTF mode-select
+widget, scoreboard widget, or postgame screen. The eight competitive modes exist only in the
+simulation DLL and the 308 `game_variant_settings` tags. **There is no hidden competitive menu
+to unhide in this build.**
+
+### The debug menu chain — verified live, in a Shipping build
+
+**Verified at runtime on CU3**, driven entirely by UE4SS reflection with no keyboard input:
+
+1. `WBP_MainMenu` carries a hidden `DebugButtonContainer` with a `DebugMenuButton`, plus
+   handlers `OnToggleDebugMenu` and `DebugRefreshMenu`. Calling `OnToggleDebugMenu()` on the
+   live instance flips the container visible and reveals a **"Test options"** panel showing the
+   build string, **DEBUG LEVEL SELECT**, and **MISSIONS - UNLOCK**.
+2. Invoking the debug button's click delegate opens `WBP_DebugMenuSelect` — an on-screen
+   **MAP SELECT** page with **CAMPAIGN MISSIONS** and **TEST MAPS**.
+3. The TEST MAPS page (`WBP_TestMapDebugMenu`) lists 20 items from `DA_TestMapsCampaign`;
+   the CAMPAIGN MISSIONS page (`WBP_CampaignDebugMenu`) lists Launch A15–E30 from
+   `DA_FirstPlayableCampaign` and `DA_AdditionalCampaign` (E10/E20/E30).
+4. Item clicks call `BlamCampaignFlowGameSubsystem:SetAndBeginCampaign`.
+
+### SetAndBeginCampaign — the crash-free replacement for `open`
+
+**Verified** reflected signature:
+
+```text
+BlamCampaignFlowGameSubsystem:SetAndBeginCampaign(
+    Campaign              BlamCampaignDataAsset,
+    StartingScenarioName  Name,
+    Options               BlamScenarioGameOptions) -> bool
+
+BlamScenarioGameOptions: bLoadFromCoreSave, SaveSlot, SavedFilmName,
+    CampaignDifficultyLevel, InsertionPoint, ActiveSkulls, bFriendlyFireEnabled,
+    bIsLASO, GameVariant (ObjectProperty)
+```
+
+**Verified behaviors:**
+
+- `("testing_shooting_range", DA_TestMapsCampaign)` → returns `false` in under 1 ms,
+  synchronously, game stays at the frontend. **Missing worlds fail gracefully** — no crash,
+  unlike frontend `open` travel.
+- `("A15", DA_FirstPlayableCampaign)` from the frontend debug menu → `true`, full mission
+  load, live `BP_MeteoritePawn_C`.
+- Direct Lua call from **inside A15** with a Lua-table Options struct reusing a live
+  `BlamGameEngineCampaignVariant` → `true`, traveled to A30, pawn possessed at a live world
+  position. **Mission-to-mission travel through the campaign flow works from reflection.**
+  This closes the gap flagged in `game_automation.md` — mission start no longer needs
+  `game_input`.
+- Direct call from the **frontend** with `GameVariant = nil` (no live variant exists there)
+  → `true`, A15 loaded to a possessed pawn. The flow spawns its own default variant.
+  Verified end to end through the new `mjolnir_mission` console command after a cold launch.
+
+`Options.GameVariant` being a plain object property is the significant seam: the campaign flow
+accepts a variant *object*. Whether it accepts a non-campaign variant subclass is the next
+question that matters for competitive-mode activation.
+
+### Test worlds were stripped from the cook — which is the opportunity
+
+**Verified:** `DT_Test_Scenarios` maps all 20 scenario names to worlds under
+`/Game/Levels/Test/...` (plus `/Game/Levels/Lookdev/E10_Kit/D40_Warthog_Testkit`), but none of
+those `.umap` packages ship — only stray dependencies survive (materials for `Testing_Arena`,
+`Testing_Shooting_Range`, `Testing_Combat_Simple`, `Testing_GravLifts`, `Testing_Ally_AI`, and
+the lone `Levels/Test/SeamlessTravelTEst.umap`; also `C20/Archived/C20_GreyboxNoArt.umap`).
+
+The launch plumbing for those worlds ships and validates asset existence before traveling.
+Therefore: **mount a custom cooked world at one of the pre-registered paths** (e.g.
+`/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range`) in an IoStore mod container
+and the shipped debug menu should launch it through the legitimate campaign flow. Open
+question from the tag pipeline: the 13 shipped scenarios all have generated Blam scenario/BSP
+tags, and the test scenarios have none — the `false` return today is consistent with a
+world-existence check, but a mounted world may still need scenario tags to survive simulation
+start. That is the discriminating experiment.
+
+### Revised next steps
+
+1. Cook a minimal UE 5.5 world, package it at a `Testing_*` path
+   ([`iostore_packaging.md`](iostore_packaging.md)), and re-run the launch. `true` + load =
+   custom maps through the front door.
+2. If the sim rejects it, generate minimal scenario/BSP tags for the world
+   ([`tag_data_pipeline.md`](tag_data_pipeline.md)) and retry.
+3. Probe `Options.GameVariant`: enumerate what variant classes
+   `StaticConstructObject` will produce, try passing a non-campaign variant, and watch
+   `BlamGameEngineBaseVariant`/`SetSocialOptions` behavior.
+4. Decode the 308 `game_variant_settings` tags to learn what a competitive variant payload
+   looks like before trying to activate one.
+
 ## 2026-07-26 Follow-Up: Tag Data Pipeline
 
 The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside
