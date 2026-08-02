@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import GoogleAnalytics from "./components/GoogleAnalytics";
+import { HubKitProvider } from "./components/HubKit";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -38,7 +39,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <GoogleAnalytics />
-        {children}
+        {/* One identity lookup for the whole page: the navbar chip, the
+            rating widget and the comment box all read the same session. */}
+        <HubKitProvider>{children}</HubKitProvider>
       </body>
     </html>
   );

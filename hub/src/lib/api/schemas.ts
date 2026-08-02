@@ -114,6 +114,14 @@ export const ReleaseSchema = z
     sha256: z.string().nullable().openapi({
       description: "Hash of the release archive; verify after download.",
     }),
+    signature: z.string().nullable().openapi({
+      description:
+        "Base64 Ed25519 signature over the lowercase hex `sha256`, made with " +
+        "the platform release key (keys/mod-signing.pub). Present on signed " +
+        "script/native releases; null for community content uploads, whose " +
+        "integrity rests on `sha256` plus the upload scan. Clients that know " +
+        "the key must reject a release whose signature is present and wrong.",
+    }),
     build_min: z.string().nullable().openapi({
       description: "Oldest game build this release is declared compatible with.",
     }),
@@ -170,6 +178,7 @@ export const ReleaseStatusSchema = z
     version: z.string(),
     status: z.enum(["pending", "scanning", "published", "rejected", "yanked"]),
     sha256: z.string().nullable(),
+    signature: z.string().nullable(),
     file_size: z.number().int().nullable(),
     chunk_count: z.number().int().openapi({
       description: "IoStore chunks this release claims, once scanned.",
@@ -296,6 +305,11 @@ export const CommentSchema = z
     author: z.string().nullable().openapi({
       description: "Null when the comment was deleted.",
     }),
+    author_id: z.string().nullable().openapi({
+      description:
+        "The author's user id, so a client can tell whose comments carry a " +
+        "delete button without matching on display names. Null when deleted.",
+    }),
     author_avatar: z.string().nullable(),
     body_md: z.string().nullable(),
     deleted: z.boolean(),
@@ -339,6 +353,7 @@ export function releaseFromRow(r: any): z.infer<typeof ReleaseSchema> {
     changelog_md: r.changelog_md ?? null,
     file_size: r.file_size ?? null,
     sha256: r.sha256 ?? null,
+    signature: r.signature ?? null,
     build_min: r.build_min ?? null,
     build_max: r.build_max ?? null,
     download_count: r.download_count ?? 0,

@@ -32,6 +32,15 @@ const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: "updates",
+    label: "Updates",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+    ),
+  },
+  {
     id: "settings",
     label: "Settings",
     icon: (
@@ -47,9 +56,11 @@ interface SidebarProps {
   activeView: View;
   onNavigate: (view: View) => void;
   updater: UpdateState;
+  /** Everything out of date, launcher included; badges the Updates item. */
+  updateCount: number;
 }
 
-export default function Sidebar({ activeView, onNavigate, updater }: SidebarProps) {
+export default function Sidebar({ activeView, onNavigate, updater, updateCount }: SidebarProps) {
   const showUpdateBadge = updater.status === "dismissed" || updater.status === "available" || updater.status === "error";
 
   return (
@@ -78,38 +89,36 @@ export default function Sidebar({ activeView, onNavigate, updater }: SidebarProp
               }`}
           >
             {item.icon}
-            {item.label}
+            <span className="flex-1 text-left">{item.label}</span>
+            {item.id === "updates" && updateCount > 0 && (
+              <span
+                title={`${updateCount} update${updateCount === 1 ? "" : "s"} available`}
+                className="min-w-5 px-1.5 py-0.5 rounded-full text-[11px] font-bold text-surface-primary bg-mjolnir-gold"
+              >
+                {updateCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>
 
-      {/* Update Available Badge */}
+      {/* A launcher update is one row of the Updates view like any other, so
+          it is announced by the badge above and the banner — not by a third
+          control that acts on its own. */}
       {showUpdateBadge && updater.version && (
         <div className="px-3 mb-2">
           <button
-            onClick={async () => {
-              if (updater.status === "dismissed") {
-                // Re-show the banner
-                await updater.recheck();
-              } else {
-                await updater.handleInstall();
-              }
-            }}
+            onClick={() => onNavigate("updates")}
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium
               bg-mjolnir-gold/10 border border-mjolnir-gold/30
               text-mjolnir-gold hover:bg-mjolnir-gold/20
-              transition-all duration-200 cursor-pointer group"
+              transition-all duration-200 cursor-pointer"
           >
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-mjolnir-gold opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-mjolnir-gold" />
             </span>
-            <span className="flex-1 text-left">
-              v{updater.version} available
-            </span>
-            <svg className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+            <span className="flex-1 text-left">Launcher v{updater.version} available</span>
           </button>
         </div>
       )}

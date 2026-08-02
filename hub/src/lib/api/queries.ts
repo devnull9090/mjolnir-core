@@ -6,25 +6,18 @@
  * API remains the contract for everyone else.
  */
 import type { D1Database } from "@cloudflare/workers-types";
+import type { Mod, Release } from "@mjolnir/hub-kit";
 
-export interface ModCard {
-  id: string;
-  slug: string;
-  name: string;
-  summary: string | null;
-  type: string;
-  category: string;
-  download_count: number;
-  rating_count: number;
-  rating_mean: number | null;
-  author: string;
-  updated_at: string;
-}
+/**
+ * Listing rows are the API's `Mod` shape so pages can hand them straight to
+ * the shared <ModCard>, which the launcher renders too.
+ */
+export type ModListRow = Mod;
 
 export async function listPublishedMods(
   db: D1Database,
   opts: { q?: string; category?: string; sort?: "newest" | "downloads" | "rating"; limit?: number },
-): Promise<ModCard[]> {
+): Promise<ModListRow[]> {
   const where: string[] = ["m.status = 'published'"];
   const binds: (string | number)[] = [];
   if (opts.category && opts.category !== "all") {
@@ -44,8 +37,8 @@ export async function listPublishedMods(
 
   const rows = await db
     .prepare(
-      `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.download_count,
-              m.rating_count, m.rating_mean, m.updated_at,
+      `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
+              m.download_count, m.rating_count, m.rating_mean, m.created_at, m.updated_at,
               COALESCE(u.display_name, u.discord_username) AS author
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
@@ -53,16 +46,19 @@ export async function listPublishedMods(
     )
     .bind(...binds, opts.limit ?? 60)
     .all();
-  return rows.results as unknown as ModCard[];
+  // D1 has no booleans; everything else is already the API shape.
+  return rows.results.map((r) => ({ ...r, nsfw: !!r.nsfw })) as unknown as ModListRow[];
 }
 
-export interface ModPage extends ModCard {
+/**
+ * A mod row straight out of D1: the API shape plus the columns only the
+ * server-rendered page needs, and `nsfw` still as the integer SQLite stores.
+ */
+export interface ModPage extends Omit<Mod, "nsfw"> {
   description_md: string | null;
-  license: string | null;
   nsfw: number;
   owner_id: string;
   status: string;
-  created_at: string;
 }
 
 export interface MediaRow {
@@ -71,16 +67,11 @@ export interface MediaRow {
   position: number;
 }
 
-export interface ReleaseRow {
-  id: string;
-  version: string;
-  channel: string;
-  changelog_md: string | null;
-  file_size: number | null;
-  sha256: string | null;
-  download_count: number;
-  created_at: string;
-}
+/**
+ * Server-rendered release rows carry the same shape the API publishes, so
+ * the page can hand them straight to the shared <ReleaseList>.
+ */
+export type ReleaseRow = Release;
 
 export async function getModPage(db: D1Database, slug: string) {
   const mod = (await db
@@ -99,7 +90,8 @@ export async function getModPage(db: D1Database, slug: string) {
       .all(),
     db
       .prepare(
-        `SELECT id, version, channel, changelog_md, file_size, sha256, download_count, created_at
+        `SELECT id, mod_id, version, channel, changelog_md, file_size, sha256, signature,
+                build_min, build_max, download_count, created_at
          FROM mod_releases WHERE mod_id = ?1 AND status = 'published'
          ORDER BY created_at DESC`,
       )

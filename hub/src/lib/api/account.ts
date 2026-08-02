@@ -8,6 +8,7 @@
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { createRoute, z } from "@hono/zod-openapi";
+import type { D1Database } from "@cloudflare/workers-types";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
@@ -51,6 +52,32 @@ function randomKey(): string {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);
   return "mjc_" + btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Mint a key and store only its hash. Shared with device pairing, which
+ * mints on the user's behalf once they approve a device — the same key
+ * shape, the same storage rule, so a paired launcher is indistinguishable
+ * from any other API client afterwards.
+ */
+export async function mintApiKey(
+  db: D1Database,
+  userId: string,
+  name: string,
+  scopes: readonly string[],
+  expiresAt: string | null = null,
+): Promise<{ id: string; key: string; prefix: string }> {
+  const key = randomKey();
+  const id = crypto.randomUUID();
+  const prefix = key.slice(0, 10);
+  await db
+    .prepare(
+      `INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    )
+    .bind(id, userId, name, await sha256Hex(key), prefix, scopes.join(" "), expiresAt)
+    .run();
+  return { id, key, prefix };
 }
 
 export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>) {
@@ -132,18 +159,16 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>) {
         return c.json({ error: "too_many_keys", message: `At most ${MAX_KEYS_PER_USER} active keys.` }, 400);
       }
 
-      const key = randomKey();
-      const id = crypto.randomUUID();
-      const prefix = key.slice(0, 10);
       const expiresAt = body.expires_in_days
         ? new Date(Date.now() + body.expires_in_days * 86400_000).toISOString()
         : null;
-      await c.env.DB.prepare(
-        `INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, expires_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      )
-        .bind(id, auth.user.id, body.name, await sha256Hex(key), prefix, body.scopes.join(" "), expiresAt)
-        .run();
+      const { id, key, prefix } = await mintApiKey(
+        c.env.DB,
+        auth.user.id,
+        body.name,
+        body.scopes,
+        expiresAt,
+      );
 
       return c.json(
         {

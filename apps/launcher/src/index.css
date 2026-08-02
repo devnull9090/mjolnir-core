@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@import "../../../hub/src/kit/ui/theme.css";
+
+/* The shared community UI lives outside this project's root, so Tailwind has
+   to be pointed at it or its utilities never get generated. */
+@source "../../../hub/src/kit";
 
 @theme {
   --color-mjolnir-gold: #d4a843;
@@ -15,6 +20,26 @@
   --color-accent-blue: #3b82f6;
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* Point the shared components' token contract at the launcher's palette, so
+   a rating widget looks native here and native on the website
+   (hub/src/kit/ui/theme.css). */
+:root {
+  --mj-bg: var(--color-surface-primary);
+  --mj-surface: var(--color-surface-secondary);
+  --mj-surface-raised: var(--color-surface-card);
+  --mj-surface-hover: var(--color-surface-hover);
+  --mj-border: var(--color-border-subtle);
+  --mj-border-bright: var(--color-border-subtle);
+  --mj-text: var(--color-text-primary);
+  --mj-text-muted: var(--color-text-secondary);
+  --mj-text-dim: var(--color-text-secondary);
+  --mj-gold: var(--color-mjolnir-gold);
+  --mj-green: var(--color-accent-green);
+  --mj-blue: var(--color-accent-blue);
+  --mj-red: var(--color-accent-red);
+  --mj-amber: #d29922;
 }
 
 html, body {
