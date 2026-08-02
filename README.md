@@ -68,7 +68,7 @@ the camera is detached.
 
 | Hotkey | Action |
 | :--- | :--- |
-| `F8` | Toggle FlyCam ON/OFF (auto-hides HUD, hides FP gun, shows Chief's body) |
+| `F8` | Toggle FlyCam ON/OFF (auto-hides HUD and the floating first-person arms/gun) |
 | `F7` | Toggle HUD overlay |
 | `F9` / `Numpad 0` | Toggle mouse look |
 | `Numpad 8/2` | Move camera forward / backward |

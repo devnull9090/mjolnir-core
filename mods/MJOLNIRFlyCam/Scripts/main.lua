@@ -20,8 +20,9 @@
 --   Mouse        : Look around (when Mouse Look is on)
 --
 -- While FlyCam is on, WASD/mouse still control the player (see note above).
--- The first-person rig (arms, gun, shadow proxies) is hidden and the real
--- third-person body is made visible so the player looks correct from outside.
+-- The first-person rig (arms + gun) is hidden so it stops floating in front
+-- of the lens; the game's own shadow-proxy body doubles as the external
+-- player model.
 
 local bEnabled = false
 local bMouseLookEnabled = true
@@ -38,7 +39,6 @@ local CamRot = { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 }
 
 -- Visibility bookkeeping: exact prior state, restored on disable.
 local SavedVisibility = {}   -- { {comp=<obj>, visible=<bool>} }
-local SavedOnlyOwnerSee = {} -- { comp objects that had bOnlyOwnerSee=true }
 local SavedHudWidgets = {}   -- { {widget=<obj>, visibility=<int>} }
 
 local function Log(msg)
@@ -127,36 +127,29 @@ local function ForEachPawnAndWeaponActor(pawn, fn)
     end
 end
 
--- Hide the first-person rig (arms, FP gun, shadow proxies). Component and
--- class names on both the pawn and weapon actors use an FP_ prefix
--- (BPC_FP_SkeletalMesh_C, BPC_FP_ShadowStaticMesh_C, ...). The shadow
--- proxies are bOwnerNoSee, so they only become visible exactly when the
--- camera detaches — they are the phantom second gun.
+-- Hide the first-person rig: FP arms, visor overlays, and FP gun meshes
+-- (FP_-prefixed component/class names on the pawn and attached weapon
+-- actors) — but NOT the Shadow proxies. This game is first-person only and
+-- has no separate third-person model: the bOwnerNoSee "shadow" meshes
+-- (BPC_FP_ShadowSkeletalMesh full body, BPC_FP_ShadowStaticMesh gun) are
+-- the only complete external body, and the engine already shows them
+-- automatically when the view target is not the pawn. Vanilla's "two guns"
+-- came from the always-rendered FP arms overlapping that shadow body.
+-- (BPC_PAWN_SkeletalMesh is just the owner-view lower body — the legs you
+-- see looking down in first person — so leave its bOnlyOwnerSee alone.)
 local function HideFirstPersonRig(pawn)
     ForEachPawnAndWeaponActor(pawn, function(actor)
         ForEachPrimitiveComponent(actor, function(c)
             if not c:IsValid() then return end
             local cn = c:GetClass():GetFName():ToString()
             local n = c:GetFName():ToString()
-            if (cn:find("FP_") or n:find("FP_")) and c:IsVisible() then
+            if (cn:find("FP_") or n:find("FP_"))
+                and not (cn:find("Shadow") or n:find("Shadow"))
+                and c:IsVisible() then
                 SavedVisibility[#SavedVisibility + 1] = { comp = c, visible = true }
                 c:SetVisibility(false, false)
             end
         end)
-    end)
-end
-
--- The real third-person body (BPC_PAWN_SkeletalMesh_C) is bOnlyOwnerSee, so
--- it disappears when the view target is not the pawn. Clear the flag while
--- flying so the player is visible from outside.
-local function ShowThirdPersonBody(pawn)
-    ForEachPrimitiveComponent(pawn, function(c)
-        if not c:IsValid() then return end
-        local n = c:GetFName():ToString()
-        if n:find("PAWN_") and c.bOnlyOwnerSee == true then
-            SavedOnlyOwnerSee[#SavedOnlyOwnerSee + 1] = c
-            c:SetOnlyOwnerSee(false)
-        end
     end)
 end
 
@@ -174,14 +167,6 @@ local function RestoreVisibility()
         end)
     end
     SavedVisibility = {}
-    for _, c in ipairs(SavedOnlyOwnerSee) do
-        pcall(function()
-            if c:IsValid() then
-                c:SetOnlyOwnerSee(true)
-            end
-        end)
-    end
-    SavedOnlyOwnerSee = {}
 end
 
 local ESlateVisibility_Visible = 0
@@ -278,7 +263,6 @@ local function OnCameraTick(dt)
         bEnabled = false
         SpawnedCameraActor = nil
         SavedVisibility = {}
-        SavedOnlyOwnerSee = {}
         SavedHudWidgets = {}
         bHUDVisible = true -- the new level's HUD starts visible
         Log("FlyCam camera lost (level change?). FlyCam disabled.")
@@ -450,10 +434,8 @@ local function EnableFlyCam()
     pcall(function() PC:SetViewTargetWithBlend(SpawnedCameraActor, 0.2, 0, 0, false) end)
 
     SavedVisibility = {}
-    SavedOnlyOwnerSee = {}
     RescanTimer = 0.0
     HideFirstPersonRig(pawn)
-    ShowThirdPersonBody(pawn)
 
     SetHUDVisible(false)
 
