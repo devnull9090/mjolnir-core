@@ -25,14 +25,24 @@ fn main() -> Result<(), String> {
 
     let uasset = catalog.read_texture_uasset(*index)?;
     let header = textures::zen_header_size(&uasset).ok_or("not a zen package")?;
-    let vt = textures::parse_vt(&uasset[header..])?;
+    let tex = textures::parse_texture(&uasset[header..])?;
     eprintln!(
-        "{}x{} {} · {} mips · tile {}+{} · chunks {:?}",
-        vt.width, vt.height, vt.format, vt.num_mips, vt.tile_size, vt.tile_border, vt.chunk_sizes
+        "{}x{} {} · {} mips · {}",
+        tex.width,
+        tex.height,
+        tex.format,
+        tex.num_mips,
+        match &tex.payload {
+            textures::Payload::Virtual(vt) => format!(
+                "virtual · tile {}+{} · chunks {:?}",
+                vt.tile_size, vt.tile_border, vt.chunk_sizes
+            ),
+            textures::Payload::Classic(_) => "classic mip chain".to_string(),
+        }
     );
 
-    let ubulk = catalog.read_texture_ubulk(*index)?;
-    let img = textures::assemble_mip(&vt, &ubulk, 0)?;
+    let ubulk = catalog.read_texture_ubulk(*index).unwrap_or_default();
+    let img = textures::assemble_mip(&tex, &ubulk, 0)?;
     let png = textures::to_png(&img)?;
     std::fs::write(&out, &png).map_err(|e| e.to_string())?;
     eprintln!("wrote {} ({} bytes)", out, png.len());

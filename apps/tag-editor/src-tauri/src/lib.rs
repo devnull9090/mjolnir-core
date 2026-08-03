@@ -693,17 +693,22 @@ fn decode_texture(
     c: &Catalog,
     index: usize,
     max_dim: u32,
-) -> Result<(textures::VtData, textures::TextureImage), String> {
+) -> Result<(textures::Texture, textures::TextureImage), String> {
     let uasset = c.read_texture_uasset(index)?;
     let header = textures::zen_header_size(&uasset).ok_or("not a zen package")?;
-    let vt = textures::parse_vt(&uasset[header..])?;
-    let ubulk = c.read_texture_ubulk(index)?;
+    let tex = textures::parse_texture(&uasset[header..])?;
+    // A texture whose mips are all inline has no bulk file at all.
+    let ubulk = c.read_texture_ubulk(index).unwrap_or_default();
     let mut mip = 0;
-    while mip + 1 < vt.num_mips && (vt.width >> mip).max(vt.height >> mip) > max_dim {
+    while mip + 1 < tex.num_mips {
+        let (w, h) = tex.mip_dims(mip);
+        if w.max(h) <= max_dim {
+            break;
+        }
         mip += 1;
     }
-    let img = textures::assemble_mip(&vt, &ubulk, mip)?;
-    Ok((vt, img))
+    let img = textures::assemble_mip(&tex, &ubulk, mip)?;
+    Ok((tex, img))
 }
 
 #[tauri::command]
@@ -712,15 +717,15 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
     with_catalog(&state, |c| {
         let entry = c.textures.get(index).ok_or("texture index out of range")?;
         let path = entry.short.clone();
-        let (vt, img) = decode_texture(c, index, 4096)?;
+        let (tex, img) = decode_texture(c, index, 4096)?;
         let png = textures::to_png(&img)?;
         Ok(TextureView {
             path,
-            width: vt.width,
-            height: vt.height,
+            width: tex.width,
+            height: tex.height,
             format: img.format.clone(),
             mip: img.mip,
-            num_mips: vt.num_mips,
+            num_mips: tex.num_mips,
             png: format!(
                 "data:image/png;base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(png)

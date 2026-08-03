@@ -1,28 +1,57 @@
 # Cooked Texture2D / Virtual Texture Format in Halo Campaign Evolved
 
 **Status:** Verified against the installed build
-**Last verified:** 2026-07-31
+**Last verified:** 2026-08-03
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
-Every sampled shipped `Texture2D` in this build is cooked as an Unreal **virtual
-texture**: the `.uasset` export carries `FVirtualTextureBuiltData`-shaped
-metadata and the pixel payload lives in the sibling `.ubulk` as fixed-size
-tiles addressed by Morton code. Decoding was verified by reassembling
-`T_GuiltySpark_D` (4096×2048 DXT1) and `T_Chief_Armor_20thAnniv_D` (6144×1024
-DXT1) into seamless images.
+A shipped `Texture2D` in this build cooks one of two ways, and both are common:
+
+- **Virtual texture** — about half the catalogue. The `.uasset` export carries
+  `FVirtualTextureBuiltData`-shaped metadata and the pixel payload lives in the
+  sibling `.ubulk` as fixed-size tiles addressed by Morton code.
+- **Classic mip chain** — the rest. Each mip is either appended to the `.ubulk`
+  in order, or carried inline in the export itself.
+
+Decoding was verified across the whole install: 4787 of 4844 textures decode.
+The other 57 ship no pixel data at all — 52 are render targets or otherwise
+runtime-generated (no `PF_` name in the export), and 5 are virtual textures
+whose `.ubulk` was never cooked into the paks.
+
+> An earlier revision of this document claimed *every* texture was virtual.
+> That came from a 250-asset sample which happened to miss the classic chains.
 
 ## Locating the metadata
 
 The export's serial data begins with unversioned properties (not parsed).
-The virtual-texture block is found by scanning for the first `FString` whose
-text starts with `PF_` (e.g. `PF_DXT1`); the twelve bytes immediately before
-it are `SizeX (u32) SizeY (u32) NumLayers (u32 = 1)`.
+Anchor on the first `FString` whose text starts with `PF_` (e.g. `PF_DXT1`) —
+the pixel-format name of `FTexturePlatformData`. The twelve bytes immediately
+before it are `SizeX (u32) SizeY (u32) PackedData (u32)`. `PackedData` holds
+the slice count in its low 28 bits and cook flags in the top bits, so a
+cubemap reads `0x80000006`.
 
-After the pixel-format string, in order (all `u32` unless noted):
+The two `u32` straight after the string are `FirstMipToSerialize` and
+`NumMips`, and **`NumMips` is what picks the branch**:
+
+| `NumMips` | Meaning |
+|---|---|
+| `0` | Virtual texture; `FVirtualTextureBuiltData` follows (below) |
+| `> 0` | Classic mip chain of that many mips (see [Classic mip chains](#classic-mip-chains)) |
+
+`SizeX`/`SizeY` are the *authored* size. When the cook applied an LOD bias the
+real data is smaller, by a whole number of mip levels in both axes — so treat a
+mismatch as a shift to validate, not as a parse error. `T_Plant_Alien_A_D` is
+authored 4096×4096 and cooked 1024×1024.
+
+## Virtual textures
+
+After the pixel-format string, in order (all `u32` unless noted). The first two
+entries are the `FirstMipToSerialize`/`NumMips` pair described above — a virtual
+texture always reads `0 0` there, which is exactly what identifies it.
 
 | Field | Example (chief / guilty) |
 |---|---|
-| unknown[5] | `0 0 1 1 1` in both |
+| first mip, num mips | `0 0` in both (the virtual-texture marker) |
+| unknown[3] | `1 1 1` in both |
 | width in blocks | 6 / 2 (equals SizeX/SizeY aspect) |
 | height in blocks | 1 / 1 |
 | tile size | 128 |
@@ -76,12 +105,45 @@ Chunk sizes check out exactly: e.g. chief mip0 = 48×8 tiles × 9248 + 4 =
 3,551,236 bytes = chunk 0; mips 2–11 share chunk 2 with the mip-offset array
 above pointing at each mip's first tile.
 
-## Pixel formats observed (250-texture sample)
+## Classic mip chains
 
-`PF_DXT1` 39%, `PF_BC7` 28%, `PF_BC5` 21%, `PF_DXT5` 7%, plus scattered
-`PF_B8G8R8A8`, `PF_BC4`, `PF_FloatRGBA`, `PF_G8`, `PF_A32B32G32R32F`,
-`PF_BC6H`. Block formats scale the tile byte size (BC7/DXT5/BC5 are 16 bytes
-per block → 18,496-byte tiles).
+When `NumMips > 0` the export holds an ordinary `FTexture2DMipMap` chain, one
+entry per mip, largest first. Mip `i` of the chain is `SizeX >> (FirstMipToSerialize + i)`
+wide — the cook drops top mips by raising `FirstMipToSerialize` rather than by
+rewriting `SizeX`. Each entry is:
+
+```text
+bulk reference u32     index into the package's bulk-data map
+payload                present only when the mip is stored inline
+SizeX u32, SizeY u32, SizeZ u32
+```
+
+Nothing in the entry says whether the payload is inline, and the trailing
+dimensions come *after* it, so a reader has to probe: if `SizeX, SizeY` sit
+right at the cursor the mip lives in the `.ubulk`, and otherwise the payload is
+inline and the trailer must land exactly `payload size` bytes further on. That
+trailer doubles as a checksum on the whole walk — it validated on every classic
+texture in the install.
+
+The external mips are concatenated into the `.ubulk` in chain order starting at
+offset 0, with no header or padding. `T_Explosion_H` (2048×2048 DXT5, 12 mips)
+puts mips 0–4 in a 5,586,944-byte `.ubulk` — exactly their summed size — and
+carries mips 5–11 inline.
+
+A mip holds `SizeZ` slices for a volume texture and `PackedData`'s slice count
+for a cubemap or array, all concatenated. Note that a **cubemap's mip trailer
+still reports `SizeZ` of 1** even though the payload is six faces, so the two
+fields have to be consulted separately. The tag editor decodes slice 0.
+
+## Pixel formats across the whole install
+
+Of 4844 textures: `PF_DXT1` 1867, `PF_BC7` 1209, `PF_BC5` 982, `PF_DXT5` 316,
+`PF_B8G8R8A8` 128, `PF_BC4` 108, `PF_FloatRGBA` 65, `PF_BC6H` 44, `PF_G8` 32,
+`PF_A32B32G32R32F` 24, `PF_R16F` 12.
+
+Block formats scale the virtual-texture tile byte size (BC7/DXT5/BC5 are 16
+bytes per block → 18,496-byte tiles). A mip smaller than one block still costs
+a whole block, so a 1×1 DXT1 mip is 8 bytes.
 
 ## A caution from the reverse-engineering
 
