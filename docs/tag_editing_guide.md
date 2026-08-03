@@ -1,7 +1,7 @@
 # Getting Started: Editing Halo Campaign Evolved Tags
 
 A practical guide to reading and changing Blam tags, with the `mjolnir` command line
-and the MJOLNIR Tag Editor.
+and the MJOLNIR Tag Editor — which also browses the game's textures and audio.
 
 For *why* any of this works — the container format, the self-describing layout section, and
 the evidence behind every rule — see [`tag_body_format.md`](tag_body_format.md). This page is
@@ -13,13 +13,17 @@ about using it.
 
 **Read this first.** Two things are true and easy to miss:
 
-1. **Nothing here modifies your game.** Every tool reads the installed containers read-only.
-   An edit produces a *new file*; it does not touch the installation.
-2. **An edit can reach the game, in one more step.** This guide covers editing. Turning the
-   result into something Halo loads is `mjolnir pack`, which builds an override container you
-   drop beside the shipped ones — nothing shipped is modified, and deleting three files reverts
-   it. If that is what you are here for, start with
-   [`getting_started.md`](getting_started.md), which walks the whole path end to end.
+1. **Nothing shipped is ever modified.** Every tool reads the installed containers read-only,
+   and an edit produces a *new file*. Two things do write, both additive and both reversible by
+   deleting files: `mjolnir pack` builds an override container you drop beside the shipped ones,
+   and the editor's **Test in game** puts one there for you (**Remove test install** takes it
+   back out). Steam's *Verify integrity of game files* is the backstop either way.
+2. **An edit can reach the game, in one more step** — the override container above. If that is
+   what you are here for, start with [`getting_started.md`](getting_started.md), which walks the
+   whole path end to end, or [`making_your_first_mod.md`](making_your_first_mod.md) to do it
+   without leaving the editor.
+3. **Part 3 writes to the running process, not to disk.** Live mode changes a value in the
+   game's memory; it survives until the game closes and touches nothing on disk.
 
 Extracted and edited tags are **copyrighted game content**. Keep them local. The repository
 ignores `*.ubulk` and `tagdump/` for this reason, and only ever publishes *schema* — field
@@ -27,16 +31,23 @@ names, types, offsets — never values.
 
 ### What you need
 
-- Halo Campaign Evolved installed (Steam).
-- An `oo2core_9_win64.dll` from any local Unreal Engine install. UE 5.5+ links Oodle
-  statically, so the game ships no separate copy.
+- Halo Campaign Evolved installed (Steam). That is all.
 
 ```powershell
 $env:HCE_PAKS = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Content\Paks"
-$env:OODLE    = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
 ```
 
-Both tools read those two paths. The editor also auto-detects them on first run.
+Both tools read that path, and the editor auto-detects it on first run.
+
+**Oodle is optional.** The shipped containers are Oodle-compressed and the game links Oodle
+statically, so it ships no `oo2core_*_win64.dll` — but a decoder is built in and is what runs by
+default. If you happen to have a DLL (any UE5 install has one under
+`Engine/Binaries/DotNET/AutomationTool`), pointing at it makes decoding about four times faster
+and changes nothing else; the bytes are identical either way.
+
+```powershell
+$env:OODLE = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
+```
 
 ---
 
@@ -230,12 +241,22 @@ it at the two paths above.
 
 ### Getting around
 
-- **Left column**: tag groups, with how many tags each holds.
-- **Middle column**: tags in the selected group, showing the tag name with its directory
-  beside it. The search box searches every group at once.
-- **Right pane**: the selected tag's fields and values.
+The **left panel** has five tabs, each a different way in:
 
-The header tells you whether the values are trustworthy:
+| Tab | What it lists |
+|---|---|
+| **files** | Every asset by path, like a file dialog. The default, and the way in when you know roughly where something lives. |
+| **groups** | Tags by their Blam group, with how many tags each holds. Searching spans every group at once. |
+| **textures** | Texture assets only — see [Textures](#textures) below. |
+| **sounds** | The Wwise audio banks — see [Audio](#audio) below. |
+| **mod** | Your mod project: its changes, test install, export and publish. A gold dot means one is open. |
+
+Opening something from any of those tabs gives it a **tab of its own** across the top of the
+right pane, badged `tag`, `tex` or `snd`, so several documents stay open at once. A gold dot on a
+tag tab means it has edits. Middle-click or the `×` closes one; closing does not discard edits.
+
+The **right pane** shows the selected document. For a tag that is its fields and values, and the
+header tells you whether they are trustworthy:
 
 - **values exact** — the walk consumed the whole data payload. What you see is complete.
 - **values partial** — something did not add up; treat the values with suspicion.
@@ -250,6 +271,11 @@ block header shows how many elements it really has. Very large blocks show only 
 the whole thing.
 
 Hovering a value shows it in full, along with its field path.
+
+Under the header, **linked assets** lists the packages this tag imports — the other tags it
+references, and the Unreal presentation assets (Blueprints, and for some tags textures) it binds
+to. Anything the editor can open is listed first and is one click away; the rest are named but
+inert. A scenario imports hundreds, so the list starts collapsed when it is long.
 
 ### Editing
 
@@ -284,6 +310,43 @@ See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
 
 **Export patched tag…** still writes a single tag with your edits to a file you choose —
 useful for inspection and diffing, but not something the game loads.
+
+### Textures
+
+The **textures** tab lists every `Texture2D` in the install, and opening one decodes it and
+shows the image on a checkerboard, with zoom steps from 25% to 400% or **fit**. The header names
+the pixel format, the authored size and the mip count. Textures larger than 4096 px are served
+at the first mip at or below that, and the header says `shown at mip N` when it does — you are
+not looking at the full-resolution image unless it says nothing.
+
+**Export…** writes the decoded image as a PNG.
+
+4787 of the install's 4844 textures decode. The 57 that do not ship no pixel data at all: 52 are
+render targets or otherwise generated at runtime, and 5 are virtual textures whose payload was
+never cooked into the paks. A texture that cannot be decoded says so and why, rather than showing
+you something wrong. The two cook paths behind that — virtual textures with Morton-addressed
+tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_format.md).
+
+**Editing textures is not supported.** You can look and export; replacement is designed but not
+built.
+
+### Audio
+
+The **sounds** tab browses the game's Wwise audio — about 6 GB of it, which lives in the `.pak`
+siblings rather than in the IoStore containers the rest of this guide is about.
+
+Opening a sound **plays it** in the editor, and shows its header: codec, duration, sample rate,
+channels and size. Voice lines are listed under the language they belong to; everything shared
+across languages — SFX, music, ambience — has none. Where the editor can work out which Wwise
+**event** plays a given file, it
+names it by that event rather than by its numeric ID — which is the difference between browsing
+`1047382936.wem` and browsing something you can recognise. Not every file can be named this way;
+[`wwise_audio_format.md`](wwise_audio_format.md) records exactly which can and why the rest
+cannot.
+
+**Export…** writes the raw `.wem`.
+
+Like textures, audio is **read-only** in the editor.
 
 ---
 
@@ -394,5 +457,7 @@ Being explicit, so you do not go hunting:
   a mod edits a string id. See [`iostore_packaging.md`](iostore_packaging.md).
 - **Adding or removing block elements.** You can change values, not counts.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
+- **Replacing textures or audio.** Both can be browsed, viewed or played, and exported. Writing
+  either back is not built.
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See
   [`tag_body_format.md`](tag_body_format.md) for the detail.

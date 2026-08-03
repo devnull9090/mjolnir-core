@@ -216,9 +216,11 @@ mjolnir pack --paks "$PAKS" --oodle "$OODLE" \
 `pack` reuses the chunk ID straight out of the shipped index — no ID has to be derived — then reads
 its own output back through the ordinary reader before writing anything.
 
-> **Known bug:** the perfect-hash table `pack` writes is only correct for a container holding **one
-> chunk**. With more than one, the loader can silently reach only one of them. Keep your edits
-> length-preserving and you stay in the safe case. See
+> **Was a known bug, now fixed.** The perfect-hash table `pack` writes used to be correct only
+> for a container holding one chunk; a second defect then spilled every chunk at power-of-two
+> chunk counts, so a four-tag mod silently did nothing. Both were fixed (2026-08-01 and
+> 2026-08-02) and `pack` now refuses to write a container it cannot resolve through the perfect
+> hash alone. Containers may hold any number of chunks. See
 > [`iostore_packaging.md`](iostore_packaging.md).
 
 ---
