@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - 'hub/**'
+      # The build snapshots these into the site, so editing one changes what
+      # deploys even though no file under hub/ moved.
+      - 'docs/**'
+      - 'defs/hce/tag-definitions.json'
       - '.github/workflows/deploy-hub.yml'
 
 jobs:
