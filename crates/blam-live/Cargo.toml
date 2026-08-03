@@ -1,0 +1,10 @@
+[package]
+name = "blam-live"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Locate and patch a loaded Blam tag payload in the running game"
+
+[dependencies]
+thiserror.workspace = true

@@ -287,6 +287,73 @@ useful for inspection and diffing, but not something the game loads.
 
 ---
 
+## Part 3: changing a value in the running game
+
+Tuning a number the ordinary way costs a bake, a restart, and a walk back to wherever you
+were testing. The restart is nearly all of it. **Live mode** skips it: the edit goes into the
+running game as well as the project, and takes effect immediately.
+
+In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
+accepted edit is also written into the game. From the command line:
+
+```powershell
+mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25
+mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25 --locate-only
+```
+
+```
+  located  payload at 0x11FA6DF1B0A  (2 independent runs agree, best of 13 candidate(s), 16.7 GB scanned)
+           25% of the data section is byte-identical to disk; the rest is the engine's own fix-ups
+  live     9   (shipped 2.3)
+  wrote    25
+  re-read  25  (bytes confirmed in the process)
+```
+
+### What it is, and is not
+
+A poke **never touches disk**. It is gone at the next launch, and the mod project remains the
+record of what the edit *is*. This shortens the loop for deciding what a number should be; it
+does not ship anything.
+
+### Why it works
+
+The engine parses each tag once at load into a heap buffer that keeps the tag file's own field
+offsets, and reads fields out of that buffer as the simulation runs. So the bytes `set` would
+have written to the file work unchanged at `base + field offset`.
+
+That this is the engine's working copy rather than a cached copy of the file is not an
+assumption. Fields that are **zero on disk** hold computed values there — one holds
+`0x3EFFFFFF`, which is `cosf(1.04719758)` and pointedly not the constant `0.5`
+(`0x3F000000`). Verified end to end on 2026-08-03: `jump velocity` 9.0 → 25.0 took a measured
+jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it back.
+
+### The limits, up front
+
+- **Fixed-width fields only.** A `string id` or `tag reference` resizes the payload, and a
+  heap buffer has nowhere to put the extra bytes. Those still need a rebuild; both the CLI and
+  the editor refuse them with that explanation rather than writing something wrong.
+- **The first edit to a tag is slow.** There is no pointer to follow — the tag asset keeps its
+  payload as *unloaded* bulk data — so the buffer is found by scanning ~17 GB for byte runs
+  taken from the tag itself. That is minutes. The address is then cached per tag for the rest
+  of the session, so every later edit is instant.
+- **The tag has to be loaded.** Tags load on demand; be in a mission with the object in play.
+- **Not every field will respond.** Anything the engine consumes once at spawn is already
+  baked into whatever it built. Numbers read per use — jump velocity, damage, speeds — are the
+  ones this is for.
+- **Relaunching moves everything.** Cached addresses are dropped when the process changes, and
+  a cached address is re-scored against the tag before it is written to.
+
+### Only the data section is resident
+
+Worth knowing before debugging anything here: the tag's header and layout tables are *not*
+stored per tag — the field-name strings exist once, shared across every tag of that group.
+Only the `bdat` data section is in the heap per tag, and only about 45% of it is byte-identical
+to disk, in stretches: the engine resolves offsets and computes values in place, and a mod has
+already changed fields. That is why the locator matches several short runs and requires two to
+agree at exactly the file's spacing, rather than asking how much of the payload matches.
+
+---
+
 ## Tips
 
 **Diff two tags.** `mjolnir values` output is plain text, so:

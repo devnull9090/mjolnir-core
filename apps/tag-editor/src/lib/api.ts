@@ -212,6 +212,24 @@ export type LinkPoll = {
   username: string | null;
 };
 
+/** Whether a game is running to push edits into, and what we know about it. */
+export type LiveStatus = {
+  running: boolean;
+  pid: number | null;
+  /** Tags whose address is already known, so an edit to them is instant. */
+  located: number;
+};
+
+/** The result of pushing one field into the running game. */
+export type Poked = {
+  /** The field's bytes in the game before this write, as hex. */
+  was: string;
+  now: string;
+  /** True when the tag had to be found first, which takes minutes. */
+  scanned: boolean;
+  base: string;
+};
+
 const tauriApi = {
   detectInstall: () => invoke<Install>("detect_install"),
   openInstall: (paks: string, oodle: string) =>
@@ -224,6 +242,10 @@ const tauriApi = {
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>
     invoke<EditResult>("set_field", { index, path, value }),
+  liveStatus: () => invoke<LiveStatus>("live_status"),
+  liveForget: () => invoke<void>("live_forget"),
+  livePoke: (index: number, path: string, value: string) =>
+    invoke<Poked>("live_poke", { index, path, value }),
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),

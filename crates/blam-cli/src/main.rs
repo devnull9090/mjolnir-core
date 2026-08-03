@@ -87,6 +87,32 @@ enum Command {
     Chunk(ChunkArgs),
     /// Print or edit a tag payload already on disk, without the paks or Oodle.
     TagFile(TagFileArgs),
+    /// Change a field in the *running* game, without rebuilding or restarting.
+    Poke(PokeArgs),
+}
+
+#[derive(Args)]
+struct PokeArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `biped`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select, otherwise the first tag is used.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Field path, e.g. `jump velocity`.
+    #[arg(long)]
+    field: String,
+    /// New value, in the same form the inspector shows.
+    #[arg(long)]
+    value: String,
+    /// Attach to this pid instead of finding the game automatically.
+    #[arg(long)]
+    pid: Option<u32>,
+    /// Find the tag and report its live value, but change nothing.
+    #[arg(long)]
+    locate_only: bool,
 }
 
 #[derive(Args)]
@@ -335,6 +361,7 @@ fn main() -> Result<()> {
         Command::Pack(a) => pack(a),
         Command::Chunk(a) => chunk(a),
         Command::TagFile(a) => tag_file(a),
+        Command::Poke(a) => poke(a),
     }
 }
 
@@ -1132,6 +1159,147 @@ fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
         group: group.trim().to_string(),
         path: path.trim().to_string(),
     })
+}
+
+/// Decode what the live process currently holds for a field.
+///
+/// The bytes in memory are whatever container won, so the live value is very
+/// often not the shipped one. Splicing them into a copy of the file and
+/// re-resolving reuses the ordinary decoder instead of duplicating per-type
+/// formatting here, so enums, bitfields and bounds print the way they do
+/// everywhere else.
+fn decode_live(
+    file: &[u8],
+    span: &std::ops::Range<usize>,
+    live: &[u8],
+    field: &str,
+) -> Option<String> {
+    let mut spliced = file.to_vec();
+    spliced.get_mut(span.clone())?.copy_from_slice(live);
+    let tag = TagFile::parse(&spliced, Some(spliced.len())).ok()?;
+    let layout = tag.layout().ok()?;
+    let block = tag.read_data(&layout).ok()?;
+    Some(
+        blam_tag::patch::resolve(&layout, &spliced, &block, field)
+            .ok()?
+            .current
+            .display(),
+    )
+}
+
+fn poke(a: PokeArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let file = idx.read(entry, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&file, Some(entry.chunk.length as usize))?;
+    let layout = tag.layout()?;
+    let block = tag.read_data(&layout)?;
+    let target = blam_tag::patch::resolve(&layout, &file, &block, &a.field)?;
+
+    // A section-backed value lives in a trailing section, so changing it moves
+    // every byte after it. In a file that is fine — the tag is rebuilt. In a
+    // live heap buffer there is nowhere for the extra bytes to go.
+    if target.section.is_some() {
+        anyhow::bail!(
+            "{:?} is a {} stored in a trailing section, so changing it resizes the tag. \
+             A live poke can only replace bytes in place — use `set` and rebuild the mod.",
+            a.field,
+            target.type_name
+        );
+    }
+
+    let parsed = blam_tag::value::parse(&layout, &target.field, &a.value)?;
+    let (patched, applied) = blam_tag::patch::set(&layout, &file, &block, &a.field, &parsed)?;
+    let span = target.file_offset..target.file_offset + target.size;
+    // Take the whole field from the patched file rather than only the bytes that
+    // differ from the shipped one. What is live may already be a modded value,
+    // so a diff against the file says nothing about what memory holds.
+    let bytes = patched
+        .get(span.clone())
+        .context("the field lies outside the tag payload")?
+        .to_vec();
+
+    let process = match a.pid {
+        Some(pid) => blam_live::Process::open(pid)?,
+        None => blam_live::Process::attach()?,
+    };
+
+    println!("{}", entry.path);
+    println!("  field    {}  [{}]", applied.path, applied.type_name);
+    println!("  process  pid {}", process.pid);
+
+    // Only the data section is resident in the process — the header and the
+    // layout tables are not per-tag — so the locator is pointed at that range.
+    let data = tag
+        .data()
+        .context("this tag has no bdat section to locate")?;
+    let data_start = data.content.as_ptr() as usize - file.as_ptr() as usize;
+    let region = data_start..data_start + data.content.len();
+
+    let at = blam_live::locate(&process, &file, &region, std::slice::from_ref(&span))?;
+    println!(
+        "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
+         {:.1} GB scanned)",
+        at.base,
+        at.agreeing_runs,
+        at.candidates,
+        at.scanned as f64 / 1e9
+    );
+    // Stated so it is not mistaken for a problem. Most of the data section is
+    // rewritten by the engine after load — offsets resolved, values computed —
+    // so a low figure here is normal. Agreement between runs is the evidence
+    // that this is the right address; this number is only colour.
+    println!(
+        "           {:.0}% of the data section is byte-identical to disk; the rest is the \
+         engine's own fix-ups",
+        at.match_fraction * 100.0
+    );
+
+    let live_before = blam_live::peek(&process, &at, span.start, target.size)?;
+    let shown = decode_live(&file, &span, &live_before, &a.field);
+    println!(
+        "  live     {}   (shipped {})",
+        shown.as_deref().unwrap_or("<unreadable>"),
+        applied.before.display()
+    );
+
+    if a.locate_only {
+        println!("\n  located only; pass without --locate-only to write");
+        return Ok(());
+    }
+
+    let read_back = blam_live::poke(&process, &at, span.start, &bytes)?;
+    let after = decode_live(&file, &span, &read_back, &a.field);
+    println!("  wrote    {}", applied.after.display());
+    println!(
+        "  re-read  {}  ({})",
+        after.as_deref().unwrap_or("<unreadable>"),
+        if read_back == bytes {
+            "bytes confirmed in the process"
+        } else {
+            "MISMATCH — the write did not stick"
+        }
+    );
+    if read_back != bytes {
+        anyhow::bail!("the value read back does not match what was written");
+    }
+    println!(
+        "\n  This changed the running game only. Nothing on disk moved, so it is gone at\n  \
+         the next launch, and the mod project is untouched."
+    );
+    Ok(())
 }
 
 fn set(a: SetArgs) -> Result<()> {
