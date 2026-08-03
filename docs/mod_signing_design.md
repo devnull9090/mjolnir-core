@@ -1,6 +1,8 @@
 # Mod Signing and Attribution: Design
 
-**Status:** design agreed; implementation lands with tag editor 0.4 / hub migration 0005.
+**Status:** shipped. Tag editor 0.3.0 signs; launcher 0.5.3 verifies; hub migration
+0005 carries the key registry and per-release attribution. Rollout step 2
+(`REQUIRE_SIGNED_UPLOADS`) is not switched on yet.
 
 Who bundled a `.mjolnir`, and how does anyone downstream know its bytes are the bytes
 they bundled? Today the answer is "the hub says so": the archive hash is pinned by the
