@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::State;
 
+pub mod bnk;
 pub mod catalog;
 pub mod decode;
 pub mod hub;

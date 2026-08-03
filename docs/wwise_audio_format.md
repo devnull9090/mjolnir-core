@@ -121,11 +121,48 @@ SFX
 Reading only the name map is enough to map media ID to event name; no export
 parsing is needed. Implemented in `apps/tag-editor/src-tauri/src/wwise.rs`.
 
-**Coverage is partial.** 997 of the ~24,000 cooked audio packages reference
-media at all, naming 3,619 media IDs. The rest — most of the shared bank and
-all the localised VO — is reached through structures inside the `.bnk` files
-rather than through individual event packages, so fuller naming needs the HIRC
-section parsed. Unnamed media falls back to its ID.
+**Coverage is partial: 3,619 media IDs, from 997 of ~24,000 packages.**
+Unnamed media falls back to its ID.
+
+### Why the sound banks cannot close the gap
+
+The obvious next step is the `.bnk` files, and the structure is all there.
+`bnk.rs` parses `HIRC` and resolves the whole graph: events point at actions,
+actions at a container or a sound, and every node carries a parent pointer, so
+media can be walked back to the event that plays it. 746 of 749 banks yield a
+readable graph.
+
+It does not help, because **a bank contains no names**. Wwise reduces every
+object name to a 32-bit FNV-1 hash of its lowercased form — that is why banks
+and media are numbered on disk. Names survive only in the cooked packages, and
+the game ships packages for barely 1% of its events:
+
+| | |
+|---|---|
+| Events defined across all banks | 195,215 |
+| Events with a name from a package | **1,621** |
+| Banks whose own name is recoverable | 35 of 749 |
+
+So the bank graph can only re-attribute media to events that are *already*
+named, which adds ~100 media IDs — and those turn out to be sounds embedded in
+the bank's `DATA` section rather than separate `.wem` files, so the browsable
+catalog does not change at all.
+
+`Catalog::names` therefore does **not** walk the banks: it costs seconds and
+names nothing new. `bnk::parse` and `NameIndex::add_bank` are kept and tested,
+ready for the day a name list exists.
+
+Bank names are recovered by hash rather than by guessing at name-map ordering:
+a package references `<id>.bnk` and carries the readable name separately, and
+`event_id(name) == id` confirms the pairing. Verified — `AMB_A10` hashes to
+`2581487812`, which is the bank's filename.
+
+The remaining names are simply not in the shipped data. Recovering them would
+mean reversing FNV-1 against a guessed wordlist, which produces plausible
+guesses rather than facts.
+
+`catalog::tests::banks_cannot_name_what_the_game_does_not_ship` records this
+ceiling so it can be re-checked against a future build.
 
 The export blob does appear to pair each media ID with a specific source: the
 records read `80 0f 14 <media id u32> <u8> … <u8>`, where the trailing bytes
@@ -172,8 +209,8 @@ channel count and sample rate the `.wem` header declared. 400 of 400 convert —
 the `.ubulk` opens with a `SEEK` chunk and the name map carries `BINKA`. They
 are not surfaced in the browser yet.
 
-**Sound banks.** `.bnk` files are listed and exportable but not parsed; the
-event graph inside them is what maps a readable name onto these numeric IDs.
+**Sound banks.** Parsed for their event graph (see above) but not otherwise
+surfaced; the embedded audio in their `DATA` section is not browsable.
 
 ## Verification
 

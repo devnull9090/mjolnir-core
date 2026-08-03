@@ -77,7 +77,7 @@ pub struct DirEntry {
 
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
-    containers: Vec<Container>,
+    pub(crate) containers: Vec<Container>,
     /// Cooked packages that may name Wwise media, as `(container, chunk,
     /// path)`. Kept unread; the name index is built on first use because it
     /// costs a pass over every audio package.
@@ -94,7 +94,7 @@ pub struct Catalog {
     files: Vec<VirtualFile>,
     /// Where to look for the optional Oodle DLL; empty means use the built-in
     /// decoder.
-    oodle: Vec<PathBuf>,
+    pub(crate) oodle: Vec<PathBuf>,
     /// The Paks directory this catalog was read from, where a mod under test
     /// is installed.
     paks: PathBuf,
@@ -615,6 +615,12 @@ impl Catalog {
                 };
                 index.add_package(path, &names);
             }
+            // The banks are deliberately *not* folded in here. Their event
+            // graph parses fine, but of 195,215 bank events only 1,621 match a
+            // name the packages carry — Wwise strips names to hashes, and the
+            // game ships packages for barely 1% of its events. Walking every
+            // bank costs seconds and names nothing new. See `bnk::parse`, which
+            // is kept for when a name list does exist.
             index
         })
     }
@@ -756,6 +762,58 @@ mod tests {
             eprintln!("  FAILED {f}");
         }
         assert!(failed.is_empty(), "{} media failed to convert", failed.len());
+    }
+
+    /// Measure how far the sound banks could ever go towards naming media.
+    ///
+    /// The bank graph parses — events resolve through actions and containers
+    /// down to sounds — but a bank names nothing: Wwise reduces every name to
+    /// an FNV-1 hash. Only the cooked packages keep names, and the game ships
+    /// packages for a tiny fraction of its events, so most of the library
+    /// cannot be named from shipped data at all. This records that ceiling so
+    /// the conclusion is re-checkable against a future build.
+    ///
+    /// Ignored by default; set `MJOLNIR_PAKS` and run with `--ignored`.
+    #[test]
+    #[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+    fn banks_cannot_name_what_the_game_does_not_ship() {
+        let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+        let c = Catalog::open(&paks, "").expect("catalog opens");
+        let names = c.names();
+
+        // Seed with every name the packages carry, so the match count below
+        // measures the real ceiling rather than an empty index.
+        let mut index = crate::wwise::NameIndex::default();
+        for e in &names.events {
+            index.add_event_name(&e.name, &e.package);
+        }
+        let mut with_graph = 0usize;
+        let banks: Vec<usize> = (0..c.sounds.len())
+            .filter(|i| c.sounds[*i].short.ends_with(".bnk"))
+            .collect();
+        for i in &banks {
+            let Ok(raw) = c.read_sound(*i, None) else {
+                continue;
+            };
+            let bank = crate::bnk::parse(&raw);
+            if !bank.events.is_empty() {
+                with_graph += 1;
+            }
+            index.add_bank(&bank);
+        }
+
+        eprintln!(
+            "{} banks, {with_graph} with a readable event graph; {} events seen, {} match a name \
+             the packages carry ({} event names known)",
+            banks.len(),
+            index.bank_events,
+            index.bank_events_named,
+            names.events.len(),
+        );
+        // The parser must work — the point is that names, not structure, are
+        // what is missing.
+        assert!(with_graph > 0, "no bank yielded an event graph");
+        assert!(index.bank_events > 10_000, "suspiciously few bank events");
     }
 
     /// Recover readable names for the shipped media and report the coverage.
