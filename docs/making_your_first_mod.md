@@ -92,9 +92,17 @@ Publishing runs from the mod panel's **Publish** section:
    only. Publishing is deliberately not enabled for the launcher's device pairing; the
    key is your explicit opt-in.
 2. Optionally write a changelog for this version.
-3. Click **Publish**. The editor bakes a fresh archive, uploads it, and the hub scans it —
-   checking the zip layout, the manifest, and every container — then indexes which chunks
-   your mod overrides so conflicts with other mods are visible on its page.
+3. Click **Publish**. The editor bakes a fresh archive, **signs it with this device's
+   key** (created and registered to your account automatically on first publish — you'll
+   see it listed on your account page), uploads it, and the hub scans it — checking the
+   zip layout, the manifest, every container, and the signature — then indexes which
+   chunks your mod overrides so conflicts with other mods are visible on its page.
+
+The signature is what lets everyone downstream prove your release is really yours and
+untouched: the hub checks it at upload, players' launchers check it again at install,
+and your mod page shows the release as **author-signed**. The private key never leaves
+your machine; a second computer just gets its own key. If a key ever leaks or a device
+is lost, revoke it from your account page.
 
 The verdict comes back into the panel: **published**, with a link to your mod's page — or
 **rejected**, with the scanner's findings telling you exactly what to fix.

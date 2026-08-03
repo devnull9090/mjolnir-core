@@ -387,9 +387,16 @@ app.openapi(
     if (!mod) return c.json({ error: "not_found" }, 404);
 
     const rows = await c.env.DB.prepare(
-      `SELECT * FROM mod_releases
-       WHERE mod_id = ?1 AND status = 'published'
-       ORDER BY created_at DESC, id DESC`,
+      `SELECT r.*,
+              u.display_name AS publisher_display_name,
+              u.discord_username AS publisher_discord_username,
+              k.fingerprint AS signer_fingerprint,
+              k.revoked_at AS signer_key_revoked_at
+       FROM mod_releases r
+       LEFT JOIN users u ON u.id = r.published_by
+       LEFT JOIN user_keys k ON k.id = r.signing_key_id
+       WHERE r.mod_id = ?1 AND r.status = 'published'
+       ORDER BY r.created_at DESC, r.id DESC`,
     )
       .bind(mod.id)
       .all();

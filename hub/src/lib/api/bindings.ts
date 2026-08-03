@@ -17,6 +17,9 @@ export interface HubBindings {
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_PUBLIC_KEY?: string;
   JWT_SECRET?: string;
+  /** When "1"/"true", the `unsigned` finding becomes an error — the rollout
+   *  switch for requiring author signatures on new uploads. */
+  REQUIRE_SIGNED_UPLOADS?: string;
 }
 
 /** Hono type parameter: bindings plus per-request variables. */

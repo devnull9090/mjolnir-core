@@ -111,6 +111,20 @@ export function InstalledPanel({
                         signed
                       </Badge>
                     )}
+                    {inst?.signer_fingerprint && (
+                      <Badge
+                        tone="green"
+                        title={`Author-signed: the archive contents verified against key ${inst.signer_fingerprint.slice(0, 16)}… at install.`}
+                      >
+                        <ShieldIcon className="w-3 h-3" />
+                        author
+                      </Badge>
+                    )}
+                    {inst?.signature_notice && (
+                      <Badge tone="amber" title={inst.signature_notice}>
+                        key notice
+                      </Badge>
+                    )}
                     {check && !check.ok && (
                       <Badge
                         tone="red"

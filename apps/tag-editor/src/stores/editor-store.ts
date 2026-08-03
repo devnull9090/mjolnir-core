@@ -9,6 +9,7 @@ import {
   type LinkedAsset,
   type ProjectView,
   type PublishView,
+  type SigningStatus,
   type TagSummary,
   type TagView,
   type TestView,
@@ -87,6 +88,9 @@ type EditorState = {
   testResult: TestView | null;
   publishResult: PublishView | null;
   hub: HubStatus | null;
+  /** This device's signing key, shown in the publish section. */
+  signing: SigningStatus | null;
+  loadSigning: () => Promise<void>;
   refreshProject: () => Promise<void>;
   newProject: (
     dir: string,
@@ -653,6 +657,17 @@ export const useEditor = create<EditorState>((set, get) => {
         set({ projectError: String(e) });
       } finally {
         set({ projectBusy: null });
+        // Publishing creates and registers the device key on first run.
+        void get().loadSigning();
+      }
+    },
+
+    signing: null,
+    async loadSigning() {
+      try {
+        set({ signing: await api.signingStatus() });
+      } catch {
+        // The signing line simply stays empty.
       }
     },
 
@@ -662,6 +677,7 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch {
         // The hub row simply stays empty; publishing will report properly.
       }
+      void get().loadSigning();
     },
 
     async setHubKey(key) {

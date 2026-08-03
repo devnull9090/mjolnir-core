@@ -14,6 +14,7 @@ import type {
   NodeView,
   ProjectView,
   PublishView,
+  SigningStatus,
   TagSummary,
   TagView,
   TestView,
@@ -360,6 +361,8 @@ export const mockApi = {
     containers: ["faster-pistol_P"],
     chunk_count: 1,
     resized: false,
+    signed: true,
+    signer_fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
     warnings: [],
   }),
   projectTest: async (): Promise<TestView> => ({
@@ -381,6 +384,11 @@ export const mockApi = {
   }),
   hubStatus: async (): Promise<HubStatus> => ({ base: "https://mjolnircore.com", has_key: false }),
   hubSetKey: async () => {},
+  signingStatus: async (): Promise<SigningStatus> => ({
+    fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    registered: null,
+    label: "MOCK-DEVICE",
+  }),
 };
 
 let mockProject: { name: string; slug: string; version: string; summary: string } | null = null;

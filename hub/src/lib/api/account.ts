@@ -14,9 +14,11 @@ import { HTTPException } from "hono/http-exception";
 import type { ApiEnv } from "./bindings";
 import { authenticate, sha256Hex } from "./auth";
 import { ErrorSchema } from "./schemas";
+import { fingerprintOf } from "./signing";
 
 export const KNOWN_SCOPES = ["mods:read", "mods:write", "ratings:write", "comments:write"] as const;
 const MAX_KEYS_PER_USER = 20;
+const MAX_SIGNING_KEYS_PER_USER = 10;
 
 const ApiKeySchema = z
   .object({
@@ -45,6 +47,33 @@ const ApiKeyCreatedSchema = ApiKeySchema.extend({
     example: "mjc_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   }),
 }).openapi("ApiKeyCreated");
+
+const SigningKeySchema = z
+  .object({
+    id: z.string(),
+    fingerprint: z.string().openapi({ description: "Lowercase hex sha256 of the raw public key." }),
+    public_key: z.string().openapi({ description: "Raw 32-byte Ed25519 public key, base64." }),
+    label: z.string(),
+    created_at: z.string(),
+    last_used_at: z.string().nullable(),
+  })
+  .openapi("SigningKey");
+
+const SigningKeyCreateSchema = z
+  .object({
+    public_key: z.string().min(40).max(60).openapi({
+      description: "Raw 32-byte Ed25519 public key, base64. The private key never leaves the device.",
+    }),
+    label: z.string().min(1).max(80).openapi({ example: "DESKTOP-4XJ2" }),
+  })
+  .openapi("SigningKeyCreate");
+
+const MeSchema = z
+  .object({
+    id: z.string(),
+    username: z.string(),
+  })
+  .openapi("Me");
 
 function randomKey(): string {
   const bytes = new Uint8Array(24);
@@ -81,6 +110,209 @@ export async function mintApiKey(
 }
 
 export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>) {
+  // ── Identity ────────────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/account/me",
+      tags: ["account"],
+      summary: "Who am I",
+      description:
+        "The authenticated account, for tools that need to embed their own " +
+        "identity — the tag editor puts it in signed release statements.",
+      responses: {
+        200: { description: "You.", content: { "application/json": { schema: MeSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      return c.json(
+        {
+          id: auth.user.id,
+          username: auth.user.display_name ?? auth.user.discord_username,
+        },
+        200,
+      );
+    },
+  );
+
+  // ── Signing keys ────────────────────────────────────────────────────
+  //
+  // Unlike API keys, registration is allowed with an API key: the editor
+  // registers its device key using the mods:write key the user already
+  // pasted. A stolen mods:write key could do the same — it could also simply
+  // publish, so this widens nothing; the account page's key list is the
+  // recovery path either way (docs/mod_signing_design.md).
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/account/signing-keys",
+      tags: ["account"],
+      summary: "List your signing keys",
+      responses: {
+        200: {
+          description: "Active (non-revoked) signing keys.",
+          content: { "application/json": { schema: z.object({ keys: z.array(SigningKeySchema) }) } },
+        },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      const rows = await c.env.DB.prepare(
+        `SELECT id, fingerprint, public_key, label, created_at, last_used_at
+         FROM user_keys WHERE user_id = ?1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+      )
+        .bind(auth.user.id)
+        .all();
+      return c.json(
+        {
+          keys: rows.results.map((r) => ({
+            id: r.id as string,
+            fingerprint: r.fingerprint as string,
+            public_key: r.public_key as string,
+            label: r.label as string,
+            created_at: r.created_at as string,
+            last_used_at: (r.last_used_at as string) ?? null,
+          })),
+        },
+        200,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/account/signing-keys",
+      tags: ["account"],
+      summary: "Register a signing key",
+      description:
+        "Binds an Ed25519 public key to your account. Idempotent for a key " +
+        "you already registered. A key belongs to exactly one account, ever.",
+      request: {
+        body: { content: { "application/json": { schema: SigningKeyCreateSchema } } },
+      },
+      responses: {
+        201: { description: "Registered (or already yours).", content: { "application/json": { schema: SigningKeySchema } } },
+        400: { description: "Bad key, or too many keys.", content: { "application/json": { schema: ErrorSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        409: { description: "Key belongs to another account, or was revoked.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      const body = c.req.valid("json");
+
+      let raw: Uint8Array;
+      try {
+        const decoded = atob(body.public_key.trim());
+        raw = new Uint8Array([...decoded].map((ch) => ch.charCodeAt(0)));
+      } catch {
+        return c.json({ error: "bad_key", message: "public_key is not valid base64." }, 400);
+      }
+      if (raw.length !== 32) {
+        return c.json({ error: "bad_key", message: "public_key must be 32 raw Ed25519 bytes." }, 400);
+      }
+      const fingerprint = await fingerprintOf(raw);
+
+      const existing = await c.env.DB.prepare(
+        `SELECT id, user_id, public_key, label, created_at, last_used_at, revoked_at
+         FROM user_keys WHERE fingerprint = ?1`,
+      )
+        .bind(fingerprint)
+        .first<Record<string, unknown>>();
+      if (existing) {
+        if (existing.user_id !== auth.user.id) {
+          return c.json({ error: "key_taken", message: "This key is registered to another account." }, 409);
+        }
+        if (existing.revoked_at) {
+          // A revoked key stays dead; the device generates a fresh one.
+          return c.json({ error: "key_revoked", message: "This key was revoked. Generate a new one." }, 409);
+        }
+        return c.json(
+          {
+            id: existing.id as string,
+            fingerprint,
+            public_key: existing.public_key as string,
+            label: existing.label as string,
+            created_at: existing.created_at as string,
+            last_used_at: (existing.last_used_at as string) ?? null,
+          },
+          201,
+        );
+      }
+
+      const count = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM user_keys WHERE user_id = ?1 AND revoked_at IS NULL`,
+      )
+        .bind(auth.user.id)
+        .first<{ n: number }>();
+      if ((count?.n ?? 0) >= MAX_SIGNING_KEYS_PER_USER) {
+        return c.json(
+          { error: "too_many_keys", message: `At most ${MAX_SIGNING_KEYS_PER_USER} active signing keys.` },
+          400,
+        );
+      }
+
+      const id = crypto.randomUUID();
+      await c.env.DB.prepare(
+        `INSERT INTO user_keys (id, user_id, public_key, fingerprint, label)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+        .bind(id, auth.user.id, body.public_key.trim(), fingerprint, body.label)
+        .run();
+      return c.json(
+        {
+          id,
+          fingerprint,
+          public_key: body.public_key.trim(),
+          label: body.label,
+          created_at: new Date().toISOString(),
+          last_used_at: null,
+        },
+        201,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "delete",
+      path: "/account/signing-keys/{id}",
+      tags: ["account"],
+      summary: "Revoke a signing key",
+      description:
+        "Future uploads signed with this key are rejected. Releases it " +
+        "already signed keep their history; yank those separately if needed.",
+      request: { params: z.object({ id: z.string() }) },
+      responses: {
+        200: { description: "Revoked.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such key.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      const { id } = c.req.valid("param");
+      const res = await c.env.DB.prepare(
+        `UPDATE user_keys SET revoked_at = datetime('now')
+         WHERE id = ?1 AND user_id = ?2 AND revoked_at IS NULL`,
+      )
+        .bind(id, auth.user.id)
+        .run();
+      if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true }, 200);
+    },
+  );
+
   app.openapi(
     createRoute({
       method: "get",

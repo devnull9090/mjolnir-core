@@ -39,9 +39,18 @@ dirs = "6"
 blam-defs = { path = "../../../crates/blam-defs" }
 blam-tag = { path = "../../../crates/blam-tag" }
 blam-pack = { path = "../../../crates/blam-pack" }
+mjolnir-sign = { path = "../../../crates/mjolnir-sign" }
 ue-iostore = { path = "../../../crates/ue-iostore" }
+getrandom = "0.3"
+humantime = "2"
 texture2ddecoder = "0.1"
 png = "0.17"
 base64 = "0.22"
 zip = "2"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }

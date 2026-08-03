@@ -85,8 +85,22 @@ fn bake_export_and_test_install_against_the_real_game() {
         version: "0.0.1".into(),
         summary: String::new(),
     };
+    let identity = mjolnir_sign::SigningIdentity::from_seed(&[42u8; 32]);
     let archive = dir.join("bake-e2e-0.0.1.mjolnir");
-    let size = modpack::write_archive(&archive, &meta, &baked, None).expect("archive");
+    let size = modpack::write_archive(
+        &archive,
+        &meta,
+        &baked,
+        None,
+        Some(modpack::SignContext {
+            identity: &identity,
+            author: Some(mjolnir_sign::Author {
+                id: "u-test".into(),
+                username: "bake-e2e".into(),
+            }),
+        }),
+    )
+    .expect("archive");
     assert!(size > 0);
 
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).expect("zip");
@@ -98,7 +112,8 @@ fn bake_export_and_test_install_against_the_real_game() {
         [
             "mjolnir.json",
             "content/bake-e2e_P.utoc",
-            "content/bake-e2e_P.ucas"
+            "content/bake-e2e_P.ucas",
+            "signature.json"
         ]
     );
     let mut manifest = String::new();
@@ -110,6 +125,39 @@ fn bake_export_and_test_install_against_the_real_game() {
     assert_eq!(manifest["schema_version"], 1);
     assert_eq!(manifest["type"], "content");
     assert_eq!(manifest["version"], "0.0.1");
+
+    // The signature verifies against exactly the members written, and stops
+    // verifying the moment any member's bytes change — the launcher-side
+    // check, run here against a real baked archive.
+    let mut members: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut envelope = Vec::new();
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).unwrap();
+        let mut bytes = Vec::new();
+        std::io::copy(&mut entry, &mut bytes).unwrap();
+        if entry.name() == mjolnir_sign::SIGNATURE_MEMBER {
+            envelope = bytes;
+        } else {
+            members.push((entry.name().to_string(), bytes));
+        }
+    }
+    let member_refs: Vec<(String, &[u8])> = members
+        .iter()
+        .map(|(n, b)| (n.clone(), b.as_slice()))
+        .collect();
+    let verified = mjolnir_sign::verify_members(&envelope, "bake-e2e", "0.0.1", &member_refs)
+        .expect("signature verifies");
+    assert_eq!(verified.fingerprint, identity.fingerprint());
+    assert_eq!(verified.statement.author.unwrap().username, "bake-e2e");
+
+    let mut tampered = members.clone();
+    tampered[1].1[100] ^= 0xFF;
+    let tampered_refs: Vec<(String, &[u8])> = tampered
+        .iter()
+        .map(|(n, b)| (n.clone(), b.as_slice()))
+        .collect();
+    mjolnir_sign::verify_members(&envelope, "bake-e2e", "0.0.1", &tampered_refs)
+        .expect_err("a flipped byte in a container must break the signature");
 
     // Test install into the real Paks folder, then remove it again.
     let paks_dir = catalog.paks();

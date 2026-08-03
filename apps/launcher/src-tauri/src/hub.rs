@@ -81,6 +81,18 @@ pub struct InstalledHubMod {
     /// from one that still holds what the hub shipped.
     #[serde(default)]
     pub container_hashes: std::collections::BTreeMap<String, String>,
+    /// Fingerprint of the author key whose signature this launcher verified
+    /// against the archive contents. The pin: a later install of the same
+    /// mod under a different key raises `signature_notice`.
+    #[serde(default)]
+    pub signer_fingerprint: Option<String>,
+    /// Hub account id that published the installed release.
+    #[serde(default)]
+    pub published_by: Option<String>,
+    /// A trust observation worth keeping in front of the user: the signing
+    /// key changed, disappeared, or was revoked. None when all is well.
+    #[serde(default)]
+    pub signature_notice: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -147,8 +159,8 @@ fn save_state(state: &HubState) -> Result<(), String> {
 }
 
 fn paks_dir() -> Result<PathBuf, String> {
-    let (install, _) = crate::find_game_install()
-        .ok_or("Game not found. Install Halo Campaign Evolved first.")?;
+    let (install, _) =
+        crate::find_game_install().ok_or("Game not found. Install Halo Campaign Evolved first.")?;
     let paks = install.join("Meteorite/Content/Paks");
     if !paks.exists() {
         return Err(format!("Paks directory not found: {}", paks.display()));
@@ -209,9 +221,8 @@ fn materialize(state: &HubState) -> Result<(), String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.contains(&format!("-{MARKER}-")) {
-            fs::remove_file(entry.path()).map_err(|e| {
-                format!("Cannot remove {name}: {e}. Is the game running?")
-            })?;
+            fs::remove_file(entry.path())
+                .map_err(|e| format!("Cannot remove {name}: {e}. Is the game running?"))?;
         }
     }
 
@@ -273,7 +284,9 @@ pub fn api(
 ) -> Result<serde_json::Value, String> {
     // The webview picks the path, so the path may not pick the host.
     if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
-        return Err(format!("Refusing to call {path}: paths are relative to the hub API"));
+        return Err(format!(
+            "Refusing to call {path}: paths are relative to the hub API"
+        ));
     }
 
     let url = format!("{}{}", hub_api(), path);
@@ -292,7 +305,9 @@ pub fn api(
         req = req.json(&json);
     }
 
-    let resp = req.send().map_err(|e| format!("Cannot reach the hub: {e}"))?;
+    let resp = req
+        .send()
+        .map_err(|e| format!("Cannot reach the hub: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().unwrap_or_default();
     let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
@@ -302,9 +317,7 @@ pub fn api(
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
-                (b as char).to_string()
-            }
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => (b as char).to_string(),
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -334,6 +347,12 @@ struct HubReleaseStatus {
     #[serde(default)]
     signature: Option<String>,
     status: String,
+    #[serde(default)]
+    published_by: Option<String>,
+    #[serde(default)]
+    signer_fingerprint: Option<String>,
+    #[serde(default)]
+    signer_key_revoked: Option<bool>,
 }
 
 /// Sort key for a version: numeric components, then whether it is a final
@@ -364,9 +383,8 @@ fn newest_release(releases: &[HubRelease]) -> Option<&HubRelease> {
     } else {
         stable
     };
-    pool.into_iter().max_by(|a, b| {
-        version_key(&a.version).cmp(&version_key(&b.version))
-    })
+    pool.into_iter()
+        .max_by(|a, b| version_key(&a.version).cmp(&version_key(&b.version)))
 }
 
 fn fetch_releases(slug: &str) -> Result<Vec<HubRelease>, String> {
@@ -468,18 +486,53 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
         _ => false,
     };
 
+    // One pass over the archive: every member is read so the author
+    // signature can be checked against the complete contents, then the
+    // containers are written from the same bytes.
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut members: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut envelope: Option<Vec<u8>> = None;
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
+        let path = file.name().to_string();
+        if path.ends_with('/') || path.contains("..") {
+            continue;
+        }
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        if path == mjolnir_sign::SIGNATURE_MEMBER {
+            envelope = Some(data);
+        } else {
+            members.push((path, data));
+        }
+    }
+
+    // An author signature present but wrong is impersonation evidence, the
+    // same rule as the platform signature above: refuse, never shrug.
+    let verified = match &envelope {
+        Some(env) => {
+            let refs: Vec<(String, &[u8])> = members
+                .iter()
+                .map(|(p, b)| (p.clone(), b.as_slice()))
+                .collect();
+            Some(
+                mjolnir_sign::verify_members(env, &slug, &release.version, &refs).map_err(|e| {
+                    format!("Author signature does not verify: {e}. Refusing to install.")
+                })?,
+            )
+        }
+        None => None,
+    };
+
     // Unpack the containers into this release's cache.
     let release_cache = cache_dir().join(&release.id);
     let _ = fs::remove_dir_all(&release_cache);
     fs::create_dir_all(&release_cache).map_err(|e| e.to_string())?;
 
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let mut containers = Vec::new();
     let mut container_hashes = std::collections::BTreeMap::new();
-    for i in 0..zip.len() {
-        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
-        let path = file.name().to_string();
-        if !path.starts_with("content/") || path.contains("..") {
+    for (path, data) in &members {
+        if !path.starts_with("content/") {
             continue;
         }
         let base = path.rsplit('/').next().unwrap_or("").to_string();
@@ -487,9 +540,7 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
             Some((s, e @ ("utoc" | "ucas"))) if !s.is_empty() => (s.to_string(), e),
             _ => continue,
         };
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).map_err(|e| e.to_string())?;
-        container_hashes.insert(format!("{stem}.{ext}"), sha256_hex(&data));
+        container_hashes.insert(format!("{stem}.{ext}"), sha256_hex(data));
         fs::write(release_cache.join(format!("{stem}.{ext}")), data).map_err(|e| e.to_string())?;
         if ext == "utoc" {
             containers.push(stem);
@@ -500,12 +551,43 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
     }
     containers.sort();
 
+    // Trust observations. None block the install; all stay attached to the
+    // entry so the library keeps them in front of the user.
+    let signer_fingerprint = verified.as_ref().map(|v| v.fingerprint.clone());
+    let mut notices: Vec<String> = Vec::new();
+    if let (Some(local), Some(hub_fp)) = (&signer_fingerprint, &status.signer_fingerprint) {
+        if local != hub_fp {
+            notices.push(
+                "The archive's signing key differs from the one the hub recorded at publish."
+                    .into(),
+            );
+        }
+    }
+    if status.signer_key_revoked == Some(true) {
+        notices.push("The author has revoked this signing key since publishing.".into());
+    }
+
     let mut state = load_state();
     // Replacing an install leaves the previous release's cache behind;
-    // clear it so updating does not grow the cache without bound.
+    // clear it so updating does not grow the cache without bound. The
+    // previous entry is also the pin: a key that changed, or a signature
+    // that quietly disappeared, is exactly what tampering looks like — and
+    // also what an author with a second machine looks like, so it warns
+    // rather than refuses (docs/mod_signing_design.md).
     if let Some(previous) = state.installed.iter().find(|m| m.slug == slug) {
         if previous.release_id != release.id {
             let _ = fs::remove_dir_all(cache_dir().join(&previous.release_id));
+        }
+        match (&previous.signer_fingerprint, &signer_fingerprint) {
+            (Some(old), Some(new)) if old != new => notices.push(format!(
+                "The signing key changed since the last install ({}… → {}…). A new device \
+                 of the author's is normal; check the mod page if this surprises you.",
+                &old[..16.min(old.len())],
+                &new[..16.min(new.len())],
+            )),
+            (Some(_), None) => notices
+                .push("Earlier releases of this mod were author-signed; this one is not.".into()),
+            _ => {}
         }
     }
     state.installed.retain(|m| m.slug != slug);
@@ -522,6 +604,17 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
         installed_at: Some(now_unix()),
         signature_verified,
         container_hashes,
+        signer_fingerprint,
+        published_by: status.published_by.clone().or_else(|| {
+            verified
+                .as_ref()
+                .and_then(|v| v.statement.author.as_ref().map(|a| a.id.clone()))
+        }),
+        signature_notice: if notices.is_empty() {
+            None
+        } else {
+            Some(notices.join(" "))
+        },
     });
     let active = state.active.clone();
     for profile in &mut state.profiles {
@@ -672,7 +765,9 @@ pub fn set_order(slug: String, new_index: usize) -> Result<HubState, String> {
         .position(|e| e.slug == slug)
         .ok_or("Not in this profile")?;
     let entry = profile.entries.remove(from);
-    profile.entries.insert(new_index.min(profile.entries.len()), entry);
+    profile
+        .entries
+        .insert(new_index.min(profile.entries.len()), entry);
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -1247,8 +1342,8 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
-    let mods_dir = crate::find_game_install()
-        .map(|(p, _)| p.join("Meteorite/Binaries/Win64/ue4ss/Mods"));
+    let mods_dir =
+        crate::find_game_install().map(|(p, _)| p.join("Meteorite/Binaries/Win64/ue4ss/Mods"));
     let versions = load_installed_versions();
     let mods = manifest
         .mods
@@ -1391,11 +1486,9 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     // Register with UE4SS if mods.txt does not know it yet.
     let mods_txt = mods_dir.join("mods.txt");
     let content = fs::read_to_string(&mods_txt).unwrap_or_default();
-    let known = content.lines().any(|l| {
-        l.split(':')
-            .next()
-            .is_some_and(|n| n.trim() == id.as_str())
-    });
+    let known = content
+        .lines()
+        .any(|l| l.split(':').next().is_some_and(|n| n.trim() == id.as_str()));
     if !known {
         let mut updated = content;
         if !updated.is_empty() && !updated.ends_with('\n') {
@@ -1518,7 +1611,11 @@ mod tests {
         assert_ne!(base, tree_digest(&root).unwrap(), "edited file must show");
 
         fs::write(scripts.join("main.lua"), b"print('hi')").unwrap();
-        assert_eq!(base, tree_digest(&root).unwrap(), "restored file must match");
+        assert_eq!(
+            base,
+            tree_digest(&root).unwrap(),
+            "restored file must match"
+        );
 
         fs::write(scripts.join("extra.lua"), b"").unwrap();
         assert_ne!(base, tree_digest(&root).unwrap(), "added file must show");
@@ -1549,7 +1646,8 @@ mod tests {
             let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
             let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
             w.add_directory(format!("{id}/"), opts).unwrap();
-            w.start_file(format!("{id}/Scripts/main.lua"), opts).unwrap();
+            w.start_file(format!("{id}/Scripts/main.lua"), opts)
+                .unwrap();
             std::io::Write::write_all(&mut w, b"print('fly')").unwrap();
             w.start_file(format!("{id}/mod.json"), opts).unwrap();
             std::io::Write::write_all(&mut w, b"{\"version\":\"1.0.0\"}").unwrap();
@@ -1564,7 +1662,10 @@ mod tests {
 
         // And an edit on disk must break that agreement.
         fs::write(dir.join("Scripts/main.lua"), b"print('pwned')").unwrap();
-        assert_ne!(tree_digest(&dir).unwrap(), zip_tree_digest(&buf, id).unwrap());
+        assert_ne!(
+            tree_digest(&dir).unwrap(),
+            zip_tree_digest(&buf, id).unwrap()
+        );
 
         fs::remove_dir_all(&root).unwrap();
     }
@@ -1584,7 +1685,10 @@ mod tests {
             serde_json::from_str(r#"{"MJOLNIRFlyCam":{"version":"1.0.0","tree_sha256":"ab"}}"#)
                 .unwrap();
         let rec: InstallRecord = modern.into_iter().next().unwrap().1.into();
-        assert_eq!((rec.version.as_str(), rec.tree_sha256.as_str()), ("1.0.0", "ab"));
+        assert_eq!(
+            (rec.version.as_str(), rec.tree_sha256.as_str()),
+            ("1.0.0", "ab")
+        );
     }
 
     /// The runtime installer gates a DLL injection on this returning false,
@@ -1618,7 +1722,11 @@ mod tests {
     fn order_numbers_stay_inside_the_managed_band() {
         assert_eq!(order_number(0), 900);
         assert_eq!(order_number(42), 942);
-        assert_eq!(order_number(500), 999, "clamped, never colliding with shipped chunks");
+        assert_eq!(
+            order_number(500),
+            999,
+            "clamped, never colliding with shipped chunks"
+        );
     }
 
     #[test]

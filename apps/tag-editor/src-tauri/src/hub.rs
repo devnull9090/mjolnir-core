@@ -74,6 +74,80 @@ fn err_body(what: &str, r: reqwest::blocking::Response) -> String {
     }
 }
 
+fn client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// The authenticated account, for embedding in signed statements.
+pub fn whoami(key: &str) -> Result<mjolnir_sign::Author, String> {
+    let base = base_url();
+    let r = client()?
+        .get(format!("{base}/api/v1/account/me"))
+        .header("authorization", format!("Bearer {}", key.trim()))
+        .send()
+        .map_err(net)?;
+    if !r.status().is_success() {
+        return Err(err_body("checking your account", r));
+    }
+    #[derive(Deserialize)]
+    struct Me {
+        id: String,
+        username: String,
+    }
+    let me: Me = r.json().map_err(net)?;
+    Ok(mjolnir_sign::Author {
+        id: me.id,
+        username: me.username,
+    })
+}
+
+/// Register this device's signing key against the account. Idempotent for a
+/// key already registered to this account; a key can never move accounts.
+pub fn register_key(key: &str, public_key_b64: &str, label: &str) -> Result<String, String> {
+    let base = base_url();
+    let r = client()?
+        .post(format!("{base}/api/v1/account/signing-keys"))
+        .header("authorization", format!("Bearer {}", key.trim()))
+        .json(&serde_json::json!({ "public_key": public_key_b64, "label": label }))
+        .send()
+        .map_err(net)?;
+    if !r.status().is_success() {
+        return Err(err_body("registering the signing key", r));
+    }
+    #[derive(Deserialize)]
+    struct Registered {
+        fingerprint: String,
+    }
+    let reg: Registered = r.json().map_err(net)?;
+    Ok(reg.fingerprint)
+}
+
+/// Whether a fingerprint is among the account's registered signing keys.
+pub fn key_registered(key: &str, fingerprint: &str) -> Result<bool, String> {
+    let base = base_url();
+    let r = client()?
+        .get(format!("{base}/api/v1/account/signing-keys"))
+        .header("authorization", format!("Bearer {}", key.trim()))
+        .send()
+        .map_err(net)?;
+    if !r.status().is_success() {
+        return Err(err_body("listing signing keys", r));
+    }
+    #[derive(Deserialize)]
+    struct Keys {
+        keys: Vec<KeyRow>,
+    }
+    #[derive(Deserialize)]
+    struct KeyRow {
+        fingerprint: String,
+    }
+    let keys: Keys = r.json().map_err(net)?;
+    Ok(keys.keys.iter().any(|k| k.fingerprint == fingerprint))
+}
+
 pub fn publish(
     key: &str,
     meta: &Meta,
