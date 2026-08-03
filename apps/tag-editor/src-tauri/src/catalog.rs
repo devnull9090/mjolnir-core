@@ -32,15 +32,27 @@ pub struct TextureEntry {
     pub short: String,
 }
 
+/// One Wwise audio file, which lives in a `.pak` rather than the IoStore.
+pub struct SoundEntry {
+    pub archive: usize,
+    pub entry: ue_iostore::pak::PakEntry,
+    /// Path below `WwiseAudio/`, e.g. `Media/English(US)/12/100018565.wem`.
+    pub short: String,
+    /// Language folder the file came from, or `None` for shared audio.
+    pub language: Option<String>,
+    /// Path below the language level, which is where the browser hangs it.
+    tail: String,
+}
+
 /// One openable asset, placed in the virtual filesystem the browser walks.
 ///
 /// The game ships no directories of its own — every asset is a flat chunk in a
 /// container — so the tree is derived from the package paths. Tags land under
 /// `tags/` named the way Guerilla wrote them (`elite.biped`), textures under
-/// `textures/` at their content-relative path.
+/// `textures/` at their content-relative path, and Wwise audio under `sounds/`.
 struct VirtualFile {
     path: String,
-    /// `tag` or `texture`; the index is into that catalog list.
+    /// `tag`, `texture` or `sound`; the index is into that catalog list.
     kind: &'static str,
     index: usize,
     size: u64,
@@ -53,7 +65,7 @@ pub struct DirEntry {
     pub name: String,
     /// Full virtual path.
     pub path: String,
-    /// `dir`, `tag`, or `texture`.
+    /// `dir`, `tag`, `texture` or `sound`.
     pub kind: &'static str,
     /// Catalog index, for files only.
     pub index: Option<usize>,
@@ -66,8 +78,12 @@ pub struct DirEntry {
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
     containers: Vec<Container>,
+    /// `.pak` archives alongside the IoStore containers; the game keeps its
+    /// whole Wwise bank there.
+    archives: Vec<ue_iostore::pak::PakArchive>,
     pub tags: Vec<TagEntry>,
     pub textures: Vec<TextureEntry>,
+    pub sounds: Vec<SoundEntry>,
     /// Every asset by virtual path, sorted, so a listing is a contiguous range.
     files: Vec<VirtualFile>,
     /// Where to look for the optional Oodle DLL; empty means use the built-in
@@ -134,6 +150,23 @@ fn split_path(full: &str) -> Option<(String, String)> {
         .trim_start_matches("/Game/Tags/")
         .to_string();
     Some((group.to_string(), short))
+}
+
+/// Split a Wwise path into its language and the part below it.
+///
+/// Media sits under `Media/<bucket>/`, where the bucket is a language name for
+/// localised audio and a number for everything else. Sound banks skip the
+/// `Media/` level and name the language directly. The `Media/` level itself
+/// carries no information, so it is dropped either way.
+fn split_language(short: &str) -> (Option<String>, String) {
+    let rest = short.strip_prefix("Media/").unwrap_or(short);
+    let Some((first, tail)) = rest.split_once('/') else {
+        return (None, rest.to_string());
+    };
+    if first.is_empty() || first.chars().all(|c| c.is_ascii_digit()) {
+        return (None, rest.to_string());
+    }
+    (Some(first.to_string()), tail.to_string())
 }
 
 impl Catalog {
@@ -217,6 +250,38 @@ impl Catalog {
             .collect();
         textures.sort_by(|a, b| a.short.cmp(&b.short));
 
+        // Wwise audio ships in the `.pak` siblings, not the IoStore. A pak
+        // that fails to parse is skipped rather than failing the whole load.
+        let archives = ue_iostore::pak::load_all(paks).unwrap_or_default();
+        let mut sounds = Vec::new();
+        for (ai, archive) in archives.iter().enumerate() {
+            for (rel, entry) in &archive.files {
+                if !rel.ends_with(".wem") && !rel.ends_with(".bnk") {
+                    continue;
+                }
+                // The shared pak mounts at the content root and the localised
+                // ones at `WwiseAudio/`, so normalise both to the same shape.
+                let full = archive.full_path(rel);
+                let short = match full.split_once("WwiseAudio/") {
+                    Some((_, rest)) => rest.to_string(),
+                    None => continue,
+                };
+                let (language, tail) = split_language(&short);
+                sounds.push(SoundEntry {
+                    archive: ai,
+                    entry: entry.clone(),
+                    short,
+                    language,
+                    tail,
+                });
+            }
+        }
+        // Media first: sound banks are not playable and sort to the front
+        // otherwise, filling the whole first page with the least useful rows.
+        sounds.sort_by(|a, b| {
+            (a.short.ends_with(".bnk"), &a.short).cmp(&(b.short.ends_with(".bnk"), &b.short))
+        });
+
         let mut files: Vec<VirtualFile> = tags
             .iter()
             .enumerate()
@@ -232,14 +297,28 @@ impl Catalog {
                 index,
                 size: t.ubulk.map(|(_, c)| c.length).unwrap_or(0),
             }))
+            .chain(sounds.iter().enumerate().map(|(index, s)| VirtualFile {
+                // Localised audio is grouped by language so the same line in
+                // two languages sits side by side.
+                path: format!(
+                    "sounds/{}/{}",
+                    s.language.as_deref().unwrap_or("shared"),
+                    s.tail
+                ),
+                kind: "sound",
+                index,
+                size: s.entry.uncompressed_size,
+            }))
             .collect();
         // Sorted so every directory's contents form one contiguous run.
         files.sort_by(|a, b| a.path.cmp(&b.path));
 
         Ok(Catalog {
             containers,
+            archives,
             tags,
             textures,
+            sounds,
             files,
             // Empty means the caller has no DLL, which is fine: the reader
             // falls back to its own decoder.
@@ -482,6 +561,35 @@ impl Catalog {
             .map_err(|e| format!("{}: {e}", t.short))
     }
 
+    /// Read a Wwise audio file out of its `.pak`.
+    ///
+    /// `max` caps the read: a listing only needs the RIFF header, not a
+    /// multi-megabyte payload.
+    pub fn read_sound(&self, index: usize, max: Option<usize>) -> Result<Vec<u8>, String> {
+        let s = self.sounds.get(index).ok_or("sound index out of range")?;
+        let archive = self
+            .archives
+            .get(s.archive)
+            .ok_or("sound archive is not loaded")?;
+        ue_iostore::pak::read_file(archive, &s.entry, max, &self.oodle)
+            .map_err(|e| format!("{}: {e}", s.short))
+    }
+
+    pub fn sound(&self, index: usize) -> Option<&SoundEntry> {
+        self.sounds.get(index)
+    }
+
+    /// Case-insensitive substring search over Wwise audio paths.
+    pub fn search_sounds(&self, query: &str, limit: usize) -> Vec<(usize, &SoundEntry)> {
+        let q = query.trim().to_ascii_lowercase();
+        self.sounds
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| q.is_empty() || s.short.to_ascii_lowercase().contains(&q))
+            .take(limit)
+            .collect()
+    }
+
     pub fn entry(&self, index: usize) -> Option<&TagEntry> {
         self.tags.get(index)
     }
@@ -501,6 +609,68 @@ impl Catalog {
 mod tests {
     use super::*;
 
+    /// Read every shipped `.wem` header through the pak reader.
+    ///
+    /// This is the ground truth for [`ue_iostore::pak`]: a wrong entry offset
+    /// or block extent yields bytes that are not a RIFF file, and a wrong
+    /// length shows up as a declared size that disagrees with what came back.
+    /// Ignored by default because it needs an installed game; point
+    /// `MJOLNIR_PAKS` at the `Paks` directory and run with `--ignored`.
+    #[test]
+    #[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+    fn every_shipped_wem_header_parses() {
+        let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+        let c = Catalog::open(&paks, "").expect("catalog opens");
+        assert!(!c.sounds.is_empty(), "no Wwise audio found under {paks}");
+
+        let mut parsed = 0usize;
+        let mut banks = 0usize;
+        let mut codecs: BTreeMap<String, usize> = BTreeMap::new();
+        for (i, s) in c.sounds.iter().enumerate() {
+            if s.short.ends_with(".bnk") {
+                banks += 1;
+                continue;
+            }
+            let head = c
+                .read_sound(i, Some(crate::sounds::HEADER_BYTES))
+                .unwrap_or_else(|e| panic!("{}: {e}", s.short));
+            let info = crate::sounds::parse_wem(&head)
+                .unwrap_or_else(|e| panic!("{}: {e}", s.short));
+            // The declared RIFF size must match what the pak entry says it
+            // stored, or the entry decode picked up the wrong extent.
+            let declared = u32::from_le_bytes(head[4..8].try_into().unwrap()) as u64 + 8;
+            assert_eq!(declared, s.entry.uncompressed_size, "{}", s.short);
+            assert!(info.sample_rate > 0, "{}", s.short);
+            assert!(info.channels > 0, "{}", s.short);
+            *codecs.entry(info.codec.clone()).or_default() += 1;
+            parsed += 1;
+        }
+        eprintln!("parsed {parsed} wem headers and skipped {banks} banks: {codecs:?}");
+    }
+
+    #[test]
+    fn localised_audio_is_grouped_under_its_language() {
+        // Media buckets are numeric for shared audio and named for localised.
+        assert_eq!(
+            split_language("Media/English(US)/12/100018565.wem"),
+            (Some("English(US)".to_string()), "12/100018565.wem".to_string())
+        );
+        assert_eq!(
+            split_language("Media/10/100018565.wem"),
+            (None, "10/100018565.wem".to_string())
+        );
+        // Banks name the language directly, without a Media level.
+        assert_eq!(
+            split_language("Italian/1005569379.bnk"),
+            (Some("Italian".to_string()), "1005569379.bnk".to_string())
+        );
+        // A shared bank sits at the root and has no language at all.
+        assert_eq!(
+            split_language("Init.bnk"),
+            (None, "Init.bnk".to_string())
+        );
+    }
+
     /// A catalog with only the virtual filesystem populated, which is all the
     /// listing and search paths read.
     fn with_files(paths: &[(&str, &str)]) -> Catalog {
@@ -509,7 +679,11 @@ mod tests {
             .enumerate()
             .map(|(index, (path, kind))| VirtualFile {
                 path: (*path).to_string(),
-                kind: if *kind == "tag" { "tag" } else { "texture" },
+                kind: match *kind {
+                    "tag" => "tag",
+                    "sound" => "sound",
+                    _ => "texture",
+                },
                 index,
                 size: 10,
             })
@@ -517,8 +691,10 @@ mod tests {
         files.sort_by(|a, b| a.path.cmp(&b.path));
         Catalog {
             containers: Vec::new(),
+            archives: Vec::new(),
             tags: Vec::new(),
             textures: Vec::new(),
+            sounds: Vec::new(),
             files,
             oodle: Vec::new(),
             paks: PathBuf::new(),
@@ -531,18 +707,29 @@ mod tests {
             ("tags/objects/characters/elite/elite.model", "tag"),
             ("tags/objects/weapons/rifle/ar.weapon", "tag"),
             ("textures/characters/GuiltySpark/T_Spark_D", "texture"),
+            ("sounds/English(US)/12/100018565.wem", "sound"),
+            ("sounds/shared/10/243917884.wem", "sound"),
         ])
     }
 
     #[test]
-    fn the_root_lists_the_two_asset_kinds() {
+    fn the_root_lists_every_asset_kind() {
         let rows = sample().list_dir("");
         let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["tags", "textures"]);
+        assert_eq!(names, ["sounds", "tags", "textures"]);
         assert!(rows.iter().all(|r| r.kind == "dir"));
         // A directory counts every asset beneath it, at any depth.
-        assert_eq!(rows[0].children, Some(3));
-        assert_eq!(rows[1].children, Some(1));
+        assert_eq!(rows[0].children, Some(2));
+        assert_eq!(rows[1].children, Some(3));
+        assert_eq!(rows[2].children, Some(1));
+    }
+
+    #[test]
+    fn a_sound_directory_lists_its_media() {
+        let rows = sample().list_dir("sounds/English(US)/12");
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["100018565.wem"]);
+        assert_eq!(rows[0].kind, "sound");
     }
 
     #[test]

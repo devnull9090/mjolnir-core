@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub mod oodle;
 pub mod pack;
+pub mod pak;
 pub mod toc;
 
 pub const TOC_MAGIC: &[u8; 16] = b"-==--==--==--==-";
@@ -412,7 +413,7 @@ pub fn load_container(utoc_path: impl AsRef<Path>) -> Result<Container, Error> {
     })
 }
 
-fn decompress(
+pub(crate) fn decompress(
     method: &str,
     src: &[u8],
     out_size: usize,

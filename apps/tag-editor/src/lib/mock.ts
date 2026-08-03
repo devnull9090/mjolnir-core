@@ -41,6 +41,32 @@ const mockFiles: Omit<DirEntry, "name" | "children">[] = [
     index: 1,
     size: 6_371_884,
   },
+  { path: "sounds/English(US)/12/100018565.wem", kind: "sound", index: 0, size: 310_629 },
+  { path: "sounds/shared/10/243917884.wem", kind: "sound", index: 1, size: 21_689 },
+];
+
+/** Two sounds shaped like the real ones: one localised, one shared. */
+const mockSounds = [
+  {
+    index: 0,
+    path: "Media/English(US)/12/100018565.wem",
+    language: "English(US)" as string | null,
+    size: 310_629,
+    channels: 2,
+    sample_count: 728_342,
+    avg_bytes_per_sec: 20_437,
+    data_size: 310_511,
+  },
+  {
+    index: 1,
+    path: "Media/10/243917884.wem",
+    language: null as string | null,
+    size: 21_689,
+    channels: 1,
+    sample_count: 67_718,
+    avg_bytes_per_sec: 15_284,
+    data_size: 21_579,
+  },
 ];
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -262,6 +288,31 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  listSounds: async (query: string) =>
+    mockSounds
+      .map(({ index, path, language, size }) => ({ index, path, language, size }))
+      .filter((s) => s.path.toLowerCase().includes(query.toLowerCase())),
+  readSound: async (index: number) => {
+    const s = mockSounds[index] ?? mockSounds[0];
+    return {
+      path: s.path,
+      language: s.language,
+      size: s.size,
+      info: {
+        codec: "Wwise Vorbis",
+        format_tag: 0xffff,
+        channels: s.channels,
+        sample_rate: 48_000,
+        avg_bytes_per_sec: s.avg_bytes_per_sec,
+        sample_count: s.sample_count,
+        duration_secs: s.sample_count / 48_000,
+        data_size: s.data_size,
+        chunks: ["fmt", "hash", "data"],
+      },
+      error: null,
+    };
+  },
+  exportSound: async () => 0,
   listDir: async (path: string) => {
     const dir = path.replace(/^\/|\/$/g, "");
     const skip = dir === "" ? 0 : dir.length + 1;

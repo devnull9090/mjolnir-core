@@ -20,6 +20,7 @@ pub mod live;
 pub mod modpack;
 pub mod project;
 pub mod secret;
+pub mod sounds;
 pub mod textures;
 pub mod zen;
 
@@ -725,6 +726,90 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
     })
 }
 
+#[derive(Serialize)]
+struct SoundSummary {
+    index: usize,
+    /// Path below `WwiseAudio/`.
+    path: String,
+    /// Language folder, or `null` for audio shared across languages.
+    language: Option<String>,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct SoundView {
+    path: String,
+    language: Option<String>,
+    /// Stored size of the whole `.wem`.
+    size: u64,
+    /// Header fields, absent for a sound bank rather than a media file.
+    info: Option<sounds::WemInfo>,
+    /// Why the header could not be read, when it could not be.
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn list_sounds(query: String, state: State<'_, AppState>) -> Result<Vec<SoundSummary>, String> {
+    with_catalog(&state, |c| {
+        Ok(c.search_sounds(&query, MAX_ROWS)
+            .into_iter()
+            .map(|(index, s)| SoundSummary {
+                index,
+                path: s.short.clone(),
+                language: s.language.clone(),
+                size: s.entry.uncompressed_size,
+            })
+            .collect())
+    })
+}
+
+/// Describe one Wwise audio file from its header alone.
+///
+/// Only the leading bytes are read: a listing must not pull whole megabytes
+/// out of the pak just to show a duration.
+#[tauri::command]
+fn read_sound(index: usize, state: State<'_, AppState>) -> Result<SoundView, String> {
+    with_catalog(&state, |c| {
+        let s = c.sound(index).ok_or("sound index out of range")?;
+        let path = s.short.clone();
+        let language = s.language.clone();
+        let size = s.entry.uncompressed_size;
+        // A `.bnk` is a bank of events, not a RIFF media file; report it as
+        // such instead of surfacing a parse failure.
+        let (info, error) = if path.ends_with(".bnk") {
+            (None, Some("sound bank, not a media file".to_string()))
+        } else {
+            match c
+                .read_sound(index, Some(sounds::HEADER_BYTES))
+                .and_then(|d| sounds::parse_wem(&d))
+            {
+                Ok(info) => (Some(info), None),
+                Err(e) => (None, Some(e)),
+            }
+        };
+        Ok(SoundView {
+            path,
+            language,
+            size,
+            info,
+            error,
+        })
+    })
+}
+
+/// Write a sound's raw `.wem` to a file the user chose.
+///
+/// The payload is copied out byte for byte; decoding Wwise Vorbis is not
+/// implemented yet, so this is what a converter needs as input.
+#[tauri::command]
+fn export_sound(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
+    with_catalog(&state, |c| {
+        let data = c.read_sound(index, None)?;
+        std::fs::write(&dest, &data).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(data.len())
+    })
+}
+
 /// Write a texture's top mip as PNG to a file the user chose.
 #[tauri::command]
 fn export_texture(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
@@ -1355,6 +1440,9 @@ pub fn run() {
             list_textures,
             read_texture,
             export_texture,
+            list_sounds,
+            read_sound,
+            export_sound,
             tag_links,
             list_dir,
             search_files,

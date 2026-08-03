@@ -12,6 +12,8 @@ import {
   type ProjectView,
   type PublishView,
   type SigningStatus,
+  type SoundSummary,
+  type SoundView,
   type TagSummary,
   type TagView,
   type TestView,
@@ -23,10 +25,10 @@ type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
 export type ViewMode = "form" | "tree";
 
-/** One open document: a tag or a texture, shown as a tab. */
+/** One open document: a tag, a texture or a sound, shown as a tab. */
 export type Tab = {
   id: number;
-  kind: "tag" | "texture";
+  kind: "tag" | "texture" | "sound";
   /** Catalog index within its kind. */
   index: number;
   label: string;
@@ -94,9 +96,10 @@ type EditorState = {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
 
-  /** What the left panel browses: assets, tag groups, textures, or the mod. */
-  browse: "files" | "tags" | "textures" | "mod";
-  setBrowse: (browse: "files" | "tags" | "textures" | "mod") => void;
+  /** What the left panel browses: assets, tag groups, textures, sounds, or
+   * the mod. */
+  browse: "files" | "tags" | "textures" | "sounds" | "mod";
+  setBrowse: (browse: "files" | "tags" | "textures" | "sounds" | "mod") => void;
 
   /** The open mod project; edits autosave into it while one is open. */
   project: ProjectView | null;
@@ -160,6 +163,14 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+  sounds: SoundSummary[];
+  soundQuery: string;
+  searchSounds: (query: string) => Promise<void>;
+  selectedSound: number | null;
+  sound: SoundView | null;
+  soundLoading: boolean;
+  soundError: string | null;
+  exportSound: (dest: string) => Promise<number | null>;
 
   detect: () => Promise<void>;
   open: (paks: string, oodle: string) => Promise<void>;
@@ -244,6 +255,27 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
+  /** Load a sound's header into the active-content slots. */
+  async function loadSound(index: number) {
+    set({
+      selectedSound: index,
+      selectedTag: null,
+      selectedTexture: null,
+      soundError: null,
+      soundLoading: true,
+      sound: null,
+    });
+    try {
+      const sound = await api.readSound(index);
+      // Only show it if this tab is still the active one.
+      if (get().selectedSound === index) set({ sound, soundLoading: false });
+    } catch (e) {
+      if (get().selectedSound === index) {
+        set({ soundError: String(e), soundLoading: false });
+      }
+    }
+  }
+
   /** Re-read the active tag after project-level changes touch its edits. */
   async function refreshActiveTag() {
     const { tabs, activeTab } = get();
@@ -295,6 +327,8 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ activeTab: id });
       if (tab.kind === "tag") {
         await loadTag(tab.index);
+      } else if (tab.kind === "sound") {
+        await loadSound(tab.index);
       } else {
         await loadTexture(tab.index);
       }
@@ -319,6 +353,9 @@ export const useEditor = create<EditorState>((set, get) => {
           selectedTexture: null,
           texture: null,
           textureError: null,
+          selectedSound: null,
+          sound: null,
+          soundError: null,
           lastEdit: null,
           editError: null,
         });
@@ -350,6 +387,9 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ browse });
       if (browse === "textures" && get().textures.length === 0) {
         void get().searchTextures("");
+      }
+      if (browse === "sounds" && get().sounds.length === 0) {
+        void get().searchSounds("");
       }
       if (browse === "files" && get().entries.length === 0 && !get().fileQuery) {
         void get().openDir(get().dir);
@@ -403,6 +443,30 @@ export const useEditor = create<EditorState>((set, get) => {
         return await api.exportTexture(index, dest);
       } catch (e) {
         set({ textureError: String(e) });
+        return null;
+      }
+    },
+    sounds: [],
+    soundQuery: "",
+    async searchSounds(query) {
+      set({ soundQuery: query });
+      try {
+        set({ sounds: await api.listSounds(query) });
+      } catch (e) {
+        set({ error: String(e) });
+      }
+    },
+    selectedSound: null,
+    sound: null,
+    soundLoading: false,
+    soundError: null,
+    async exportSound(dest) {
+      const index = get().selectedSound;
+      if (index === null) return null;
+      try {
+        return await api.exportSound(index, dest);
+      } catch (e) {
+        set({ soundError: String(e) });
         return null;
       }
     },
