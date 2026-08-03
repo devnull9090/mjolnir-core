@@ -42,6 +42,8 @@ struct PendingEdit {
 struct OpenResult {
     groups: usize,
     tags: usize,
+    /// `dll` or `built-in`, so the UI can say which decoder is in use.
+    decoder: &'static str,
 }
 
 #[derive(Serialize)]
@@ -165,8 +167,18 @@ fn open_install(
     let catalog = Catalog::open(&paks, &oodle)?;
     let groups = catalog.groups()?.len();
     let tags = catalog.tags.len();
+    let decoder = match catalog.oodle_backend() {
+        ue_iostore::oodle::Backend::Dll(_) => "dll",
+        ue_iostore::oodle::Backend::Pure => "built-in",
+    };
+    // These paths are now known to work; skip the search on the next launch.
+    install::remember(&paks, &oodle);
     *state.catalog.lock().map_err(|e| e.to_string())? = Some(catalog);
-    Ok(OpenResult { groups, tags })
+    Ok(OpenResult {
+        groups,
+        tags,
+        decoder,
+    })
 }
 
 fn with_catalog<T>(

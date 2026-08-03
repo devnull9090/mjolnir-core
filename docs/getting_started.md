@@ -64,27 +64,29 @@ values out of live objects, take screenshots. See [`game_automation.md`](game_au
 Tags are grouped by type. List the groups:
 
 ```bash
-mjolnir groups --paks "<install>/Meteorite/Content/Paks" --oodle <oodle-dir>
+mjolnir groups --paks "<install>/Meteorite/Content/Paks"
 ```
 
 then list the tags in one:
 
 ```bash
-mjolnir list --paks "$PAKS" --oodle "$OODLE" --group weapon
+mjolnir list --paks "$PAKS" --group weapon
 ```
 
 Weapons live under `objects/weapons/`, so the assault rifle is
 `objects/weapons/rifle/assault_rifle/assault_rifle-weapon`.
 
-> **About `--oodle`.** The shipped containers are Oodle-compressed, so reading them needs an
-> `oo2core_*_win64.dll`. This game links Oodle statically and ships no DLL, so you will need one
-> from another UE5 game you own. If you do not have one, skip ahead — *Editing without Oodle* below
-> covers the whole flow without it.
+> **About `--oodle`.** The shipped containers are Oodle-compressed, and this game links Oodle
+> statically so it ships no `oo2core_*_win64.dll`. You do not need one: a decoder is built in, and
+> it is what runs by default. If you happen to have a DLL — any UE5 install has one under
+> `Engine/Binaries/DotNET/AutomationTool`, most UE4-era games under
+> `Engine/Binaries/ThirdParty/Oodle/Win64` — pass `--oodle <path>` and decoding runs about four
+> times faster. The bytes are identical either way.
 
 To see a tag's fields and current values:
 
 ```bash
-mjolnir values --paks "$PAKS" --oodle "$OODLE" --group weapon --tag assault_rifle-weapon --depth 3
+mjolnir values --paks "$PAKS" --group weapon --tag assault_rifle-weapon --depth 3
 ```
 
 Field paths are what you saw printed, so `magazines[0].rounds loaded maximum` is a magazine's
@@ -163,10 +165,11 @@ Read those last three lines every time. `walk … consumed` means the patched ta
 exactly; `differs 1 byte(s)` means the edit touched its field and nothing else. If either looks
 wrong, stop.
 
-### Editing without Oodle
+### Editing a tag file directly
 
-If you have no Oodle DLL, work on a tag that is already a file — including the uncompressed payload
-inside an override container you built earlier:
+Reading the containers no longer needs a DLL, so this is no longer a workaround — just the way to
+work on a tag that is already a file, including the uncompressed payload inside an override
+container you built earlier:
 
 ```bash
 mjolnir tag-file --file ar.tag                                  # print every field

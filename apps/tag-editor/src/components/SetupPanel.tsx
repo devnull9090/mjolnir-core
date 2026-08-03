@@ -52,8 +52,8 @@ export function SetupPanel() {
             onBrowse={() => void pick("paks")}
           />
           <Field
-            label="Oodle DLL"
-            hint="oo2core_*_win64.dll from any Unreal Engine install"
+            label="Oodle DLL (optional)"
+            hint="Only makes decoding faster; leave empty to use the built-in decoder"
             value={oodlePath}
             onChange={setOodlePath}
             onBrowse={() => void pick("oodle")}
@@ -62,7 +62,7 @@ export function SetupPanel() {
 
         <button
           type="button"
-          disabled={busy || !paksPath || !oodlePath}
+          disabled={busy || !paksPath}
           onClick={() => void openInstall(paksPath, oodlePath)}
           className="mt-6 w-full bg-mjolnir-gold px-4 py-2.5 text-sm font-semibold text-surface-primary transition-colors hover:bg-mjolnir-gold-dim disabled:cursor-not-allowed disabled:opacity-40"
         >

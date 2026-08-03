@@ -34,14 +34,16 @@ struct Source {
     /// Path to the game's `Meteorite/Content/Paks` directory.
     #[arg(long, env = "HCE_PAKS")]
     paks: PathBuf,
-    /// Path to `oo2core_*_win64.dll`, or a directory containing one.
+    /// Path to `oo2core_*_win64.dll`, or a directory containing one. Optional:
+    /// without it the built-in decoder is used, which is slower but reads the
+    /// same bytes.
     #[arg(long, env = "OODLE")]
-    oodle: PathBuf,
+    oodle: Option<PathBuf>,
 }
 
 impl Source {
     fn oodle_roots(&self) -> Vec<PathBuf> {
-        vec![self.oodle.clone()]
+        self.oodle.clone().into_iter().collect()
     }
 }
 
