@@ -193,6 +193,23 @@ export type PublishView = {
 export type HubStatus = {
   base: string;
   has_key: boolean;
+  /** Who the stored key belongs to, when the editor knows. */
+  username: string | null;
+};
+
+/** A link waiting to be approved: what to show, and where to send them. */
+export type LinkStart = {
+  user_code: string;
+  verification_url: string;
+  /** Seconds between polls, as the hub asked. */
+  interval: number;
+  expires_in: number;
+};
+
+/** `pending`, `approved`, `denied` or `expired`. */
+export type LinkPoll = {
+  status: string;
+  username: string | null;
 };
 
 const tauriApi = {
@@ -237,6 +254,9 @@ const tauriApi = {
     invoke<PublishView>("project_publish", { changelog }),
   hubStatus: () => invoke<HubStatus>("hub_status"),
   hubSetKey: (key: string) => invoke<void>("hub_set_key", { key }),
+  hubLinkStart: () => invoke<LinkStart>("hub_link_start"),
+  hubLinkPoll: () => invoke<LinkPoll>("hub_link_poll"),
+  hubUnlink: () => invoke<void>("hub_unlink"),
   signingStatus: () => invoke<SigningStatus>("signing_status"),
 };
 

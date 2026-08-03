@@ -341,7 +341,7 @@ and it is the reason to publish a spec at all. Make it good.
 - **Tools:** API keys, `Authorization: Bearer mjc_...`, hash stored, scoped
   (`mods:read`, `mods:write`, `ratings:write`, `comments:write`), revocable, rate-limited per key.
 - **Desktop clients:** device pairing (below), which is just a supervised way of minting one of
-  those keys.
+  those keys — with the scopes the client asked for, shown to the user before they approve.
 - **Public reads:** no auth, IP rate-limited at the Cloudflare edge.
 
 Discord gives role sync for free — a `moderator` role in the guild can map to hub moderation
@@ -349,12 +349,12 @@ rights, so there is no second permission system to maintain.
 
 #### Device pairing
 
-The launcher has no browser session and must never see a Discord password, so it pairs the way a
-TV app does:
+Desktop clients have no browser session and must never see a Discord password, so they pair the
+way a TV app does:
 
 ```
-POST /v1/auth/device/start                 → { device_code, user_code, verification_url, … }
-    ← launcher shows user_code, opens verification_url in the real browser
+POST /v1/auth/device/start                 { client_name, scopes? } → { device_code, user_code, verification_url, scopes, … }
+    ← client shows user_code, opens verification_url in the real browser
 POST /v1/auth/device/approve               session-only; mints the key
 POST /v1/auth/device/token                 poll; the first post-approval poll carries the key
 GET  /v1/auth/device/pending/{user_code}   what the approval page names before you commit
@@ -366,16 +366,24 @@ Rules that make it safe rather than merely convenient:
   The **user code** is short and stored plainly, because a human types it and it dies in ten
   minutes.
 - **Approval requires a cookie session.** A key cannot pair another device, so a stolen key
-  cannot mint more keys.
-- The minted key carries `mods:read ratings:write comments:write` and expires in 180 days. It
-  **cannot publish** — publishing stays a website flow, so a stolen launcher key cannot push a
-  release.
+  cannot mint more keys. This is also why there is no launcher→editor "hand-off": the launcher
+  holds a key, and a key cannot mint another one. Each app pairs for itself.
+- **A client asks for the scopes it needs.** The launcher rates and comments; the tag editor
+  also asks for `mods:write`, because it publishes. Omitting `scopes` yields
+  `mods:read ratings:write comments:write` — what pairing granted before scopes were
+  requestable, so older launchers keep working. Keys last 180 days, or 90 if they can publish.
+- The scopes asked for are recorded at handshake time and are exactly what approval mints, so
+  `/link` can list them before the user commits. Granting `mods:write` to a desktop app is a
+  real widening over the original design; it is worth it because the flow it replaces was
+  pasting a hand-minted key, which produces a broader key with no expiry that also travels
+  through the clipboard.
 - The key is stored between approval and collection (`device_codes.granted_key`) and the
   delivering poll deletes the row in the same breath, which is what makes delivery exactly-once.
   An approval nobody ever collects has its key revoked by the cleanup pass.
 - The only attack this flow has is talking someone into approving a code they did not generate.
-  `/link` therefore names the client and says, in as many words, to deny codes that arrived from
-  someone else. That warning is part of the design.
+  `/link` therefore names the client, lists what it is asking for, and says in as many words to
+  deny codes that arrived from someone else — with a sharper warning when publishing is on the
+  list, because that is the approval worth being sure about. That warning is part of the design.
 
 Revocation is ordinary: the pairing shows up under *Account → API keys* like any other key.
 

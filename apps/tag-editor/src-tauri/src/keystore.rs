@@ -6,10 +6,15 @@
 //! MJOLNIR config directory: the blob only decrypts for this Windows user on
 //! this machine, so a copied file is useless anywhere else. Design:
 //! `docs/mod_signing_design.md`.
+//!
+//! The DPAPI wrapper itself lives in `secret`, shared with the stored hub
+//! API key.
 
 use std::path::PathBuf;
 
 use mjolnir_sign::SigningIdentity;
+
+use crate::secret::dpapi;
 
 const KEY_FILE: &str = "signing-key.dpapi";
 
@@ -40,75 +45,3 @@ pub fn load_or_create() -> Result<SigningIdentity, String> {
     Ok(SigningIdentity::from_seed(&seed))
 }
 
-#[cfg(windows)]
-mod dpapi {
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::LocalFree;
-    use windows::Win32::Security::Cryptography::{
-        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
-    };
-
-    fn blob_of(bytes: &[u8]) -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB {
-            cbData: bytes.len() as u32,
-            pbData: bytes.as_ptr() as *mut u8,
-        }
-    }
-
-    /// Copy the output blob and free the LocalAlloc'd buffer the API hands us.
-    unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
-        let bytes = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
-        let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(
-            out.pbData as *mut _,
-        )));
-        bytes
-    }
-
-    pub fn protect(secret: &[u8]) -> Result<Vec<u8>, String> {
-        let input = blob_of(secret);
-        let mut out = CRYPT_INTEGER_BLOB::default();
-        unsafe {
-            CryptProtectData(
-                &input,
-                PCWSTR::null(),
-                None,
-                None,
-                None,
-                CRYPTPROTECT_UI_FORBIDDEN,
-                &mut out,
-            )
-            .map_err(|e| format!("DPAPI protect failed: {e}"))?;
-            Ok(take(out))
-        }
-    }
-
-    pub fn unprotect(blob: &[u8]) -> Result<Vec<u8>, String> {
-        let input = blob_of(blob);
-        let mut out = CRYPT_INTEGER_BLOB::default();
-        unsafe {
-            CryptUnprotectData(
-                &input,
-                None,
-                None,
-                None,
-                None,
-                CRYPTPROTECT_UI_FORBIDDEN,
-                &mut out,
-            )
-            .map_err(|e| format!("DPAPI unprotect failed: {e}"))?;
-            Ok(take(out))
-        }
-    }
-}
-
-#[cfg(not(windows))]
-mod dpapi {
-    // The game, and therefore the editor, ships for Windows; this exists so
-    // the crate still compiles elsewhere for CI-style checks.
-    pub fn protect(_secret: &[u8]) -> Result<Vec<u8>, String> {
-        Err("signing keys are DPAPI-protected and need Windows".into())
-    }
-    pub fn unprotect(_blob: &[u8]) -> Result<Vec<u8>, String> {
-        Err("signing keys are DPAPI-protected and need Windows".into())
-    }
-}

@@ -3,16 +3,22 @@
 /**
  * Approve a desktop client that is waiting to pair.
  *
- * The launcher shows a code and opens this page with `?code=` filled in; the
- * user confirms here, signed in, and the launcher's next poll collects a
- * scoped API key. The warning is load-bearing: the only attack this flow has
- * is talking someone into approving a code they did not generate, and this
- * page is where that gets refused.
+ * The client shows a code and opens this page with `?code=` filled in; the
+ * user confirms here, signed in, and the client's next poll collects a scoped
+ * API key. The warning is load-bearing: the only attack this flow has is
+ * talking someone into approving a code they did not generate, and this page
+ * is where that gets refused.
+ *
+ * Clients ask for different things — the launcher rates and comments, the tag
+ * editor publishes — so what is being granted is read off the pending
+ * handshake rather than stated here. Publishing is called out separately
+ * because approving it in error costs an account its name on a release, not
+ * a comment.
  */
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { KeyRound, ShieldAlert } from "lucide-react";
+import { KeyRound, ShieldAlert, Upload } from "lucide-react";
 
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
@@ -21,6 +27,21 @@ import { useHub } from "../components/HubKit";
 interface Pending {
   user_code: string;
   client_name: string;
+  scopes: string[];
+  key_ttl_days: number;
+}
+
+/** Plain-language readings of the scopes a device may ask for. */
+const SCOPE_LABELS: Record<string, string> = {
+  "mods:read": "Browse the hub as you",
+  "mods:write": "Publish and update mods in your name",
+  "ratings:write": "Rate mods as you",
+  "comments:write": "Post comments as you",
+};
+
+/** A scope with no reading is still shown — unnamed, but never hidden. */
+function describeScope(scope: string): string {
+  return SCOPE_LABELS[scope] ?? scope;
 }
 
 function normalize(code: string): string {
@@ -36,7 +57,12 @@ function LinkForm() {
   const code = normalize(typed ?? searchParams.get("code") ?? "");
 
   const [pending, setPending] = useState<Pending | null>(null);
-  const [outcome, setOutcome] = useState<"approved" | "denied" | null>(null);
+  // The decision is kept with the client it was made about, so the
+  // confirmation can name what was linked after `pending` stops mattering.
+  const [outcome, setOutcome] = useState<{
+    status: "approved" | "denied";
+    client_name: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -48,8 +74,8 @@ function LinkForm() {
     let live = true;
     fetch(`/api/v1/auth/device/pending/${encodeURIComponent(code)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((info: { client_name: string } | null) => {
-        if (live) setPending(info ? { user_code: code, client_name: info.client_name } : null);
+      .then((info: Omit<Pending, "user_code"> | null) => {
+        if (live) setPending(info ? { user_code: code, ...info } : null);
       })
       .catch(() => {});
     return () => {
@@ -58,6 +84,7 @@ function LinkForm() {
   }, [code]);
 
   const waiting = pending?.user_code === code ? pending : null;
+  const publishes = waiting?.scopes.includes("mods:write") ?? false;
 
   const decide = useCallback(
     async (approve: boolean) => {
@@ -69,20 +96,20 @@ function LinkForm() {
         body: JSON.stringify({ user_code: code, approve }),
       });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) setOutcome(body.status);
+      if (res.ok) setOutcome({ status: body.status, client_name: body.client_name });
       else setError(body.message ?? body.error ?? "That did not work.");
       setBusy(false);
     },
     [code],
   );
 
-  if (outcome === "approved") {
+  if (outcome?.status === "approved") {
     return (
       <div className="rounded-xl border border-gold/40 bg-gold/5 p-6">
         <p className="text-foreground font-semibold mb-1">Device linked.</p>
         <p className="text-sm text-text-muted">
-          Head back to the launcher — it will pick this up within a few seconds. You can revoke it
-          any time from{" "}
+          Head back to {outcome.client_name} — it will pick this up within a few seconds. You can
+          revoke it any time from{" "}
           <Link href="/account/keys" className="text-gold hover:underline">
             your API keys
           </Link>
@@ -92,7 +119,7 @@ function LinkForm() {
     );
   }
 
-  if (outcome === "denied") {
+  if (outcome?.status === "denied") {
     return (
       <div className="rounded-xl border border-border p-6">
         <p className="text-foreground font-semibold mb-1">Request denied.</p>
@@ -130,17 +157,48 @@ function LinkForm() {
       </label>
 
       {waiting && (
-        <p className="text-sm text-text-muted">
-          Waiting to link: <span className="text-foreground">{waiting.client_name}</span>
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-text-muted">
+            Waiting to link: <span className="text-foreground">{waiting.client_name}</span>
+          </p>
+          <ul className="space-y-1.5">
+            {waiting.scopes.map((scope) => (
+              <li
+                key={scope}
+                className={`flex items-start gap-2 text-sm ${
+                  scope === "mods:write" ? "text-foreground" : "text-text-muted"
+                }`}
+              >
+                {scope === "mods:write" ? (
+                  <Upload className="w-4 h-4 text-accent-red shrink-0 mt-0.5" />
+                ) : (
+                  <span aria-hidden className="text-text-dim shrink-0 mt-0.5">
+                    •
+                  </span>
+                )}
+                <span>{describeScope(scope)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="flex items-start gap-3 rounded-lg border border-accent-red/30 bg-accent-red/5 p-3">
         <ShieldAlert className="w-5 h-5 text-accent-red shrink-0 mt-0.5" />
         <p className="text-xs text-text-muted">
-          Only approve a code <strong className="text-foreground">your own launcher</strong> is
-          showing right now. If someone sent you this code or asked you to enter it, they are
-          trying to post as you — deny it.
+          Only approve a code{" "}
+          <strong className="text-foreground">an app on your own machine</strong> is showing right
+          now. If someone sent you this code or asked you to enter it, they are trying to{" "}
+          {publishes ? "publish mods under your name" : "post as you"} — deny it.
+          {publishes && (
+            <>
+              {" "}
+              <strong className="text-foreground">
+                This code asks to publish, which is the one worth being sure about:
+              </strong>{" "}
+              releases it uploads carry your name and your signature.
+            </>
+          )}
         </p>
       </div>
 
@@ -164,8 +222,10 @@ function LinkForm() {
       </div>
 
       <p className="text-[11px] text-text-dim">
-        Approving grants read, rating and comment access for 180 days. It cannot publish mods, and
-        you can revoke it from{" "}
+        {waiting
+          ? `Approving grants exactly what is listed above, for ${waiting.key_ttl_days} days.`
+          : "Approving grants only what the waiting app asked for, and only for a few months."}{" "}
+        You can revoke it from{" "}
         <Link href="/account/keys" className="text-gold hover:underline">
           your API keys
         </Link>{" "}
@@ -185,8 +245,8 @@ export default function LinkDevicePage() {
           Link a device
         </h1>
         <p className="text-text-muted text-sm mb-8">
-          The MJOLNIR Launcher shows a code when you sign in from the desktop. Enter it here to let
-          that copy of the launcher rate and comment as you.
+          MJOLNIR desktop apps show a code when you sign in from the desktop — the launcher to rate
+          and comment as you, the tag editor to publish your mods. Enter it here to say yes.
         </p>
         {/* useSearchParams opts its subtree out of prerendering; the boundary
             keeps that to the form. */}

@@ -54,12 +54,26 @@ edit in the editor ──► edits.json (autosave, per edit)
 
 ## Publishing auth
 
-Device pairing deliberately excludes `mods:write` — a paired launcher must not be able to
-publish as you. The editor therefore publishes with a **user-minted API key** (hub
-account page → key with `mods:write`), pasted once and stored locally. This keeps the
-security posture (explicit, revocable, scoped) while making publish a button in the
-editor. A future, friendlier option is an elevated pairing flow whose approval page says
-"this device will be able to publish mods as you"; the API needs no changes for it.
+The editor **links to a hub account** through the same device pairing the launcher uses,
+asking for `mods:read mods:write`: it shows a short code, the user approves it at
+`/link` in a real browser while signed in, and the key arrives on the next poll. The
+approval page lists what is being granted and warns harder when publishing is in the
+list — this is the "elevated pairing flow whose approval page says *this device will be
+able to publish mods as you*" that earlier drafts of this doc left as future work.
+
+Pasting a hand-minted key still works, behind a disclosure, for CI and for anyone who
+wants to pick the scopes themselves. It is the fallback rather than the front door,
+because linking produces the better credential on every axis: scoped to what the editor
+actually uses, expiring in 90 days, named on the account page, and never passing through
+a clipboard.
+
+Both the paired key and the device signing key are stored as DPAPI blobs (user scope) in
+the MJOLNIR config directory — a key that can publish under your name is worth what the
+signing key beside it is worth, and neither belongs in `tag-editor.json`.
+
+A launcher→editor hand-off is not possible and should not be added: the launcher's key
+lacks `mods:write`, and approval requires a cookie session precisely so that one desktop
+key cannot mint another. Each app pairs for itself.
 
 `MJOLNIR_HUB` overrides the hub origin for local development.
 

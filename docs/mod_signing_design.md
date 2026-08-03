@@ -145,12 +145,14 @@ that model works is that private keys never travel.
 
 **Registry.** `user_keys` on the hub: id, user, raw public key, fingerprint (unique),
 label (defaults to the machine name), created / last-used / revoked timestamps.
-Registration happens through the editor using the already-configured `mods:write` API
-key; the account page lists every key with its label and dates, and revocation is one
-click there. Tradeoff, stated: a stolen `mods:write` key could register a signing key.
-It could also simply publish, so this does not widen the blast radius — but the key
-list's visibility is the recovery path either way. A browser-approval registration flow
-(like device pairing) is the future hardening if it ever matters.
+Registration happens through the editor using its `mods:write` API key — obtained by
+linking the editor to the account through device pairing, or pasted in by hand; the
+account page lists every key with its label and dates, and revocation is one click
+there. Tradeoff, stated: a stolen `mods:write` key could register a signing key. It
+could also simply publish, so this does not widen the blast radius — but the key list's
+visibility is the recovery path either way. Browser approval now gates how that key is
+obtained; gating each *registration* behind its own approval is the remaining hardening
+if it ever matters.
 
 **Revocation.** A revoked key fails registration checks for *future* uploads. Already-
 published releases keep their at-publish verification; the API exposes the key's
