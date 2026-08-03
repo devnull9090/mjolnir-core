@@ -170,7 +170,9 @@ export const useEditor = create<EditorState>((set, get) => {
   }
 
   return {
-    status: "idle",
+    // Detection starts as soon as the app mounts, so that is the honest
+    // starting state; `idle` means detection ran and found nothing.
+    status: "detecting",
     error: null,
     paks: null,
     oodle: null,
@@ -328,7 +330,9 @@ export const useEditor = create<EditorState>((set, get) => {
       try {
         await api.openInstall(paks, oodle);
         const groups = await api.listGroups();
-        set({ status: "ready", groups, paks, oodle, note: null });
+        // `dirLoading` goes up with the shell so the file list shows its
+        // spinner instead of "Empty." for the frame before the root arrives.
+        set({ status: "ready", groups, paks, oodle, note: null, dirLoading: true });
         // The asset tree is the default view, so it is ready on arrival.
         await get().openDir("");
       } catch (e) {

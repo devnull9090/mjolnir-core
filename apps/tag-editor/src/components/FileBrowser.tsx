@@ -1,4 +1,5 @@
 import { useEditor } from "../stores/editor-store";
+import { Spinner } from "./LoadingPanel";
 import type { DirEntry } from "../lib/api";
 
 /** Bytes, at the precision a file listing actually needs. */
@@ -170,11 +171,17 @@ export function FileBrowser() {
         {entries.map((e) => (
           <Row key={`${e.kind}-${e.path}`} entry={e} showPath={searching} />
         ))}
-        {entries.length === 0 && (
-          <li className="px-3 py-4 text-xs text-text-dim">
-            {dirLoading ? "Reading…" : searching ? "Nothing matched." : "Empty."}
-          </li>
-        )}
+        {entries.length === 0 &&
+          (dirLoading ? (
+            <li className="flex items-center gap-2 px-3 py-4 text-xs text-text-dim">
+              <Spinner className="h-3 w-3" />
+              {searching ? "Searching…" : "Reading…"}
+            </li>
+          ) : (
+            <li className="px-3 py-4 text-xs text-text-dim">
+              {searching ? "Nothing matched." : "Empty."}
+            </li>
+          ))}
       </ul>
     </div>
   );

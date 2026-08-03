@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useEditor } from "./stores/editor-store";
 import { SetupPanel } from "./components/SetupPanel";
+import { LoadingPanel } from "./components/LoadingPanel";
 import { TagTree } from "./components/TagTree";
 import { Inspector } from "./components/Inspector";
 import { FormInspector } from "./components/FormInspector";
@@ -17,6 +18,14 @@ export default function App() {
     void detect();
   }, [detect]);
 
+  // Detection and opening are automatic, so they get a spinner rather than the
+  // setup form; the form is for when we need the user to point us somewhere.
+  if (status === "detecting") {
+    return <LoadingPanel label="Looking for your installation…" />;
+  }
+  if (status === "opening") {
+    return <LoadingPanel label="Reading the tag catalogue…" />;
+  }
   if (status !== "ready") {
     return <SetupPanel />;
   }
