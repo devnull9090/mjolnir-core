@@ -200,13 +200,14 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 
 | Crate | Purpose |
 |---|---|
-| `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, Oodle, zlib, partitions) |
+| `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, built-in Oodle decoder, zlib, partitions) |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
 | `blam-tag` | Container header, `blay` layout, `bdat` values: read, decode, edit, write |
 | `blam-cli` | The `mjolnir` command-line tool |
 
 ```powershell
 $env:HCE_PAKS = "<install>\Meteorite\Content\Paks"
+# Optional. A decoder is built in; a DLL is only about four times faster.
 $env:OODLE    = "<UE install>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
 
 cargo run --release -p blam-cli -- groups                            # every group + tables
@@ -252,7 +253,8 @@ pnpm install
 pnpm tauri dev
 ```
 
-The Paks folder and Oodle DLL are auto-detected on first run, with a manual picker as a fallback.
+The Paks folder is auto-detected on first run, with a manual picker as a fallback. No Oodle DLL is
+required — one is used if found, purely for speed.
 
 It renders the tag tree and, for each tag, its fields with their **decoded values** — enum and
 bitfield options resolved to names, tag references as group and path, colours as hex, vectors and

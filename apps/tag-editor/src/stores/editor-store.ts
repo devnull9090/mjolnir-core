@@ -312,8 +312,9 @@ export const useEditor = create<EditorState>((set, get) => {
       try {
         const found = await api.detectInstall();
         set({ paks: found.paks, oodle: found.oodle, note: found.note });
-        if (found.paks && found.oodle) {
-          await get().open(found.paks, found.oodle);
+        // The DLL is optional; without one the backend uses its own decoder.
+        if (found.paks) {
+          await get().open(found.paks, found.oodle ?? "");
         } else {
           set({ status: "idle" });
         }

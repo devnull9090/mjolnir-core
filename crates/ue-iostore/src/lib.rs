@@ -46,10 +46,8 @@ pub enum Error {
     Truncated { wanted: usize, have: usize },
     #[error("unsupported compression method {0:?}")]
     UnsupportedCompression(String),
-    #[error("no oo2core_*_win64.dll found; supply a path to one from a local UE install")]
-    OodleMissing,
-    #[error("failed to load Oodle: {0}")]
-    OodleLoad(String),
+    #[error("Oodle decode failed: {0}")]
+    OodlePure(String),
     #[error("Oodle decompress returned {got}, expected {want}")]
     OodleDecompress { got: i64, want: usize },
     #[error("zlib decompress failed: {0}")]

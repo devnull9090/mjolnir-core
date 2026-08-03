@@ -1,9 +1,14 @@
 [package]
 name = "mjolnir-tag-editor"
-version = "0.1.0"
+version = "0.2.0"
 description = "MJOLNIR Tag Editor — Guerilla-style tag browser for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
+
+# Standalone on purpose: the root workspace excludes this package, and this
+# table stops cargo from walking further up and adopting whatever workspace
+# happens to sit above it — which is what breaks builds inside a git worktree.
+[workspace]
 
 [lib]
 name = "tag_editor_lib"

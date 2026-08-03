@@ -70,7 +70,16 @@ pub struct Catalog {
     pub textures: Vec<TextureEntry>,
     /// Every asset by virtual path, sorted, so a listing is a contiguous range.
     files: Vec<VirtualFile>,
+    /// Where to look for the optional Oodle DLL; empty means use the built-in
+    /// decoder.
     oodle: Vec<PathBuf>,
+}
+
+impl Catalog {
+    /// Which Oodle decoder this catalog reads with.
+    pub fn oodle_backend(&self) -> ue_iostore::oodle::Backend {
+        ue_iostore::oodle::backend(&self.oodle)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -215,7 +224,12 @@ impl Catalog {
             tags,
             textures,
             files,
-            oodle: vec![PathBuf::from(oodle)],
+            // Empty means the caller has no DLL, which is fine: the reader
+            // falls back to its own decoder.
+            oodle: match oodle.trim() {
+                "" => Vec::new(),
+                path => vec![PathBuf::from(path)],
+            },
         })
     }
 
