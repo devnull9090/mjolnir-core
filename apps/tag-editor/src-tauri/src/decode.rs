@@ -133,6 +133,40 @@ fn decodes(ogg: &[u8]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// The packaged build must allow the webview to load the audio we hand it.
+    ///
+    /// A `tauri dev` run loads from the Vite server and never applies the app
+    /// CSP, so a policy that blocks audio looks completely fine in development
+    /// and ships broken: the player reports "ready" and then plays silence,
+    /// because the `<audio>` element's source was refused. That is exactly what
+    /// 0.6.0 did — `img-src` had been given `data:` for the texture viewer, but
+    /// there was no `media-src` at all, so it fell back to `default-src 'self'`.
+    #[test]
+    fn the_csp_lets_the_webview_play_what_the_backend_sends() {
+        let conf = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tauri.conf.json"
+        ))
+        .expect("tauri.conf.json is readable");
+        let json: serde_json::Value = serde_json::from_str(&conf).expect("valid JSON");
+        let csp = json["app"]["security"]["csp"]
+            .as_str()
+            .expect("a CSP is configured");
+
+        let media = csp
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("media-src"))
+            .unwrap_or_else(|| panic!("no media-src directive; audio will not load:\n  {csp}"));
+        // Playback uses a blob URL built from the base64 the backend sends.
+        for source in ["blob:", "data:"] {
+            assert!(
+                media.contains(source),
+                "media-src must allow {source} or playback silently fails:\n  {media}"
+            );
+        }
+    }
+
     #[test]
     fn rubbish_input_is_rejected_not_returned() {
         assert!(to_ogg(b"").is_err());

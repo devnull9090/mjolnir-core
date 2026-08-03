@@ -165,6 +165,8 @@ type EditorState = {
   exportTexture: (dest: string) => Promise<number | null>;
   sounds: SoundSummary[];
   soundQuery: string;
+  /** A listing is in flight; an empty list means "not yet", not "none". */
+  soundsLoading: boolean;
   searchSounds: (query: string) => Promise<void>;
   selectedSound: number | null;
   sound: SoundView | null;
@@ -448,12 +450,18 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     sounds: [],
     soundQuery: "",
+    soundsLoading: false,
     async searchSounds(query) {
-      set({ soundQuery: query });
+      // The first listing also builds the Wwise name index, which reads every
+      // cooked audio package and takes seconds — long enough that an empty
+      // list reads as "no sounds" unless the wait is shown.
+      set({ soundQuery: query, soundsLoading: true });
       try {
         set({ sounds: await api.listSounds(query) });
       } catch (e) {
         set({ error: String(e) });
+      } finally {
+        set({ soundsLoading: false });
       }
     },
     selectedSound: null,
