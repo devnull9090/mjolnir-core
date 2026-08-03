@@ -26,6 +26,12 @@
     }
   ],
   "vars": {
-    "SITE_URL": "https://mjolnircore.com"
+    "SITE_URL": "https://mjolnircore.com",
+    // Content uploads must carry a verifiable author signature: the
+    // `unsigned` scan finding becomes an error rather than a warning.
+    // Publishing therefore requires a tag editor that signs (0.3.0+).
+    // Lives here rather than as a secret so the policy is visible and
+    // deploys atomically with the worker (docs/mod_signing_design.md).
+    "REQUIRE_SIGNED_UPLOADS": "1"
   }
 }

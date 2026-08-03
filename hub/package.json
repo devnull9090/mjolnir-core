@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "conformance:signing": "cargo run -q -p mjolnir-sign --example fixture > .signing-fixture.json && tsx scripts/verify-fixture.mts .signing-fixture.json",
     "openapi:export": "tsx scripts/export-openapi.mts",
     "openapi:check": "tsx scripts/export-openapi.mts && git diff --exit-code -- public/openapi.json",
     "db:migrate": "wrangler d1 migrations apply mjolnir-db --local",
