@@ -719,14 +719,136 @@ tags, and the test scenarios have none — the `false` return today is consisten
 world-existence check, but a mounted world may still need scenario tags to survive simulation
 start. That is the discriminating experiment.
 
+### 2026-08-02, later: the first custom world — what the gate actually is
+
+**Verified.** A UE 5.5.0 world was built, cooked, and installed as
+`pakchunk990-MJOLNIRWORLD-Windows_P` (see [`unreal/MJOLNIRMapKit`](../unreal/MJOLNIRMapKit/README.md)),
+targeting the pre-registered `testing_shooting_range` slot. Results, in order:
+
+1. **The container mounts.** With the game running, its `.ucas` could not be renamed
+   (*used by another process*) while the `.utoc` moved freely — the read-index-once /
+   hold-data-open signature of an IoStore mount, the same test used for tag overrides.
+2. **The cooked package is structurally sound.** Our own zen parser reads the header:
+   correct package name, `package_flags = 0x80022200` (identical to the shipped
+   `SeamlessTravelTEst.umap`), 42 imports, 5 exports.
+3. **Every import resolves against the game's own script-object table.** All 40 distinct
+   script imports our world needs are present in the game's `global.utoc` with **identical
+   64-bit hashes**. A stock UE 5.5.0 cook is therefore *not* incompatible with 343's
+   modified engine at the class-reference level — the earlier worry is disproven for a
+   world this simple.
+4. **`mjolnir_mission testing_shooting_range` still returned `false`**, synchronously, exactly
+   as it did before the world existed.
+
+**The discriminating evidence:** the build ships **exactly 13 `*-scenario` tags** — one per
+launchable campaign mission (`a15`, `a30`, `a50`, `B30`, `B40`, `c10`, `c20`, `C45`, `d20`,
+`d40`, `E10`, `E20`, `e30`), each under `Tags/Levels/Halo1/Solo/<M>/_Generated_/` — and **zero
+for any `testing_*` scenario**. The campaign flow's scenario-name argument is resolved against
+the **Blam scenario tag**, not against the Unreal world package. Supplying the world changes
+nothing because the world was never what was missing.
+
+**Superseded:** the earlier reading that `false` was "a world-existence check" was wrong. It is
+a scenario-tag lookup. The `DT_Test_Scenarios` world paths are real but unreachable without a
+matching scenario tag.
+
+**Consequence for custom maps.** Two routes, and the cheap one is now testable:
+
+- **Override a shipped scenario's world.** Cook the custom world at, e.g.,
+  `/Game/Levels/Halo1/Solo/A15/A15` and launch `mjolnir_mission A15`. The `a15` scenario tag
+  exists and is untouched; only the Unreal world is replaced. This isolates "can the game render
+  and play a custom UE world" from "can we author Blam scenario data", which is the question
+  worth answering first.
+- **Generate a scenario tag** for a new name — the real prize, and much larger: the `_Generated_`
+  sets pair each scenario with BSP, seam, lighting and soft-ceiling tags
+  ([`tag_data_pipeline.md`](tag_data_pipeline.md)).
+
+**Also observed:** calling `LoadAsset` on a world package from UE4SS Lua crashed the game
+(`EXCEPTION_ACCESS_VIOLATION` reading `0x10`, all frames inside UE4SS). Loading a world outside
+the engine's travel path is not a safe probe; use `SetAndBeginCampaign` and read the result.
+
+**Unverified, noted for later:** the shipped `SeamlessTravelTEst.umap` uses
+`/Script/BlamEngine/BlamWorldSettings` where a stock cook emits `/Script/Engine/WorldSettings`.
+Whether the Blam subclass is *required* for a world to run is untested — if the A15 override
+loads geometry but the simulation never starts, this is the first thing to suspect.
+
+### 2026-08-02, third pass: a custom world loads and the mission runs on it
+
+**Verified — this is the breakthrough.** A world cooked in stock UE 5.5, installed as an
+override of A15's world package, **loaded, and A15's mission logic ran on top of it**: HUD
+reticle, and the opening objective text ("Begin Calibration? Press E to Proceed").
+
+Proof it was our world and not the shipped one, read by reflection while in game:
+
+| Check | Our world | Shipped A15 |
+|---|---|---|
+| WorldSettings class | `WorldSettings` (stock) | `BlamWorldSettings` |
+| `StaticMeshActor` count | `0` | thousands |
+| `BlamWorldSettings` instances | `0` | 1 |
+
+A pawn spawned (`BP_MeteoritePawn_C`), the player controller possessed it, and the campaign
+flow behaved normally. **Cooked custom worlds are viable in this game.** The stock-5.5-versus-
+343-fork worry is disproven at the package, import and world level.
+
+The screen is black because the world is *empty on purpose* — this run used
+`MJOLNIR_EMPTY_WORLD=1`, which saves the bare level (World, Level, Model, WorldSettings) with
+no actors. Black is the correct result for a world with no geometry and no lights.
+
+#### The actual wall: cooked actor components
+
+Building the same world *with* content fails during load, fatally, in `AsyncLoading2`:
+
+```text
+ObjectSerializationError: /Game/Levels/Halo1/Solo/A15/A15
+  CapsuleComponent ...PlayerStart_0.CollisionCapsule:
+  Serial size mismatch: Expected read size 34, Actual read size 14
+
+ObjectSerializationError: /Game/Levels/Halo1/Solo/A15/A15
+  DirectionalLightComponent ...DirectionalLight_0.LightComponent0:
+  Serial size mismatch: Expected read size 67, Actual read size 21
+```
+
+Two different component classes, same failure shape, expected consistently larger than actual:
+**343's engine build serializes these component classes differently from stock UE 5.5**. The
+world, level and model exports are fine; it is component payloads that are binary-incompatible.
+
+**Verified workaround: spawn content at runtime instead of cooking it.** In the loaded custom
+world, `LoadAsset("/Engine/BasicShapes/Cube.Cube")` succeeded, `World:SpawnActor` produced a
+live `StaticMeshActor`, `SetStaticMesh` and `SetActorScale3D` applied, and a runtime-spawned
+`DirectionalLight` configured cleanly. Runtime spawning goes through the game's own class
+layouts, so it sidesteps the serialization wall entirely.
+
+**The emerging recipe for a custom map:** ship an *empty* cooked world at a scenario slot whose
+Blam scenario tag exists, then build the map at runtime from a UE4SS mod. That splits cleanly
+along the boundary the evidence draws: the engine will load our *world*, but only its own
+process may construct our *actors*.
+
+**Unverified:** whether a runtime-spawned mesh actually renders. Screenshots stayed black after
+spawning a cube and a light. Candidates: no sky/ambient contribution, the Blam renderer owning
+the view, or the spawned actor needing registration the Lua path skipped. This is the next
+thing to chase.
+
+**Also verified (and it matters for automation):** `SetAndBeginCampaign` called straight from
+the frontend, *before* clearing the title/login screen, loads the mission in a degraded state —
+pawn present but HUD hidden and nothing drawn. Pressing through the title screen first and then
+launching produces a normal, running mission. Automated runs must clear the title screen first.
+
+#### Debug menu: custom entries
+
+`mods/MJOLNIRMapMenu` reveals the shipped Test options panel automatically at the frontend and
+adds custom rows to the TEST MAPS page. **Verified:** a `BP_DebugMapItemData_C` constructed at
+runtime with `CampaignData` + `StartingScenarioName` is accepted by the shipped list view
+(`AddItem` reported success; the item pool grew from 20 to 21).
+
+Presentation lives on the `HaloUIViewItemData` base, not the Blueprint: `EntryName` (the label),
+`EntryWidgetClass` and `EntryWidgetButtonStyle` (without which a row renders as nothing). The
+mod now copies those from a shipped item. **Unverified:** the added row has not been *seen* on
+screen — keyboard navigation did not reach past the shipped entries, and a reflection probe
+calling `GetNumItems` on the list view crashed the game (access violation reading `0x18`), so
+that call is not a valid method here. Confirming the row visually is unfinished work.
+
 ### Revised next steps
 
-1. Cook a minimal UE 5.5 world, package it at a `Testing_*` path
-   ([`iostore_packaging.md`](iostore_packaging.md)), and re-run the launch. `true` + load =
-   custom maps through the front door. **Tooling ready 2026-08-02:**
-   [`unreal/MJOLNIRMapKit`](../unreal/MJOLNIRMapKit/README.md) is the template project
-   (plane + PlayerStart + tagged spawn markers, generate/package/install scripts). Blocked
-   only on a UE 5.5.x install; run remains unexecuted.
+1. ~~Cook a minimal UE 5.5 world and launch it.~~ **Done 2026-08-02 — it loads.** See the third
+   pass above. Remaining thread: make runtime-spawned geometry actually render.
 2. If the sim rejects it, generate minimal scenario/BSP tags for the world
    ([`tag_data_pipeline.md`](tag_data_pipeline.md)) and retry.
 3. Probe `Options.GameVariant`: enumerate what variant classes

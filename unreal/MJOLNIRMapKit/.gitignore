@@ -6,3 +6,6 @@ Build/
 
 # Cook/stage output collected by scripts/package.ps1
 Artifacts/
+
+# Levels are build output of Content/Python/mjolnir_build_world.py
+Content/Levels/

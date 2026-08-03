@@ -112,6 +112,36 @@ so maps built today keep working.
    world was a plain level and WP adds generated-cell complexity for nothing
    at this size.
 
+## What the first runs established (2026-08-02)
+
+**A custom cooked world loads, and the mission runs on it.** An empty world installed over
+A15's package produced a running A15 mission — HUD, objective prompts, a possessed pawn — with
+reflection confirming the loaded world was ours. Cooking in stock UE 5.5 is viable.
+
+**But cooked actor components are binary-incompatible.** A world containing a `PlayerStart` or
+a `DirectionalLight` dies during load:
+
+```text
+CapsuleComponent ... Serial size mismatch: Expected read size 34, Actual read size 14
+DirectionalLightComponent ... Serial size mismatch: Expected read size 67, Actual read size 21
+```
+
+343's engine serializes these classes differently from stock 5.5. So:
+
+> **Ship the world empty; build the map at runtime.** `MJOLNIR_EMPTY_WORLD=1` cooks the bare
+> level. Spawning actors in-process from a UE4SS Lua mod works — `LoadAsset` on
+> `/Engine/BasicShapes/Cube`, `World:SpawnActor`, `SetStaticMesh` and `SetActorScale3D` all
+> succeed — because runtime spawning uses the game's own class layouts.
+
+**Scenario names are gated by Blam tags.** Only the 13 shipped campaign scenarios have
+`*-scenario` tags, and the campaign flow resolves the scenario *name* against those tags. A
+`testing_*` name cannot launch regardless of what world package exists, so a custom world must
+override a campaign scenario's world (the table of free `Testing_*` slots below is therefore
+aspirational until scenario-tag generation works).
+
+**Environment switches** on the generator: `MJOLNIR_LEVEL_PACKAGE` (target package path),
+`MJOLNIR_EMPTY_WORLD=1` (no actors), `MJOLNIR_SKIP_PLAYERSTART=1` (omit the capsule actor).
+
 ## Known unknowns (the experiment this kit runs)
 
 - The 13 shipped campaign worlds all have generated **Blam scenario/BSP tags**;

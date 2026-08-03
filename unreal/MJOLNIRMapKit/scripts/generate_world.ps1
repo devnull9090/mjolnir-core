@@ -6,8 +6,13 @@
 # 5.6+ output will not load in the game.
 
 param(
-    [string]$EnginePath = "C:\Program Files\Epic Games\UE_5.5"
+    [string]$EnginePath = "C:\Program Files\Epic Games\UE_5.5",
+    [string]$LevelPackage = $(if ($env:MJOLNIR_LEVEL_PACKAGE) { $env:MJOLNIR_LEVEL_PACKAGE } else { "/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range" })
 )
+
+# The generator reads this; passing it as a parameter keeps the two scripts
+# agreeing on the target even when only one of them is given -LevelPackage.
+$env:MJOLNIR_LEVEL_PACKAGE = $LevelPackage
 
 $ErrorActionPreference = "Stop"
 
@@ -25,7 +30,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "world generation failed with exit code $LASTEXITCODE"
 }
 
-$umap = Join-Path $kit "Content\Levels\Test\Testing_Shooting_Range\testing_shooting_range.umap"
+$umapRelative = ($LevelPackage -replace "^/Game/", "Content/") + ".umap"
+$umap = Join-Path $kit ($umapRelative -replace "/", "\")
 if (-not (Test-Path $umap)) {
     throw "editor exited cleanly but $umap was not created"
 }

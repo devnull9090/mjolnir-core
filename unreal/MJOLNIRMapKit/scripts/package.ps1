@@ -22,6 +22,7 @@
 param(
     [string]$EnginePath = "C:\Program Files\Epic Games\UE_5.5",
     [string]$GamePath = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved",
+    [string]$LevelPackage = $(if ($env:MJOLNIR_LEVEL_PACKAGE) { $env:MJOLNIR_LEVEL_PACKAGE } else { "/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range" }),
     [switch]$Install
 )
 
@@ -36,28 +37,37 @@ $containerName = "pakchunk990-MJOLNIRWORLD-Windows_P"
 if (-not (Test-Path $uat)) {
     throw "RunUAT.bat not found under '$EnginePath'. Install UE 5.5.x from the Epic Games Launcher, or pass -EnginePath."
 }
-$umap = Join-Path $kit "Content\Levels\Test\Testing_Shooting_Range\testing_shooting_range.umap"
+$umapRelative = ($LevelPackage -replace "^/Game/", "Content/") + ".umap"
+$umap = Join-Path $kit ($umapRelative -replace "/", "\")
 if (-not (Test-Path $umap)) {
-    throw "no world to cook — run generate_world.ps1 first (or author the level in the editor)."
+    throw "no world to cook at $umap - run generate_world.ps1 first (or author the level in the editor)."
 }
 
 # --- cook + stage ------------------------------------------------------------
+# Stale staged output would let an old container satisfy the checks below.
+$stagedRoot = Join-Path $kit "Saved\StagedBuilds"
+if (Test-Path $stagedRoot) { Remove-Item $stagedRoot -Recurse -Force }
+
 & $uat BuildCookRun `
     -project="$project" `
     -platform=Win64 `
     -clientconfig=Shipping `
-    -cook -map="/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range" `
+    -cook -map="$LevelPackage" `
     -stage -pak -iostore -compressed `
     -skipbuild -nodebuginfo -unattended -noP4
 if ($LASTEXITCODE -ne 0) {
     throw "BuildCookRun failed with exit code $LASTEXITCODE"
 }
 
+# The PrimaryAssetLabel routes our content into chunk 990; engine startup
+# content lands in the other containers, which are never installed.
 $staged = Join-Path $kit "Saved\StagedBuilds\Windows\Meteorite\Content\Paks"
-$srcUtoc = Join-Path $staged "pakchunk0-Windows.utoc"
-$srcUcas = Join-Path $staged "pakchunk0-Windows.ucas"
+$srcUtoc = Join-Path $staged "pakchunk990-Windows.utoc"
+$srcUcas = Join-Path $staged "pakchunk990-Windows.ucas"
 if (-not (Test-Path $srcUtoc) -or -not (Test-Path $srcUcas)) {
-    throw "staging finished but $staged has no pakchunk0-Windows container"
+    Write-Host "Staged containers found:"
+    Get-ChildItem $staged | ForEach-Object { Write-Host ("  " + $_.Name) }
+    throw "staging finished but $staged has no pakchunk990-Windows container - did generate_world.ps1 create the PrimaryAssetLabel?"
 }
 
 # --- collect artifacts -------------------------------------------------------
@@ -84,5 +94,5 @@ if ($Install) {
         Copy-Item (Join-Path $artifacts "$containerName.$ext") $paks -Force
     }
     Write-Host "Installed to $paks. Launch the game and run: mjolnir_mission testing_shooting_range"
-    Write-Host "(The game must not be running during install — it holds mounted .ucas files open.)"
+    Write-Host "(The game must not be running during install - it holds mounted .ucas files open.)"
 }
