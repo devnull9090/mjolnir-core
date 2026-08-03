@@ -5,11 +5,31 @@ import { api } from "../lib/api";
 const BARS = 220;
 
 type Loaded = {
+  /** Object URL for the audio element. */
   src: string;
   via: string;
   /** Peak amplitude per bar, 0..1. Empty until the decode finishes. */
   peaks: number[];
 };
+
+/**
+ * Split a `data:` URI into its MIME type and bytes.
+ *
+ * The backend sends audio base64-encoded because IPC would otherwise ship a
+ * byte array as JSON numbers. Decoding it here keeps a multi-megabyte string
+ * out of the DOM — the element gets a short blob URL — and hands the same
+ * bytes to the waveform decode without a second trip through the network
+ * stack.
+ */
+function decodeDataUri(uri: string): { mime: string; bytes: Uint8Array } {
+  const comma = uri.indexOf(",");
+  const header = uri.slice(5, comma); // past "data:"
+  const mime = header.replace(/;base64$/, "");
+  const binary = atob(uri.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { mime, bytes };
+}
 
 /**
  * Play one Wwise sound, with a waveform to scrub through.
@@ -26,45 +46,53 @@ export function SoundPlayer({ index }: { index: number }) {
   const [at, setAt] = useState(0);
   const [length, setLength] = useState(0);
 
-  // A new sound invalidates whatever the last one loaded.
+  // Selecting a sound loads it, so the waveform is there to look at without
+  // having to press play first. A load in flight when the selection changes is
+  // abandoned rather than allowed to overwrite the newer one.
   useEffect(() => {
-    setLoaded(null);
+    let live = true;
     setError(null);
     setPlaying(false);
     setAt(0);
     setLength(0);
+    setLoading(true);
+    // The previous sound's object URL is released with it, or its bytes stay
+    // alive for the life of the window.
+    setLoaded((prev) => {
+      if (prev) URL.revokeObjectURL(prev.src);
+      return null;
+    });
+
+    let mine: string | null = null;
+    void (async () => {
+      try {
+        const audioData = await api.playSound(index);
+        const { mime, bytes } = decodeDataUri(audioData.src);
+        if (!live) return;
+        mine = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        setLoaded({ src: mine, via: audioData.via, peaks: [] });
+        // Peaks are a nicety; playback must not wait on them or fail with
+        // them. decodeAudioData detaches its input, so it gets a copy.
+        const peaks = await peaksOf(bytes.slice().buffer);
+        if (live && peaks) {
+          setLoaded((cur) => (cur && cur.src === mine ? { ...cur, peaks } : cur));
+        }
+      } catch (e) {
+        if (live) setError(String(e));
+      } finally {
+        if (live) setLoading(false);
+      }
+    })();
+
+    return () => {
+      live = false;
+      if (mine) URL.revokeObjectURL(mine);
+    };
   }, [index]);
 
-  async function load(): Promise<Loaded | null> {
-    setLoading(true);
-    setError(null);
-    try {
-      const audioData = await api.playSound(index);
-      const next: Loaded = { src: audioData.src, via: audioData.via, peaks: [] };
-      setLoaded(next);
-      // Peaks are a nicety; playback must not wait on them or fail with them.
-      void peaksOf(audioData.src).then((peaks) => {
-        if (peaks) setLoaded((cur) => (cur?.src === next.src ? { ...cur, peaks } : cur));
-      });
-      return next;
-    } catch (e) {
-      setError(String(e));
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onToggle() {
+  function onToggle() {
     if (playing) {
       audio.current?.pause();
-      return;
-    }
-    if (!loaded) {
-      const next = await load();
-      if (!next) return;
-      // The element renders with the new src; play once it is mounted.
-      queueMicrotask(() => void audio.current?.play().catch(() => setPlaying(false)));
       return;
     }
     void audio.current?.play().catch(() => setPlaying(false));
@@ -83,8 +111,8 @@ export function SoundPlayer({ index }: { index: number }) {
       <div className="flex items-center gap-4">
         <button
           type="button"
-          onClick={() => void onToggle()}
-          disabled={loading}
+          onClick={onToggle}
+          disabled={loading || !loaded}
           title={playing ? "Pause" : "Play"}
           aria-label={playing ? "Pause" : "Play"}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-mjolnir-gold/60 text-mjolnir-gold transition-colors hover:bg-mjolnir-gold/10 disabled:opacity-40"
@@ -106,7 +134,13 @@ export function SoundPlayer({ index }: { index: number }) {
           <Waveform peaks={loaded?.peaks ?? []} progress={progress} onSeek={seek} />
           <div className="mt-1 flex items-baseline justify-between font-mono text-[10px] text-text-dim">
             <span>
-              {length > 0 ? `${clock(at)} / ${clock(length)}` : loaded ? "ready" : "not loaded"}
+              {length > 0
+                ? `${clock(at)} / ${clock(length)}`
+                : loading
+                  ? "loading…"
+                  : loaded
+                    ? "ready"
+                    : "—"}
             </span>
             {loaded && <span>rebuilt via {loaded.via}</span>}
           </div>
@@ -148,9 +182,8 @@ function clock(secs: number): string {
  * Returns null rather than throwing: a missing waveform is cosmetic, and the
  * audio still plays without it.
  */
-async function peaksOf(src: string): Promise<number[] | null> {
+async function peaksOf(bytes: ArrayBuffer): Promise<number[] | null> {
   try {
-    const bytes = await (await fetch(src)).arrayBuffer();
     const ctx = new OfflineAudioContext(1, 1, 44100);
     const buffer = await ctx.decodeAudioData(bytes);
     // Mix the channels down; the waveform is a shape, not a measurement.

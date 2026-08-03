@@ -212,7 +212,7 @@ function TextureList() {
  * unclaimed media has nothing better to show than the number.
  */
 function SoundList() {
-  const { sounds, soundQuery, selectedSound } = useEditor();
+  const { sounds, soundQuery, selectedSound, soundsLoading } = useEditor();
   const searchSounds = useEditor((s) => s.searchSounds);
   const openTab = useEditor((s) => s.openTab);
 
@@ -255,9 +255,20 @@ function SoundList() {
             </li>
           );
         })}
-        {sounds.length === 0 && (
-          <li className="px-3 py-4 text-xs text-text-dim">No sounds found.</li>
-        )}
+        {sounds.length === 0 &&
+          // The first listing builds the name index, which takes seconds; an
+          // empty list has to say "waiting", not "none".
+          (soundsLoading ? (
+            <li className="flex items-center gap-2 px-3 py-4 text-xs text-text-dim">
+              <span
+                className="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border border-text-dim border-t-transparent"
+                aria-hidden="true"
+              />
+              Reading the sound banks…
+            </li>
+          ) : (
+            <li className="px-3 py-4 text-xs text-text-dim">No sounds found.</li>
+          ))}
       </ul>
     </div>
   );
