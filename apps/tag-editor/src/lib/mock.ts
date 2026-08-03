@@ -7,11 +7,16 @@
 import type {
   DirEntry,
   EditResult,
+  ExportView,
   GroupSummary,
+  HubStatus,
   Install,
   NodeView,
+  ProjectView,
+  PublishView,
   TagSummary,
   TagView,
+  TestView,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -326,7 +331,84 @@ export const mockApi = {
       label: "BP_EliteBipedActor",
     },
   ],
+
+  // A mock project so the mod panel can be built and reviewed in a browser.
+  projectStatus: async () => mockProjectView(),
+  projectNew: async (_dir: string, name: string, slug: string, version: string, summary: string) => {
+    mockProject = { name, slug, version, summary };
+    return mockProjectView()!;
+  },
+  projectOpen: async () => {
+    mockProject = { name: "Faster Pistol", slug: "faster-pistol", version: "0.1.0", summary: "" };
+    return mockProjectView()!;
+  },
+  projectClose: async () => {
+    mockProject = null;
+  },
+  projectSetMeta: async (name: string, slug: string, version: string, summary: string) => {
+    mockProject = { name, slug, version, summary };
+    return mockProjectView()!;
+  },
+  projectRevert: async (_group: string, _tag: string, field: string | null) => {
+    if (field === null) edits.clear();
+    else edits.delete(field);
+  },
+  lastProject: async () => null,
+  projectExport: async (): Promise<ExportView> => ({
+    archive: "C:\\mods\\faster-pistol\\build\\faster-pistol-0.1.0.mjolnir",
+    size: 18_432,
+    containers: ["faster-pistol_P"],
+    chunk_count: 1,
+    resized: false,
+    warnings: [],
+  }),
+  projectTest: async (): Promise<TestView> => ({
+    files: [
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.utoc",
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.ucas",
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.pak",
+    ],
+    resized: false,
+    warnings: [],
+  }),
+  projectUntest: async () => 3,
+  projectPublish: async (): Promise<PublishView> => ({
+    slug: mockProject?.slug ?? "faster-pistol",
+    version: mockProject?.version ?? "0.1.0",
+    status: "published",
+    findings: [{ level: "warning", code: "stray_container", message: "A sample finding." }],
+    url: "https://mjolnircore.com/mods/faster-pistol",
+  }),
+  hubStatus: async (): Promise<HubStatus> => ({ base: "https://mjolnircore.com", has_key: false }),
+  hubSetKey: async () => {},
 };
+
+let mockProject: { name: string; slug: string; version: string; summary: string } | null = null;
+
+function mockProjectView(): ProjectView | null {
+  if (!mockProject) return null;
+  return {
+    root: "C:\\mods\\" + mockProject.slug,
+    meta: { schema_version: 1, ...mockProject },
+    changes:
+      edits.size === 0
+        ? []
+        : [
+            {
+              group: "scenario",
+              tag: "levels/b30/b30",
+              index: 0,
+              edits: [...edits.entries()].map(([field, value]) => ({
+                field,
+                value,
+                before: "…",
+                stale: false,
+              })),
+            },
+          ],
+    test_files: [],
+  };
+}
 
 /** A generated placeholder image so the viewer can be exercised in a browser. */
 function mockTexturePng(): string {

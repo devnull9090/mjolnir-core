@@ -79,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blam-defs",
+ "blam-pack",
  "blam-tag",
  "clap",
  "serde_json",
@@ -92,6 +93,13 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "blam-pack"
+version = "0.1.0"
+dependencies = [
+ "ue-iostore",
 ]
 
 [[package]]

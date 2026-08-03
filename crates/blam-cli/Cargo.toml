@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 blam-defs = { path = "../blam-defs" }
 blam-tag = { path = "../blam-tag" }
+blam-pack = { path = "../blam-pack" }
 ue-iostore = { path = "../ue-iostore" }
 anyhow.workspace = true
 clap.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "mjolnir-tag-editor"
-version = "0.2.0"
+version = "0.3.0"
 description = "MJOLNIR Tag Editor — Guerilla-style tag browser for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
@@ -38,7 +38,10 @@ dirs = "6"
 
 blam-defs = { path = "../../../crates/blam-defs" }
 blam-tag = { path = "../../../crates/blam-tag" }
+blam-pack = { path = "../../../crates/blam-pack" }
 ue-iostore = { path = "../../../crates/ue-iostore" }
 texture2ddecoder = "0.1"
 png = "0.17"
 base64 = "0.22"
+zip = "2"
+reqwest = { version = "0.12", features = ["blocking", "json"] }

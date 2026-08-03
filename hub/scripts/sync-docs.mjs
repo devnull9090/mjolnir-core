@@ -26,6 +26,7 @@ const ORDER = [
   "multiplayer_investigation_notes.md",
   "mjolnir_format.md",
   "hub_architecture.md",
+  "mod_authoring_design.md",
   "contributing_code_mods.md",
 ];
 
@@ -33,7 +34,12 @@ const ORDER = [
  * Guides are task-shaped: follow them start to finish and you have done the
  * thing. Notes are the working history behind them, superseded turns included.
  */
-const GUIDES = ["getting_started.md", "tag_editing_guide.md", "game_automation.md"];
+const GUIDES = [
+  "getting_started.md",
+  "making_your_first_mod.md",
+  "tag_editing_guide.md",
+  "game_automation.md",
+];
 
 function slugify(fileName) {
   return fileName.replace(/\.md$/i, "").replace(/_/g, "-").toLowerCase();
