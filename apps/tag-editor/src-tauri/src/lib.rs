@@ -12,7 +12,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::State;
 
+pub mod bnk;
 pub mod catalog;
+pub mod decode;
 pub mod hub;
 pub mod install;
 pub mod keystore;
@@ -20,7 +22,9 @@ pub mod live;
 pub mod modpack;
 pub mod project;
 pub mod secret;
+pub mod sounds;
 pub mod textures;
+pub mod wwise;
 pub mod zen;
 
 use catalog::{Catalog, GroupSummary, TagSummary};
@@ -725,6 +729,163 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
     })
 }
 
+#[derive(Serialize)]
+struct SoundSummary {
+    index: usize,
+    /// Path below `WwiseAudio/`.
+    path: String,
+    /// Language folder, or `null` for audio shared across languages.
+    language: Option<String>,
+    size: u64,
+    /// The Wwise event that plays this, when one claims it. Wwise names media
+    /// numerically, so without this a row is just an ID.
+    event: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SoundView {
+    path: String,
+    language: Option<String>,
+    /// Stored size of the whole `.wem`.
+    size: u64,
+    /// Header fields, absent for a sound bank rather than a media file.
+    info: Option<sounds::WemInfo>,
+    /// Why the header could not be read, when it could not be.
+    error: Option<String>,
+    /// Every Wwise event that plays this media, and the sources behind them.
+    events: Vec<EventRef>,
+}
+
+/// One Wwise event that plays a media file.
+#[derive(Serialize)]
+struct EventRef {
+    name: String,
+    package: String,
+    /// The authored `.wav` files the event draws from. Which one this
+    /// particular media is cannot be told from the package alone, so the whole
+    /// set is listed.
+    sources: Vec<String>,
+}
+
+#[tauri::command]
+fn list_sounds(query: String, state: State<'_, AppState>) -> Result<Vec<SoundSummary>, String> {
+    with_catalog(&state, |c| {
+        let rows: Vec<(usize, String, Option<String>, u64)> = c
+            .search_sounds(&query, MAX_ROWS)
+            .into_iter()
+            .map(|(index, s)| {
+                (
+                    index,
+                    s.short.clone(),
+                    s.language.clone(),
+                    s.entry.uncompressed_size,
+                )
+            })
+            .collect();
+        Ok(rows
+            .into_iter()
+            .map(|(index, path, language, size)| SoundSummary {
+                event: c.sound_label(index).map(str::to_string),
+                index,
+                path,
+                language,
+                size,
+            })
+            .collect())
+    })
+}
+
+/// Describe one Wwise audio file from its header alone.
+///
+/// Only the leading bytes are read: a listing must not pull whole megabytes
+/// out of the pak just to show a duration.
+#[tauri::command]
+fn read_sound(index: usize, state: State<'_, AppState>) -> Result<SoundView, String> {
+    with_catalog(&state, |c| {
+        let s = c.sound(index).ok_or("sound index out of range")?;
+        let path = s.short.clone();
+        let language = s.language.clone();
+        let size = s.entry.uncompressed_size;
+        // A `.bnk` is a bank of events, not a RIFF media file; report it as
+        // such instead of surfacing a parse failure.
+        let (info, error) = if path.ends_with(".bnk") {
+            (None, Some("sound bank, not a media file".to_string()))
+        } else {
+            match c
+                .read_sound(index, Some(sounds::HEADER_BYTES))
+                .and_then(|d| sounds::parse_wem(&d))
+            {
+                Ok(info) => (Some(info), None),
+                Err(e) => (None, Some(e)),
+            }
+        };
+        let events = match crate::wwise::media_id_of_path(&path) {
+            Some(id) => c
+                .names()
+                .events_for(id)
+                .map(|e| EventRef {
+                    name: e.name.clone(),
+                    package: e.package.clone(),
+                    sources: e.sources.clone(),
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        Ok(SoundView {
+            path,
+            language,
+            size,
+            info,
+            error,
+            events,
+        })
+    })
+}
+
+#[derive(Serialize)]
+struct SoundAudio {
+    /// The stream as a data URI, ready for an `<audio>` element.
+    src: String,
+    /// How it was produced, e.g. the codebook library used.
+    via: &'static str,
+    bytes: usize,
+}
+
+/// Build a playable stream for one sound.
+///
+/// The webview decodes Ogg Vorbis natively, so the backend's job is only to
+/// rebuild the Wwise stream into one — no samples are decoded here.
+#[tauri::command]
+fn play_sound(index: usize, state: State<'_, AppState>) -> Result<SoundAudio, String> {
+    use base64::Engine;
+    with_catalog(&state, |c| {
+        let wem = c.read_sound(index, None)?;
+        let out = decode::to_playable(&wem)?;
+        Ok(SoundAudio {
+            src: format!(
+                "data:{};base64,{}",
+                out.mime,
+                base64::engine::general_purpose::STANDARD.encode(&out.bytes)
+            ),
+            via: out.via,
+            bytes: out.bytes.len(),
+        })
+    })
+}
+
+/// Write a sound's raw `.wem` to a file the user chose.
+///
+/// The payload is copied out byte for byte; decoding Wwise Vorbis is not
+/// implemented yet, so this is what a converter needs as input.
+#[tauri::command]
+fn export_sound(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
+    with_catalog(&state, |c| {
+        let data = c.read_sound(index, None)?;
+        std::fs::write(&dest, &data).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(data.len())
+    })
+}
+
 /// Write a texture's top mip as PNG to a file the user chose.
 #[tauri::command]
 fn export_texture(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
@@ -1355,6 +1516,10 @@ pub fn run() {
             list_textures,
             read_texture,
             export_texture,
+            list_sounds,
+            read_sound,
+            export_sound,
+            play_sound,
             tag_links,
             list_dir,
             search_files,

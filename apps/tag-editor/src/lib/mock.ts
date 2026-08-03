@@ -41,6 +41,35 @@ const mockFiles: Omit<DirEntry, "name" | "children">[] = [
     index: 1,
     size: 6_371_884,
   },
+  { path: "sounds/English(US)/12/100018565.wem", kind: "sound", index: 0, size: 310_629 },
+  { path: "sounds/shared/10/243917884.wem", kind: "sound", index: 1, size: 21_689 },
+];
+
+/** Two sounds shaped like the real ones: one localised, one shared. */
+const mockSounds = [
+  {
+    index: 0,
+    path: "Media/English(US)/12/100018565.wem",
+    language: "English(US)" as string | null,
+    size: 310_629,
+    channels: 2,
+    sample_count: 728_342,
+    avg_bytes_per_sec: 20_437,
+    data_size: 310_511,
+    event: "Play_b30_MusicStart" as string | null,
+  },
+  {
+    index: 1,
+    path: "Media/10/243917884.wem",
+    language: null as string | null,
+    size: 21_689,
+    channels: 1,
+    sample_count: 67_718,
+    avg_bytes_per_sec: 15_284,
+    data_size: 21_579,
+    // Most media is not claimed by any event package, and shows as its ID.
+    event: null as string | null,
+  },
 ];
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -262,6 +291,48 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  listSounds: async (query: string) =>
+    mockSounds
+      .map(({ index, path, language, size, event }) => ({
+        index,
+        path,
+        language,
+        size,
+        event,
+      }))
+      .filter((s) => s.path.toLowerCase().includes(query.toLowerCase())),
+  readSound: async (index: number) => {
+    const s = mockSounds[index] ?? mockSounds[0];
+    return {
+      path: s.path,
+      language: s.language,
+      size: s.size,
+      info: {
+        codec: "Wwise Vorbis",
+        format_tag: 0xffff,
+        channels: s.channels,
+        sample_rate: 48_000,
+        avg_bytes_per_sec: s.avg_bytes_per_sec,
+        sample_count: s.sample_count,
+        duration_secs: s.sample_count / 48_000,
+        data_size: s.data_size,
+        chunks: ["fmt", "hash", "data"],
+      },
+      error: null,
+      events: s.event
+        ? [
+            {
+              name: s.event,
+              package: "/Game/Audio/Music/WwiseEvents/Play_b30_MusicStart.uasset",
+              sources: ["Music\\b30\\b30_MusicStart_01.wav"],
+            },
+          ]
+        : [],
+    };
+  },
+  exportSound: async () => 0,
+  // A one-second sine as a WAV, so the player is exercisable outside Tauri.
+  playSound: async () => ({ src: mockToneWav(), via: "mock tone", bytes: 88_244 }),
   listDir: async (path: string) => {
     const dir = path.replace(/^\/|\/$/g, "");
     const skip = dir === "" ? 0 : dir.length + 1;
@@ -468,4 +539,38 @@ function mockTexturePng(): string {
   ctx.font = "24px monospace";
   ctx.fillText("mock texture", 180, 132);
   return canvas.toDataURL("image/png");
+}
+
+/**
+ * A one-second 440 Hz tone as a 16-bit mono WAV data URI, so the player and
+ * its waveform can be exercised in a plain browser.
+ */
+function mockToneWav(): string {
+  const rate = 44100;
+  const frames = rate;
+  const bytes = new ArrayBuffer(44 + frames * 2);
+  const view = new DataView(bytes);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + frames * 2, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, frames * 2, true);
+  for (let i = 0; i < frames; i++) {
+    // Fade out, so the waveform has a shape rather than a solid block.
+    const envelope = 1 - i / frames;
+    view.setInt16(44 + i * 2, Math.sin((i / rate) * 440 * 2 * Math.PI) * 20000 * envelope, true);
+  }
+  let binary = "";
+  for (const b of new Uint8Array(bytes)) binary += String.fromCharCode(b);
+  return `data:audio/wav;base64,${btoa(binary)}`;
 }

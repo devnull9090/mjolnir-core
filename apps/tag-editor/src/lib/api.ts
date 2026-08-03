@@ -82,11 +82,63 @@ export type TextureView = {
   png: string;
 };
 
+export type SoundSummary = {
+  index: number;
+  path: string;
+  /** Language folder, or null for audio shared across languages. */
+  language: string | null;
+  size: number;
+  /** The Wwise event that plays this, when one claims it; Wwise names media numerically. */
+  event: string | null;
+};
+
+/** A playable stream built from one .wem. */
+export type SoundAudio = {
+  /** Data URI, ready for an audio element. */
+  src: string;
+  /** How it was produced, e.g. which codebook library. */
+  via: string;
+  bytes: number;
+};
+
+/** One Wwise event that plays a media file. */
+export type EventRef = {
+  name: string;
+  package: string;
+  /** The authored .wav files the event draws from, as a set. */
+  sources: string[];
+};
+
+/** What a `.wem` header says about its audio. */
+export type WemInfo = {
+  codec: string;
+  format_tag: number;
+  channels: number;
+  sample_rate: number;
+  avg_bytes_per_sec: number;
+  /** Decoded length in samples per channel, when the header records it. */
+  sample_count: number | null;
+  duration_secs: number | null;
+  data_size: number;
+  chunks: string[];
+};
+
+export type SoundView = {
+  path: string;
+  language: string | null;
+  size: number;
+  /** Absent for a sound bank, or when the header could not be read. */
+  info: WemInfo | null;
+  error: string | null;
+  /** Every Wwise event that plays this media. */
+  events: EventRef[];
+};
+
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
 export type DirEntry = {
   name: string;
   path: string;
-  kind: "dir" | "tag" | "texture";
+  kind: "dir" | "tag" | "texture" | "sound";
   /** Catalog index, for files only. */
   index: number | null;
   size: number;
@@ -256,6 +308,11 @@ const tauriApi = {
   readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
+  listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),
+  playSound: (index: number) => invoke<SoundAudio>("play_sound", { index }),
+  readSound: (index: number) => invoke<SoundView>("read_sound", { index }),
+  exportSound: (index: number, dest: string) =>
+    invoke<number>("export_sound", { index, dest }),
   tagLinks: (index: number) => invoke<LinkedAsset[]>("tag_links", { index }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   searchFiles: (query: string) => invoke<DirEntry[]>("search_files", { query }),

@@ -6,6 +6,7 @@ import { TagTree } from "./components/TagTree";
 import { Inspector } from "./components/Inspector";
 import { FormInspector } from "./components/FormInspector";
 import { TextureViewer } from "./components/TextureViewer";
+import { SoundViewer } from "./components/SoundViewer";
 import { TabBar } from "./components/TabBar";
 
 export default function App() {
@@ -39,10 +40,12 @@ export default function App() {
         <TabBar />
         {active === undefined ? (
           <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-text-dim">
-            Open a tag or texture from the list.
+            Open a tag, texture or sound from the list.
           </div>
         ) : active.kind === "texture" ? (
           <TextureViewer />
+        ) : active.kind === "sound" ? (
+          <SoundViewer />
         ) : viewMode === "form" ? (
           <FormInspector />
         ) : (
