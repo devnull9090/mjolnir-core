@@ -49,9 +49,14 @@ png = "0.17"
 base64 = "0.22"
 zip = "2"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+ww2ogg = "0.1.0"
+lewton = "0.10.2"
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
 ] }
+
+[dev-dependencies]
+lewton = "0.10.2"

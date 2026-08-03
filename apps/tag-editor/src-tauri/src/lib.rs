@@ -13,6 +13,7 @@ use serde::Serialize;
 use tauri::State;
 
 pub mod catalog;
+pub mod decode;
 pub mod hub;
 pub mod install;
 pub mod keystore;
@@ -840,6 +841,37 @@ fn read_sound(index: usize, state: State<'_, AppState>) -> Result<SoundView, Str
     })
 }
 
+#[derive(Serialize)]
+struct SoundAudio {
+    /// The stream as a data URI, ready for an `<audio>` element.
+    src: String,
+    /// How it was produced, e.g. the codebook library used.
+    via: &'static str,
+    bytes: usize,
+}
+
+/// Build a playable stream for one sound.
+///
+/// The webview decodes Ogg Vorbis natively, so the backend's job is only to
+/// rebuild the Wwise stream into one — no samples are decoded here.
+#[tauri::command]
+fn play_sound(index: usize, state: State<'_, AppState>) -> Result<SoundAudio, String> {
+    use base64::Engine;
+    with_catalog(&state, |c| {
+        let wem = c.read_sound(index, None)?;
+        let out = decode::to_playable(&wem)?;
+        Ok(SoundAudio {
+            src: format!(
+                "data:{};base64,{}",
+                out.mime,
+                base64::engine::general_purpose::STANDARD.encode(&out.bytes)
+            ),
+            via: out.via,
+            bytes: out.bytes.len(),
+        })
+    })
+}
+
 /// Write a sound's raw `.wem` to a file the user chose.
 ///
 /// The payload is copied out byte for byte; decoding Wwise Vorbis is not
@@ -1486,6 +1518,7 @@ pub fn run() {
             list_sounds,
             read_sound,
             export_sound,
+            play_sound,
             tag_links,
             list_dir,
             search_files,

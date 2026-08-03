@@ -331,6 +331,8 @@ export const mockApi = {
     };
   },
   exportSound: async () => 0,
+  // A one-second sine as a WAV, so the player is exercisable outside Tauri.
+  playSound: async () => ({ src: mockToneWav(), via: "mock tone", bytes: 88_244 }),
   listDir: async (path: string) => {
     const dir = path.replace(/^\/|\/$/g, "");
     const skip = dir === "" ? 0 : dir.length + 1;
@@ -537,4 +539,38 @@ function mockTexturePng(): string {
   ctx.font = "24px monospace";
   ctx.fillText("mock texture", 180, 132);
   return canvas.toDataURL("image/png");
+}
+
+/**
+ * A one-second 440 Hz tone as a 16-bit mono WAV data URI, so the player and
+ * its waveform can be exercised in a plain browser.
+ */
+function mockToneWav(): string {
+  const rate = 44100;
+  const frames = rate;
+  const bytes = new ArrayBuffer(44 + frames * 2);
+  const view = new DataView(bytes);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + frames * 2, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, frames * 2, true);
+  for (let i = 0; i < frames; i++) {
+    // Fade out, so the waveform has a shape rather than a solid block.
+    const envelope = 1 - i / frames;
+    view.setInt16(44 + i * 2, Math.sin((i / rate) * 440 * 2 * Math.PI) * 20000 * envelope, true);
+  }
+  let binary = "";
+  for (const b of new Uint8Array(bytes)) binary += String.fromCharCode(b);
+  return `data:audio/wav;base64,${btoa(binary)}`;
 }

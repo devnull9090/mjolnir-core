@@ -2270,6 +2270,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
+name = "lewton"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "777b48df9aaab155475a83a7df3070395ea1ac6902f5cd062b8f2b028075c030"
+dependencies = [
+ "byteorder",
+ "ogg",
+ "tinyvec",
+]
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2471,6 +2482,7 @@ dependencies = [
  "dirs",
  "getrandom 0.3.4",
  "humantime",
+ "lewton",
  "mjolnir-sign",
  "png 0.17.16",
  "reqwest 0.12.28",
@@ -2483,6 +2495,7 @@ dependencies = [
  "texture2ddecoder",
  "ue-iostore",
  "windows",
+ "ww2ogg",
  "zip",
 ]
 
@@ -2794,6 +2807,15 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "ogg"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6951b4e8bf21c8193da321bcce9c9dd2e13c858fe078bf9054a288b419ae5d6e"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -5834,6 +5856,17 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-version",
  "x11-dl",
+]
+
+[[package]]
+name = "ww2ogg"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a16960726d0260e04dabd2b0036fbdacecefec9d115dc4b953086c3809685a23"
+dependencies = [
+ "byteorder",
+ "lewton",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

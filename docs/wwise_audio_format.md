@@ -131,26 +131,42 @@ The export blob does appear to pair each media ID with a specific source: the
 records read `80 0f 14 <media id u32> <u8> … <u8>`, where the trailing bytes
 look like name-map indices. That pairing is unverified and not relied on.
 
-## Not implemented yet
+## Playback
 
-**Playback.** Wwise Vorbis is not plain Ogg Vorbis: the packet framing is
-Wwise's own and the codebooks are stripped, so the Ogg headers have to be
-rebuilt (the job `ww2ogg` does) before any decoder will touch it.
+Wwise Vorbis is not plain Ogg Vorbis: the packet framing is Wwise's own and the
+codebooks are stripped, so the Ogg headers must be rebuilt before any decoder
+will touch it.
 
-The codebooks here are **external**, confirmed by decoding the setup packet: it
-is 228 bytes and begins with a count of 44 followed by 10-bit codebook IDs that
+The codebooks here are **external**, confirmed by decoding a setup packet: it is
+228 bytes and begins with a count of 44 followed by 10-bit codebook IDs that
 come out as clean sequential indices (50, 51, 52 … max 462), with no inline
-codebook sync (`0x564342`) anywhere. 44 inline codebooks could not fit in 228
-bytes.
+codebook sync (`0x564342`) anywhere — 44 inline codebooks could not fit in 228
+bytes. So the codebook library is needed, and it is *not* in the `.wem` files;
+the game keeps it inside `HaloCampaignEvolved.exe`, where the Wwise sound
+engine is statically linked.
 
-That means decoding needs the Wwise codebook library, which is *not* in the
-`.wem` files. It ships inside `HaloCampaignEvolved.exe` (the Wwise sound engine
-is statically linked — the `Engine/Plugins/Wwise/.../bin` DLLs are effects, not
-the codec). Sourcing it is an open question: ww2ogg's own
-`packed_codebooks_aoTuV_603.bin` is derived from the Wwise SDK and is not ours
-to redistribute.
+Rather than extract it from the game or vendor a blob, the editor depends on
+the [`ww2ogg`](https://crates.io/crates/ww2ogg) crate (BSD-3-Clause), a Rust
+port of hcs64's ww2ogg that embeds both the standard and aoTuV 6.03 codebook
+libraries. `apps/tag-editor/src-tauri/src/decode.rs` rebuilds the stream; the
+webview decodes the resulting Ogg natively, so no samples are decoded in Rust.
 
-Until that is resolved the editor reports headers and exports the raw `.wem`.
+A file does not record which codebook library it was encoded against, and the
+wrong choice yields a stream that is well-formed but decodes to noise. Both are
+tried, aoTuV first, and the result is decoded with `lewton` far enough to prove
+it is really audio before being handed to the UI.
+
+The ~474 extensible-PCM files are already a valid `.wav` and are passed through
+untouched rather than pushed down the Vorbis path.
+
+### Verification
+
+`catalog::tests::shipped_media_converts_to_playable_ogg` converts a sample
+spread across the whole catalog and asserts the rebuilt stream reports the same
+channel count and sample rate the `.wem` header declared. 400 of 400 convert —
+396 as aoTuV Vorbis, 4 as pass-through PCM.
+
+## Not implemented yet
 
 **Bink Audio.** The 23 native `SoundWave` assets are a separate format again —
 the `.ubulk` opens with a `SEEK` chunk and the name map carries `BINKA`. They

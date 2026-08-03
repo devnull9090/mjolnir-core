@@ -695,6 +695,69 @@ mod tests {
         eprintln!("parsed {parsed} wem headers and skipped {banks} banks: {codecs:?}");
     }
 
+    /// Convert a broad sample of shipped media to Ogg and decode it.
+    ///
+    /// Conversion against the wrong codebook library still yields a well-formed
+    /// Ogg stream that decodes to noise, so this asserts on what came out: the
+    /// stream's channel count and sample rate must match what the `.wem` header
+    /// declared, and its audio packets must decode.
+    ///
+    /// Ignored by default; set `MJOLNIR_PAKS` and run with `--ignored`.
+    #[test]
+    #[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+    fn shipped_media_converts_to_playable_ogg() {
+        use std::collections::BTreeMap;
+
+        let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+        let c = Catalog::open(&paks, "").expect("catalog opens");
+
+        // Spread the sample across the whole catalog rather than one language.
+        let media: Vec<usize> = (0..c.sounds.len())
+            .filter(|i| !c.sounds[*i].short.ends_with(".bnk"))
+            .collect();
+        let want = 400usize;
+        let step = (media.len() / want).max(1);
+
+        let mut ok = 0usize;
+        let mut failed = Vec::new();
+        let mut books: BTreeMap<&str, usize> = BTreeMap::new();
+        for i in media.iter().step_by(step).take(want) {
+            let wem = c.read_sound(*i, None).expect("media reads");
+            let header = crate::sounds::parse_wem(&wem).expect("header parses");
+            match crate::decode::to_playable(&wem) {
+                Ok(out) => {
+                    *books.entry(out.via).or_default() += 1;
+                    // A converted Vorbis stream must describe the same audio;
+                    // PCM is passed through and has nothing to re-check.
+                    if out.mime == "audio/ogg" {
+                        let r = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(
+                            &out.bytes,
+                        ))
+                        .expect("converted stream opens");
+                        assert_eq!(
+                            r.ident_hdr.audio_channels as u16, header.channels,
+                            "{}: channel count changed",
+                            c.sounds[*i].short
+                        );
+                        assert_eq!(
+                            r.ident_hdr.audio_sample_rate, header.sample_rate,
+                            "{}: sample rate changed",
+                            c.sounds[*i].short
+                        );
+                    }
+                    ok += 1;
+                }
+                Err(e) => failed.push(format!("{}: {e}", c.sounds[*i].short)),
+            }
+        }
+
+        eprintln!("converted {ok} of {} sampled media; codebooks {books:?}", ok + failed.len());
+        for f in failed.iter().take(10) {
+            eprintln!("  FAILED {f}");
+        }
+        assert!(failed.is_empty(), "{} media failed to convert", failed.len());
+    }
+
     /// Recover readable names for the shipped media and report the coverage.
     ///
     /// Ignored by default; set `MJOLNIR_PAKS` and run with `--ignored`.

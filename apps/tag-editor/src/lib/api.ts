@@ -92,6 +92,15 @@ export type SoundSummary = {
   event: string | null;
 };
 
+/** A playable stream built from one .wem. */
+export type SoundAudio = {
+  /** Data URI, ready for an audio element. */
+  src: string;
+  /** How it was produced, e.g. which codebook library. */
+  via: string;
+  bytes: number;
+};
+
 /** One Wwise event that plays a media file. */
 export type EventRef = {
   name: string;
@@ -300,6 +309,7 @@ const tauriApi = {
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),
+  playSound: (index: number) => invoke<SoundAudio>("play_sound", { index }),
   readSound: (index: number) => invoke<SoundView>("read_sound", { index }),
   exportSound: (index: number, dest: string) =>
     invoke<number>("export_sound", { index, dest }),
