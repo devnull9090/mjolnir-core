@@ -71,6 +71,19 @@ writes there.
 Edited more? **Update test install** re-bakes and replaces it. (Close the game first;
 Windows will not let files it holds open be replaced.)
 
+### Tuning a number without the restart
+
+Deciding *what* a value should be is a lot of bake-restart-walk-back-to-the-fight. **Live mode**
+skips it: flip the **live** toggle in the tag header and every accepted edit is written into the
+running game as well as into your mod, taking effect immediately.
+
+It changes nothing on disk and is gone at the next launch — your mod project stays the record of
+what the edit is, so this is for *finding* the number, not for shipping it. Fixed-width fields
+only (a `string id` or tag reference resizes the payload and still needs a bake), the tag has to
+be loaded, and the first edit to a given tag takes a few minutes while the editor locates it in
+memory. Every edit after that is instant. See
+[the tag editing guide](tag_editing_guide.md#part-3-changing-a-value-in-the-running-game).
+
 ## 4. Share it
 
 **Export .mjolnir archive** writes `build/<slug>-<version>.mjolnir` — a zip holding the

@@ -1,7 +1,7 @@
 # MJOLNIR Hub — Mod Distribution Architecture
 
-**Status:** Partly built. Phases 2.5 and 3 have shipped; Phase 0's prerequisites and Phases 1
-and 4 have not. Section headings note what is live.
+**Status:** Partly built. Phase 0 is met, and Phases 1, 2, 2.5 and 3 have shipped — with the
+deviations each phase note records. Phase 4 has not started. Section headings note what is live.
 **Scope:** How mods are published, verified, delivered, ordered, and de-conflicted; how the
 public API is shaped; and where the trust boundary sits between community content and code.
 
@@ -44,15 +44,18 @@ depends on an author telling the truth.
 This is the single most valuable thing the platform can offer, and it falls out of work already
 done. Everything else in this document is arranged so as not to lose it.
 
-### Hard prerequisite
+### Hard prerequisite — met
 
-`iostore_packaging.md` records a known defect: **the packer's perfect hash is wrong for
-containers holding more than one chunk**, so multi-chunk containers silently expose only one
-chunk. Single-chunk containers work, which is why the assault-rifle experiment succeeded.
+This section long recorded a blocker: the packer's perfect hash was wrong for containers holding
+more than one chunk, so a real content mod — a map, a texture pack, a weapon overhaul, all of
+them many chunks — silently exposed only one of them. Nothing here worked without it.
 
-A real content mod — a map, a texture pack, a weapon overhaul — is many chunks. **This bug is on
-the critical path for the entire content tier and must be fixed first.** No amount of hub work
-routes around it.
+**Both defects in that hash are now fixed** (2026-08-01, and 2026-08-02 for a second one that
+spilled every chunk at power-of-two chunk counts). `mjolnir pack` implements the engine's
+placement for real and refuses to write a container it cannot resolve through the perfect hash
+alone, so a container that would silently do nothing in game fails at bake time instead.
+Containers may hold any number of chunks. See *A real bug found on the way* and *A second hole in
+the same place* in [`iostore_packaging.md`](iostore_packaging.md).
 
 ---
 
@@ -179,7 +182,8 @@ those patterns are per-build too. On 2026-08-01 a game update moved the binary l
 signature stopped resolving; UE4SS retried 1476 times and then killed the process. The failure
 mode is a hard crash with the reason buried in `ue4ss/UE4SS.log`, which no user will read.
 
-The mitigation is a discipline, documented in [`signatures/README.md`](../signatures/README.md):
+The mitigation is a discipline, documented in
+[`signatures/README.md`](https://github.com/devnull9090/mjolnir-core/blob/main/signatures/README.md):
 never bake a RIP-relative displacement or a TLS slot index into a pattern — wildcard it and
 decode it at runtime, so the instruction *shape* is the anchor rather than build-specific
 offsets. Every signature that followed that rule survived the update; the one that did not was
@@ -257,11 +261,13 @@ against a hub session.
 
 ## 6. Data model
 
-Replace the single `schema.sql` with `wrangler d1 migrations` — numbered, forward-only files.
-The current schema cannot evolve safely and has already drifted from reality (`mods.r2_key`
-duplicates `mod_versions.r2_key`).
+**Done.** `schema.sql` is gone, replaced by numbered, forward-only `wrangler d1 migrations` in
+[`hub/migrations/`](../hub/migrations) — through `0006_device_scopes.sql` at the time of
+writing. Apply them with `pnpm db:migrate` locally, `pnpm db:migrate:prod` against the deployed
+database.
 
-New and changed tables, abbreviated:
+New and changed tables, abbreviated. The migrations are the authority; this is the shape they
+were aiming at:
 
 | Table | Purpose | Notes |
 |---|---|---|
@@ -302,35 +308,49 @@ catch-all** (`hub/src/app/api/v1/[[...route]]/route.ts`) using `@hono/zod-openap
 schema per payload gives you request validation, response types, and the OpenAPI 3.1 document
 from the same source. Hono runs natively on Workers, which OpenNext already targets.
 
-- `GET /api/v1/openapi.json` — the generated spec
-- `/docs/api` — Scalar or Swagger UI rendering it
-- CI: regenerate and `git diff --exit-code` to catch drift; run `oasdiff` on PRs to gate
-  breaking changes
+- `GET /api/v1/openapi.json` — the generated spec, also checked in at `hub/public/openapi.json`
+- [`/docs/api`](https://mjolnircore.com/docs/api) — Scalar rendering it
+- CI: `pnpm openapi:check` regenerates and `git diff --exit-code`s, so an API change that skips
+  the export fails the build
 
 ### Surface
 
-```
-GET    /v1/mods                       list, filter, search, cursor paginate
-GET    /v1/mods/{slug}
-GET    /v1/mods/{slug}/releases
-GET    /v1/releases/{id}
-GET    /v1/releases/{id}/download      302 to R2, counts the download
-GET    /v1/releases/{id}/conflicts     ← the chunk-ID join
-POST   /v1/conflicts/check             body: [release_ids] → conflict matrix + suggested order
-GET    /v1/mods/{slug}/media
-GET    /v1/mods/{slug}/comments
-GET    /v1/mods/{slug}/ratings
-GET    /v1/collections/{slug}
-GET    /v1/builds                      known game builds + compat stats
+**Shipped**, and the spec above is the authority — this table is a map, not a contract. `auth`
+means an API key or a session cookie; everything else is public and CORS-open.
 
-POST   /v1/mods                        auth
-POST   /v1/mods/{slug}/releases        auth  → presigned upload
-POST   /v1/releases/{id}/complete      auth
-POST   /v1/mods/{slug}/media           auth  (alt_text required)
-PUT    /v1/mods/{slug}/ratings/me      auth
-POST   /v1/mods/{slug}/comments        auth
-POST   /v1/reports                     auth
-```
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/v1/health` | |
+| `GET` | `/v1/mods` | list, filter, search, cursor paginate |
+| `GET` | `/v1/mods/{slug}` | |
+| `GET` | `/v1/mods/{slug}/releases` | newest first |
+| `GET` | `/v1/releases/{id}` | status and scan findings |
+| `GET` | `/v1/releases/{id}/download` | 302 to R2, counts the download |
+| `GET` | `/v1/releases/{id}/conflicts` | ← the chunk-ID join |
+| `POST` | `/v1/conflicts/check` | body: `[release_ids]` → conflict matrix + suggested order |
+| `GET` | `/v1/mods/{slug}/media` · `/comments` · `/ratings` | |
+| `GET` | `/v1/media/{id}` | serves the image |
+| `POST` | `/v1/mods` | auth — create a mod |
+| `POST` | `/v1/mods/{slug}/releases` | auth — create a pending release |
+| `PUT` | `/v1/releases/{id}/archive` | auth — upload the `.mjolnir` |
+| `POST` | `/v1/releases/{id}/complete` | auth — scan, then publish or reject |
+| `POST` `DELETE` | `/v1/mods/{slug}/media` · `/v1/media/{id}` | auth — `alt_text` required |
+| `PUT` | `/v1/mods/{slug}/ratings/me` | auth |
+| `POST` `DELETE` | `/v1/mods/{slug}/comments` · `/v1/comments/{id}` | auth |
+| `POST` | `/v1/reports` | auth |
+| `GET` `POST` | `/v1/moderation/reports`, `/v1/moderation/reports/{id}` | moderators |
+| `POST` | `/v1/releases/{id}/yank` | moderators |
+| `GET` `POST` `DELETE` | `/v1/account/api-keys`, `/v1/account/signing-keys` | auth — and `/{id}` to revoke |
+| `GET` | `/v1/account/me` | auth |
+| `POST` | `/v1/code-mods/sync` | auth — mirrors the signed code-mod set onto hub pages |
+
+Upload is a **direct `PUT` of the archive** rather than the presigned R2 URL this section
+originally called for. The Worker has to hold the bytes anyway to scan them, and a 50 MB cap
+(`MAX_ARCHIVE_BYTES`) keeps that affordable; presigning becomes worth it when archives outgrow
+that, and the three-step create → upload → complete shape is already the one that would survive
+the change.
+
+**Not built:** `GET /v1/collections/{slug}` (Phase 4) and `GET /v1/builds`.
 
 `POST /v1/conflicts/check` is the endpoint third-party managers will actually integrate against,
 and it is the reason to publish a spec at all. Make it good.
@@ -403,21 +423,29 @@ a Tauri command that attaches the paired key **in Rust**. The webview never hold
 
 ## 8. Phasing
 
-**Phase 0 — Foundations** *(prerequisite for everything)*
-Fix the multi-chunk perfect hash in `ue-iostore`. D1 migrations replacing `schema.sql`. Discord
-OAuth end to end. Real D1-backed `/api/v1/mods`. Hono + zod-openapi skeleton with the spec
-published and a CI drift check.
+**Phase 0 — Foundations** *(prerequisite for everything)* — **done**
+The multi-chunk perfect hash in `ue-iostore` is fixed (§1). `schema.sql` is gone, replaced by
+numbered `wrangler d1` migrations. Discord OAuth runs end to end, `/api/v1/mods` is D1-backed,
+and the API is a Hono + zod-openapi app whose spec is published at `/api/v1/openapi.json` and
+guarded by a CI drift check (`pnpm openapi:check`).
 
-**Phase 1 — Content mods, end to end**
-`.mjolnir` format and manifest schema. Presigned R2 upload + Queue scanner with `ue-iostore` on
-WASM. `release_chunks` populated. Mod pages with drag-and-drop screenshots (alt text required),
-ratings, threaded comments. Launcher gains per-mod install, profiles, and load-order UI driven
-by real chunk-ID conflicts.
+**Phase 1 — Content mods, end to end** — **done**
+`.mjolnir` format and manifest schema ([the spec](mjolnir_format.md)). R2 upload + a scanner
+that populates `release_chunks` and `release_scans`. Mod pages with screenshots (alt text
+required), ratings, threaded comments. The launcher installs per mod, keeps profiles, and drives
+load order from real chunk-ID conflicts.
 
-**Phase 2 — The open API**
-API keys and scopes. `POST /v1/conflicts/check`. Published spec at `/docs/api` with a worked
-integration example. Rate limiting, CORS, cursor pagination everywhere. Moderation queue,
-reports, audit log.
+One deviation from the plan above, deliberate and marked in the code: the scanner is TypeScript
+running **synchronously inside `POST /releases/{id}/complete`**, not a Queue consumer with
+`ue-iostore` on WASM. It reads the chunk IDs straight out of the `.utoc` header, which needs no
+decompression, so the Rust reader is not required to do the job. The contract a Queue consumer
+would keep — findings to `release_scans`, chunks to `release_chunks` — is already what it writes,
+so moving it later is a change of host, not of design.
+
+**Phase 2 — The open API** — **done**
+API keys and scopes, `POST /v1/conflicts/check`, the spec rendered at `/docs/api`, rate limiting,
+CORS, cursor pagination, and the moderation queue with reports and an audit log. Still missing
+from this phase: the "worked integration example" alongside the spec.
 
 **Phase 2.5 — The launcher as a first-class client** *(done)*
 The launcher browses the hub with every filter the API offers (search, category, type, sort,

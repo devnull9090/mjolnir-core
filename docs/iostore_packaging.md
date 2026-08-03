@@ -141,9 +141,11 @@ Two details the round-trip pinned down, both easy to get wrong by inspection:
 - **Chunk offsets and lengths are five-byte big-endian**, while a compression block's offset is
   five-byte *little*-endian with three-byte little-endian sizes.
 
-Regions that are not yet interpreted — the perfect-hash tables, the signature block, the
-directory index, and the header padding past byte 100 — are carried verbatim, so nothing is
-lost by round-tripping a container we do not fully understand.
+Regions the round-trip does not interpret — the signature block, the directory index, and the
+header padding past byte 100 — are carried verbatim, so nothing is lost by round-tripping a
+container we do not fully understand. The perfect-hash tables were in that list too when this
+was written; they are now generated for real, which the two sections at the end of this document
+are the story of.
 
 ## Step 2: building a container — done
 

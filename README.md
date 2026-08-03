@@ -42,17 +42,25 @@ mjolnir-core/
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
 ├── config/                      # Reference UE4SS-settings.ini
+├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
+├── keys/                        # Public release-signing keys
+├── defs/                        # Exported tag definition corpus (schema only)
+├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
+├── tools/pe/                    # PE/binary inspection helpers
 ├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
 ├── crates/                      # Rust workspace
-│   ├── ue-iostore/              # UE5 .utoc/.ucas reader, TOC writer, container packer
+│   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
 │   ├── blam-tag/                # Blam tag reader, writer and editor
+│   ├── blam-pack/               # Bake edited tags into `_P` override containers
+│   ├── blam-live/               # Read and patch tag payloads in the running game
+│   ├── mjolnir-sign/            # Ed25519 author signatures for .mjolnir archives
 │   └── blam-cli/                # `mjolnir` command-line tool
 ├── apps/
 │   ├── launcher/                # Tauri desktop mod manager
-│   └── tag-editor/              # Guerilla-style tag browser and editor
+│   └── tag-editor/              # Guerilla-style tag, texture and audio browser and editor
 └── hub/                         # Cloudflare mod community platform
 ```
 
@@ -200,9 +208,12 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 
 | Crate | Purpose |
 |---|---|
-| `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, built-in Oodle decoder, zlib, partitions) |
+| `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, built-in Oodle decoder, zlib, partitions), the `.pak` reader the audio lives behind, and the container packer |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
 | `blam-tag` | Container header, `blay` layout, `bdat` values: read, decode, edit, write |
+| `blam-pack` | The one implementation of "patched tag bytes → a `_P` container the game loads", shared by the CLI and the tag editor |
+| `blam-live` | Reading and patching a tag payload inside the *running* game, no rebuild or restart |
+| `mjolnir-sign` | Ed25519 author signatures for `.mjolnir` archives — the editor signs, the launcher and CLI verify, the hub mirrors it in TypeScript |
 | `blam-cli` | The `mjolnir` command-line tool |
 
 ```powershell
@@ -211,6 +222,7 @@ $env:HCE_PAKS = "<install>\Meteorite\Content\Paks"
 $env:OODLE    = "<UE install>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
 
 cargo run --release -p blam-cli -- groups                            # every group + tables
+cargo run --release -p blam-cli -- list --group weapon               # every tag in a group
 cargo run --release -p blam-cli -- fields --group weapon             # resolved field list
 cargo run --release -p blam-cli -- layout --group camera_track --tables
 cargo run --release -p blam-cli -- types                             # field type vocabulary
@@ -224,8 +236,14 @@ cargo run --release -p blam-cli -- toc-roundtrip                     # rewrite e
 cargo run --release -p blam-cli -- chunk --path assault_rifle-weapon.uasset   # hexdump any chunk
 cargo run --release -p blam-cli -- pack --group weapon --tag assault_rifle-weapon --set "magazines[0].rounds loaded maximum=200" --out-dir mod
 cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
+cargo run --release -p blam-cli -- tag-file --file ar.tag --field "magazines[0].rounds reloaded" --value 99 --out ar2.tag
+cargo run --release -p blam-cli -- poke --group biped --tag spartans --field "jump velocity" --value 25
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
+
+`tag-file` works on a tag payload already on disk, without the paks. `poke` changes a field in
+the **running game** — no rebuild, no restart, nothing written to disk; see
+[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md).
 
 `mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
 resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a
@@ -243,9 +261,12 @@ directory and release pipeline. Build it from `apps/launcher` as before.
 
 ### Tag Editor
 
-`apps/tag-editor` is a Guerilla-style tag browser and editor built on the same stack as the
-launcher: Tauri 2, React 19, Vite, and Tailwind 4. It reads tags from your own installation —
-nothing is bundled, and the installation is never modified.
+`apps/tag-editor` is a Guerilla-style tag, texture and audio browser and editor built on the same
+stack as the launcher: Tauri 2, React 19, Vite, and Tailwind 4. It reads assets from your own
+installation — nothing is bundled, and nothing shipped is ever modified.
+
+Most people should install it from the **launcher's Tools tab**, which keeps it updated. To build
+it from source:
 
 ```powershell
 cd apps/tag-editor
@@ -260,22 +281,66 @@ It renders the tag tree and, for each tag, its fields with their **decoded value
 bitfield options resolved to names, tag references as group and path, colours as hex, vectors and
 bounds as numbers — with blocks and arrays expanding to their elements.
 
-Fields are editable: click a value, type a new one, press Enter. Edits are validated before they
-are kept, marked in the tree, and individually undoable. They are held in memory and leave through
-**Export patched tag…**, since the game's own containers are read-only.
+Fields are editable: click a value, type a new one, press Enter. Every edit is applied to a copy,
+re-parsed from scratch and re-walked before it is kept, so a value that does not fit is rejected
+rather than written.
 
-An exported tag **does load in game**. `mjolnir pack` builds an override container from it, and the
-game uses it — verified by editing the assault rifle to a 99-round magazine with 900 rounds in
-reserve and reading both off the HUD. Start with
-[`docs/getting_started.md`](docs/getting_started.md), which walks the whole path.
+Beyond tags, it browses the two asset kinds that used to need external tools:
 
-Exported tags are copyrighted game content. Keep them local; `.gitignore` blocks `*.ubulk`.
+- **Textures** — decoded and displayed, with zoom and PNG export. Both cook paths are handled
+  (virtual textures and classic mip chains); 4787 of 4844 decode, and the 57 that do not ship no
+  pixel data at all. See [`docs/ue_texture_format.md`](docs/ue_texture_format.md).
+- **Audio** — the ~6 GB of Wwise sound in the `.pak` siblings, played in the editor, named by the
+  event that plays it rather than by a bare numeric ID, and exportable as `.wem`. See
+  [`docs/wwise_audio_format.md`](docs/wwise_audio_format.md).
+
+Edits belong to a **mod project** — a folder of small JSON recipe files naming tags and fields
+rather than byte offsets, which autosaves on every edit and survives game updates. From the mod
+panel a project can be **tested in game** (baked into an override container and installed beside
+the shipped ones, removable in one click), **exported** as a `.mjolnir` archive, and **published**
+to [the hub](https://mjolnircore.com) — signed with a per-device Ed25519 key, over an account link
+established by device pairing rather than by pasting a key.
+
+Editing a tag and shipping the result **works end to end**, resizes included — verified by editing
+the assault rifle to a 99-round magazine with 900 rounds in reserve and reading both off the HUD,
+and by rewiring it to fire needler shards. Start with
+[`docs/making_your_first_mod.md`](docs/making_your_first_mod.md) to do it from the editor, or
+[`docs/getting_started.md`](docs/getting_started.md) for the same path on the command line.
+
+**Live mode** shortens the loop further: with it on, an accepted edit is written into the running
+game as well as the project and takes effect immediately — no bake, no restart. Fixed-width fields
+only, and nothing reaches disk.
+
+Exported tags, textures and audio are copyrighted game content. Keep them local; `.gitignore`
+blocks `*.ubulk`.
 
 See [`docs/tag_editing_guide.md`](docs/tag_editing_guide.md) for a walkthrough of both the editor
 and the `mjolnir` command line, and [`docs/iostore_packaging.md`](docs/iostore_packaging.md) for
 how the container format was worked out and what is still open.
 
+### The Hub, and its public API
+
+`hub/` is the mod platform at [mjolnircore.com](https://mjolnircore.com) — Next.js on Cloudflare
+Workers via OpenNext, with D1, R2 and an API mounted as a Hono app under a catch-all route.
+
+The API is **open**: reads need no authentication and CORS is `*`. It is spec-first, so the
+OpenAPI 3.1 document is generated from the same Zod schemas that validate requests and can never
+drift from the implementation — CI fails the build if the checked-in spec and the code disagree.
+
+- [`/docs/api`](https://mjolnircore.com/docs/api) — the reference, rendered
+- [`/api/v1/openapi.json`](https://mjolnircore.com/api/v1/openapi.json) — the spec itself, for
+  third-party tools; also checked in at [`hub/public/openapi.json`](hub/public/openapi.json)
+
+`POST /api/v1/conflicts/check` is the one worth knowing about: a content mod ships as an IoStore
+`_P` container whose chunk IDs are *identical* to the tags it overrides, so "do these mods
+conflict?" is an exact set intersection rather than an author's declaration. See
+[`docs/hub_architecture.md`](docs/hub_architecture.md) for the design, and [`hub/README.md`](hub/README.md)
+to run it locally.
+
 ### Coming Soon
+- **Texture replacement**: the editor views and exports textures today; writing them back is designed, not built
+- **Recipe distribution**: ship the mod recipe rather than baked containers, and let each launcher bake locally
+- **Collections**: shareable profiles — a list of mod references, not bytes
 - **Player Tracker**: Multiplayer stats and leaderboards
 
 ---
