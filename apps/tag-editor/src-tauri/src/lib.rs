@@ -16,6 +16,7 @@ pub mod catalog;
 pub mod hub;
 pub mod install;
 pub mod keystore;
+pub mod live;
 pub mod modpack;
 pub mod project;
 pub mod secret;
@@ -383,6 +384,101 @@ fn set_field(
     list.push(PendingEdit { path, value });
     work.autosave()?;
     Ok(result)
+}
+
+/// Work out everything a live poke needs, while the catalog lock is held.
+///
+/// Kept separate from the poke itself so the slow part — which may scan the
+/// whole process — runs on a worker thread with owned data rather than holding
+/// state across an await.
+fn build_live_job(
+    state: &State<'_, AppState>,
+    index: usize,
+    path: &str,
+    value: &str,
+) -> Result<live::Job, String> {
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+    with_catalog(state, |c| {
+        let file = patched_bytes(c, index, &pending)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        // Everything derived from `file` borrows it, so the whole analysis
+        // happens in this block and hands back owned values; `file` itself is
+        // only moved into the job once those borrows are gone.
+        let (region, span, bytes) = {
+            let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+                .map_err(|e| e.to_string())?;
+            let layout = tag.layout().map_err(|e| e.to_string())?;
+            let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+            let target = blam_tag::patch::resolve(&layout, &file, &block, path)
+                .map_err(|e| e.to_string())?;
+
+            // A section-backed value lives in a trailing section, so changing it
+            // moves every byte after it. In a file that is fine — the tag is
+            // rebuilt. In a live heap buffer there is nowhere for them to go.
+            if target.section.is_some() {
+                return Err(format!(
+                    "{} is a {} stored in a trailing section, so changing it resizes the tag. \
+                     That cannot be poked into a running game — test it with a rebuild.",
+                    path, target.type_name
+                ));
+            }
+
+            let parsed =
+                blam_tag::value::parse(&layout, &target.field, value).map_err(|e| e.to_string())?;
+            let (patched, _) = blam_tag::patch::set(&layout, &file, &block, path, &parsed)
+                .map_err(|e| e.to_string())?;
+
+            // Only the data section is resident per tag; the header and layout
+            // tables are not, so searching anywhere else is wasted effort.
+            let data = tag.data().ok_or("this tag has no data section")?;
+            let start = data.content.as_ptr() as usize - file.as_ptr() as usize;
+            let span = target.file_offset..target.file_offset + target.size;
+            let bytes = patched
+                .get(span.clone())
+                .ok_or("the field lies outside the tag payload")?
+                .to_vec();
+            (start..start + data.content.len(), span, bytes)
+        };
+
+        Ok(live::Job {
+            key: key.clone(),
+            payload: file,
+            region,
+            span,
+            bytes,
+        })
+    })
+}
+
+#[tauri::command]
+fn live_status(live: State<'_, live::Live>) -> live::Status {
+    live.status()
+}
+
+#[tauri::command]
+fn live_forget(live: State<'_, live::Live>) {
+    live.forget()
+}
+
+/// Push one edit into the running game.
+///
+/// Slow the first time a tag is touched, because the address has to be found by
+/// scanning; instant afterwards. Runs on a worker so the window stays alive
+/// while that happens.
+#[tauri::command]
+async fn live_poke(
+    index: usize,
+    path: String,
+    value: String,
+    state: State<'_, AppState>,
+    live: State<'_, live::Live>,
+) -> Result<live::Poked, String> {
+    let job = build_live_job(&state, index, &path, &value)?;
+    let live = live.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || live.poke(&job))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1223,6 +1319,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
+        .manage(live::Live::default())
         .invoke_handler(tauri::generate_handler![
             detect_install,
             open_install,
@@ -1232,6 +1329,9 @@ pub fn run() {
             read_tag,
             read_tag_bytes,
             set_field,
+            live_status,
+            live_forget,
+            live_poke,
             revert_field,
             revert_tag,
             export_tag,

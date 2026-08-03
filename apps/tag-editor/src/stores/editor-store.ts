@@ -8,6 +8,7 @@ import {
   type HubStatus,
   type LinkStart,
   type LinkedAsset,
+  type LiveStatus,
   type ProjectView,
   type PublishView,
   type SigningStatus,
@@ -71,6 +72,23 @@ type EditorState = {
   /** The last edit applied, so the UI can confirm what it did. */
   lastEdit: EditResult | null;
   editError: string | null;
+
+  /**
+   * Live mode: mirror every accepted edit into the running game as well as the
+   * project, so a number can be tuned without a bake and a restart.
+   *
+   * Off by default and never implied. It writes into another process's memory,
+   * which is a thing to opt into deliberately rather than inherit from a
+   * previous session.
+   */
+  live: LiveStatus | null;
+  liveOn: boolean;
+  /** Set while a poke is in flight; the first one for a tag takes minutes. */
+  livePoking: boolean;
+  /** What the last poke did, or why it could not. */
+  liveNote: string | null;
+  refreshLive: () => Promise<void>;
+  setLiveOn: (on: boolean) => void;
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
@@ -150,6 +168,7 @@ type EditorState = {
   setField: (path: string, value: string) => Promise<boolean>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
+  pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
@@ -173,6 +192,8 @@ export const useEditor = create<EditorState>((set, get) => {
       tag: null,
       tagLinks: [],
       lastEdit: null,
+      // The note belongs to the tag that was open; the toggle does not.
+      liveNote: null,
       editError: null,
     });
     try {
@@ -311,6 +332,13 @@ export const useEditor = create<EditorState>((set, get) => {
     lastEdit: null,
     editError: null,
 
+    // Off on every launch, on purpose: writing into another process is opted
+    // into per session rather than inherited from the last one.
+    live: null,
+    liveOn: false,
+    livePoking: false,
+    liveNote: null,
+
     viewMode: storedViewMode(),
     setViewMode(mode) {
       localStorage.setItem(VIEW_KEY, mode);
@@ -443,6 +471,21 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
+    async refreshLive() {
+      try {
+        set({ live: await api.liveStatus() });
+      } catch {
+        // Not being able to see the game is a normal state, not an error worth
+        // putting in front of the user.
+        set({ live: null });
+      }
+    },
+
+    setLiveOn(on) {
+      set({ liveOn: on, liveNote: null });
+      if (on) void get().refreshLive();
+    },
+
     async setField(path, value) {
       const index = get().selectedTag;
       if (index === null) return false;
@@ -458,10 +501,30 @@ export const useEditor = create<EditorState>((set, get) => {
           dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
         }));
         if (get().project) void get().refreshProject();
+        // The project is the record of what the edit is; the poke only makes it
+        // visible now. So it happens after the edit is safely recorded, and a
+        // failure to reach the game never fails the edit.
+        if (get().liveOn && index !== null) void get().pokeLive(index, path, value);
         return true;
       } catch (e) {
         set({ editError: String(e), lastEdit: null });
         return false;
+      }
+    },
+
+    async pokeLive(index, path, value) {
+      set({ livePoking: true, liveNote: null });
+      try {
+        const poked = await api.livePoke(index, path, value);
+        set({
+          livePoking: false,
+          liveNote: poked.scanned
+            ? `live: found the tag at ${poked.base} and set ${path}`
+            : `live: set ${path}`,
+        });
+        void get().refreshLive();
+      } catch (e) {
+        set({ livePoking: false, liveNote: `live: ${String(e)}` });
       }
     },
 

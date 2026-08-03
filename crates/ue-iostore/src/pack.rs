@@ -86,17 +86,51 @@ struct PerfectHash {
 impl PerfectHash {
     /// How many seeds to try for one bucket before shunting it to the
     /// overflow list. Buckets average two chunks, so real searches end within
-    /// a handful of iterations; the cap only bounds pathological inputs such
-    /// as duplicate IDs, which can never be placed.
+    /// a handful of iterations; the cap only bounds pathological inputs.
     const SEED_LIMIT: i32 = 1 << 20;
 
-    fn generate(ids: &[ChunkId]) -> PerfectHash {
-        let n = ids.len();
-        // The engine's writer sizes the table at half the chunk count. Any
-        // count works — the reader takes it from the header — but matching
-        // keeps our output comparable to shipped containers.
-        let seed_count = (n / 2).max(1);
+    /// How many table sizes `generate` tries before accepting a spill.
+    const SIZE_LIMIT: usize = 64;
 
+    /// Build the tables, growing the seed table until nothing has to spill.
+    ///
+    /// The engine's writer sizes the seed table at half the chunk count, and
+    /// that is where this starts, so output stays comparable to shipped
+    /// containers. It is not always *sufficient*, which is the bug this loop
+    /// exists for: the rehash hop is `hash(seed, id) % n`, and modulo a power
+    /// of two that sees only the hash's low bits — where FNV's multiply barely
+    /// diffuses. Mod 2 the seed cancels out of the expression altogether, so
+    /// two IDs agreeing there are inseparable by *any* seed and the bucket
+    /// search cannot succeed however long it runs. At n = 2 and n = 4 that is
+    /// common enough to hit an ordinary three-tag mod.
+    ///
+    /// Growing the seed table is the way out, and it is free: the reader takes
+    /// the count from the header, and a bucket holding a single chunk is
+    /// stored as a direct index that never rehashes at all. Splitting an
+    /// inseparable pair into separate buckets sidesteps the dead bits
+    /// entirely.
+    ///
+    /// Spilling is not a benign fallback. No shipped container uses the
+    /// overflow list — 28 scanned, every one `without_hash = 0` — and a mod
+    /// container that relied on it was not read by the game at all, silently
+    /// reverting to shipped tags.
+    fn generate(ids: &[ChunkId]) -> PerfectHash {
+        let first = (ids.len() / 2).max(1);
+        let mut spilled: Option<PerfectHash> = None;
+        for seed_count in first..first + Self::SIZE_LIMIT {
+            let attempt = PerfectHash::with_seed_count(ids, seed_count);
+            if attempt.overflow.is_empty() {
+                return attempt;
+            }
+            spilled.get_or_insert(attempt);
+        }
+        // Genuinely unplaceable; duplicate IDs are what reaches here. Keep the
+        // engine-shaped table and leave them to the reader's scan.
+        spilled.expect("at least one table size is tried")
+    }
+
+    fn with_seed_count(ids: &[ChunkId], seed_count: usize) -> PerfectHash {
+        let n = ids.len();
         let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); seed_count];
         for (e, id) in ids.iter().enumerate() {
             buckets[(hash_chunk_id_with_seed(0, id) % seed_count as u64) as usize].push(e);
@@ -118,20 +152,32 @@ impl PerfectHash {
                 0 => break, // sorted descending: the rest are empty too
                 1 => singles.push(b),
                 _ => {
-                    let seed = (1..=Self::SEED_LIMIT).find(|&seed| {
-                        let mut slots = Vec::with_capacity(bucket.len());
-                        bucket.iter().all(|&e| {
-                            let s = (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
-                            let free = !taken[s] && !slots.contains(&s);
-                            slots.push(s);
-                            free
+                    // Identical IDs hash identically under every seed, so no
+                    // search can separate them. Recognise that up front rather
+                    // than burning the seed limit: `generate` calls this once
+                    // per table size, and duplicates spill at every one.
+                    let duplicated = (1..bucket.len())
+                        .any(|i| bucket[..i].iter().any(|&e| ids[e] == ids[bucket[i]]));
+                    let seed = if duplicated {
+                        None
+                    } else {
+                        (1..=Self::SEED_LIMIT).find(|&seed| {
+                            let mut slots = Vec::with_capacity(bucket.len());
+                            bucket.iter().all(|&e| {
+                                let s =
+                                    (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
+                                let free = !taken[s] && !slots.contains(&s);
+                                slots.push(s);
+                                free
+                            })
                         })
-                    });
+                    };
                     match seed {
                         Some(seed) => {
                             seeds[b] = seed;
                             for &e in bucket {
-                                let s = (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
+                                let s =
+                                    (hash_chunk_id_with_seed(seed, &ids[e]) % n as u64) as usize;
                                 taken[s] = true;
                                 entry_at_slot[s] = e;
                             }
@@ -410,7 +456,10 @@ mod tests {
     /// way the engine would.
     fn read_back(toc: &Toc, ucas: &[u8], cid: ChunkId) -> Option<Vec<u8>> {
         let slot = toc.find_chunk(&cid)?;
-        assert_eq!(toc.chunk_ids[slot], cid, "slot must hold the chunk asked for");
+        assert_eq!(
+            toc.chunk_ids[slot], cid,
+            "slot must hold the chunk asked for"
+        );
         let off = toc.chunk_offsets[slot];
         let bs = toc.compression_block_size as usize;
         let mut out = Vec::new();
@@ -453,7 +502,9 @@ mod tests {
         let mut t = template();
         t.compression_block_size = 64;
 
-        for n in [2usize, 3, 7, 25, 200] {
+        // Powers of two are in here on purpose: the rehash modulo degenerates
+        // there, and 2 and 4 are the sizes an ordinary mod actually has.
+        for n in [2usize, 3, 4, 7, 8, 16, 25, 32, 200] {
             let entries: Vec<Entry> = (0..n)
                 .map(|i| Entry {
                     // Vary every field that feeds the hash, and size chunks
@@ -472,13 +523,65 @@ mod tests {
             let built = build(&t, 0xC0FFEE, &entries);
             let toc = Toc::parse(&built.utoc).unwrap();
             assert_eq!(toc.chunk_ids.len(), n);
-            assert_eq!(toc.perfect_hash_seed_count as usize, (n / 2).max(1));
+            // The table starts at the engine's half-count and only grows when
+            // a size cannot place every chunk.
+            assert!(toc.perfect_hash_seed_count as usize >= (n / 2).max(1));
+            assert_eq!(
+                toc.chunks_without_perfect_hash, 0,
+                "distinct IDs must all get a hash slot at n = {n}; the overflow \
+                 list is not read by the game"
+            );
 
             for e in &entries {
+                toc.find_chunk_by_hash(&e.id)
+                    .unwrap_or_else(|| panic!("chunk {:?} of {n} must resolve by hash", e.id));
                 let data = read_back(&toc, &built.ucas, e.id)
                     .unwrap_or_else(|| panic!("chunk {:?} of {n} must resolve", e.id));
                 assert_eq!(data, e.data, "chunk {:?} of {n} must round-trip", e.id);
             }
+        }
+    }
+
+    #[test]
+    fn the_four_tag_mod_that_spilled_every_chunk_now_places_them() {
+        // Real IDs, from a mod editing the spartans biped, both fall-damage
+        // effects and globals. At four entries every one of them landed in the
+        // overflow list and none resolved, so the game read no edit at all and
+        // the mod appeared to do nothing.
+        //
+        // These four are also a genuine worst case: they pair up under the
+        // mod-2 invariant the rehash cannot see past, two to each value.
+        let entries: Vec<Entry> = [
+            0x8da5_079f_be94_7049u64,
+            0x98d9_2e76_d077_0f80,
+            0xe4f5_53b7_d393_5d5c,
+            0x78be_a50c_1f97_0461,
+        ]
+        .iter()
+        .map(|&pkg| Entry {
+            id: ChunkId {
+                id: pkg,
+                index: 0,
+                pad: 0,
+                kind: 2,
+            },
+            data: vec![0xAB; 32],
+            meta: vec![0; 24],
+        })
+        .collect();
+
+        let built = build(&template(), 0, &entries);
+        let toc = Toc::parse(&built.utoc).unwrap();
+        assert_eq!(
+            toc.chunks_without_perfect_hash, 0,
+            "every chunk must get a hash slot"
+        );
+        for e in &entries {
+            assert!(
+                toc.find_chunk_by_hash(&e.id).is_some(),
+                "chunk {:?} must resolve without the overflow scan",
+                e.id
+            );
         }
     }
 
@@ -495,7 +598,11 @@ mod tests {
         let toc = Toc::parse(&built.utoc).unwrap();
         for e in &entries {
             let slot = toc.find_chunk(&e.id).expect("resolves");
-            assert_eq!(toc.meta(slot).unwrap(), &e.meta[..], "meta must move with its chunk");
+            assert_eq!(
+                toc.meta(slot).unwrap(),
+                &e.meta[..],
+                "meta must move with its chunk"
+            );
         }
     }
 
