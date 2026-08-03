@@ -4,6 +4,7 @@ members = [
     "crates/ue-iostore",
     "crates/blam-defs",
     "crates/blam-tag",
+    "crates/blam-pack",
     "crates/blam-cli",
 ]
 

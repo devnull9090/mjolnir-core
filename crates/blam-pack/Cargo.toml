@@ -1,0 +1,10 @@
+[package]
+name = "blam-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bake edited tags into IoStore override containers"
+
+[dependencies]
+ue-iostore = { path = "../ue-iostore" }

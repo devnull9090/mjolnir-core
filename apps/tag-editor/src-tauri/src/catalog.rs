@@ -1,7 +1,7 @@
 //! An open game installation: the container index plus cached lookups.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use ue_iostore::{ChunkEntry, Container};
@@ -73,12 +73,28 @@ pub struct Catalog {
     /// Where to look for the optional Oodle DLL; empty means use the built-in
     /// decoder.
     oodle: Vec<PathBuf>,
+    /// The Paks directory this catalog was read from, where a mod under test
+    /// is installed.
+    paks: PathBuf,
 }
 
 impl Catalog {
     /// Which Oodle decoder this catalog reads with.
     pub fn oodle_backend(&self) -> ue_iostore::oodle::Backend {
         ue_iostore::oodle::backend(&self.oodle)
+    }
+
+    pub fn oodle_paths(&self) -> &[PathBuf] {
+        &self.oodle
+    }
+
+    pub fn paks(&self) -> &Path {
+        &self.paks
+    }
+
+    /// The loaded source container a tag entry points into.
+    pub fn container(&self, index: usize) -> Option<&Container> {
+        self.containers.get(index)
     }
 }
 
@@ -155,9 +171,10 @@ impl Catalog {
                 if full.contains("/Engine/") || full.contains("/Tags/") {
                     continue;
                 }
-                let is_texture_path = full.rsplit('/').next().is_some_and(|f| {
-                    f.starts_with("T_") || full.contains("/Textures/")
-                });
+                let is_texture_path = full
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|f| f.starts_with("T_") || full.contains("/Textures/"));
                 if !is_texture_path {
                     continue;
                 }
@@ -168,9 +185,11 @@ impl Catalog {
                 } else {
                     continue;
                 };
-                let entry = candidates
-                    .entry(stem.to_string())
-                    .or_insert((usize::MAX, c.chunks[*chunk_index], None));
+                let entry = candidates.entry(stem.to_string()).or_insert((
+                    usize::MAX,
+                    c.chunks[*chunk_index],
+                    None,
+                ));
                 if is_uasset {
                     entry.0 = ci;
                     entry.1 = c.chunks[*chunk_index];
@@ -181,9 +200,7 @@ impl Catalog {
         }
         tags.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
         for t in &mut tags {
-            t.uasset = tag_uassets
-                .get(t.path.trim_end_matches(".ubulk"))
-                .copied();
+            t.uasset = tag_uassets.get(t.path.trim_end_matches(".ubulk")).copied();
         }
 
         let mut textures: Vec<TextureEntry> = candidates
@@ -230,6 +247,7 @@ impl Catalog {
                 "" => Vec::new(),
                 path => vec![PathBuf::from(path)],
             },
+            paks: PathBuf::from(paks),
         })
     }
 
@@ -240,7 +258,9 @@ impl Catalog {
         } else {
             format!("{}/", dir.trim_end_matches('/'))
         };
-        let start = self.files.partition_point(|f| f.path.as_str() < prefix.as_str());
+        let start = self
+            .files
+            .partition_point(|f| f.path.as_str() < prefix.as_str());
         let len = self.files[start..]
             .iter()
             .take_while(|f| f.path.starts_with(&prefix))
@@ -385,9 +405,7 @@ impl Catalog {
         self.tags
             .iter()
             .enumerate()
-            .filter(|(_, t)| {
-                t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q)
-            })
+            .filter(|(_, t)| t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q))
             .take(limit)
             .map(|(index, t)| TagSummary {
                 index,
@@ -445,14 +463,20 @@ impl Catalog {
 
     /// Read a texture's `.uasset` header package.
     pub fn read_texture_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
-        let t = self.textures.get(index).ok_or("texture index out of range")?;
+        let t = self
+            .textures
+            .get(index)
+            .ok_or("texture index out of range")?;
         ue_iostore::read_chunk(&self.containers[t.container], &t.uasset, None, &self.oodle)
             .map_err(|e| format!("{}: {e}", t.short))
     }
 
     /// Read a texture's `.ubulk` payload, if it has one.
     pub fn read_texture_ubulk(&self, index: usize) -> Result<Vec<u8>, String> {
-        let t = self.textures.get(index).ok_or("texture index out of range")?;
+        let t = self
+            .textures
+            .get(index)
+            .ok_or("texture index out of range")?;
         let (ci, chunk) = t.ubulk.ok_or("texture has no bulk payload (inline mips)")?;
         ue_iostore::read_chunk(&self.containers[ci], &chunk, None, &self.oodle)
             .map_err(|e| format!("{}: {e}", t.short))
@@ -462,6 +486,15 @@ impl Catalog {
         self.tags.get(index)
     }
 
+    /// Resolve a tag by its stable identity `(group, short path)` — how a mod
+    /// project names tags, so a recipe finds them again in any installation.
+    ///
+    /// Binary search over the `(group, short)` order the tag list is built in.
+    pub fn tag_index(&self, group: &str, short: &str) -> Option<usize> {
+        self.tags
+            .binary_search_by(|t| (t.group.as_str(), t.short.as_str()).cmp(&(group, short)))
+            .ok()
+    }
 }
 
 #[cfg(test)]
@@ -488,6 +521,7 @@ mod tests {
             textures: Vec::new(),
             files,
             oodle: Vec::new(),
+            paks: PathBuf::new(),
         }
     }
 
@@ -548,15 +582,19 @@ mod tests {
         assert_eq!(hits[0].name, "elite.biped");
 
         assert_eq!(c.search_files("t_spark", 50).len(), 1);
-        assert!(c.search_files("", 50).is_empty(), "an empty query matches nothing");
+        assert!(
+            c.search_files("", 50).is_empty(),
+            "an empty query matches nothing"
+        );
         assert_eq!(c.search_files("e", 1).len(), 1, "the limit is honoured");
     }
 
     #[test]
     fn splits_group_and_short_path() {
-        let (group, short) =
-            split_path("../../../Meteorite/Content/Tags/objects/characters/elite/elite-biped.ubulk")
-                .unwrap();
+        let (group, short) = split_path(
+            "../../../Meteorite/Content/Tags/objects/characters/elite/elite-biped.ubulk",
+        )
+        .unwrap();
         assert_eq!(group, "biped");
         assert_eq!(short, "objects/characters/elite/elite");
     }

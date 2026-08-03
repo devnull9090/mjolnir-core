@@ -56,6 +56,15 @@ pub struct Install {
 struct Settings {
     paks: Option<String>,
     oodle: Option<String>,
+    /// The mod project folder open when the editor last ran, so the next
+    /// launch resumes where the user left off.
+    #[serde(default)]
+    project: Option<String>,
+    /// Hub API key with `mods:write`, minted by the user on their account
+    /// page. Stored like the launcher stores its paired key: locally, for
+    /// this machine's user.
+    #[serde(default)]
+    hub_key: Option<String>,
 }
 
 fn settings_path() -> Option<PathBuf> {
@@ -74,13 +83,38 @@ fn recall() -> Settings {
 /// Best-effort: a settings file that cannot be written costs the user a second
 /// browse, which is not worth failing an otherwise successful open over.
 pub fn remember(paks: &str, oodle: &str) {
+    let mut settings = recall();
+    settings.paks = Some(paks.to_string());
+    // An empty path means the user is on the built-in decoder. Store it as
+    // absent so a DLL installed later still gets picked up.
+    settings.oodle = Some(oodle.to_string()).filter(|s| !s.trim().is_empty());
+    store(settings);
+}
+
+/// Record (or forget) the open mod project, so the next launch resumes it.
+pub fn remember_project(dir: Option<&str>) {
+    let mut settings = recall();
+    settings.project = dir.map(str::to_string);
+    store(settings);
+}
+
+pub fn recall_project() -> Option<String> {
+    recall().project
+}
+
+/// Record (or clear, with an empty string) the hub API key.
+pub fn remember_hub_key(key: &str) {
+    let mut settings = recall();
+    settings.hub_key = Some(key.trim().to_string()).filter(|s| !s.is_empty());
+    store(settings);
+}
+
+pub fn recall_hub_key() -> Option<String> {
+    recall().hub_key
+}
+
+fn store(settings: Settings) {
     let Some(path) = settings_path() else { return };
-    let settings = Settings {
-        paks: Some(paks.to_string()),
-        // An empty path means the user is on the built-in decoder. Store it as
-        // absent so a DLL installed later still gets picked up.
-        oodle: Some(oodle.to_string()).filter(|s| !s.trim().is_empty()),
-    };
     let Ok(json) = serde_json::to_string_pretty(&settings) else {
         return;
     };

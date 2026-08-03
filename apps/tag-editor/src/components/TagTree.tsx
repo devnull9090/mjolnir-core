@@ -1,17 +1,20 @@
 import { tagLabel, useEditor } from "../stores/editor-store";
 import { FileBrowser } from "./FileBrowser";
+import { ModPanel } from "./ModPanel";
 
-/** What each left-panel mode is for, since three tabs need distinguishing. */
+/** What each left-panel mode is for, since four tabs need distinguishing. */
 const MODES = [
   { id: "files", label: "files", hint: "Browse every asset by path, like a file dialog" },
   { id: "tags", label: "groups", hint: "Browse tags by their Blam group" },
   { id: "textures", label: "textures", hint: "Browse texture assets only" },
+  { id: "mod", label: "mod", hint: "Your mod: its changes, test install, export and publish" },
 ] as const;
 
 /** Left panel: mode tabs, search, and the listing for the chosen mode. */
 export function TagTree() {
   const { browse } = useEditor();
   const setBrowse = useEditor((s) => s.setBrowse);
+  const project = useEditor((s) => s.project);
 
   return (
     <div className="flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-r border-border-subtle">
@@ -29,6 +32,12 @@ export function TagTree() {
             }`}
           >
             {mode.label}
+            {mode.id === "mod" && project && (
+              <span
+                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-mjolnir-gold align-middle"
+                title={`${project.meta.name} is open`}
+              />
+            )}
           </button>
         ))}
       </div>
@@ -36,8 +45,10 @@ export function TagTree() {
         <FileBrowser />
       ) : browse === "tags" ? (
         <TagList />
-      ) : (
+      ) : browse === "textures" ? (
         <TextureList />
+      ) : (
+        <ModPanel />
       )}
     </div>
   );

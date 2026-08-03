@@ -396,16 +396,38 @@ spilled to `chunks_without_perfect_hash`. The per-chunk TOC arrays are permuted 
 index *is* the hash slot. A one-chunk container still comes out with the shipped shape — one
 seed, `-1` — so nothing about the verified single-chunk recipe changed.
 
+### Two-chunk containers verified in game — and a string-id hazard found
+
+**Answered 2026-08-02, with the fixed perfect hash.** A two-chunk container (resized payload +
+rewritten package header) built by `blam-pack` works end to end. The A/B/C, all from a fresh
+mission-select A30 spawn:
+
+| Container | `BinaryBlobSize` | In game |
+|---|---:|---|
+| none (vanilla) | 32620 | assault rifle in hand, normal |
+| resized via a **novel string id** (`generic hud text = "MJOLNIR_RESIZE_MARKER"`, 32641 B) | **32641** | **pistol-fallback: magnum only, cannot switch** |
+| resized via a **valid tag reference** (`barrels[0].projectile` → the needler shard, 32608 B) | **32608** | **assault rifle in hand, firing needler shards** |
+
+Run three is the proof: the package chunk applied (32608 by reflection) *and* the bulk chunk
+applied (pink needles on screen, magazine draining), both chunks served from one container
+through the solved perfect hash. Screenshots and the cradle-widget reads came through the
+[game automation](game_automation.md) bridge; the ammo counter is reachable as a live UMG
+widget (`WBP_HUD_Main … WeaponCradle … CurrentAmmoCountTextBlock`), which is a better
+instrument than pixels.
+
+Run two is the discovery that replaces the old caution: **a `string id` set to text the game's
+string table does not already contain makes the native parser reject the whole tag**, and a
+rejected weapon degrades to the documented pistol-fallback. The 2026-07-27 marker-string
+container never exposed this — with the broken hash, only its package chunk was ever served, so
+the poisoned payload was never parsed. The tag editor now warns on any string-id edit at
+test/export time.
+
 ### What this means for the editor
 
-Editing a tag and shipping the result **works end to end**, within one constraint: keep the payload
-the same length. Every fixed-width field — integers, reals, enums, flags — qualifies, which is most
-of what anyone wants to change.
-
-Outside that constraint the path is not finished. A string or block edit resizes the payload, which
-needs the package header rewritten to match, which needs a two-chunk container. The perfect-hash
-bug that used to block that is fixed; what remains untested in-game is a multi-chunk override
-container as such.
+Editing a tag and shipping the result **works end to end, including resizes**. Fixed-width
+fields — integers, reals, enums, flags — edit in place; string-id and tag-reference edits that
+resize the payload bake into a verified two-chunk container. The one known content hazard is
+the novel-string-id rejection above: reference only strings and tags the game already ships.
 
 ### Notes on measuring this
 

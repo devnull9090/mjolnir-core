@@ -346,8 +346,8 @@ fn main() -> Result<()> {
 /// so bytes on disk are enough — including the uncompressed payload sitting in
 /// an override container we built ourselves.
 fn tag_file(a: TagFileArgs) -> Result<()> {
-    let file = std::fs::read(&a.file)
-        .with_context(|| format!("cannot read {}", a.file.display()))?;
+    let file =
+        std::fs::read(&a.file).with_context(|| format!("cannot read {}", a.file.display()))?;
     let tag = TagFile::parse(&file, Some(file.len()))?;
     let l = tag.layout()?;
     let block = tag
@@ -401,11 +401,7 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     println!("  field    {}  [{}]", applied.path, applied.type_name);
     println!("  before   {}", applied.before.display());
     println!("  after    {}", applied.after.display());
-    println!(
-        "  file     {} bytes -> {} bytes",
-        file.len(),
-        patched.len()
-    );
+    println!("  file     {} bytes -> {} bytes", file.len(), patched.len());
 
     // Re-reading is the real claim: an edit that does not walk is not an edit.
     let after = TagFile::parse(&patched, Some(patched.len()))?;
@@ -414,7 +410,9 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     let ap = after.data().context("patched tag has no bdat section")?;
     println!(
         "  re-read  {}",
-        blam_tag::patch::resolve(&al, &patched, &ab, field)?.current.display()
+        blam_tag::patch::resolve(&al, &patched, &ab, field)?
+            .current
+            .display()
     );
     println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
     if ab.consumed != ap.size as usize {
@@ -422,10 +420,15 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     }
 
     if patched.len() == file.len() {
-        let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+        let d: Vec<usize> = (0..file.len())
+            .filter(|i| file[*i] != patched[*i])
+            .collect();
         println!("  differs  {} byte(s) from the original", d.len());
         for i in d.iter().take(8) {
-            println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+            println!(
+                "           0x{i:X}: {:02x} -> {:02x}",
+                file[*i], patched[*i]
+            );
         }
     }
 
@@ -433,7 +436,9 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
         Some(path) => {
             std::fs::write(path, &patched)?;
             println!("\n  wrote {}", path.display());
-            println!("  This is game content. Keep it local; the repository does not take tag data.");
+            println!(
+                "  This is game content. Keep it local; the repository does not take tag data."
+            );
         }
         None => println!("\n  dry run; pass --out <file> to write the patched tag"),
     }
@@ -489,7 +494,10 @@ fn data(a: DataArgs) -> Result<()> {
             offset += width;
         }
         println!("\n  root consumes {offset} of {} bytes", payload.size);
-        println!("  remaining     {} bytes", payload.size as usize - size as usize);
+        println!(
+            "  remaining     {} bytes",
+            payload.size as usize - size as usize
+        );
     }
 
     if a.hexdump > 0 {
@@ -499,7 +507,13 @@ fn data(a: DataArgs) -> Result<()> {
             let row = &payload.content[off..(off + 16).min(end)];
             let ascii: String = row
                 .iter()
-                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .map(|b| {
+                    if (32..127).contains(b) {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             println!("    {off:08x}  {:<47}  |{ascii}|", hex(row));
         }
@@ -518,7 +532,13 @@ fn data(a: DataArgs) -> Result<()> {
         let cc: String = content[off..off + 4]
             .iter()
             .rev()
-            .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+            .map(|b| {
+                if (32..127).contains(b) {
+                    *b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         *magics.entry(cc).or_default() += 1;
     }
@@ -579,7 +599,8 @@ fn roundtrip(a: ValidateArgs) -> Result<()> {
         by_group.values().map(|v| v[0]).collect()
     };
 
-    let (mut checked, mut identical, mut differs, mut unreadable) = (0usize, 0usize, 0usize, 0usize);
+    let (mut checked, mut identical, mut differs, mut unreadable) =
+        (0usize, 0usize, 0usize, 0usize);
     let mut bytes = 0u64;
 
     for entry in targets {
@@ -632,7 +653,11 @@ fn roundtrip(a: ValidateArgs) -> Result<()> {
 
     let pct = |n: usize| {
         let base = identical + differs;
-        if base == 0 { 0.0 } else { n as f64 * 100.0 / base as f64 }
+        if base == 0 {
+            0.0
+        } else {
+            n as f64 * 100.0 / base as f64
+        }
     };
     println!("checked {checked} tags");
     println!("  not readable, so not round-tripped  {unreadable}");
@@ -671,7 +696,13 @@ fn data_versions(a: SectionsArgs) -> Result<()> {
                 .magic
                 .iter()
                 .rev()
-                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .map(|b| {
+                    if (32..127).contains(b) {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             let e = hist.entry(name).or_default();
             e.0 += 1;
@@ -698,9 +729,7 @@ fn data_versions(a: SectionsArgs) -> Result<()> {
             versions.len()
         );
     }
-    println!(
-        "\nA writer can regenerate a version word only where one column equals `seen`."
-    );
+    println!("\nA writer can regenerate a version word only where one column equals `seen`.");
     Ok(())
 }
 
@@ -752,7 +781,9 @@ fn sections(a: SectionsArgs) -> Result<()> {
         for sec in &l.sections {
             let name = sec.name();
             candidates.push((format!("{name} bytes"), sec.size));
-            for width in [2u32, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72] {
+            for width in [
+                2u32, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72,
+            ] {
                 if sec.size % width == 0 {
                     candidates.push((format!("{name}/{width}"), sec.size / width));
                 }
@@ -771,16 +802,20 @@ fn sections(a: SectionsArgs) -> Result<()> {
         }
     }
 
-    println!("{groups} groups
-");
+    println!(
+        "{groups} groups
+"
+    );
     println!("tgly child sections:");
     println!("  magic	groups	non_empty	max_size");
     for (magic, (n, nonempty, max)) in &seen {
         println!("  {magic}	{n}	{nonempty}	{max}");
     }
 
-    println!("
-blay preamble words (body 0x0C..0x4C), matches across groups:");
+    println!(
+        "
+blay preamble words (body 0x0C..0x4C), matches across groups:"
+    );
     for i in 0..19 {
         // Only report a candidate that holds for every group.
         let repr = matches
@@ -819,8 +854,7 @@ fn chunk(a: ChunkArgs) -> Result<()> {
         hits.sort();
         for (path, index) in hits {
             let entry = &container.chunks[*index];
-            let bytes =
-                ue_iostore::read_chunk(container, entry, None, &a.src.oodle_roots())?;
+            let bytes = ue_iostore::read_chunk(container, entry, None, &a.src.oodle_roots())?;
             println!(
                 "{}
   {} bytes, chunk id {:#018x} index {} type {} ({})",
@@ -848,7 +882,13 @@ fn chunk(a: ChunkArgs) -> Result<()> {
                 let row = &bytes[off..(off + 16).min(end)];
                 let ascii: String = row
                     .iter()
-                    .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                    .map(|b| {
+                        if (32..127).contains(b) {
+                            *b as char
+                        } else {
+                            '.'
+                        }
+                    })
                     .collect();
                 println!("  {off:08x}  {:<47}  |{ascii}|", hex(row));
             }
@@ -932,98 +972,49 @@ fn pack(a: PackArgs) -> Result<()> {
         anyhow::bail!("the patched tag no longer walks exactly");
     }
 
-    // The chunk ID is read straight out of the shipped index, so the override
-    // addresses exactly the chunk the game already asks for.
+    // Container construction is shared with the tag editor: blam-pack reuses
+    // the shipped chunk IDs and rewrites `BinaryBlobSize` when the payload
+    // resized. See that crate for the details this used to spell out inline.
     let source = &idx.containers[entry.container];
-    let source_toc = ue_iostore::toc::Toc::read(&source.utoc_path)?;
-    let id = source_toc
-        .chunk_ids
-        .iter()
-        .copied()
-        .find(|c| {
-            c.id == entry.chunk.chunk_id
-                && c.index == entry.chunk.chunk_index
-                && c.kind == entry.chunk.chunk_type
-        })
-        .context("could not find this tag's chunk in its container index")?;
-    println!(
-        "  chunk    id {:#018x} index {} type {} (from {})",
-        id.id,
-        id.index,
-        id.kind,
-        source
-            .utoc_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-    );
-
-    // A container ID distinct from every shipped one.
-    let container_id = 0x4D4A_4F4C_4E49_5200u64;
-    let slot = source_toc
-        .chunk_ids
-        .iter()
-        .position(|c| *c == id)
-        .context("chunk vanished from the index")?;
-
-    let mut chunks = vec![ue_iostore::pack::Entry {
-        id,
-        data: file.clone(),
-        meta: source_toc.meta(slot).unwrap_or(&[]).to_vec(),
-    }];
-
-    // The package header carries `BinaryBlobSize`, which the runtime exposes as
-    // a property. If the payload changed length, that copy has to change with
-    // it or the tag is self-inconsistent — and because it is readable in game,
-    // it doubles as proof of whether the override was used at all.
-    if file.len() != original.len() {
-        let pkg_slot = source_toc
-            .chunk_ids
-            .iter()
-            .position(|c| c.id == id.id && c.kind == 1)
-            .context("no package chunk beside this tag's payload")?;
-        let pkg_id = source_toc.chunk_ids[pkg_slot];
-        let pkg_entry = source
-            .chunks
-            .iter()
-            .find(|c| c.chunk_id == pkg_id.id && c.chunk_type == 1)
-            .context("package chunk missing from the container")?;
-        let mut pkg = ue_iostore::read_chunk(source, pkg_entry, None, &a.src.oodle_roots())?;
-
-        let needle = (original.len() as u32).to_le_bytes();
-        let at: Vec<usize> = pkg
-            .windows(4)
-            .enumerate()
-            .filter(|(_, w)| *w == needle)
-            .map(|(i, _)| i)
-            .collect();
-        if at.len() != 1 {
-            anyhow::bail!(
-                "expected exactly one copy of the blob size in the package header, found {}",
-                at.len()
-            );
-        }
-        pkg[at[0]..at[0] + 4].copy_from_slice(&(file.len() as u32).to_le_bytes());
+    let built = blam_pack::build_override(
+        source,
+        &a.src.oodle_roots(),
+        &[blam_pack::TagEdit {
+            label: entry.path.clone(),
+            chunk: entry.chunk,
+            original_len: original.len(),
+            patched: file.clone(),
+        }],
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+    for p in &built.entries {
         println!(
-            "  package  BinaryBlobSize at +{} : {} -> {}",
-            at[0],
-            original.len(),
-            file.len()
+            "  chunk    id {:#018x} index {} type {} (from {}){}",
+            p.id.id,
+            p.id.index,
+            p.id.kind,
+            source
+                .utoc_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy(),
+            if p.resized {
+                " — package BinaryBlobSize rewritten"
+            } else {
+                ""
+            }
         );
-        chunks.push(ue_iostore::pack::Entry {
-            id: pkg_id,
-            data: pkg,
-            meta: source_toc.meta(pkg_slot).unwrap_or(&[]).to_vec(),
-        });
     }
-
-    let built = ue_iostore::pack::build(&source_toc, container_id, &chunks);
 
     std::fs::create_dir_all(&a.out_dir)?;
     let utoc = a.out_dir.join(format!("{}.utoc", a.name));
     let ucas = a.out_dir.join(format!("{}.ucas", a.name));
     std::fs::write(&utoc, &built.utoc)?;
     std::fs::write(&ucas, &built.ucas)?;
+
+    // Byte-exact read-back first; the field prints below are for the human.
+    blam_pack::verify_written(&utoc, &a.src.oodle_roots(), &built.expect)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     println!("\n  wrote {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote {} ({} bytes)", ucas.display(), built.ucas.len());
@@ -1042,8 +1033,14 @@ fn pack(a: PackArgs) -> Result<()> {
     let l = tag.layout()?;
     let block = tag.read_data(&l)?;
     let payload = tag.data().context("no bdat section")?;
-    println!("\n  verify   read {} bytes back out of the container", bytes.len());
-    println!("  verify   walks {} of {} bytes", block.consumed, payload.size);
+    println!(
+        "\n  verify   read {} bytes back out of the container",
+        bytes.len()
+    );
+    println!(
+        "  verify   walks {} of {} bytes",
+        block.consumed, payload.size
+    );
     for set in &a.sets {
         if let Some((path, _)) = set.split_once('=') {
             let t = blam_tag::patch::resolve(&l, &bytes, &block, path)?;
@@ -1104,8 +1101,11 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
             if same { "identical".to_string() } else { first }
         );
     }
-    println!("
-{ok}/{} reproduced byte for byte, {differs} differ", paths.len());
+    println!(
+        "
+{ok}/{} reproduced byte for byte, {differs} differ",
+        paths.len()
+    );
     if differs > 0 {
         anyhow::bail!("{differs} container index(es) did not round-trip");
     }
@@ -1125,9 +1125,9 @@ fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
             path: String::new(),
         });
     }
-    let (group, path) = t
-        .split_once(':')
-        .context(r"a tag reference is written as <group>:<path>, e.g. coll:fx\holograms\hologram_01")?;
+    let (group, path) = t.split_once(':').context(
+        r"a tag reference is written as <group>:<path>, e.g. coll:fx\holograms\hologram_01",
+    )?;
     Ok(blam_tag::Scalar::Reference {
         group: group.trim().to_string(),
         path: path.trim().to_string(),
@@ -1198,15 +1198,25 @@ fn set(a: SetArgs) -> Result<()> {
         let al = after.layout()?;
         let ab = after.read_data(&al)?;
         let ap = after.data().context("patched tag has no bdat section")?;
-        println!("  re-read  {}", blam_tag::patch::resolve(&al, &patched, &ab, &a.field)?.current.display());
+        println!(
+            "  re-read  {}",
+            blam_tag::patch::resolve(&al, &patched, &ab, &a.field)?
+                .current
+                .display()
+        );
         println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
         // A rebuild that changes nothing must reproduce the file exactly; that
         // is what shows the difference is the edit and not the rebuild.
         if patched.len() == file.len() {
-            let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+            let d: Vec<usize> = (0..file.len())
+                .filter(|i| file[*i] != patched[*i])
+                .collect();
             println!("  differs  {} byte(s) from the original", d.len());
             for i in d.iter().take(8) {
-                println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+                println!(
+                    "           0x{i:X}: {:02x} -> {:02x}",
+                    file[*i], patched[*i]
+                );
             }
         }
         if ab.consumed != ap.size as usize {
@@ -1215,12 +1225,19 @@ fn set(a: SetArgs) -> Result<()> {
         match &a.out {
             Some(path) => {
                 std::fs::write(path, &patched)?;
-                println!("
-  wrote {}", path.display());
-                println!("  This is game content. Keep it local; the repository does not take tag data.");
+                println!(
+                    "
+  wrote {}",
+                    path.display()
+                );
+                println!(
+                    "  This is game content. Keep it local; the repository does not take tag data."
+                );
             }
-            None => println!("
-  dry run; pass --out <file> to write the patched tag"),
+            None => println!(
+                "
+  dry run; pass --out <file> to write the patched tag"
+            ),
         }
         return Ok(());
     }
@@ -1251,7 +1268,10 @@ fn set(a: SetArgs) -> Result<()> {
     let payload = after.data().context("patched tag has no bdat section")?;
     let walked = after_block.consumed == payload.size as usize;
     let reread = blam_tag::patch::resolve(&after_layout, &patched, &after_block, &a.field)?;
-    println!("  re-read  {}  (walk exact: {walked})", reread.current.display());
+    println!(
+        "  re-read  {}  (walk exact: {walked})",
+        reread.current.display()
+    );
     if !walked {
         anyhow::bail!("the patched tag no longer walks exactly");
     }
@@ -1297,7 +1317,9 @@ fn recode(a: ValidateArgs) -> Result<()> {
             continue;
         };
         let Ok(l) = tag.layout() else { continue };
-        let Ok(block) = tag.read_data(&l) else { continue };
+        let Ok(block) = tag.read_data(&l) else {
+            continue;
+        };
         tags += 1;
 
         blam_tag::view::visit_fields(&l, &block, &mut |field, bytes| {
@@ -1477,7 +1499,11 @@ fn export_defs(a: DefsArgs) -> Result<()> {
     corpus.save(&a.out)?;
 
     let total_fields: usize = corpus.groups.values().map(|g| g.field_count()).sum();
-    let visible: usize = corpus.groups.values().map(|g| g.visible_field_count()).sum();
+    let visible: usize = corpus
+        .groups
+        .values()
+        .map(|g| g.visible_field_count())
+        .sum();
     let resolved = corpus
         .groups
         .values()
@@ -1487,7 +1513,14 @@ fn export_defs(a: DefsArgs) -> Result<()> {
 
     println!("wrote {}", a.out.display());
     println!("  groups          {}", corpus.groups.len());
-    println!("  structs         {}", corpus.groups.values().map(|g| g.structs.len()).sum::<usize>());
+    println!(
+        "  structs         {}",
+        corpus
+            .groups
+            .values()
+            .map(|g| g.structs.len())
+            .sum::<usize>()
+    );
     println!("  fields          {total_fields} ({visible} visible)");
     println!("  fully resolved  {resolved}/{}", corpus.groups.len());
     println!("  size            {:.1} KiB", bytes as f64 / 1024.0);
@@ -1497,7 +1530,9 @@ fn export_defs(a: DefsArgs) -> Result<()> {
 fn groups(a: GroupsArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
-    println!("group\tfourcc\tver\tcount\tstrings\toptions\ttypes\tfields\tblocks\tstructs\tdata\troot");
+    println!(
+        "group\tfourcc\tver\tcount\tstrings\toptions\ttypes\tfields\tblocks\tstructs\tdata\troot"
+    );
 
     let mut parsed = 0usize;
     let mut with_fields = 0usize;
@@ -1605,7 +1640,13 @@ fn layout(a: LayoutArgs) -> Result<()> {
 
         println!("\n  section chain under tgly:");
         for s in &l.sections {
-            println!("    +{:<8} {}  v{:<3} size {}", s.at, s.name(), s.version, s.size);
+            println!(
+                "    +{:<8} {}  v{:<3} size {}",
+                s.at,
+                s.name(),
+                s.version,
+                s.size
+            );
         }
 
         if a.tables {
@@ -1741,7 +1782,13 @@ fn types(a: TypesArgs) -> Result<()> {
         }
         let size_repr = observed
             .iter()
-            .map(|(s, n)| if consistent { s.to_string() } else { format!("{s}:{n}") })
+            .map(|(s, n)| {
+                if consistent {
+                    s.to_string()
+                } else {
+                    format!("{s}:{n}")
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ");
         println!(

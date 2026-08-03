@@ -1,8 +1,10 @@
 //! MJOLNIR Tag Editor backend.
 //!
 //! Reads Blam tag definitions and values from the user's own installation of
-//! Halo Campaign Evolved. This build is read-only: nothing is written back to
-//! the game, and no tag content is written to disk.
+//! Halo Campaign Evolved. The installation itself is never modified: edits
+//! accumulate in a mod project — a saved recipe of field changes — and leave
+//! the editor only as new files (an exported tag, a baked container, a
+//! `.mjolnir` archive).
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -11,7 +13,10 @@ use serde::Serialize;
 use tauri::State;
 
 pub mod catalog;
+pub mod hub;
 pub mod install;
+pub mod modpack;
+pub mod project;
 pub mod textures;
 pub mod zen;
 
@@ -20,15 +25,54 @@ use catalog::{Catalog, GroupSummary, TagSummary};
 /// Cap on how many rows a single query returns, to keep IPC payloads bounded.
 const MAX_ROWS: usize = 500;
 
+/// A tag's stable identity: `(group, short path)`.
+///
+/// Edits are keyed by this rather than by catalog index, because an index is
+/// an artifact of one scan of one build of the game — a project keyed by
+/// index would silently edit the wrong tags after a game update.
+type TagKey = (String, String);
+
+/// Everything the user is working on: their edits, and the project the edits
+/// belong to when one is open.
+#[derive(Default)]
+struct Workbench {
+    edits: BTreeMap<TagKey, Vec<PendingEdit>>,
+    /// When set, every change to `edits` is mirrored to the project folder.
+    project: Option<project::Project>,
+}
+
+impl Workbench {
+    /// The edits flattened for the project file, in map order.
+    fn saved_edits(&self) -> Vec<project::SavedEdit> {
+        self.edits
+            .iter()
+            .flat_map(|((group, tag), pending)| {
+                pending.iter().map(move |e| project::SavedEdit {
+                    group: group.clone(),
+                    tag: tag.clone(),
+                    field: e.path.clone(),
+                    value: e.value.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Mirror the edits to disk, when a project is open.
+    ///
+    /// The edit already happened in memory either way; a failed write is
+    /// reported so the user knows the folder is not keeping up.
+    fn autosave(&self) -> Result<(), String> {
+        match &self.project {
+            Some(p) => p.save_edits(&self.saved_edits()),
+            None => Ok(()),
+        }
+    }
+}
+
 #[derive(Default)]
 struct AppState {
     catalog: Mutex<Option<Catalog>>,
-    /// Edits the user has made but not exported, per tag index.
-    ///
-    /// Held in memory on purpose. The game loads tags from read-only IoStore
-    /// containers, so there is nowhere to save them back to; an edit is a
-    /// pending change until it is exported to a file.
-    edits: Mutex<BTreeMap<usize, Vec<PendingEdit>>>,
+    work: Mutex<Workbench>,
 }
 
 #[derive(Clone, Serialize)]
@@ -225,11 +269,7 @@ fn parse_edits(
 
 /// The tag as the user currently sees it: the shipped bytes with any pending
 /// edits applied.
-fn patched_bytes(
-    c: &Catalog,
-    index: usize,
-    pending: &[PendingEdit],
-) -> Result<Vec<u8>, String> {
+fn patched_bytes(c: &Catalog, index: usize, pending: &[PendingEdit]) -> Result<Vec<u8>, String> {
     let file = c.read_tag(index)?;
     if pending.is_empty() {
         return Ok(file);
@@ -240,8 +280,8 @@ fn patched_bytes(
     let layout = tag.layout().map_err(|e| e.to_string())?;
     let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
     let edits = parse_edits(&layout, &file, &block, pending);
-    let (out, _) = blam_tag::patch::set_many(&layout, &file, &block, &edits)
-        .map_err(|e| e.to_string())?;
+    let (out, _) =
+        blam_tag::patch::set_many(&layout, &file, &block, &edits).map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -263,6 +303,20 @@ fn parse_reference(text: &str) -> Result<blam_tag::Scalar, String> {
     })
 }
 
+/// The stable key of a catalog tag, for the edit map.
+fn tag_key(state: &State<'_, AppState>, index: usize) -> Result<TagKey, String> {
+    with_catalog(state, |c| {
+        let e = c.entry(index).ok_or("tag index out of range")?;
+        Ok((e.group.clone(), e.short.clone()))
+    })
+}
+
+/// The pending edits for a catalog tag, cloned out of the lock.
+fn pending_for(state: &State<'_, AppState>, key: &TagKey) -> Result<Vec<PendingEdit>, String> {
+    let work = state.work.lock().map_err(|e| e.to_string())?;
+    Ok(work.edits.get(key).cloned().unwrap_or_default())
+}
+
 #[tauri::command]
 fn set_field(
     index: usize,
@@ -270,10 +324,8 @@ fn set_field(
     value: String,
     state: State<'_, AppState>,
 ) -> Result<EditResult, String> {
-    let pending = {
-        let all = state.edits.lock().map_err(|e| e.to_string())?;
-        all.get(&index).cloned().unwrap_or_default()
-    };
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
 
     let result = with_catalog(&state, |c| {
         let file = patched_bytes(c, index, &pending)?;
@@ -283,16 +335,17 @@ fn set_field(
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
 
-        let target = blam_tag::patch::resolve(&layout, &file, &block, &path)
-            .map_err(|e| e.to_string())?;
+        let target =
+            blam_tag::patch::resolve(&layout, &file, &block, &path).map_err(|e| e.to_string())?;
         // A section-backed value resizes the tag, so it takes the rebuild path
         // rather than overwriting bytes.
         let resizes = target.section.is_some();
         let parsed = match target.type_name.as_str() {
             "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
             "tag reference" => parse_reference(&value)?,
-            _ => blam_tag::value::parse(&layout, &target.field, &value)
-                .map_err(|e| e.to_string())?,
+            _ => {
+                blam_tag::value::parse(&layout, &target.field, &value).map_err(|e| e.to_string())?
+            }
         };
         let (out, applied) = if resizes {
             blam_tag::patch::set_text(&layout, &file, &block, &path, &parsed)
@@ -322,28 +375,34 @@ fn set_field(
     })?;
 
     // Only record once it is known to work.
-    let mut all = state.edits.lock().map_err(|e| e.to_string())?;
-    let list = all.entry(index).or_default();
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    let list = work.edits.entry(key).or_default();
     list.retain(|e| e.path != path);
     list.push(PendingEdit { path, value });
+    work.autosave()?;
     Ok(result)
 }
 
 #[tauri::command]
 fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Result<usize, String> {
-    let mut all = state.edits.lock().map_err(|e| e.to_string())?;
-    let list = all.entry(index).or_default();
+    let key = tag_key(&state, index)?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    let list = work.edits.entry(key.clone()).or_default();
     list.retain(|e| e.path != path);
     let left = list.len();
     if left == 0 {
-        all.remove(&index);
+        work.edits.remove(&key);
     }
+    work.autosave()?;
     Ok(left)
 }
 
 #[tauri::command]
 fn revert_tag(index: usize, state: State<'_, AppState>) -> Result<(), String> {
-    state.edits.lock().map_err(|e| e.to_string())?.remove(&index);
+    let key = tag_key(&state, index)?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.edits.remove(&key);
+    work.autosave()?;
     Ok(())
 }
 
@@ -354,10 +413,8 @@ fn revert_tag(index: usize, state: State<'_, AppState>) -> Result<(), String> {
 /// wherever the user puts them.
 #[tauri::command]
 fn export_tag(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
-    let pending = {
-        let all = state.edits.lock().map_err(|e| e.to_string())?;
-        all.get(&index).cloned().unwrap_or_default()
-    };
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
     with_catalog(&state, |c| {
         let out = patched_bytes(c, index, &pending)?;
         std::fs::write(&dest, &out).map_err(|e| format!("{dest}: {e}"))?;
@@ -367,10 +424,8 @@ fn export_tag(index: usize, dest: String, state: State<'_, AppState>) -> Result<
 
 #[tauri::command]
 fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String> {
-    let pending = {
-        let all = state.edits.lock().map_err(|e| e.to_string())?;
-        all.get(&index).cloned().unwrap_or_default()
-    };
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
     let edited: Vec<String> = pending.iter().map(|e| e.path.clone()).collect();
 
     with_catalog(&state, |c| {
@@ -517,10 +572,7 @@ fn search_files(
 }
 
 #[tauri::command]
-fn list_textures(
-    query: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<TextureSummary>, String> {
+fn list_textures(query: String, state: State<'_, AppState>) -> Result<Vec<TextureSummary>, String> {
     with_catalog(&state, |c| {
         Ok(c.search_textures(&query, MAX_ROWS)
             .into_iter()
@@ -586,6 +638,467 @@ fn export_texture(index: usize, dest: String, state: State<'_, AppState>) -> Res
     })
 }
 
+/// One edited field in the project change list.
+#[derive(Serialize)]
+struct FieldChange {
+    field: String,
+    /// The value the mod sets, as the user typed it.
+    value: String,
+    /// The shipped value, when the field still resolves.
+    before: Option<String>,
+    /// True when the tag or field no longer resolves in this installation —
+    /// usually the game updated underneath the recipe.
+    stale: bool,
+}
+
+/// Every edit the project makes to one tag.
+#[derive(Serialize)]
+struct TagChange {
+    group: String,
+    tag: String,
+    /// Catalog index in the open installation, when the tag still exists.
+    index: Option<usize>,
+    edits: Vec<FieldChange>,
+}
+
+#[derive(Serialize)]
+struct ProjectView {
+    root: String,
+    meta: project::Meta,
+    changes: Vec<TagChange>,
+    /// Files a test install left in the Paks folder, so the panel can show
+    /// that the mod is currently installed for testing.
+    test_files: Vec<String>,
+}
+
+/// The project change list, with each edit resolved against the open
+/// installation so the panel can show shipped → modded values and flag
+/// anything the last game update broke.
+fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<TagChange> {
+    edits
+        .iter()
+        .map(|((group, tag), pending)| {
+            let index = c.tag_index(group, tag);
+            let resolved = index.and_then(|i| {
+                let file = c.read_tag(i).ok()?;
+                let parsed = blam_tag::TagFile::parse(&file, Some(file.len())).ok()?;
+                let layout = parsed.layout().ok()?;
+                let block = parsed.read_data(&layout).ok()?;
+                Some(
+                    pending
+                        .iter()
+                        .map(
+                            |e| match blam_tag::patch::resolve(&layout, &file, &block, &e.path) {
+                                Ok(t) => FieldChange {
+                                    field: e.path.clone(),
+                                    value: e.value.clone(),
+                                    before: Some(t.current.display()),
+                                    stale: false,
+                                },
+                                Err(_) => FieldChange {
+                                    field: e.path.clone(),
+                                    value: e.value.clone(),
+                                    before: None,
+                                    stale: true,
+                                },
+                            },
+                        )
+                        .collect::<Vec<_>>(),
+                )
+            });
+            let edits = resolved.unwrap_or_else(|| {
+                pending
+                    .iter()
+                    .map(|e| FieldChange {
+                        field: e.path.clone(),
+                        value: e.value.clone(),
+                        before: None,
+                        stale: true,
+                    })
+                    .collect()
+            });
+            TagChange {
+                group: group.clone(),
+                tag: tag.clone(),
+                index,
+                edits,
+            }
+        })
+        .collect()
+}
+
+/// The current project rendered for the UI, or `None` when none is open.
+fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, String> {
+    let (root, meta, edits) = {
+        let work = state.work.lock().map_err(|e| e.to_string())?;
+        match &work.project {
+            None => return Ok(None),
+            Some(p) => (
+                p.root.display().to_string(),
+                p.meta.clone(),
+                work.edits.clone(),
+            ),
+        }
+    };
+    let (changes, test_files) = with_catalog(state, |c| {
+        Ok((changes_for(c, &edits), modpack::test_files(c.paks())))
+    })?;
+    Ok(Some(ProjectView {
+        root,
+        meta,
+        changes,
+        test_files,
+    }))
+}
+
+#[tauri::command]
+fn project_status(state: State<'_, AppState>) -> Result<Option<ProjectView>, String> {
+    project_view(&state)
+}
+
+#[tauri::command]
+fn project_new(
+    dir: String,
+    name: String,
+    slug: String,
+    version: String,
+    summary: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectView, String> {
+    let meta = project::Meta {
+        schema_version: 1,
+        name: name.trim().to_string(),
+        slug,
+        version,
+        summary: summary.trim().to_string(),
+    };
+    let p = project::Project::create(std::path::Path::new(&dir), meta)?;
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.project = Some(p);
+        // Any edits made before the project existed become its first edits:
+        // "start a mod from what I've been trying out" is the natural flow.
+        work.autosave()?;
+    }
+    install::remember_project(Some(&dir));
+    project_view(&state)?.ok_or_else(|| "the new project did not open".to_string())
+}
+
+#[tauri::command]
+fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, String> {
+    let (p, saved) = project::Project::open(std::path::Path::new(&dir))?;
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        let mut edits: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
+        for e in saved {
+            edits
+                .entry((e.group, e.tag))
+                .or_default()
+                .push(PendingEdit {
+                    path: e.field,
+                    value: e.value,
+                });
+        }
+        work.edits = edits;
+        work.project = Some(p);
+    }
+    install::remember_project(Some(&dir));
+    project_view(&state)?.ok_or_else(|| "the project did not open".to_string())
+}
+
+/// Close the project. Edits are already on disk — autosave runs on every
+/// change — so this only clears the workbench.
+#[tauri::command]
+fn project_close(state: State<'_, AppState>) -> Result<(), String> {
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.project = None;
+    work.edits.clear();
+    install::remember_project(None);
+    Ok(())
+}
+
+#[tauri::command]
+fn project_set_meta(
+    name: String,
+    slug: String,
+    version: String,
+    summary: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectView, String> {
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        let p = work.project.as_mut().ok_or("no project is open")?;
+        let before = p.meta.clone();
+        p.meta.name = name.trim().to_string();
+        p.meta.slug = slug;
+        p.meta.version = version;
+        p.meta.summary = summary.trim().to_string();
+        if let Err(e) = p.save_meta() {
+            p.meta = before;
+            return Err(e);
+        }
+    }
+    project_view(&state)?.ok_or_else(|| "no project is open".to_string())
+}
+
+/// Revert edits by identity rather than catalog index, so the change list
+/// can drop edits whose tag no longer exists in this installation.
+#[tauri::command]
+fn project_revert(
+    group: String,
+    tag: String,
+    field: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let key = (group, tag);
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    match field {
+        Some(f) => {
+            if let Some(list) = work.edits.get_mut(&key) {
+                list.retain(|e| e.path != f);
+                if list.is_empty() {
+                    work.edits.remove(&key);
+                }
+            }
+        }
+        None => {
+            work.edits.remove(&key);
+        }
+    }
+    work.autosave()?;
+    Ok(())
+}
+
+/// The project folder from the last session, if it still is one.
+#[tauri::command]
+fn last_project() -> Option<String> {
+    install::recall_project()
+        .filter(|dir| std::path::Path::new(dir).join(project::MOD_FILE).is_file())
+}
+
+/// Every project edit resolved against the open installation and proven to
+/// produce a tag that still reads back exactly. Anything stale fails loudly
+/// here — a mod must never silently ship half its recipe.
+///
+/// Also returns per-edit warnings. The one that exists today: a `string id`
+/// set to text the game's string table does not already contain makes the
+/// game reject the whole tag — verified in game 2026-08-02, where a marker
+/// string turned the assault rifle into the pistol-fallback. The editor
+/// cannot see the game's string table, so it warns rather than blocks.
+fn resolved_edits(
+    c: &Catalog,
+    edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
+) -> Result<(Vec<modpack::ResolvedEdit>, Vec<String>), String> {
+    let mut out = Vec::new();
+    let mut warnings = Vec::new();
+    for ((group, tag), pending) in edits {
+        if pending.is_empty() {
+            continue;
+        }
+        let label = format!("{tag}.{group}");
+        let index = c.tag_index(group, tag).ok_or_else(|| {
+            format!("{label}: not present in this installation — revert the stale edit first")
+        })?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let original = c.read_tag(index)?;
+
+        // Every edit in the recipe must land; one failing to resolve means
+        // the game updated underneath it.
+        {
+            let parsed = blam_tag::TagFile::parse(&original, Some(original.len()))
+                .map_err(|e| format!("{label}: {e}"))?;
+            let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
+            let block = parsed
+                .read_data(&layout)
+                .map_err(|e| format!("{label}: {e}"))?;
+            let mut missing = 0usize;
+            for e in pending {
+                match blam_tag::patch::resolve(&layout, &original, &block, &e.path) {
+                    Ok(target) => {
+                        if target.type_name == "string id" && target.current.display() != e.value {
+                            warnings.push(format!(
+                                "{label}: \"{}\" sets a string id. A string the game does not \
+                                 already know makes it reject the whole tag (the weapon simply \
+                                 vanishes in game) — test before sharing.",
+                                e.path
+                            ));
+                        }
+                    }
+                    Err(_) => missing += 1,
+                }
+            }
+            if missing != 0 {
+                return Err(format!(
+                    "{label}: {missing} of {} edits no longer resolve — the game may have \
+                     updated; revert the stale edits first",
+                    pending.len()
+                ));
+            }
+        }
+
+        let patched = patched_bytes(c, index, pending)?;
+        if patched == original {
+            continue;
+        }
+        // And the result must still be a tag that walks exactly.
+        {
+            let parsed = blam_tag::TagFile::parse(&patched, Some(patched.len()))
+                .map_err(|e| format!("{label}: {e}"))?;
+            let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
+            let block = parsed
+                .read_data(&layout)
+                .map_err(|e| format!("{label}: {e}"))?;
+            let payload = patched.len();
+            let expected = parsed.data().map(|d| d.size as usize).unwrap_or(payload);
+            if block.consumed != expected {
+                return Err(format!(
+                    "{label}: the patched tag does not read back exactly"
+                ));
+            }
+        }
+        out.push(modpack::ResolvedEdit {
+            label,
+            container: entry.container,
+            chunk: entry.chunk,
+            original_len: original.len(),
+            patched,
+        });
+    }
+    if out.is_empty() {
+        return Err("the mod changes nothing yet — edit a tag first".into());
+    }
+    Ok((out, warnings))
+}
+
+#[derive(Serialize)]
+struct ExportView {
+    /// Where the `.mjolnir` archive was written.
+    archive: String,
+    size: u64,
+    containers: Vec<String>,
+    chunk_count: usize,
+    resized: bool,
+    warnings: Vec<String>,
+}
+
+/// Bake the project and write the `.mjolnir` archive into `<project>/build`.
+fn export_archive(
+    state: &State<'_, AppState>,
+) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
+    let (root, meta, edits) = {
+        let work = state.work.lock().map_err(|e| e.to_string())?;
+        let p = work.project.as_ref().ok_or("no project is open")?;
+        (p.root.clone(), p.meta.clone(), work.edits.clone())
+    };
+    with_catalog(state, |c| {
+        let (resolved, mut warnings) = resolved_edits(c, &edits)?;
+        let baked = modpack::bake(c, &meta.slug, resolved)?;
+        let build_dir = root.join("build");
+        modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
+
+        let archive = build_dir.join(format!("{}-{}.mjolnir", meta.slug, meta.version));
+        let readme = root.join("README.md");
+        let size = modpack::write_archive(
+            &archive,
+            &meta,
+            &baked,
+            readme.is_file().then(|| readme.as_path()),
+        )?;
+
+        let resized = baked.iter().any(|b| b.built.resized());
+        if size > modpack::MAX_ARCHIVE_BYTES {
+            warnings.push(format!(
+                "The archive is {size} bytes, over the hub's 50 MiB limit — it will be \
+                 rejected on upload."
+            ));
+        }
+        let view = ExportView {
+            archive: archive.display().to_string(),
+            size,
+            containers: baked.iter().map(|b| b.basename.clone()).collect(),
+            chunk_count: baked.iter().map(|b| b.built.expect.len()).sum(),
+            resized,
+            warnings,
+        };
+        Ok((view, archive, meta.clone()))
+    })
+}
+
+#[tauri::command]
+fn project_export(state: State<'_, AppState>) -> Result<ExportView, String> {
+    export_archive(&state).map(|(view, _, _)| view)
+}
+
+#[derive(Serialize)]
+struct TestView {
+    files: Vec<String>,
+    resized: bool,
+    warnings: Vec<String>,
+}
+
+/// Bake the project and install it into the Paks folder for an in-game test.
+#[tauri::command]
+fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
+    let (meta, edits) = {
+        let work = state.work.lock().map_err(|e| e.to_string())?;
+        let p = work.project.as_ref().ok_or("no project is open")?;
+        (p.meta.clone(), work.edits.clone())
+    };
+    with_catalog(&state, |c| {
+        let (resolved, warnings) = resolved_edits(c, &edits)?;
+        let baked = modpack::bake(c, &meta.slug, resolved)?;
+        let resized = baked.iter().any(|b| b.built.resized());
+        let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
+        Ok(TestView {
+            files,
+            resized,
+            warnings,
+        })
+    })
+}
+
+/// Remove the test install. Returns how many files were removed.
+#[tauri::command]
+fn project_untest(state: State<'_, AppState>) -> Result<usize, String> {
+    with_catalog(&state, |c| modpack::remove_test(c.paks()))
+}
+
+#[tauri::command]
+fn hub_status() -> hub::HubStatus {
+    hub::HubStatus {
+        base: hub::base_url(),
+        has_key: install::recall_hub_key().is_some(),
+    }
+}
+
+/// Store (or clear, with an empty string) the hub API key.
+#[tauri::command]
+fn hub_set_key(key: String) -> Result<(), String> {
+    install::remember_hub_key(&key);
+    Ok(())
+}
+
+/// Bake, archive and publish the project to the hub, returning the scan
+/// verdict. A rejection comes back as data — the findings are the point.
+#[tauri::command]
+fn project_publish(
+    changelog: String,
+    state: State<'_, AppState>,
+) -> Result<hub::PublishView, String> {
+    let key = install::recall_hub_key().ok_or(
+        "no hub API key — create one with the mods:write scope on your hub account page, \
+         then add it here",
+    )?;
+    let (view, archive, meta) = export_archive(&state)?;
+    if view.size > modpack::MAX_ARCHIVE_BYTES {
+        return Err(format!(
+            "the archive is {} bytes, over the hub's 50 MiB limit",
+            view.size
+        ));
+    }
+    hub::publish(&key, &meta, &archive, &changelog)
+}
+
 #[tauri::command]
 fn read_tag_bytes(
     index: usize,
@@ -616,6 +1129,19 @@ pub fn run() {
             revert_field,
             revert_tag,
             export_tag,
+            project_status,
+            project_new,
+            project_open,
+            project_close,
+            project_set_meta,
+            project_revert,
+            last_project,
+            project_export,
+            project_test,
+            project_untest,
+            project_publish,
+            hub_status,
+            hub_set_key,
             list_textures,
             read_texture,
             export_texture,

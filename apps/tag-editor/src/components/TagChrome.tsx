@@ -122,9 +122,12 @@ export function TagHeader() {
   );
 }
 
-/** Pending edits, and the only way they leave the editor. */
+/** Pending edits: saved into the mod project when one is open, exportable
+ *  either way. */
 export function EditBar() {
   const { tag, lastEdit, editError } = useEditor();
+  const project = useEditor((s) => s.project);
+  const setBrowse = useEditor((s) => s.setBrowse);
   const revertTag = useEditor((s) => s.revertTag);
   const exportTag = useEditor((s) => s.exportTag);
   const [wrote, setWrote] = useState<string | null>(null);
@@ -148,7 +151,8 @@ export function EditBar() {
     <div className="border-b border-mjolnir-gold/40 bg-mjolnir-gold/5 px-6 py-2">
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="text-mjolnir-gold">
-          {count} unsaved edit{count === 1 ? "" : "s"}
+          {count} edit{count === 1 ? "" : "s"}
+          {project ? ` in ${project.meta.name}` : " (not in a mod)"}
         </span>
         <button
           type="button"
@@ -166,9 +170,25 @@ export function EditBar() {
         >
           Revert all
         </button>
-        <span className="ml-auto font-mono text-[10px] text-text-dim">
-          The game&rsquo;s containers are read-only; edits export to a file.
-        </span>
+        {project ? (
+          <button
+            type="button"
+            onClick={() => setBrowse("mod")}
+            className="ml-auto font-mono text-[10px] text-text-dim hover:text-mjolnir-gold"
+            title="Saved to the project on every edit. Open the mod panel to test, export or publish."
+          >
+            autosaved — open mod panel →
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setBrowse("mod")}
+            className="ml-auto font-mono text-[10px] text-text-dim hover:text-mjolnir-gold"
+            title="Edits live in memory until they are part of a mod. Start one to keep them."
+          >
+            start a mod to keep these →
+          </button>
+        )}
       </div>
       {lastEdit && (
         <p className="mt-1 font-mono text-[10px] text-text-secondary">

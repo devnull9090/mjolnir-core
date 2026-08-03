@@ -3,10 +3,15 @@ import {
   api,
   type DirEntry,
   type EditResult,
+  type ExportView,
   type GroupSummary,
+  type HubStatus,
   type LinkedAsset,
+  type ProjectView,
+  type PublishView,
   type TagSummary,
   type TagView,
+  type TestView,
   type TextureSummary,
   type TextureView,
 } from "../lib/api";
@@ -69,9 +74,43 @@ type EditorState = {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
 
-  /** What the left panel browses: the asset tree, tag groups, or textures. */
-  browse: "files" | "tags" | "textures";
-  setBrowse: (browse: "files" | "tags" | "textures") => void;
+  /** What the left panel browses: assets, tag groups, textures, or the mod. */
+  browse: "files" | "tags" | "textures" | "mod";
+  setBrowse: (browse: "files" | "tags" | "textures" | "mod") => void;
+
+  /** The open mod project; edits autosave into it while one is open. */
+  project: ProjectView | null;
+  projectError: string | null;
+  /** Which long-running mod action is in flight, to disable its button. */
+  projectBusy: "export" | "test" | "untest" | "publish" | null;
+  exportResult: ExportView | null;
+  testResult: TestView | null;
+  publishResult: PublishView | null;
+  hub: HubStatus | null;
+  refreshProject: () => Promise<void>;
+  newProject: (
+    dir: string,
+    name: string,
+    slug: string,
+    version: string,
+    summary: string,
+  ) => Promise<boolean>;
+  openProject: (dir: string) => Promise<boolean>;
+  closeProject: () => Promise<void>;
+  saveProjectMeta: (
+    name: string,
+    slug: string,
+    version: string,
+    summary: string,
+  ) => Promise<boolean>;
+  /** Revert by identity, so stale edits without a catalog index can go too. */
+  revertProjectEdit: (group: string, tag: string, field: string | null) => Promise<void>;
+  exportMod: () => Promise<void>;
+  testMod: () => Promise<void>;
+  untestMod: () => Promise<void>;
+  publishMod: (changelog: string) => Promise<void>;
+  loadHub: () => Promise<void>;
+  setHubKey: (key: string) => Promise<boolean>;
 
   /** Virtual filesystem browser: current directory and its listing. */
   dir: string;
@@ -166,6 +205,22 @@ export const useEditor = create<EditorState>((set, get) => {
       if (get().selectedTexture === index) {
         set({ textureError: String(e), textureLoading: false });
       }
+    }
+  }
+
+  /** Re-read the active tag after project-level changes touch its edits. */
+  async function refreshActiveTag() {
+    const { tabs, activeTab } = get();
+    const tab = tabs.find((t) => t.id === activeTab);
+    if (!tab || tab.kind !== "tag") return;
+    try {
+      const tag = await api.readTag(tab.index);
+      set((s) => ({
+        tag,
+        dirtyTags: { ...s.dirtyTags, [tab.index]: tag.edited.length > 0 },
+      }));
+    } catch {
+      // The next explicit load will report whatever went wrong.
     }
   }
 
@@ -337,7 +392,17 @@ export const useEditor = create<EditorState>((set, get) => {
         await get().openDir("");
       } catch (e) {
         set({ status: "error", error: String(e) });
+        return;
       }
+      // Resume the mod project from the last session, so closing the editor
+      // never loses work. A failure shows in the mod panel, not as a wall.
+      try {
+        const dir = await api.lastProject();
+        if (dir) await get().openProject(dir);
+      } catch (e) {
+        set({ projectError: String(e) });
+      }
+      void get().loadHub();
     },
 
     async selectGroup(group) {
@@ -377,6 +442,7 @@ export const useEditor = create<EditorState>((set, get) => {
           tag,
           dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
         }));
+        if (get().project) void get().refreshProject();
         return true;
       } catch (e) {
         set({ editError: String(e), lastEdit: null });
@@ -421,6 +487,7 @@ export const useEditor = create<EditorState>((set, get) => {
         editError: null,
         dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
       }));
+      if (get().project) void get().refreshProject();
     },
 
     async revertTag() {
@@ -434,6 +501,7 @@ export const useEditor = create<EditorState>((set, get) => {
         editError: null,
         dirtyTags: { ...s.dirtyTags, [index]: false },
       }));
+      if (get().project) void get().refreshProject();
     },
 
     async exportTag(dest) {
@@ -446,6 +514,164 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ editError: String(e) });
         return null;
+      }
+    },
+
+    project: null,
+    projectError: null,
+    projectBusy: null,
+    exportResult: null,
+    testResult: null,
+    publishResult: null,
+    hub: null,
+
+    async refreshProject() {
+      try {
+        set({ project: await api.projectStatus() });
+      } catch (e) {
+        set({ projectError: String(e) });
+      }
+    },
+
+    async newProject(dir, name, slug, version, summary) {
+      try {
+        const project = await api.projectNew(dir, name, slug, version, summary);
+        set({
+          project,
+          projectError: null,
+          exportResult: null,
+          testResult: null,
+          publishResult: null,
+        });
+        return true;
+      } catch (e) {
+        set({ projectError: String(e) });
+        return false;
+      }
+    },
+
+    async openProject(dir) {
+      try {
+        const project = await api.projectOpen(dir);
+        set({
+          project,
+          projectError: null,
+          exportResult: null,
+          testResult: null,
+          publishResult: null,
+        });
+        // Opening a project replaces the working edits, so every open tab
+        // must reflect the recipe rather than whatever came before.
+        await refreshActiveTag();
+        return true;
+      } catch (e) {
+        set({ projectError: String(e) });
+        return false;
+      }
+    },
+
+    async closeProject() {
+      try {
+        await api.projectClose();
+        set({
+          project: null,
+          projectError: null,
+          exportResult: null,
+          testResult: null,
+          publishResult: null,
+          dirtyTags: {},
+        });
+        await refreshActiveTag();
+      } catch (e) {
+        set({ projectError: String(e) });
+      }
+    },
+
+    async saveProjectMeta(name, slug, version, summary) {
+      try {
+        const project = await api.projectSetMeta(name, slug, version, summary);
+        set({ project, projectError: null });
+        return true;
+      } catch (e) {
+        set({ projectError: String(e) });
+        return false;
+      }
+    },
+
+    async revertProjectEdit(group, tag, field) {
+      try {
+        await api.projectRevert(group, tag, field);
+        set({ projectError: null });
+        await get().refreshProject();
+        await refreshActiveTag();
+      } catch (e) {
+        set({ projectError: String(e) });
+      }
+    },
+
+    async exportMod() {
+      set({ projectBusy: "export", exportResult: null, projectError: null });
+      try {
+        set({ exportResult: await api.projectExport() });
+      } catch (e) {
+        set({ projectError: String(e) });
+      } finally {
+        set({ projectBusy: null });
+      }
+    },
+
+    async testMod() {
+      set({ projectBusy: "test", testResult: null, projectError: null });
+      try {
+        set({ testResult: await api.projectTest() });
+      } catch (e) {
+        set({ projectError: String(e) });
+      } finally {
+        set({ projectBusy: null });
+        void get().refreshProject();
+      }
+    },
+
+    async untestMod() {
+      set({ projectBusy: "untest", projectError: null });
+      try {
+        await api.projectUntest();
+        set({ testResult: null });
+      } catch (e) {
+        set({ projectError: String(e) });
+      } finally {
+        set({ projectBusy: null });
+        void get().refreshProject();
+      }
+    },
+
+    async publishMod(changelog) {
+      set({ projectBusy: "publish", publishResult: null, projectError: null });
+      try {
+        set({ publishResult: await api.projectPublish(changelog) });
+      } catch (e) {
+        set({ projectError: String(e) });
+      } finally {
+        set({ projectBusy: null });
+      }
+    },
+
+    async loadHub() {
+      try {
+        set({ hub: await api.hubStatus() });
+      } catch {
+        // The hub row simply stays empty; publishing will report properly.
+      }
+    },
+
+    async setHubKey(key) {
+      try {
+        await api.hubSetKey(key);
+        set({ hub: await api.hubStatus(), projectError: null });
+        return true;
+      } catch (e) {
+        set({ projectError: String(e) });
+        return false;
       }
     },
   };

@@ -111,6 +111,78 @@ export type EditResult = {
   changed_bytes: number;
 };
 
+export type ProjectMeta = {
+  schema_version: number;
+  name: string;
+  slug: string;
+  version: string;
+  summary: string;
+};
+
+/** One edited field in the project change list. */
+export type FieldChange = {
+  field: string;
+  /** The value the mod sets, as typed. */
+  value: string;
+  /** The shipped value, when the field still resolves. */
+  before: string | null;
+  /** The tag or field no longer resolves — usually a game update. */
+  stale: boolean;
+};
+
+/** Every edit the project makes to one tag. */
+export type TagChange = {
+  group: string;
+  tag: string;
+  /** Catalog index in the open installation, when the tag still exists. */
+  index: number | null;
+  edits: FieldChange[];
+};
+
+export type ProjectView = {
+  root: string;
+  meta: ProjectMeta;
+  changes: TagChange[];
+  /** Files a test install left in the Paks folder. */
+  test_files: string[];
+};
+
+export type ExportView = {
+  archive: string;
+  size: number;
+  containers: string[];
+  chunk_count: number;
+  resized: boolean;
+  warnings: string[];
+};
+
+export type TestView = {
+  files: string[];
+  resized: boolean;
+  warnings: string[];
+};
+
+/** One scanner finding, verbatim from the hub. */
+export type Finding = {
+  level: string;
+  code: string;
+  message: string;
+};
+
+export type PublishView = {
+  slug: string;
+  version: string;
+  /** `published`, or `rejected` with the findings saying why. */
+  status: string;
+  findings: Finding[];
+  url: string;
+};
+
+export type HubStatus = {
+  base: string;
+  has_key: boolean;
+};
+
 const tauriApi = {
   detectInstall: () => invoke<Install>("detect_install"),
   openInstall: (paks: string, oodle: string) =>
@@ -136,6 +208,23 @@ const tauriApi = {
   tagLinks: (index: number) => invoke<LinkedAsset[]>("tag_links", { index }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   searchFiles: (query: string) => invoke<DirEntry[]>("search_files", { query }),
+  projectStatus: () => invoke<ProjectView | null>("project_status"),
+  projectNew: (dir: string, name: string, slug: string, version: string, summary: string) =>
+    invoke<ProjectView>("project_new", { dir, name, slug, version, summary }),
+  projectOpen: (dir: string) => invoke<ProjectView>("project_open", { dir }),
+  projectClose: () => invoke<void>("project_close"),
+  projectSetMeta: (name: string, slug: string, version: string, summary: string) =>
+    invoke<ProjectView>("project_set_meta", { name, slug, version, summary }),
+  projectRevert: (group: string, tag: string, field: string | null) =>
+    invoke<void>("project_revert", { group, tag, field }),
+  lastProject: () => invoke<string | null>("last_project"),
+  projectExport: () => invoke<ExportView>("project_export"),
+  projectTest: () => invoke<TestView>("project_test"),
+  projectUntest: () => invoke<number>("project_untest"),
+  projectPublish: (changelog: string) =>
+    invoke<PublishView>("project_publish", { changelog }),
+  hubStatus: () => invoke<HubStatus>("hub_status"),
+  hubSetKey: (key: string) => invoke<void>("hub_set_key", { key }),
 };
 
 export type Api = typeof tauriApi;

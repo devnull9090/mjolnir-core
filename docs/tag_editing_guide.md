@@ -269,14 +269,21 @@ An edit is applied to a copy, the result re-parsed from scratch and re-walked, a
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
 
-### Saving
+### Saving — mod projects
 
-There is no save button, and that is not an oversight. The game's containers are read-only,
-so there is nowhere to save to. **Export patched tag…** writes the tag with your edits to a
-file you choose.
+The game's containers are read-only, so edits are never written back into the
+installation. Instead, edits belong to a **mod project**: open the **mod** tab in the left
+panel, start one, and from then on every edit autosaves into the project folder as a
+recipe — which tags change, which fields, and what they become. Closing the editor loses
+nothing; the last project reopens on the next launch.
 
-Until IoStore writing exists, that file is for inspection, diffing and archiving — not for
-loading into the game.
+From the mod panel the project can be **tested in game** (baked into an override container
+and installed next to the shipped ones), **exported** as a `.mjolnir` archive anyone can
+install through the launcher, and **published** to [the hub](https://mjolnircore.com).
+See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
+
+**Export patched tag…** still writes a single tag with your edits to a file you choose —
+useful for inspection and diffing, but not something the game loads.
 
 ---
 
@@ -313,10 +320,11 @@ usually enough to see what is going on.
 
 Being explicit, so you do not go hunting:
 
-- **Edits that change the payload's length.** Fixed-width fields — integers, reals, enums, flags —
-  edit in place and reach the game fine. A string or block edit resizes the payload, which then
-  needs the package header rewritten too, and the packer's perfect-hash table is only correct for
-  a single-chunk container. See [`iostore_packaging.md`](iostore_packaging.md).
+- **String ids the game has never seen.** Length-changing edits work in game — verified
+  2026-08-02 with an assault rifle rewired to fire needler shards — but a `string id` set to
+  text the game's string table does not already contain makes the game reject the whole tag
+  (the weapon simply vanishes and the player falls back to the pistol). The editor warns when
+  a mod edits a string id. See [`iostore_packaging.md`](iostore_packaging.md).
 - **Adding or removing block elements.** You can change values, not counts.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See
