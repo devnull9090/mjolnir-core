@@ -5,6 +5,7 @@ members = [
     "crates/blam-defs",
     "crates/blam-tag",
     "crates/blam-pack",
+    "crates/mjolnir-sign",
     "crates/blam-cli",
 ]
 

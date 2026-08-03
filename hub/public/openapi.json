@@ -363,6 +363,30 @@
           },
           "created_at": {
             "type": "string"
+          },
+          "published_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Account that created this release; null for releases predating attribution."
+          },
+          "published_by_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signer_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fingerprint of the author signing key whose signature verified at publish. Distinct from `signature`, which is the platform key over the archive hash; this one is the author's own key over the archive contents (docs/mod_signing_design.md)."
+          },
+          "signer_key_revoked": {
+            "type": "boolean",
+            "description": "True when the author's signing key has been revoked since publish."
           }
         },
         "required": [
@@ -377,7 +401,11 @@
           "build_min",
           "build_max",
           "download_count",
-          "created_at"
+          "created_at",
+          "published_by",
+          "published_by_username",
+          "signer_fingerprint",
+          "signer_key_revoked"
         ]
       },
       "ModCreate": {
@@ -504,6 +532,30 @@
           },
           "created_at": {
             "type": "string"
+          },
+          "published_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Account that created this release; null for releases predating attribution."
+          },
+          "published_by_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signer_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fingerprint of the author key whose signature verified at publish, if any."
+          },
+          "signer_key_revoked": {
+            "type": "boolean",
+            "description": "True when the signing key has been revoked since this release published."
           }
         },
         "required": [
@@ -516,7 +568,11 @@
           "file_size",
           "chunk_count",
           "findings",
-          "created_at"
+          "created_at",
+          "published_by",
+          "published_by_username",
+          "signer_fingerprint",
+          "signer_key_revoked"
         ]
       },
       "ScanFinding": {
@@ -883,6 +939,78 @@
         },
         "required": [
           "body_md"
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username"
+        ]
+      },
+      "SigningKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Lowercase hex sha256 of the raw public key."
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Raw 32-byte Ed25519 public key, base64."
+          },
+          "label": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "fingerprint",
+          "public_key",
+          "label",
+          "created_at",
+          "last_used_at"
+        ]
+      },
+      "SigningKeyCreate": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 60,
+            "description": "Raw 32-byte Ed25519 public key, base64. The private key never leaves the device."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "DESKTOP-4XJ2"
+          }
+        },
+        "required": [
+          "public_key",
+          "label"
         ]
       },
       "ApiKey": {
@@ -2709,6 +2837,195 @@
           },
           "404": {
             "description": "No such comment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/me": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Who am I",
+        "description": "The authenticated account, for tools that need to embed their own identity — the tag editor puts it in signed release statements.",
+        "responses": {
+          "200": {
+            "description": "You.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/signing-keys": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List your signing keys",
+        "responses": {
+          "200": {
+            "description": "Active (non-revoked) signing keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "keys": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SigningKey"
+                      }
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Register a signing key",
+        "description": "Binds an Ed25519 public key to your account. Idempotent for a key you already registered. A key belongs to exactly one account, ever.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningKeyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Registered (or already yours).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad key, or too many keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Key belongs to another account, or was revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account/signing-keys/{id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Revoke a signing key",
+        "description": "Future uploads signed with this key are rejected. Releases it already signed keep their history; yank those separately if needed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such key.",
             "content": {
               "application/json": {
                 "schema": {

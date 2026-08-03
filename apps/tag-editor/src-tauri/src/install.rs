@@ -65,6 +65,12 @@ struct Settings {
     /// this machine's user.
     #[serde(default)]
     hub_key: Option<String>,
+    /// The account behind the key, cached after the first publish so exports
+    /// can embed the author identity without a network round trip.
+    #[serde(default)]
+    hub_author_id: Option<String>,
+    #[serde(default)]
+    hub_author_username: Option<String>,
 }
 
 fn settings_path() -> Option<PathBuf> {
@@ -111,6 +117,19 @@ pub fn remember_hub_key(key: &str) {
 
 pub fn recall_hub_key() -> Option<String> {
     recall().hub_key
+}
+
+/// Cache the account identity for offline signing.
+pub fn remember_author(id: &str, username: &str) {
+    let mut settings = recall();
+    settings.hub_author_id = Some(id.to_string());
+    settings.hub_author_username = Some(username.to_string());
+    store(settings);
+}
+
+pub fn recall_author() -> Option<(String, String)> {
+    let s = recall();
+    Some((s.hub_author_id?, s.hub_author_username?))
 }
 
 fn store(settings: Settings) {

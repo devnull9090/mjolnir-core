@@ -61,6 +61,13 @@ export interface Release {
   build_max: string | null;
   download_count: number;
   created_at: string;
+  /** Account that created this release; null predates attribution. */
+  published_by?: string | null;
+  published_by_username?: string | null;
+  /** Author signing-key fingerprint that verified at publish, if any. */
+  signer_fingerprint?: string | null;
+  /** The author's signing key has been revoked since publish. */
+  signer_key_revoked?: boolean;
 }
 
 export interface ScanFinding {
@@ -80,6 +87,13 @@ export interface ReleaseStatusDetail {
   chunk_count: number;
   findings: ScanFinding[];
   created_at: string;
+  /** Account that created this release; null predates attribution. */
+  published_by?: string | null;
+  published_by_username?: string | null;
+  /** Author-signature fingerprint that verified at publish, if any. */
+  signer_fingerprint?: string | null;
+  /** The signing key has been revoked since this release published. */
+  signer_key_revoked?: boolean;
 }
 
 export interface Media {

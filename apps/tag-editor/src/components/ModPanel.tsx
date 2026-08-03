@@ -263,6 +263,24 @@ function ChangeRow({ change }: { change: TagChange }) {
   );
 }
 
+/** The device signing key, so "who bundled this" is visible before publish. */
+function SigningLine() {
+  const signing = useEditor((s) => s.signing);
+  if (!signing?.fingerprint) return null;
+  return (
+    <p
+      className="font-mono text-[10px] text-text-dim"
+      title="Every archive this device exports is signed with its own key, so the hub and other players can prove who bundled it and that nothing changed the bytes."
+    >
+      signing key {signing.fingerprint.slice(0, 16)}… ({signing.label})
+      {signing.registered === true && <span className="text-accent-green"> · registered</span>}
+      {signing.registered === false && (
+        <span> · registers on first publish</span>
+      )}
+    </p>
+  );
+}
+
 /** Key entry, changelog and the publish button with its verdict. */
 function PublishSection() {
   const hub = useEditor((s) => s.hub);
@@ -278,6 +296,7 @@ function PublishSection() {
   return (
     <div className="flex flex-col gap-2 p-3">
       <h2 className="text-[10px] uppercase tracking-wider text-text-dim">Publish to the hub</h2>
+      <SigningLine />
       {hub && !hub.has_key ? (
         <>
           <p className="text-[11px] text-text-secondary">
@@ -487,7 +506,8 @@ function ProjectPanel() {
               title={exportResult.archive}
             >
               Wrote {exportResult.archive} ({formatSize(exportResult.size)},{" "}
-              {exportResult.chunk_count} chunk{exportResult.chunk_count === 1 ? "" : "s"})
+              {exportResult.chunk_count} chunk{exportResult.chunk_count === 1 ? "" : "s"}
+              {exportResult.signed ? ", signed" : ""})
             </p>
             {exportResult.warnings.map((w, i) => (
               <p key={i} className="text-[10px] text-mjolnir-gold">

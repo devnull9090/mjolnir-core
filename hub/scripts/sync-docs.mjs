@@ -27,6 +27,7 @@ const ORDER = [
   "mjolnir_format.md",
   "hub_architecture.md",
   "mod_authoring_design.md",
+  "mod_signing_design.md",
   "contributing_code_mods.md",
 ];
 

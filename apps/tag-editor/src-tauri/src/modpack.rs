@@ -107,13 +107,24 @@ struct Manifest<'a> {
     summary: &'a str,
 }
 
+/// The author identity an archive is signed with, when one exists.
+pub struct SignContext<'a> {
+    pub identity: &'a mjolnir_sign::SigningIdentity,
+    /// The hub account, when known; signing works fully offline without it.
+    pub author: Option<mjolnir_sign::Author>,
+}
+
 /// Write the `.mjolnir` archive: manifest at the root, containers under
-/// `content/`, the project README under `docs/`. Returns the archive size.
+/// `content/`, the project README under `docs/`, and — when a signer is
+/// given — a `signature.json` covering every other member's digest, so
+/// anyone holding the archive can check exactly who bundled exactly these
+/// bytes. Returns the archive size.
 pub fn write_archive(
     dest: &Path,
     meta: &Meta,
     baked: &[Baked],
     readme: Option<&Path>,
+    signer: Option<SignContext<'_>>,
 ) -> Result<u64, String> {
     let manifest = serde_json::to_string_pretty(&Manifest {
         schema_version: 1,
@@ -123,6 +134,38 @@ pub fn write_archive(
         summary: &meta.summary,
     })
     .map_err(|e| e.to_string())?;
+    let manifest_bytes = manifest.into_bytes();
+    let readme_bytes = readme.and_then(|p| std::fs::read(p).ok());
+
+    // The member list is built once and both zipped and signed, so the
+    // signature can never drift from what is written.
+    let mut names: Vec<String> = vec!["mjolnir.json".into()];
+    for b in baked {
+        names.push(format!("content/{}.utoc", b.basename));
+        names.push(format!("content/{}.ucas", b.basename));
+    }
+    if readme_bytes.is_some() {
+        names.push("docs/README.md".into());
+    }
+    let mut members: Vec<(String, &[u8])> = vec![(names[0].clone(), &manifest_bytes)];
+    for (i, b) in baked.iter().enumerate() {
+        members.push((names[1 + i * 2].clone(), &b.built.utoc));
+        members.push((names[2 + i * 2].clone(), &b.built.ucas));
+    }
+    if let Some(bytes) = &readme_bytes {
+        members.push((names[names.len() - 1].clone(), bytes));
+    }
+
+    let signature = match signer {
+        Some(s) => Some(s.identity.sign_members(
+            &meta.slug,
+            &meta.version,
+            s.author,
+            &humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string(),
+            &members,
+        )?),
+        None => None,
+    };
 
     let file = std::fs::File::create(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let mut zip = zip::ZipWriter::new(file);
@@ -131,21 +174,14 @@ pub fn write_archive(
     let err = |e: zip::result::ZipError| format!("{}: {e}", dest.display());
     let io = |e: std::io::Error| format!("{}: {e}", dest.display());
 
-    zip.start_file("mjolnir.json", options).map_err(err)?;
-    zip.write_all(manifest.as_bytes()).map_err(io)?;
-    for b in baked {
-        zip.start_file(format!("content/{}.utoc", b.basename), options)
-            .map_err(err)?;
-        zip.write_all(&b.built.utoc).map_err(io)?;
-        zip.start_file(format!("content/{}.ucas", b.basename), options)
-            .map_err(err)?;
-        zip.write_all(&b.built.ucas).map_err(io)?;
+    for (name, bytes) in &members {
+        zip.start_file(name.clone(), options).map_err(err)?;
+        zip.write_all(bytes).map_err(io)?;
     }
-    if let Some(readme) = readme {
-        if let Ok(text) = std::fs::read(readme) {
-            zip.start_file("docs/README.md", options).map_err(err)?;
-            zip.write_all(&text).map_err(io)?;
-        }
+    if let Some(signature) = &signature {
+        zip.start_file(mjolnir_sign::SIGNATURE_MEMBER, options)
+            .map_err(err)?;
+        zip.write_all(signature.as_bytes()).map_err(io)?;
     }
     zip.finish().map_err(err)?;
 

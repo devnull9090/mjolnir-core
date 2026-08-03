@@ -7,6 +7,7 @@ override containers under `content/`:
 
 ```
 mjolnir.json          the manifest (schema below)
+signature.json        optional; the author's signature (see below)
 content/
   MyMod_P.utoc        override container index
   MyMod_P.ucas        override container data
@@ -38,6 +39,24 @@ signed CI releases instead (`docs/hub_architecture.md` §2).
 - `compat` declares the game builds the release was made against. Chunk IDs
   are per-build, so a container built against one build may point at moved
   or vanished chunks after a game patch.
+
+## signature.json
+
+An archive may carry an author signature: an envelope whose base64 `payload`
+is a statement naming the mod's slug, version, author, signing-key
+fingerprint, and the sha256 of **every other member** of the archive, signed
+Ed25519 over `"MJOLNIR-MOD-STATEMENT-V1\n" + payload` with a per-device key
+registered to the author's hub account. The verifier requires the archive's
+member set to exactly equal the statement's — nothing added, nothing removed,
+nothing changed — so anyone holding the archive can prove who bundled exactly
+these bytes, without asking the hub.
+
+The tag editor writes this automatically. The hub verifies it at upload
+(`unsigned` is a warning today, an error once signing is required;
+`bad_signature` and `foreign_signature` are always errors), and the launcher
+verifies it again at install, refusing an archive whose signature is present
+and wrong. Full design, threat model and rollout:
+[`mod_signing_design.md`](mod_signing_design.md).
 
 ## What the scanner checks
 

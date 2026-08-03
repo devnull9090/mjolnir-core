@@ -153,7 +153,19 @@ export type ExportView = {
   containers: string[];
   chunk_count: number;
   resized: boolean;
+  /** The archive carries an author signature from this device's key. */
+  signed: boolean;
+  signer_fingerprint: string | null;
   warnings: string[];
+};
+
+export type SigningStatus = {
+  /** This device's key fingerprint; null until a key is first created. */
+  fingerprint: string | null;
+  /** Registered to the hub account; null when unknown (no key/API key). */
+  registered: boolean | null;
+  /** The label registration uses — the machine name. */
+  label: string;
 };
 
 export type TestView = {
@@ -225,6 +237,7 @@ const tauriApi = {
     invoke<PublishView>("project_publish", { changelog }),
   hubStatus: () => invoke<HubStatus>("hub_status"),
   hubSetKey: (key: string) => invoke<void>("hub_set_key", { key }),
+  signingStatus: () => invoke<SigningStatus>("signing_status"),
 };
 
 export type Api = typeof tauriApi;

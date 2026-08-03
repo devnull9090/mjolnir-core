@@ -15,6 +15,7 @@ use tauri::State;
 pub mod catalog;
 pub mod hub;
 pub mod install;
+pub mod keystore;
 pub mod modpack;
 pub mod project;
 pub mod textures;
@@ -978,23 +979,56 @@ struct ExportView {
     containers: Vec<String>,
     chunk_count: usize,
     resized: bool,
+    /// The archive carries an author signature from this device's key.
+    signed: bool,
+    signer_fingerprint: Option<String>,
     warnings: Vec<String>,
 }
 
 /// Bake the project and write the `.mjolnir` archive into `<project>/build`.
+///
+/// `allow_sign` is false only when publishing could not register the device
+/// key: a signature the hub cannot bind to the uploader would reject the
+/// release, so the archive honestly ships unsigned instead.
 fn export_archive(
     state: &State<'_, AppState>,
+    allow_sign: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
     let (root, meta, edits) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
         (p.root.clone(), p.meta.clone(), work.edits.clone())
     };
+    // The device key signs every archive it can; the author identity rides
+    // along when a publish has cached it. Failing to sign is a warning, not
+    // a failed export — unsigned archives stay valid during the transition.
+    let identity = if allow_sign {
+        Some(keystore::load_or_create())
+    } else {
+        None
+    };
+    let author =
+        install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
         let (resolved, mut warnings) = resolved_edits(c, &edits)?;
         let baked = modpack::bake(c, &meta.slug, resolved)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
+
+        let (signer, signer_fingerprint) = match &identity {
+            Some(Ok(identity)) => (
+                Some(modpack::SignContext {
+                    identity,
+                    author: author.clone(),
+                }),
+                Some(identity.fingerprint()),
+            ),
+            Some(Err(e)) => {
+                warnings.push(format!("The archive is unsigned: {e}"));
+                (None, None)
+            }
+            None => (None, None),
+        };
 
         let archive = build_dir.join(format!("{}-{}.mjolnir", meta.slug, meta.version));
         let readme = root.join("README.md");
@@ -1003,6 +1037,7 @@ fn export_archive(
             &meta,
             &baked,
             readme.is_file().then(|| readme.as_path()),
+            signer,
         )?;
 
         let resized = baked.iter().any(|b| b.built.resized());
@@ -1018,6 +1053,8 @@ fn export_archive(
             containers: baked.iter().map(|b| b.basename.clone()).collect(),
             chunk_count: baked.iter().map(|b| b.built.expect.len()).sum(),
             resized,
+            signed: signer_fingerprint.is_some(),
+            signer_fingerprint,
             warnings,
         };
         Ok((view, archive, meta.clone()))
@@ -1026,7 +1063,7 @@ fn export_archive(
 
 #[tauri::command]
 fn project_export(state: State<'_, AppState>) -> Result<ExportView, String> {
-    export_archive(&state).map(|(view, _, _)| view)
+    export_archive(&state, true).map(|(view, _, _)| view)
 }
 
 #[derive(Serialize)]
@@ -1078,8 +1115,8 @@ fn hub_set_key(key: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Bake, archive and publish the project to the hub, returning the scan
-/// verdict. A rejection comes back as data — the findings are the point.
+/// Bake, sign, archive and publish the project to the hub, returning the
+/// scan verdict. A rejection comes back as data — the findings are the point.
 #[tauri::command]
 fn project_publish(
     changelog: String,
@@ -1089,7 +1126,27 @@ fn project_publish(
         "no hub API key — create one with the mods:write scope on your hub account page, \
          then add it here",
     )?;
-    let (view, archive, meta) = export_archive(&state)?;
+
+    // Register the device key and refresh the author identity before baking,
+    // so the signature embeds the right account and the hub can bind the key
+    // to the uploader. Only a missing key (DPAPI unavailable) degrades to an
+    // unsigned publish; a *failed registration* is an error, because signing
+    // with an unregistered key would get the release rejected as foreign.
+    let allow_sign = match keystore::load_or_create() {
+        Ok(identity) => {
+            use base64::Engine;
+            let author = hub::whoami(&key)?;
+            install::remember_author(&author.id, &author.username);
+            let public_key =
+                base64::engine::general_purpose::STANDARD.encode(identity.public_key());
+            let label = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "this device".into());
+            hub::register_key(&key, &public_key, &label)?;
+            true
+        }
+        Err(_) => false,
+    };
+
+    let (view, archive, meta) = export_archive(&state, allow_sign)?;
     if view.size > modpack::MAX_ARCHIVE_BYTES {
         return Err(format!(
             "the archive is {} bytes, over the hub's 50 MiB limit",
@@ -1097,6 +1154,32 @@ fn project_publish(
         ));
     }
     hub::publish(&key, &meta, &archive, &changelog)
+}
+
+#[derive(Serialize)]
+struct SigningStatus {
+    /// This device's key fingerprint; None until a key is first created.
+    fingerprint: Option<String>,
+    /// Whether the key is registered to the hub account; None when either
+    /// the key or the API key is missing, or the hub was unreachable.
+    registered: Option<bool>,
+    /// The label registration uses — the machine name.
+    label: String,
+}
+
+#[tauri::command]
+fn signing_status() -> SigningStatus {
+    let fingerprint = keystore::existing().map(|i| i.fingerprint());
+    let label = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "this device".into());
+    let registered = match (&fingerprint, install::recall_hub_key()) {
+        (Some(fp), Some(key)) => hub::key_registered(&key, fp).ok(),
+        _ => None,
+    };
+    SigningStatus {
+        fingerprint,
+        registered,
+        label,
+    }
 }
 
 #[tauri::command]
@@ -1142,6 +1225,7 @@ pub fn run() {
             project_publish,
             hub_status,
             hub_set_key,
+            signing_status,
             list_textures,
             read_texture,
             export_texture,
