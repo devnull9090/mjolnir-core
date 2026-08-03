@@ -6,6 +6,7 @@ import {
   type ExportView,
   type GroupSummary,
   type HubStatus,
+  type LinkStart,
   type LinkedAsset,
   type ProjectView,
   type PublishView,
@@ -115,6 +116,16 @@ type EditorState = {
   publishMod: (changelog: string) => Promise<void>;
   loadHub: () => Promise<void>;
   setHubKey: (key: string) => Promise<boolean>;
+  /** A link waiting on the browser, with how it ended if it did. */
+  link: (LinkStart & { status: "pending" | "denied" | "expired" }) | null;
+  /**
+   * Start linking. Returns the page to open so the caller can send the user
+   * there; polling continues in the background until it resolves, the code
+   * expires, or `cancelHubLink` is called.
+   */
+  startHubLink: () => Promise<LinkStart | null>;
+  cancelHubLink: () => void;
+  unlinkHub: () => Promise<void>;
 
   /** Virtual filesystem browser: current directory and its listing. */
   dir: string;
@@ -688,6 +699,70 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ projectError: String(e) });
         return false;
+      }
+    },
+
+    link: null,
+
+    async startHubLink() {
+      let started: LinkStart;
+      try {
+        started = await api.hubLinkStart();
+      } catch (e) {
+        set({ projectError: String(e) });
+        return null;
+      }
+      set({ link: { ...started, status: "pending" }, projectError: null });
+
+      // Polling runs detached: the caller opens the browser and the panel
+      // shows the code while this waits. Every step re-reads `link` and stops
+      // if the code on screen is no longer this one, which is what makes
+      // cancelling — or starting over — actually end the previous loop.
+      const mine = () => get().link?.user_code === started.user_code;
+      const deadline = Date.now() + started.expires_in * 1000;
+      const wait = Math.max(1, started.interval) * 1000;
+      void (async () => {
+        while (mine()) {
+          await new Promise((resolve) => setTimeout(resolve, wait));
+          if (!mine()) return;
+          try {
+            const polled = await api.hubLinkPoll();
+            if (polled.status === "approved") {
+              set({ link: null });
+              await get().loadHub();
+              return;
+            }
+            if (polled.status !== "pending") {
+              set({ link: { ...started, status: polled.status as "denied" | "expired" } });
+              return;
+            }
+          } catch (e) {
+            set({ link: null, projectError: String(e) });
+            return;
+          }
+          // The hub expires the code on its own schedule; this only stops the
+          // editor from polling a code it knows is dead.
+          if (Date.now() > deadline) {
+            set({ link: { ...started, status: "expired" } });
+            return;
+          }
+        }
+      })();
+
+      return started;
+    },
+
+    cancelHubLink() {
+      set({ link: null });
+    },
+
+    async unlinkHub() {
+      try {
+        await api.hubUnlink();
+        set({ link: null, projectError: null });
+        await get().loadHub();
+      } catch (e) {
+        set({ projectError: String(e) });
       }
     },
   };

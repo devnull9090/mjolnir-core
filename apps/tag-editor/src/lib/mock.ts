@@ -11,6 +11,8 @@ import type {
   GroupSummary,
   HubStatus,
   Install,
+  LinkPoll,
+  LinkStart,
   NodeView,
   ProjectView,
   PublishView,
@@ -382,8 +384,36 @@ export const mockApi = {
     findings: [{ level: "warning", code: "stray_container", message: "A sample finding." }],
     url: "https://mjolnircore.com/mods/faster-pistol",
   }),
-  hubStatus: async (): Promise<HubStatus> => ({ base: "https://mjolnircore.com", has_key: false }),
-  hubSetKey: async () => {},
+  hubStatus: async (): Promise<HubStatus> => ({
+    base: "https://mjolnircore.com",
+    has_key: mockLinked,
+    username: mockLinked ? "mock-author" : null,
+  }),
+  hubSetKey: async (key: string) => {
+    mockLinked = key.trim().length > 0;
+  },
+  hubLinkStart: async (): Promise<LinkStart> => {
+    mockPollsLeft = 2;
+    return {
+      user_code: "MOCK-CODE",
+      verification_url: "https://mjolnircore.com/link?code=MOCK-CODE",
+      interval: 1,
+      expires_in: 600,
+    };
+  },
+  // Approves itself after a couple of polls, so the waiting state is
+  // reviewable without leaving the browser.
+  hubLinkPoll: async (): Promise<LinkPoll> => {
+    if (mockPollsLeft > 0) {
+      mockPollsLeft -= 1;
+      return { status: "pending", username: null };
+    }
+    mockLinked = true;
+    return { status: "approved", username: "mock-author" };
+  },
+  hubUnlink: async () => {
+    mockLinked = false;
+  },
   signingStatus: async (): Promise<SigningStatus> => ({
     fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
     registered: null,
@@ -392,6 +422,10 @@ export const mockApi = {
 };
 
 let mockProject: { name: string; slug: string; version: string; summary: string } | null = null;
+
+/** Whether the mock editor is "linked", and how many polls until it is. */
+let mockLinked = false;
+let mockPollsLeft = 0;
 
 function mockProjectView(): ProjectView | null {
   if (!mockProject) return null;

@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEditor } from "../stores/editor-store";
 import { isTauri } from "../lib/mock";
-import type { ProjectMeta, TagChange } from "../lib/api";
+import type { HubStatus, ProjectMeta, TagChange } from "../lib/api";
 
 /** Folder picker; outside Tauri (browser dev against the mock) any string
  *  keeps the flow walkable. */
@@ -281,26 +281,88 @@ function SigningLine() {
   );
 }
 
-/** Key entry, changelog and the publish button with its verdict. */
-function PublishSection() {
-  const hub = useEditor((s) => s.hub);
-  const project = useEditor((s) => s.project);
-  const projectBusy = useEditor((s) => s.projectBusy);
-  const publishResult = useEditor((s) => s.publishResult);
-  const publishMod = useEditor((s) => s.publishMod);
+/**
+ * Not linked yet: pair with a hub account the way the launcher does.
+ *
+ * The editor asks the hub for a short code, the user approves it in a real
+ * browser while signed in, and the key arrives here without ever being seen
+ * or typed. Pasting a hand-minted key still works and is kept behind a
+ * disclosure — it is the path for CI and for anyone who would rather choose
+ * the scopes themselves, not the one to lead with.
+ */
+function LinkSection({ hub }: { hub: HubStatus }) {
+  const link = useEditor((s) => s.link);
+  const startHubLink = useEditor((s) => s.startHubLink);
+  const cancelHubLink = useEditor((s) => s.cancelHubLink);
   const setHubKey = useEditor((s) => s.setHubKey);
   const [key, setKey] = useState("");
-  const [changelog, setChangelog] = useState("");
-  const hasChanges = (project?.changes.length ?? 0) > 0;
+  const [pasting, setPasting] = useState(false);
+
+  async function onLink() {
+    const started = await startHubLink();
+    // The code is on screen either way, so a browser that refuses to open
+    // leaves the user inconvenienced rather than stuck.
+    if (started) void openUrl(started.verification_url);
+  }
+
+  if (link?.status === "pending") {
+    return (
+      <>
+        <p className="text-[11px] text-text-secondary">
+          Approve this code on mjolnircore.com, signed in. Waiting…
+        </p>
+        <p className="font-mono text-lg tracking-widest text-mjolnir-gold">{link.user_code}</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={buttonPlain}
+            onClick={() => void openUrl(link.verification_url)}
+          >
+            Open the page again
+          </button>
+          <button
+            type="button"
+            className="text-[10px] text-text-dim hover:text-text-secondary"
+            onClick={cancelHubLink}
+          >
+            cancel
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <h2 className="text-[10px] uppercase tracking-wider text-text-dim">Publish to the hub</h2>
-      <SigningLine />
-      {hub && !hub.has_key ? (
+    <>
+      {link ? (
+        <p className="text-[11px] text-accent-red">
+          {link.status === "denied"
+            ? "That link was denied."
+            : "That code expired before it was approved."}
+        </p>
+      ) : (
+        <p className="text-[11px] text-text-secondary">
+          Publishing needs a hub account. Linking opens mjolnircore.com, where you approve a short
+          code — the editor never sees your password, and the key it gets can publish and nothing
+          else. It is stored on this machine only.
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <button type="button" className={buttonGold} onClick={() => void onLink()}>
+          {link ? "Try again" : "Link hub account"}
+        </button>
+        <button
+          type="button"
+          className="text-[10px] text-text-dim hover:text-text-secondary"
+          onClick={() => setPasting((p) => !p)}
+        >
+          {pasting ? "never mind" : "paste a key instead"}
+        </button>
+      </div>
+      {pasting && (
         <>
-          <p className="text-[11px] text-text-secondary">
-            Publishing needs an API key with the <code>mods:write</code> scope.{" "}
+          <p className="text-[11px] text-text-dim">
+            Needs the <code>mods:write</code> scope.{" "}
             <button
               type="button"
               className="text-mjolnir-gold hover:underline"
@@ -308,7 +370,7 @@ function PublishSection() {
             >
               Create one on your hub account page
             </button>
-            , then paste it here — it is stored on this machine only.
+            .
           </p>
           <div className="flex gap-2">
             <input
@@ -330,8 +392,35 @@ function PublishSection() {
             </button>
           </div>
         </>
+      )}
+    </>
+  );
+}
+
+/** Linking, changelog and the publish button with its verdict. */
+function PublishSection() {
+  const hub = useEditor((s) => s.hub);
+  const project = useEditor((s) => s.project);
+  const projectBusy = useEditor((s) => s.projectBusy);
+  const publishResult = useEditor((s) => s.publishResult);
+  const publishMod = useEditor((s) => s.publishMod);
+  const unlinkHub = useEditor((s) => s.unlinkHub);
+  const [changelog, setChangelog] = useState("");
+  const hasChanges = (project?.changes.length ?? 0) > 0;
+
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      <h2 className="text-[10px] uppercase tracking-wider text-text-dim">Publish to the hub</h2>
+      <SigningLine />
+      {hub && !hub.has_key ? (
+        <LinkSection hub={hub} />
       ) : (
         <>
+          {hub?.username && (
+            <p className="text-[10px] text-text-dim">
+              linked as <span className="text-text-secondary">{hub.username}</span>
+            </p>
+          )}
           <textarea
             className={`${inputClass} min-h-14 resize-y`}
             value={changelog}
@@ -353,10 +442,10 @@ function PublishSection() {
               <button
                 type="button"
                 className="text-[10px] text-text-dim hover:text-text-secondary"
-                title="Forget the stored API key"
-                onClick={() => void setHubKey("")}
+                title="Forget the key stored here. It stays valid until you revoke it on the hub."
+                onClick={() => void unlinkHub()}
               >
-                forget key
+                unlink
               </button>
             )}
           </div>

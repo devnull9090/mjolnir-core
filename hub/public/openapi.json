@@ -125,6 +125,19 @@
           },
           "expires_in": {
             "type": "integer"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mods:read",
+                "mods:write",
+                "ratings:write",
+                "comments:write"
+              ]
+            },
+            "description": "What approval will grant — echoed back so a client can show it too."
           }
         },
         "required": [
@@ -132,7 +145,8 @@
           "user_code",
           "verification_url",
           "interval",
-          "expires_in"
+          "expires_in",
+          "scopes"
         ]
       },
       "DevicePoll": {
@@ -153,6 +167,19 @@
           },
           "user": {
             "$ref": "#/components/schemas/User"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mods:read",
+                "mods:write",
+                "ratings:write",
+                "comments:write"
+              ]
+            },
+            "description": "What the key carries. Sent with the key so a client can check it got what it asked for instead of failing later at the write."
           }
         },
         "required": [
@@ -1437,6 +1464,24 @@
                     "maxLength": 60,
                     "default": "MJOLNIR Launcher",
                     "description": "Shown on the approval page so the user knows what they are approving."
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "mods:read",
+                        "mods:write",
+                        "ratings:write",
+                        "comments:write"
+                      ]
+                    },
+                    "minItems": 1,
+                    "description": "What to ask for. Omit for read, rate and comment — what pairing granted before scopes were requestable. Ask for the narrowest set that works: the user sees this list.",
+                    "example": [
+                      "mods:read",
+                      "mods:write"
+                    ]
                   }
                 }
               }
@@ -1532,7 +1577,7 @@
           "auth"
         ],
         "summary": "Approve or deny a pairing code",
-        "description": "Called from a signed-in browser session. Approving mints an API key scoped to mods:read, ratings:write, comments:write and expiring in 180 days, which the waiting client collects on its next poll. Only cookie sessions may approve — a key cannot pair another device.",
+        "description": "Called from a signed-in browser session. Approving mints an API key carrying the scopes the client asked for at handshake time — expiring in 180 days, or 90 if it can publish — which the waiting client collects on its next poll. Only cookie sessions may approve — a key cannot pair another device.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1573,11 +1618,24 @@
                     },
                     "client_name": {
                       "type": "string"
+                    },
+                    "scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "mods:read",
+                          "mods:write",
+                          "ratings:write",
+                          "comments:write"
+                        ]
+                      }
                     }
                   },
                   "required": [
                     "status",
-                    "client_name"
+                    "client_name",
+                    "scopes"
                   ]
                 }
               }
@@ -1642,7 +1700,7 @@
           "auth"
         ],
         "summary": "Describe a pending pairing",
-        "description": "Lets the approval page name the client before the user commits. Returns nothing that helps an attacker: the client name is a label the client chose for itself.",
+        "description": "Lets the approval page name the client, and say what it is asking for, before the user commits. Returns nothing that helps an attacker: the client name is a label the client chose for itself, and the scopes are what it would be granted anyway.",
         "parameters": [
           {
             "schema": {
@@ -1664,12 +1722,31 @@
                     "client_name": {
                       "type": "string"
                     },
+                    "scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "mods:read",
+                          "mods:write",
+                          "ratings:write",
+                          "comments:write"
+                        ]
+                      }
+                    },
+                    "key_ttl_days": {
+                      "type": "integer",
+                      "description": "How long the minted key would last. Served rather than assumed so the approval page cannot promise a lifetime the mint no longer honours."
+                    },
                     "expires_at": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "When this code stops working."
                     }
                   },
                   "required": [
                     "client_name",
+                    "scopes",
+                    "key_ttl_days",
                     "expires_at"
                   ]
                 }

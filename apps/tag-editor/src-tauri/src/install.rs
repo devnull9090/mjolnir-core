@@ -60,10 +60,10 @@ struct Settings {
     /// launch resumes where the user left off.
     #[serde(default)]
     project: Option<String>,
-    /// Hub API key with `mods:write`, minted by the user on their account
-    /// page. Stored like the launcher stores its paired key: locally, for
-    /// this machine's user.
-    #[serde(default)]
+    /// Where the hub API key used to live, in the clear. Kept only so a
+    /// settings file written by an older build can be read once and emptied
+    /// — see `recall_hub_key`. Nothing writes it any more.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     hub_key: Option<String>,
     /// The account behind the key, cached after the first publish so exports
     /// can embed the author identity without a network round trip.
@@ -108,15 +108,61 @@ pub fn recall_project() -> Option<String> {
     recall().project
 }
 
+/// Where the hub API key lives: a DPAPI blob beside the signing key, not a
+/// field in `tag-editor.json`. The key can publish releases under the user's
+/// name, which makes it worth as much as the signing key it sits next to.
+const HUB_KEY_FILE: &str = "hub-key.dpapi";
+
+fn hub_key_path() -> Option<PathBuf> {
+    Some(dirs::config_dir()?.join("MJOLNIR").join(HUB_KEY_FILE))
+}
+
 /// Record (or clear, with an empty string) the hub API key.
-pub fn remember_hub_key(key: &str) {
+///
+/// Unlike the path settings, this is not best-effort: a key the user believes
+/// is stored but is not means a publish that fails later with a confusing
+/// error, so a failure to write is reported now.
+pub fn remember_hub_key(key: &str) -> Result<(), String> {
+    let path = hub_key_path().ok_or("no config directory")?;
+    let key = key.trim();
+    if key.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        forget_legacy_hub_key();
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    let blob = crate::secret::protect_string(key)?;
+    std::fs::write(&path, blob).map_err(|e| format!("{}: {e}", path.display()))?;
+    forget_legacy_hub_key();
+    Ok(())
+}
+
+/// Strike the cleartext key an older build may have left in the settings
+/// file. Called after every successful write — including a clear, so that
+/// unlinking cannot leave a copy behind for the next read to resurrect.
+fn forget_legacy_hub_key() {
     let mut settings = recall();
-    settings.hub_key = Some(key.trim().to_string()).filter(|s| !s.is_empty());
-    store(settings);
+    if settings.hub_key.take().is_some() {
+        store(settings);
+    }
 }
 
 pub fn recall_hub_key() -> Option<String> {
-    recall().hub_key
+    // A key left in the clear by an older build is moved into the blob the
+    // first time it is read. It is returned either way: it is already on disk
+    // in the clear, so refusing to use it protects nothing and would fail the
+    // next publish for no reason the user could act on.
+    if let Some(plaintext) = recall().hub_key {
+        let _ = remember_hub_key(&plaintext);
+        return Some(plaintext);
+    }
+
+    let blob = std::fs::read(hub_key_path()?).ok()?;
+    // A blob from another machine or another Windows user will not decrypt.
+    // That is "not linked here", not an error worth surfacing.
+    crate::secret::unprotect_string(&blob).ok()
 }
 
 /// Cache the account identity for offline signing.
@@ -124,6 +170,15 @@ pub fn remember_author(id: &str, username: &str) {
     let mut settings = recall();
     settings.hub_author_id = Some(id.to_string());
     settings.hub_author_username = Some(username.to_string());
+    store(settings);
+}
+
+/// Drop the cached identity, so an unlinked editor does not keep showing a
+/// name it can no longer act as.
+pub fn forget_author() {
+    let mut settings = recall();
+    settings.hub_author_id = None;
+    settings.hub_author_username = None;
     store(settings);
 }
 

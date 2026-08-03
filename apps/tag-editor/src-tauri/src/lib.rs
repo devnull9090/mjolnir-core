@@ -18,6 +18,7 @@ pub mod install;
 pub mod keystore;
 pub mod modpack;
 pub mod project;
+pub mod secret;
 pub mod textures;
 pub mod zen;
 
@@ -1105,14 +1106,38 @@ fn hub_status() -> hub::HubStatus {
     hub::HubStatus {
         base: hub::base_url(),
         has_key: install::recall_hub_key().is_some(),
+        username: install::recall_author().map(|(_, username)| username),
     }
 }
 
 /// Store (or clear, with an empty string) the hub API key.
+///
+/// The fallback for someone who would rather mint a key by hand than link;
+/// the identity behind a pasted key is unknown until the first publish looks
+/// it up, so any cached name is dropped rather than left to mislead.
 #[tauri::command]
 fn hub_set_key(key: String) -> Result<(), String> {
-    install::remember_hub_key(&key);
+    install::remember_hub_key(&key)?;
+    install::forget_author();
     Ok(())
+}
+
+/// Begin linking this editor to a hub account.
+#[tauri::command]
+fn hub_link_start() -> Result<hub::LinkStart, String> {
+    hub::auth_start()
+}
+
+/// Check whether the link has been approved yet.
+#[tauri::command]
+fn hub_link_poll() -> Result<hub::LinkPoll, String> {
+    hub::auth_poll()
+}
+
+/// Forget the stored key. Revoking it is a hub-side action.
+#[tauri::command]
+fn hub_unlink() -> Result<(), String> {
+    hub::unlink()
 }
 
 /// Bake, sign, archive and publish the project to the hub, returning the
@@ -1122,10 +1147,8 @@ fn project_publish(
     changelog: String,
     state: State<'_, AppState>,
 ) -> Result<hub::PublishView, String> {
-    let key = install::recall_hub_key().ok_or(
-        "no hub API key — create one with the mods:write scope on your hub account page, \
-         then add it here",
-    )?;
+    let key = install::recall_hub_key()
+        .ok_or("not linked to a hub account — link one from the publish panel first")?;
 
     // Register the device key and refresh the author identity before baking,
     // so the signature embeds the right account and the hub can bind the key
@@ -1225,6 +1248,9 @@ pub fn run() {
             project_publish,
             hub_status,
             hub_set_key,
+            hub_link_start,
+            hub_link_poll,
+            hub_unlink,
             signing_status,
             list_textures,
             read_texture,

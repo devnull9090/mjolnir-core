@@ -87,10 +87,12 @@ reason they exist.
 
 Publishing runs from the mod panel's **Publish** section:
 
-1. **Get an API key** (first time only). The panel links to your hub account page —
-   create a key with the `mods:write` scope and paste it in. It is stored on your machine
-   only. Publishing is deliberately not enabled for the launcher's device pairing; the
-   key is your explicit opt-in.
+1. **Link your hub account** (first time only). Click **Link hub account**: the editor
+   shows a short code and opens mjolnircore.com, where you approve it while signed in.
+   The page lists what you are granting — publishing included — so approve only the code
+   your own editor is showing right now. The editor never sees your Discord password, and
+   the key it receives is stored on your machine only. (Prefer to mint a key yourself?
+   *paste a key instead* takes one with the `mods:write` scope.)
 2. Optionally write a changelog for this version.
 3. Click **Publish**. The editor bakes a fresh archive, **signs it with this device's
    key** (created and registered to your account automatically on first publish — you'll
