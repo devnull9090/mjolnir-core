@@ -78,6 +78,12 @@ pub struct DirEntry {
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
     containers: Vec<Container>,
+    /// Cooked packages that may name Wwise media, as `(container, chunk,
+    /// path)`. Kept unread; the name index is built on first use because it
+    /// costs a pass over every audio package.
+    audio_packages: Vec<(usize, ChunkEntry, String)>,
+    /// Media short ID to event name, built lazily by [`Catalog::names`].
+    names: std::sync::OnceLock<crate::wwise::NameIndex>,
     /// `.pak` archives alongside the IoStore containers; the game keeps its
     /// whole Wwise bank there.
     archives: Vec<ue_iostore::pak::PakArchive>,
@@ -180,9 +186,16 @@ impl Catalog {
         // one is actually opened.
         let mut candidates: BTreeMap<String, (usize, ChunkEntry, Option<(usize, ChunkEntry)>)> =
             BTreeMap::new();
+        let mut audio_packages = Vec::new();
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
                 let full = c.full_path(rel);
+                // Wwise event packages are the only place the readable names
+                // for `.wem` media survive cooking.
+                if full.contains("/Audio/") && full.ends_with(".uasset") {
+                    audio_packages.push((ci, c.chunks[*chunk_index], full));
+                    continue;
+                }
                 if full.contains("/Tags/") && full.ends_with(".uasset") {
                     let stem = full.trim_end_matches(".uasset").to_string();
                     tag_uassets.insert(stem, (ci, c.chunks[*chunk_index]));
@@ -315,6 +328,8 @@ impl Catalog {
 
         Ok(Catalog {
             containers,
+            audio_packages,
+            names: std::sync::OnceLock::new(),
             archives,
             tags,
             textures,
@@ -579,6 +594,38 @@ impl Catalog {
         self.sounds.get(index)
     }
 
+    /// The Wwise name index, built on first use.
+    ///
+    /// Building it reads every cooked audio package, which is seconds of work,
+    /// so it is deferred until something actually asks for a name rather than
+    /// paid on every launch.
+    pub fn names(&self) -> &crate::wwise::NameIndex {
+        self.names.get_or_init(|| {
+            let mut index = crate::wwise::NameIndex::default();
+            for (ci, chunk, path) in &self.audio_packages {
+                let Ok(buf) =
+                    ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle)
+                else {
+                    continue;
+                };
+                // The summary name map holds the media paths, the event name
+                // and the authored `.wav` sources.
+                let Some(names) = crate::zen::load_name_batch(&buf, 52) else {
+                    continue;
+                };
+                index.add_package(path, &names);
+            }
+            index
+        })
+    }
+
+    /// The readable event name for one sound, when a package claims it.
+    pub fn sound_label(&self, index: usize) -> Option<&str> {
+        let s = self.sounds.get(index)?;
+        let id = crate::wwise::media_id_of_path(&s.short)?;
+        self.names().label_for(id)
+    }
+
     /// Case-insensitive substring search over Wwise audio paths.
     pub fn search_sounds(&self, query: &str, limit: usize) -> Vec<(usize, &SoundEntry)> {
         let q = query.trim().to_ascii_lowercase();
@@ -648,6 +695,50 @@ mod tests {
         eprintln!("parsed {parsed} wem headers and skipped {banks} banks: {codecs:?}");
     }
 
+    /// Recover readable names for the shipped media and report the coverage.
+    ///
+    /// Ignored by default; set `MJOLNIR_PAKS` and run with `--ignored`.
+    #[test]
+    #[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+    fn wwise_media_resolve_to_event_names() {
+        let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+        let c = Catalog::open(&paks, "").expect("catalog opens");
+
+        let t = std::time::Instant::now();
+        let names = c.names();
+        let build = t.elapsed();
+        assert!(!names.events.is_empty(), "no Wwise events were indexed");
+
+        let mut named = 0usize;
+        let mut unnamed = 0usize;
+        let mut sample = Vec::new();
+        for (i, s) in c.sounds.iter().enumerate() {
+            if s.short.ends_with(".bnk") {
+                continue;
+            }
+            match c.sound_label(i) {
+                Some(label) => {
+                    named += 1;
+                    if sample.len() < 5 {
+                        sample.push(format!("{} -> {label}", s.short));
+                    }
+                }
+                None => unnamed += 1,
+            }
+        }
+        eprintln!(
+            "indexed {} events over {} packages in {build:.1?}; {} media ids named",
+            names.events.len(),
+            c.audio_packages.len(),
+            names.media_named()
+        );
+        eprintln!("{named} sounds named, {unnamed} unnamed");
+        for s in &sample {
+            eprintln!("  {s}");
+        }
+        assert!(named > 0, "no sound resolved to an event name");
+    }
+
     #[test]
     fn localised_audio_is_grouped_under_its_language() {
         // Media buckets are numeric for shared audio and named for localised.
@@ -691,6 +782,8 @@ mod tests {
         files.sort_by(|a, b| a.path.cmp(&b.path));
         Catalog {
             containers: Vec::new(),
+            audio_packages: Vec::new(),
+            names: std::sync::OnceLock::new(),
             archives: Vec::new(),
             tags: Vec::new(),
             textures: Vec::new(),

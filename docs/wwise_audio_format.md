@@ -100,12 +100,57 @@ That offset is only meaningful for Wwise's own codecs. In a
 subformat GUID, so the sample count is read only when the tag is Wwise Vorbis
 or Wwise Opus; PCM falls back to the exact bit-rate calculation.
 
+## Recovering readable names
+
+Wwise names media by numeric short ID, so the pak side alone can only show
+`1000519664.wem`. The readable names survive on the IoStore side: each cooked
+`UAkAudioEvent` package's **name map** contains the event name, the
+`Media/<bucket>/<id>.wem` paths it plays, and the authored `.wav` sources.
+
+```
+2581487812.bnk
+Environment\A15\Positionals\AMB_ENV_A15_ComputerBeeps_A_01.wav
+… (20 sources)
+Media/10/1060715316.wem
+… (19 media)
+Play_AMB_ENV_A15_ComputerBeeps_A
+SFX
+/Game/Audio/Audio_FI/…/WwiseEvents/Play_AMB_ENV_A15_ComputerBeeps_A
+```
+
+Reading only the name map is enough to map media ID to event name; no export
+parsing is needed. Implemented in `apps/tag-editor/src-tauri/src/wwise.rs`.
+
+**Coverage is partial.** 997 of the ~24,000 cooked audio packages reference
+media at all, naming 3,619 media IDs. The rest — most of the shared bank and
+all the localised VO — is reached through structures inside the `.bnk` files
+rather than through individual event packages, so fuller naming needs the HIRC
+section parsed. Unnamed media falls back to its ID.
+
+The export blob does appear to pair each media ID with a specific source: the
+records read `80 0f 14 <media id u32> <u8> … <u8>`, where the trailing bytes
+look like name-map indices. That pairing is unverified and not relied on.
+
 ## Not implemented yet
 
-**Playback.** Wwise Vorbis is not plain Ogg Vorbis: the codebooks are stripped
-and the packet framing is Wwise's own, so the Ogg headers have to be rebuilt
-(the job `ww2ogg` does) before any decoder will touch it. Until that lands the
-editor reports headers and exports the raw `.wem`.
+**Playback.** Wwise Vorbis is not plain Ogg Vorbis: the packet framing is
+Wwise's own and the codebooks are stripped, so the Ogg headers have to be
+rebuilt (the job `ww2ogg` does) before any decoder will touch it.
+
+The codebooks here are **external**, confirmed by decoding the setup packet: it
+is 228 bytes and begins with a count of 44 followed by 10-bit codebook IDs that
+come out as clean sequential indices (50, 51, 52 … max 462), with no inline
+codebook sync (`0x564342`) anywhere. 44 inline codebooks could not fit in 228
+bytes.
+
+That means decoding needs the Wwise codebook library, which is *not* in the
+`.wem` files. It ships inside `HaloCampaignEvolved.exe` (the Wwise sound engine
+is statically linked — the `Engine/Plugins/Wwise/.../bin` DLLs are effects, not
+the codec). Sourcing it is an open question: ww2ogg's own
+`packed_codebooks_aoTuV_603.bin` is derived from the Wwise SDK and is not ours
+to redistribute.
+
+Until that is resolved the editor reports headers and exports the raw `.wem`.
 
 **Bink Audio.** The 23 native `SoundWave` assets are a separate format again —
 the `.ubulk` opens with a `SEEK` chunk and the name map carries `BINKA`. They

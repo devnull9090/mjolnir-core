@@ -49,11 +49,14 @@ export function SoundViewer() {
   }
 
   const info = sound.info;
-  const name = sound.path.split("/").pop() ?? "sound";
+  const id = sound.path.split("/").pop() ?? "sound";
+  // Wwise names media numerically; the event that plays it is the only
+  // readable name there is, so it leads when one exists.
+  const name = sound.events[0]?.name ?? id;
 
   async function onExport() {
     if (!sound) return;
-    const dest = await save({ defaultPath: name });
+    const dest = await save({ defaultPath: id });
     if (!dest) return;
     setWrote(null);
     const written = await exportSound(dest);
@@ -132,6 +135,39 @@ export function SoundViewer() {
             </>
           )}
         </dl>
+
+        {sound.events.length > 0 && (
+          <section className="mt-7">
+            <h2 className="mb-2 text-[11px] uppercase tracking-wider text-text-dim">
+              {sound.events.length === 1 ? "Played by" : `Played by ${sound.events.length} events`}
+            </h2>
+            <ul className="space-y-3">
+              {sound.events.map((e) => (
+                <li key={e.package} className="border-l border-border-subtle pl-3">
+                  <p className="truncate font-mono text-xs text-mjolnir-gold">{e.name}</p>
+                  <p className="truncate font-mono text-[10px] text-text-dim">{e.package}</p>
+                  {e.sources.length > 0 && (
+                    <details className="mt-1">
+                      {/* Which source this particular media is cannot be told
+                          from the package, so they are offered as a set. */}
+                      <summary className="cursor-pointer font-mono text-[10px] text-text-secondary">
+                        {e.sources.length} authored source
+                        {e.sources.length === 1 ? "" : "s"}
+                      </summary>
+                      <ul className="mt-1 space-y-0.5">
+                        {e.sources.map((s) => (
+                          <li key={s} className="truncate font-mono text-[10px] text-text-dim">
+                            {s.replace(/\\/g, "/")}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   );

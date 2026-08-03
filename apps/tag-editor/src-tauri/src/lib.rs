@@ -22,6 +22,7 @@ pub mod project;
 pub mod secret;
 pub mod sounds;
 pub mod textures;
+pub mod wwise;
 pub mod zen;
 
 use catalog::{Catalog, GroupSummary, TagSummary};
@@ -734,6 +735,9 @@ struct SoundSummary {
     /// Language folder, or `null` for audio shared across languages.
     language: Option<String>,
     size: u64,
+    /// The Wwise event that plays this, when one claims it. Wwise names media
+    /// numerically, so without this a row is just an ID.
+    event: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -746,18 +750,44 @@ struct SoundView {
     info: Option<sounds::WemInfo>,
     /// Why the header could not be read, when it could not be.
     error: Option<String>,
+    /// Every Wwise event that plays this media, and the sources behind them.
+    events: Vec<EventRef>,
+}
+
+/// One Wwise event that plays a media file.
+#[derive(Serialize)]
+struct EventRef {
+    name: String,
+    package: String,
+    /// The authored `.wav` files the event draws from. Which one this
+    /// particular media is cannot be told from the package alone, so the whole
+    /// set is listed.
+    sources: Vec<String>,
 }
 
 #[tauri::command]
 fn list_sounds(query: String, state: State<'_, AppState>) -> Result<Vec<SoundSummary>, String> {
     with_catalog(&state, |c| {
-        Ok(c.search_sounds(&query, MAX_ROWS)
+        let rows: Vec<(usize, String, Option<String>, u64)> = c
+            .search_sounds(&query, MAX_ROWS)
             .into_iter()
-            .map(|(index, s)| SoundSummary {
+            .map(|(index, s)| {
+                (
+                    index,
+                    s.short.clone(),
+                    s.language.clone(),
+                    s.entry.uncompressed_size,
+                )
+            })
+            .collect();
+        Ok(rows
+            .into_iter()
+            .map(|(index, path, language, size)| SoundSummary {
+                event: c.sound_label(index).map(str::to_string),
                 index,
-                path: s.short.clone(),
-                language: s.language.clone(),
-                size: s.entry.uncompressed_size,
+                path,
+                language,
+                size,
             })
             .collect())
     })
@@ -787,12 +817,25 @@ fn read_sound(index: usize, state: State<'_, AppState>) -> Result<SoundView, Str
                 Err(e) => (None, Some(e)),
             }
         };
+        let events = match crate::wwise::media_id_of_path(&path) {
+            Some(id) => c
+                .names()
+                .events_for(id)
+                .map(|e| EventRef {
+                    name: e.name.clone(),
+                    package: e.package.clone(),
+                    sources: e.sources.clone(),
+                })
+                .collect(),
+            None => Vec::new(),
+        };
         Ok(SoundView {
             path,
             language,
             size,
             info,
             error,
+            events,
         })
     })
 }

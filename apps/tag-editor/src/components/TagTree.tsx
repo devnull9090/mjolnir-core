@@ -207,8 +207,9 @@ function TextureList() {
 /**
  * Wwise audio list with search.
  *
- * Wwise names its media by numeric short ID, so the only human-readable parts
- * of a row are the language and the bank folder — both get their own column.
+ * Wwise names its media by numeric short ID. Where a cooked event package
+ * claims one, its event name leads the row and the ID drops to a subtitle;
+ * unclaimed media has nothing better to show than the number.
  */
 function SoundList() {
   const { sounds, soundQuery, selectedSound } = useEditor();
@@ -228,20 +229,25 @@ function SoundList() {
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {sounds.map((s) => {
-          const name = s.path.split("/").pop() ?? s.path;
+          const id = s.path.split("/").pop() ?? s.path;
           return (
             <li key={s.index}>
               <button
                 type="button"
-                onClick={() => void openTab("sound", s.index, name)}
-                className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
+                onClick={() => void openTab("sound", s.index, s.event ?? id)}
+                className={`flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                   selectedSound === s.index
                     ? "bg-surface-card text-mjolnir-gold"
                     : "text-text-secondary"
                 }`}
-                title={s.path}
+                title={s.event ? `${s.event}\n${s.path}` : s.path}
               >
-                <span className="min-w-0 flex-1 truncate">{name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{s.event ?? id}</span>
+                  {s.event && (
+                    <span className="block truncate text-[10px] text-text-dim">{id}</span>
+                  )}
+                </span>
                 <span className="ml-2 shrink-0 text-[10px] text-text-dim">
                   {s.language ?? "shared"}
                 </span>

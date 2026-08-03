@@ -56,6 +56,7 @@ const mockSounds = [
     sample_count: 728_342,
     avg_bytes_per_sec: 20_437,
     data_size: 310_511,
+    event: "Play_b30_MusicStart" as string | null,
   },
   {
     index: 1,
@@ -66,6 +67,8 @@ const mockSounds = [
     sample_count: 67_718,
     avg_bytes_per_sec: 15_284,
     data_size: 21_579,
+    // Most media is not claimed by any event package, and shows as its ID.
+    event: null as string | null,
   },
 ];
 
@@ -290,7 +293,13 @@ export const mockApi = {
   exportTexture: async () => 0,
   listSounds: async (query: string) =>
     mockSounds
-      .map(({ index, path, language, size }) => ({ index, path, language, size }))
+      .map(({ index, path, language, size, event }) => ({
+        index,
+        path,
+        language,
+        size,
+        event,
+      }))
       .filter((s) => s.path.toLowerCase().includes(query.toLowerCase())),
   readSound: async (index: number) => {
     const s = mockSounds[index] ?? mockSounds[0];
@@ -310,6 +319,15 @@ export const mockApi = {
         chunks: ["fmt", "hash", "data"],
       },
       error: null,
+      events: s.event
+        ? [
+            {
+              name: s.event,
+              package: "/Game/Audio/Music/WwiseEvents/Play_b30_MusicStart.uasset",
+              sources: ["Music\\b30\\b30_MusicStart_01.wav"],
+            },
+          ]
+        : [],
     };
   },
   exportSound: async () => 0,

@@ -88,6 +88,16 @@ export type SoundSummary = {
   /** Language folder, or null for audio shared across languages. */
   language: string | null;
   size: number;
+  /** The Wwise event that plays this, when one claims it; Wwise names media numerically. */
+  event: string | null;
+};
+
+/** One Wwise event that plays a media file. */
+export type EventRef = {
+  name: string;
+  package: string;
+  /** The authored .wav files the event draws from, as a set. */
+  sources: string[];
 };
 
 /** What a `.wem` header says about its audio. */
@@ -111,6 +121,8 @@ export type SoundView = {
   /** Absent for a sound bank, or when the header could not be read. */
   info: WemInfo | null;
   error: string | null;
+  /** Every Wwise event that plays this media. */
+  events: EventRef[];
 };
 
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
