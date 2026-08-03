@@ -167,6 +167,28 @@ pub fn verify_written(
     oodle: &[PathBuf],
     expect: &[(ChunkId, Vec<u8>)],
 ) -> Result<(), String> {
+    // Resolve every chunk through the perfect hash first, the way the game
+    // finds it. `load_container` exposes the chunks as a list and searching
+    // that list proves only that the bytes are present — a container whose
+    // tables do not resolve reads perfectly here and is ignored in game,
+    // silently falling back to the shipped tags.
+    let toc = Toc::read(utoc).map_err(|e| format!("{}: {e}", utoc.display()))?;
+    if toc.chunks_without_perfect_hash != 0 {
+        return Err(format!(
+            "{} chunk(s) landed in the overflow list; no shipped container uses it \
+             and the game does not read it",
+            toc.chunks_without_perfect_hash
+        ));
+    }
+    for (id, _) in expect {
+        toc.find_chunk_by_hash(id).ok_or_else(|| {
+            format!(
+                "chunk {:#018x} does not resolve through the perfect hash",
+                id.id
+            )
+        })?;
+    }
+
     let check = ue_iostore::load_container(utoc).map_err(|e| format!("{}: {e}", utoc.display()))?;
     for (id, want) in expect {
         let chunk = check
