@@ -54,6 +54,9 @@ type EditorState = {
   paks: string | null;
   oodle: string | null;
   note: string | null;
+  /** True once an installation has opened, so the setup form knows it is a
+   *  change of mind rather than a first run and can be backed out of. */
+  opened: boolean;
 
   groups: GroupSummary[];
   selectedGroup: string | null;
@@ -208,6 +211,10 @@ type EditorState = {
 
   detect: () => Promise<void>;
   open: (paks: string, oodle: string) => Promise<void>;
+  /** Show the setup form again, to point the editor at another installation. */
+  changeInstall: () => void;
+  /** Back out of that, leaving the open installation as it was. */
+  cancelChange: () => void;
   selectGroup: (group: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   setField: (path: string, value: string) => Promise<boolean>;
@@ -361,6 +368,7 @@ export const useEditor = create<EditorState>((set, get) => {
     paks: null,
     oodle: null,
     note: null,
+    opened: false,
 
     groups: [],
     selectedGroup: null,
@@ -715,14 +723,36 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
+    changeInstall() {
+      set({ status: "idle", error: null });
+    },
+
+    cancelChange() {
+      // Only meaningful with something open behind the form; otherwise there
+      // is nothing to go back to.
+      if (get().opened) set({ status: "ready", error: null });
+    },
+
     async open(paks, oodle) {
       set({ status: "opening", error: null });
       try {
-        await api.openInstall(paks, oodle);
+        // The backend accepts anything that names the installation and
+        // answers with the folder it actually opened, which is what the rest
+        // of the UI should show.
+        const opened = await api.openInstall(paks, oodle);
+        paks = opened.paks;
         const groups = await api.listGroups();
         // `dirLoading` goes up with the shell so the file list shows its
         // spinner instead of "Empty." for the frame before the root arrives.
-        set({ status: "ready", groups, paks, oodle, note: null, dirLoading: true });
+        set({
+          status: "ready",
+          groups,
+          paks,
+          oodle,
+          note: null,
+          opened: true,
+          dirLoading: true,
+        });
         // The asset tree is the default view, so it is ready on arrival.
         await get().openDir("");
       } catch (e) {

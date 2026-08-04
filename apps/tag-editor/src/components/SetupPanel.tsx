@@ -2,10 +2,11 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEditor } from "../stores/editor-store";
 
-/** Shown until an installation is open. */
+/** Shown until an installation is open, and again to change which one. */
 export function SetupPanel() {
-  const { status, error, note, paks, oodle } = useEditor();
+  const { status, error, note, paks, oodle, opened } = useEditor();
   const openInstall = useEditor((s) => s.open);
+  const cancelChange = useEditor((s) => s.cancelChange);
   const [paksPath, setPaksPath] = useState(paks ?? "");
   const [oodlePath, setOodlePath] = useState(oodle ?? "");
 
@@ -45,8 +46,8 @@ export function SetupPanel() {
 
         <div className="mt-6 space-y-4">
           <Field
-            label="Paks folder"
-            hint="Meteorite\Content\Paks inside the game install"
+            label="Game folder"
+            hint="The Halo Campaign Evolved folder, or its Meteorite\Content\Paks folder"
             value={paksPath}
             onChange={setPaksPath}
             onBrowse={() => void pick("paks")}
@@ -60,14 +61,28 @@ export function SetupPanel() {
           />
         </div>
 
-        <button
-          type="button"
-          disabled={busy || !paksPath}
-          onClick={() => void openInstall(paksPath, oodlePath)}
-          className="mt-6 w-full bg-mjolnir-gold px-4 py-2.5 text-sm font-semibold text-surface-primary transition-colors hover:bg-mjolnir-gold-dim disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {busy ? "Opening…" : "Open installation"}
-        </button>
+        <div className="mt-6 flex gap-2">
+          <button
+            type="button"
+            disabled={busy || !paksPath}
+            onClick={() => void openInstall(paksPath, oodlePath)}
+            className="flex-1 bg-mjolnir-gold px-4 py-2.5 text-sm font-semibold text-surface-primary transition-colors hover:bg-mjolnir-gold-dim disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Opening…" : "Open installation"}
+          </button>
+          {/* Only with something open behind this form: on a first run there
+              is nothing to go back to. */}
+          {opened && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={cancelChange}
+              className="border border-border-subtle px-4 py-2.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

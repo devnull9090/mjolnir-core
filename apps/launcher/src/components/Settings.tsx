@@ -1,20 +1,31 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import GameLocation from "./GameLocation";
 
 interface LauncherSettings {
   launch_method: string;
   custom_exe_path: string | null;
+  install_path: string | null;
 }
 
 interface BuildInfo {
   launcher_version: string;
   game_found: boolean;
   install_path: string | null;
+  install_source: string;
   ue4ss_installed: boolean;
   mods_path: string | null;
   mods_count: number;
 }
+
+/** How the install path was arrived at, for the info table. */
+const SOURCE_LABEL: Record<string, string> = {
+  manual: "Set manually",
+  env: "MJOLNIR_GAME_DIR",
+  auto: "Detected",
+  none: "—",
+};
 
 interface VerifyResult {
   checked: number;
@@ -27,6 +38,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<LauncherSettings>({
     launch_method: "steam",
     custom_exe_path: null,
+    install_path: null,
   });
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
   const [saving, setSaving] = useState(false);
@@ -125,6 +137,23 @@ export default function Settings() {
       <p className="text-sm text-text-secondary mb-8">
         Configure how MJOLNIR launches your game and view system info.
       </p>
+
+      {/* ── Game Location ── */}
+      <div className="mb-8">
+        <GameLocation
+          onChanged={(status) => {
+            // Only the one field, so an unsaved launch-method edit sitting in
+            // this form is not thrown away by a reload.
+            setSettings((prev) => ({
+              ...prev,
+              install_path: status.source === "manual" ? status.install_path : null,
+            }));
+            void invoke<BuildInfo>("get_build_info").then(setBuildInfo).catch(() => {});
+          }}
+        />
+      </div>
+
+      <hr className="border-border-subtle mb-8" />
 
       {/* ── Launch Configuration ── */}
       <section className="mb-8">
@@ -411,6 +440,10 @@ export default function Settings() {
               valueClass={buildInfo.game_found ? "text-accent-green" : "text-accent-red"}
             />
             <InfoRow label="Install Path" value={buildInfo.install_path ?? "—"} mono />
+            <InfoRow
+              label="Install Path From"
+              value={SOURCE_LABEL[buildInfo.install_source] ?? buildInfo.install_source}
+            />
             <InfoRow
               label="UE4SS Status"
               value={buildInfo.ue4ss_installed ? "Installed" : "Not Installed"}
