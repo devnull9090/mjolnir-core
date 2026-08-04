@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Menu, X, Download } from "lucide-react";
+import { Menu, X, Download, ScrollText } from "lucide-react";
 
 function DiscordIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -23,6 +23,7 @@ function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
 const navLinks = [
   { href: "/docs", label: "Docs" },
   { href: "/mods", label: "Mods" },
+  { href: "/changelog", label: "Changelog", icon: ScrollText },
   { href: "/download", label: "Download", icon: Download },
 ];
 

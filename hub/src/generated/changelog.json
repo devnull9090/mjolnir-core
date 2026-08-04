@@ -1,0 +1,1142 @@
+{
+  "generator": "scripts/sync-changelog.mjs",
+  "products": [
+    {
+      "id": "launcher",
+      "name": "MJOLNIR Launcher",
+      "tagPrefix": "launcher-v",
+      "blurb": "Installs the runtime, manages your mods, and launches Halo Campaign Evolved.",
+      "docsUrl": "/download"
+    },
+    {
+      "id": "tag-editor",
+      "name": "MJOLNIR Tag Editor",
+      "tagPrefix": "tag-editor-v",
+      "blurb": "Browse and edit the Blam tags, textures, audio and scripts inside your installed game.",
+      "docsUrl": "/docs/guides/tag-editing-guide"
+    },
+    {
+      "id": "runtime",
+      "name": "MJOLNIR Runtime",
+      "tagPrefix": "runtime-v",
+      "blurb": "The signed UE4SS bundle every mod runs on, with the signatures and config this game needs.",
+      "docsUrl": "/docs/notes/hub-architecture"
+    },
+    {
+      "id": "mods",
+      "name": "MJOLNIR Code Mods",
+      "tagPrefix": "mods-v",
+      "blurb": "The first-party script mods, built in CI and covered by one Ed25519 signature.",
+      "docsUrl": "/docs/guides/making-your-first-mod"
+    }
+  ],
+  "releases": [
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.8.0",
+      "tag": "tag-editor-v0.8.0",
+      "title": "Swap textures from inside a mod project",
+      "date": "2026-08-04",
+      "summary": "Replace any texture's pixels with your own image from inside a mod project, and have it travel with your tag and script edits when you test, export or publish.",
+      "body": "### Added\n\n- **Texture swaps in mod projects.** Point a texture at a PNG and the image is\n  stored in the project, then re-encoded against your installed game each time\n  the mod is built — so testing, exporting and publishing all carry it alongside\n  your other edits.\n\n  Verified running in the game on the a30 mission.\n\n### Fixed\n\n- **Reopening a project silently dropped its script edits from every build.**\n  Script overrides were not reloaded with the project, so a mod built after\n  reopening it shipped without them and said nothing.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Texture swaps in mod projects. Point a texture at a PNG and the image is stored in the project, then re-encoded against your installed game each time the mod is built — so testing, exporting and publishing all carry it alongside your other edits."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Reopening a project silently dropped its script edits from every build. Script overrides were not reloaded with the project, so a mod built after reopening it shipped without them and said nothing."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.8.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.8.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.8.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.7.0",
+      "tag": "tag-editor-v0.7.0",
+      "title": "Read, edit and compile the campaign's mission scripts",
+      "date": "2026-08-03",
+      "summary": "The campaign's original mission scripts ship inside the game. The Tag Editor now shows them, lets you edit them, and compiles your changes back in.",
+      "body": "### Added\n\n- **A script view** on every mission, beside Form and Tree: the original source\n  with syntax highlighting, and an outline of every script and global that jumps\n  you to its definition.\n- **Editing and compiling.** Change a mission's script and compile it back into\n  the tag. Compilation takes about half a second.\n- **Mod project support**, so a script change ships in a mod alongside your tag\n  edits.\n\nBoth directions are checked against the shipped campaign. Writing all thirteen\nmissions back unmodified reproduces them byte for byte, and recompiling each\nmission from its own source produces a mission that reads back correctly — in\nfact about 100 KB smaller each, because the rebuilt data comes out without the\ngaps the original carried.\n\n### Fixed\n\n- The script editing commands were never registered with the application, so\n  the feature was unreachable in the build where it first landed.\n- The browse tabs were cramped, and the development build would not start.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A script view on every mission, beside Form and Tree: the original source with syntax highlighting, and an outline of every script and global that jumps you to its definition.",
+            "Editing and compiling. Change a mission's script and compile it back into the tag. Compilation takes about half a second.",
+            "Mod project support, so a script change ships in a mod alongside your tag edits."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "The script editing commands were never registered with the application, so the feature was unreachable in the build where it first landed.",
+            "The browse tabs were cramped, and the development build would not start."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.7.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.7.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.7.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.6.2",
+      "tag": "tag-editor-v0.6.2",
+      "title": "Twice as many textures preview",
+      "date": "2026-08-03",
+      "summary": "Around half the game's textures would not preview at all. 4,787 of 4,844 now decode, up from 2,421.",
+      "body": "### Fixed\n\n- **Half the shipped textures failed to preview.** The game cooks its textures\n  two different ways and the editor understood only one of them. Both are now\n  decoded: 4,787 of 4,844 textures preview, up from 2,421.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Half the shipped textures failed to preview. The game cooks its textures two different ways and the editor understood only one of them. Both are now decoded: 4,787 of 4,844 textures preview, up from 2,421."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.6.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.6.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.6.2"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.6.1",
+      "tag": "tag-editor-v0.6.1",
+      "title": "Hotfix: audio plays in the installed app",
+      "date": "2026-08-03",
+      "summary": "Fixes 0.6.0, in which the audio browsing added one release earlier could not actually play anything once the app was installed.",
+      "body": "### Fixed\n\n- **0.6.0 could not play audio in an installed build.** The app's security\n  policy did not permit an audio source, so playback was blocked, and the\n  waveform was blocked separately for the same reason. Neither shows up during\n  development, where the app loads from a local server and the policy never\n  applies — which is how 0.6.0 shipped with its headline feature broken.\n- Sounds now load when you select one, rather than on first play.\n- The sound list shows a spinner while it builds its name index on first use,\n  instead of appearing empty.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "0.6.0 could not play audio in an installed build. The app's security policy did not permit an audio source, so playback was blocked, and the waveform was blocked separately for the same reason. Neither shows up during development, where the app loads from a local server and the policy never applies — which is how 0.6.0 shipped with its headline feature broken.",
+            "Sounds now load when you select one, rather than on first play.",
+            "The sound list shows a spinner while it builds its name index on first use, instead of appearing empty."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.6.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.6.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.6.1"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.6.0",
+      "tag": "tag-editor-v0.6.0",
+      "title": "Browse and play the game's audio",
+      "date": "2026-08-03",
+      "summary": "The Tag Editor opens the game's sound archives — around 6 GB it could not read before — and lets you browse, name and play 194,559 Wwise audio files.",
+      "body": "### Added\n\n- **The sound archives open.** The game keeps its audio in `.pak` archives the\n  editor previously could not read at all.\n- **194,559 audio files**, browsable under `sounds/<language>/`, each showing\n  its codec, channel count, sample rate and duration.\n- **Readable names for 3,619 of them**, recovered from the game's own event\n  data — so you can find a sound by what plays it rather than by a numeric ID.\n- **Playback, with a waveform.** The game's audio format is rebuilt into\n  something the app can play, and raw export sits alongside it.\n\n### Known issues\n\n- Most files still show a numeric ID rather than a name. Only sounds reachable\n  from a named event can be identified; the rest carry no name anywhere in the\n  shipped data.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "The sound archives open. The game keeps its audio in .pak archives the editor previously could not read at all.",
+            "194,559 audio files, browsable under sounds/<language>/, each showing its codec, channel count, sample rate and duration.",
+            "Readable names for 3,619 of them, recovered from the game's own event data — so you can find a sound by what plays it rather than by a numeric ID.",
+            "Playback, with a waveform. The game's audio format is rebuilt into something the app can play, and raw export sits alongside it."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Most files still show a numeric ID rather than a name. Only sounds reachable from a named event can be identified; the rest carry no name anywhere in the shipped data."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.6.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.5.0",
+      "tag": "tag-editor-v0.5.0",
+      "title": "Live tag editing in the running game",
+      "date": "2026-08-03",
+      "summary": "Change a tag value and see it in Halo Campaign Evolved immediately — no rebuild, no repacking, and no restarting the game.",
+      "body": "### Added\n\n- **Live editing.** With the game running, change a tag value in the editor and\n  it takes effect there and then. The loop that used to be edit, build, install,\n  relaunch and walk back to where you were is now edit and look.\n\n### Fixed\n\n- **Mods whose asset count was a power of two produced a broken archive.** The\n  lookup table the game uses to find assets overflowed, and the result could not\n  be read at all. Four-asset mods were the common case.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Live editing. With the game running, change a tag value in the editor and it takes effect there and then. The loop that used to be edit, build, install, relaunch and walk back to where you were is now edit and look."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mods whose asset count was a power of two produced a broken archive. The lookup table the game uses to find assets overflowed, and the result could not be read at all. Four-asset mods were the common case."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.5.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.5.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.5.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.5.3",
+      "tag": "launcher-v0.5.3",
+      "title": "Verifies author-signed mod archives",
+      "date": "2026-08-02",
+      "summary": "The launcher refuses to install a community mod whose author signature does not verify, pins each mod's signing key, and warns you when a key changes or is revoked.",
+      "body": "The install-side half of author signing. The [Tag Editor\n0.3.0](/changelog/tag-editor/0.3.0) signs what it publishes; this build checks\nthose signatures before anything reaches your game.\n\n### Security\n\n- A mod archive carrying a signature that does not verify is refused outright.\n- The signing key's fingerprint is pinned per mod, so a later release of the\n  same mod must come from the same author's key.\n- A key that changes, disappears or is revoked raises a notice on the mod in\n  your library rather than failing silently.\n\nUnsigned uploads are still accepted for now — signing became available to mod\nauthors only one release ago, and refusing everything else would lock out\nmods published before it existed.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            "A mod archive carrying a signature that does not verify is refused outright.",
+            "The signing key's fingerprint is pinned per mod, so a later release of the same mod must come from the same author's key.",
+            "A key that changes, disappears or is revoked raises a notice on the mod in your library rather than failing silently."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.5.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.5.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.5.3"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.3.0",
+      "tag": "mods-v0.3.0",
+      "title": "FlyCam actually flies",
+      "date": "2026-08-02",
+      "summary": "MJOLNIRFlyCam 1.1.0 fixes a camera that never moved in 1.0.0, hides the first-person arms and weapon so external shots look right, and clears two crashes.",
+      "body": "### Fixed\n\n- **The camera never moved.** FlyCam 1.0.0 attached its per-frame update to\n  something that could not be hooked, and the failure was swallowed silently, so\n  the mod loaded and then did nothing at all.\n- **Two crashes.** One key-checking path could bring the game down outright, and\n  the key bindings could deadlock against the camera's own update.\n\n### Changed\n\n- **Camera movement is on the numpad**: 8/2/4/6 to move, 9/3 for up and down, 5\n  to snap back to the player, Shift to boost, Num +/− to change speed, and Num 0\n  or F9 to toggle mouse look.\n\n  WASD is deliberately left to the player. The game reads movement input below\n  every layer Unreal offers to intercept it, so there is no supported way to\n  take those keys from the player character while a detached camera uses them.\n\n- **The first-person arms and weapon are hidden** while the camera is detached,\n  and Chief's body is made visible from outside — so a free camera shows the\n  character rather than a floating second gun.\n\nOther mods in the set are unchanged.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The camera never moved. FlyCam 1.0.0 attached its per-frame update to something that could not be hooked, and the failure was swallowed silently, so the mod loaded and then did nothing at all.",
+            "Two crashes. One key-checking path could bring the game down outright, and the key bindings could deadlock against the camera's own update."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Camera movement is on the numpad: 8/2/4/6 to move, 9/3 for up and down, 5 to snap back to the player, Shift to boost, Num +/− to change speed, and Num 0 or F9 to toggle mouse look.",
+            "The first-person arms and weapon are hidden while the camera is detached, and Chief's body is made visible from outside — so a free camera shows the character rather than a floating second gun."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.3.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.3.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.3.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.4.0",
+      "tag": "tag-editor-v0.4.0",
+      "title": "Link a hub account instead of pasting an API key",
+      "date": "2026-08-02",
+      "summary": "Publishing now uses the same pairing flow as the launcher — approve a code in your browser — instead of minting an API key by hand and pasting it into a text box.",
+      "body": "### Changed\n\n- **Sign in by pairing.** The editor shows a short code that you approve at\n  [mjolnircore.com/link](https://mjolnircore.com/link) while signed in. The key\n  arrives on the next poll and is never seen or typed.\n\n  The flow it replaces produced a key with whatever permissions you happened to\n  tick, usually with no expiry, dragged through the clipboard. What arrives by\n  pairing asks only for what the editor needs, expires in 90 days, is named on\n  your account page, and can be revoked there.\n\n- The approval page lists exactly what a client is asking for before you approve\n  it, and warns more sharply when publishing is on the list — that approval puts\n  your name on a release.\n- Existing paired launchers are unaffected and keep the permissions they had.\n  There is no hand-off between the launcher and the editor: each pairs for\n  itself, deliberately, so one desktop key cannot mint another.\n\n### Security\n\n- The editor's stored key moves out of a plaintext settings file into\n  Windows-protected storage, beside the signing key.\n- The hub can now require that uploads be author-signed, ready for the point\n  where a signing editor is what everyone is running.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Sign in by pairing. The editor shows a short code that you approve at mjolnircore.com/link while signed in. The key arrives on the next poll and is never seen or typed.",
+            "The approval page lists exactly what a client is asking for before you approve it, and warns more sharply when publishing is on the list — that approval puts your name on a release.",
+            "Existing paired launchers are unaffected and keep the permissions they had. There is no hand-off between the launcher and the editor: each pairs for itself, deliberately, so one desktop key cannot mint another."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "The editor's stored key moves out of a plaintext settings file into Windows-protected storage, beside the signing key.",
+            "The hub can now require that uploads be author-signed, ready for the point where a signing editor is what everyone is running."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.4.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.4.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.4.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.3.0",
+      "tag": "tag-editor-v0.3.0",
+      "title": "Author, test and publish mods without leaving the editor",
+      "date": "2026-08-02",
+      "summary": "Mods become saved projects rather than one-off exports: keep a list of your edits, test them in the game, and publish to the MJOLNIR Hub from inside the editor.",
+      "body": "A mod is now a recipe of edits rather than a pile of baked bytes. Because each\nedit records *what* it changes rather than where it happened to sit, a project\nsurvives a game update: it re-applies against whatever you have installed, and\nanything that no longer matches is flagged instead of silently dropped.\n\n### Added\n\n- **Mod projects.** A folder holding your mod's name, version and summary, plus\n  every edit you have made. Edits autosave as you accept them, and reopening a\n  project resumes where you left off.\n- **A change list** showing the shipped value beside your modded value, with\n  per-line revert.\n- **Test**, which builds the project, installs it into the game so you can try\n  it, and removes it again cleanly afterwards.\n- **Export** to a `.mjolnir` archive.\n- **Publish** to the MJOLNIR Hub, with the results reported in the panel.\n\nPublishing needs an account key with publish permission. A paired launcher\ndeliberately cannot publish on your behalf.\n\n### Security\n\n- Published archives are signed. The signature names the mod, version, author,\n  key fingerprint and the hash of every file in the archive — so re-zipping an\n  archive cannot break its signature, but changing any byte inside one does, and\n  nothing can ride along unsigned. Your signing key is generated on your\n  machine, kept in Windows-protected storage, and never leaves it.\n  [Launcher 0.5.3](/changelog/launcher/0.5.3) verifies these on install.\n\n### Fixed\n\n- Starting the editor showed a flash of the setup form before the real window.\n  It now shows a spinner while it looks for your game.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Mod projects. A folder holding your mod's name, version and summary, plus every edit you have made. Edits autosave as you accept them, and reopening a project resumes where you left off.",
+            "A change list showing the shipped value beside your modded value, with per-line revert.",
+            "Test, which builds the project, installs it into the game so you can try it, and removes it again cleanly afterwards.",
+            "Export to a .mjolnir archive.",
+            "Publish to the MJOLNIR Hub, with the results reported in the panel."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "Published archives are signed. The signature names the mod, version, author, key fingerprint and the hash of every file in the archive — so re-zipping an archive cannot break its signature, but changing any byte inside one does, and nothing can ride along unsigned. Your signing key is generated on your machine, kept in Windows-protected storage, and never leaves it. Launcher 0.5.3 verifies these on install."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Starting the editor showed a flash of the setup form before the real window. It now shows a spinner while it looks for your game."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.3.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.3.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.3.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.2.0",
+      "tag": "tag-editor-v0.2.0",
+      "title": "No Oodle DLL required",
+      "date": "2026-08-02",
+      "summary": "The Tag Editor now reads the game's compressed containers on its own, so you no longer need to supply a proprietary Oodle DLL before it will open anything.",
+      "body": "### Changed\n\n- **The Oodle DLL is no longer required.** A decompressor is built into the\n  editor and used by default. If you have `oo2core_*_win64.dll` it is still\n  supported as a faster alternative, but nothing waits on it now.\n\n  Verified byte-identical to the proprietary decoder across 56,002 compressed\n  blocks in all 28 of the game's containers, and separately across every shipped\n  tag.\n\n### Fixed\n\n- Mods whose asset count landed on a power of two produced an archive the game\n  could not read. Four-asset mods were the common case.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The Oodle DLL is no longer required. A decompressor is built into the editor and used by default. If you have oo2corewin64.dll it is still supported as a faster alternative, but nothing waits on it now."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mods whose asset count landed on a power of two produced an archive the game could not read. Four-asset mods were the common case."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.2.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.2.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.2.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.5.2",
+      "tag": "launcher-v0.5.2",
+      "title": "Setup installs the mods a new install needs",
+      "date": "2026-08-01",
+      "summary": "First-time setup no longer finishes with a modding framework and nothing to run in it, and the rest of the signed mods are now listed in My Mods with an Install button.",
+      "body": "### Fixed\n\n- **Setup left you with nothing installed.** The runtime bundle deliberately\n  ships no mods, so a fresh setup produced a working framework loading zero\n  mods — and the setup panel meanwhile listed five it had not installed. Setup\n  now installs the framework mod the game needs, and the panel lists what setup\n  actually does rather than a hardcoded paragraph.\n\n### Added\n\n- My Mods lists every signed mod you do not have installed, with an Install\n  button. Developer tools like the scripting bridge and the engine dumper are\n  listed rather than installed automatically — they evaluate arbitrary code or\n  dump engine internals, and have no business arriving uninvited.\n\n### Changed\n\n- Installing several mods at once costs one request rather than one per mod.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Setup left you with nothing installed. The runtime bundle deliberately ships no mods, so a fresh setup produced a working framework loading zero mods — and the setup panel meanwhile listed five it had not installed. Setup now installs the framework mod the game needs, and the panel lists what setup actually does rather than a hardcoded paragraph."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "My Mods lists every signed mod you do not have installed, with an Install button. Developer tools like the scripting bridge and the engine dumper are listed rather than installed automatically — they evaluate arbitrary code or dump engine internals, and have no business arriving uninvited."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Installing several mods at once costs one request rather than one per mod."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.5.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.5.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.5.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.5.1",
+      "tag": "launcher-v0.5.1",
+      "title": "The signed badge tells the truth, and updates install quietly",
+      "date": "2026-08-01",
+      "summary": "Mods installed by an earlier launcher now verify as signed instead of reading unverified forever, and automatic updates stop interrupting you with an installer prompt.",
+      "body": "### Fixed\n\n- **Mods installed before 0.5.0 read as unverified permanently.** The badge\n  asked the launcher's own records, which those installs never had, instead of\n  asking the signed set whether the files on disk match. It now asks the set.\n- Automatic updates no longer stop halfway to ask you to confirm an install.\n  The Windows installer prompts before replacing an existing copy unless it is\n  told to run silently, and it now is. This takes effect for updates *from*\n  0.5.1 onward — the build doing the updating is the one that decides.\n\n### Changed\n\n- \"Unmanaged\" is shown as a neutral state rather than a warning. It is the\n  ordinary condition of every mod UE4SS ships with, not a problem.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mods installed before 0.5.0 read as unverified permanently. The badge asked the launcher's own records, which those installs never had, instead of asking the signed set whether the files on disk match. It now asks the set.",
+            "Automatic updates no longer stop halfway to ask you to confirm an install. The Windows installer prompts before replacing an existing copy unless it is told to run silently, and it now is. This takes effect for updates from 0.5.1 onward — the build doing the updating is the one that decides."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "\"Unmanaged\" is shown as a neutral state rather than a warning. It is the ordinary condition of every mod UE4SS ships with, not a problem."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.5.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.5.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.5.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.5.0",
+      "tag": "launcher-v0.5.0",
+      "title": "The signed runtime replaces the modpack",
+      "date": "2026-08-01",
+      "summary": "The launcher installs a signed runtime bundle instead of the old modpack, refuses one whose signature does not verify, and stops overwriting your settings.",
+      "body": "The largest and most privileged thing this platform ships is a library injected\ninto the game process. Until now it arrived unsigned.\n\n### Changed\n\n- **The core install is now a signed bundle.** The launcher installs\n  [MJOLNIR Runtime](/changelog/runtime/1.0.0) and checks the Ed25519 signature\n  on its manifest against a key built into the launcher. If the signature is\n  missing or does not verify, nothing is installed.\n- **The runtime ships no mods.** Mods come from the signed code-mod set, which\n  records what it installed and can check it afterwards. The old modpack\n  delivered both together, which meant mods arrived by a route the launcher\n  could neither attribute nor verify.\n\n### Fixed\n\n- Reinstalling the core no longer overwrites your `UE4SS-settings.ini` or your\n  mod load order. Your configuration is yours.\n- The \"signed\" badge is now decided by hashing a mod's actual files, rather than\n  by reading the name of the folder it sits in. A folder name is not evidence.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The core install is now a signed bundle. The launcher installs MJOLNIR Runtime and checks the Ed25519 signature on its manifest against a key built into the launcher. If the signature is missing or does not verify, nothing is installed.",
+            "The runtime ships no mods. Mods come from the signed code-mod set, which records what it installed and can check it afterwards. The old modpack delivered both together, which meant mods arrived by a route the launcher could neither attribute nor verify."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Reinstalling the core no longer overwrites your UE4SS-settings.ini or your mod load order. Your configuration is yours.",
+            "The \"signed\" badge is now decided by hashing a mod's actual files, rather than by reading the name of the folder it sits in. A folder name is not evidence."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.5.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.5.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.5.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.4.1",
+      "tag": "launcher-v0.4.1",
+      "title": "Automatic updates work for the first time",
+      "date": "2026-08-01",
+      "summary": "Fixes automatic updates, which had never worked in any released build: the launcher was silently blocked from checking, and reported the block as \"up to date\".",
+      "body": "### Fixed\n\n- **Automatic updates never ran.** The launcher's own permissions never allowed\n  the update check, so the request was refused before it left the app — and the\n  refusal was reported as \"you are up to date\". Every release since updates were\n  introduced was affected.\n\n  **Installs on 0.3.x and 0.4.0 need one manual install to recover.** The\n  permission is compiled into the program, so the broken build cannot fetch the\n  fix by itself. After this one manual step, updates work on their own.\n\n- The header claimed a fixed MJOLNIR and UE4SS version regardless of what was\n  actually installed. It now reports what is really there.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Automatic updates never ran. The launcher's own permissions never allowed the update check, so the request was refused before it left the app — and the refusal was reported as \"you are up to date\". Every release since updates were introduced was affected.",
+            "The header claimed a fixed MJOLNIR and UE4SS version regardless of what was actually installed. It now reports what is really there."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.4.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.4.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.4.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.4.0",
+      "tag": "launcher-v0.4.0",
+      "title": "The hub release: browse, rate and update mods in the launcher",
+      "date": "2026-08-01",
+      "summary": "The launcher becomes a full hub client: mod pages, ratings and comments built in, one Updates screen for everything, and sign-in by pairing.",
+      "body": "Three questions, three homes: what is installed, what exists, and what is out\nof date.\n\n### Added\n\n- **My Mods** — everything installed, in one place. Content mods with their\n  load order, script mods with their on/off switches.\n- **Browse Hub** — the full mod catalogue with real mod pages: screenshots,\n  descriptions, releases, ratings, reviews and comments, rendered by the same\n  components the website uses.\n- **Updates** — the launcher, the core install, content mods, script mods and\n  tools in one list. Tick what you want, update all or update some, and a\n  failure on one row does not stop the others.\n- **Sign in by pairing.** The launcher shows a short code that you approve at\n  [mjolnircore.com/link](https://mjolnircore.com/link) in your browser. Nothing\n  is typed into the launcher, and the key it receives can rate and comment but\n  cannot publish. It is held by the launcher's background process and is never\n  exposed to the page.\n\n### Security\n\n- Every content mod is checked against the hub's recorded hash before anything\n  is written to disk, and the hash of each unpacked file is recorded so a later\n  check can spot a modified install.\n- Where a release carries a signature, it must verify. Script mods continue to\n  install only from the signed set built in this repository.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "My Mods — everything installed, in one place. Content mods with their load order, script mods with their on/off switches.",
+            "Browse Hub — the full mod catalogue with real mod pages: screenshots, descriptions, releases, ratings, reviews and comments, rendered by the same components the website uses.",
+            "Updates — the launcher, the core install, content mods, script mods and tools in one list. Tick what you want, update all or update some, and a failure on one row does not stop the others.",
+            "Sign in by pairing. The launcher shows a short code that you approve at mjolnircore.com/link in your browser. Nothing is typed into the launcher, and the key it receives can rate and comment but cannot publish. It is held by the launcher's background process and is never exposed to the page."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "Every content mod is checked against the hub's recorded hash before anything is written to disk, and the hash of each unpacked file is recorded so a later check can spot a modified install.",
+            "Where a release carries a signature, it must verify. Script mods continue to install only from the signed set built in this repository."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.4.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.4.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.4.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.3.3",
+      "tag": "launcher-v0.3.3",
+      "title": "A Tools tab, and the Tag Editor",
+      "date": "2026-08-01",
+      "summary": "Adds a Tools tab that installs and updates companion apps on demand, starting with the new MJOLNIR Tag Editor for browsing and editing the game's tags and textures.",
+      "body": "### Added\n\n- **Tools.** A new tab that installs companion applications on demand. It\n  downloads each tool, checks it against the SHA-256 its publisher advertises\n  before anything lands on disk as an executable, and keeps it under the\n  launcher's own data folder — so there is no second installer and no admin\n  prompt.\n- **The MJOLNIR Tag Editor**, installable from that tab. See its own\n  [0.1.0 release notes](/changelog/tag-editor/0.1.0).\n\nTools update on their own schedule rather than riding along inside the\nlauncher, so the launcher installer does not grow with every tool added and a\ntool can ship a fix without waiting for a launcher release.\n\n### Fixed\n\n- Automatic updates now actually carry a signature. Releases had been published\n  without one, which the launcher correctly refused to install.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Tools. A new tab that installs companion applications on demand. It downloads each tool, checks it against the SHA-256 its publisher advertises before anything lands on disk as an executable, and keeps it under the launcher's own data folder — so there is no second installer and no admin prompt.",
+            "The MJOLNIR Tag Editor, installable from that tab. See its own 0.1.0 release notes."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Automatic updates now actually carry a signature. Releases had been published without one, which the launcher correctly refused to install."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.3.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.3.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.3.3"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.2.0",
+      "tag": "mods-v0.2.0",
+      "title": "MJOLNIRCore installs itself on a fresh setup",
+      "date": "2026-08-01",
+      "summary": "MJOLNIRCore 1.0.1 marks itself as a mod that first-time setup should install, and fixes existing installs wrongly reading as modified.",
+      "body": "### Changed\n\n- **MJOLNIRCore 1.0.1.** It now declares itself part of the set the launcher\n  installs during first-time setup, so a new install no longer ends up with a\n  modding framework and nothing to load. No script code changed.\n\n### Fixed\n\n- **Untouched installs could read as \"modified\".** Marking the mod as a setup\n  default changed the bytes it ships, while the version it declared stayed\n  1.0.0. Older installs — anything predating per-mod records — compared their\n  files against the *new* release, found a difference, and reported that the\n  files had been changed since installation, in red, with no update offered to\n  clear it.\n\n  Declaring 1.0.1 lets the launcher tell the truth instead: the same install now\n  reads as out of date, which is not the same as tampered with, and taking the\n  update settles it as verified.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRCore 1.0.1. It now declares itself part of the set the launcher installs during first-time setup, so a new install no longer ends up with a modding framework and nothing to load. No script code changed."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Untouched installs could read as \"modified\". Marking the mod as a setup default changed the bytes it ships, while the version it declared stayed 1.0.0. Older installs — anything predating per-mod records — compared their files against the new release, found a difference, and reported that the files had been changed since installation, in red, with no update offered to clear it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.2.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.2.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.2.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.1.0",
+      "tag": "mods-v0.1.0",
+      "title": "The first-party mods, signed and versioned",
+      "date": "2026-08-01",
+      "summary": "The first-party script mods, built in CI, each carrying its own version, and all covered by one Ed25519 signature the launcher checks before installing.",
+      "body": "Script mods execute code inside the game, so they never travel through the\nhub's open upload. They live in this repository, arrive as reviewed pull\nrequests, and ship only from here.\n\n### Added\n\n- **Every mod declares itself** — version, summary and category — so the\n  launcher and the website can show a real version per mod rather than one\n  number for the whole set.\n- **Each mod gets a page on the hub**, with ratings, comments and screenshots\n  like any other mod, and downloads that lead to the exact signed artifact.\n- **The launcher records what it installed** and offers an update when the\n  signed set moves past it.\n\n### Security\n\n- The whole set is covered by one Ed25519 signature, checked against a key the\n  launcher has built into it. A compromised storage bucket therefore cannot ship\n  a payload: nothing installs unless the signed manifest says so.\n- The website verifies that same signature independently before publishing\n  anything from the set, so the signature is the authority rather than whoever\n  made the request.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Every mod declares itself — version, summary and category — so the launcher and the website can show a real version per mod rather than one number for the whole set.",
+            "Each mod gets a page on the hub, with ratings, comments and screenshots like any other mod, and downloads that lead to the exact signed artifact.",
+            "The launcher records what it installed and offers an update when the signed set moves past it."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "The whole set is covered by one Ed25519 signature, checked against a key the launcher has built into it. A compromised storage bucket therefore cannot ship a payload: nothing installs unless the signed manifest says so.",
+            "The website verifies that same signature independently before publishing anything from the set, so the signature is the authority rather than whoever made the request."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.1.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.1.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.1.0"
+    },
+    {
+      "product": "runtime",
+      "productName": "MJOLNIR Runtime",
+      "version": "2.0.0",
+      "tag": "runtime-v2.0.0",
+      "title": "Republished so existing installs are offered the migration",
+      "date": "2026-08-01",
+      "summary": "The same bundle as 1.0.0, republished under a new major version so that installs still carrying the old modpack are actually offered the upgrade.",
+      "body": "### Changed\n\n- **Version only. The contents are identical to 1.0.0.**\n\n  The modpack this replaces always declared itself version 1.0.0, and the\n  launcher decides whether an update exists by comparing that number. Publishing\n  the runtime as 1.0.0 meant every existing install compared equal and would\n  never have been offered the migration at all.\n\n  2.0.0 also states the truth: the bundle no longer contains mods, which is a\n  breaking change for anything that expected them inside it.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version only. The contents are identical to 1.0.0."
+          ]
+        }
+      ],
+      "path": "/changelog/runtime/2.0.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/runtime/2.0.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/runtime-v2.0.0"
+    },
+    {
+      "product": "runtime",
+      "productName": "MJOLNIR Runtime",
+      "version": "1.0.0",
+      "tag": "runtime-v1.0.0",
+      "title": "A signed runtime replaces the modpack",
+      "date": "2026-08-01",
+      "summary": "The first MJOLNIR Runtime: the UE4SS modding framework and the config this game needs, as a signed bundle the launcher verifies before installing.",
+      "body": "The runtime is what every mod runs on. It is installed for you by\n[Launcher 0.5.0](/changelog/launcher/0.5.0) and later, so there is nothing here\nto download by hand.\n\n### Added\n\n- UE4SS 3.0.1, with the memory signatures and configuration verified against\n  the 2026-08-01 game build, plus the four framework mods UE4SS cannot run\n  without.\n\n### Security\n\n- **The manifest is signed**, with the same key the launcher has built into it.\n  The modpack this replaces had no signature at all, which meant the largest and\n  most privileged thing this platform ships — a library injected into the game\n  process — was also the least verified.\n- **The bundle contains no mods.** Mods come from the signed code-mod set, which\n  records what it installed and can check it afterwards. The modpack shipped\n  both together, so mods arrived by a route nothing could attribute or verify,\n  and one could go missing with nothing able to notice.\n- Upstream inputs are pinned by URL *and* by hash, and stored under keys that\n  are never overwritten. UE4SS publishes experimental builds under a moving tag\n  whose files are replaced in place, which had already cost one build: the\n  version verified working in the game is no longer downloadable from upstream\n  at all.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "UE4SS 3.0.1, with the memory signatures and configuration verified against the 2026-08-01 game build, plus the four framework mods UE4SS cannot run without."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "The manifest is signed, with the same key the launcher has built into it. The modpack this replaces had no signature at all, which meant the largest and most privileged thing this platform ships — a library injected into the game process — was also the least verified.",
+            "The bundle contains no mods. Mods come from the signed code-mod set, which records what it installed and can check it afterwards. The modpack shipped both together, so mods arrived by a route nothing could attribute or verify, and one could go missing with nothing able to notice.",
+            "Upstream inputs are pinned by URL and by hash, and stored under keys that are never overwritten. UE4SS publishes experimental builds under a moving tag whose files are replaced in place, which had already cost one build: the version verified working in the game is no longer downloadable from upstream at all."
+          ]
+        }
+      ],
+      "path": "/changelog/runtime/1.0.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/runtime/1.0.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/runtime-v1.0.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.1.0",
+      "tag": "tag-editor-v0.1.0",
+      "title": "Browse and edit the game's tags and textures",
+      "date": "2026-08-01",
+      "summary": "Browse every asset in your installed copy of Halo Campaign Evolved, read its Blam tag fields in a Guerilla-style form, preview textures, and export edits.",
+      "body": "Halo Campaign Evolved still carries real Blam tag data. This is the tool for\nreading it — a modern take on Guerilla, working directly against the game you\nhave installed. Install it from the **Tools** tab in the MJOLNIR Launcher.\n\n### Added\n\n- **A file browser over 17,135 cooked assets.** The game ships no folders —\n  every asset is a flat entry in a container — so the tree is rebuilt from asset\n  paths. Tags appear under `tags/` named the way Guerilla wrote them, textures\n  under `textures/`. Typing searches the whole tree at once and each result\n  shows where it lives, so a half-remembered name is enough.\n- **A Guerilla-format inspector.** Collapsible sections, fixed label columns,\n  flags as checkboxes, enums as dropdowns, vectors split per component, and tag\n  references with an Open button that jumps to the target. The raw offset view\n  is still there as a tree view, and your choice is remembered.\n- **Editing.** Change a field and export the patched tag.\n- **A texture viewer.** Every shipped texture is cooked as an Unreal virtual\n  texture; the editor reassembles one from its tiles and decodes BC1 through\n  BC7. View any of roughly 4,800 textures on a checkerboard with zoom, and\n  export the full-resolution image as PNG.\n- **Tabs.** Opening a tag or texture opens a tab rather than replacing what you\n  were looking at. Tags with unexported edits are marked, and closing one is\n  safe — pending edits survive until you export or revert them.\n- **Import links.** A tag's references to other tags, textures and Blueprint\n  actors are resolved and shown as chips you can click through.\n\n### Fixed\n\n- Packaged builds started to \"asset not found: index.html\" instead of the app.\n  Only the packaged build was affected, which is why it survived to release.\n- Scenario tags containing an empty structure entry no longer fail to open.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A file browser over 17,135 cooked assets. The game ships no folders — every asset is a flat entry in a container — so the tree is rebuilt from asset paths. Tags appear under tags/ named the way Guerilla wrote them, textures under textures/. Typing searches the whole tree at once and each result shows where it lives, so a half-remembered name is enough.",
+            "A Guerilla-format inspector. Collapsible sections, fixed label columns, flags as checkboxes, enums as dropdowns, vectors split per component, and tag references with an Open button that jumps to the target. The raw offset view is still there as a tree view, and your choice is remembered.",
+            "Editing. Change a field and export the patched tag.",
+            "A texture viewer. Every shipped texture is cooked as an Unreal virtual texture; the editor reassembles one from its tiles and decodes BC1 through BC7. View any of roughly 4,800 textures on a checkerboard with zoom, and export the full-resolution image as PNG.",
+            "Tabs. Opening a tag or texture opens a tab rather than replacing what you were looking at. Tags with unexported edits are marked, and closing one is safe — pending edits survive until you export or revert them.",
+            "Import links. A tag's references to other tags, textures and Blueprint actors are resolved and shown as chips you can click through."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Packaged builds started to \"asset not found: index.html\" instead of the app. Only the packaged build was affected, which is why it survived to release.",
+            "Scenario tags containing an empty structure entry no longer fail to open."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.1.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.1.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.1.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.3.2",
+      "tag": "launcher-v0.3.2",
+      "title": "Security: replaces the update signing key",
+      "date": "2026-07-31",
+      "summary": "Replaces the key that automatic updates are verified against, after the previous private key was found committed to the public repository.",
+      "body": "existing launcher cannot update itself to it, and until you replace it, it will\nkeep trusting a key anyone can read.\n\n### Security\n\n- The private key that signed launcher updates had been committed to this\n  public repository with an empty passphrase, so anyone could have produced an\n  update the launcher would accept and install. This build ships a new key and\n  stops new installs joining that pool.\n\n  It cannot rescue installs that already exist. Builds up to and including 0.3.1\n  carry the old public key, will reject anything signed with the new one, and\n  need one manual reinstall to recover — this release, downloaded and installed\n  by hand.\n\n### Changed\n\n- Internal version numbers that had drifted behind since 0.2.6 were brought\n  back into line. Shipped installers were always labelled correctly, so this is\n  tidying rather than a fix.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            "The private key that signed launcher updates had been committed to this public repository with an empty passphrase, so anyone could have produced an update the launcher would accept and install. This build ships a new key and stops new installs joining that pool."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Internal version numbers that had drifted behind since 0.2.6 were brought back into line. Shipped installers were always labelled correctly, so this is tidying rather than a fix."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.3.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.3.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.3.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.3.1",
+      "tag": "launcher-v0.3.1",
+      "title": "Update notifications you cannot miss",
+      "date": "2026-07-25",
+      "summary": "Fixes automatic updates, which could not verify a download and so never installed one, and adds an update badge that persists after you dismiss the banner.",
+      "body": "### Fixed\n\n- Automatic updates could not complete. The launcher had no way to fetch the\n  signature it verifies a downloaded update against, so every update failed\n  verification.\n\n### Added\n\n- Dismissing the update banner no longer hides the update. A badge stays in the\n  sidebar, and clicking it starts the update again.\n- Failed updates offer a retry instead of leaving you to restart the launcher.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Automatic updates could not complete. The launcher had no way to fetch the signature it verifies a downloaded update against, so every update failed verification."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "Dismissing the update banner no longer hides the update. A badge stays in the sidebar, and clicking it starts the update again.",
+            "Failed updates offer a retry instead of leaving you to restart the launcher."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.3.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.3.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.3.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.3.0",
+      "tag": "launcher-v0.3.0",
+      "title": "Install, verify and toggle the mod framework from the launcher",
+      "date": "2026-07-25",
+      "summary": "The launcher now installs the UE4SS modding framework for you, verifies every file it wrote, and supports Game Pass copies of Halo Campaign Evolved as well as Steam.",
+      "body": "The first release that does the job the launcher exists for. Before this it\ncould find your game; now it can set it up.\n\n### Added\n\n- **One-click setup.** A first-run panel downloads the modding framework,\n  installs it into your game directory and reports progress as it goes.\n- **Verification.** Every installed file is checked against a published SHA-256,\n  so you can tell an intact install from a damaged one.\n- **An off switch.** Mods can be disabled and re-enabled without uninstalling\n  anything, for when you want to play the game as shipped.\n- **Uninstall**, which removes what the launcher put there and nothing else.\n- **Game Pass support.** Game Pass installs are detected automatically, joining\n  Steam and pointing the launcher at a game executable by hand.\n- **A settings page** for launch options, re-verification and uninstall.\n\n### Fixed\n\n- Mod descriptions containing brackets or separator lines no longer render\n  mangled in the mod list.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "One-click setup. A first-run panel downloads the modding framework, installs it into your game directory and reports progress as it goes.",
+            "Verification. Every installed file is checked against a published SHA-256, so you can tell an intact install from a damaged one.",
+            "An off switch. Mods can be disabled and re-enabled without uninstalling anything, for when you want to play the game as shipped.",
+            "Uninstall, which removes what the launcher put there and nothing else.",
+            "Game Pass support. Game Pass installs are detected automatically, joining Steam and pointing the launcher at a game executable by hand.",
+            "A settings page for launch options, re-verification and uninstall."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mod descriptions containing brackets or separator lines no longer render mangled in the mod list."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.3.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.3.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.3.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.6",
+      "tag": "launcher-v0.2.6",
+      "title": "The Windows installer builds again",
+      "date": "2026-07-25",
+      "summary": "Fixes the Windows installer, which had stopped building since the branded artwork was added in 0.1.3, leaving several releases without one.",
+      "body": "### Fixed\n\n- The branded Windows installer failed to build, because its header and sidebar\n  artwork were in a format the installer toolchain cannot read. Both are now\n  bitmaps, and the Discord link on the finish screen is wired up the supported\n  way.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The branded Windows installer failed to build, because its header and sidebar artwork were in a format the installer toolchain cannot read. Both are now bitmaps, and the Discord link on the finish screen is wired up the supported way."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.6",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.6.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.6"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.5",
+      "tag": "launcher-v0.2.5",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.2.4.",
+      "body": "### Changed\n\n- Version bumped to 0.2.5. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.5. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.5",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.5.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.5"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.4",
+      "tag": "launcher-v0.2.4",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.2.3.",
+      "body": "### Changed\n\n- Version bumped to 0.2.4. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.4. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.4",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.4.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.4"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.3",
+      "tag": "launcher-v0.2.3",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.2.2.",
+      "body": "### Changed\n\n- Version bumped to 0.2.3. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.3. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.3"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.2",
+      "tag": "launcher-v0.2.2",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.2.1.",
+      "body": "### Changed\n\n- Version bumped to 0.2.2. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.2. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.1",
+      "tag": "launcher-v0.2.1",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.2.0.",
+      "body": "### Changed\n\n- Version bumped to 0.2.1. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.1. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.2.0",
+      "tag": "launcher-v0.2.0",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.10.",
+      "body": "### Changed\n\n- Version bumped to 0.2.0. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.2.0. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.2.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.2.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.2.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.10",
+      "tag": "launcher-v0.1.10",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.9.",
+      "body": "### Changed\n\n- Version bumped to 0.1.10. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.10. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.10",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.10.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.10"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.9",
+      "tag": "launcher-v0.1.9",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.8.",
+      "body": "### Changed\n\n- Version bumped to 0.1.9. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.9. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.9",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.9.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.9"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.8",
+      "tag": "launcher-v0.1.8",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while wiring up the signing key that lets released builds be verified. Nothing in the launcher itself changed since 0.1.7.",
+      "body": "### Changed\n\n- Version bumped to 0.1.8. No functional changes to the launcher.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.8. No functional changes to the launcher."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.8",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.8.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.8"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.7",
+      "tag": "launcher-v0.1.7",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.6.",
+      "body": "### Changed\n\n- Version bumped to 0.1.7. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.7. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.7",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.7.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.7"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.6",
+      "tag": "launcher-v0.1.6",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.5.",
+      "body": "### Changed\n\n- Version bumped to 0.1.6. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.6. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.6",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.6.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.6"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.5",
+      "tag": "launcher-v0.1.5",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published while fixing the automated release workflow. Nothing in the launcher itself changed since 0.1.4.",
+      "body": "### Changed\n\n- Version bumped to 0.1.5. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.5. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.5",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.5.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.5"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.4",
+      "tag": "launcher-v0.1.4",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "Adds an automatic Discord announcement when a release is published. Nothing in the launcher itself changed since 0.1.3.",
+      "body": "### Added\n\n- New releases announce themselves in the community Discord automatically, with\n  the version and the SHA-256 of the installer.\n\n### Changed\n\n- Version bumped to 0.1.4. No functional changes to the launcher.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "New releases announce themselves in the community Discord automatically, with the version and the SHA-256 of the installer."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.4. No functional changes to the launcher."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.4",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.4.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.4"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.3",
+      "tag": "launcher-v0.1.3",
+      "title": "Fixes a startup crash, and brands the installer",
+      "date": "2026-07-25",
+      "summary": "Fixes a crash that stopped the launcher opening at all on some installs, and gives the Windows installer proper MJOLNIR branding.",
+      "body": "### Fixed\n\n- The launcher could crash on startup instead of opening its window. The update\n  system was configured without the public key it verifies downloads against,\n  and failing to find one brought the whole app down.\n\n### Changed\n\n- The Windows installer carries MJOLNIR header and sidebar artwork, and its\n  final screen links straight to the Discord community.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The launcher could crash on startup instead of opening its window. The update system was configured without the public key it verifies downloads against, and failing to find one brought the whole app down."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The Windows installer carries MJOLNIR header and sidebar artwork, and its final screen links straight to the Discord community."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.3"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.2",
+      "tag": "launcher-v0.1.2",
+      "title": "Release pipeline only",
+      "date": "2026-07-25",
+      "summary": "A version bump published to exercise the release pipeline. Nothing in the launcher itself changed since 0.1.1.",
+      "body": "Nothing here changes what the launcher does. It was published to test that the\nautomated release process produced a correct, installable, updatable build.\n\n### Changed\n\n- Version bumped to 0.1.2. No functional changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Version bumped to 0.1.2. No functional changes."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.1",
+      "tag": "launcher-v0.1.1",
+      "title": "Automatic updates",
+      "date": "2026-07-25",
+      "summary": "The launcher can now check for new versions and install them itself, instead of asking you to download a new installer by hand.",
+      "body": "### Added\n\n- Automatic updates. The launcher asks mjolnircore.com whether a newer build\n  exists, downloads it, and verifies its signature before installing.\n\n### Known issues\n\n- Because the update check ships *inside* the launcher, 0.1.0 cannot use it.\n  That build has to be replaced with this one manually, once.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Automatic updates. The launcher asks mjolnircore.com whether a newer build exists, downloads it, and verifies its signature before installing."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Because the update check ships inside the launcher, 0.1.0 cannot use it. That build has to be replaced with this one manually, once."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.1.0",
+      "tag": "launcher-v0.1.0",
+      "title": "The first MJOLNIR Launcher build",
+      "date": "2026-07-25",
+      "summary": "The first published build of the MJOLNIR Launcher for Halo Campaign Evolved, alongside the mjolnircore.com website and the automated release pipeline behind both.",
+      "body": "This is where the platform starts. The launcher is a Tauri desktop app that\nfinds your copy of Halo Campaign Evolved and manages the UE4SS modding\nframework for you, and mjolnircore.com is the site that documents and\ndistributes it.\n\n### Added\n\n- A desktop launcher that detects an installed copy of the game and drives the\n  modding framework from a single window, rather than through hand-copied files.\n- The mjolnircore.com website: landing page, mod browser and the download page.\n- Signed, checksummed Windows installers published automatically whenever a\n  release is tagged, so every download can be verified against a published\n  SHA-256.\n- MJOLNIRFlyCam, a free debug camera for flying around the campaign.\n\n### Known issues\n\n- Automatic updates are not wired up yet. This build cannot update itself and\n  has to be replaced by hand.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A desktop launcher that detects an installed copy of the game and drives the modding framework from a single window, rather than through hand-copied files.",
+            "The mjolnircore.com website: landing page, mod browser and the download page.",
+            "Signed, checksummed Windows installers published automatically whenever a release is tagged, so every download can be verified against a published SHA-256.",
+            "MJOLNIRFlyCam, a free debug camera for flying around the campaign."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Automatic updates are not wired up yet. This build cannot update itself and has to be replaced by hand."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.1.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.1.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.1.0"
+    }
+  ]
+}

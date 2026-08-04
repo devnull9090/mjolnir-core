@@ -1,4 +1,7 @@
 import { useEffect } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { WhatsNew } from "@mjolnir/hub-kit";
+import { useWhatsNew } from "./lib/whats-new";
 import { useEditor } from "./stores/editor-store";
 import { SetupPanel } from "./components/SetupPanel";
 import { LoadingPanel } from "./components/LoadingPanel";
@@ -11,6 +14,23 @@ import { ScriptViewer } from "./components/ScriptViewer";
 import { TabBar } from "./components/TabBar";
 
 export default function App() {
+  const whatsNew = useWhatsNew();
+
+  return (
+    <>
+      <Editor />
+      {/* Outside the editor, and above it: it applies whatever the editor is
+          doing, including the setup form a first-time user is looking at. */}
+      <WhatsNew
+        releases={whatsNew.releases}
+        onClose={whatsNew.dismiss}
+        onOpenLink={(url) => void openUrl(url)}
+      />
+    </>
+  );
+}
+
+function Editor() {
   const status = useEditor((s) => s.status);
   const viewMode = useEditor((s) => s.viewMode);
   const { tabs, activeTab } = useEditor();

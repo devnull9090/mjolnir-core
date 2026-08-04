@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "The products that publish a changelog, and the tag prefix each one releases under.",
+    "",
+    "This is the registry every consumer reads: hub/scripts/sync-changelog.mjs uses it to",
+    "walk changelog/<id>/, scripts/check-changelog.mjs uses it to turn a pushed tag into",
+    "the entry file that tag must have, and the hub renders `name` and `blurb` on the",
+    "changelog index. Adding a product means adding it here and creating its directory —",
+    "nothing else hard-codes the list."
+  ],
+  "products": [
+    {
+      "id": "launcher",
+      "name": "MJOLNIR Launcher",
+      "tagPrefix": "launcher-v",
+      "blurb": "Installs the runtime, manages your mods, and launches Halo Campaign Evolved.",
+      "docsUrl": "/download"
+    },
+    {
+      "id": "tag-editor",
+      "name": "MJOLNIR Tag Editor",
+      "tagPrefix": "tag-editor-v",
+      "blurb": "Browse and edit the Blam tags, textures, audio and scripts inside your installed game.",
+      "docsUrl": "/docs/guides/tag-editing-guide"
+    },
+    {
+      "id": "runtime",
+      "name": "MJOLNIR Runtime",
+      "tagPrefix": "runtime-v",
+      "blurb": "The signed UE4SS bundle every mod runs on, with the signatures and config this game needs.",
+      "docsUrl": "/docs/notes/hub-architecture"
+    },
+    {
+      "id": "mods",
+      "name": "MJOLNIR Code Mods",
+      "tagPrefix": "mods-v",
+      "blurb": "The first-party script mods, built in CI and covered by one Ed25519 signature.",
+      "docsUrl": "/docs/guides/making-your-first-mod"
+    }
+  ]
+}

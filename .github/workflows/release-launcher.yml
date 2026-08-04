@@ -31,6 +31,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/launcher/pnpm-lock.yaml
 
+      # Before anything is built: a release with no changelog entry is a
+      # release nobody can read, and this is the last moment it can be fixed
+      # cheaply. The entry it finds is what the GitHub release body and the
+      # Discord announcement below are written from.
+      - name: Require a changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
@@ -101,9 +109,15 @@ jobs:
           draft: false
           files: checksums-${{ github.ref_name }}.txt
           body: |
-            ## MJOLNIR Launcher ${{ github.ref_name }}
+            ## ${{ steps.changelog.outputs.title }}
 
-            Download the MJOLNIR Launcher for Windows.
+            ${{ steps.changelog.outputs.summary }}
+
+            ${{ steps.changelog.outputs.body }}
+
+            [Full changelog](${{ steps.changelog.outputs.url }}) · [All releases](https://mjolnircore.com/changelog/launcher)
+
+            ---
 
             ### Downloads
             | Installer | SHA-256 |
@@ -173,6 +187,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VER: ${{ steps.checksums.outputs.version }}
           MSI_HASH: ${{ steps.checksums.outputs.msi_hash }}
+          # Passed through the environment rather than interpolated into the
+          # script: a changelog title is prose, and prose inside a PowerShell
+          # string is one apostrophe away from a syntax error.
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
+          CHANGELOG_SUMMARY: ${{ steps.changelog.outputs.summary }}
+          CHANGELOG_URL: ${{ steps.changelog.outputs.url }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
             Write-Host "ℹ️ DISCORD_RELEASE_WEBHOOK_URL secret not set. Skipping Discord notification."
@@ -188,9 +208,9 @@ jobs:
             avatar_url = "https://mjolnircore.com/logo-transparent.png"
             embeds = @(
               @{
-                title = "🚀 MJOLNIR Launcher $tag Released!"
-                url = "https://mjolnircore.com/download"
-                description = "A new build of the MJOLNIR Core Launcher for Halo Campaign Evolved is now available!"
+                title = "🚀 MJOLNIR Launcher $ver — $($env:CHANGELOG_TITLE)"
+                url = $env:CHANGELOG_URL
+                description = $env:CHANGELOG_SUMMARY
                 color = 13936707
                 thumbnail = @{
                   url = "https://mjolnircore.com/logo-transparent.png"
