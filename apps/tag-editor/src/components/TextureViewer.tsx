@@ -1,14 +1,21 @@
 import { useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { useEditor } from "../stores/editor-store";
+import { isTauri } from "../lib/mock";
 
 /** Zoom steps for the texture view; "fit" scales to the pane. */
 const ZOOMS = [0.25, 0.5, 1, 2, 4] as const;
 
-/** Viewer for a decoded Unreal texture: image on a checkerboard, plus export. */
+/** Viewer for a decoded Unreal texture: image on a checkerboard, plus export
+ *  and — for formats that can be encoded — replacing its pixels. */
 export function TextureViewer() {
   const { texture, textureLoading, textureError, selectedTexture } = useEditor();
   const exportTexture = useEditor((s) => s.exportTexture);
+  const swapTexture = useEditor((s) => s.swapTexture);
+  const revertTexture = useEditor((s) => s.revertTexture);
+  const textureSwapping = useEditor((s) => s.textureSwapping);
+  const swapReport = useEditor((s) => s.swapReport);
+  const project = useEditor((s) => s.project);
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [wrote, setWrote] = useState<string | null>(null);
 
@@ -47,6 +54,28 @@ export function TextureViewer() {
       setWrote(`Wrote ${written.toLocaleString()} bytes to ${dest}`);
     }
   }
+
+  async function onReplace() {
+    // Outside Tauri (browser dev against the mock) any path keeps the flow
+    // walkable, the same shape as the mod panel's folder picker.
+    const picked = isTauri
+      ? await open({
+          multiple: false,
+          filters: [{ name: "PNG image", extensions: ["png"] }],
+        })
+      : "(mock).png";
+    if (typeof picked !== "string") return;
+    setWrote(null);
+    await swapTexture(picked);
+  }
+
+  // A swap is a mod edit, so it needs somewhere to be saved. Everything else
+  // in the viewer works without a project.
+  const swapBlocked = texture.unsupported
+    ? texture.unsupported
+    : !project
+      ? "Create or open a mod project first — a swap is saved as part of a mod."
+      : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -93,10 +122,66 @@ export function TextureViewer() {
             >
               Export PNG…
             </button>
+            <button
+              type="button"
+              onClick={() => void onReplace()}
+              disabled={swapBlocked !== null || textureSwapping}
+              title={swapBlocked ?? "Replace these pixels with a PNG"}
+              className="border border-mjolnir-gold/60 px-2 py-0.5 text-[11px] text-mjolnir-gold hover:bg-mjolnir-gold/10 disabled:cursor-not-allowed disabled:border-border-subtle disabled:text-text-dim disabled:hover:bg-transparent"
+            >
+              {textureSwapping ? "Encoding…" : "Replace…"}
+            </button>
+            {texture.replaced && (
+              <button
+                type="button"
+                onClick={() => void revertTexture()}
+                disabled={textureSwapping}
+                title="Drop this swap and go back to what the game ships"
+                className="border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:cursor-not-allowed disabled:text-text-dim"
+              >
+                Revert
+              </button>
+            )}
           </span>
         </div>
         <p className="mt-1 truncate font-mono text-[11px] text-text-secondary">{texture.path}</p>
         {wrote && <p className="mt-1 font-mono text-[10px] text-accent-green">{wrote}</p>}
+
+        {texture.unsupported && (
+          <p className="mt-2 border-l-2 border-mjolnir-gold-dim bg-surface-card/60 px-3 py-1.5 text-[11px] text-text-secondary">
+            {texture.unsupported}
+          </p>
+        )}
+
+        {textureSwapping && (
+          <p className="mt-2 font-mono text-[11px] text-text-secondary">
+            Re-encoding every mip at the shipped size and format — this takes a
+            few seconds on a large texture.
+          </p>
+        )}
+
+        {texture.replaced && !textureSwapping && (
+          <div className="mt-2 border-l-2 border-accent-green bg-accent-green/5 px-3 py-1.5">
+            <p className="text-[11px] text-text-primary">
+              This mod replaces this texture.{" "}
+              {swapReport ? (
+                <span className="text-text-secondary">
+                  Re-encoded {swapReport.mips} mip
+                  {swapReport.mips === 1 ? "" : "s"};{" "}
+                  {swapReport.changed.toLocaleString()} of{" "}
+                  {swapReport.payload.toLocaleString()} payload bytes changed;
+                  readback error {swapReport.error.toFixed(2)} / 255.
+                </span>
+              ) : (
+                <span className="text-text-secondary">
+                  Showing the replacement image the recipe holds. It is
+                  re-encoded against the game when the mod is tested or
+                  exported.
+                </span>
+              )}
+            </p>
+          </div>
+        )}
       </header>
 
       <div
@@ -109,8 +194,11 @@ export function TextureViewer() {
           backgroundPosition: "0 0, 12px 12px",
         }}
       >
+        {/* Straight after a swap, show the readback — the payload decoded
+            again, which is what the game will really draw, block-compression
+            losses and all. On a later visit only the source image is on hand. */}
         <img
-          src={texture.png}
+          src={swapReport?.png ?? texture.png}
           alt={texture.path}
           className={zoom === "fit" ? "max-h-full max-w-full object-contain" : "max-w-none"}
           style={

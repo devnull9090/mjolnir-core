@@ -138,6 +138,21 @@ export type TextureView = {
   num_mips: number;
   /** Data URI, ready for an img tag. */
   png: string;
+  /** Why this format cannot be swapped, or null when Replace is available. */
+  unsupported: string | null;
+  /** Whether the open mod replaces this texture; png is then the replacement. */
+  replaced: boolean;
+};
+
+/** What a swap did, reported once, when it is applied. */
+export type SwapReport = {
+  mips: number;
+  changed: number;
+  payload: number;
+  /** Mean per-channel readback error out of 255. */
+  error: number;
+  /** The rewritten payload decoded again — what the game will show. */
+  png: string;
 };
 
 export type SoundSummary = {
@@ -249,10 +264,20 @@ export type TagChange = {
   edits: FieldChange[];
 };
 
+/** One texture the project repaints. */
+export type TextureChange = {
+  path: string;
+  /** Catalog index in the open installation, when the texture still exists. */
+  index: number | null;
+  /** Size of the replacement image the recipe holds. */
+  bytes: number;
+};
+
 export type ProjectView = {
   root: string;
   meta: ProjectMeta;
   changes: TagChange[];
+  textures: TextureChange[];
   /** Files a test install left in the Paks folder. */
   test_files: string[];
 };
@@ -376,6 +401,9 @@ const tauriApi = {
   revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
+  swapTexture: (index: number, image: string) =>
+    invoke<SwapReport>("swap_texture", { index, image }),
+  revertTexture: (index: number) => invoke<void>("revert_texture", { index }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),
   playSound: (index: number) => invoke<SoundAudio>("play_sound", { index }),
   readSound: (index: number) => invoke<SoundView>("read_sound", { index }),

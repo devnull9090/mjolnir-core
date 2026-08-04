@@ -555,6 +555,17 @@ impl Catalog {
             .position(|t| t.short.eq_ignore_ascii_case(rest))
     }
 
+    /// Resolve a texture's stored path back to an index.
+    ///
+    /// A mod recipe keys a swap by path rather than by index, for the same
+    /// reason a field edit is keyed by tag path: an index is an artifact of
+    /// one scan of one build of the game.
+    pub fn texture_index(&self, short: &str) -> Option<usize> {
+        self.textures
+            .iter()
+            .position(|t| t.short.eq_ignore_ascii_case(short))
+    }
+
     /// Read a texture's `.uasset` header package.
     pub fn read_texture_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
         let t = self

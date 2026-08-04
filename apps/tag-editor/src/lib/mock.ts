@@ -314,16 +314,48 @@ export const mockApi = {
       { index: 0, path: "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D", size: 4_818_220 },
       { index: 1, path: "characters/GuiltySpark/Textures/T_GuiltySpark_D", size: 6_371_884 },
     ].filter((t) => t.path.toLowerCase().includes(query.toLowerCase())),
-  readTexture: async (index: number) => ({
-    path: index === 0 ? "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D" : "characters/GuiltySpark/Textures/T_GuiltySpark_D",
-    width: 512,
-    height: 256,
-    format: "PF_DXT1",
-    mip: 0,
-    num_mips: 10,
-    png: mockTexturePng(),
-  }),
+  readTexture: async (index: number) => {
+    const path =
+      index === 0
+        ? "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D"
+        : "characters/GuiltySpark/Textures/T_GuiltySpark_D";
+    return {
+      path,
+      width: 512,
+      height: 256,
+      // The second one is BC7 so the unsupported-format path can be seen in a
+      // browser without a game install.
+      format: index === 0 ? "PF_DXT1" : "PF_BC7",
+      mip: 0,
+      num_mips: 10,
+      png: swappedTextures.get(path) ?? mockTexturePng(),
+      unsupported:
+        index === 0
+          ? null
+          : "PF_BC7 cannot be written yet — it needs a BPTC encoder. Textures in " +
+            "DXT1, DXT5, BC4, BC5 and the uncompressed formats can be swapped.",
+      replaced: swappedTextures.has(path),
+    };
+  },
   exportTexture: async () => 0,
+  swapTexture: async (index: number) => {
+    const path =
+      index === 0
+        ? "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D"
+        : "characters/GuiltySpark/Textures/T_GuiltySpark_D";
+    const png = mockTexturePng();
+    swappedTextures.set(path, png);
+    // Slow enough that the busy state is visible in a browser.
+    await new Promise((r) => setTimeout(r, 900));
+    return { mips: 10, changed: 4_180_992, payload: 4_818_220, error: 2.41, png };
+  },
+  revertTexture: async (index: number) => {
+    swappedTextures.delete(
+      index === 0
+        ? "characters/Spartans/20thAnniv/Textures/T_Chief_Armor_20thAnniv_D"
+        : "characters/GuiltySpark/Textures/T_GuiltySpark_D",
+    );
+  },
   readScripts: async () => ({
     path: "levels/halo1/solo/demo/demo",
     source_files: [
@@ -613,6 +645,9 @@ export const mockApi = {
 
 let mockProject: { name: string; slug: string; version: string; summary: string } | null = null;
 
+/** Textures the mock mod replaces, by path, holding the replacement image. */
+const swappedTextures = new Map<string, string>();
+
 /** Whether the mock editor is "linked", and how many polls until it is. */
 let mockLinked = false;
 let mockPollsLeft = 0;
@@ -638,6 +673,11 @@ function mockProjectView(): ProjectView | null {
               })),
             },
           ],
+    textures: [...swappedTextures.keys()].map((path) => ({
+      path,
+      index: 0,
+      bytes: 4_818_220,
+    })),
     test_files: [],
   };
 }

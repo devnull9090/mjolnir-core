@@ -51,6 +51,11 @@ struct Workbench {
     /// stays readable and re-applies against whatever the player's game ships,
     /// exactly like a field edit does.
     scripts: BTreeMap<TagKey, Vec<(String, String)>>,
+    /// Textures whose pixels the mod replaces, keyed by catalog path and held
+    /// as the replacement PNG. Held as the source image rather than as an
+    /// encoded payload for the same reason scripts are held as source: the
+    /// recipe re-encodes against whatever the player's game ships.
+    textures: BTreeMap<String, Vec<u8>>,
     /// When set, every change to `edits` is mirrored to the project folder.
     project: Option<project::Project>,
 }
@@ -80,6 +85,31 @@ impl Workbench {
             Some(p) => p.save_edits(&self.saved_edits()),
             None => Ok(()),
         }
+    }
+
+    /// Write the whole workbench into a project folder, sidecar files and all.
+    ///
+    /// Used when a project is created around work already in progress, where
+    /// the folder has nothing to preserve and every list has to be written
+    /// out rather than merged with what is on disk.
+    fn mirror_all(&self) -> Result<(), String> {
+        let Some(p) = &self.project else {
+            return Ok(());
+        };
+        let mut scripts = Vec::new();
+        for ((group, tag), files) in &self.scripts {
+            p.write_script_files(group, tag, files)?;
+            scripts.push(project::SavedScript {
+                group: group.clone(),
+                tag: tag.clone(),
+            });
+        }
+        let mut textures = Vec::new();
+        for (path, png) in &self.textures {
+            p.write_texture_file(path, png)?;
+            textures.push(project::SavedTexture { path: path.clone() });
+        }
+        p.save_all(&self.saved_edits(), &scripts, &textures)
     }
 }
 
@@ -705,6 +735,34 @@ struct TextureView {
     num_mips: u32,
     /// Assembled image as a data URI, ready for an `<img>`.
     png: String,
+    /// Why this texture's format cannot be swapped, when it cannot. `None`
+    /// means the Replace action is available.
+    unsupported: Option<String>,
+    /// Whether the open mod replaces this texture. When it does, `png` above
+    /// is the replacement image the recipe holds rather than what shipped.
+    replaced: bool,
+}
+
+/// What a swap did, reported once, when it is applied.
+///
+/// It is not carried on `TextureView`: producing these numbers means
+/// re-encoding every tile of every mip, which is the expensive half of a
+/// swap and not something reopening a texture should pay for.
+#[derive(Serialize)]
+struct SwapReport {
+    /// How many mips were re-encoded.
+    mips: u32,
+    /// Payload bytes that differ from the shipped ones.
+    changed: usize,
+    /// Total size of the payload those bytes sit in.
+    payload: usize,
+    /// Mean per-channel readback error out of 255. Block compression costs a
+    /// few levels, so this is never quite zero; it is surfaced because a big
+    /// number is the signal that something is wrong.
+    error: f64,
+    /// The rewritten payload decoded again — what the game will actually
+    /// show, as a data URI.
+    png: String,
 }
 
 /// List one directory of the virtual asset filesystem.
@@ -909,14 +967,39 @@ fn decompile_script(
     })
 }
 
+fn data_uri(png: &[u8]) -> String {
+    use base64::Engine;
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    )
+}
+
 #[tauri::command]
 fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView, String> {
-    use base64::Engine;
+    // The two locks are taken one after the other, never nested, so this can
+    // never be the half of a deadlock that holds `work` and wants `catalog`.
+    let path = with_catalog(&state, |c| {
+        Ok(c.textures
+            .get(index)
+            .ok_or("texture index out of range")?
+            .short
+            .clone())
+    })?;
+    let replacement = {
+        let work = state.work.lock().map_err(|e| e.to_string())?;
+        work.textures.get(&path).cloned()
+    };
     with_catalog(&state, |c| {
-        let entry = c.textures.get(index).ok_or("texture index out of range")?;
-        let path = entry.short.clone();
         let (tex, img) = decode_texture(c, index, 4096)?;
-        let png = textures::to_png(&img)?;
+        // A replaced texture shows the image the recipe holds, so reopening
+        // it shows the repaint rather than what the game shipped. It is the
+        // source PNG, not a readback: the readback costs a full re-encode and
+        // is reported when the swap is applied.
+        let png = match &replacement {
+            Some(bytes) => bytes.clone(),
+            None => textures::to_png(&img)?,
+        };
         Ok(TextureView {
             path,
             width: tex.width,
@@ -924,12 +1007,96 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
             format: img.format.clone(),
             mip: img.mip,
             num_mips: tex.num_mips,
-            png: format!(
-                "data:image/png;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(png)
-            ),
+            png: data_uri(&png),
+            unsupported: textures::encode::encodable(&tex.format).err(),
+            replaced: replacement.is_some(),
         })
     })
+}
+
+/// Replace a texture's pixels with a PNG on disk.
+///
+/// The swap is proven here — re-encoded, packed-length checked and decoded
+/// back — but nothing is written to the game: the recipe stores the image,
+/// and containers are baked at test, export or publish time like every other
+/// edit. Runs off the UI thread because re-encoding every tile of every mip
+/// of a large virtual texture takes seconds.
+#[tauri::command]
+async fn swap_texture(
+    index: usize,
+    image: String,
+    state: State<'_, AppState>,
+) -> Result<SwapReport, String> {
+    let png = std::fs::read(&image).map_err(|e| format!("{image}: {e}"))?;
+    let img = textures::encode::Image::from_png(&png)?;
+
+    let (path, tex, ubulk) = with_catalog(&state, |c| {
+        let entry = c.textures.get(index).ok_or("texture index out of range")?;
+        let path = entry.short.clone();
+        let uasset = c.read_texture_uasset(index)?;
+        let header = textures::zen_header_size(&uasset).ok_or("not a zen package")?;
+        let tex = textures::parse_texture(&uasset[header..])?;
+        let ubulk = c.read_texture_ubulk(index)?;
+        Ok((path, tex, ubulk))
+    })?;
+
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        textures::encode::swap(&tex, &ubulk, &img).map(|s| {
+            let payload = s.ubulk.len();
+            (s.mips, s.changed, s.error, payload, textures::to_png(&s.decoded))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let (mips, changed, error, payload, decoded) = out;
+
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.textures.insert(path.clone(), png);
+        if let Some(p) = &work.project {
+            p.write_texture_file(&path, &work.textures[&path])?;
+        }
+        save_textures(&work)?;
+    }
+
+    Ok(SwapReport {
+        mips,
+        changed,
+        payload,
+        error,
+        png: data_uri(&decoded?),
+    })
+}
+
+/// Drop a texture swap from the recipe, restoring what the game ships.
+#[tauri::command]
+fn revert_texture(index: usize, state: State<'_, AppState>) -> Result<(), String> {
+    let path = with_catalog(&state, |c| {
+        Ok(c.textures
+            .get(index)
+            .ok_or("texture index out of range")?
+            .short
+            .clone())
+    })?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.textures.remove(&path);
+    if let Some(p) = &work.project {
+        p.remove_texture_file(&path)?;
+    }
+    save_textures(&work)
+}
+
+/// Mirror the texture list to `edits.json`, when a project is open.
+fn save_textures(work: &Workbench) -> Result<(), String> {
+    let Some(p) = &work.project else {
+        return Ok(());
+    };
+    let textures: Vec<project::SavedTexture> = work
+        .textures
+        .keys()
+        .map(|path| project::SavedTexture { path: path.clone() })
+        .collect();
+    p.save_edits_and_textures(&work.saved_edits(), &textures)
 }
 
 #[derive(Serialize)]
@@ -1123,11 +1290,24 @@ struct TagChange {
     edits: Vec<FieldChange>,
 }
 
+/// One texture the mod repaints, for the project change list.
+#[derive(Serialize)]
+struct TextureChange {
+    path: String,
+    /// Catalog index in the open installation, so the panel can open it.
+    /// `None` means the game no longer ships this texture.
+    index: Option<usize>,
+    /// Size of the replacement image the recipe holds.
+    bytes: usize,
+}
+
 #[derive(Serialize)]
 struct ProjectView {
     root: String,
     meta: project::Meta,
     changes: Vec<TagChange>,
+    /// Textures the mod replaces.
+    textures: Vec<TextureChange>,
     /// Files a test install left in the Paks folder, so the panel can show
     /// that the mod is currently installed for testing.
     test_files: Vec<String>,
@@ -1191,7 +1371,7 @@ fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<T
 
 /// The current project rendered for the UI, or `None` when none is open.
 fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, String> {
-    let (root, meta, edits) = {
+    let (root, meta, edits, swaps) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         match &work.project {
             None => return Ok(None),
@@ -1199,16 +1379,30 @@ fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, Stri
                 p.root.display().to_string(),
                 p.meta.clone(),
                 work.edits.clone(),
+                work.textures.clone(),
             ),
         }
     };
-    let (changes, test_files) = with_catalog(state, |c| {
-        Ok((changes_for(c, &edits), modpack::test_files(c.paks())))
+    let (changes, textures, test_files) = with_catalog(state, |c| {
+        let textures = swaps
+            .iter()
+            .map(|(path, png)| TextureChange {
+                path: path.clone(),
+                index: c.texture_index(path),
+                bytes: png.len(),
+            })
+            .collect();
+        Ok((
+            changes_for(c, &edits),
+            textures,
+            modpack::test_files(c.paks()),
+        ))
     })?;
     Ok(Some(ProjectView {
         root,
         meta,
         changes,
+        textures,
         test_files,
     }))
 }
@@ -1238,9 +1432,10 @@ fn project_new(
     {
         let mut work = state.work.lock().map_err(|e| e.to_string())?;
         work.project = Some(p);
-        // Any edits made before the project existed become its first edits:
-        // "start a mod from what I've been trying out" is the natural flow.
-        work.autosave()?;
+        // Any work done before the project existed becomes its first content:
+        // "start a mod from what I've been trying out" is the natural flow,
+        // and that includes texture swaps and scripts, not only field edits.
+        work.mirror_all()?;
     }
     install::remember_project(Some(&dir));
     project_view(&state)?.ok_or_else(|| "the new project did not open".to_string())
@@ -1249,6 +1444,21 @@ fn project_new(
 #[tauri::command]
 fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, String> {
     let (p, saved) = project::Project::open(std::path::Path::new(&dir))?;
+    // Everything the recipe holds comes back into the workbench, not just the
+    // field edits: a bake reads the workbench, so anything left behind here is
+    // silently dropped from the mod.
+    let mut scripts: BTreeMap<TagKey, Vec<(String, String)>> = BTreeMap::new();
+    for s in p.load_scripts()? {
+        let files = p.read_script_files(&s.group, &s.tag)?;
+        if !files.is_empty() {
+            scripts.insert((s.group, s.tag), files);
+        }
+    }
+    let mut textures: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for t in p.load_textures()? {
+        let png = p.read_texture_file(&t.path)?;
+        textures.insert(t.path, png);
+    }
     {
         let mut work = state.work.lock().map_err(|e| e.to_string())?;
         let mut edits: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
@@ -1262,6 +1472,8 @@ fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, 
                 });
         }
         work.edits = edits;
+        work.scripts = scripts;
+        work.textures = textures;
         work.project = Some(p);
     }
     install::remember_project(Some(&dir));
@@ -1275,6 +1487,8 @@ fn project_close(state: State<'_, AppState>) -> Result<(), String> {
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
     work.project = None;
     work.edits.clear();
+    work.scripts.clear();
+    work.textures.clear();
     install::remember_project(None);
     Ok(())
 }
@@ -1351,9 +1565,11 @@ fn resolved_edits(
     c: &Catalog,
     edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
     scripts: &BTreeMap<TagKey, Vec<(String, String)>>,
+    textures: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(Vec<modpack::ResolvedEdit>, Vec<String>), String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
+    resolve_textures(c, textures, &mut out)?;
     // A scenario may be changed only by its script, with no field edits at all,
     // so the two sets are walked together rather than iterating `edits` alone.
     let keys: std::collections::BTreeSet<&TagKey> = edits.keys().chain(scripts.keys()).collect();
@@ -1440,6 +1656,49 @@ fn resolved_edits(
     Ok((out, warnings))
 }
 
+/// Re-encode every replaced texture against the installation being packed.
+///
+/// The recipe stores the author's PNG, not a cooked payload, so this is where
+/// the image meets the dimensions and pixel format the player's game actually
+/// ships — the same reason a field edit is re-applied rather than stored as
+/// patched bytes. A swap replaces the texture's `.ubulk` chunk and nothing
+/// else, so it rides the ordinary container path.
+pub fn resolve_textures(
+    c: &Catalog,
+    textures: &BTreeMap<String, Vec<u8>>,
+    out: &mut Vec<modpack::ResolvedEdit>,
+) -> Result<(), String> {
+    for (path, png) in textures {
+        let index = c.texture_index(path).ok_or_else(|| {
+            format!("{path}: not present in this installation — revert the stale swap first")
+        })?;
+        let entry = c.textures.get(index).ok_or("texture index out of range")?;
+        // The bulk payload can live in a different container from the header
+        // package, and it is the bulk chunk that gets overridden.
+        let (container, chunk) = entry
+            .ubulk
+            .ok_or_else(|| format!("{path}: keeps every mip inline, so it has no bulk chunk"))?;
+
+        let uasset = c.read_texture_uasset(index)?;
+        let header =
+            textures::zen_header_size(&uasset).ok_or_else(|| format!("{path}: not a zen package"))?;
+        let tex = textures::parse_texture(&uasset[header..]).map_err(|e| format!("{path}: {e}"))?;
+        let ubulk = c.read_texture_ubulk(index)?;
+        let img = textures::encode::Image::from_png(png).map_err(|e| format!("{path}: {e}"))?;
+        let swap =
+            textures::encode::swap(&tex, &ubulk, &img).map_err(|e| format!("{path}: {e}"))?;
+
+        out.push(modpack::ResolvedEdit {
+            label: format!("{path}.ubulk"),
+            container,
+            chunk,
+            original_len: ubulk.len(),
+            patched: swap.ubulk,
+        });
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct ExportView {
     /// Where the `.mjolnir` archive was written.
@@ -1463,13 +1722,17 @@ fn export_archive(
     state: &State<'_, AppState>,
     allow_sign: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
-    let (root, meta, (edits, scripts)) = {
+    let (root, meta, (edits, scripts, swaps)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
         (
             p.root.clone(),
             p.meta.clone(),
-            (work.edits.clone(), work.scripts.clone()),
+            (
+                work.edits.clone(),
+                work.scripts.clone(),
+                work.textures.clone(),
+            ),
         )
     };
     // The device key signs every archive it can; the author identity rides
@@ -1483,7 +1746,7 @@ fn export_archive(
     let author =
         install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
-        let (resolved, mut warnings) = resolved_edits(c, &edits, &scripts)?;
+        let (resolved, mut warnings) = resolved_edits(c, &edits, &scripts, &swaps)?;
         let baked = modpack::bake(c, &meta.slug, resolved)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
@@ -1549,13 +1812,20 @@ struct TestView {
 /// Bake the project and install it into the Paks folder for an in-game test.
 #[tauri::command]
 fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
-    let (meta, (edits, scripts)) = {
+    let (meta, (edits, scripts, swaps)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
-        (p.meta.clone(), (work.edits.clone(), work.scripts.clone()))
+        (
+            p.meta.clone(),
+            (
+                work.edits.clone(),
+                work.scripts.clone(),
+                work.textures.clone(),
+            ),
+        )
     };
     with_catalog(&state, |c| {
-        let (resolved, warnings) = resolved_edits(c, &edits, &scripts)?;
+        let (resolved, warnings) = resolved_edits(c, &edits, &scripts, &swaps)?;
         let baked = modpack::bake(c, &meta.slug, resolved)?;
         let resized = baked.iter().any(|b| b.built.resized());
         let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
@@ -1737,6 +2007,8 @@ pub fn run() {
             set_scripts,
             revert_scripts,
             export_texture,
+            swap_texture,
+            revert_texture,
             list_sounds,
             read_sound,
             export_sound,
