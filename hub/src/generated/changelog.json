@@ -32,6 +32,68 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.6.0",
+      "tag": "launcher-v0.6.0",
+      "title": "Point the launcher at your game",
+      "date": "2026-08-04",
+      "summary": "If MJOLNIR cannot find Halo Campaign Evolved, you can now choose the folder yourself instead of being stuck on the Game Not Found screen.",
+      "body": "The launcher only ever knew where the stores usually put the game. A library on\na drive it did not guess, an install that had been moved, or a copy kept outside\na store meant Game Not Found — and that screen offered nothing but a link to the\nstore page for a game you already owned.\n\n### Added\n\n- **Game Location** in Settings. Choose the folder holding the game, and\n  everything follows it: installing the runtime, managing your mods, verifying\n  an install, launching.\n- The same chooser on the Game Not Found screen, so the screen that reports the\n  problem is also where you fix it.\n- The picker takes whatever names the installation — the game folder, the\n  library folder above it, the `Meteorite` folder inside it, the `Win64` folder,\n  or the game's executable. It works out the rest.\n- A **What's new** summary when an update finishes, so you can see what you just\n  installed.\n\n### Changed\n\n- A folder that is not the game is refused when you choose it, with a note\n  saying what was expected, rather than accepted and then failing partway\n  through an install.\n- A location you set is used as given. If that folder later disappears — an\n  unplugged drive, a moved install — the launcher says so, instead of quietly\n  finding some other copy of the game and installing into that. One click puts\n  it back to detecting automatically.\n- A location set here is passed to the tools the launcher starts, so the Tag\n  Editor opens the same installation without being told a second time.\n\nThanks to **Feb** on Discord, whose report is the reason this release exists.\nFor anyone whose game was not where the launcher expected, it was not a rough\nedge — the launcher did nothing at all, and there was no way to tell it\notherwise.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Game Location in Settings. Choose the folder holding the game, and everything follows it: installing the runtime, managing your mods, verifying an install, launching.",
+            "The same chooser on the Game Not Found screen, so the screen that reports the problem is also where you fix it.",
+            "The picker takes whatever names the installation — the game folder, the library folder above it, the Meteorite folder inside it, the Win64 folder, or the game's executable. It works out the rest.",
+            "A What's new summary when an update finishes, so you can see what you just installed."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "A folder that is not the game is refused when you choose it, with a note saying what was expected, rather than accepted and then failing partway through an install.",
+            "A location you set is used as given. If that folder later disappears — an unplugged drive, a moved install — the launcher says so, instead of quietly finding some other copy of the game and installing into that. One click puts it back to detecting automatically.",
+            "A location set here is passed to the tools the launcher starts, so the Tag Editor opens the same installation without being told a second time."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.6.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.9.0",
+      "tag": "tag-editor-v0.9.0",
+      "title": "Choose which installation you are editing",
+      "date": "2026-08-04",
+      "summary": "The setup form now takes the game folder itself, and the installation you have open is named at the bottom of the left panel, with a way to change it.",
+      "body": "### Added\n\n- The open installation is named at the bottom of the left panel, with\n  **change** beside it. Switching to another copy of the game previously meant\n  finding and editing a settings file by hand.\n- A **What's new** summary the first time the editor runs after it updates\n  itself.\n\n### Changed\n\n- The game field takes anything that names the installation: the folder named\n  after the game, the Steam library holding it, its `Meteorite\\Content\\Paks`\n  folder, or a container inside it. It used to accept only the exact Paks path,\n  which is rarely the folder anyone reaches for first.\n- A folder with no game containers in it is refused when you choose it, rather\n  than accepted and then failing when the catalogue is read. An empty `Paks`\n  folder left behind by an uninstall is no longer mistaken for an installation.\n- Opened from the launcher, the editor starts on whichever installation the\n  launcher is set to. A folder you choose here is remembered and stays chosen.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "The open installation is named at the bottom of the left panel, with change beside it. Switching to another copy of the game previously meant finding and editing a settings file by hand.",
+            "A What's new summary the first time the editor runs after it updates itself."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The game field takes anything that names the installation: the folder named after the game, the Steam library holding it, its Meteorite\\Content\\Paks folder, or a container inside it. It used to accept only the exact Paks path, which is rarely the folder anyone reaches for first.",
+            "A folder with no game containers in it is refused when you choose it, rather than accepted and then failing when the catalogue is read. An empty Paks folder left behind by an uninstall is no longer mistaken for an installation.",
+            "Opened from the launcher, the editor starts on whichever installation the launcher is set to. A folder you choose here is remembered and stays chosen."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.9.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.9.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.9.0"
+    },
+    {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
       "version": "0.8.0",
