@@ -42,6 +42,7 @@ const GUIDES = [
   "getting_started.md",
   "making_your_first_mod.md",
   "tag_editing_guide.md",
+  "texture_swapping.md",
   "game_automation.md",
 ];
 
