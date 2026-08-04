@@ -511,9 +511,9 @@ mod tests {
             data: u32,
         ) -> DatumHandle {
             let index = self.exprs.len() as u16;
-            let salt = index + 0x100;
+            let generation = index + 0x100;
             self.exprs.push(Expression {
-                salt,
+                generation,
                 opcode: 0,
                 value_type,
                 expression_type: ty,
@@ -523,7 +523,7 @@ mod tests {
                 line,
                 tail: 0,
             });
-            DatumHandle::new(index, salt)
+            DatumHandle::new(index, generation)
         }
 
         fn link(&mut self, from: DatumHandle, to: DatumHandle) {

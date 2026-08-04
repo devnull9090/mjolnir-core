@@ -100,14 +100,14 @@ impl ScriptSection {
             .filter(|(_, e)| !e.is_free())
     }
 
-    /// Resolve a handle, checking the salt so a stale link reads as absent
+    /// Resolve a handle, checking the generation so a stale link reads as absent
     /// rather than as whatever now occupies the slot.
     pub fn get(&self, handle: DatumHandle) -> Option<&Expression> {
         if handle.is_null() {
             return None;
         }
         let e = self.expressions.get(handle.index())?;
-        (!e.is_free() && e.salt == handle.salt()).then_some(e)
+        (!e.is_free() && e.generation == handle.generation()).then_some(e)
     }
 
     /// The NUL-terminated string at `offset` in the string blob.
@@ -375,9 +375,9 @@ mod tests {
         }
     }
 
-    fn expr(salt: u16, ty: ExpressionType, next: DatumHandle, data: u32) -> Expression {
+    fn expr(generation: u16, ty: ExpressionType, next: DatumHandle, data: u32) -> Expression {
         Expression {
-            salt,
+            generation,
             opcode: 0,
             value_type: 0,
             expression_type: ty,

@@ -1925,7 +1925,7 @@ fn verify_scripts(
 /// check each script survived the trip.
 ///
 /// This is the compiler's acceptance test and it is deliberately end-to-end.
-/// The output tree is not byte-identical to the shipped one — salts, free slots
+/// The output tree is not byte-identical to the shipped one — generations, free slots
 /// and string-blob layout are the compiler's own — so what is checked is that
 /// the *meaning* survives: compile, decompile, and compare tokens against the
 /// source that went in.

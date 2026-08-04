@@ -10,9 +10,10 @@
 //! The output is **semantically** the tree the engine's own compiler produced,
 //! not a byte-for-byte copy of it. Three things are deliberately ours:
 //!
-//! - **Salts.** The shipped arrays use two salt bases per scenario, which is an
-//!   artifact of the compiler's datum allocator wrapping mid-run. A handle only
-//!   has to agree with its target, so this emits one base throughout.
+//! - **Datum generations.** The shipped arrays use two generation bases per
+//!   scenario, an artifact of the engine compiler's datum allocator wrapping
+//!   mid-run. A handle only has to agree with its target, so this emits one
+//!   base throughout.
 //! - **Free slots.** A shipped array is sparse — 56,415 of the campaign's
 //!   272,190 slots are fill. This emits a dense array.
 //! - **String blob.** The shipped blob repeats strings: 9,168 distinct offsets
@@ -31,12 +32,15 @@ use crate::lex::Token;
 use crate::parse::{self, Declaration, Form, Spanned, Vocabulary};
 use crate::read::{Global, Parameter, Script, ScriptSection};
 
-/// The salt this compiler starts from.
+/// The datum generation this compiler starts counting from.
 ///
-/// Any non-zero base works — a salt is only ever compared against the one on
-/// the datum it points at. This is the base the shipped `a30` happens to use,
-/// picked so a diff against shipped data reads as naturally as it can.
-const SALT_BASE: u16 = 0xE373;
+/// Not a cryptographic value: see [`crate::expr::DatumHandle`]. It is the ABA
+/// counter a datum handle carries so a stale reference is detectable, and any
+/// non-zero base works because a generation is only ever compared against the
+/// one on the datum it points at. This is the base the shipped `a30` happens to
+/// start from, chosen so a diff against shipped data reads as naturally as it
+/// can.
+const GENERATION_BASE: u16 = 0xE373;
 
 /// How deep an expression may nest before compilation gives up.
 const MAX_DEPTH: u32 = 128;
@@ -320,7 +324,7 @@ impl<'a> Compiler<'a> {
         };
         let start_line = body.first().map(|f| f.line).unwrap_or(line);
         let group = self.alloc(Expression {
-            salt: 0,
+            generation: 0,
             opcode: begin,
             value_type: expected,
             expression_type: ExpressionType::Group,
@@ -333,7 +337,7 @@ impl<'a> Compiler<'a> {
         let begin_string = self.intern("begin");
         let name_type = self.function_name_type();
         let name = self.alloc(Expression {
-            salt: 0,
+            generation: 0,
             opcode: begin,
             value_type: name_type,
             expression_type: ExpressionType::Expression,
@@ -433,7 +437,7 @@ impl<'a> Compiler<'a> {
         };
 
         let group = self.alloc(Expression {
-            salt: 0,
+            generation: 0,
             opcode,
             value_type: return_type.unwrap_or_else(|| self.void_type()),
             expression_type: kind,
@@ -448,7 +452,7 @@ impl<'a> Compiler<'a> {
         let callee_string = self.intern(name);
         let name_type = self.function_name_type();
         let name_node = self.alloc(Expression {
-            salt: 0,
+            generation: 0,
             opcode,
             value_type: name_type,
             expression_type: ExpressionType::Expression,
@@ -543,7 +547,7 @@ impl<'a> Compiler<'a> {
                 {
                     let offset = self.intern(w);
                     return self.alloc(Expression {
-                        salt: 0,
+                        generation: 0,
                         opcode: value_type,
                         value_type,
                         expression_type: ExpressionType::ParameterReference,
@@ -558,7 +562,7 @@ impl<'a> Compiler<'a> {
                     let value_type = self.globals[index].value_type;
                     let offset = self.intern(w);
                     return self.alloc(Expression {
-                        salt: 0,
+                        generation: 0,
                         opcode: value_type,
                         value_type,
                         expression_type: ExpressionType::GlobalsReference,
@@ -627,7 +631,7 @@ impl<'a> Compiler<'a> {
         }
 
         self.alloc(Expression {
-            salt: 0,
+            generation: 0,
             opcode: value_type,
             value_type,
             expression_type: ExpressionType::Expression,
@@ -762,7 +766,7 @@ impl<'a> Compiler<'a> {
         self.value_types.index_of("void").unwrap_or(4)
     }
 
-    /// Append a datum, stamping the salt its index implies.
+    /// Append a datum, stamping the generation its index implies.
     fn alloc(&mut self, mut e: Expression) -> DatumHandle {
         let index = self.expressions.len();
         // Wider than a datum array can address means the handle would alias, so
@@ -776,10 +780,10 @@ impl<'a> Compiler<'a> {
             }
             return DatumHandle::NULL;
         }
-        let salt = SALT_BASE.wrapping_add(index as u16);
-        e.salt = if salt == 0 { 1 } else { salt };
+        let generation = GENERATION_BASE.wrapping_add(index as u16);
+        e.generation = if generation == 0 { 1 } else { generation };
         self.expressions.push(e);
-        DatumHandle::new(index as u16, e.salt)
+        DatumHandle::new(index as u16, e.generation)
     }
 
     /// Add a string to the blob, reusing one already there.
@@ -1093,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn every_handle_resolves_against_the_salt_it_was_given() {
+    fn every_handle_resolves_against_the_generation_it_was_given() {
         let c = compile("(script dormant f (if (= 1 2) (sleep 1) (sleep 2)))");
         assert!(c.ok(), "{:?}", c.diagnostics);
         for (_, e) in c.section.live() {

@@ -497,7 +497,7 @@ mod tests {
     }
 
     fn node(
-        salt: u16,
+        generation: u16,
         opcode: u16,
         value_type: u16,
         ty: ExpressionType,
@@ -506,7 +506,7 @@ mod tests {
         data: u32,
     ) -> Expression {
         Expression {
-            salt,
+            generation,
             opcode,
             value_type,
             expression_type: ty,

@@ -64,7 +64,7 @@ handle, and freed slots stay in place. 24 bytes each:
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
-| `0x00` | 2 | salt | Pairs with the array index to form this node's handle |
+| `0x00` | 2 | generation | Pairs with the array index to form this node's handle |
 | `0x02` | 2 | opcode | Engine function, script index, or global index |
 | `0x04` | 2 | value type | Indexes the scenario's own value-type enum |
 | `0x06` | 2 | expression type | See below |
@@ -74,11 +74,15 @@ handle, and freed slots stay in place. 24 bytes each:
 | `0x14` | 2 | line number | 1-based, in the source file it came from |
 | `0x16` | 2 | — | The definitions call it `HMM`; zero in every shipped datum |
 
-A **handle** is `index` in the low half and `salt` in the high half; `0xFFFFFFFF` is
-null. Comparing the salt against the target's own is what makes a stale handle
-detectable rather than silently resolving to whatever later took the slot.
+A **handle** is `index` in the low half and a **generation** counter in the high half;
+`0xFFFFFFFF` is null. Comparing the generation against the target's own is what makes a
+stale handle detectable rather than silently resolving to whatever later took the slot.
 
-A **free slot** reads as `0xBA` fill with a zeroed salt. 56,415 of the campaign's
+Blam tooling calls this half-word the datum's *salt*, and the shipped definitions call
+its field `datum header`. `crates/blam-hsc` calls it `generation`, because that is what
+it does: an ABA counter for a slab allocator, nothing to do with cryptography.
+
+A **free slot** reads as `0xBA` fill with a zeroed generation. 56,415 of the campaign's
 272,190 slots are free; walking the array without checking would decode garbage.
 
 **Expression types** use the Reach-era numbering, even though the opcodes do not:
@@ -168,9 +172,9 @@ the committed corpus and needs no game installation.
 What it reproduces is the tree **semantically**, not byte for byte. Three things are
 deliberately the compiler's own:
 
-- **Salts.** The shipped arrays use two salt bases per scenario, an artifact of the
-  engine compiler's datum allocator wrapping mid-run. A handle only has to agree with
-  its target, so this emits one base throughout.
+- **Datum generations.** The shipped arrays use two generation bases per scenario, an
+  artifact of the engine compiler's datum allocator wrapping mid-run. A handle only has
+  to agree with its target, so this emits one base throughout.
 - **Free slots.** A shipped array is sparse; this emits a dense one.
 - **String blob.** The shipped blob repeats strings — 9,168 distinct offsets across
   2,806 distinct strings in `a30` — and this interns instead.

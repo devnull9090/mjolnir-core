@@ -13,16 +13,24 @@ pub const DATUM_SIZE: usize = 24;
 
 /// The half-word the cooker leaves in slots no expression occupies.
 ///
-/// Free slots read as `0xBA` fill with a zeroed leading salt. Freeness is
-/// tested on the fill rather than on `salt == 0` because the fill is what the
+/// Free slots read as `0xBA` fill with a zeroed leading generation. Freeness is
+/// tested on the fill rather than on `generation == 0` because the fill is what the
 /// shipped data actually shows, across all 272,190 datums in the campaign.
 const FREE_FILL: u16 = 0xBABA;
 
-/// A reference to another datum: index in the low half, salt in the high half.
+/// A reference to another datum: index in the low half, generation in the high
+/// half.
 ///
-/// The salt is what makes a stale handle detectable — an index alone would
-/// silently resolve to whatever later took the slot. Readers here compare it to
-/// the target's own salt and treat a mismatch as a broken link.
+/// The generation is what makes a stale handle detectable — an index alone
+/// would silently resolve to whatever later took the slot. Readers here compare
+/// it to the target's own generation and treat a mismatch as a broken link.
+///
+/// Blam tooling calls this half-word the datum's *salt*, and the shipped
+/// definitions call the field it lives in `datum header`. It is named
+/// `generation` here because that is what it does, and because "salt" invites
+/// exactly one wrong reading: this has nothing to do with cryptography. It is
+/// an ABA counter for a slab allocator — never hashed, never secret, and
+/// reproduced verbatim when a tag is written back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DatumHandle(pub u32);
 
@@ -30,15 +38,15 @@ impl DatumHandle {
     /// The handle that terminates a sibling chain.
     pub const NULL: DatumHandle = DatumHandle(u32::MAX);
 
-    pub fn new(index: u16, salt: u16) -> Self {
-        DatumHandle(((salt as u32) << 16) | index as u32)
+    pub fn new(index: u16, generation: u16) -> Self {
+        DatumHandle(((generation as u32) << 16) | index as u32)
     }
 
     pub fn index(self) -> usize {
         (self.0 & 0xFFFF) as usize
     }
 
-    pub fn salt(self) -> u16 {
+    pub fn generation(self) -> u16 {
         (self.0 >> 16) as u16
     }
 
@@ -52,7 +60,7 @@ impl std::fmt::Display for DatumHandle {
         if self.is_null() {
             f.write_str("null")
         } else {
-            write!(f, "{}:{:04x}", self.index(), self.salt())
+            write!(f, "{}:{:04x}", self.index(), self.generation())
         }
     }
 }
@@ -115,8 +123,8 @@ impl ExpressionType {
 /// One node of a compiled script.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Expression {
-    /// This node's own salt, paired with its array index to form its handle.
-    pub salt: u16,
+    /// This node's own generation, paired with its array index to form its handle.
+    pub generation: u16,
     /// For a call, the engine function or script this invokes. For a global or
     /// parameter reference, the index of what is read. Otherwise unused.
     pub opcode: u16,
@@ -147,7 +155,7 @@ impl Expression {
         let u32at =
             |o: usize| u32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]);
         Ok(Expression {
-            salt: u16at(0),
+            generation: u16at(0),
             opcode: u16at(2),
             value_type: u16at(4),
             expression_type: ExpressionType::from_raw(u16at(6)),
@@ -163,7 +171,7 @@ impl Expression {
         if out.len() < DATUM_SIZE {
             return Err(Error::DatumSize(out.len()));
         }
-        out[0..2].copy_from_slice(&self.salt.to_le_bytes());
+        out[0..2].copy_from_slice(&self.generation.to_le_bytes());
         out[2..4].copy_from_slice(&self.opcode.to_le_bytes());
         out[4..6].copy_from_slice(&self.value_type.to_le_bytes());
         out[6..8].copy_from_slice(&self.expression_type.to_raw().to_le_bytes());
@@ -250,7 +258,7 @@ mod tests {
     #[test]
     fn a_group_datum_decodes_to_its_parts() {
         let e = Expression::parse(&A30_GROUP).unwrap();
-        assert_eq!(e.salt, 0xe377);
+        assert_eq!(e.generation, 0xe377);
         assert_eq!(e.opcode, 0x019c);
         assert_eq!(e.expression_type, ExpressionType::Group);
         assert_eq!(e.next, DatumHandle::new(8, 0xe37b));
@@ -279,11 +287,11 @@ mod tests {
     }
 
     #[test]
-    fn a_handle_splits_into_index_and_salt() {
+    fn a_handle_splits_into_index_and_generation() {
         let h = DatumHandle::new(5, 0xe378);
         assert_eq!(h.0, 0xe378_0005);
         assert_eq!(h.index(), 5);
-        assert_eq!(h.salt(), 0xe378);
+        assert_eq!(h.generation(), 0xe378);
         assert!(!h.is_null());
         assert!(DatumHandle::NULL.is_null());
     }
