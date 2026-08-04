@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
+mod changelog;
 mod hub;
 mod tools;
 
@@ -1231,6 +1232,7 @@ pub fn run() {
             code_mods_status,
             code_mods_install,
             code_mods_install_defaults,
+            changelog::fetch_changelog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

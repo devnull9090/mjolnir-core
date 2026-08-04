@@ -1,14 +1,22 @@
 # @mjolnir/hub-kit
 
-Everything that knows the shape of the MJOLNIR Hub API, shared by the two
-surfaces that talk to it:
+Everything that knows the shape of the MJOLNIR Hub API, shared by the surfaces
+that talk to it:
 
 - `hub/` — the website at mjolnircore.com
 - `apps/launcher/` — the Tauri desktop launcher
+- `apps/tag-editor/` — the Tauri tag editor, for `changelog.ts` and
+  `ui/WhatsNew.tsx` only
 
 Ratings, reviews, comments, galleries, mod cards, release lists and the report
-flow exist once, here, and both apps render the same components against the
+flow exist once, here, and every app renders the same components against the
 same client.
+
+`changelog.ts` and `ui/WhatsNew.tsx` are the same idea for release notes: the
+entries are authored once in the repository's `changelog/` directory, published
+by the hub at `/api/changelog`, and rendered by one dialog wherever an update
+lands. Its `transport` is injectable for the same reason the client's is — see
+below.
 
 ## Why it lives inside the website
 
@@ -27,6 +35,7 @@ bundler, and the app with the flexible one reaches in:
 | --- | --- |
 | hub | ordinary local source; `@mjolnir/hub-kit` is a tsconfig path |
 | launcher | `resolve.alias` + `server.fs.allow` in `vite.config.ts`, `paths` in `tsconfig.json`, `@source` in `src/index.css` |
+| tag editor | the same three, added for the changelog dialog |
 
 Consumed as **source**, never as a published package: the two apps have
 separate lockfiles and separate CI jobs (`deploy-hub.yml`,
@@ -66,3 +75,10 @@ of truth: those zod schemas generate `hub/public/openapi.json`.
 These files carry no directives: Vite has no concept of them and warns. The
 website adds the boundary in `src/app/components/HubKit.tsx`, which re-exports
 what the app router needs as client components.
+
+The consequence for the website: **server components and route handlers must
+not import the `@mjolnir/hub-kit` barrel.** It re-exports every component here,
+so pulling it into a Server Component drags `useState` in with it and fails the
+build. Import the module instead — `@mjolnir/hub-kit/changelog`,
+`@mjolnir/hub-kit/ui/format` — which the `@mjolnir/hub-kit/*` tsconfig path
+already resolves.

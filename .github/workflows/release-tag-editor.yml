@@ -35,6 +35,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/tag-editor/pnpm-lock.yaml
 
+      # Before anything is built: a release with no changelog entry is a
+      # release nobody can read, and this is the last moment it can be fixed
+      # cheaply. The entry it finds is what the GitHub release body and the
+      # Discord announcement below are written from.
+      - name: Require a changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
@@ -132,10 +140,15 @@ jobs:
           draft: false
           files: checksums-${{ github.ref_name }}.txt
           body: |
-            ## MJOLNIR Tag Editor ${{ github.ref_name }}
+            ## ${{ steps.changelog.outputs.title }}
 
-            Browse and edit the Blam tags and textures inside your installed copy
-            of Halo Campaign Evolved.
+            ${{ steps.changelog.outputs.summary }}
+
+            ${{ steps.changelog.outputs.body }}
+
+            [Full changelog](${{ steps.changelog.outputs.url }}) · [All releases](https://mjolnircore.com/changelog/tag-editor)
+
+            ---
 
             The easiest way to get this is the **Tools** tab in the MJOLNIR
             Launcher, which installs and updates it for you. The installers below
@@ -197,6 +210,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VER: ${{ steps.artifacts.outputs.version }}
           EXE_HASH: ${{ steps.artifacts.outputs.exe_hash }}
+          # Passed through the environment rather than interpolated into the
+          # script: a changelog title is prose, and prose inside a PowerShell
+          # string is one apostrophe away from a syntax error.
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
+          CHANGELOG_SUMMARY: ${{ steps.changelog.outputs.summary }}
+          CHANGELOG_URL: ${{ steps.changelog.outputs.url }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
             Write-Host "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping Discord notification."
@@ -211,9 +230,9 @@ jobs:
             avatar_url = "https://mjolnircore.com/logo-transparent.png"
             embeds = @(
               @{
-                title = "🔧 MJOLNIR Tag Editor $tag Released!"
-                url = "https://github.com/devnull9090/mjolnir-core/releases/tag/$tag"
-                description = "Browse and edit the Blam tags and textures inside Halo Campaign Evolved. Install it from the **Tools** tab in the MJOLNIR Launcher."
+                title = "🔧 MJOLNIR Tag Editor $ver — $($env:CHANGELOG_TITLE)"
+                url = $env:CHANGELOG_URL
+                description = $env:CHANGELOG_SUMMARY
                 color = 13936707
                 thumbnail = @{ url = "https://mjolnircore.com/logo-transparent.png" }
                 fields = @(

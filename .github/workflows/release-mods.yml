@@ -51,6 +51,13 @@ jobs:
         with:
           node-version: 22
 
+      # A release with no changelog entry is a release nobody can read. The
+      # entry it finds is what the GitHub release body and the Discord
+      # announcement below are written from.
+      - name: Require a changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
       # Every mod must declare itself: version, summary and category come
       # from its mod.json, so the manifest — and therefore the launcher and
       # the hub pages — carry per-mod versions, not just the set's.
@@ -117,7 +124,15 @@ jobs:
             dist/manifest.json.sig
             dist/checksums-${{ github.ref_name }}.txt
           body: |
-            ## MJOLNIR Code Mods ${{ github.ref_name }}
+            ## ${{ steps.changelog.outputs.title }}
+
+            ${{ steps.changelog.outputs.summary }}
+
+            ${{ steps.changelog.outputs.body }}
+
+            [Full changelog](${{ steps.changelog.outputs.url }}) · [All releases](https://mjolnircore.com/changelog/mods)
+
+            ---
 
             The signed set of UE4SS script mods. Every artifact's hash is in
             `manifest.json`, and `manifest.json.sig` is its Ed25519 signature
@@ -160,22 +175,34 @@ jobs:
       - name: Post release notification to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          # Read from the environment and encoded by jq rather than pasted into
+          # the JSON: a changelog title is prose, and one apostrophe or quote in
+          # it would otherwise produce a malformed payload.
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
+          CHANGELOG_SUMMARY: ${{ steps.changelog.outputs.summary }}
+          CHANGELOG_URL: ${{ steps.changelog.outputs.url }}
+          VER: ${{ steps.build.outputs.version }}
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping."
             exit 0
           fi
           echo "::add-mask::$DISCORD_WEBHOOK_URL"
-          VER="${{ steps.build.outputs.version }}"
-          curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d '{
-            "username": "MJOLNIR Core Releases",
-            "avatar_url": "https://mjolnircore.com/logo-transparent.png",
-            "embeds": [{
-              "title": "🧩 MJOLNIR Code Mods '"${GITHUB_REF_NAME}"' Released!",
-              "url": "https://github.com/devnull9090/mjolnir-core/releases/tag/'"${GITHUB_REF_NAME}"'",
-              "description": "Reviewed, built and Ed25519-signed set of UE4SS script mods. The launcher verifies the signature before installing anything.",
-              "color": 13936707,
-              "fields": [{ "name": "📦 Set version", "value": "v'"$VER"'", "inline": true }],
-              "footer": { "text": "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
-            }]
-          }'
+          jq -n \
+            --arg title "🧩 MJOLNIR Code Mods $VER — $CHANGELOG_TITLE" \
+            --arg url "$CHANGELOG_URL" \
+            --arg description "$CHANGELOG_SUMMARY" \
+            --arg version "v$VER" \
+            '{
+              username: "MJOLNIR Core Releases",
+              avatar_url: "https://mjolnircore.com/logo-transparent.png",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $description,
+                color: 13936707,
+                fields: [{ name: "📦 Set version", value: $version, inline: true }],
+                footer: { text: "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+              }]
+            }' \
+            | curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d @-

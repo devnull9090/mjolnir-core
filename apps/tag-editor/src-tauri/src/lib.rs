@@ -14,6 +14,7 @@ use tauri::State;
 
 pub mod bnk;
 pub mod catalog;
+pub mod changelog;
 pub mod decode;
 pub mod hub;
 pub mod install;
@@ -1967,6 +1968,7 @@ pub fn run() {
         .manage(AppState::default())
         .manage(live::Live::default())
         .invoke_handler(tauri::generate_handler![
+            changelog::fetch_changelog,
             detect_install,
             open_install,
             list_groups,

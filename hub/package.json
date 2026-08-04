@@ -5,7 +5,8 @@
   "scripts": {
     "sync:docs": "node scripts/sync-docs.mjs",
     "sync:tags": "node scripts/sync-tag-defs.mjs",
-    "sync": "node scripts/sync-docs.mjs && node scripts/sync-tag-defs.mjs",
+    "sync:changelog": "node scripts/sync-changelog.mjs",
+    "sync": "node scripts/sync-docs.mjs && node scripts/sync-tag-defs.mjs && node scripts/sync-changelog.mjs",
     "sync:check": "npm run sync && node scripts/check-sync-drift.mjs",
     "dev": "npm run sync && next dev",
     "build": "npm run sync && next build",

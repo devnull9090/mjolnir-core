@@ -35,6 +35,13 @@ jobs:
         with:
           node-version: 22
 
+      # A release with no changelog entry is a release nobody can read. The
+      # entry it finds is what the GitHub release body and the Discord
+      # announcement below are written from.
+      - name: Require a changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
       # Pinned by URL *and* hash. A moving upstream tag can change what a URL
       # serves; it cannot change what it hashes to without failing here.
       - name: Fetch pinned UE4SS
@@ -185,7 +192,15 @@ jobs:
             dist/manifest.json.sig
             dist/checksums-${{ github.ref_name }}.txt
           body: |
-            ## MJOLNIR Runtime ${{ github.ref_name }}
+            ## ${{ steps.changelog.outputs.title }}
+
+            ${{ steps.changelog.outputs.summary }}
+
+            ${{ steps.changelog.outputs.body }}
+
+            [Full changelog](${{ steps.changelog.outputs.url }}) · [All releases](https://mjolnircore.com/changelog/runtime)
+
+            ---
 
             UE4SS `${{ steps.fetch.outputs.ue4ss_version }}`, plus the config and
             AOB signatures verified against this game build, plus the UE4SS
@@ -228,25 +243,39 @@ jobs:
       - name: Post release notification to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          # Read from the environment and encoded by jq rather than pasted into
+          # the JSON: a changelog title is prose, and one apostrophe or quote in
+          # it would otherwise produce a malformed payload.
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
+          CHANGELOG_SUMMARY: ${{ steps.changelog.outputs.summary }}
+          CHANGELOG_URL: ${{ steps.changelog.outputs.url }}
+          VER: ${{ steps.fetch.outputs.version }}
+          UE4SS_VERSION: ${{ steps.fetch.outputs.ue4ss_version }}
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping."
             exit 0
           fi
           echo "::add-mask::$DISCORD_WEBHOOK_URL"
-          VER="${{ steps.fetch.outputs.version }}"
-          curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d '{
-            "username": "MJOLNIR Core Releases",
-            "avatar_url": "https://mjolnircore.com/logo-transparent.png",
-            "embeds": [{
-              "title": "⚙️ MJOLNIR Runtime '"${GITHUB_REF_NAME}"' Released!",
-              "url": "https://github.com/devnull9090/mjolnir-core/releases/tag/'"${GITHUB_REF_NAME}"'",
-              "description": "UE4SS plus the config and signatures this game needs. Ed25519-signed, and the launcher verifies it before installing.",
-              "color": 13936707,
-              "fields": [
-                { "name": "📦 Runtime", "value": "v'"$VER"'", "inline": true },
-                { "name": "🔧 UE4SS", "value": "'"${{ steps.fetch.outputs.ue4ss_version }}"'", "inline": true }
-              ],
-              "footer": { "text": "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
-            }]
-          }'
+          jq -n \
+            --arg title "⚙️ MJOLNIR Runtime $VER — $CHANGELOG_TITLE" \
+            --arg url "$CHANGELOG_URL" \
+            --arg description "$CHANGELOG_SUMMARY" \
+            --arg version "v$VER" \
+            --arg ue4ss "$UE4SS_VERSION" \
+            '{
+              username: "MJOLNIR Core Releases",
+              avatar_url: "https://mjolnircore.com/logo-transparent.png",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $description,
+                color: 13936707,
+                fields: [
+                  { name: "📦 Runtime", value: $version, inline: true },
+                  { name: "🔧 UE4SS", value: $ue4ss, inline: true }
+                ],
+                footer: { text: "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+              }]
+            }' \
+            | curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d @-

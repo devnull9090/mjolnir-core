@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { WhatsNew } from "@mjolnir/hub-kit";
 import Sidebar from "./components/Sidebar";
 import Library from "./components/Library";
 import Header from "./components/Header";
@@ -11,6 +13,7 @@ import { ModDetail } from "./components/hub/ModDetail";
 import { HubShell } from "./hub/HubShell";
 import { useHubLibrary } from "./hub/library";
 import { useUpdates } from "./updates/useUpdates";
+import { useWhatsNew } from "./updates/useWhatsNew";
 
 /**
  * Three views answer three different questions, and nothing answers two:
@@ -37,7 +40,15 @@ function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
   // Both the library and the update manager read this; keeping one instance
   // means one set of hub calls and no disagreement about what is installed.
   const library = useHubLibrary();
-  const updates = useUpdates(updater);
+  const whatsNew = useWhatsNew();
+  // Keyed on the callback rather than on the hook's return value, which is a
+  // fresh object every render: `useUpdates` keys its apply callback on this.
+  const { announce: announceWhatsNew } = whatsNew;
+  const announce = useCallback(
+    (completed: Parameters<typeof announceWhatsNew>[0]) => void announceWhatsNew(completed),
+    [announceWhatsNew],
+  );
+  const updates = useUpdates(updater, announce);
 
   const showMod = (slug: string) => setOpenMod(slug);
   const goTo = (view: View) => {
@@ -78,6 +89,14 @@ function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
           )}
         </main>
       </div>
+
+      {/* Above everything, because it is the account of a change that has
+          already happened to the app the player is looking at. */}
+      <WhatsNew
+        releases={whatsNew.releases}
+        onClose={whatsNew.dismiss}
+        onOpenLink={(url) => void openUrl(url)}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@
  */
 export * from "./types";
 export * from "./client";
+export * from "./changelog";
 export * from "./ui/context";
 export * from "./ui/format";
 export * from "./ui/icons";
@@ -19,3 +20,4 @@ export * from "./ui/CommentThread";
 export * from "./ui/Gallery";
 export * from "./ui/ReleaseList";
 export * from "./ui/ReportButton";
+export * from "./ui/WhatsNew";
