@@ -4,6 +4,7 @@ members = [
     "crates/ue-iostore",
     "crates/blam-defs",
     "crates/blam-tag",
+    "crates/blam-hsc",
     "crates/blam-pack",
     "crates/blam-live",
     "crates/mjolnir-sign",

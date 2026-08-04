@@ -341,6 +341,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-hsc"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blam-live"
 version = "0.1.0"
 dependencies = [
@@ -2476,6 +2486,7 @@ version = "0.6.2"
 dependencies = [
  "base64 0.22.1",
  "blam-defs",
+ "blam-hsc",
  "blam-live",
  "blam-pack",
  "blam-tag",

@@ -12,6 +12,7 @@ use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
 mod defs;
+mod hsc;
 mod index;
 
 fn hex(bytes: &[u8]) -> String {
@@ -89,6 +90,60 @@ enum Command {
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
     Poke(PokeArgs),
+    /// Read the Blam script a scenario carries.
+    Script(ScriptArgs),
+    /// Recover the scripting function table and export it as JSON.
+    Scripting(ScriptingArgs),
+}
+
+#[derive(Args)]
+struct ScriptingArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Output JSON path.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    out: PathBuf,
+    /// Build fingerprint to record in the corpus.
+    #[arg(long, default_value = "")]
+    build: String,
+    /// Report what was recovered without writing the file.
+    #[arg(long)]
+    dry_run: bool,
+    /// Share of agreeing observations needed to call a literal quoted.
+    #[arg(long, default_value_t = blam_hsc::corpus::DEFAULT_QUOTED_MAJORITY)]
+    quoted_threshold: f32,
+}
+
+#[derive(Args)]
+struct ScriptArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Substring of the scenario tag path to select, otherwise every scenario
+    /// is summarised.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Print this source file's text instead of the summary. Give the file's
+    /// name as the summary lists it, e.g. `a30_audio`.
+    #[arg(long)]
+    source: Option<String>,
+    /// List the scripts and globals the scenario declares.
+    #[arg(long)]
+    declarations: bool,
+    /// Render the compiled expression tree back to HSC. With a name, only that
+    /// script; without one, the whole scenario.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    decompile: Option<String>,
+    /// Decompile every script and compare it against the source the scenario
+    /// shipped with.
+    #[arg(long)]
+    verify: bool,
+    /// With --verify, print the first few disagreements in full.
+    #[arg(long, default_value_t = 5)]
+    show: usize,
+    /// Recovered scripting corpus, used to know which literals are quoted.
+    /// Ignored if the file is absent.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    corpus: PathBuf,
 }
 
 #[derive(Args)]
@@ -362,6 +417,8 @@ fn main() -> Result<()> {
         Command::Chunk(a) => chunk(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
+        Command::Script(a) => script(a),
+        Command::Scripting(a) => scripting(a),
     }
 }
 
@@ -1577,6 +1634,326 @@ fn values(a: ValuesArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Read one scenario's script section, or every scenario's.
+///
+/// A scenario carries its scripting twice: the original `.hsc` text in `source
+/// files`, and the compiled expression tree the game actually runs. This shows
+/// both, so the two can be compared.
+fn script(a: ScriptArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get("scenario")
+        .context("this install ships no scenario tags")?;
+    let oodle = a.src.oodle_roots();
+
+    let selected: Vec<_> = match &a.tag {
+        Some(want) => entries.iter().filter(|e| e.path.contains(want)).collect(),
+        None => entries.iter().collect(),
+    };
+    if selected.is_empty() {
+        anyhow::bail!("no scenario matching {:?}", a.tag.unwrap_or_default());
+    }
+    let mut totals = VerifyTotals::default();
+
+    // Which literals are quoted is not in the tag; it comes from the recovered
+    // corpus. Without it the decompiler still works, but tag paths come back
+    // unquoted, so say so rather than quietly producing source that will not
+    // compile.
+    let corpus = match blam_hsc::ScriptCorpus::load(&a.corpus) {
+        Ok(corpus) => Some(corpus),
+        Err(_) if a.decompile.is_some() || a.verify => {
+            eprintln!(
+                "note: {} not found; string literals will not be quoted. \
+                 Run `mjolnir scripting` to generate it.",
+                a.corpus.display()
+            );
+            None
+        }
+        Err(_) => None,
+    };
+
+    for entry in selected {
+        let buf = idx.read(entry, None, &oodle)?;
+        let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+        let l = tag.layout()?;
+        let block = tag
+            .read_data(&l)
+            .with_context(|| format!("{} is not readable", entry.path))?;
+        let hs = blam_hsc::read::read(&l, &block)?;
+
+        // Printing one file's text is the whole output; the summary would only
+        // get in the way of piping it.
+        if let Some(want) = &a.source {
+            let Some(file) = hs.source_files.iter().find(|f| f.name == *want) else {
+                continue;
+            };
+            print!("{}", file.text());
+            return Ok(());
+        }
+
+        if a.verify {
+            verify_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
+            continue;
+        }
+
+        if let Some(want) = &a.decompile {
+            let d = match &corpus {
+                Some(c) => blam_hsc::Decompiler::with_corpus(&hs, c),
+                None => blam_hsc::Decompiler::new(&hs),
+            };
+            if want.is_empty() {
+                print!("{}", d.scenario());
+            } else if let Some(s) = hs.scripts.iter().find(|s| s.name == *want) {
+                println!("{}", d.script(s));
+            } else {
+                anyhow::bail!("no script named {want:?} in {}", entry.path);
+            }
+            return Ok(());
+        }
+
+        println!("{}", entry.path);
+        let live = hs.live().count();
+        println!(
+            "  {} scripts, {} globals, {} references",
+            hs.scripts.len(),
+            hs.globals.len(),
+            hs.references.len()
+        );
+        println!(
+            "  {live} live expressions in {} datum slots, {} of string data",
+            hs.expressions.len(),
+            human_bytes(hs.strings.len())
+        );
+        println!("  source files");
+        for f in &hs.source_files {
+            println!(
+                "    {:<24} {:>10}  {} lines",
+                f.name,
+                human_bytes(f.source.len()),
+                f.text().lines().count()
+            );
+        }
+
+        if a.declarations {
+            println!("  scripts");
+            for s in &hs.scripts {
+                let kind = hs.script_types.name_of(s.script_type).unwrap_or("?");
+                let ret = hs.value_types.name_of(s.return_type).unwrap_or("?");
+                let params: Vec<String> = s
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "{} {}",
+                            hs.value_types.name_of(p.value_type).unwrap_or("?"),
+                            p.name
+                        )
+                    })
+                    .collect();
+                println!(
+                    "    ({kind} {ret} {}{}{})",
+                    s.name,
+                    if params.is_empty() { "" } else { " " },
+                    params.join(", ")
+                );
+            }
+            println!("  globals");
+            for g in &hs.globals {
+                let ty = hs.value_types.name_of(g.value_type).unwrap_or("?");
+                println!("    (global {ty} {})", g.name);
+            }
+        }
+        println!();
+    }
+
+    if a.verify {
+        println!(
+            "total  {} of {} scripts match ({:.1}%), {} desugared cond, {} no source, {} differ",
+            totals.matched,
+            totals.total(),
+            100.0 * totals.matched as f64 / totals.total().max(1) as f64,
+            totals.cond,
+            totals.no_source,
+            totals.differs
+        );
+        for (kind, n) in &totals.kinds {
+            println!("       {n:>5} {kind:?}");
+        }
+        if totals.differs > 0 {
+            anyhow::bail!(
+                "{} script(s) do not decompile to their source",
+                totals.differs
+            );
+        }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct VerifyTotals {
+    matched: usize,
+    cond: usize,
+    no_source: usize,
+    differs: usize,
+    shown: usize,
+    kinds: BTreeMap<hsc::Difference, usize>,
+}
+
+impl VerifyTotals {
+    fn total(&self) -> usize {
+        self.matched + self.cond + self.no_source + self.differs
+    }
+}
+
+/// Decompile every script in one scenario and grade it against the shipped
+/// source.
+fn verify_scripts(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    path: &str,
+    show: usize,
+    totals: &mut VerifyTotals,
+) {
+    use hsc::Verdict;
+
+    let value_types: std::collections::BTreeSet<String> =
+        hs.value_types.names().iter().cloned().collect();
+
+    // A scenario's source files are separate compilation units, but a script is
+    // defined in exactly one of them, so one merged lookup is enough.
+    let mut blocks = BTreeMap::new();
+    for f in &hs.source_files {
+        blocks.extend(hsc::script_blocks(&f.text(), &value_types));
+    }
+
+    let d = match corpus {
+        Some(c) => blam_hsc::Decompiler::with_corpus(hs, c),
+        None => blam_hsc::Decompiler::new(hs),
+    };
+    let (mut matched, mut cond, mut no_source, mut differs) = (0, 0, 0, 0);
+
+    for s in &hs.scripts {
+        match hsc::compare(blocks.get(&s.name), &d.script(s)) {
+            Verdict::Match => matched += 1,
+            Verdict::DesugaredCond => cond += 1,
+            Verdict::NoSource => no_source += 1,
+            Verdict::Differs {
+                at,
+                kind,
+                source,
+                ours,
+            } => {
+                differs += 1;
+                *totals.kinds.entry(kind).or_default() += 1;
+                if totals.shown < show {
+                    totals.shown += 1;
+                    println!("  {} differs at token {at} ({kind:?})", s.name);
+                    println!("    source: {source}");
+                    println!("    ours:   {ours}");
+                }
+            }
+        }
+    }
+
+    let total = matched + cond + no_source + differs;
+    println!(
+        "{:<28} {matched}/{total} match, {cond} cond, {no_source} no source, {differs} differ",
+        path.rsplit('/').next().unwrap_or(path)
+    );
+    totals.matched += matched;
+    totals.cond += cond;
+    totals.no_source += no_source;
+    totals.differs += differs;
+}
+
+/// Recover the scripting function table from every shipped scenario.
+///
+/// The opcode table is not in the definitions the way field names are: an
+/// opcode is only a number until something names it. Every compiled call
+/// carries that name on the child node that names its callee, so reading all
+/// thirteen scenarios recovers the table without touching the engine binary.
+fn scripting(a: ScriptingArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get("scenario")
+        .context("this install ships no scenario tags")?;
+    let oodle = a.src.oodle_roots();
+
+    let mut builder = blam_hsc::CorpusBuilder::new();
+    for entry in entries {
+        let buf = idx.read(entry, None, &oodle)?;
+        let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+        let l = tag.layout()?;
+        let block = tag
+            .read_data(&l)
+            .with_context(|| format!("{} is not readable", entry.path))?;
+        builder.observe(&blam_hsc::read::read(&l, &block)?);
+    }
+
+    // An opcode seen under two names would mean the recovery rule is wrong, so
+    // it stops the export rather than being averaged away.
+    let conflicts = builder.conflicts();
+    if !conflicts.is_empty() {
+        for c in &conflicts {
+            eprintln!("  opcode 0x{:04x} names: {}", c.opcode, c.names.join(", "));
+        }
+        anyhow::bail!(
+            "{} opcode(s) resolved to more than one name; the table is not trustworthy",
+            conflicts.len()
+        );
+    }
+
+    let scenarios = builder.scenarios();
+    let corpus = builder.finish_at(
+        format!("mjolnir {}", env!("CARGO_PKG_VERSION")),
+        a.build,
+        a.quoted_threshold,
+    );
+
+    let thin = corpus.thinly_attested();
+    let variadic = corpus
+        .functions
+        .values()
+        .filter(|f| f.is_variadic())
+        .count();
+    let calls: u32 = corpus.functions.values().map(|f| f.call_sites).sum();
+
+    println!("  scenarios read  {scenarios}");
+    println!("  opcodes         {}", corpus.functions.len());
+    println!("  call sites      {calls}");
+    println!("  variadic        {variadic}");
+    println!(
+        "  thinly attested {} (fewer than {} call sites)",
+        thin.len(),
+        blam_hsc::corpus::WELL_ATTESTED
+    );
+    println!("  value types     {}", corpus.value_types.len());
+
+    if a.dry_run {
+        println!("\ndry run: nothing written");
+        return Ok(());
+    }
+
+    corpus.save(&a.out)?;
+    let bytes = std::fs::metadata(&a.out).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "\nwrote {} ({:.1} KiB)",
+        a.out.display(),
+        bytes as f64 / 1024.0
+    );
+    Ok(())
+}
+
+fn human_bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else {
+        format!("{:.1} KiB", n as f64 / 1024.0)
+    }
 }
 
 /// How much of a tag's value tree to print.

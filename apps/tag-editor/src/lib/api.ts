@@ -64,6 +64,44 @@ export type TagView = {
   fields: NodeView[];
 };
 
+export type ScriptSourceFile = {
+  name: string;
+  text: string;
+  lines: number;
+  bytes: number;
+  flags: string[];
+};
+
+export type ScriptDecl = {
+  name: string;
+  kind: string;
+  return_type: string;
+  parameters: string[];
+  file: string | null;
+  line: number | null;
+};
+
+export type GlobalDecl = {
+  name: string;
+  value_type: string;
+  initializer: string;
+  file: string | null;
+  line: number | null;
+};
+
+export type ScriptView = {
+  path: string;
+  source_files: ScriptSourceFile[];
+  scripts: ScriptDecl[];
+  globals: GlobalDecl[];
+  references: string[];
+  expressions: number;
+  datum_slots: number;
+  string_bytes: number;
+  /** False when the tag shipped no source and the text shown is decompiled. */
+  has_source: boolean;
+};
+
 export type TextureSummary = {
   index: number;
   path: string;
@@ -306,6 +344,11 @@ const tauriApi = {
   listTextures: (query: string) =>
     invoke<TextureSummary[]>("list_textures", { query }),
   readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
+  readScripts: (index: number) => invoke<ScriptView>("read_scripts", { index }),
+  decompileScript: (index: number, name: string) =>
+    invoke<string>("decompile_script", { index, name }),
+  exportScript: (index: number, name: string, dest: string) =>
+    invoke<number>("export_script", { index, name, dest }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),

@@ -1,0 +1,13 @@
+[package]
+name = "blam-hsc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Read, decompile and compile the Blam script carried by scenario tags"
+
+[dependencies]
+blam-tag = { path = "../blam-tag" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

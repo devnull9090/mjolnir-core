@@ -7,12 +7,14 @@ import { Inspector } from "./components/Inspector";
 import { FormInspector } from "./components/FormInspector";
 import { TextureViewer } from "./components/TextureViewer";
 import { SoundViewer } from "./components/SoundViewer";
+import { ScriptViewer } from "./components/ScriptViewer";
 import { TabBar } from "./components/TabBar";
 
 export default function App() {
   const status = useEditor((s) => s.status);
   const viewMode = useEditor((s) => s.viewMode);
   const { tabs, activeTab } = useEditor();
+  const tag = useEditor((s) => s.tag);
   const detect = useEditor((s) => s.detect);
 
   useEffect(() => {
@@ -32,6 +34,9 @@ export default function App() {
   }
 
   const active = tabs.find((t) => t.id === activeTab);
+  // Only a scenario carries script, so the script view falls back to the form
+  // for anything else rather than showing an empty panel.
+  const scriptable = tag?.group === "scenario";
 
   return (
     <div className="flex h-full min-h-0">
@@ -46,10 +51,12 @@ export default function App() {
           <TextureViewer />
         ) : active.kind === "sound" ? (
           <SoundViewer />
-        ) : viewMode === "form" ? (
-          <FormInspector />
-        ) : (
+        ) : viewMode === "script" && scriptable ? (
+          <ScriptViewer />
+        ) : viewMode === "tree" ? (
           <Inspector />
+        ) : (
+          <FormInspector />
         )}
       </div>
     </div>

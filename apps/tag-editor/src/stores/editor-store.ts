@@ -19,11 +19,12 @@ import {
   type TestView,
   type TextureSummary,
   type TextureView,
+  type ScriptView,
 } from "../lib/api";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree";
+export type ViewMode = "form" | "tree" | "script";
 
 /** One open document: a tag, a texture or a sound, shown as a tab. */
 export type Tab = {
@@ -163,6 +164,16 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+
+  /** The open scenario's Blam script, loaded on demand. */
+  scripts: ScriptView | null;
+  scriptsLoading: boolean;
+  scriptsError: string | null;
+  /** Which source file the script view is showing. */
+  scriptFile: string | null;
+  loadScripts: () => Promise<void>;
+  setScriptFile: (name: string) => void;
+  exportScript: (dest: string, name: string) => Promise<number | null>;
   sounds: SoundSummary[];
   soundQuery: string;
   /** A listing is in flight; an empty list means "not yet", not "none". */
@@ -448,6 +459,54 @@ export const useEditor = create<EditorState>((set, get) => {
         return null;
       }
     },
+    scripts: null,
+    scriptsLoading: false,
+    scriptsError: null,
+    scriptFile: null,
+
+    /**
+     * Load the open tag's script section.
+     *
+     * Only scenarios have one, and a scenario is the largest tag the game
+     * ships, so this is on demand rather than part of `loadTag`.
+     */
+    async loadScripts() {
+      const { tabs, activeTab } = get();
+      const tab = tabs.find((t) => t.id === activeTab);
+      if (!tab || tab.kind !== "tag") return;
+      const index = tab.index;
+      set({ scriptsLoading: true, scriptsError: null, scripts: null });
+      try {
+        const scripts = await api.readScripts(index);
+        // The tab can change while a twelve-megabyte scenario is being read.
+        const current = get().tabs.find((t) => t.id === get().activeTab);
+        if (current?.index !== index) return;
+        set({
+          scripts,
+          scriptsLoading: false,
+          scriptFile: scripts.source_files[0]?.name ?? null,
+        });
+      } catch (e) {
+        set({ scriptsError: String(e), scriptsLoading: false });
+      }
+    },
+
+    setScriptFile(name) {
+      set({ scriptFile: name });
+    },
+
+    async exportScript(dest, name) {
+      const { tabs, activeTab } = get();
+      const tab = tabs.find((t) => t.id === activeTab);
+      if (!tab || tab.kind !== "tag") return null;
+      try {
+        return await api.exportScript(tab.index, name, dest);
+      } catch (e) {
+        set({ scriptsError: String(e) });
+        return null;
+      }
+    },
+
     sounds: [],
     soundQuery: "",
     soundsLoading: false,

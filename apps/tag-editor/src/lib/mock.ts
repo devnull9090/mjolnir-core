@@ -250,6 +250,39 @@ function withEdits(): TagView {
   return { ...mockTag, edited: [...edits.keys()] };
 }
 
+/**
+ * A hand-written imitation of a scenario's script section, in the same shape
+ * the real reader produces. Written for this mock, not extracted from the game.
+ */
+const mockScriptSource = `; startup script ============================================
+
+; wake triggers on start
+(script startup demo_start
+	(ai_allegiance player human)
+	(f_start_auto_save_loop)
+	(wake music_demo)
+	(sleep_until (= b_player_awake true) 1)
+)
+
+(global boolean b_player_awake false)
+(global short s_wave_count 0)
+
+(script static void (f_play_line (short delay) (ai character) (string debug_line))
+	(print_if b_print_vo_lines debug_line)
+	(if (>= (ai_living_count character) 1)
+		(begin
+			(set s_md_play_time (+ (ai_play_line character line) delay))
+			(sleep s_md_play_time)
+		)
+		(print "vo info: character is not alive to speak")
+	)
+)
+
+(script dormant music_demo
+	(sound_looping_start "sound/music/demo/mus_01" none 1.0)
+)
+`;
+
 export const mockApi = {
   detectInstall: async (): Promise<Install> => ({
     paks: "(mock)",
@@ -291,6 +324,55 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  readScripts: async () => ({
+    path: "levels/halo1/solo/demo/demo",
+    source_files: [
+      {
+        name: "demo",
+        text: mockScriptSource,
+        lines: mockScriptSource.split(String.fromCharCode(10)).length,
+        bytes: mockScriptSource.length,
+        flags: [],
+      },
+    ],
+    scripts: [
+      { name: "demo_start", kind: "startup", return_type: "void", parameters: [], file: "demo", line: 4 },
+      {
+        name: "f_play_line",
+        kind: "static",
+        return_type: "void",
+        parameters: ["short delay", "ai character", "string debug_line"],
+        file: "demo",
+        line: 14,
+      },
+      { name: "music_demo", kind: "dormant", return_type: "void", parameters: [], file: "demo", line: 25 },
+      { name: "generated_branch_0", kind: "static", return_type: "void", parameters: [], file: null, line: null },
+    ],
+    globals: [
+      {
+        name: "b_player_awake",
+        value_type: "boolean",
+        initializer: "(global boolean b_player_awake false)",
+        file: "demo",
+        line: 11,
+      },
+      {
+        name: "s_wave_count",
+        value_type: "short",
+        initializer: "(global short s_wave_count 0)",
+        file: "demo",
+        line: 12,
+      },
+    ],
+    references: ["sound/music/demo/mus_01"],
+    expressions: 148,
+    datum_slots: 192,
+    string_bytes: 1024,
+    has_source: true,
+  }),
+  decompileScript: async (_index: number, name: string) =>
+    `(script dormant ${name} (wake x))`,
+  exportScript: async () => mockScriptSource.length,
   listSounds: async (query: string) =>
     mockSounds
       .map(({ index, path, language, size, event }) => ({

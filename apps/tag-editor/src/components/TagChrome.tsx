@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useEditor } from "../stores/editor-store";
+import { useEditor, type ViewMode } from "../stores/editor-store";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -150,7 +150,25 @@ export function TagHeader() {
   const setViewMode = useEditor((s) => s.setViewMode);
 
   if (!tag) return null;
-  const other = viewMode === "form" ? "tree" : "form";
+  // Only a scenario carries Blam script, so the third view is offered only
+  // where there is something for it to show.
+  const modes: { mode: ViewMode; label: string; title: string }[] = [
+    {
+      mode: "form",
+      label: "Form",
+      title: "Guerilla-style form: section bars, element dropdowns, typed controls",
+    },
+    { mode: "tree", label: "Tree", title: "Flat tree of every field with offsets and types" },
+    ...(tag.group === "scenario"
+      ? [
+          {
+            mode: "script" as ViewMode,
+            label: "Script",
+            title: "The mission's Blam script, as the scenario shipped it",
+          },
+        ]
+      : []),
+  ];
 
   return (
     <header className="sticky top-0 z-10 border-b border-border-subtle bg-surface-primary px-6 py-4">
@@ -158,18 +176,24 @@ export function TagHeader() {
         <h1 className="font-mono text-lg text-mjolnir-gold">{tag.group}</h1>
         <span className="font-mono text-xs text-text-dim">{tag.four_cc}</span>
         <span className="font-mono text-xs text-text-dim">v{tag.version}</span>
-        <button
-          type="button"
-          onClick={() => setViewMode(other)}
-          title={
-            other === "form"
-              ? "Guerilla-style form: section bars, element dropdowns, typed controls"
-              : "Flat tree of every field with offsets and types"
-          }
-          className="ml-auto border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
-        >
-          {other === "form" ? "Form view" : "Tree view"}
-        </button>
+        <div className="ml-auto flex">
+          {modes.map((m) => (
+            <button
+              key={m.mode}
+              type="button"
+              onClick={() => setViewMode(m.mode)}
+              title={m.title}
+              aria-pressed={viewMode === m.mode}
+              className={`border border-border-subtle px-2 py-0.5 text-[11px] ${
+                viewMode === m.mode
+                  ? "bg-surface-hover text-mjolnir-gold"
+                  : "text-text-secondary hover:bg-surface-hover"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <span
           className={`font-mono text-[11px] ${
             tag.data_exact ? "text-accent-green" : "text-text-dim"

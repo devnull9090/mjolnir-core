@@ -38,6 +38,7 @@ dirs = "6"
 
 blam-defs = { path = "../../../crates/blam-defs" }
 blam-tag = { path = "../../../crates/blam-tag" }
+blam-hsc = { path = "../../../crates/blam-hsc" }
 blam-live = { path = "../../../crates/blam-live" }
 blam-pack = { path = "../../../crates/blam-pack" }
 mjolnir-sign = { path = "../../../crates/mjolnir-sign" }

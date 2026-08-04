@@ -21,6 +21,7 @@ pub mod keystore;
 pub mod live;
 pub mod modpack;
 pub mod project;
+pub mod scripts;
 pub mod secret;
 pub mod sounds;
 pub mod textures;
@@ -709,6 +710,70 @@ fn decode_texture(
     }
     let img = textures::assemble_mip(&tex, &ubulk, mip)?;
     Ok((tex, img))
+}
+
+/// Read the Blam script a scenario carries.
+///
+/// Goes through `patched_bytes` like the field commands do, so a scenario with
+/// unexported edits reports the script section of the tag as it now stands
+/// rather than as it shipped.
+#[tauri::command]
+fn read_scripts(index: usize, state: State<'_, AppState>) -> Result<scripts::ScriptView, String> {
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
+    with_catalog(&state, |c| {
+        let file = patched_bytes(c, index, &pending)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario" {
+            return Err(format!("{} tags carry no script", entry.group));
+        }
+        let path = entry.short.clone();
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        scripts::view(path, &layout, &block)
+    })
+}
+
+/// Write one of a scenario's source files to disk as `.hsc`.
+///
+/// `name` is the source file's name as `read_scripts` lists it, or
+/// `<decompiled>` for the rendered tree when the scenario shipped no source.
+#[tauri::command]
+fn export_script(
+    index: usize,
+    name: String,
+    dest: String,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let view = read_scripts(index, state)?;
+    let file = view
+        .source_files
+        .iter()
+        .find(|f| f.name == name)
+        .ok_or_else(|| format!("no source file named {name:?}"))?;
+    std::fs::write(&dest, file.text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(file.text.len())
+}
+
+/// Render one script back from the compiled tree, for comparing against the
+/// source the scenario shipped with.
+#[tauri::command]
+fn decompile_script(
+    index: usize,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    with_catalog(&state, |c| {
+        let file = c.read_tag(index)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        scripts::decompile_one(&layout, &block, &name)
+    })
 }
 
 #[tauri::command]
@@ -1520,6 +1585,9 @@ pub fn run() {
             signing_status,
             list_textures,
             read_texture,
+            read_scripts,
+            decompile_script,
+            export_script,
             export_texture,
             list_sounds,
             read_sound,
