@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useEditor } from "../stores/editor-store";
+import { useEditor, type ViewMode } from "../stores/editor-store";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -74,12 +74,101 @@ function LinkedAssets() {
 }
 
 /** Header shared by both inspector views: identity, vitals, view toggle. */
+/**
+ * Live mode: mirror each accepted edit into the running game.
+ *
+ * Deliberately a toggle rather than something implied by the game being open.
+ * It writes into another process's memory, and it is not persistence — the
+ * mod project is still the record of what the edit is. Off on every launch.
+ */
+function LiveToggle() {
+  const live = useEditor((s) => s.live);
+  const liveOn = useEditor((s) => s.liveOn);
+  const poking = useEditor((s) => s.livePoking);
+  const note = useEditor((s) => s.liveNote);
+  const setLiveOn = useEditor((s) => s.setLiveOn);
+  const refreshLive = useEditor((s) => s.refreshLive);
+
+  // Poll only while armed: the check attaches to the process, and doing that
+  // every few seconds for a feature nobody switched on is rude.
+  useEffect(() => {
+    if (!liveOn) return;
+    void refreshLive();
+    const t = setInterval(() => void refreshLive(), 5000);
+    return () => clearInterval(t);
+  }, [liveOn, refreshLive]);
+
+  const running = live?.running ?? false;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setLiveOn(!liveOn)}
+        title={
+          "Push each edit into the running game as well as the project.\n\n" +
+          "The first edit to a tag has to find it in memory, which takes a few " +
+          "minutes; after that it is instant. Fixed-width fields only — anything " +
+          "that resizes the tag still needs a rebuild.\n\n" +
+          "Nothing is written to disk, so a live change is gone at the next launch."
+        }
+        className={`border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
+          liveOn
+            ? "border-accent-green/60 bg-accent-green/10 text-accent-green"
+            : "border-border-subtle text-text-dim hover:bg-surface-hover"
+        }`}
+      >
+        live {liveOn ? "on" : "off"}
+      </button>
+      {liveOn && (
+        <span className="font-mono text-[10px] text-text-dim">
+          {poking
+            ? "writing… (first edit to a tag scans for it, this takes minutes)"
+            : running
+              ? `game running · pid ${live?.pid} · ${live?.located ?? 0} tag${
+                  (live?.located ?? 0) === 1 ? "" : "s"
+                } located`
+              : "no game running — edits are recorded but not pushed"}
+        </span>
+      )}
+      {liveOn && note && (
+        <span
+          className={`font-mono text-[10px] ${
+            note.startsWith("live: Error") || note.includes("cannot") || note.includes("not")
+              ? "text-accent-red"
+              : "text-accent-green"
+          }`}
+        >
+          {note}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function TagHeader() {
   const { tag, viewMode } = useEditor();
   const setViewMode = useEditor((s) => s.setViewMode);
 
   if (!tag) return null;
-  const other = viewMode === "form" ? "tree" : "form";
+  // Only a scenario carries Blam script, so the third view is offered only
+  // where there is something for it to show.
+  const modes: { mode: ViewMode; label: string; title: string }[] = [
+    {
+      mode: "form",
+      label: "Form",
+      title: "Guerilla-style form: section bars, element dropdowns, typed controls",
+    },
+    { mode: "tree", label: "Tree", title: "Flat tree of every field with offsets and types" },
+    ...(tag.group === "scenario"
+      ? [
+          {
+            mode: "script" as ViewMode,
+            label: "Script",
+            title: "The mission's Blam script, as the scenario shipped it",
+          },
+        ]
+      : []),
+  ];
 
   return (
     <header className="sticky top-0 z-10 border-b border-border-subtle bg-surface-primary px-6 py-4">
@@ -87,18 +176,24 @@ export function TagHeader() {
         <h1 className="font-mono text-lg text-mjolnir-gold">{tag.group}</h1>
         <span className="font-mono text-xs text-text-dim">{tag.four_cc}</span>
         <span className="font-mono text-xs text-text-dim">v{tag.version}</span>
-        <button
-          type="button"
-          onClick={() => setViewMode(other)}
-          title={
-            other === "form"
-              ? "Guerilla-style form: section bars, element dropdowns, typed controls"
-              : "Flat tree of every field with offsets and types"
-          }
-          className="ml-auto border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
-        >
-          {other === "form" ? "Form view" : "Tree view"}
-        </button>
+        <div className="ml-auto flex">
+          {modes.map((m) => (
+            <button
+              key={m.mode}
+              type="button"
+              onClick={() => setViewMode(m.mode)}
+              title={m.title}
+              aria-pressed={viewMode === m.mode}
+              className={`border border-border-subtle px-2 py-0.5 text-[11px] ${
+                viewMode === m.mode
+                  ? "bg-surface-hover text-mjolnir-gold"
+                  : "text-text-secondary hover:bg-surface-hover"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <span
           className={`font-mono text-[11px] ${
             tag.data_exact ? "text-accent-green" : "text-text-dim"
@@ -118,13 +213,17 @@ export function TagHeader() {
         {tag.node_count.toLocaleString()} fields
       </p>
       <LinkedAssets />
+      <LiveToggle />
     </header>
   );
 }
 
-/** Pending edits, and the only way they leave the editor. */
+/** Pending edits: saved into the mod project when one is open, exportable
+ *  either way. */
 export function EditBar() {
   const { tag, lastEdit, editError } = useEditor();
+  const project = useEditor((s) => s.project);
+  const setBrowse = useEditor((s) => s.setBrowse);
   const revertTag = useEditor((s) => s.revertTag);
   const exportTag = useEditor((s) => s.exportTag);
   const [wrote, setWrote] = useState<string | null>(null);
@@ -148,7 +247,8 @@ export function EditBar() {
     <div className="border-b border-mjolnir-gold/40 bg-mjolnir-gold/5 px-6 py-2">
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="text-mjolnir-gold">
-          {count} unsaved edit{count === 1 ? "" : "s"}
+          {count} edit{count === 1 ? "" : "s"}
+          {project ? ` in ${project.meta.name}` : " (not in a mod)"}
         </span>
         <button
           type="button"
@@ -166,9 +266,25 @@ export function EditBar() {
         >
           Revert all
         </button>
-        <span className="ml-auto font-mono text-[10px] text-text-dim">
-          The game&rsquo;s containers are read-only; edits export to a file.
-        </span>
+        {project ? (
+          <button
+            type="button"
+            onClick={() => setBrowse("mod")}
+            className="ml-auto font-mono text-[10px] text-text-dim hover:text-mjolnir-gold"
+            title="Saved to the project on every edit. Open the mod panel to test, export or publish."
+          >
+            autosaved — open mod panel →
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setBrowse("mod")}
+            className="ml-auto font-mono text-[10px] text-text-dim hover:text-mjolnir-gold"
+            title="Edits live in memory until they are part of a mod. Start one to keep them."
+          >
+            start a mod to keep these →
+          </button>
+        )}
       </div>
       {lastEdit && (
         <p className="mt-1 font-mono text-[10px] text-text-secondary">

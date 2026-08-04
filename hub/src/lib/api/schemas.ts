@@ -128,6 +128,20 @@ export const ReleaseSchema = z
     build_max: z.string().nullable(),
     download_count: z.number().int(),
     created_at: z.string(),
+    published_by: z.string().nullable().openapi({
+      description: "Account that created this release; null for releases predating attribution.",
+    }),
+    published_by_username: z.string().nullable(),
+    signer_fingerprint: z.string().nullable().openapi({
+      description:
+        "Fingerprint of the author signing key whose signature verified at publish. " +
+        "Distinct from `signature`, which is the platform key over the archive hash; " +
+        "this one is the author's own key over the archive contents " +
+        "(docs/mod_signing_design.md).",
+    }),
+    signer_key_revoked: z.boolean().openapi({
+      description: "True when the author's signing key has been revoked since publish.",
+    }),
   })
   .openapi("Release");
 
@@ -185,6 +199,16 @@ export const ReleaseStatusSchema = z
     }),
     findings: z.array(FindingSchema),
     created_at: z.string(),
+    published_by: z.string().nullable().openapi({
+      description: "Account that created this release; null for releases predating attribution.",
+    }),
+    published_by_username: z.string().nullable(),
+    signer_fingerprint: z.string().nullable().openapi({
+      description: "Fingerprint of the author key whose signature verified at publish, if any.",
+    }),
+    signer_key_revoked: z.boolean().openapi({
+      description: "True when the signing key has been revoked since this release published.",
+    }),
   })
   .openapi("ReleaseStatus");
 
@@ -358,5 +382,11 @@ export function releaseFromRow(r: any): z.infer<typeof ReleaseSchema> {
     build_max: r.build_max ?? null,
     download_count: r.download_count ?? 0,
     created_at: r.created_at,
+    published_by: r.published_by ?? null,
+    // Joined in by routes that select alongside users/user_keys; a bare
+    // `SELECT * FROM mod_releases` honestly reports them absent.
+    published_by_username: r.publisher_display_name ?? r.publisher_discord_username ?? null,
+    signer_fingerprint: r.signer_fingerprint ?? null,
+    signer_key_revoked: Boolean(r.signer_key_revoked_at),
   };
 }

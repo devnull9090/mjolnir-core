@@ -5,10 +5,11 @@ with the `_P` patch suffix mounts, wins the chunk lookup, and its Blam payload i
 simulation uses. Verified by editing the assault rifle's magazine to 99 rounds and its ammo
 reserve to 900 and reading both off the HUD in mission A30.
 
-One caveat, since resolved: the packer's perfect hash used to be wrong for containers holding
-more than one chunk, so multi-chunk containers silently exposed only one of their chunks. The
-packer now implements the engine's hash and placement for real — see *A real bug found on the
-way* for the history and the fix.
+Two caveats, both since resolved, both in the perfect hash. It used to be wrong for containers
+holding more than one chunk, so multi-chunk containers silently exposed only one of their
+chunks; and after that was fixed it still spilled every chunk to the unread overflow list at
+power-of-two chunk counts, so a four-tag mod silently did nothing. See *A real bug found on the
+way* and *A second hole in the same place* for the history and the fixes.
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 
 Tags can be read, edited and written back byte-exactly
@@ -140,9 +141,11 @@ Two details the round-trip pinned down, both easy to get wrong by inspection:
 - **Chunk offsets and lengths are five-byte big-endian**, while a compression block's offset is
   five-byte *little*-endian with three-byte little-endian sizes.
 
-Regions that are not yet interpreted — the perfect-hash tables, the signature block, the
-directory index, and the header padding past byte 100 — are carried verbatim, so nothing is
-lost by round-tripping a container we do not fully understand.
+Regions the round-trip does not interpret — the signature block, the directory index, and the
+header padding past byte 100 — are carried verbatim, so nothing is lost by round-tripping a
+container we do not fully understand. The perfect-hash tables were in that list too when this
+was written; they are now generated for real, which the two sections at the end of this document
+are the story of.
 
 ## Step 2: building a container — done
 
@@ -396,16 +399,80 @@ spilled to `chunks_without_perfect_hash`. The per-chunk TOC arrays are permuted 
 index *is* the hash slot. A one-chunk container still comes out with the shipped shape — one
 seed, `-1` — so nothing about the verified single-chunk recipe changed.
 
+### A second hole in the same place: spilling at power-of-two chunk counts
+
+**Found and fixed 2026-08-02**, by a three-tag mod that stopped working the moment it became a
+four-tag mod.
+
+The placement above is right, but it was only ever tried at one table size — the engine's
+`seed_count = n / 2`. That size is not always solvable. The rehash hop is
+`hash(seed, id) % n`, and modulo a power of two that sees only the hash's low bits, where
+FNV's multiply barely diffuses. Mod 2 it does not diffuse at all:
+
+```
+hash(seed, id) % 2  ==  (seed % 2) XOR K(id)
+```
+
+`K` does not depend on the seed, so two IDs agreeing on it are inseparable by *every* seed. The
+bucket search cannot succeed however long it runs — the 2²⁰-iteration cap was never the binding
+constraint.
+
+Measured on the mod that hit it (spartans biped, both fall-damage effects, globals): the four
+IDs pair two-and-two under `K`, both buckets spilled, `chunks_without_perfect_hash = 4`, and
+**0 of 4 chunks resolved**. In game the mod silently did nothing — the shipped tags loaded and
+the edits looked as though they had never been made. The same mod at three tags worked, which is
+what made it look like a tag problem rather than a packing one.
+
+Two things changed:
+
+1. **`generate` grows the seed table** until nothing spills, starting from the engine's `n / 2`
+   so the common case still matches the shipped shape. Growing it is free — the reader takes the
+   count from the header — and a bucket holding one chunk becomes a direct index that never
+   rehashes, so splitting an inseparable pair into separate buckets sidesteps the dead bits
+   entirely.
+2. **Spilling is treated as failure, not fallback.** No shipped container populates the overflow
+   list — 28 scanned, every one `without_hash = 0` — and this build gave no sign of reading it.
+   `blam_pack::verify_written` now rejects a container with a non-empty overflow list and
+   resolves every chunk through `Toc::find_chunk_by_hash`, the perfect hash alone.
+
+The second point is why this shipped at all. `verify_written` searched `load_container`'s chunk
+list, which proves the bytes are present and nothing about whether the tables find them; the
+packer's tests resolved through `Toc::find_chunk`, whose overflow scan is more forgiving than
+the game. Both oracles passed a container the game ignored. The regression tests now assert
+`chunks_without_perfect_hash == 0` and cover n = 2, 4, 8, 16 and 32 alongside the four real IDs.
+
+### Two-chunk containers verified in game — and a string-id hazard found
+
+**Answered 2026-08-02, with the fixed perfect hash.** A two-chunk container (resized payload +
+rewritten package header) built by `blam-pack` works end to end. The A/B/C, all from a fresh
+mission-select A30 spawn:
+
+| Container | `BinaryBlobSize` | In game |
+|---|---:|---|
+| none (vanilla) | 32620 | assault rifle in hand, normal |
+| resized via a **novel string id** (`generic hud text = "MJOLNIR_RESIZE_MARKER"`, 32641 B) | **32641** | **pistol-fallback: magnum only, cannot switch** |
+| resized via a **valid tag reference** (`barrels[0].projectile` → the needler shard, 32608 B) | **32608** | **assault rifle in hand, firing needler shards** |
+
+Run three is the proof: the package chunk applied (32608 by reflection) *and* the bulk chunk
+applied (pink needles on screen, magazine draining), both chunks served from one container
+through the solved perfect hash. Screenshots and the cradle-widget reads came through the
+[game automation](game_automation.md) bridge; the ammo counter is reachable as a live UMG
+widget (`WBP_HUD_Main … WeaponCradle … CurrentAmmoCountTextBlock`), which is a better
+instrument than pixels.
+
+Run two is the discovery that replaces the old caution: **a `string id` set to text the game's
+string table does not already contain makes the native parser reject the whole tag**, and a
+rejected weapon degrades to the documented pistol-fallback. The 2026-07-27 marker-string
+container never exposed this — with the broken hash, only its package chunk was ever served, so
+the poisoned payload was never parsed. The tag editor now warns on any string-id edit at
+test/export time.
+
 ### What this means for the editor
 
-Editing a tag and shipping the result **works end to end**, within one constraint: keep the payload
-the same length. Every fixed-width field — integers, reals, enums, flags — qualifies, which is most
-of what anyone wants to change.
-
-Outside that constraint the path is not finished. A string or block edit resizes the payload, which
-needs the package header rewritten to match, which needs a two-chunk container. The perfect-hash
-bug that used to block that is fixed; what remains untested in-game is a multi-chunk override
-container as such.
+Editing a tag and shipping the result **works end to end, including resizes**. Fixed-width
+fields — integers, reals, enums, flags — edit in place; string-id and tag-reference edits that
+resize the payload bake into a verified two-chunk container. The one known content hazard is
+the novel-string-id rejection above: reference only strings and tags the game already ships.
 
 ### Notes on measuring this
 

@@ -22,6 +22,8 @@
 //!
 //! See `docs/tag_body_format.md`.
 
+use std::collections::BTreeMap;
+
 use crate::data::{Block, Value};
 use crate::section::SECTION_HEADER;
 
@@ -73,6 +75,156 @@ impl Substitution<'_> {
 pub fn write_block_subst(block: &Block<'_>, sub: &Substitution<'_>) -> Vec<u8> {
     let mut out = Vec::with_capacity(block.consumed);
     write_block_into(&mut out, block, Some(sub));
+    out
+}
+
+/// Several replacements applied in one pass, of either kind.
+///
+/// A leaf substitution swaps the bytes of a `tgsi`, `tgda` or `tgrf`, which is
+/// all a field edit ever needs. A block substitution swaps a whole `tgbl` — its
+/// element count, its packed elements, and any per-element wrappers — which is
+/// what an edit that changes how *many* elements there are requires. Rewriting
+/// a scenario's script needs both at once: the string blob is a `tgda` and the
+/// expression, script and global arrays are blocks that all resize together.
+pub struct Edits<'a> {
+    pub file: &'a [u8],
+    /// Leaf section content, keyed by the offset of the bytes it replaces.
+    pub sections: BTreeMap<usize, Vec<u8>>,
+    /// Whole-block `tgbl` content, keyed by the offset of the block's packed
+    /// elements. A block is named by its elements rather than by its header
+    /// because that is the slice the reader borrows and hands back.
+    pub blocks: BTreeMap<usize, Vec<u8>>,
+    /// Bytes overwritten in place as packed element data is copied through,
+    /// keyed by file offset.
+    ///
+    /// Packed elements are written verbatim, which is right until a block they
+    /// point at changes size: a `block` field holds its element count inline and
+    /// a `data` field holds its byte length, both duplicating what the section
+    /// header says. Resizing a block without fixing its parent's copy leaves a
+    /// scenario claiming a different number of scripts than it has.
+    pub inline: BTreeMap<usize, Vec<u8>>,
+}
+
+impl<'a> Edits<'a> {
+    pub fn new(file: &'a [u8]) -> Self {
+        Edits {
+            file,
+            sections: BTreeMap::new(),
+            blocks: BTreeMap::new(),
+            inline: BTreeMap::new(),
+        }
+    }
+
+    /// Copy packed element data through, applying any in-place fixes that fall
+    /// inside it.
+    fn write_elements(&self, out: &mut Vec<u8>, elements: &[u8]) {
+        let start = self.offset_of(elements);
+        let end = start + elements.len();
+        let at = out.len();
+        out.extend_from_slice(elements);
+        if self.inline.is_empty() {
+            return;
+        }
+        for (offset, bytes) in self.inline.range(start..end) {
+            let local = at + (offset - start);
+            let n = bytes.len().min(out.len().saturating_sub(local));
+            out[local..local + n].copy_from_slice(&bytes[..n]);
+        }
+    }
+
+    fn offset_of(&self, slice: &[u8]) -> usize {
+        (slice.as_ptr() as usize).saturating_sub(self.file.as_ptr() as usize)
+    }
+
+    fn section_for(&self, slice: &[u8]) -> Option<&Vec<u8>> {
+        self.sections.get(&self.offset_of(slice))
+    }
+
+    fn block_for(&self, block: &Block<'_>) -> Option<&Vec<u8>> {
+        self.blocks.get(&self.offset_of(block.elements))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sections.is_empty() && self.blocks.is_empty()
+    }
+}
+
+/// Serialise a block, applying every edit in `edits`.
+///
+/// With no edits this reproduces the original bytes exactly, which is what
+/// makes any difference attributable to the edits alone.
+pub fn write_block_edits(block: &Block<'_>, edits: &Edits<'_>) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_block_edited(&mut out, block, edits);
+    out
+}
+
+fn write_block_edited(out: &mut Vec<u8>, block: &Block<'_>, edits: &Edits<'_>) {
+    out.extend_from_slice(&block.count.to_le_bytes());
+    out.extend_from_slice(&block.flags.to_le_bytes());
+    edits.write_elements(out, block.elements);
+    for element in &block.children {
+        let content = write_children_edited(element, edits);
+        section(out, "tgst", content.len() as u32, &content);
+    }
+}
+
+fn write_children_edited(children: &[Value<'_>], edits: &Edits<'_>) -> Vec<u8> {
+    let swap = |b: &[u8]| -> Vec<u8> {
+        match edits.section_for(b) {
+            Some(content) => content.clone(),
+            None => b.to_vec(),
+        }
+    };
+
+    let mut out = Vec::new();
+    for value in children {
+        match value {
+            Value::Block(b) => {
+                // A substituted block replaces its whole content, wrappers and
+                // all, so its children are not walked.
+                match edits.block_for(b) {
+                    Some(content) => section(&mut out, "tgbl", 0, content),
+                    None => {
+                        let mut content = Vec::with_capacity(b.consumed);
+                        write_block_edited(&mut content, b, edits);
+                        section(&mut out, "tgbl", 0, &content);
+                    }
+                }
+            }
+            Value::Struct { children } => {
+                let content = write_children_edited(children, edits);
+                section(&mut out, "tgst", content.len() as u32, &content);
+            }
+            Value::StringId(b) => section(&mut out, "tgsi", 0, &swap(b)),
+            Value::Data(b) => section(&mut out, "tgda", 0, &swap(b)),
+            Value::TagRef(b) => section(&mut out, "tgrf", 0, &swap(b)),
+            Value::Phantom => section(&mut out, "tgst", 0, &[]),
+            Value::Array { children } => {
+                for element in children {
+                    match element {
+                        Value::Struct { children } => {
+                            out.extend_from_slice(&write_children_edited(children, edits))
+                        }
+                        other => out.extend_from_slice(&write_children_edited(
+                            std::slice::from_ref(other),
+                            edits,
+                        )),
+                    }
+                }
+            }
+            Value::Resource {
+                kind,
+                version,
+                body,
+            } => {
+                out.extend_from_slice(&[b'c', *kind, b'g', b't']);
+                out.extend_from_slice(&version.to_le_bytes());
+                out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                out.extend_from_slice(body);
+            }
+        }
+    }
     out
 }
 
@@ -142,6 +294,64 @@ fn write_children(children: &[Value<'_>], sub: Option<&Substitution<'_>>) -> Vec
         }
     }
     out
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+
+    /// A one-element block whose element is four bytes of packed data.
+    fn block(file: &[u8]) -> Block<'_> {
+        Block {
+            struct_index: 0,
+            count: 1,
+            flags: 1,
+            element_size: 4,
+            elements: &file[8..12],
+            children: Vec::new(),
+            consumed: 12,
+        }
+    }
+
+    #[test]
+    fn no_edits_reproduces_the_original_bytes() {
+        let file: Vec<u8> = (0..12u8).collect();
+        let b = block(&file);
+        assert_eq!(write_block_edits(&b, &Edits::new(&file)), write_block(&b));
+    }
+
+    #[test]
+    fn an_inline_fix_lands_at_its_file_offset() {
+        let file: Vec<u8> = (0..12u8).collect();
+        let b = block(&file);
+        let mut edits = Edits::new(&file);
+        // Offset 9 is the second byte of the packed element.
+        edits.inline.insert(9, vec![0xAA, 0xBB]);
+        let out = write_block_edits(&b, &edits);
+        // count | flags | elements
+        assert_eq!(&out[8..12], &[8, 0xAA, 0xBB, 11]);
+    }
+
+    #[test]
+    fn an_inline_fix_outside_the_elements_is_ignored() {
+        let file: Vec<u8> = (0..12u8).collect();
+        let b = block(&file);
+        let mut edits = Edits::new(&file);
+        edits.inline.insert(0, vec![0xFF]);
+        assert_eq!(write_block_edits(&b, &edits), write_block(&b));
+    }
+
+    #[test]
+    fn an_inline_fix_is_clipped_rather_than_overrunning() {
+        let file: Vec<u8> = (0..12u8).collect();
+        let b = block(&file);
+        let mut edits = Edits::new(&file);
+        // Three bytes written one byte before the end of the element.
+        edits.inline.insert(11, vec![1, 2, 3]);
+        let out = write_block_edits(&b, &edits);
+        assert_eq!(out.len(), 12);
+        assert_eq!(out[11], 1);
+    }
 }
 
 /// Bytes a serialised block will occupy, without building it.

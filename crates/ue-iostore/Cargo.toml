@@ -10,3 +10,4 @@ repository.workspace = true
 thiserror.workspace = true
 flate2.workspace = true
 libloading.workspace = true
+oozextract.workspace = true

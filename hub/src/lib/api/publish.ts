@@ -32,6 +32,7 @@ import {
   releaseFromRow,
 } from "./schemas";
 import { MAX_ARCHIVE_BYTES, SCANNER_VERSION, scanArchive } from "./scan";
+import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 
 type Ctx = Context<ApiEnv>;
@@ -178,9 +179,11 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
 
       const id = crypto.randomUUID();
       try {
+        // published_by is attribution: which account made this release, as
+        // distinct from which account owns the mod.
         await c.env.DB.prepare(
-          `INSERT INTO mod_releases (id, mod_id, version, channel, changelog_md, build_min, build_max, status)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')`,
+          `INSERT INTO mod_releases (id, mod_id, version, channel, changelog_md, build_min, build_max, status, published_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)`,
         )
           .bind(
             id,
@@ -190,6 +193,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
             body.changelog_md ?? null,
             body.build_min ?? null,
             body.build_max ?? null,
+            user.id,
           )
           .run();
       } catch (e) {
@@ -290,7 +294,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      const { release } = await ownedRelease(c, id);
+      const { user, release } = await ownedRelease(c, id);
       if (release.status !== "pending" || !release.r2_key) {
         return c.json(
           { error: "not_ready", message: "Upload an archive first; scans run on pending releases." },
@@ -310,8 +314,61 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           code: "version_mismatch",
           message: `mjolnir.json says ${scan.manifest.version}, release is ${release.version}.`,
         });
-        scan.verdict = "fail";
       }
+
+      // Author signature. The crypto check is self-contained; the identity
+      // check is against the key registry: signer, registered key owner and
+      // uploader must all be the same account (docs/mod_signing_design.md).
+      const sig = await checkArchiveSignature(
+        scan.files,
+        release.mod_slug as string,
+        release.version as string,
+      );
+      let signingKeyId: string | null = null;
+      let signerFingerprint: string | null = null;
+      if (sig.state === "absent") {
+        const required = ["1", "true"].includes((c.env.REQUIRE_SIGNED_UPLOADS ?? "").toLowerCase());
+        scan.findings.push({
+          level: required ? "error" : "warning",
+          code: "unsigned",
+          message: required
+            ? "This hub requires author-signed uploads; publish from a tag editor with a signing key."
+            : "No author signature. Publishing from the tag editor signs releases automatically.",
+        });
+      } else if (sig.state === "invalid") {
+        // Present-and-wrong never downgrades to a warning: a broken
+        // signature on an archive is what tampering looks like.
+        scan.findings.push({ level: "error", code: "bad_signature", message: sig.message });
+      } else {
+        const keyRow = await c.env.DB.prepare(
+          `SELECT id, user_id, revoked_at FROM user_keys WHERE fingerprint = ?1`,
+        )
+          .bind(sig.signature.fingerprint)
+          .first<{ id: string; user_id: string; revoked_at: string | null }>();
+        if (!keyRow || keyRow.user_id !== user.id || keyRow.revoked_at) {
+          scan.findings.push({
+            level: "error",
+            code: "foreign_signature",
+            message: !keyRow
+              ? "The signing key is not registered to any account. Register it from the tag editor and retry."
+              : keyRow.revoked_at
+                ? "The signing key has been revoked."
+                : "The signing key is registered to a different account.",
+          });
+        } else if (sig.signature.authorId && sig.signature.authorId !== user.id) {
+          scan.findings.push({
+            level: "error",
+            code: "foreign_signature",
+            message: "The signed statement names a different account than the uploader.",
+          });
+        } else {
+          signingKeyId = keyRow.id;
+          signerFingerprint = sig.signature.fingerprint;
+        }
+      }
+
+      // Findings accumulated after the scan feed the verdict too.
+      scan.verdict = scan.findings.some((f) => f.level === "error") ? "fail" : "pass";
 
       const statements = [
         c.env.DB.prepare(
@@ -325,11 +382,17 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           SCANNER_VERSION,
         ),
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
-        c.env.DB.prepare(`UPDATE mod_releases SET status = ?2 WHERE id = ?1`).bind(
-          id,
-          scan.verdict === "pass" ? "published" : "rejected",
-        ),
+        c.env.DB.prepare(
+          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3 WHERE id = ?1`,
+        ).bind(id, scan.verdict === "pass" ? "published" : "rejected", signingKeyId),
       ];
+      if (signingKeyId) {
+        statements.push(
+          c.env.DB.prepare(`UPDATE user_keys SET last_used_at = datetime('now') WHERE id = ?1`).bind(
+            signingKeyId,
+          ),
+        );
+      }
       if (scan.verdict === "pass") {
         // A first published release takes its draft mod live with it.
         statements.push(
@@ -366,6 +429,10 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           chunk_count: scan.verdict === "pass" ? scan.chunkIds.length : 0,
           findings: scan.findings,
           created_at: release.created_at as string,
+          published_by: (release.published_by as string) ?? user.id,
+          published_by_username: user.display_name ?? user.discord_username,
+          signer_fingerprint: signerFingerprint,
+          signer_key_revoked: false,
         },
         200,
       );
@@ -391,7 +458,17 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      const release = await c.env.DB.prepare(`SELECT * FROM mod_releases WHERE id = ?1`)
+      const release = await c.env.DB.prepare(
+        `SELECT r.*,
+                u.display_name AS publisher_display_name,
+                u.discord_username AS publisher_discord_username,
+                k.fingerprint AS signer_fingerprint,
+                k.revoked_at AS signer_key_revoked_at
+         FROM mod_releases r
+         LEFT JOIN users u ON u.id = r.published_by
+         LEFT JOIN user_keys k ON k.id = r.signing_key_id
+         WHERE r.id = ?1`,
+      )
         .bind(id)
         .first<Record<string, unknown>>();
       if (!release) return c.json({ error: "not_found" }, 404);
@@ -420,6 +497,13 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           chunk_count: chunks?.n ?? 0,
           findings: scan ? JSON.parse(scan.findings) : [],
           created_at: release.created_at as string,
+          published_by: (release.published_by as string) ?? null,
+          published_by_username:
+            ((release.publisher_display_name as string) ??
+              (release.publisher_discord_username as string)) ||
+            null,
+          signer_fingerprint: (release.signer_fingerprint as string) ?? null,
+          signer_key_revoked: Boolean(release.signer_key_revoked_at),
         },
         200,
       );

@@ -1,17 +1,21 @@
 import { tagLabel, useEditor } from "../stores/editor-store";
 import { FileBrowser } from "./FileBrowser";
+import { ModPanel } from "./ModPanel";
 
-/** What each left-panel mode is for, since three tabs need distinguishing. */
+/** What each left-panel mode is for, since five tabs need distinguishing. */
 const MODES = [
   { id: "files", label: "files", hint: "Browse every asset by path, like a file dialog" },
   { id: "tags", label: "groups", hint: "Browse tags by their Blam group" },
   { id: "textures", label: "textures", hint: "Browse texture assets only" },
+  { id: "sounds", label: "sounds", hint: "Browse the Wwise audio banks" },
+  { id: "mod", label: "mod", hint: "Your mod: its changes, test install, export and publish" },
 ] as const;
 
 /** Left panel: mode tabs, search, and the listing for the chosen mode. */
 export function TagTree() {
   const { browse } = useEditor();
   const setBrowse = useEditor((s) => s.setBrowse);
+  const project = useEditor((s) => s.project);
 
   return (
     <div className="flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-r border-border-subtle">
@@ -22,13 +26,21 @@ export function TagTree() {
             type="button"
             onClick={() => setBrowse(mode.id)}
             title={mode.hint}
-            className={`flex-1 px-3 py-2 text-xs uppercase tracking-wider ${
+            className={`relative flex-1 whitespace-nowrap px-2 py-2 text-[11px] uppercase tracking-wide ${
               browse === mode.id
                 ? "border-b-2 border-mjolnir-gold text-mjolnir-gold"
                 : "text-text-dim hover:text-text-secondary"
             }`}
           >
             {mode.label}
+            {mode.id === "mod" && project && (
+              // Absolute so the indicator costs no width. Inline, it pushed the
+              // label past the tab and wrapped the dot onto its own line.
+              <span
+                className="absolute right-1 top-1.5 h-1.5 w-1.5 rounded-full bg-mjolnir-gold"
+                title={`${project.meta.name} is open`}
+              />
+            )}
           </button>
         ))}
       </div>
@@ -36,8 +48,12 @@ export function TagTree() {
         <FileBrowser />
       ) : browse === "tags" ? (
         <TagList />
-      ) : (
+      ) : browse === "textures" ? (
         <TextureList />
+      ) : browse === "sounds" ? (
+        <SoundList />
+      ) : (
+        <ModPanel />
       )}
     </div>
   );
@@ -185,6 +201,76 @@ function TextureList() {
         {textures.length === 0 && (
           <li className="px-3 py-4 text-xs text-text-dim">No textures found.</li>
         )}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Wwise audio list with search.
+ *
+ * Wwise names its media by numeric short ID. Where a cooked event package
+ * claims one, its event name leads the row and the ID drops to a subtitle;
+ * unclaimed media has nothing better to show than the number.
+ */
+function SoundList() {
+  const { sounds, soundQuery, selectedSound, soundsLoading } = useEditor();
+  const searchSounds = useEditor((s) => s.searchSounds);
+  const openTab = useEditor((s) => s.openTab);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border-subtle p-3">
+        <input
+          type="search"
+          value={soundQuery}
+          onChange={(e) => void searchSounds(e.target.value)}
+          placeholder="Search sounds by ID or language…"
+          className="w-full border border-border-subtle bg-surface-card px-3 py-2 text-sm outline-none placeholder:text-text-dim focus:border-mjolnir-gold"
+        />
+      </div>
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {sounds.map((s) => {
+          const id = s.path.split("/").pop() ?? s.path;
+          return (
+            <li key={s.index}>
+              <button
+                type="button"
+                onClick={() => void openTab("sound", s.index, s.event ?? id)}
+                className={`flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
+                  selectedSound === s.index
+                    ? "bg-surface-card text-mjolnir-gold"
+                    : "text-text-secondary"
+                }`}
+                title={s.event ? `${s.event}\n${s.path}` : s.path}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{s.event ?? id}</span>
+                  {s.event && (
+                    <span className="block truncate text-[10px] text-text-dim">{id}</span>
+                  )}
+                </span>
+                <span className="ml-2 shrink-0 text-[10px] text-text-dim">
+                  {s.language ?? "shared"}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        {sounds.length === 0 &&
+          // The first listing builds the name index, which takes seconds; an
+          // empty list has to say "waiting", not "none".
+          (soundsLoading ? (
+            <li className="flex items-center gap-2 px-3 py-4 text-xs text-text-dim">
+              <span
+                className="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border border-text-dim border-t-transparent"
+                aria-hidden="true"
+              />
+              Reading the sound banks…
+            </li>
+          ) : (
+            <li className="px-3 py-4 text-xs text-text-dim">No sounds found.</li>
+          ))}
       </ul>
     </div>
   );

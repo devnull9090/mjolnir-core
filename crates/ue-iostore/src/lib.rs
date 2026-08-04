@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub mod oodle;
 pub mod pack;
+pub mod pak;
 pub mod toc;
 
 pub const TOC_MAGIC: &[u8; 16] = b"-==--==--==--==-";
@@ -46,10 +47,8 @@ pub enum Error {
     Truncated { wanted: usize, have: usize },
     #[error("unsupported compression method {0:?}")]
     UnsupportedCompression(String),
-    #[error("no oo2core_*_win64.dll found; supply a path to one from a local UE install")]
-    OodleMissing,
-    #[error("failed to load Oodle: {0}")]
-    OodleLoad(String),
+    #[error("Oodle decode failed: {0}")]
+    OodlePure(String),
     #[error("Oodle decompress returned {got}, expected {want}")]
     OodleDecompress { got: i64, want: usize },
     #[error("zlib decompress failed: {0}")]
@@ -414,7 +413,7 @@ pub fn load_container(utoc_path: impl AsRef<Path>) -> Result<Container, Error> {
     })
 }
 
-fn decompress(
+pub(crate) fn decompress(
     method: &str,
     src: &[u8],
     out_size: usize,

@@ -43,11 +43,28 @@ export function ReleaseList({
                   signed
                 </Badge>
               )}
+              {r.signer_fingerprint &&
+                (r.signer_key_revoked ? (
+                  <Badge
+                    tone="amber"
+                    title="Author-signed, but the signing key has since been revoked."
+                  >
+                    key revoked
+                  </Badge>
+                ) : (
+                  <Badge
+                    tone="green"
+                    title={`Author-signed: the archive contents verified against key ${r.signer_fingerprint.slice(0, 16)}… at publish.`}
+                  >
+                    author-signed
+                  </Badge>
+                ))}
             </div>
             {action?.(r)}
           </div>
           <div className="text-[11px] text-[var(--mj-text-dim)]">
             {timeAgo(r.created_at)} · {formatBytes(r.file_size)} · {r.download_count} downloads
+            {r.published_by_username && <> · published by {r.published_by_username}</>}
           </div>
           {r.sha256 && (
             <div

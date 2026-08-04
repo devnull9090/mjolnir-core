@@ -2332,11 +2332,12 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-launcher"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "dirs",
  "ed25519-dalek",
  "hex",
+ "mjolnir-sign",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2347,6 +2348,18 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "mjolnir-sign"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

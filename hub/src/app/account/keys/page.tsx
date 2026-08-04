@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { Copy, Fingerprint, KeyRound, Plus, Trash2 } from "lucide-react";
 
 import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
@@ -23,6 +23,14 @@ interface Key {
   created_at: string;
 }
 
+interface SigningKey {
+  id: string;
+  fingerprint: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export default function ApiKeysPage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [keys, setKeys] = useState<Key[]>([]);
@@ -32,16 +40,28 @@ export default function ApiKeysPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [signingKeys, setSigningKeys] = useState<SigningKey[]>([]);
+
   const load = useCallback(
     () =>
-      fetch("/api/v1/account/api-keys")
-        .then((r) => {
-          setSignedIn(r.ok);
-          return r.ok ? r.json() : { keys: [] };
-        })
-        .then((d) => setKeys(d.keys)),
+      Promise.all([
+        fetch("/api/v1/account/api-keys")
+          .then((r) => {
+            setSignedIn(r.ok);
+            return r.ok ? r.json() : { keys: [] };
+          })
+          .then((d) => setKeys(d.keys)),
+        fetch("/api/v1/account/signing-keys")
+          .then((r) => (r.ok ? r.json() : { keys: [] }))
+          .then((d) => setSigningKeys(d.keys)),
+      ]),
     [],
   );
+
+  const revokeSigningKey = async (id: string) => {
+    await fetch(`/api/v1/account/signing-keys/${id}`, { method: "DELETE" });
+    await load();
+  };
 
   useEffect(() => {
     void load();
@@ -190,6 +210,55 @@ export default function ApiKeysPage() {
                 </div>
               ))}
               {keys.length === 0 && <p className="text-sm text-text-dim">No keys yet.</p>}
+            </div>
+
+            {/* Signing keys — registered by the tag editor, one per device.
+                Revoking one stops future uploads signed with it; releases it
+                already signed keep their history. */}
+            <h2 className="flex items-center gap-2 text-xl font-black text-foreground mt-12 mb-2">
+              <Fingerprint className="w-5 h-5 text-gold" />
+              Signing keys
+            </h2>
+            <p className="text-text-muted text-sm mb-4">
+              Each device you publish from signs your releases with its own key, registered
+              here automatically. Revoke anything you don&rsquo;t recognize — future uploads
+              signed with it will be rejected.
+            </p>
+            <div className="space-y-2">
+              {signingKeys.map((k) => (
+                <div
+                  key={k.id}
+                  className="flex items-center gap-3 rounded-lg border border-border px-4 py-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{k.label}</span>
+                      <code className="text-[11px] font-mono text-text-dim">
+                        {k.fingerprint.slice(0, 16)}…
+                      </code>
+                    </div>
+                    <div className="text-[11px] text-text-dim mt-0.5">
+                      added {k.created_at.slice(0, 10)}
+                      {k.last_used_at
+                        ? ` · last signed ${k.last_used_at.slice(0, 10)}`
+                        : " · never used"}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => revokeSigningKey(k.id)}
+                    className="text-text-dim hover:text-red-400"
+                    aria-label={`Revoke ${k.label}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              {signingKeys.length === 0 && (
+                <p className="text-sm text-text-dim">
+                  None yet. Publishing from the MJOLNIR Tag Editor registers this device&rsquo;s
+                  key automatically.
+                </p>
+              )}
             </div>
           </>
         )}

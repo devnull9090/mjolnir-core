@@ -328,7 +328,10 @@ impl Toc {
             put_le(&mut out, b.uncompressed_size as u64, 3);
             out.push(b.method_index);
             // Any bytes past the twelve this format defines.
-            out.resize(out.len() + self.block_entry_size.saturating_sub(12) as usize, 0);
+            out.resize(
+                out.len() + self.block_entry_size.saturating_sub(12) as usize,
+                0,
+            );
         }
 
         for m in &self.methods {
@@ -376,35 +379,51 @@ impl Toc {
             .collect()
     }
 
-    /// Find a chunk's entry index the way the engine does.
-    ///
-    /// This is the reader's algorithm, kept faithful on purpose: it is the
-    /// oracle the packer's tests resolve every chunk through, so a hash table
-    /// the packer writes wrong fails here rather than in the game.
+    /// Resolve through the perfect-hash tables alone, with no overflow scan.
     ///
     /// Seed-table slot is `hash(0, id) % seed_count`. A zero seed means no
     /// chunk hashed there; a negative seed is the entry index directly,
     /// `-seed - 1`, used for buckets holding one chunk; a positive seed
     /// rehashes, `hash(seed, id) % entry_count`. Either way the ID at the
-    /// resulting slot must match, otherwise the overflow list is scanned.
+    /// resulting slot must match.
+    ///
+    /// This is what anything checking a container it just *wrote* should use.
+    /// `find_chunk` additionally scans the overflow list, which makes it a
+    /// more forgiving oracle than the game: no shipped container populates
+    /// that list, and a mod container that relied on it was not read at all in
+    /// game while resolving perfectly here. A packer bug shipped through
+    /// exactly that gap.
+    ///
+    /// `None` for a pre-perfect-hash container, which has no tables to consult.
+    pub fn find_chunk_by_hash(&self, id: &ChunkId) -> Option<usize> {
+        let n = self.chunk_ids.len();
+        let seeds = self.perfect_hash_seeds();
+        if n == 0 || self.version < VER_PERFECT_HASH || seeds.is_empty() {
+            return None;
+        }
+        let seed = seeds[(hash_chunk_id_with_seed(0, id) % seeds.len() as u64) as usize];
+        if seed == 0 {
+            return None;
+        }
+        let slot = if seed < 0 {
+            (-(seed as i64) - 1) as usize
+        } else {
+            (hash_chunk_id_with_seed(seed, id) % n as u64) as usize
+        };
+        (slot < n && self.chunk_ids[slot] == *id).then_some(slot)
+    }
+
+    /// Find a chunk's entry index the way the engine's reader does: the
+    /// perfect hash first, then the overflow list.
     pub fn find_chunk(&self, id: &ChunkId) -> Option<usize> {
         let n = self.chunk_ids.len();
         if n == 0 {
             return None;
         }
 
-        let seeds = self.perfect_hash_seeds();
-        if self.version >= VER_PERFECT_HASH && !seeds.is_empty() {
-            let seed = seeds[(hash_chunk_id_with_seed(0, id) % seeds.len() as u64) as usize];
-            if seed != 0 {
-                let slot = if seed < 0 {
-                    (-(seed as i64) - 1) as usize
-                } else {
-                    (hash_chunk_id_with_seed(seed, id) % n as u64) as usize
-                };
-                if slot < n && self.chunk_ids[slot] == *id {
-                    return Some(slot);
-                }
+        if self.version >= VER_PERFECT_HASH && !self.perfect_hash_seeds().is_empty() {
+            if let Some(slot) = self.find_chunk_by_hash(id) {
+                return Some(slot);
             }
             return self
                 .overflow_indices()

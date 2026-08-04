@@ -1,4 +1,5 @@
 import { useEditor } from "../stores/editor-store";
+import { Spinner } from "./LoadingPanel";
 import type { DirEntry } from "../lib/api";
 
 /** Bytes, at the precision a file listing actually needs. */
@@ -63,20 +64,13 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
   const tabs = useEditor((s) => s.tabs);
 
   const isDir = entry.kind === "dir";
+  // Anything that is not a folder opens as a document of its own kind.
+  const kind = entry.kind === "dir" ? "tag" : entry.kind;
   const open = isDir
     ? () => void openDir(entry.path)
-    : () =>
-        void openTab(
-          entry.kind === "texture" ? "texture" : "tag",
-          entry.index ?? 0,
-          entry.name,
-        );
+    : () => void openTab(kind, entry.index ?? 0, entry.name);
 
-  const isOpen =
-    !isDir &&
-    tabs.some(
-      (t) => t.kind === (entry.kind === "texture" ? "texture" : "tag") && t.index === entry.index,
-    );
+  const isOpen = !isDir && tabs.some((t) => t.kind === kind && t.index === entry.index);
 
   // In search results the name alone is ambiguous, so show where it lives.
   const parent = entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/")));
@@ -98,10 +92,12 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
               ? "text-text-dim"
               : entry.kind === "texture"
                 ? "text-accent-blue"
-                : "text-mjolnir-gold/70"
+                : entry.kind === "sound"
+                  ? "text-accent-green"
+                  : "text-mjolnir-gold/70"
           }`}
         >
-          {isDir ? "▸" : entry.kind === "texture" ? "▣" : "◆"}
+          {isDir ? "▸" : entry.kind === "texture" ? "▣" : entry.kind === "sound" ? "♪" : "◆"}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-mono text-xs">{entry.name}</span>
@@ -170,11 +166,17 @@ export function FileBrowser() {
         {entries.map((e) => (
           <Row key={`${e.kind}-${e.path}`} entry={e} showPath={searching} />
         ))}
-        {entries.length === 0 && (
-          <li className="px-3 py-4 text-xs text-text-dim">
-            {dirLoading ? "Reading…" : searching ? "Nothing matched." : "Empty."}
-          </li>
-        )}
+        {entries.length === 0 &&
+          (dirLoading ? (
+            <li className="flex items-center gap-2 px-3 py-4 text-xs text-text-dim">
+              <Spinner className="h-3 w-3" />
+              {searching ? "Searching…" : "Reading…"}
+            </li>
+          ) : (
+            <li className="px-3 py-4 text-xs text-text-dim">
+              {searching ? "Nothing matched." : "Empty."}
+            </li>
+          ))}
       </ul>
     </div>
   );

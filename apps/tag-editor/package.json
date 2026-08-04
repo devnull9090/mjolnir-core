@@ -1,14 +1,14 @@
 {
   "name": "tag-editor",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "app:dev": "tauri dev --no-default-features",
+    "app:dev": "tauri dev -- --no-default-features",
     "app:build": "tauri build"
   },
   "dependencies": {

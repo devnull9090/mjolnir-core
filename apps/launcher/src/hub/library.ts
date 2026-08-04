@@ -22,6 +22,13 @@ export interface InstalledMod {
   installed_at: number | null;
   signature_verified: boolean;
   container_hashes: Record<string, string>;
+  /** Author signing-key fingerprint this launcher verified at install. */
+  signer_fingerprint?: string | null;
+  /** Hub account id that published the installed release. */
+  published_by?: string | null;
+  /** Key changed / signature disappeared / key revoked — worth keeping
+   *  in front of the user. */
+  signature_notice?: string | null;
 }
 
 export interface ProfileEntry {

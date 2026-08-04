@@ -1,6 +1,14 @@
+import type { Tab } from "../stores/editor-store";
 import { useEditor } from "../stores/editor-store";
 
-/** The strip of open documents: tags and textures, with dirty markers. */
+/** Short badge and colour for each document kind. */
+const KINDS: Record<Tab["kind"], { badge: string; color: string }> = {
+  tag: { badge: "tag", color: "text-mjolnir-gold" },
+  texture: { badge: "tex", color: "text-accent-blue" },
+  sound: { badge: "snd", color: "text-accent-green" },
+};
+
+/** The strip of open documents: tags, textures and sounds, with dirty markers. */
 export function TabBar() {
   const { tabs, activeTab, dirtyTags } = useEditor();
   const activateTab = useEditor((s) => s.activateTab);
@@ -31,12 +39,8 @@ export function TabBar() {
               title={tab.label}
               className="flex min-w-0 items-center gap-1.5 py-1.5 pl-3 pr-1 text-xs"
             >
-              <span
-                className={`shrink-0 font-mono text-[9px] uppercase ${
-                  tab.kind === "tag" ? "text-mjolnir-gold" : "text-accent-blue"
-                }`}
-              >
-                {tab.kind === "tag" ? "tag" : "tex"}
+              <span className={`shrink-0 font-mono text-[9px] uppercase ${KINDS[tab.kind].color}`}>
+                {KINDS[tab.kind].badge}
               </span>
               <span className="min-w-0 truncate font-mono">{tab.label}</span>
               {dirty && (

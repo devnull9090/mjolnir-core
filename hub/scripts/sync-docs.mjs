@@ -22,10 +22,15 @@ const GITHUB_BLOB = "https://github.com/devnull9090/mjolnir-core/blob/main/docs"
 const ORDER = [
   "tag_data_pipeline.md",
   "tag_body_format.md",
+  "iostore_packaging.md",
+  "ue_texture_format.md",
+  "wwise_audio_format.md",
   "halosimulation_tag_release.md",
   "multiplayer_investigation_notes.md",
   "mjolnir_format.md",
   "hub_architecture.md",
+  "mod_authoring_design.md",
+  "mod_signing_design.md",
   "contributing_code_mods.md",
 ];
 
@@ -33,7 +38,12 @@ const ORDER = [
  * Guides are task-shaped: follow them start to finish and you have done the
  * thing. Notes are the working history behind them, superseded turns included.
  */
-const GUIDES = ["getting_started.md", "tag_editing_guide.md", "game_automation.md"];
+const GUIDES = [
+  "getting_started.md",
+  "making_your_first_mod.md",
+  "tag_editing_guide.md",
+  "game_automation.md",
+];
 
 function slugify(fileName) {
   return fileName.replace(/\.md$/i, "").replace(/_/g, "-").toLowerCase();
@@ -126,6 +136,18 @@ for (const name of ORDER.filter((name) => present.has(name))) {
 const missingGuides = GUIDES.filter((name) => !present.has(name));
 if (missingGuides.length > 0) {
   console.warn(`sync-docs: skipping missing guide(s): ${missingGuides.join(", ")}`);
+}
+
+// A doc in neither list is never published, and any `[…](that.md)` link from a
+// doc that *is* published resolves to a 404. That is how three format notes went
+// missing for months, so say so rather than ignoring it quietly.
+const listed = new Set([...ORDER, ...GUIDES]);
+const unlisted = [...present].filter((name) => !listed.has(name)).sort();
+if (unlisted.length > 0) {
+  console.warn(
+    `sync-docs: ${unlisted.length} doc(s) in neither ORDER nor GUIDES, so not published: ` +
+      `${unlisted.join(", ")}. Add them to a list, or accept that links to them 404.`,
+  );
 }
 const guides = [];
 for (const name of GUIDES.filter((name) => present.has(name))) {

@@ -39,6 +39,9 @@ export interface ScanResult {
   /** Deduped raw 12-byte chunk IDs across every container in the archive. */
   chunkIds: Uint8Array[];
   containerCount: number;
+  /** The unzipped archive, so later steps (signature verification) never
+   *  unzip a second time. Empty when the zip did not open. */
+  files: Record<string, Uint8Array>;
 }
 
 export function scanArchive(bytes: Uint8Array): ScanResult {
@@ -59,7 +62,7 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
     });
   } catch (e) {
     err("bad_zip", `Archive did not unzip: ${e instanceof Error ? e.message : e}`);
-    return { verdict: "fail", findings, manifest: null, chunkIds: [], containerCount: 0 };
+    return { verdict: "fail", findings, manifest: null, chunkIds: [], containerCount: 0, files: {} };
   }
 
   // Path hygiene before anything is trusted.
@@ -137,5 +140,6 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
     manifest,
     chunkIds: [...seen.values()],
     containerCount: utocs.length,
+    files,
   };
 }

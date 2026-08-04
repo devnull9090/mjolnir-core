@@ -135,10 +135,15 @@ comfortably enough to read HUD counters. Raise `max_width` for genuinely small t
 
 ## Hazards
 
-**`open` from the frontend menu crashes the game.** Verified: `EXCEPTION_ACCESS_VIOLATION`
-reading `0x1c`, a couple of minutes into the load. `open` skips the setup the campaign flow
-performs. `game_travel` now refuses from the frontend unless forced. Start missions through the
-menus with `game_input` — the resume slot is two Enters from launch.
+**`open` from the frontend menu crashes the game — and solo-to-solo travel does too.**
+Verified: `EXCEPTION_ACCESS_VIOLATION` reading `0x1c`, a couple of minutes into the load.
+`open` skips the setup the campaign flow performs. `game_travel` refuses from the frontend
+unless forced, but the 2026-08-02 resize experiment hit the identical crash travelling
+`open a30` from *inside* mission A15, so treat solo-to-solo travel as unsafe too. Start
+missions through the menus with `game_input`: the resume slot is two Enters from launch, and
+mission select is Campaign → New Game → difficulty → mission → two Enters through the skulls
+screen (Enter is "start" there — Space toggles the hovered skull, so keep the cursor off
+Bandana).
 
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.

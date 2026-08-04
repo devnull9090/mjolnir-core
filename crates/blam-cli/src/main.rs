@@ -12,6 +12,7 @@ use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
 mod defs;
+mod hsc;
 mod index;
 
 fn hex(bytes: &[u8]) -> String {
@@ -34,14 +35,16 @@ struct Source {
     /// Path to the game's `Meteorite/Content/Paks` directory.
     #[arg(long, env = "HCE_PAKS")]
     paks: PathBuf,
-    /// Path to `oo2core_*_win64.dll`, or a directory containing one.
+    /// Path to `oo2core_*_win64.dll`, or a directory containing one. Optional:
+    /// without it the built-in decoder is used, which is slower but reads the
+    /// same bytes.
     #[arg(long, env = "OODLE")]
-    oodle: PathBuf,
+    oodle: Option<PathBuf>,
 }
 
 impl Source {
     fn oodle_roots(&self) -> Vec<PathBuf> {
-        vec![self.oodle.clone()]
+        self.oodle.clone().into_iter().collect()
     }
 }
 
@@ -85,6 +88,114 @@ enum Command {
     Chunk(ChunkArgs),
     /// Print or edit a tag payload already on disk, without the paks or Oodle.
     TagFile(TagFileArgs),
+    /// Change a field in the *running* game, without rebuilding or restarting.
+    Poke(PokeArgs),
+    /// Read the Blam script a scenario carries.
+    Script(ScriptArgs),
+    /// Recover the scripting function table and export it as JSON.
+    Scripting(ScriptingArgs),
+    /// Compile `.hsc` files and report what the compiler makes of them.
+    Compile(CompileArgs),
+}
+
+#[derive(Args)]
+struct CompileArgs {
+    /// The `.hsc` files to compile. They are compiled together, so a script in
+    /// one may call a script in another.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    /// Recovered scripting corpus, which supplies the function table.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    corpus: PathBuf,
+    /// Print the tree the compiler produced, decompiled.
+    #[arg(long)]
+    show: bool,
+}
+
+#[derive(Args)]
+struct ScriptingArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Output JSON path.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    out: PathBuf,
+    /// Build fingerprint to record in the corpus.
+    #[arg(long, default_value = "")]
+    build: String,
+    /// Report what was recovered without writing the file.
+    #[arg(long)]
+    dry_run: bool,
+    /// Share of agreeing observations needed to call a literal quoted.
+    #[arg(long, default_value_t = blam_hsc::corpus::DEFAULT_QUOTED_MAJORITY)]
+    quoted_threshold: f32,
+}
+
+#[derive(Args)]
+struct ScriptArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Substring of the scenario tag path to select, otherwise every scenario
+    /// is summarised.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Print this source file's text instead of the summary. Give the file's
+    /// name as the summary lists it, e.g. `a30_audio`.
+    #[arg(long)]
+    source: Option<String>,
+    /// List the scripts and globals the scenario declares.
+    #[arg(long)]
+    declarations: bool,
+    /// Render the compiled expression tree back to HSC. With a name, only that
+    /// script; without one, the whole scenario.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    decompile: Option<String>,
+    /// Decompile every script and compare it against the source the scenario
+    /// shipped with.
+    #[arg(long)]
+    verify: bool,
+    /// Compile the scenario's own source files back into an expression tree,
+    /// then decompile that and check every script comes back unchanged.
+    #[arg(long)]
+    recompile: bool,
+    /// Write the script section back unchanged and check the tag comes out byte
+    /// for byte identical.
+    #[arg(long)]
+    rewrite_check: bool,
+    /// Compile the scenario's own source, write it back into the tag, and check
+    /// the result still reads exactly.
+    #[arg(long)]
+    rebuild_check: bool,
+    /// With --verify, print the first few disagreements in full.
+    #[arg(long, default_value_t = 5)]
+    show: usize,
+    /// Recovered scripting corpus, used to know which literals are quoted.
+    /// Ignored if the file is absent.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    corpus: PathBuf,
+}
+
+#[derive(Args)]
+struct PokeArgs {
+    #[command(flatten)]
+    src: Source,
+    /// Group directory name, e.g. `biped`.
+    #[arg(long)]
+    group: String,
+    /// Substring of the tag path to select, otherwise the first tag is used.
+    #[arg(long)]
+    tag: Option<String>,
+    /// Field path, e.g. `jump velocity`.
+    #[arg(long)]
+    field: String,
+    /// New value, in the same form the inspector shows.
+    #[arg(long)]
+    value: String,
+    /// Attach to this pid instead of finding the game automatically.
+    #[arg(long)]
+    pid: Option<u32>,
+    /// Find the tag and report its live value, but change nothing.
+    #[arg(long)]
+    locate_only: bool,
 }
 
 #[derive(Args)]
@@ -333,6 +444,10 @@ fn main() -> Result<()> {
         Command::Pack(a) => pack(a),
         Command::Chunk(a) => chunk(a),
         Command::TagFile(a) => tag_file(a),
+        Command::Poke(a) => poke(a),
+        Command::Script(a) => script(a),
+        Command::Scripting(a) => scripting(a),
+        Command::Compile(a) => compile(a),
     }
 }
 
@@ -344,8 +459,8 @@ fn main() -> Result<()> {
 /// so bytes on disk are enough — including the uncompressed payload sitting in
 /// an override container we built ourselves.
 fn tag_file(a: TagFileArgs) -> Result<()> {
-    let file = std::fs::read(&a.file)
-        .with_context(|| format!("cannot read {}", a.file.display()))?;
+    let file =
+        std::fs::read(&a.file).with_context(|| format!("cannot read {}", a.file.display()))?;
     let tag = TagFile::parse(&file, Some(file.len()))?;
     let l = tag.layout()?;
     let block = tag
@@ -399,11 +514,7 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     println!("  field    {}  [{}]", applied.path, applied.type_name);
     println!("  before   {}", applied.before.display());
     println!("  after    {}", applied.after.display());
-    println!(
-        "  file     {} bytes -> {} bytes",
-        file.len(),
-        patched.len()
-    );
+    println!("  file     {} bytes -> {} bytes", file.len(), patched.len());
 
     // Re-reading is the real claim: an edit that does not walk is not an edit.
     let after = TagFile::parse(&patched, Some(patched.len()))?;
@@ -412,7 +523,9 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     let ap = after.data().context("patched tag has no bdat section")?;
     println!(
         "  re-read  {}",
-        blam_tag::patch::resolve(&al, &patched, &ab, field)?.current.display()
+        blam_tag::patch::resolve(&al, &patched, &ab, field)?
+            .current
+            .display()
     );
     println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
     if ab.consumed != ap.size as usize {
@@ -420,10 +533,15 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
     }
 
     if patched.len() == file.len() {
-        let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+        let d: Vec<usize> = (0..file.len())
+            .filter(|i| file[*i] != patched[*i])
+            .collect();
         println!("  differs  {} byte(s) from the original", d.len());
         for i in d.iter().take(8) {
-            println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+            println!(
+                "           0x{i:X}: {:02x} -> {:02x}",
+                file[*i], patched[*i]
+            );
         }
     }
 
@@ -431,7 +549,9 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
         Some(path) => {
             std::fs::write(path, &patched)?;
             println!("\n  wrote {}", path.display());
-            println!("  This is game content. Keep it local; the repository does not take tag data.");
+            println!(
+                "  This is game content. Keep it local; the repository does not take tag data."
+            );
         }
         None => println!("\n  dry run; pass --out <file> to write the patched tag"),
     }
@@ -487,7 +607,10 @@ fn data(a: DataArgs) -> Result<()> {
             offset += width;
         }
         println!("\n  root consumes {offset} of {} bytes", payload.size);
-        println!("  remaining     {} bytes", payload.size as usize - size as usize);
+        println!(
+            "  remaining     {} bytes",
+            payload.size as usize - size as usize
+        );
     }
 
     if a.hexdump > 0 {
@@ -497,7 +620,13 @@ fn data(a: DataArgs) -> Result<()> {
             let row = &payload.content[off..(off + 16).min(end)];
             let ascii: String = row
                 .iter()
-                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .map(|b| {
+                    if (32..127).contains(b) {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             println!("    {off:08x}  {:<47}  |{ascii}|", hex(row));
         }
@@ -516,7 +645,13 @@ fn data(a: DataArgs) -> Result<()> {
         let cc: String = content[off..off + 4]
             .iter()
             .rev()
-            .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+            .map(|b| {
+                if (32..127).contains(b) {
+                    *b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         *magics.entry(cc).or_default() += 1;
     }
@@ -577,7 +712,8 @@ fn roundtrip(a: ValidateArgs) -> Result<()> {
         by_group.values().map(|v| v[0]).collect()
     };
 
-    let (mut checked, mut identical, mut differs, mut unreadable) = (0usize, 0usize, 0usize, 0usize);
+    let (mut checked, mut identical, mut differs, mut unreadable) =
+        (0usize, 0usize, 0usize, 0usize);
     let mut bytes = 0u64;
 
     for entry in targets {
@@ -630,7 +766,11 @@ fn roundtrip(a: ValidateArgs) -> Result<()> {
 
     let pct = |n: usize| {
         let base = identical + differs;
-        if base == 0 { 0.0 } else { n as f64 * 100.0 / base as f64 }
+        if base == 0 {
+            0.0
+        } else {
+            n as f64 * 100.0 / base as f64
+        }
     };
     println!("checked {checked} tags");
     println!("  not readable, so not round-tripped  {unreadable}");
@@ -669,7 +809,13 @@ fn data_versions(a: SectionsArgs) -> Result<()> {
                 .magic
                 .iter()
                 .rev()
-                .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                .map(|b| {
+                    if (32..127).contains(b) {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             let e = hist.entry(name).or_default();
             e.0 += 1;
@@ -696,9 +842,7 @@ fn data_versions(a: SectionsArgs) -> Result<()> {
             versions.len()
         );
     }
-    println!(
-        "\nA writer can regenerate a version word only where one column equals `seen`."
-    );
+    println!("\nA writer can regenerate a version word only where one column equals `seen`.");
     Ok(())
 }
 
@@ -750,7 +894,9 @@ fn sections(a: SectionsArgs) -> Result<()> {
         for sec in &l.sections {
             let name = sec.name();
             candidates.push((format!("{name} bytes"), sec.size));
-            for width in [2u32, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72] {
+            for width in [
+                2u32, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 48, 56, 60, 64, 72,
+            ] {
                 if sec.size % width == 0 {
                     candidates.push((format!("{name}/{width}"), sec.size / width));
                 }
@@ -769,16 +915,20 @@ fn sections(a: SectionsArgs) -> Result<()> {
         }
     }
 
-    println!("{groups} groups
-");
+    println!(
+        "{groups} groups
+"
+    );
     println!("tgly child sections:");
     println!("  magic	groups	non_empty	max_size");
     for (magic, (n, nonempty, max)) in &seen {
         println!("  {magic}	{n}	{nonempty}	{max}");
     }
 
-    println!("
-blay preamble words (body 0x0C..0x4C), matches across groups:");
+    println!(
+        "
+blay preamble words (body 0x0C..0x4C), matches across groups:"
+    );
     for i in 0..19 {
         // Only report a candidate that holds for every group.
         let repr = matches
@@ -817,8 +967,7 @@ fn chunk(a: ChunkArgs) -> Result<()> {
         hits.sort();
         for (path, index) in hits {
             let entry = &container.chunks[*index];
-            let bytes =
-                ue_iostore::read_chunk(container, entry, None, &a.src.oodle_roots())?;
+            let bytes = ue_iostore::read_chunk(container, entry, None, &a.src.oodle_roots())?;
             println!(
                 "{}
   {} bytes, chunk id {:#018x} index {} type {} ({})",
@@ -846,7 +995,13 @@ fn chunk(a: ChunkArgs) -> Result<()> {
                 let row = &bytes[off..(off + 16).min(end)];
                 let ascii: String = row
                     .iter()
-                    .map(|b| if (32..127).contains(b) { *b as char } else { '.' })
+                    .map(|b| {
+                        if (32..127).contains(b) {
+                            *b as char
+                        } else {
+                            '.'
+                        }
+                    })
                     .collect();
                 println!("  {off:08x}  {:<47}  |{ascii}|", hex(row));
             }
@@ -930,98 +1085,49 @@ fn pack(a: PackArgs) -> Result<()> {
         anyhow::bail!("the patched tag no longer walks exactly");
     }
 
-    // The chunk ID is read straight out of the shipped index, so the override
-    // addresses exactly the chunk the game already asks for.
+    // Container construction is shared with the tag editor: blam-pack reuses
+    // the shipped chunk IDs and rewrites `BinaryBlobSize` when the payload
+    // resized. See that crate for the details this used to spell out inline.
     let source = &idx.containers[entry.container];
-    let source_toc = ue_iostore::toc::Toc::read(&source.utoc_path)?;
-    let id = source_toc
-        .chunk_ids
-        .iter()
-        .copied()
-        .find(|c| {
-            c.id == entry.chunk.chunk_id
-                && c.index == entry.chunk.chunk_index
-                && c.kind == entry.chunk.chunk_type
-        })
-        .context("could not find this tag's chunk in its container index")?;
-    println!(
-        "  chunk    id {:#018x} index {} type {} (from {})",
-        id.id,
-        id.index,
-        id.kind,
-        source
-            .utoc_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-    );
-
-    // A container ID distinct from every shipped one.
-    let container_id = 0x4D4A_4F4C_4E49_5200u64;
-    let slot = source_toc
-        .chunk_ids
-        .iter()
-        .position(|c| *c == id)
-        .context("chunk vanished from the index")?;
-
-    let mut chunks = vec![ue_iostore::pack::Entry {
-        id,
-        data: file.clone(),
-        meta: source_toc.meta(slot).unwrap_or(&[]).to_vec(),
-    }];
-
-    // The package header carries `BinaryBlobSize`, which the runtime exposes as
-    // a property. If the payload changed length, that copy has to change with
-    // it or the tag is self-inconsistent — and because it is readable in game,
-    // it doubles as proof of whether the override was used at all.
-    if file.len() != original.len() {
-        let pkg_slot = source_toc
-            .chunk_ids
-            .iter()
-            .position(|c| c.id == id.id && c.kind == 1)
-            .context("no package chunk beside this tag's payload")?;
-        let pkg_id = source_toc.chunk_ids[pkg_slot];
-        let pkg_entry = source
-            .chunks
-            .iter()
-            .find(|c| c.chunk_id == pkg_id.id && c.chunk_type == 1)
-            .context("package chunk missing from the container")?;
-        let mut pkg = ue_iostore::read_chunk(source, pkg_entry, None, &a.src.oodle_roots())?;
-
-        let needle = (original.len() as u32).to_le_bytes();
-        let at: Vec<usize> = pkg
-            .windows(4)
-            .enumerate()
-            .filter(|(_, w)| *w == needle)
-            .map(|(i, _)| i)
-            .collect();
-        if at.len() != 1 {
-            anyhow::bail!(
-                "expected exactly one copy of the blob size in the package header, found {}",
-                at.len()
-            );
-        }
-        pkg[at[0]..at[0] + 4].copy_from_slice(&(file.len() as u32).to_le_bytes());
+    let built = blam_pack::build_override(
+        source,
+        &a.src.oodle_roots(),
+        &[blam_pack::TagEdit {
+            label: entry.path.clone(),
+            chunk: entry.chunk,
+            original_len: original.len(),
+            patched: file.clone(),
+        }],
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+    for p in &built.entries {
         println!(
-            "  package  BinaryBlobSize at +{} : {} -> {}",
-            at[0],
-            original.len(),
-            file.len()
+            "  chunk    id {:#018x} index {} type {} (from {}){}",
+            p.id.id,
+            p.id.index,
+            p.id.kind,
+            source
+                .utoc_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy(),
+            if p.resized {
+                " — package BinaryBlobSize rewritten"
+            } else {
+                ""
+            }
         );
-        chunks.push(ue_iostore::pack::Entry {
-            id: pkg_id,
-            data: pkg,
-            meta: source_toc.meta(pkg_slot).unwrap_or(&[]).to_vec(),
-        });
     }
-
-    let built = ue_iostore::pack::build(&source_toc, container_id, &chunks);
 
     std::fs::create_dir_all(&a.out_dir)?;
     let utoc = a.out_dir.join(format!("{}.utoc", a.name));
     let ucas = a.out_dir.join(format!("{}.ucas", a.name));
     std::fs::write(&utoc, &built.utoc)?;
     std::fs::write(&ucas, &built.ucas)?;
+
+    // Byte-exact read-back first; the field prints below are for the human.
+    blam_pack::verify_written(&utoc, &a.src.oodle_roots(), &built.expect)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     println!("\n  wrote {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote {} ({} bytes)", ucas.display(), built.ucas.len());
@@ -1040,8 +1146,14 @@ fn pack(a: PackArgs) -> Result<()> {
     let l = tag.layout()?;
     let block = tag.read_data(&l)?;
     let payload = tag.data().context("no bdat section")?;
-    println!("\n  verify   read {} bytes back out of the container", bytes.len());
-    println!("  verify   walks {} of {} bytes", block.consumed, payload.size);
+    println!(
+        "\n  verify   read {} bytes back out of the container",
+        bytes.len()
+    );
+    println!(
+        "  verify   walks {} of {} bytes",
+        block.consumed, payload.size
+    );
     for set in &a.sets {
         if let Some((path, _)) = set.split_once('=') {
             let t = blam_tag::patch::resolve(&l, &bytes, &block, path)?;
@@ -1102,8 +1214,11 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
             if same { "identical".to_string() } else { first }
         );
     }
-    println!("
-{ok}/{} reproduced byte for byte, {differs} differ", paths.len());
+    println!(
+        "
+{ok}/{} reproduced byte for byte, {differs} differ",
+        paths.len()
+    );
     if differs > 0 {
         anyhow::bail!("{differs} container index(es) did not round-trip");
     }
@@ -1123,13 +1238,154 @@ fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
             path: String::new(),
         });
     }
-    let (group, path) = t
-        .split_once(':')
-        .context(r"a tag reference is written as <group>:<path>, e.g. coll:fx\holograms\hologram_01")?;
+    let (group, path) = t.split_once(':').context(
+        r"a tag reference is written as <group>:<path>, e.g. coll:fx\holograms\hologram_01",
+    )?;
     Ok(blam_tag::Scalar::Reference {
         group: group.trim().to_string(),
         path: path.trim().to_string(),
     })
+}
+
+/// Decode what the live process currently holds for a field.
+///
+/// The bytes in memory are whatever container won, so the live value is very
+/// often not the shipped one. Splicing them into a copy of the file and
+/// re-resolving reuses the ordinary decoder instead of duplicating per-type
+/// formatting here, so enums, bitfields and bounds print the way they do
+/// everywhere else.
+fn decode_live(
+    file: &[u8],
+    span: &std::ops::Range<usize>,
+    live: &[u8],
+    field: &str,
+) -> Option<String> {
+    let mut spliced = file.to_vec();
+    spliced.get_mut(span.clone())?.copy_from_slice(live);
+    let tag = TagFile::parse(&spliced, Some(spliced.len())).ok()?;
+    let layout = tag.layout().ok()?;
+    let block = tag.read_data(&layout).ok()?;
+    Some(
+        blam_tag::patch::resolve(&layout, &spliced, &block, field)
+            .ok()?
+            .current
+            .display(),
+    )
+}
+
+fn poke(a: PokeArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get(a.group.as_str())
+        .with_context(|| format!("unknown group {:?}", a.group))?;
+    let entry = match &a.tag {
+        Some(want) => entries
+            .iter()
+            .find(|e| e.path.contains(want))
+            .copied()
+            .with_context(|| format!("no {} tag matching {want:?}", a.group))?,
+        None => entries[0],
+    };
+
+    let file = idx.read(entry, None, &a.src.oodle_roots())?;
+    let tag = TagFile::parse(&file, Some(entry.chunk.length as usize))?;
+    let layout = tag.layout()?;
+    let block = tag.read_data(&layout)?;
+    let target = blam_tag::patch::resolve(&layout, &file, &block, &a.field)?;
+
+    // A section-backed value lives in a trailing section, so changing it moves
+    // every byte after it. In a file that is fine — the tag is rebuilt. In a
+    // live heap buffer there is nowhere for the extra bytes to go.
+    if target.section.is_some() {
+        anyhow::bail!(
+            "{:?} is a {} stored in a trailing section, so changing it resizes the tag. \
+             A live poke can only replace bytes in place — use `set` and rebuild the mod.",
+            a.field,
+            target.type_name
+        );
+    }
+
+    let parsed = blam_tag::value::parse(&layout, &target.field, &a.value)?;
+    let (patched, applied) = blam_tag::patch::set(&layout, &file, &block, &a.field, &parsed)?;
+    let span = target.file_offset..target.file_offset + target.size;
+    // Take the whole field from the patched file rather than only the bytes that
+    // differ from the shipped one. What is live may already be a modded value,
+    // so a diff against the file says nothing about what memory holds.
+    let bytes = patched
+        .get(span.clone())
+        .context("the field lies outside the tag payload")?
+        .to_vec();
+
+    let process = match a.pid {
+        Some(pid) => blam_live::Process::open(pid)?,
+        None => blam_live::Process::attach()?,
+    };
+
+    println!("{}", entry.path);
+    println!("  field    {}  [{}]", applied.path, applied.type_name);
+    println!("  process  pid {}", process.pid);
+
+    // Only the data section is resident in the process — the header and the
+    // layout tables are not per-tag — so the locator is pointed at that range.
+    let data = tag
+        .data()
+        .context("this tag has no bdat section to locate")?;
+    let data_start = data.content.as_ptr() as usize - file.as_ptr() as usize;
+    let region = data_start..data_start + data.content.len();
+
+    let at = blam_live::locate(&process, &file, &region, std::slice::from_ref(&span))?;
+    println!(
+        "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
+         {:.1} GB scanned)",
+        at.base,
+        at.agreeing_runs,
+        at.candidates,
+        at.scanned as f64 / 1e9
+    );
+    // Stated so it is not mistaken for a problem. Most of the data section is
+    // rewritten by the engine after load — offsets resolved, values computed —
+    // so a low figure here is normal. Agreement between runs is the evidence
+    // that this is the right address; this number is only colour.
+    println!(
+        "           {:.0}% of the data section is byte-identical to disk; the rest is the \
+         engine's own fix-ups",
+        at.match_fraction * 100.0
+    );
+
+    let live_before = blam_live::peek(&process, &at, span.start, target.size)?;
+    let shown = decode_live(&file, &span, &live_before, &a.field);
+    println!(
+        "  live     {}   (shipped {})",
+        shown.as_deref().unwrap_or("<unreadable>"),
+        applied.before.display()
+    );
+
+    if a.locate_only {
+        println!("\n  located only; pass without --locate-only to write");
+        return Ok(());
+    }
+
+    let read_back = blam_live::poke(&process, &at, span.start, &bytes)?;
+    let after = decode_live(&file, &span, &read_back, &a.field);
+    println!("  wrote    {}", applied.after.display());
+    println!(
+        "  re-read  {}  ({})",
+        after.as_deref().unwrap_or("<unreadable>"),
+        if read_back == bytes {
+            "bytes confirmed in the process"
+        } else {
+            "MISMATCH — the write did not stick"
+        }
+    );
+    if read_back != bytes {
+        anyhow::bail!("the value read back does not match what was written");
+    }
+    println!(
+        "\n  This changed the running game only. Nothing on disk moved, so it is gone at\n  \
+         the next launch, and the mod project is untouched."
+    );
+    Ok(())
 }
 
 fn set(a: SetArgs) -> Result<()> {
@@ -1196,15 +1452,25 @@ fn set(a: SetArgs) -> Result<()> {
         let al = after.layout()?;
         let ab = after.read_data(&al)?;
         let ap = after.data().context("patched tag has no bdat section")?;
-        println!("  re-read  {}", blam_tag::patch::resolve(&al, &patched, &ab, &a.field)?.current.display());
+        println!(
+            "  re-read  {}",
+            blam_tag::patch::resolve(&al, &patched, &ab, &a.field)?
+                .current
+                .display()
+        );
         println!("  walk     {} of {} bytes consumed", ab.consumed, ap.size);
         // A rebuild that changes nothing must reproduce the file exactly; that
         // is what shows the difference is the edit and not the rebuild.
         if patched.len() == file.len() {
-            let d: Vec<usize> = (0..file.len()).filter(|i| file[*i] != patched[*i]).collect();
+            let d: Vec<usize> = (0..file.len())
+                .filter(|i| file[*i] != patched[*i])
+                .collect();
             println!("  differs  {} byte(s) from the original", d.len());
             for i in d.iter().take(8) {
-                println!("           0x{i:X}: {:02x} -> {:02x}", file[*i], patched[*i]);
+                println!(
+                    "           0x{i:X}: {:02x} -> {:02x}",
+                    file[*i], patched[*i]
+                );
             }
         }
         if ab.consumed != ap.size as usize {
@@ -1213,12 +1479,19 @@ fn set(a: SetArgs) -> Result<()> {
         match &a.out {
             Some(path) => {
                 std::fs::write(path, &patched)?;
-                println!("
-  wrote {}", path.display());
-                println!("  This is game content. Keep it local; the repository does not take tag data.");
+                println!(
+                    "
+  wrote {}",
+                    path.display()
+                );
+                println!(
+                    "  This is game content. Keep it local; the repository does not take tag data."
+                );
             }
-            None => println!("
-  dry run; pass --out <file> to write the patched tag"),
+            None => println!(
+                "
+  dry run; pass --out <file> to write the patched tag"
+            ),
         }
         return Ok(());
     }
@@ -1249,7 +1522,10 @@ fn set(a: SetArgs) -> Result<()> {
     let payload = after.data().context("patched tag has no bdat section")?;
     let walked = after_block.consumed == payload.size as usize;
     let reread = blam_tag::patch::resolve(&after_layout, &patched, &after_block, &a.field)?;
-    println!("  re-read  {}  (walk exact: {walked})", reread.current.display());
+    println!(
+        "  re-read  {}  (walk exact: {walked})",
+        reread.current.display()
+    );
     if !walked {
         anyhow::bail!("the patched tag no longer walks exactly");
     }
@@ -1295,7 +1571,9 @@ fn recode(a: ValidateArgs) -> Result<()> {
             continue;
         };
         let Ok(l) = tag.layout() else { continue };
-        let Ok(block) = tag.read_data(&l) else { continue };
+        let Ok(block) = tag.read_data(&l) else {
+            continue;
+        };
         tags += 1;
 
         blam_tag::view::visit_fields(&l, &block, &mut |field, bytes| {
@@ -1387,6 +1665,785 @@ fn values(a: ValuesArgs) -> Result<()> {
     Ok(())
 }
 
+/// Read one scenario's script section, or every scenario's.
+///
+/// A scenario carries its scripting twice: the original `.hsc` text in `source
+/// files`, and the compiled expression tree the game actually runs. This shows
+/// both, so the two can be compared.
+fn script(a: ScriptArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get("scenario")
+        .context("this install ships no scenario tags")?;
+    let oodle = a.src.oodle_roots();
+
+    let selected: Vec<_> = match &a.tag {
+        Some(want) => entries.iter().filter(|e| e.path.contains(want)).collect(),
+        None => entries.iter().collect(),
+    };
+    if selected.is_empty() {
+        anyhow::bail!("no scenario matching {:?}", a.tag.unwrap_or_default());
+    }
+    let mut totals = VerifyTotals::default();
+
+    // Which literals are quoted is not in the tag; it comes from the recovered
+    // corpus. Without it the decompiler still works, but tag paths come back
+    // unquoted, so say so rather than quietly producing source that will not
+    // compile.
+    let corpus = match blam_hsc::ScriptCorpus::load(&a.corpus) {
+        Ok(corpus) => Some(corpus),
+        Err(_) if a.decompile.is_some() || a.verify => {
+            eprintln!(
+                "note: {} not found; string literals will not be quoted. \
+                 Run `mjolnir scripting` to generate it.",
+                a.corpus.display()
+            );
+            None
+        }
+        Err(_) => None,
+    };
+
+    for entry in selected {
+        let buf = idx.read(entry, None, &oodle)?;
+        let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+        let l = tag.layout()?;
+        let block = tag
+            .read_data(&l)
+            .with_context(|| format!("{} is not readable", entry.path))?;
+        let hs = blam_hsc::read::read(&l, &block, &buf)?;
+
+        // Printing one file's text is the whole output; the summary would only
+        // get in the way of piping it.
+        if let Some(want) = &a.source {
+            let Some(file) = hs.source_files.iter().find(|f| f.name == *want) else {
+                continue;
+            };
+            print!("{}", file.text());
+            return Ok(());
+        }
+
+        if a.rebuild_check {
+            rebuild_check(&hs, corpus.as_ref(), &buf, &entry.path, &mut totals);
+            continue;
+        }
+
+        if a.rewrite_check {
+            // Writing a section that was read and not modified must reproduce
+            // the tag exactly. Anything else means the writer is guessing, and
+            // an edit built on a guessing writer corrupts whatever it misses.
+            let short = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+            match blam_hsc::emit::rewrite(&hs, &buf) {
+                Ok(out) if out == buf => {
+                    println!("{short:<28} identical ({} bytes)", out.len());
+                    totals.matched += 1;
+                }
+                Ok(out) => {
+                    let first = (0..out.len().min(buf.len())).find(|i| out[*i] != buf[*i]);
+                    println!(
+                        "{short:<28} DIFFERS: {} bytes vs {}{}",
+                        out.len(),
+                        buf.len(),
+                        match first {
+                            Some(at) => format!(", first at 0x{at:x}"),
+                            None => String::new(),
+                        }
+                    );
+                    if let Some(at) = first {
+                        let from = at.saturating_sub(16);
+                        let to = (at + 16).min(buf.len());
+                        println!("    was:  {}", hex(&buf[from..to]));
+                        println!("    ours: {}", hex(&out[from..to]));
+                    }
+                    totals.differs += 1;
+                }
+                Err(e) => {
+                    println!("{short:<28} FAILED: {e}");
+                    totals.differs += 1;
+                }
+            }
+            continue;
+        }
+
+        if a.recompile {
+            recompile_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
+            continue;
+        }
+
+        if a.verify {
+            verify_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
+            continue;
+        }
+
+        if let Some(want) = &a.decompile {
+            let d = match &corpus {
+                Some(c) => blam_hsc::Decompiler::with_corpus(&hs, c),
+                None => blam_hsc::Decompiler::new(&hs),
+            };
+            if want.is_empty() {
+                print!("{}", d.scenario());
+            } else if let Some(s) = hs.scripts.iter().find(|s| s.name == *want) {
+                println!("{}", d.script(s));
+            } else {
+                anyhow::bail!("no script named {want:?} in {}", entry.path);
+            }
+            return Ok(());
+        }
+
+        println!("{}", entry.path);
+        let live = hs.live().count();
+        println!(
+            "  {} scripts, {} globals, {} references",
+            hs.scripts.len(),
+            hs.globals.len(),
+            hs.references.len()
+        );
+        println!(
+            "  {live} live expressions in {} datum slots, {} of string data",
+            hs.expressions.len(),
+            human_bytes(hs.strings.len())
+        );
+        println!("  source files");
+        for f in &hs.source_files {
+            println!(
+                "    {:<24} {:>10}  {} lines",
+                f.name,
+                human_bytes(f.source.len()),
+                f.text().lines().count()
+            );
+        }
+
+        if a.declarations {
+            println!("  scripts");
+            for s in &hs.scripts {
+                let kind = hs.script_types.name_of(s.script_type).unwrap_or("?");
+                let ret = hs.value_types.name_of(s.return_type).unwrap_or("?");
+                let params: Vec<String> = s
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "{} {}",
+                            hs.value_types.name_of(p.value_type).unwrap_or("?"),
+                            p.name
+                        )
+                    })
+                    .collect();
+                println!(
+                    "    ({kind} {ret} {}{}{})",
+                    s.name,
+                    if params.is_empty() { "" } else { " " },
+                    params.join(", ")
+                );
+            }
+            println!("  globals");
+            for g in &hs.globals {
+                let ty = hs.value_types.name_of(g.value_type).unwrap_or("?");
+                println!("    (global {ty} {})", g.name);
+            }
+        }
+        println!();
+    }
+
+    if a.verify || a.recompile || a.rewrite_check || a.rebuild_check {
+        println!(
+            "total  {} of {} scripts match ({:.1}%), {} desugared cond, {} no source, {} differ",
+            totals.matched,
+            totals.total(),
+            100.0 * totals.matched as f64 / totals.total().max(1) as f64,
+            totals.cond,
+            totals.no_source,
+            totals.differs
+        );
+        for (kind, n) in &totals.kinds {
+            println!("       {n:>5} {kind:?}");
+        }
+        if totals.compile_warnings > 0 {
+            println!(
+                "       {} literal(s) the compiler had to guess a type for",
+                totals.compile_warnings
+            );
+        }
+        if totals.fixpoint_ok + totals.fixpoint_broken > 0 {
+            println!(
+                "       {} of {} scenarios recompile their own output to the same tree",
+                totals.fixpoint_ok,
+                totals.fixpoint_ok + totals.fixpoint_broken
+            );
+        }
+        if totals.fixpoint_broken > 0 {
+            anyhow::bail!(
+                "{} scenario(s) do not recompile to the same tree",
+                totals.fixpoint_broken
+            );
+        }
+        if totals.compile_errors > 0 {
+            anyhow::bail!("{} compile error(s)", totals.compile_errors);
+        }
+        if totals.differs > 0 {
+            anyhow::bail!(
+                "{} script(s) do not decompile to their source",
+                totals.differs
+            );
+        }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct VerifyTotals {
+    matched: usize,
+    cond: usize,
+    no_source: usize,
+    differs: usize,
+    shown: usize,
+    compile_errors: usize,
+    compile_warnings: usize,
+    fixpoint_ok: usize,
+    fixpoint_broken: usize,
+    kinds: BTreeMap<hsc::Difference, usize>,
+}
+
+impl VerifyTotals {
+    fn total(&self) -> usize {
+        self.matched + self.cond + self.no_source + self.differs
+    }
+}
+
+/// Decompile every script in one scenario and grade it against the shipped
+/// source.
+fn verify_scripts(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    path: &str,
+    show: usize,
+    totals: &mut VerifyTotals,
+) {
+    use hsc::Verdict;
+
+    let value_types: std::collections::BTreeSet<String> =
+        hs.value_types.names().iter().cloned().collect();
+
+    // A scenario's source files are separate compilation units, but a script is
+    // defined in exactly one of them, so one merged lookup is enough.
+    let mut blocks = BTreeMap::new();
+    for f in &hs.source_files {
+        blocks.extend(hsc::script_blocks(&f.text(), &value_types));
+    }
+
+    let d = match corpus {
+        Some(c) => blam_hsc::Decompiler::with_corpus(hs, c),
+        None => blam_hsc::Decompiler::new(hs),
+    };
+    let (mut matched, mut cond, mut no_source, mut differs) = (0, 0, 0, 0);
+
+    for s in &hs.scripts {
+        match hsc::compare(blocks.get(&s.name), &d.script(s), &value_types) {
+            Verdict::Match => matched += 1,
+            Verdict::DesugaredCond => cond += 1,
+            Verdict::NoSource => no_source += 1,
+            Verdict::Differs {
+                at,
+                kind,
+                source,
+                ours,
+            } => {
+                differs += 1;
+                *totals.kinds.entry(kind).or_default() += 1;
+                if totals.shown < show {
+                    totals.shown += 1;
+                    println!("  {} differs at token {at} ({kind:?})", s.name);
+                    println!("    source: {source}");
+                    println!("    ours:   {ours}");
+                }
+            }
+        }
+    }
+
+    let total = matched + cond + no_source + differs;
+    println!(
+        "{:<28} {matched}/{total} match, {cond} cond, {no_source} no source, {differs} differ",
+        path.rsplit('/').next().unwrap_or(path)
+    );
+    totals.matched += matched;
+    totals.cond += cond;
+    totals.no_source += no_source;
+    totals.differs += differs;
+}
+
+/// Compile a scenario's own source and write the result back into the tag.
+///
+/// The end-to-end check: every earlier one stops at the expression tree, and
+/// this is what says the tree can be put back into a scenario the game's own
+/// reader still accepts. The rebuilt tag is re-read from scratch and its script
+/// section compared against what went in.
+fn rebuild_check(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    file: &[u8],
+    path: &str,
+    totals: &mut VerifyTotals,
+) {
+    let short = path.rsplit('/').next().unwrap_or(path);
+    let Some(corpus) = corpus else {
+        println!("{short:<28} skipped: no scripting corpus");
+        return;
+    };
+
+    let texts: Vec<(String, String)> = hs
+        .source_files
+        .iter()
+        .map(|f| (f.name.clone(), f.text().into_owned()))
+        .collect();
+    let files: Vec<(&str, &str)> = texts
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    if !compiled.ok() {
+        println!(
+            "{short:<28} FAILED to compile: {}",
+            compiled.errors().count()
+        );
+        totals.differs += 1;
+        return;
+    }
+
+    let mut section = compiled.section;
+    section.shapes = hs.shapes;
+    section.source_files = hs.source_files.clone();
+
+    let rebuilt = match blam_hsc::emit::rewrite(&section, file) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("{short:<28} FAILED to write: {e}");
+            totals.differs += 1;
+            return;
+        }
+    };
+
+    // Read it back the way the editor and the game would, from nothing but the
+    // bytes.
+    let reread = (|| -> anyhow::Result<blam_hsc::ScriptSection> {
+        let tag = TagFile::parse(&rebuilt, Some(rebuilt.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let expected = tag
+            .data()
+            .map(|d| d.size as usize)
+            .unwrap_or(block.consumed);
+        anyhow::ensure!(
+            block.consumed == expected,
+            "the rebuilt tag does not walk exactly: {} consumed of {expected}",
+            block.consumed
+        );
+        Ok(blam_hsc::read::read(&l, &block, &rebuilt)?)
+    })();
+
+    match reread {
+        Err(e) => {
+            println!("{short:<28} FAILED to read back: {e}");
+            totals.differs += 1;
+        }
+        Ok(back) => {
+            let same = back.scripts.len() == section.scripts.len()
+                && back.globals.len() == section.globals.len()
+                && back.live().count() == section.live().count()
+                && back.source_files.len() == section.source_files.len();
+            if same {
+                println!(
+                    "{short:<28} rebuilt ok: {} scripts, {} globals, {} expressions, {} bytes ({:+})",
+                    back.scripts.len(),
+                    back.globals.len(),
+                    back.live().count(),
+                    rebuilt.len(),
+                    rebuilt.len() as i64 - file.len() as i64
+                );
+                totals.matched += 1;
+            } else {
+                println!(
+                    "{short:<28} DIFFERS after reading back: {} scripts vs {}, {} expressions vs {}",
+                    back.scripts.len(),
+                    section.scripts.len(),
+                    back.live().count(),
+                    section.live().count()
+                );
+                totals.differs += 1;
+            }
+        }
+    }
+}
+
+/// Compile a scenario's own source back into a tree, then decompile that and
+/// check each script survived the trip.
+///
+/// This is the compiler's acceptance test and it is deliberately end-to-end.
+/// The output tree is not byte-identical to the shipped one — generations, free slots
+/// and string-blob layout are the compiler's own — so what is checked is that
+/// the *meaning* survives: compile, decompile, and compare tokens against the
+/// source that went in.
+fn recompile_scripts(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    path: &str,
+    show: usize,
+    totals: &mut VerifyTotals,
+) {
+    use hsc::Verdict;
+
+    let short = path.rsplit('/').next().unwrap_or(path);
+    let Some(corpus) = corpus else {
+        println!("{short:<28} skipped: no scripting corpus to compile against");
+        return;
+    };
+
+    // Every file at once: the scenario's sources are one compilation unit as
+    // far as name resolution goes, and scripts routinely call across files.
+    let texts: Vec<(String, String)> = hs
+        .source_files
+        .iter()
+        .map(|f| (f.name.clone(), f.text().into_owned()))
+        .collect();
+    let files: Vec<(&str, &str)> = texts
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    let errors: Vec<_> = compiled.errors().collect();
+    if !errors.is_empty() {
+        println!("{short:<28} {} compile error(s)", errors.len());
+        for e in errors.iter().take(show) {
+            println!("    {e}");
+        }
+        totals.compile_errors += errors.len();
+    }
+    totals.compile_warnings += compiled.diagnostics.len() - errors.len();
+
+    // Grade against the source that went in, the same way `--verify` grades the
+    // shipped tree, so the two numbers are comparable.
+    let value_types: std::collections::BTreeSet<String> =
+        hs.value_types.names().iter().cloned().collect();
+    let mut blocks = BTreeMap::new();
+    for f in &hs.source_files {
+        blocks.extend(hsc::script_blocks(&f.text(), &value_types));
+    }
+
+    let d = blam_hsc::Decompiler::with_corpus(&compiled.section, corpus);
+    let (mut matched, mut cond, mut no_source, mut differs) = (0, 0, 0, 0);
+    for s in &compiled.section.scripts {
+        match hsc::compare(blocks.get(&s.name), &d.script(s), &value_types) {
+            Verdict::Match => matched += 1,
+            Verdict::DesugaredCond => cond += 1,
+            Verdict::NoSource => no_source += 1,
+            Verdict::Differs {
+                at,
+                kind,
+                source,
+                ours,
+            } => {
+                differs += 1;
+                *totals.kinds.entry(kind).or_default() += 1;
+                if totals.shown < show {
+                    totals.shown += 1;
+                    println!("  {} differs at token {at} ({kind:?})", s.name);
+                    println!("    source: {source}");
+                    println!("    ours:   {ours}");
+                }
+            }
+        }
+    }
+
+    // Compiling the decompiled output again must produce the same tree.
+    //
+    // The token comparison above cannot separate a compiler bug from the
+    // decompiler rendering a literal differently — most of what it reports is
+    // the known quoting classification, which is a rendering question. This
+    // does: the tree is the compiler's own output either way, so any difference
+    // is the compiler's.
+    let second =
+        blam_hsc::Compiler::from_corpus(corpus).compile(&[("<decompiled>", &d.scenario())]);
+    match tree_difference(&compiled.section, &second.section) {
+        None => totals.fixpoint_ok += 1,
+        Some(why) => {
+            totals.fixpoint_broken += 1;
+            println!("  {short}: recompiling its own output changed the tree — {why}");
+        }
+    }
+
+    let total = matched + cond + no_source + differs;
+    println!(
+        "{short:<28} {matched}/{total} match, {cond} cond, {no_source} no source, {differs} differ"
+    );
+    totals.matched += matched;
+    totals.cond += cond;
+    totals.no_source += no_source;
+    totals.differs += differs;
+}
+
+/// The first way two compiled trees differ, or `None` if they agree.
+///
+/// Compares what the engine reads — shape, opcodes, types and strings — not the
+/// raw bytes, because a string offset is only meaningful against its own blob.
+fn tree_difference(a: &blam_hsc::ScriptSection, b: &blam_hsc::ScriptSection) -> Option<String> {
+    if a.scripts.len() != b.scripts.len() {
+        return Some(format!(
+            "{} scripts became {}",
+            a.scripts.len(),
+            b.scripts.len()
+        ));
+    }
+    if a.globals.len() != b.globals.len() {
+        return Some(format!(
+            "{} globals became {}",
+            a.globals.len(),
+            b.globals.len()
+        ));
+    }
+    let (live_a, live_b) = (a.live().count(), b.live().count());
+    if live_a != live_b {
+        return Some(format!("{live_a} expressions became {live_b}"));
+    }
+
+    // Walk each declaration's tree from its root rather than comparing the
+    // arrays position by position: the decompiler writes globals before
+    // scripts, so the same tree lands at different indices the second time
+    // round. What has to match is the shape reachable from each root.
+    for (x, y) in a.scripts.iter().zip(&b.scripts) {
+        if x.name != y.name || x.script_type != y.script_type || x.return_type != y.return_type {
+            return Some(format!("script `{}` changed shape", x.name));
+        }
+        if x.parameters != y.parameters {
+            return Some(format!("script `{}` changed its parameters", x.name));
+        }
+        if let Some(why) = walk_difference(a, x.root, b, y.root, &x.name, 0) {
+            return Some(why);
+        }
+    }
+    for (x, y) in a.globals.iter().zip(&b.globals) {
+        if x.name != y.name || x.value_type != y.value_type {
+            return Some(format!("global `{}` changed shape", x.name));
+        }
+        if let Some(why) = walk_difference(a, x.initializer, b, y.initializer, &x.name, 0) {
+            return Some(why);
+        }
+    }
+    None
+}
+
+/// Compare two subtrees node for node, in traversal order.
+fn walk_difference(
+    a: &blam_hsc::ScriptSection,
+    ha: blam_hsc::DatumHandle,
+    b: &blam_hsc::ScriptSection,
+    hb: blam_hsc::DatumHandle,
+    what: &str,
+    depth: u32,
+) -> Option<String> {
+    if depth > 128 {
+        return None;
+    }
+    let (ea, eb) = (a.get(ha), b.get(hb));
+    let (ea, eb) = match (ea, eb) {
+        (None, None) => return None,
+        (Some(ea), Some(eb)) => (ea, eb),
+        _ => {
+            return Some(format!(
+                "`{what}`: one side has a node where the other has none"
+            ))
+        }
+    };
+
+    if ea.expression_type != eb.expression_type
+        || ea.opcode != eb.opcode
+        || ea.value_type != eb.value_type
+    {
+        return Some(format!(
+            "`{what}`: {:?}/{:#x}/{} became {:?}/{:#x}/{}",
+            ea.expression_type,
+            ea.opcode,
+            ea.value_type,
+            eb.expression_type,
+            eb.opcode,
+            eb.value_type
+        ));
+    }
+    if a.string_at(ea.string_offset) != b.string_at(eb.string_offset) {
+        return Some(format!(
+            "`{what}`: {:?} became {:?}",
+            a.string_at(ea.string_offset),
+            b.string_at(eb.string_offset)
+        ));
+    }
+    // A call's `data` is a handle into its own array, so only a literal's
+    // payload can be compared directly.
+    if !ea.expression_type.has_children() && ea.data != eb.data {
+        return Some(format!("`{what}`: {:#x} became {:#x}", ea.data, eb.data));
+    }
+
+    let (args_a, args_b) = (a.arguments(ea), b.arguments(eb));
+    if args_a.len() != args_b.len() {
+        return Some(format!(
+            "`{what}`: a call with {} children became one with {}",
+            args_a.len(),
+            args_b.len()
+        ));
+    }
+    for (ca, cb) in args_a.into_iter().zip(args_b) {
+        if let Some(why) = walk_difference(a, ca, b, cb, what, depth + 1) {
+            return Some(why);
+        }
+    }
+    None
+}
+
+/// Compile `.hsc` files from disk.
+///
+/// Needs no game installation: the function table and both enums come from the
+/// committed corpus, so a mod author can check a script without one.
+fn compile(a: CompileArgs) -> Result<()> {
+    let corpus = blam_hsc::ScriptCorpus::load(&a.corpus).with_context(|| {
+        format!(
+            "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
+            a.corpus.display()
+        )
+    })?;
+
+    let mut sources = Vec::new();
+    for path in &a.files {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read {}", path.display()))?;
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        sources.push((name, text));
+    }
+    let files: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(&corpus).compile(&files);
+    for d in &compiled.diagnostics {
+        eprintln!("{d}");
+    }
+
+    let warnings = compiled.diagnostics.len() - compiled.errors().count();
+    println!(
+        "  {} script(s), {} global(s), {} expression(s), {} of strings",
+        compiled.section.scripts.len(),
+        compiled.section.globals.len(),
+        compiled.section.live().count(),
+        human_bytes(compiled.section.strings.len())
+    );
+    println!(
+        "  {} error(s), {warnings} warning(s)",
+        compiled.errors().count()
+    );
+
+    if a.show {
+        println!();
+        print!(
+            "{}",
+            blam_hsc::Decompiler::with_corpus(&compiled.section, &corpus).scenario()
+        );
+    }
+
+    if !compiled.ok() {
+        anyhow::bail!("compilation failed");
+    }
+    Ok(())
+}
+
+/// Recover the scripting function table from every shipped scenario.
+///
+/// The opcode table is not in the definitions the way field names are: an
+/// opcode is only a number until something names it. Every compiled call
+/// carries that name on the child node that names its callee, so reading all
+/// thirteen scenarios recovers the table without touching the engine binary.
+fn scripting(a: ScriptingArgs) -> Result<()> {
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entries = by_group
+        .get("scenario")
+        .context("this install ships no scenario tags")?;
+    let oodle = a.src.oodle_roots();
+
+    let mut builder = blam_hsc::CorpusBuilder::new();
+    for entry in entries {
+        let buf = idx.read(entry, None, &oodle)?;
+        let tag = TagFile::parse(&buf, Some(entry.chunk.length as usize))?;
+        let l = tag.layout()?;
+        let block = tag
+            .read_data(&l)
+            .with_context(|| format!("{} is not readable", entry.path))?;
+        builder.observe(&blam_hsc::read::read(&l, &block, &buf)?);
+    }
+
+    // An opcode seen under two names would mean the recovery rule is wrong, so
+    // it stops the export rather than being averaged away.
+    let conflicts = builder.conflicts();
+    if !conflicts.is_empty() {
+        for c in &conflicts {
+            eprintln!("  opcode 0x{:04x} names: {}", c.opcode, c.names.join(", "));
+        }
+        anyhow::bail!(
+            "{} opcode(s) resolved to more than one name; the table is not trustworthy",
+            conflicts.len()
+        );
+    }
+
+    let scenarios = builder.scenarios();
+    let corpus = builder.finish_at(
+        format!("mjolnir {}", env!("CARGO_PKG_VERSION")),
+        a.build,
+        a.quoted_threshold,
+    );
+
+    let thin = corpus.thinly_attested();
+    let variadic = corpus
+        .functions
+        .values()
+        .filter(|f| f.is_variadic())
+        .count();
+    let calls: u32 = corpus.functions.values().map(|f| f.call_sites).sum();
+
+    println!("  scenarios read  {scenarios}");
+    println!("  opcodes         {}", corpus.functions.len());
+    println!("  call sites      {calls}");
+    println!("  variadic        {variadic}");
+    println!(
+        "  thinly attested {} (fewer than {} call sites)",
+        thin.len(),
+        blam_hsc::corpus::WELL_ATTESTED
+    );
+    println!("  value types     {}", corpus.value_types.len());
+
+    if a.dry_run {
+        println!("\ndry run: nothing written");
+        return Ok(());
+    }
+
+    corpus.save(&a.out)?;
+    let bytes = std::fs::metadata(&a.out).map(|m| m.len()).unwrap_or(0);
+    println!(
+        "\nwrote {} ({:.1} KiB)",
+        a.out.display(),
+        bytes as f64 / 1024.0
+    );
+    Ok(())
+}
+
+fn human_bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else {
+        format!("{:.1} KiB", n as f64 / 1024.0)
+    }
+}
+
 /// How much of a tag's value tree to print.
 ///
 /// Split out from `ValuesArgs` so the same printer serves both the paks-backed
@@ -1475,7 +2532,11 @@ fn export_defs(a: DefsArgs) -> Result<()> {
     corpus.save(&a.out)?;
 
     let total_fields: usize = corpus.groups.values().map(|g| g.field_count()).sum();
-    let visible: usize = corpus.groups.values().map(|g| g.visible_field_count()).sum();
+    let visible: usize = corpus
+        .groups
+        .values()
+        .map(|g| g.visible_field_count())
+        .sum();
     let resolved = corpus
         .groups
         .values()
@@ -1485,7 +2546,14 @@ fn export_defs(a: DefsArgs) -> Result<()> {
 
     println!("wrote {}", a.out.display());
     println!("  groups          {}", corpus.groups.len());
-    println!("  structs         {}", corpus.groups.values().map(|g| g.structs.len()).sum::<usize>());
+    println!(
+        "  structs         {}",
+        corpus
+            .groups
+            .values()
+            .map(|g| g.structs.len())
+            .sum::<usize>()
+    );
     println!("  fields          {total_fields} ({visible} visible)");
     println!("  fully resolved  {resolved}/{}", corpus.groups.len());
     println!("  size            {:.1} KiB", bytes as f64 / 1024.0);
@@ -1495,7 +2563,9 @@ fn export_defs(a: DefsArgs) -> Result<()> {
 fn groups(a: GroupsArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
-    println!("group\tfourcc\tver\tcount\tstrings\toptions\ttypes\tfields\tblocks\tstructs\tdata\troot");
+    println!(
+        "group\tfourcc\tver\tcount\tstrings\toptions\ttypes\tfields\tblocks\tstructs\tdata\troot"
+    );
 
     let mut parsed = 0usize;
     let mut with_fields = 0usize;
@@ -1603,7 +2673,13 @@ fn layout(a: LayoutArgs) -> Result<()> {
 
         println!("\n  section chain under tgly:");
         for s in &l.sections {
-            println!("    +{:<8} {}  v{:<3} size {}", s.at, s.name(), s.version, s.size);
+            println!(
+                "    +{:<8} {}  v{:<3} size {}",
+                s.at,
+                s.name(),
+                s.version,
+                s.size
+            );
         }
 
         if a.tables {
@@ -1739,7 +2815,13 @@ fn types(a: TypesArgs) -> Result<()> {
         }
         let size_repr = observed
             .iter()
-            .map(|(s, n)| if consistent { s.to_string() } else { format!("{s}:{n}") })
+            .map(|(s, n)| {
+                if consistent {
+                    s.to_string()
+                } else {
+                    format!("{s}:{n}")
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ");
         println!(

@@ -7,11 +7,19 @@
 import type {
   DirEntry,
   EditResult,
+  ExportView,
   GroupSummary,
+  HubStatus,
   Install,
+  LinkPoll,
+  LinkStart,
   NodeView,
+  ProjectView,
+  PublishView,
+  SigningStatus,
   TagSummary,
   TagView,
+  TestView,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -32,6 +40,35 @@ const mockFiles: Omit<DirEntry, "name" | "children">[] = [
     kind: "texture",
     index: 1,
     size: 6_371_884,
+  },
+  { path: "sounds/English(US)/12/100018565.wem", kind: "sound", index: 0, size: 310_629 },
+  { path: "sounds/shared/10/243917884.wem", kind: "sound", index: 1, size: 21_689 },
+];
+
+/** Two sounds shaped like the real ones: one localised, one shared. */
+const mockSounds = [
+  {
+    index: 0,
+    path: "Media/English(US)/12/100018565.wem",
+    language: "English(US)" as string | null,
+    size: 310_629,
+    channels: 2,
+    sample_count: 728_342,
+    avg_bytes_per_sec: 20_437,
+    data_size: 310_511,
+    event: "Play_b30_MusicStart" as string | null,
+  },
+  {
+    index: 1,
+    path: "Media/10/243917884.wem",
+    language: null as string | null,
+    size: 21_689,
+    channels: 1,
+    sample_count: 67_718,
+    avg_bytes_per_sec: 15_284,
+    data_size: 21_579,
+    // Most media is not claimed by any event package, and shows as its ID.
+    event: null as string | null,
   },
 ];
 
@@ -213,6 +250,39 @@ function withEdits(): TagView {
   return { ...mockTag, edited: [...edits.keys()] };
 }
 
+/**
+ * A hand-written imitation of a scenario's script section, in the same shape
+ * the real reader produces. Written for this mock, not extracted from the game.
+ */
+const mockScriptSource = `; startup script ============================================
+
+; wake triggers on start
+(script startup demo_start
+	(ai_allegiance player human)
+	(f_start_auto_save_loop)
+	(wake music_demo)
+	(sleep_until (= b_player_awake true) 1)
+)
+
+(global boolean b_player_awake false)
+(global short s_wave_count 0)
+
+(script static void (f_play_line (short delay) (ai character) (string debug_line))
+	(print_if b_print_vo_lines debug_line)
+	(if (>= (ai_living_count character) 1)
+		(begin
+			(set s_md_play_time (+ (ai_play_line character line) delay))
+			(sleep s_md_play_time)
+		)
+		(print "vo info: character is not alive to speak")
+	)
+)
+
+(script dormant music_demo
+	(sound_looping_start "sound/music/demo/mus_01" none 1.0)
+)
+`;
+
 export const mockApi = {
   detectInstall: async (): Promise<Install> => ({
     paks: "(mock)",
@@ -254,6 +324,134 @@ export const mockApi = {
     png: mockTexturePng(),
   }),
   exportTexture: async () => 0,
+  readScripts: async () => ({
+    path: "levels/halo1/solo/demo/demo",
+    source_files: [
+      {
+        name: "demo",
+        text: mockScriptSource,
+        lines: mockScriptSource.split(String.fromCharCode(10)).length,
+        bytes: mockScriptSource.length,
+        flags: [],
+      },
+    ],
+    scripts: [
+      { name: "demo_start", kind: "startup", return_type: "void", parameters: [], file: "demo", line: 4 },
+      {
+        name: "f_play_line",
+        kind: "static",
+        return_type: "void",
+        parameters: ["short delay", "ai character", "string debug_line"],
+        file: "demo",
+        line: 14,
+      },
+      { name: "music_demo", kind: "dormant", return_type: "void", parameters: [], file: "demo", line: 25 },
+      { name: "generated_branch_0", kind: "static", return_type: "void", parameters: [], file: null, line: null },
+    ],
+    globals: [
+      {
+        name: "b_player_awake",
+        value_type: "boolean",
+        initializer: "(global boolean b_player_awake false)",
+        file: "demo",
+        line: 11,
+      },
+      {
+        name: "s_wave_count",
+        value_type: "short",
+        initializer: "(global short s_wave_count 0)",
+        file: "demo",
+        line: 12,
+      },
+    ],
+    references: ["sound/music/demo/mus_01"],
+    expressions: 148,
+    datum_slots: 192,
+    string_bytes: 1024,
+    has_source: true,
+    edited: false,
+  }),
+  compileScripts: async (_index: number, files: [string, string][]) => {
+    // Enough of a compiler to exercise the interface: unbalanced parens are
+    // the error a user actually hits while typing.
+    const errors = files.flatMap(([, text]) =>
+      text.split(String.fromCharCode(10)).flatMap((line, i) => {
+        const depth =
+          (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0);
+        return depth < -1
+          ? [{ line: i + 1, message: "unmatched `)`" }]
+          : [];
+      })
+    );
+    return {
+      ok: errors.length === 0,
+      errors,
+      warnings: [],
+      scripts: 3,
+      globals: 2,
+      expressions: 148,
+      tag_bytes: 4096,
+      original_bytes: 4096,
+      dropped: ["generated_branch_0"],
+    };
+  },
+  setScripts: async () => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    scripts: 3,
+    globals: 2,
+    expressions: 148,
+    tag_bytes: 4096,
+    original_bytes: 4096,
+    dropped: ["generated_branch_0"],
+  }),
+  revertScripts: async () => {},
+  decompileScript: async (_index: number, name: string) =>
+    `(script dormant ${name} (wake x))`,
+  exportScript: async () => mockScriptSource.length,
+  listSounds: async (query: string) =>
+    mockSounds
+      .map(({ index, path, language, size, event }) => ({
+        index,
+        path,
+        language,
+        size,
+        event,
+      }))
+      .filter((s) => s.path.toLowerCase().includes(query.toLowerCase())),
+  readSound: async (index: number) => {
+    const s = mockSounds[index] ?? mockSounds[0];
+    return {
+      path: s.path,
+      language: s.language,
+      size: s.size,
+      info: {
+        codec: "Wwise Vorbis",
+        format_tag: 0xffff,
+        channels: s.channels,
+        sample_rate: 48_000,
+        avg_bytes_per_sec: s.avg_bytes_per_sec,
+        sample_count: s.sample_count,
+        duration_secs: s.sample_count / 48_000,
+        data_size: s.data_size,
+        chunks: ["fmt", "hash", "data"],
+      },
+      error: null,
+      events: s.event
+        ? [
+            {
+              name: s.event,
+              package: "/Game/Audio/Music/WwiseEvents/Play_b30_MusicStart.uasset",
+              sources: ["Music\\b30\\b30_MusicStart_01.wav"],
+            },
+          ]
+        : [],
+    };
+  },
+  exportSound: async () => 0,
+  // A one-second sine as a WAV, so the player is exercisable outside Tauri.
+  playSound: async () => ({ src: mockToneWav(), via: "mock tone", bytes: 88_244 }),
   listDir: async (path: string) => {
     const dir = path.replace(/^\/|\/$/g, "");
     const skip = dir === "" ? 0 : dir.length + 1;
@@ -326,7 +524,123 @@ export const mockApi = {
       label: "BP_EliteBipedActor",
     },
   ],
+
+  // A mock project so the mod panel can be built and reviewed in a browser.
+  projectStatus: async () => mockProjectView(),
+  projectNew: async (_dir: string, name: string, slug: string, version: string, summary: string) => {
+    mockProject = { name, slug, version, summary };
+    return mockProjectView()!;
+  },
+  projectOpen: async () => {
+    mockProject = { name: "Faster Pistol", slug: "faster-pistol", version: "0.1.0", summary: "" };
+    return mockProjectView()!;
+  },
+  projectClose: async () => {
+    mockProject = null;
+  },
+  projectSetMeta: async (name: string, slug: string, version: string, summary: string) => {
+    mockProject = { name, slug, version, summary };
+    return mockProjectView()!;
+  },
+  projectRevert: async (_group: string, _tag: string, field: string | null) => {
+    if (field === null) edits.clear();
+    else edits.delete(field);
+  },
+  lastProject: async () => null,
+  projectExport: async (): Promise<ExportView> => ({
+    archive: "C:\\mods\\faster-pistol\\build\\faster-pistol-0.1.0.mjolnir",
+    size: 18_432,
+    containers: ["faster-pistol_P"],
+    chunk_count: 1,
+    resized: false,
+    signed: true,
+    signer_fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    warnings: [],
+  }),
+  projectTest: async (): Promise<TestView> => ({
+    files: [
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.utoc",
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.ucas",
+      "pakchunk999-MJOLNIRDEV-faster-pistol_P.pak",
+    ],
+    resized: false,
+    warnings: [],
+  }),
+  projectUntest: async () => 3,
+  projectPublish: async (): Promise<PublishView> => ({
+    slug: mockProject?.slug ?? "faster-pistol",
+    version: mockProject?.version ?? "0.1.0",
+    status: "published",
+    findings: [{ level: "warning", code: "stray_container", message: "A sample finding." }],
+    url: "https://mjolnircore.com/mods/faster-pistol",
+  }),
+  hubStatus: async (): Promise<HubStatus> => ({
+    base: "https://mjolnircore.com",
+    has_key: mockLinked,
+    username: mockLinked ? "mock-author" : null,
+  }),
+  hubSetKey: async (key: string) => {
+    mockLinked = key.trim().length > 0;
+  },
+  hubLinkStart: async (): Promise<LinkStart> => {
+    mockPollsLeft = 2;
+    return {
+      user_code: "MOCK-CODE",
+      verification_url: "https://mjolnircore.com/link?code=MOCK-CODE",
+      interval: 1,
+      expires_in: 600,
+    };
+  },
+  // Approves itself after a couple of polls, so the waiting state is
+  // reviewable without leaving the browser.
+  hubLinkPoll: async (): Promise<LinkPoll> => {
+    if (mockPollsLeft > 0) {
+      mockPollsLeft -= 1;
+      return { status: "pending", username: null };
+    }
+    mockLinked = true;
+    return { status: "approved", username: "mock-author" };
+  },
+  hubUnlink: async () => {
+    mockLinked = false;
+  },
+  signingStatus: async (): Promise<SigningStatus> => ({
+    fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    registered: null,
+    label: "MOCK-DEVICE",
+  }),
 };
+
+let mockProject: { name: string; slug: string; version: string; summary: string } | null = null;
+
+/** Whether the mock editor is "linked", and how many polls until it is. */
+let mockLinked = false;
+let mockPollsLeft = 0;
+
+function mockProjectView(): ProjectView | null {
+  if (!mockProject) return null;
+  return {
+    root: "C:\\mods\\" + mockProject.slug,
+    meta: { schema_version: 1, ...mockProject },
+    changes:
+      edits.size === 0
+        ? []
+        : [
+            {
+              group: "scenario",
+              tag: "levels/b30/b30",
+              index: 0,
+              edits: [...edits.entries()].map(([field, value]) => ({
+                field,
+                value,
+                before: "…",
+                stale: false,
+              })),
+            },
+          ],
+    test_files: [],
+  };
+}
 
 /** A generated placeholder image so the viewer can be exercised in a browser. */
 function mockTexturePng(): string {
@@ -344,4 +658,38 @@ function mockTexturePng(): string {
   ctx.font = "24px monospace";
   ctx.fillText("mock texture", 180, 132);
   return canvas.toDataURL("image/png");
+}
+
+/**
+ * A one-second 440 Hz tone as a 16-bit mono WAV data URI, so the player and
+ * its waveform can be exercised in a plain browser.
+ */
+function mockToneWav(): string {
+  const rate = 44100;
+  const frames = rate;
+  const bytes = new ArrayBuffer(44 + frames * 2);
+  const view = new DataView(bytes);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + frames * 2, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, frames * 2, true);
+  for (let i = 0; i < frames; i++) {
+    // Fade out, so the waveform has a shape rather than a solid block.
+    const envelope = 1 - i / frames;
+    view.setInt16(44 + i * 2, Math.sin((i / rate) * 440 * 2 * Math.PI) * 20000 * envelope, true);
+  }
+  let binary = "";
+  for (const b of new Uint8Array(bytes)) binary += String.fromCharCode(b);
+  return `data:audio/wav;base64,${btoa(binary)}`;
 }

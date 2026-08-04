@@ -7,14 +7,19 @@
  * user approves that code on mjolnircore.com while signed in, and the next
  * poll hands the launcher an ordinary scoped API key.
  *
- * What the launcher gets is deliberately narrow: read, rate, comment. Not
- * `mods:write` — publishing is a website flow, and a desktop app that could
- * publish is a desktop app whose stolen key can publish.
+ * A client asks for the scopes it needs and gets no more. The launcher asks
+ * for read, rate and comment; the tag editor, which publishes, also asks for
+ * `mods:write`. Granting that to a desktop app is a real widening — a stolen
+ * key can then publish — but the flow it replaces was pasting a hand-minted
+ * key into a text box, and a key that arrives this way is narrower, expires,
+ * and is named on the account page. The trade is worth making explicitly,
+ * not avoiding by leaving the harder path in place.
  *
  * Approval is a confirmed, user-initiated action on a page that names the
- * client and warns against approving codes someone else read out. That
- * warning is the only defence against the phishing case this flow has, so
- * it is part of the design, not decoration.
+ * client, lists what it is asking for, and warns against approving codes
+ * someone else read out. That warning is the only defence against the
+ * phishing case this flow has, so it is part of the design, not decoration —
+ * and it matters more now that a code can carry publishing rights.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { createRoute, z } from "@hono/zod-openapi";
@@ -22,18 +27,50 @@ import type { Context } from "hono";
 
 import type { ApiEnv } from "./bindings";
 import { authenticate, rateLimit, sha256Hex } from "./auth";
-import { mintApiKey } from "./account";
+import { KNOWN_SCOPES, mintApiKey } from "./account";
 import { ErrorSchema, UserSchema } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
 
-/** Scopes a paired desktop client receives. */
+/**
+ * What a paired client gets when it does not ask for anything specific.
+ * Launchers built before scopes were requestable send no list, and this is
+ * what they were minted before, so they keep working untouched.
+ */
 export const DEVICE_SCOPES = ["mods:read", "ratings:write", "comments:write"] as const;
+
+/**
+ * Scopes a device may ask for. Every known scope is pairable — the check
+ * that matters is the user reading what they are approving, not a list here
+ * second-guessing which client deserves what.
+ */
+const PAIRABLE_SCOPES = KNOWN_SCOPES;
 
 const CODE_TTL_SECONDS = 600;
 const POLL_INTERVAL_SECONDS = 3;
-/** Keys minted by pairing expire; a launcher re-pairs rather than holding forever. */
+/**
+ * Keys minted by pairing expire; a client re-pairs rather than holding
+ * forever. A key that can publish is worth more stolen than one that can
+ * only comment, so it gets less time to be worth stealing.
+ */
 const KEY_TTL_DAYS = 180;
+const PUBLISHING_KEY_TTL_DAYS = 90;
+
+function ttlDaysFor(scopes: readonly string[]): number {
+  return scopes.includes("mods:write") ? PUBLISHING_KEY_TTL_DAYS : KEY_TTL_DAYS;
+}
+
+type Scope = (typeof PAIRABLE_SCOPES)[number];
+
+/**
+ * Stored space-joined, like `api_keys.scopes`. Unknown entries are dropped:
+ * a scope this build cannot name is one the approval page cannot describe,
+ * and granting something the user was not shown is the one outcome this
+ * flow exists to prevent.
+ */
+function parseScopes(stored: string): Scope[] {
+  return stored.split(" ").filter((s): s is Scope => PAIRABLE_SCOPES.includes(s as Scope));
+}
 
 /**
  * Digits and letters that survive being read off a screen and typed back:
@@ -90,6 +127,9 @@ const DeviceStartSchema = z
     verification_url: z.string().openapi({ example: "https://mjolnircore.com/link" }),
     interval: z.number().int().openapi({ description: "Seconds to wait between polls." }),
     expires_in: z.number().int(),
+    scopes: z.array(z.enum(PAIRABLE_SCOPES)).openapi({
+      description: "What approval will grant — echoed back so a client can show it too.",
+    }),
   })
   .openapi("DeviceStart");
 
@@ -102,6 +142,11 @@ const DevicePollSchema = z
         "approval. Store it; it is not retrievable again.",
     }),
     user: UserSchema.optional(),
+    scopes: z.array(z.enum(PAIRABLE_SCOPES)).optional().openapi({
+      description:
+        "What the key carries. Sent with the key so a client can check it " +
+        "got what it asked for instead of failing later at the write.",
+    }),
   })
   .openapi("DevicePoll");
 
@@ -147,6 +192,17 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
                 client_name: z.string().min(1).max(60).default("MJOLNIR Launcher").openapi({
                   description: "Shown on the approval page so the user knows what they are approving.",
                 }),
+                scopes: z
+                  .array(z.enum(PAIRABLE_SCOPES))
+                  .min(1)
+                  .optional()
+                  .openapi({
+                    description:
+                      "What to ask for. Omit for read, rate and comment — what " +
+                      "pairing granted before scopes were requestable. Ask for " +
+                      "the narrowest set that works: the user sees this list.",
+                    example: ["mods:read", "mods:write"],
+                  }),
               }),
             },
           },
@@ -169,12 +225,22 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       const deviceCode = randomDeviceCode();
       const userCode = randomUserCode();
       const expiresAt = isoNow(CODE_TTL_SECONDS * 1000);
+      const body = c.req.valid("json");
+      // Deduplicated so a client asking for the same scope twice cannot pad
+      // the list the approval page shows.
+      const scopes = [...new Set(body.scopes ?? DEVICE_SCOPES)];
 
       await c.env.DB.prepare(
-        `INSERT INTO device_codes (device_code_hash, user_code, client_name, expires_at)
-         VALUES (?1, ?2, ?3, ?4)`,
+        `INSERT INTO device_codes (device_code_hash, user_code, client_name, scopes, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
       )
-        .bind(await sha256Hex(deviceCode), userCode, c.req.valid("json").client_name, expiresAt)
+        .bind(
+          await sha256Hex(deviceCode),
+          userCode,
+          body.client_name,
+          scopes.join(" "),
+          expiresAt,
+        )
         .run();
 
       // Expired handshakes are worthless; drop them off the request path.
@@ -201,6 +267,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
           verification_url: `${siteUrl(c)}/link`,
           interval: POLL_INTERVAL_SECONDS,
           expires_in: CODE_TTL_SECONDS,
+          scopes,
         },
         201,
       );
@@ -245,7 +312,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       }
 
       const row = await c.env.DB.prepare(
-        `SELECT device_code_hash, status, user_id, granted_key, expires_at
+        `SELECT device_code_hash, status, user_id, granted_key, scopes, expires_at
          FROM device_codes WHERE device_code_hash = ?1`,
       )
         .bind(hash)
@@ -254,6 +321,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
           status: string;
           user_id: string | null;
           granted_key: string | null;
+          scopes: string;
           expires_at: string;
         }>();
       if (!row) return c.json({ error: "not_found" }, 404);
@@ -291,7 +359,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       return c.json(
         {
           status: "approved" as const,
-          ...(key ? { key } : {}),
+          ...(key ? { key, scopes: parseScopes(row.scopes) } : {}),
           ...(user ? { user: userPayload(user) } : {}),
         },
         200,
@@ -309,7 +377,8 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       summary: "Approve or deny a pairing code",
       description:
         "Called from a signed-in browser session. Approving mints an API " +
-        `key scoped to ${DEVICE_SCOPES.join(", ")} and expiring in ${KEY_TTL_DAYS} days, ` +
+        "key carrying the scopes the client asked for at handshake time — " +
+        `expiring in ${KEY_TTL_DAYS} days, or ${PUBLISHING_KEY_TTL_DAYS} if it can publish — ` +
         "which the waiting client collects on its next poll. Only cookie " +
         "sessions may approve — a key cannot pair another device.",
       request: {
@@ -332,6 +401,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
               schema: z.object({
                 status: z.enum(["approved", "denied"]),
                 client_name: z.string(),
+                scopes: z.array(z.enum(PAIRABLE_SCOPES)),
               }),
             },
           },
@@ -364,7 +434,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       const { user_code, approve } = c.req.valid("json");
       const code = user_code.trim().toUpperCase();
       const row = await c.env.DB.prepare(
-        `SELECT device_code_hash, client_name, status, expires_at FROM device_codes
+        `SELECT device_code_hash, client_name, status, scopes, expires_at FROM device_codes
          WHERE user_code = ?1`,
       )
         .bind(code)
@@ -372,6 +442,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
           device_code_hash: string;
           client_name: string;
           status: string;
+          scopes: string;
           expires_at: string;
         }>();
       if (!row || expired(row.expires_at)) {
@@ -381,21 +452,23 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
         return c.json({ error: "already_decided", message: `Already ${row.status}.` }, 409);
       }
 
+      const scopes = parseScopes(row.scopes);
+
       if (!approve) {
         await c.env.DB.prepare(
           `UPDATE device_codes SET status = 'denied' WHERE device_code_hash = ?1`,
         )
           .bind(row.device_code_hash)
           .run();
-        return c.json({ status: "denied" as const, client_name: row.client_name }, 200);
+        return c.json({ status: "denied" as const, client_name: row.client_name, scopes }, 200);
       }
 
-      const expiresAt = new Date(Date.now() + KEY_TTL_DAYS * 86400_000).toISOString();
+      const expiresAt = new Date(Date.now() + ttlDaysFor(scopes) * 86400_000).toISOString();
       const minted = await mintApiKey(
         c.env.DB,
         auth.user.id,
         row.client_name,
-        DEVICE_SCOPES,
+        scopes,
         expiresAt,
       );
       await c.env.DB.prepare(
@@ -406,7 +479,7 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
         .bind(row.device_code_hash, auth.user.id, minted.id, minted.key)
         .run();
 
-      return c.json({ status: "approved" as const, client_name: row.client_name }, 200);
+      return c.json({ status: "approved" as const, client_name: row.client_name, scopes }, 200);
     },
   );
 
@@ -419,16 +492,27 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
       tags: ["auth"],
       summary: "Describe a pending pairing",
       description:
-        "Lets the approval page name the client before the user commits. " +
-        "Returns nothing that helps an attacker: the client name is a label " +
-        "the client chose for itself.",
+        "Lets the approval page name the client, and say what it is asking " +
+        "for, before the user commits. Returns nothing that helps an " +
+        "attacker: the client name is a label the client chose for itself, " +
+        "and the scopes are what it would be granted anyway.",
       request: { params: z.object({ user_code: z.string() }) },
       responses: {
         200: {
           description: "The pending pairing.",
           content: {
             "application/json": {
-              schema: z.object({ client_name: z.string(), expires_at: z.string() }),
+              schema: z.object({
+                client_name: z.string(),
+                scopes: z.array(z.enum(PAIRABLE_SCOPES)),
+                key_ttl_days: z.number().int().openapi({
+                  description:
+                    "How long the minted key would last. Served rather than " +
+                    "assumed so the approval page cannot promise a lifetime " +
+                    "the mint no longer honours.",
+                }),
+                expires_at: z.string().openapi({ description: "When this code stops working." }),
+              }),
             },
           },
         },
@@ -438,13 +522,22 @@ export function registerDeviceRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       const code = c.req.valid("param").user_code.trim().toUpperCase();
       const row = await c.env.DB.prepare(
-        `SELECT client_name, expires_at FROM device_codes
+        `SELECT client_name, scopes, expires_at FROM device_codes
          WHERE user_code = ?1 AND status = 'pending'`,
       )
         .bind(code)
-        .first<{ client_name: string; expires_at: string }>();
+        .first<{ client_name: string; scopes: string; expires_at: string }>();
       if (!row || expired(row.expires_at)) return c.json({ error: "not_found" }, 404);
-      return c.json({ client_name: row.client_name, expires_at: row.expires_at }, 200);
+      const scopes = parseScopes(row.scopes);
+      return c.json(
+        {
+          client_name: row.client_name,
+          scopes,
+          key_ttl_days: ttlDaysFor(scopes),
+          expires_at: row.expires_at,
+        },
+        200,
+      );
     },
   );
 }
