@@ -369,7 +369,44 @@ export const mockApi = {
     datum_slots: 192,
     string_bytes: 1024,
     has_source: true,
+    edited: false,
   }),
+  compileScripts: async (_index: number, files: [string, string][]) => {
+    // Enough of a compiler to exercise the interface: unbalanced parens are
+    // the error a user actually hits while typing.
+    const errors = files.flatMap(([, text]) =>
+      text.split(String.fromCharCode(10)).flatMap((line, i) => {
+        const depth =
+          (line.match(/\(/g)?.length ?? 0) - (line.match(/\)/g)?.length ?? 0);
+        return depth < -1
+          ? [{ line: i + 1, message: "unmatched `)`" }]
+          : [];
+      })
+    );
+    return {
+      ok: errors.length === 0,
+      errors,
+      warnings: [],
+      scripts: 3,
+      globals: 2,
+      expressions: 148,
+      tag_bytes: 4096,
+      original_bytes: 4096,
+      dropped: ["generated_branch_0"],
+    };
+  },
+  setScripts: async () => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    scripts: 3,
+    globals: 2,
+    expressions: 148,
+    tag_bytes: 4096,
+    original_bytes: 4096,
+    dropped: ["generated_branch_0"],
+  }),
+  revertScripts: async () => {},
   decompileScript: async (_index: number, name: string) =>
     `(script dormant ${name} (wake x))`,
   exportScript: async () => mockScriptSource.length,

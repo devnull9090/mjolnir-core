@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useEditor } from "../stores/editor-store";
-import type { ScriptDecl, ScriptSourceFile } from "../lib/api";
+import type { ScriptDecl, ScriptDiagnostic, ScriptSourceFile } from "../lib/api";
 
 /**
  * Highlight one line of HSC.
@@ -114,6 +114,61 @@ const WINDOW = 400;
  * still findable after the scroll settles.
  */
 type Target = { line: number; nonce: number };
+
+/**
+ * The editable view of one source file.
+ *
+ * A plain textarea rather than a code editor component: HSC files run to 4,449
+ * lines, and the highlighted read-only view is right beside it, so what this
+ * has to be is fast and predictable rather than clever. Tab inserts a tab —
+ * the shipped source is tab-indented and losing focus instead would make
+ * editing miserable.
+ */
+function EditPane({
+  file,
+  draft,
+  onChange,
+  errors,
+}: {
+  file: ScriptSourceFile;
+  draft: string | undefined;
+  onChange: (text: string) => void;
+  errors: ScriptDiagnostic[];
+}) {
+  const text = draft ?? file.text;
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <textarea
+        ref={ref}
+        value={text}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Tab") return;
+          e.preventDefault();
+          const el = e.currentTarget;
+          const { selectionStart: from, selectionEnd: to } = el;
+          onChange(`${text.slice(0, from)}\t${text.slice(to)}`);
+          requestAnimationFrame(() => {
+            el.selectionStart = el.selectionEnd = from + 1;
+          });
+        }}
+        className="min-h-0 flex-1 resize-none bg-surface-primary p-3 font-mono text-[12px] leading-[1.45] text-text-secondary outline-none"
+      />
+      {errors.length > 0 && (
+        <div className="max-h-32 shrink-0 overflow-auto border-t border-accent-red/40 bg-accent-red/5">
+          {errors.map((e, i) => (
+            <div key={i} className="px-3 py-0.5 font-mono text-[11px] text-accent-red">
+              line {e.line}: {e.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SourcePane({ file, target }: { file: ScriptSourceFile; target: Target | null }) {
   const lines = useMemo(() => file.text.split("\n"), [file.text]);
@@ -264,8 +319,27 @@ export function ScriptViewer() {
   const exportScript = useEditor((s) => s.exportScript);
   const tag = useEditor((s) => s.tag);
   const setViewMode = useEditor((s) => s.setViewMode);
+  const drafts = useEditor((s) => s.scriptDrafts);
+  const report = useEditor((s) => s.scriptReport);
+  const compiling = useEditor((s) => s.scriptCompiling);
+  const editScript = useEditor((s) => s.editScript);
+  const compileScripts = useEditor((s) => s.compileScripts);
+  const applyScripts = useEditor((s) => s.applyScripts);
+  const revertScripts = useEditor((s) => s.revertScripts);
+  const discardScriptDrafts = useEditor((s) => s.discardScriptDrafts);
   const [target, setTarget] = useState<Target | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  const dirty = Object.keys(drafts).length > 0;
+
+  // Compile a beat after typing stops, so diagnostics keep up without
+  // recompiling a 4,000-line file on every keystroke.
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(() => void compileScripts(), 500);
+    return () => clearTimeout(t);
+  }, [drafts, dirty, compileScripts]);
 
   useEffect(() => {
     void loadScripts();
@@ -312,9 +386,26 @@ export function ScriptViewer() {
           </span>
           <button
             type="button"
+            onClick={() => setEditing((v) => !v)}
+            disabled={!file || file.name.startsWith("<")}
+            title={
+              file?.name.startsWith("<")
+                ? "Decompiled output is a rendering of the tree, not source the scenario carries"
+                : "Edit this file and compile it into the scenario"
+            }
+            className={`ml-auto border px-2 py-0.5 text-[11px] ${
+              editing
+                ? "border-mjolnir-gold/60 bg-mjolnir-gold/10 text-mjolnir-gold"
+                : "border-border-subtle text-text-secondary hover:bg-surface-hover"
+            } disabled:text-text-dim`}
+          >
+            {editing ? "Editing" : "Edit"}
+          </button>
+          <button
+            type="button"
             onClick={() => setViewMode("form")}
             title="Back to the tag's fields"
-            className="ml-auto border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
+            className="border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
           >
             Fields
           </button>
@@ -359,6 +450,98 @@ export function ScriptViewer() {
           ))}
         </div>
 
+        {(dirty || scripts.edited) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
+            <span
+              className={`font-mono text-[11px] ${
+                compiling
+                  ? "text-text-dim"
+                  : report && !report.ok
+                    ? "text-accent-red"
+                    : "text-accent-green"
+              }`}
+            >
+              {compiling
+                ? "compiling…"
+                : report
+                  ? report.ok
+                    ? `compiles · ${report.scripts} scripts, ${report.globals} globals, ${report.expressions.toLocaleString()} expressions`
+                    : `${report.errors.length} error${report.errors.length === 1 ? "" : "s"}`
+                  : dirty
+                    ? "edited"
+                    : "applied to the mod"}
+            </span>
+            {report && report.ok && report.warnings.length > 0 && (
+              <span
+                className="font-mono text-[11px] text-mjolnir-gold"
+                title={report.warnings
+                  .slice(0, 12)
+                  .map((w) => `line ${w.line}: ${w.message}`)
+                  .join("\n")}
+              >
+                {report.warnings.length} warning
+                {report.warnings.length === 1 ? "" : "s"}
+              </span>
+            )}
+
+            {report?.ok && report.dropped.length > 0 && (
+              <span
+                className="font-mono text-[11px] text-accent-red"
+                title={
+                  "These scripts are in the scenario but not in any source file, so " +
+                  "rebuilding removes them. AI task fragments call scripts by name, " +
+                  "so a missing one can break behaviour elsewhere.\n\n" +
+                  report.dropped.slice(0, 20).join("\n")
+                }
+              >
+                drops {report.dropped.length} script
+                {report.dropped.length === 1 ? "" : "s"}
+              </span>
+            )}
+
+            <button
+              type="button"
+              disabled={!dirty || compiling || (report != null && !report.ok)}
+              onClick={async () => {
+                const ok = await applyScripts();
+                setNote(ok ? "Compiled into the mod." : null);
+              }}
+              title={
+                report && !report.ok
+                  ? "Fix the errors first"
+                  : "Compile this script into the scenario and record it in the mod"
+              }
+              className="ml-auto border border-accent-green/50 px-2 py-0.5 text-[11px] text-accent-green hover:bg-accent-green/10 disabled:border-border-subtle disabled:text-text-dim"
+            >
+              Apply to mod
+            </button>
+            {dirty && (
+              <button
+                type="button"
+                onClick={() => {
+                  discardScriptDrafts();
+                  setNote(null);
+                }}
+                className="border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
+              >
+                Discard changes
+              </button>
+            )}
+            {scripts.edited && !dirty && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await revertScripts();
+                  setNote("Restored the script the game ships.");
+                }}
+                className="border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
+              >
+                Revert to shipped
+              </button>
+            )}
+          </div>
+        )}
+
         {note && <p className="mt-2 font-mono text-[11px] text-accent-green">{note}</p>}
       </header>
 
@@ -372,7 +555,16 @@ export function ScriptViewer() {
           }}
         />
         {file ? (
-          <SourcePane file={file} target={target} />
+          editing && !file.name.startsWith("<") ? (
+            <EditPane
+              file={file}
+              draft={drafts[file.name]}
+              onChange={(text) => editScript(file.name, text)}
+              errors={report?.errors ?? []}
+            />
+          ) : (
+            <SourcePane file={file} target={target} />
+          )
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-text-dim">
             This scenario carries no script.

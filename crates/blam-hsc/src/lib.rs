@@ -18,6 +18,7 @@
 pub mod compile;
 pub mod corpus;
 pub mod decompile;
+pub mod emit;
 pub mod expr;
 pub mod lex;
 pub mod parse;
@@ -44,4 +45,14 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("rewriting the tag failed: {0}")]
+    Rewrite(String),
+    #[error("the block shapes are not known; read the section from a tag first")]
+    UnknownShapes,
+    #[error("{count} {what} exceed the {max} the definitions allow")]
+    TooManyElements {
+        what: &'static str,
+        count: usize,
+        max: u32,
+    },
 }

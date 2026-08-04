@@ -191,6 +191,9 @@ impl<'a> Compiler<'a> {
             references: Vec::new(),
             value_types: self.value_types,
             script_types: self.script_types,
+            // A compiled section has no tag behind it; the shapes come from the
+            // scenario it is written into.
+            shapes: crate::read::Shapes::default(),
         };
         Compiled {
             section,

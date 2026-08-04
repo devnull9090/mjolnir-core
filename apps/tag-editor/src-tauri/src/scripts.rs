@@ -79,6 +79,8 @@ pub struct ScriptView {
     /// Whether the tag carries the source it was compiled from. When false the
     /// editor shows decompiled output and says so.
     pub has_source: bool,
+    /// Whether the mod replaces this scenario's script.
+    pub edited: bool,
 }
 
 const FILE_FLAGS: [&str; 3] = ["generated at runtime", "ai fragments", "ai performances"];
@@ -162,8 +164,10 @@ pub fn view(
     path: String,
     layout: &blam_tag::Layout<'_>,
     block: &blam_tag::data::Block<'_>,
+    file: &[u8],
+    edited: bool,
 ) -> Result<ScriptView, String> {
-    let hs = blam_hsc::read::read(layout, block).map_err(|e| e.to_string())?;
+    let hs = blam_hsc::read::read(layout, block, file).map_err(|e| e.to_string())?;
     let decls = Declarations::scan(&hs.source_files, hs.value_types.names());
     let type_name = |t: u16| hs.value_types.name_of(t).unwrap_or("unknown").to_string();
 
@@ -260,16 +264,150 @@ pub fn view(
         datum_slots: hs.expressions.len(),
         string_bytes: hs.strings.len(),
         has_source,
+        edited,
     })
+}
+
+/// What compiling a set of source files produced.
+#[derive(Debug, Clone, Serialize)]
+pub struct CompileReport {
+    pub ok: bool,
+    pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
+    pub scripts: usize,
+    pub globals: usize,
+    pub expressions: usize,
+    /// How the rewritten tag compares to the one that shipped.
+    pub tag_bytes: usize,
+    pub original_bytes: usize,
+    /// Scripts the scenario currently declares that this source does not, and
+    /// which rebuilding would therefore remove.
+    ///
+    /// The campaign has 150 of these: scripts present in the compiled tree with
+    /// no source block to compile from. AI task fragments call scripts by name,
+    /// so dropping one can break behaviour far from the file being edited.
+    pub dropped: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostic {
+    pub line: u32,
+    pub message: String,
+}
+
+fn diagnostics(source: &[blam_hsc::Diagnostic], want: blam_hsc::Severity) -> Vec<Diagnostic> {
+    source
+        .iter()
+        .filter(|d| d.severity == want)
+        .map(|d| Diagnostic {
+            line: d.line,
+            message: d.message.clone(),
+        })
+        .collect()
+}
+
+/// Compile source files and rewrite a scenario tag around the result.
+///
+/// The rewritten tag is re-read before being handed back. A tag that compiles
+/// but does not walk cleanly is worse than a failed compile — it reaches the
+/// game and breaks it there — so the check happens here rather than at bake
+/// time.
+pub fn compile_into(
+    file: &[u8],
+    chunk_len: usize,
+    sources: &[(String, String)],
+) -> Result<(Vec<u8>, CompileReport), String> {
+    let corpus = corpus().ok_or("the scripting corpus did not parse; cannot compile")?;
+
+    let files: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+
+    let mut report = CompileReport {
+        ok: compiled.ok(),
+        errors: diagnostics(&compiled.diagnostics, blam_hsc::Severity::Error),
+        warnings: diagnostics(&compiled.diagnostics, blam_hsc::Severity::Warning),
+        scripts: compiled.section.scripts.len(),
+        globals: compiled.section.globals.len(),
+        expressions: compiled.section.live().count(),
+        tag_bytes: 0,
+        original_bytes: file.len(),
+        dropped: Vec::new(),
+    };
+    if !report.ok {
+        return Ok((Vec::new(), report));
+    }
+
+    // The compiled section carries no shapes of its own; they belong to the
+    // scenario being written into.
+    let tag = blam_tag::TagFile::parse(file, Some(chunk_len)).map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let existing = blam_hsc::read::read(&layout, &block, file).map_err(|e| e.to_string())?;
+
+    // A script the tag has but the source does not declare disappears on a
+    // rebuild. Say which, rather than letting the count quietly drop.
+    let declared: std::collections::HashSet<&str> = compiled
+        .section
+        .scripts
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    report.dropped = existing
+        .scripts
+        .iter()
+        .map(|s| s.name.as_str())
+        .filter(|name| !declared.contains(name))
+        .map(str::to_string)
+        .collect();
+    report.dropped.dedup();
+
+    let mut section = compiled.section;
+    section.shapes = existing.shapes;
+    // The source files are the record of what the user wrote, so they are
+    // carried into the tag alongside the tree they produced.
+    section.source_files = sources
+        .iter()
+        .map(|(name, text)| blam_hsc::SourceFile {
+            name: name.clone(),
+            source: {
+                let mut bytes = text.as_bytes().to_vec();
+                bytes.push(0);
+                bytes
+            },
+            flags: 0,
+        })
+        .collect();
+
+    let out = blam_hsc::emit::rewrite(&section, file).map_err(|e| e.to_string())?;
+
+    {
+        let parsed = blam_tag::TagFile::parse(&out, Some(out.len()))
+            .map_err(|e| format!("the rewritten scenario does not parse: {e}"))?;
+        let l = parsed.layout().map_err(|e| e.to_string())?;
+        let b = parsed
+            .read_data(&l)
+            .map_err(|e| format!("the rewritten scenario does not read back: {e}"))?;
+        let expected = parsed.data().map(|d| d.size as usize).unwrap_or(b.consumed);
+        if b.consumed != expected {
+            return Err("the rewritten scenario does not read back exactly".into());
+        }
+    }
+
+    report.tag_bytes = out.len();
+    Ok((out, report))
 }
 
 /// Decompile one script by name, for comparing against the shipped source.
 pub fn decompile_one(
     layout: &blam_tag::Layout<'_>,
     block: &blam_tag::data::Block<'_>,
+    file: &[u8],
     name: &str,
 ) -> Result<String, String> {
-    let hs = blam_hsc::read::read(layout, block).map_err(|e| e.to_string())?;
+    let hs = blam_hsc::read::read(layout, block, file).map_err(|e| e.to_string())?;
     let d = match corpus() {
         Some(c) => blam_hsc::Decompiler::with_corpus(&hs, c),
         None => blam_hsc::Decompiler::new(&hs),

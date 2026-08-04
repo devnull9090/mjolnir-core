@@ -100,6 +100,26 @@ export type ScriptView = {
   string_bytes: number;
   /** False when the tag shipped no source and the text shown is decompiled. */
   has_source: boolean;
+  /** Whether the mod replaces this scenario's script. */
+  edited: boolean;
+};
+
+export type ScriptDiagnostic = {
+  line: number;
+  message: string;
+};
+
+export type CompileReport = {
+  ok: boolean;
+  errors: ScriptDiagnostic[];
+  warnings: ScriptDiagnostic[];
+  scripts: number;
+  globals: number;
+  expressions: number;
+  tag_bytes: number;
+  original_bytes: number;
+  /** Scripts the tag has that this source does not declare; rebuilding drops them. */
+  dropped: string[];
 };
 
 export type TextureSummary = {
@@ -349,6 +369,11 @@ const tauriApi = {
     invoke<string>("decompile_script", { index, name }),
   exportScript: (index: number, name: string, dest: string) =>
     invoke<number>("export_script", { index, name, dest }),
+  compileScripts: (index: number, files: [string, string][]) =>
+    invoke<CompileReport>("compile_scripts", { index, files }),
+  setScripts: (index: number, files: [string, string][]) =>
+    invoke<CompileReport>("set_scripts", { index, files }),
+  revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),

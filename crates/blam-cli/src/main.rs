@@ -157,6 +157,14 @@ struct ScriptArgs {
     /// then decompile that and check every script comes back unchanged.
     #[arg(long)]
     recompile: bool,
+    /// Write the script section back unchanged and check the tag comes out byte
+    /// for byte identical.
+    #[arg(long)]
+    rewrite_check: bool,
+    /// Compile the scenario's own source, write it back into the tag, and check
+    /// the result still reads exactly.
+    #[arg(long)]
+    rebuild_check: bool,
     /// With --verify, print the first few disagreements in full.
     #[arg(long, default_value_t = 5)]
     show: usize,
@@ -1703,7 +1711,7 @@ fn script(a: ScriptArgs) -> Result<()> {
         let block = tag
             .read_data(&l)
             .with_context(|| format!("{} is not readable", entry.path))?;
-        let hs = blam_hsc::read::read(&l, &block)?;
+        let hs = blam_hsc::read::read(&l, &block, &buf)?;
 
         // Printing one file's text is the whole output; the summary would only
         // get in the way of piping it.
@@ -1713,6 +1721,48 @@ fn script(a: ScriptArgs) -> Result<()> {
             };
             print!("{}", file.text());
             return Ok(());
+        }
+
+        if a.rebuild_check {
+            rebuild_check(&hs, corpus.as_ref(), &buf, &entry.path, &mut totals);
+            continue;
+        }
+
+        if a.rewrite_check {
+            // Writing a section that was read and not modified must reproduce
+            // the tag exactly. Anything else means the writer is guessing, and
+            // an edit built on a guessing writer corrupts whatever it misses.
+            let short = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+            match blam_hsc::emit::rewrite(&hs, &buf) {
+                Ok(out) if out == buf => {
+                    println!("{short:<28} identical ({} bytes)", out.len());
+                    totals.matched += 1;
+                }
+                Ok(out) => {
+                    let first = (0..out.len().min(buf.len())).find(|i| out[*i] != buf[*i]);
+                    println!(
+                        "{short:<28} DIFFERS: {} bytes vs {}{}",
+                        out.len(),
+                        buf.len(),
+                        match first {
+                            Some(at) => format!(", first at 0x{at:x}"),
+                            None => String::new(),
+                        }
+                    );
+                    if let Some(at) = first {
+                        let from = at.saturating_sub(16);
+                        let to = (at + 16).min(buf.len());
+                        println!("    was:  {}", hex(&buf[from..to]));
+                        println!("    ours: {}", hex(&out[from..to]));
+                    }
+                    totals.differs += 1;
+                }
+                Err(e) => {
+                    println!("{short:<28} FAILED: {e}");
+                    totals.differs += 1;
+                }
+            }
+            continue;
         }
 
         if a.recompile {
@@ -1795,7 +1845,7 @@ fn script(a: ScriptArgs) -> Result<()> {
         println!();
     }
 
-    if a.verify || a.recompile {
+    if a.verify || a.recompile || a.rewrite_check || a.rebuild_check {
         println!(
             "total  {} of {} scripts match ({:.1}%), {} desugared cond, {} no source, {} differ",
             totals.matched,
@@ -1919,6 +1969,110 @@ fn verify_scripts(
     totals.cond += cond;
     totals.no_source += no_source;
     totals.differs += differs;
+}
+
+/// Compile a scenario's own source and write the result back into the tag.
+///
+/// The end-to-end check: every earlier one stops at the expression tree, and
+/// this is what says the tree can be put back into a scenario the game's own
+/// reader still accepts. The rebuilt tag is re-read from scratch and its script
+/// section compared against what went in.
+fn rebuild_check(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    file: &[u8],
+    path: &str,
+    totals: &mut VerifyTotals,
+) {
+    let short = path.rsplit('/').next().unwrap_or(path);
+    let Some(corpus) = corpus else {
+        println!("{short:<28} skipped: no scripting corpus");
+        return;
+    };
+
+    let texts: Vec<(String, String)> = hs
+        .source_files
+        .iter()
+        .map(|f| (f.name.clone(), f.text().into_owned()))
+        .collect();
+    let files: Vec<(&str, &str)> = texts
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    if !compiled.ok() {
+        println!(
+            "{short:<28} FAILED to compile: {}",
+            compiled.errors().count()
+        );
+        totals.differs += 1;
+        return;
+    }
+
+    let mut section = compiled.section;
+    section.shapes = hs.shapes;
+    section.source_files = hs.source_files.clone();
+
+    let rebuilt = match blam_hsc::emit::rewrite(&section, file) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("{short:<28} FAILED to write: {e}");
+            totals.differs += 1;
+            return;
+        }
+    };
+
+    // Read it back the way the editor and the game would, from nothing but the
+    // bytes.
+    let reread = (|| -> anyhow::Result<blam_hsc::ScriptSection> {
+        let tag = TagFile::parse(&rebuilt, Some(rebuilt.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let expected = tag
+            .data()
+            .map(|d| d.size as usize)
+            .unwrap_or(block.consumed);
+        anyhow::ensure!(
+            block.consumed == expected,
+            "the rebuilt tag does not walk exactly: {} consumed of {expected}",
+            block.consumed
+        );
+        Ok(blam_hsc::read::read(&l, &block, &rebuilt)?)
+    })();
+
+    match reread {
+        Err(e) => {
+            println!("{short:<28} FAILED to read back: {e}");
+            totals.differs += 1;
+        }
+        Ok(back) => {
+            let same = back.scripts.len() == section.scripts.len()
+                && back.globals.len() == section.globals.len()
+                && back.live().count() == section.live().count()
+                && back.source_files.len() == section.source_files.len();
+            if same {
+                println!(
+                    "{short:<28} rebuilt ok: {} scripts, {} globals, {} expressions, {} bytes ({:+})",
+                    back.scripts.len(),
+                    back.globals.len(),
+                    back.live().count(),
+                    rebuilt.len(),
+                    rebuilt.len() as i64 - file.len() as i64
+                );
+                totals.matched += 1;
+            } else {
+                println!(
+                    "{short:<28} DIFFERS after reading back: {} scripts vs {}, {} expressions vs {}",
+                    back.scripts.len(),
+                    section.scripts.len(),
+                    back.live().count(),
+                    section.live().count()
+                );
+                totals.differs += 1;
+            }
+        }
+    }
 }
 
 /// Compile a scenario's own source back into a tree, then decompile that and
@@ -2225,7 +2379,7 @@ fn scripting(a: ScriptingArgs) -> Result<()> {
         let block = tag
             .read_data(&l)
             .with_context(|| format!("{} is not readable", entry.path))?;
-        builder.observe(&blam_hsc::read::read(&l, &block)?);
+        builder.observe(&blam_hsc::read::read(&l, &block, &buf)?);
     }
 
     // An opcode seen under two names would mean the recovery rule is wrong, so

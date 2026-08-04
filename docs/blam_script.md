@@ -216,23 +216,69 @@ decompiled output a second time must produce the same tree, since both trees are
 compiler's own. **All 13 scenarios reach it.** 78 literals across the whole campaign had
 no usable type from either the position or the token, and are reported as warnings.
 
+## Writing it back
+
+`crates/blam-hsc/src/emit.rs` serialises a section into the bytes a scenario holds, and
+`blam_tag::patch::rewrite` rebuilds the tag around it. Five things move together:
+
+| Field | Section |
+|---|---|
+| `script string data` | `tgda` |
+| `hs syntax datums` | `tgbl` |
+| `scripts` | `tgbl` |
+| `globals` | `tgbl` |
+| `source files` | `tgbl` |
+
+Two facts the shipped data forced, neither of them obvious:
+
+- **A `block` field carries its element count inline** — the first four of its twelve
+  inline bytes — duplicating the one in the `tgbl` header. A `data` field carries its
+  byte length the same way. Resizing a block without fixing the enclosing element's copy
+  leaves a scenario claiming a different number of scripts than it has.
+- **Nothing outside the script section indexes the datum array.** AI task fragments
+  (`script_fragment_block`) and performance lines reference scripts *by name* and carry
+  their own source text, so rebuilding the tree cannot dangle them.
+
+`mjolnir script --rewrite-check` writes each shipped section back unmodified and asserts
+the tag comes out byte for byte identical: **13 of 13**. That is the check that the
+writer is exact rather than approximately right.
+
+`mjolnir script --rebuild-check` goes the whole way — compile the scenario's own source,
+write it back, and re-read the result from nothing but the bytes. **13 of 13** rebuild
+and read back cleanly, each about 100 KB smaller than it shipped, because the datum array
+comes out dense and the string blob interned.
+
+### What a rebuild loses
+
+A rebuild produces only the scripts the source declares, and 150 scripts across the
+campaign have no source block — 9 in `a15`, 12 in `a30`. Those disappear. Since task
+fragments call scripts by name, a missing one can break behaviour far from the file being
+edited, so the editor reports the exact list before an edit is applied rather than letting
+the count quietly drop.
+
+The `references` block is also left as it shipped: a script that newly names a tag will
+not add it there.
+
 ## In the tag editor
 
 A `scenario` tag gets a third view alongside Form and Tree. It shows the shipped source
 files with HSC highlighting, an outline of every script and global that jumps to its
 declaration, and export to `.hsc`. When a scenario carries no source — a stripped or
-hand-built mod — it shows decompiled output instead and says so. It is read-only until
-the write-back below lands.
+hand-built mod — it shows decompiled output instead and says so.
+
+**Edit** makes the current file editable. Compilation runs half a second after typing
+stops, so errors appear against their lines as you work, and **Apply to mod** is disabled
+until it builds. Applying compiles the script into the scenario, records the `.hsc` files
+under `scripts/<group>/<tag>/` in the project folder, and marks the tag changed; the
+existing test, export and publish paths bake it like any other edit. The decompiled view
+is never editable — it is a rendering of the tree, and compiling it back would silently
+make it the mod's source of truth.
 
 ## Not done yet
 
-**Writing a compiled section back into a scenario tag**, and therefore import in the
-editor. The compiler produces the section; what is missing is the ability to substitute
-whole *blocks* when re-serialising a tag. `blam_tag::write::write_block_subst` can
-replace one section's content, which covers `script string data`, but `hs syntax datums`,
-`scripts` and `globals` are `tgbl` blocks whose element count and packed bytes both
-change. That is a `blam-tag` extension, not a compiler one. After it: bake through
-`blam-pack` into a `_P` override container, as other tag edits already do.
+**The 188 quoting disagreements.** Both round-trip directions hit exactly this one class.
+It is the only thing standing between them and 100%.
 
-**The 188 quoting disagreements.** Both directions now hit exactly this one class. It is
-the only thing standing between the round-trip and 100%.
+**Preserving source-less scripts through a rebuild.** They could be decompiled and
+appended, but the decompiler is at 92% and injecting output that might be subtly wrong is
+worse than reporting the loss.
