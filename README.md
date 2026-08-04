@@ -290,7 +290,10 @@ Beyond tags, it browses the two asset kinds that used to need external tools:
 
 - **Textures** — decoded and displayed, with zoom and PNG export. Both cook paths are handled
   (virtual textures and classic mip chains); 4787 of 4844 decode, and the 57 that do not ship no
-  pixel data at all. See [`docs/ue_texture_format.md`](docs/ue_texture_format.md).
+  pixel data at all. They can also be **swapped**: `mjolnir texture swap` re-encodes a PNG into a
+  payload of exactly the shipped size, so the override replaces one chunk and moves no metadata.
+  See [`docs/texture_swapping.md`](docs/texture_swapping.md) for the walkthrough and
+  [`docs/ue_texture_format.md`](docs/ue_texture_format.md) for the format.
 - **Audio** — the ~6 GB of Wwise sound in the `.pak` siblings, played in the editor, named by the
   event that plays it rather than by a bare numeric ID, and exportable as `.wem`. See
   [`docs/wwise_audio_format.md`](docs/wwise_audio_format.md).

@@ -20,12 +20,15 @@ use ue_iostore::{ChunkEntry, Container};
 /// as big-endian bytes. Distinct from every shipped container.
 pub const CONTAINER_ID: u64 = 0x4D4A_4F4C_4E49_5200;
 
-/// One edited tag to pack: where it lives in the shipped container, and the
+/// One chunk to replace: where it lives in the shipped container, and the
 /// bytes it should become.
-pub struct TagEdit {
+///
+/// Usually a tag payload, but a texture swap replaces a `.ubulk` through the
+/// same path — the container does not care what the bytes mean.
+pub struct ChunkEdit {
     /// For error messages, e.g. `objects/weapons/pistol/pistol.weapon`.
     pub label: String,
-    /// The tag's payload chunk in the source container.
+    /// The chunk to override in the source container.
     pub chunk: ChunkEntry,
     /// Length of the shipped payload. When the patched payload differs, the
     /// package header's `BinaryBlobSize` is rewritten to match and packed
@@ -68,7 +71,7 @@ impl Built {
 pub fn build_override(
     source: &Container,
     oodle: &[PathBuf],
-    edits: &[TagEdit],
+    edits: &[ChunkEdit],
 ) -> Result<Built, String> {
     if edits.is_empty() {
         return Err("nothing to pack".into());

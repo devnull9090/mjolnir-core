@@ -50,12 +50,12 @@ pub struct Baked {
 
 /// Bake resolved edits into override containers, one per source container.
 pub fn bake(c: &Catalog, slug: &str, edits: Vec<ResolvedEdit>) -> Result<Vec<Baked>, String> {
-    let mut by_source: BTreeMap<usize, Vec<blam_pack::TagEdit>> = BTreeMap::new();
+    let mut by_source: BTreeMap<usize, Vec<blam_pack::ChunkEdit>> = BTreeMap::new();
     for e in edits {
         by_source
             .entry(e.container)
             .or_default()
-            .push(blam_pack::TagEdit {
+            .push(blam_pack::ChunkEdit {
                 label: e.label,
                 chunk: e.chunk,
                 original_len: e.original_len,

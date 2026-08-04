@@ -145,6 +145,23 @@ Block formats scale the virtual-texture tile byte size (BC7/DXT5/BC5 are 16
 bytes per block → 18,496-byte tiles). A mip smaller than one block still costs
 a whole block, so a 1×1 DXT1 mip is 8 bytes.
 
+## Writing the format back
+
+Re-encoding an image at the shipped dimensions and pixel format lands on a
+payload of *exactly* the shipped byte size — block compression is a fixed cost
+per block, not a function of the picture. Every offset above therefore stays
+valid, so replacing a texture is a chunk substitution rather than a re-cook, and
+for a virtual texture the `.uasset` is not touched at all.
+
+`ue-texture`'s `encode` module does this by rewriting tiles and mips in place
+inside a copy of the shipped payload, which leaves anything the reader does not
+model — chunk headers, alignment padding, tiles no table points at — exactly as
+it was. See [`texture_swapping.md`](texture_swapping.md).
+
+The `FIoHash` in each chunk record is *not* recomputed, and the game plays the
+swapped texture regardless: those hashes are cook-time DDC keys, not a runtime
+integrity check.
+
 ## A caution from the reverse-engineering
 
 The tile byte size divided by small powers of two produces plausible-looking

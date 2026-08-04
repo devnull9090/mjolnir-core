@@ -18,6 +18,19 @@
     "Blank" is decided by sampling rather than assumed, so the fallback fires on
     evidence. Exclusive fullscreen defeats both; launch the game windowed.
 
+    Two details decide whether the frame is the whole frame:
+
+      The thread is made per-monitor DPI aware first. PowerShell is DPI
+      virtualised by default, so on a scaled display GetClientRect reports
+      layout units rather than pixels — a 1280x720 client answers 853x480 at
+      150% — and every measurement below inherits the lie.
+
+      PrintWindow draws the *window*, chrome included, while the frame we want
+      is the *client* area. So the bitmap is sized to the window and cropped to
+      the client afterwards. Sizing it to the client instead silently keeps the
+      title bar and loses an equal strip off the bottom and right, which is
+      where a first-person weapon model lives.
+
     Prints one line of JSON so a caller can branch on which method was used.
 
 .EXAMPLE
@@ -45,10 +58,24 @@ public class MjolnirWin {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 }
 "@
+
+# Ask for real pixels before measuring anything. Per-monitor v2 is a thread
+# setting and needs no restart; SetProcessDPIAware is the pre-1607 fallback and
+# is a no-op once awareness is already set.
+try {
+    $perMonitorV2 = [IntPtr](-4)
+    if ([MjolnirWin]::SetThreadDpiAwarenessContext($perMonitorV2) -eq [IntPtr]::Zero) {
+        [MjolnirWin]::SetProcessDPIAware() | Out-Null
+    }
+} catch {
+    try { [MjolnirWin]::SetProcessDPIAware() | Out-Null } catch {}
+}
 
 function Fail($message) {
     ConvertTo-Json -Compress @{ ok = $false; error = $message }
@@ -68,6 +95,21 @@ $width = $clientRect.Right - $clientRect.Left
 $height = $clientRect.Bottom - $clientRect.Top
 if ($width -le 0 -or $height -le 0) { Fail "window has no client area ($width x $height)" }
 
+# Where the client area sits on screen, and inside the window. PrintWindow
+# works in window coordinates and CopyFromScreen in screen coordinates, so both
+# origins are needed.
+$clientOrigin = New-Object MjolnirWin+POINT
+$clientOrigin.X = $clientRect.Left
+$clientOrigin.Y = $clientRect.Top
+[MjolnirWin]::ClientToScreen($hwnd, [ref]$clientOrigin) | Out-Null
+
+$windowRect = New-Object MjolnirWin+RECT
+if (-not [MjolnirWin]::GetWindowRect($hwnd, [ref]$windowRect)) { Fail "GetWindowRect failed" }
+$windowWidth = $windowRect.Right - $windowRect.Left
+$windowHeight = $windowRect.Bottom - $windowRect.Top
+$insetX = $clientOrigin.X - $windowRect.Left
+$insetY = $clientOrigin.Y - $windowRect.Top
+
 # Sample a grid instead of every pixel: enough to tell a rendered frame from a
 # blank one, cheap enough to run on every capture.
 function Test-Blank([System.Drawing.Bitmap]$bitmap) {
@@ -82,12 +124,25 @@ function Test-Blank([System.Drawing.Bitmap]$bitmap) {
 }
 
 $method = "PrintWindow"
-$bitmap = New-Object System.Drawing.Bitmap($width, $height)
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+# Sized to the whole window, because that is what PrintWindow draws.
+$printed = $false
+$windowBitmap = New-Object System.Drawing.Bitmap($windowWidth, $windowHeight)
+$graphics = [System.Drawing.Graphics]::FromImage($windowBitmap)
 $hdc = $graphics.GetHdc()
 $printed = [MjolnirWin]::PrintWindow($hwnd, $hdc, 2)   # PW_RENDERFULLCONTENT
 $graphics.ReleaseHdc($hdc)
 $graphics.Dispose()
+
+# Keep only the client area — the game's frame without the title bar or border.
+$bitmap = New-Object System.Drawing.Bitmap($width, $height)
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.DrawImage(
+    $windowBitmap,
+    (New-Object System.Drawing.Rectangle(0, 0, $width, $height)),
+    (New-Object System.Drawing.Rectangle($insetX, $insetY, $width, $height)),
+    [System.Drawing.GraphicsUnit]::Pixel)
+$graphics.Dispose()
+$windowBitmap.Dispose()
 
 if (-not $printed -or (Test-Blank $bitmap) -or $ForceForeground) {
     $bitmap.Dispose()
@@ -99,14 +154,9 @@ if (-not $printed -or (Test-Blank $bitmap) -or $ForceForeground) {
         Start-Sleep -Milliseconds 250
     }
 
-    $origin = New-Object MjolnirWin+POINT
-    $origin.X = $clientRect.Left
-    $origin.Y = $clientRect.Top
-    [MjolnirWin]::ClientToScreen($hwnd, [ref]$origin) | Out-Null
-
     $bitmap = New-Object System.Drawing.Bitmap($width, $height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.CopyFromScreen($origin.X, $origin.Y, 0, 0, (New-Object System.Drawing.Size($width, $height)))
+    $graphics.CopyFromScreen($clientOrigin.X, $clientOrigin.Y, 0, 0, (New-Object System.Drawing.Size($width, $height)))
     $graphics.Dispose()
 }
 

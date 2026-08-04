@@ -24,7 +24,8 @@ pub mod project;
 pub mod scripts;
 pub mod secret;
 pub mod sounds;
-pub mod textures;
+/// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
+pub use ue_texture as textures;
 pub mod wwise;
 pub mod zen;
 
