@@ -2,7 +2,8 @@
 
 **Goal:** repaint something in the game and see it in your own hands
 **Time:** about ten minutes, most of it spent painting
-**You need:** Halo Campaign Evolved installed, and the `mjolnir` command line
+**You need:** Halo Campaign Evolved installed, and either the tag editor or the
+`mjolnir` command line
 
 ![The assault rifle wearing a swapped albedo map](images/texture_swap_assault_rifle.jpg)
 
@@ -12,6 +13,22 @@ reads correctly, which is the point: a swap moves nothing.
 
 For *why* the cooked format looks the way it does, see
 [`ue_texture_format.md`](ue_texture_format.md). This page is about using it.
+
+---
+
+## Two ways to do this
+
+**The tag editor** is the shorter road, and the one to take if you are already
+building a mod: a swap becomes part of your mod project alongside your tag
+edits, so one *Test in game* covers all of it and one archive ships all of it.
+Jump to [In the tag editor](#in-the-tag-editor).
+
+**The command line** builds a standalone override container for one texture,
+with nothing else attached. It is the better tool for trying something quickly
+or for scripting a batch. That is the walkthrough in sections 1–5 below.
+
+Both routes run the same encoder and the same safety checks — the editor calls
+straight into the crate the CLI uses.
 
 ---
 
@@ -139,6 +156,41 @@ you painted.
 
 To undo it, delete those three files. That is the whole uninstall.
 
+## In the tag editor
+
+The editor treats a repaint as one more thing a mod changes, next to its tag
+edits and scripts. There is no separate container to manage and nothing to copy
+by hand.
+
+1. **Open or create a mod project** in the MOD panel. A swap has to be saved
+   somewhere, so *Replace…* stays greyed out until a project is open — the
+   button's tooltip says which of the two reasons is stopping it.
+2. **Open the texture**, from the TEXTURES list or by walking to it in FILES.
+3. **Export PNG…** to get the shipped atlas, and paint it exactly as in
+   [section 3](#3-paint-it) — same rules, same atlas, same warning about moving
+   things around.
+4. **Replace…** and pick your PNG. The editor re-encodes every mip, checks the
+   payload came out the same length, and decodes it back to compare against
+   what you handed it. On a large virtual texture this takes a few seconds.
+
+What you see afterwards is the *readback* — the payload decoded again, which is
+what the game will really draw, block-compression losses and all — with the
+same numbers the CLI prints:
+
+> This mod replaces this texture. Re-encoded 12 mips; 4,180,992 of 4,818,220
+> payload bytes changed; readback error 2.41 / 255.
+
+The swap now appears in the mod's change list, and *Test in game* and *Export
+.mjolnir archive* bake it along with everything else. **Revert** in the texture
+header drops it.
+
+Your PNG is stored in the project folder at `textures/<path>.png`, and
+`edits.json` records which textures have one — the same arrangement as `.hsc`
+script files. That means the recipe stays readable and re-encodes against
+whatever the player's install ships, so a game update does not bake a stale
+payload into your mod. It also means the PNG is the file under version control,
+not a cooked blob.
+
 ## What can be swapped
 
 | Format | |
@@ -161,7 +213,11 @@ Refused rather than approximated, in both cases:
 - **Cubemaps, arrays and volume textures** fail too. One 2D image does not say what the
   other faces should become, and rewriting one would silently discard them.
 - A classic texture that keeps **every** mip inline in its export has no bulk chunk to
-  replace; the encoder handles it, but `texture swap` cannot pack it yet.
+  replace; the encoder handles it, but neither the command nor the editor can pack it
+  yet.
+
+In the editor, an unsupported format is visible before you pick a file: *Replace…*
+is greyed out and the reason sits under the texture's path.
 
 ## Troubleshooting
 

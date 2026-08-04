@@ -11,7 +11,7 @@
 //! so anything the reader does not model (chunk headers, alignment padding,
 //! tiles no table points at) survives untouched.
 
-use crate::{morton, surface_bytes, Mip, MipSource, Payload, Texture, VtData};
+use crate::{morton, surface_bytes, Mip, MipSource, Payload, Texture, TextureImage, VtData};
 
 /// An 8-bit RGBA image, the common currency between PNG files and surfaces.
 #[derive(Clone)]
@@ -172,12 +172,98 @@ pub fn rewrite(
     }
 }
 
+/// The largest mean per-channel readback error a swap may carry.
+///
+/// Block compression costs a few levels; tiles written to the wrong offset
+/// cost dozens. The gap between the two is wide enough to draw a line in.
+pub const MAX_READBACK_ERROR: f64 = 12.0;
+
+/// A rewritten payload that has passed every safety gate, ready to pack.
+pub struct Swap {
+    /// The new bulk payload, the same length as the shipped one.
+    pub ubulk: Vec<u8>,
+    /// How many mips were rewritten.
+    pub mips: u32,
+    /// How many payload bytes actually differ from the shipped ones.
+    pub changed: usize,
+    /// Mean per-channel difference between the readback and the image that
+    /// went in, out of 255.
+    pub error: f64,
+    /// The payload decoded again at mip 0 — what the game will show, which a
+    /// caller can render as a preview or write out as a PNG.
+    pub decoded: TextureImage,
+}
+
+/// Rewrite a texture's bulk payload with `img` and prove the result before
+/// letting anyone pack it.
+///
+/// This is `rewrite` plus the three checks that make a swap safe to ship, and
+/// it exists so the CLI and the tag editor cannot drift apart on them:
+///
+/// 1. Inline-mip textures are refused — rewriting those needs a second chunk
+///    for the export blob, which nothing builds yet.
+/// 2. The payload length must be unchanged, which is the invariant the whole
+///    approach rests on.
+/// 3. The payload is decoded again through the ordinary reader and compared
+///    against the image that went in. A tile written to the wrong offset
+///    still packs and still verifies byte-exactly against itself; this is the
+///    only check that catches it.
+pub fn swap(tex: &Texture, ubulk: &[u8], img: &Image) -> Result<Swap, String> {
+    let out = rewrite(tex, &[], ubulk, img)?;
+    if out.export.is_some() {
+        return Err(
+            "this texture keeps its mips inline in the export, which cannot be rewritten yet"
+                .into(),
+        );
+    }
+    if out.ubulk.len() != ubulk.len() {
+        return Err(format!(
+            "internal error: rewrote {} bytes over a {} byte payload",
+            out.ubulk.len(),
+            ubulk.len()
+        ));
+    }
+    let changed = (0..ubulk.len()).filter(|i| ubulk[*i] != out.ubulk[*i]).count();
+
+    let decoded = crate::assemble_mip(tex, &out.ubulk, 0)?;
+    let want = img.resized(tex.width, tex.height);
+    let total: u64 = decoded
+        .rgba
+        .chunks(4)
+        .zip(want.rgba.chunks(4))
+        .map(|(a, b)| {
+            (0..3)
+                .map(|c| (a[c] as i32 - b[c] as i32).unsigned_abs() as u64)
+                .sum::<u64>()
+        })
+        .sum();
+    let error = total as f64 / (decoded.rgba.len() as f64 / 4.0 * 3.0);
+    if error > MAX_READBACK_ERROR {
+        return Err(format!(
+            "the rewritten payload does not decode back to the image that went in \
+             (mean error {error:.2}) — the tile layout is wrong, refusing to write it"
+        ));
+    }
+
+    Ok(Swap {
+        ubulk: out.ubulk,
+        mips: out.mips,
+        changed,
+        error,
+        decoded,
+    })
+}
+
 /// Refuse a format this module cannot write, before anything is rewritten.
 ///
 /// Refusing beats approximating: a texture written in a format we encode
 /// wrongly is a corrupt asset in the player's install, and the failure would
 /// show up as garbage pixels rather than an error.
-fn encodable(format: &str) -> Result<(), String> {
+///
+/// Public so a caller can ask before offering the swap at all — the tag
+/// editor greys out its Replace button on the `Err` message rather than
+/// letting the user pick a file and only then be told no.
+pub fn encodable(format: &str) -> Result<(), String> {
     match format {
         "PF_DXT1" | "PF_DXT3" | "PF_DXT5" | "PF_BC4" | "PF_BC5" | "PF_B8G8R8A8" | "PF_G8"
         | "PF_A8" => Ok(()),
@@ -477,6 +563,81 @@ mod tests {
             }
         }
         v
+    }
+
+    /// A classic two-mip DXT1 texture whose mips both live in the bulk file,
+    /// which is the shape `swap` is meant to handle.
+    fn classic_texture(w: u32, h: u32) -> (Texture, Vec<u8>) {
+        let mip0 = surface_bytes("PF_DXT1", w, h).unwrap() as usize;
+        let mip1 = surface_bytes("PF_DXT1", w / 2, h / 2).unwrap() as usize;
+        let tex = Texture {
+            width: w,
+            height: h,
+            format: "PF_DXT1".into(),
+            num_mips: 2,
+            payload: Payload::Classic(vec![
+                Mip {
+                    width: w,
+                    height: h,
+                    source: MipSource::Bulk {
+                        offset: 0,
+                        len: mip0 as u64,
+                    },
+                },
+                Mip {
+                    width: w / 2,
+                    height: h / 2,
+                    source: MipSource::Bulk {
+                        offset: mip0 as u64,
+                        len: mip1 as u64,
+                    },
+                },
+            ]),
+        };
+        (tex, vec![0u8; mip0 + mip1])
+    }
+
+    #[test]
+    fn a_swap_keeps_the_payload_length_and_reads_back() {
+        let (tex, ubulk) = classic_texture(64, 64);
+        let img = Image::new(64, 64, gradient(64, 64)).unwrap();
+        let out = swap(&tex, &ubulk, &img).unwrap();
+
+        // The invariant the whole approach rests on.
+        assert_eq!(out.ubulk.len(), ubulk.len(), "payload length moved");
+        assert_eq!(out.mips, 2);
+        assert!(out.changed > 0, "nothing was written");
+        assert!(
+            out.error <= MAX_READBACK_ERROR,
+            "readback error {} too high",
+            out.error
+        );
+        assert_eq!(out.decoded.rgba.len(), 64 * 64 * 4);
+    }
+
+    #[test]
+    fn a_swap_resamples_an_image_of_the_wrong_size() {
+        let (tex, ubulk) = classic_texture(64, 64);
+        // Half the shipped size: it is resampled up rather than refused.
+        let img = Image::new(32, 32, gradient(32, 32)).unwrap();
+        let out = swap(&tex, &ubulk, &img).unwrap();
+        assert_eq!(out.ubulk.len(), ubulk.len());
+    }
+
+    #[test]
+    fn a_swap_refuses_a_format_it_cannot_encode() {
+        let (mut tex, ubulk) = classic_texture(64, 64);
+        tex.format = "PF_BC7".into();
+        let img = Image::new(64, 64, gradient(64, 64)).unwrap();
+        let err = match swap(&tex, &ubulk, &img) {
+            Err(e) => e,
+            Ok(_) => panic!("PF_BC7 was encoded instead of refused"),
+        };
+        assert!(err.contains("BPTC"), "unexpected refusal: {err}");
+        // And the same refusal is available without doing any work, which is
+        // what the editor greys its Replace button on.
+        assert!(encodable("PF_BC7").is_err());
+        assert!(encodable("PF_DXT1").is_ok());
     }
 
     #[test]

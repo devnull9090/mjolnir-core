@@ -19,6 +19,7 @@ import {
   type TestView,
   type TextureSummary,
   type TextureView,
+  type SwapReport,
   type ScriptView,
   type CompileReport,
 } from "../lib/api";
@@ -165,6 +166,12 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+  /** Set while a swap is re-encoding, which takes seconds on a large texture. */
+  textureSwapping: boolean;
+  /** What the last applied swap did, cleared when another texture is opened. */
+  swapReport: SwapReport | null;
+  swapTexture: (image: string) => Promise<void>;
+  revertTexture: () => Promise<void>;
 
   /** The open scenario's Blam script, loaded on demand. */
   scripts: ScriptView | null;
@@ -276,7 +283,14 @@ export const useEditor = create<EditorState>((set, get) => {
 
   /** Load a texture into the active-content slots, via the cache. */
   async function loadTexture(index: number) {
-    set({ selectedTexture: index, selectedTag: null, textureError: null });
+    // The report describes one swap of one texture, so it does not survive
+    // moving to another.
+    set({
+      selectedTexture: index,
+      selectedTag: null,
+      textureError: null,
+      swapReport: null,
+    });
     const cached = textureCache.get(index);
     if (cached) {
       set({ texture: cached, textureLoading: false });
@@ -491,6 +505,43 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ textureError: String(e) });
         return null;
+      }
+    },
+    textureSwapping: false,
+    swapReport: null,
+    async swapTexture(image) {
+      const index = get().selectedTexture;
+      if (index === null) return;
+      set({ textureSwapping: true, swapReport: null, textureError: null });
+      try {
+        const report = await api.swapTexture(index, image);
+        // The cached view still holds the shipped image, so it has to go or
+        // reopening the tab would show the texture as it was.
+        textureCache.delete(index);
+        const texture = await api.readTexture(index);
+        textureCache.set(index, texture);
+        if (get().selectedTexture === index) set({ texture, swapReport: report });
+      } catch (e) {
+        set({ textureError: String(e) });
+      } finally {
+        set({ textureSwapping: false });
+        if (get().project) void get().refreshProject();
+      }
+    },
+    async revertTexture() {
+      const index = get().selectedTexture;
+      if (index === null) return;
+      set({ textureError: null });
+      try {
+        await api.revertTexture(index);
+        textureCache.delete(index);
+        const texture = await api.readTexture(index);
+        textureCache.set(index, texture);
+        if (get().selectedTexture === index) set({ texture, swapReport: null });
+      } catch (e) {
+        set({ textureError: String(e) });
+      } finally {
+        if (get().project) void get().refreshProject();
       }
     },
     scripts: null,
