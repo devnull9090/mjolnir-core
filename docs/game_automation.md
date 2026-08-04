@@ -112,10 +112,22 @@ Run on 2026-07-27, in this order, all of it without touching the keyboard:
 5. `game_console` → `stat fps`, dispatched via the Kismet fallback, visible in the next capture.
 6. `game_input` → fire and reload, and the HUD reflected it.
 
-The capture path is worth calling out. `PrintWindow` with `PW_RENDERFULLCONTENT` returns real
-frames from this D3D12 title, so screenshots do not need the window focused or on top. The
-`CopyFromScreen` fallback exists for when that stops being true, and the blankness check decides
-between them on evidence rather than assumption.
+The capture path is worth calling out, and the 2026-07-27 reading of it was too generous.
+
+**`PrintWindow` captures the UI layer only — the 3D scene comes back black.** Verified
+2026-08-03 in a live A30 mission: the default capture returned a correct HUD (objective text,
+reticle, radar, ammo) over a completely black frame, while `game_screenshot` with
+`foreground: true` — the `CopyFromScreen` path — showed the actual forest, cliffs and weapon
+model in the same instant. The D3D12 swapchain is not in what `PrintWindow` composites; Slate is.
+
+This matters more than it sounds, because a black frame with a working HUD reads exactly like a
+rendering failure in the game. It cost the custom-world investigation a documented "runtime-
+spawned geometry does not render" dead end that was never real. **When a capture is meant to
+show the world rather than the interface, pass `foreground: true`** and accept the focus steal.
+`CopyFromScreen` needs the window genuinely frontmost; if the frame comes back showing desktop
+or another window, send any `game_input` step first to raise it, then capture.
+
+Screenshots are for looking at the world. For anything countable, `game_lua` is exact.
 
 Screenshots default to **800 px wide**, from a game launched at 1280x720. Cost scales with area,
 so the difference between 800 and 1600 is four times the tokens for the same frame; 800 is still

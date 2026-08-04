@@ -845,10 +845,84 @@ screen — keyboard navigation did not reach past the shipped entries, and a ref
 calling `GetNumItems` on the list view crashed the game (access violation reading `0x18`), so
 that call is not a valid method here. Confirming the row visually is unfinished work.
 
+### 2026-08-03: the world renders, and the player walks on it
+
+**Verified.** An empty world cooked at A15's package path, plus
+[`mods/MJOLNIRWorldBuilder`](../mods/MJOLNIRWorldBuilder) spawning the contents at runtime,
+produced a custom map that draws and can be walked across: a 100 m grid pad, a sky, and A15's
+Blam entities (marines, crates, the training-diagnostic objective) carrying on over the top of
+it. `WorldSettings` read back as stock `WorldSettings`, so the loaded world was ours. Walking
+`W` for 2.5 s moved the pawn from `(-16972, -1432, 2)` to `(-16716, 381, 2)`.
+
+Four things had to be untangled to get there, and three of them were measurement problems rather
+than engine problems.
+
+#### 1. "Runtime-spawned geometry does not render" was never true
+
+The default screenshot path (`PrintWindow`) captures the Slate/UI layer and returns the 3D scene
+as black. Confirmed against an *unmodified* A30 mission: HUD perfect, world black; the same
+instant via `foreground: true` (`CopyFromScreen`) showed forest, cliffs and weapon. The previous
+pass's black screenshots were photographs of a capture bug. Written up in
+[`game_automation.md`](game_automation.md).
+
+#### 2. A15's opening prompt is the brightness calibration
+
+"Begin Calibration? Press E to Proceed" is the gamma-adjustment step, and it holds the screen
+near-black until dismissed. Automated runs must press `E` through it or every capture looks like
+a failed load.
+
+#### 3. `SetStaticMesh` silently refuses on a Static component
+
+`AStaticMeshActor` spawns with `Mobility = Static` (read back as `0`). `SetStaticMesh` on a
+registered static component logs "not movable" and returns without doing anything, leaving a
+live, valid, empty actor. Setting `comp.Mobility = 2` *before* the call makes it take —
+`comp.StaticMesh` then reads back `StaticMesh /Engine/BasicShapes/Cube.Cube`. The earlier pass
+reported `SetStaticMesh` as succeeding; it returned without erroring, which is not the same
+thing. Read the property back.
+
+Note `GetStaticMesh()` is not callable through UE4SS reflection here (it comes back as a
+`TrivialObject`); the `StaticMesh` property is.
+
+#### 4. Cooked components fail for one reason, not three
+
+Adding a `StaticMeshActor` to the cook produced a third distinct death:
+
+```text
+StaticMeshComponent /Game/Levels/Halo1/Solo/A15/A15.A15:PersistentLevel.StaticMeshActor_0
+  .StaticMeshComponent0: Bad export index 201463809/7
+```
+
+Together with the two "Serial size mismatch" failures, that is three symptoms of **unversioned
+property serialization**: UE5 cooks properties as a bitmask plus values in class-layout order,
+with no names on the wire. Where 343's class layout differs from stock 5.5, the reader
+miscounts — sometimes landing on a wrong byte count, sometimes on a garbage object index. The
+world, level and model exports are never implicated because those are not property-serialized
+the same way.
+
+**Open lead: cook tagged properties instead.** `[Core.System]
+CanUseUnversionedPropertySerialization=False` makes the cooker emit names and types per property,
+which the game's loader could match and skip past. It cannot go in `DefaultEngine.ini` — the same
+flag gates *reading* unversioned data, and the editor asserts on startup
+(`UnversionedPropertySerialization.cpp:936`) because its own caches are full of it. It has to be
+a cook-process override, which is now `package.ps1 -TaggedProperties`. **Not yet tested against
+the game.** If it works, maps get authored in the editor rather than scripted in Lua.
+
+#### Also learned: the Blam simulation brings its own collision
+
+In the empty custom world the pawn does not fall. It settles at `z = 2` and walks around on
+collision with no Unreal geometry behind it — the `a15` scenario tag's BSP collision is still
+live even though the Unreal world is ours. A world overriding a campaign scenario inherits that
+mission's invisible floor plan. Whether the Blam-driven pawn collides with runtime-spawned
+*Unreal* geometry is still unknown: our slab was laid 1.2 m below the surface the pawn was
+already standing on, so it was never tested as a floor.
+
 ### Revised next steps
 
-1. ~~Cook a minimal UE 5.5 world and launch it.~~ **Done 2026-08-02 — it loads.** See the third
-   pass above. Remaining thread: make runtime-spawned geometry actually render.
+1. ~~Cook a minimal UE 5.5 world and launch it.~~ **Done 2026-08-02 — it loads.**
+   ~~Remaining thread: make runtime-spawned geometry actually render.~~ **Done 2026-08-03 — it
+   renders and is walkable.** See the 2026-08-03 pass above.
+1b. Test `package.ps1 -TaggedProperties` against the game. This is now the highest-value
+   experiment: it decides whether custom maps are authored or scripted.
 2. If the sim rejects it, generate minimal scenario/BSP tags for the world
    ([`tag_data_pipeline.md`](tag_data_pipeline.md)) and retry.
 3. Probe `Options.GameVariant`: enumerate what variant classes

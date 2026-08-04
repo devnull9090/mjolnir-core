@@ -42,6 +42,41 @@ LEVEL_PACKAGE = os.environ.get(
     "MJOLNIR_LEVEL_PACKAGE",
     "/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range")
 
+# Which content to place, as a comma-separated list in MJOLNIR_CONTENT.
+#
+# This exists because 343's engine build deserializes some cooked component
+# classes incompatibly with stock UE 5.5 (CapsuleComponent and
+# DirectionalLightComponent both die with "Serial size mismatch" during load;
+# see docs/multiplayer_investigation_notes.md). Which classes are affected has
+# to be established one at a time, so each piece of content is switchable and a
+# cook can carry exactly one component class under test.
+#
+#   MJOLNIR_CONTENT=none                  bare level: no actors at all
+#   MJOLNIR_CONTENT=floor                 StaticMeshActor only
+#   MJOLNIR_CONTENT=floor,lights,markers  everything except the PlayerStart
+#
+ALL_PARTS = ("floor", "playerstart", "lights", "markers")
+_requested = os.environ.get("MJOLNIR_CONTENT", ",".join(ALL_PARTS)).strip().lower()
+if _requested in ("none", ""):
+    PARTS = frozenset()
+else:
+    PARTS = frozenset(p.strip() for p in _requested.split(",") if p.strip())
+    unknown = PARTS - frozenset(ALL_PARTS)
+    if unknown:
+        raise RuntimeError(
+            "unknown MJOLNIR_CONTENT parts: %s (known: %s)"
+            % (", ".join(sorted(unknown)), ", ".join(ALL_PARTS)))
+
+# Where the floor sits and how big it is, in world units (1 UU = 1 cm).
+#
+# When this world overrides a campaign scenario, the Blam scenario data -- not
+# our level -- decides where the player materialises, and that spot is wherever
+# the real mission began. A floor at the origin is then simply somewhere else.
+# MJOLNIR_FLOOR_ORIGIN re-centres the pad on the measured spawn point.
+FLOOR_ORIGIN = unreal.Vector(*(
+    float(v) for v in os.environ.get("MJOLNIR_FLOOR_ORIGIN", "0,0,0").split(",")))
+FLOOR_EXTENT_M = float(os.environ.get("MJOLNIR_FLOOR_EXTENT_M", "50"))
+
 # Everything under /Game/Levels/Test (this map and whatever it references) is
 # assigned to this content chunk, so packaging can install a container holding
 # only the custom world instead of the whole cooked project.
@@ -49,8 +84,15 @@ CONTENT_CHUNK = 990
 LABEL_DIR = LEVEL_PACKAGE.rsplit("/", 1)[0]
 LABEL_NAME = "PAL_MJOLNIRWORLD"
 
-# 1 UU = 1 cm. A 50 x 50 m pad is plenty to land on and look around.
-FLOOR_SCALE = unreal.Vector(50.0, 50.0, 1.0)
+# The floor is a scaled /Engine/BasicShapes/Cube rather than a Plane: the cube
+# carries simple box collision, so it is solid from above and cannot be fallen
+# through, and it reads as a slab from the side. The base cube is 100 cm and
+# pivots at its centre, so a scale of N gives an N-metre edge and the walking
+# surface sits half the thickness above the actor.
+FLOOR_THICKNESS_SCALE = 1.0
+FLOOR_SCALE = unreal.Vector(FLOOR_EXTENT_M, FLOOR_EXTENT_M, FLOOR_THICKNESS_SCALE)
+FLOOR_LOCATION = unreal.Vector(
+    FLOOR_ORIGIN.x, FLOOR_ORIGIN.y, FLOOR_ORIGIN.z - 50.0 * FLOOR_THICKNESS_SCALE)
 
 MARKERS = [
     ("MJOLNIR.VehicleSpawn.Warthog", unreal.Vector(800.0, 0.0, 20.0)),
@@ -110,27 +152,27 @@ def main():
         raise RuntimeError("could not create level at " + LEVEL_PACKAGE)
     log("created level " + LEVEL_PACKAGE)
 
-    # MJOLNIR_EMPTY_WORLD=1 saves the bare level: World, Level, Model and
-    # WorldSettings exports only, no actors. This is the control experiment for
-    # the engine-fork serialization wall -- if even this fails to load, cooked
-    # worlds are a dead end and content has to be spawned at runtime instead.
-    if os.environ.get("MJOLNIR_EMPTY_WORLD") == "1":
-        log("building EMPTY world (no actors)")
-        if not les.save_current_level():
-            raise RuntimeError("failed to save " + LEVEL_PACKAGE)
-        log("saved empty " + LEVEL_PACKAGE)
-        if unreal.EditorAssetLibrary.does_asset_exist(scratch):
-            unreal.EditorAssetLibrary.delete_asset(scratch)
-        return
+    log("content: " + (", ".join(sorted(PARTS)) if PARTS else "none (bare level)"))
+
+    # A bare level is the control experiment for the engine-fork serialization
+    # wall: World, Level, Model and WorldSettings exports only. It loads
+    # (verified 2026-08-02), which is what proved cooked worlds are viable at
+    # all -- everything below is the question of how much content can ride
+    # along inside the cook rather than being spawned at runtime.
 
     # --- floor -----------------------------------------------------------
-    plane = unreal.EditorAssetLibrary.load_asset("/Engine/BasicShapes/Plane")
-    if not plane:
-        raise RuntimeError("/Engine/BasicShapes/Plane not found")
-    floor = spawn(unreal.StaticMeshActor, unreal.Vector(0, 0, 0), "MJOLNIR_Floor")
-    mesh_comp = floor.static_mesh_component
-    mesh_comp.set_editor_property("static_mesh", plane)
-    floor.set_actor_scale3d(FLOOR_SCALE)
+    if "floor" in PARTS:
+        cube = unreal.EditorAssetLibrary.load_asset("/Engine/BasicShapes/Cube")
+        if not cube:
+            raise RuntimeError("/Engine/BasicShapes/Cube not found")
+        floor = spawn(unreal.StaticMeshActor, FLOOR_LOCATION, "MJOLNIR_Floor")
+        mesh_comp = floor.static_mesh_component
+        mesh_comp.set_editor_property("static_mesh", cube)
+        # Movable keeps the slab out of any static-lighting path, so the level
+        # needs no Lightmass bake and no _BuiltData package alongside it.
+        mesh_comp.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+        floor.set_actor_scale3d(FLOOR_SCALE)
+        log("floor: %.0f m pad, surface at z=%.0f" % (FLOOR_EXTENT_M, FLOOR_ORIGIN.z))
 
     # --- player spawn ----------------------------------------------------
     #
@@ -139,31 +181,38 @@ def main():
     # stock-cooked one dies with
     #   "CapsuleComponent ... Serial size mismatch: Expected read size 34,
     #    Actual read size 14"
-    # (verified 2026-08-02, fatal in AsyncLoading2). Set
-    # MJOLNIR_SKIP_PLAYERSTART=1 to omit it -- when overriding a campaign
-    # scenario the Blam scenario tag may place the player itself.
-    if os.environ.get("MJOLNIR_SKIP_PLAYERSTART") == "1":
-        log("skipping PlayerStart (MJOLNIR_SKIP_PLAYERSTART=1)")
-    else:
-        spawn(unreal.PlayerStart, unreal.Vector(0, 0, 150), "MJOLNIR_PlayerStart")
+    # (verified 2026-08-02, fatal in AsyncLoading2). Leave "playerstart" out of
+    # MJOLNIR_CONTENT when overriding a campaign scenario -- there the Blam
+    # scenario data places the player and a PlayerStart is dead weight anyway.
+    if "playerstart" in PARTS:
+        spawn(unreal.PlayerStart,
+              unreal.Vector(FLOOR_ORIGIN.x, FLOOR_ORIGIN.y, FLOOR_ORIGIN.z + 150.0),
+              "MJOLNIR_PlayerStart")
 
     # --- light and sky (all movable: no bake required) --------------------
-    sun = spawn(unreal.DirectionalLight, unreal.Vector(0, 0, 5000), "MJOLNIR_Sun",
-                unreal.Rotator(-50.0, 30.0, 0.0))
-    sun.light_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
-    sun.light_component.set_editor_property("intensity", 8.0)
+    #
+    # DirectionalLightComponent hits the same serialization wall as the capsule
+    # ("Expected read size 67, Actual read size 21"), so lighting is the other
+    # thing a cook may not be able to carry. Spawning lights at runtime from
+    # UE4SS goes through the game's own class layouts and sidesteps it.
+    if "lights" in PARTS:
+        sun = spawn(unreal.DirectionalLight, unreal.Vector(0, 0, 5000), "MJOLNIR_Sun",
+                    unreal.Rotator(-50.0, 30.0, 0.0))
+        sun.light_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+        sun.light_component.set_editor_property("intensity", 8.0)
 
-    sky_light = spawn(unreal.SkyLight, unreal.Vector(0, 0, 5000), "MJOLNIR_SkyLight")
-    sky_light.light_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
-    sky_light.light_component.set_editor_property("real_time_capture", True)
+        sky_light = spawn(unreal.SkyLight, unreal.Vector(0, 0, 5000), "MJOLNIR_SkyLight")
+        sky_light.light_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+        sky_light.light_component.set_editor_property("real_time_capture", True)
 
-    spawn(unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), "MJOLNIR_SkyAtmosphere")
-    spawn(unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), "MJOLNIR_Fog")
+        spawn(unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), "MJOLNIR_SkyAtmosphere")
+        spawn(unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), "MJOLNIR_Fog")
 
     # --- modder convention markers ----------------------------------------
-    for tag, location in MARKERS:
-        marker = spawn(unreal.TargetPoint, location, tag)
-        marker.tags = [unreal.Name(tag)]
+    if "markers" in PARTS:
+        for tag, location in MARKERS:
+            marker = spawn(unreal.TargetPoint, location, tag)
+            marker.tags = [unreal.Name(tag)]
 
     # --- world settings ----------------------------------------------------
     try:
@@ -179,7 +228,8 @@ def main():
 
     if unreal.EditorAssetLibrary.does_asset_exist(scratch):
         unreal.EditorAssetLibrary.delete_asset(scratch)
-    log("world built: floor, PlayerStart, movable lighting, %d markers" % len(MARKERS))
+    log("world built at %s with content: %s"
+        % (LEVEL_PACKAGE, ", ".join(sorted(PARTS)) if PARTS else "none"))
 
 
 if __name__ == "__main__":

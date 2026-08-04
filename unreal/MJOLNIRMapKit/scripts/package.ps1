@@ -23,7 +23,14 @@ param(
     [string]$EnginePath = "C:\Program Files\Epic Games\UE_5.5",
     [string]$GamePath = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved",
     [string]$LevelPackage = $(if ($env:MJOLNIR_LEVEL_PACKAGE) { $env:MJOLNIR_LEVEL_PACKAGE } else { "/Game/Levels/Test/Testing_Shooting_Range/testing_shooting_range" }),
-    [switch]$Install
+    [switch]$Install,
+    # Experimental. Cook properties tagged (name + type each) instead of
+    # unversioned, the open lead on getting cooked actors to survive load in
+    # 343's engine build -- see the MapKit README. This has to be a cook-process
+    # override rather than a project setting: with it off in DefaultEngine.ini
+    # the editor itself asserts at startup, because the same flag gates *reading*
+    # unversioned data and the editor's caches are full of it.
+    [switch]$TaggedProperties
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,13 +55,20 @@ if (-not (Test-Path $umap)) {
 $stagedRoot = Join-Path $kit "Saved\StagedBuilds"
 if (Test-Path $stagedRoot) { Remove-Item $stagedRoot -Recurse -Force }
 
+$cookerOptions = @()
+if ($TaggedProperties) {
+    $cookerOptions += '-ini:Engine:[Core.System]:CanUseUnversionedPropertySerialization=False'
+    Write-Host "Cooking with TAGGED property serialization (experimental)."
+}
+
 & $uat BuildCookRun `
     -project="$project" `
     -platform=Win64 `
     -clientconfig=Shipping `
     -cook -map="$LevelPackage" `
     -stage -pak -iostore -compressed `
-    -skipbuild -nodebuginfo -unattended -noP4
+    -skipbuild -nodebuginfo -unattended -noP4 `
+    @(if ($cookerOptions) { "-AdditionalCookerOptions=$($cookerOptions -join ' ')" })
 if ($LASTEXITCODE -ne 0) {
     throw "BuildCookRun failed with exit code $LASTEXITCODE"
 }

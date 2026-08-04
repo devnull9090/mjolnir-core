@@ -3,12 +3,17 @@
 A template Unreal Engine project for building **custom worlds that Halo Campaign
 Evolved can load** through its own (hidden but shipped) debug map menu.
 
-**Status: experimental.** The launch plumbing is verified — the game's
-`SetAndBeginCampaign` flow validates that a world package exists, refuses
-gracefully when it doesn't, and travels when it does (see
-[`docs/multiplayer_investigation_notes.md`](../../docs/multiplayer_investigation_notes.md)).
-What is *not* yet verified is the first custom world actually loading; this kit
-exists to run that experiment and to become the template modders start from.
+**Status: it works.** A custom world loads, renders and is walkable — verified
+in-game on CU3, 2026-08-03. The recipe is not the obvious one, because the game
+will load our *world* but refuses to deserialize our *actors*:
+
+> **Cook the world empty. Build the map at runtime.**
+
+The cooked package carries the level and nothing else; the
+[`MJOLNIRWorldBuilder`](../../mods/MJOLNIRWorldBuilder) UE4SS mod spawns the
+floor, sun and sky in-process the moment the world loads. Runtime spawning uses
+the game's own class layouts, so it sidesteps the serialization wall entirely
+(see [Rules that keep a map loadable](#rules-that-keep-a-map-loadable)).
 
 ## Requirements
 
@@ -17,24 +22,35 @@ exists to run that experiment and to become the template modders start from.
 | **Unreal Engine 5.5.x** (Epic Games Launcher) | The game is UE 5.5. Cooked package formats are engine-version locked; 5.6+ output will not load. |
 | Halo Campaign Evolved (Steam) | The target. |
 | The MJOLNIRMultiplayer UE4SS mod | `mjolnir_mission <scenario>` launches the map. The game's own debug menu (`mjolnir_debug_ui`) works too. |
+| The MJOLNIRWorldBuilder UE4SS mod | Furnishes the world once it loads. Without it a custom world is an empty void. |
 
 ## Quickstart
 
+Override a campaign scenario's world — today that is the only route that
+launches, because scenario *names* are gated by Blam tags (see below).
+
 ```powershell
 cd unreal\MJOLNIRMapKit\scripts
-.\generate_world.ps1        # builds the template level headlessly
-.\package.ps1 -Install      # cook, stage, install into the game's Paks
+$env:MJOLNIR_CONTENT = "none"        # empty world: actors come from the runtime mod
+.\generate_world.ps1 -LevelPackage "/Game/Levels/Halo1/Solo/A15/A15"
+.\package.ps1 -LevelPackage "/Game/Levels/Halo1/Solo/A15/A15" -Install
 ```
 
-Then launch the game and run (UE4SS console, or the game console with
-MJOLNIRConsoleEnabler):
+Then launch the game, **clear the title screen**, and run:
 
 ```
-mjolnir_mission testing_shooting_range
+mjolnir_mission A15
 ```
 
-`false`/"rejected" means the game did not see the world package. "accepted"
-plus a load means you are standing on the plane.
+A15's opening prompt is the brightness-calibration step — press `E` to proceed,
+or the screen stays black and looks like a failure that it isn't.
+
+The world builder fires automatically on load. To drive it by hand:
+
+```
+mjolnir_world_probe          what is actually in the loaded world
+mjolnir_world_build [size_m] lighting + a floor under the player
+```
 
 To remove: delete the three `pakchunk990-MJOLNIRWORLD-*` files from
 `<game>\Meteorite\Content\Paks`. Nothing shipped is modified.
@@ -112,49 +128,85 @@ so maps built today keep working.
    world was a plain level and WP adds generated-cell complexity for nothing
    at this size.
 
-## What the first runs established (2026-08-02)
+## What the runs established
 
-**A custom cooked world loads, and the mission runs on it.** An empty world installed over
-A15's package produced a running A15 mission — HUD, objective prompts, a possessed pawn — with
-reflection confirming the loaded world was ours. Cooking in stock UE 5.5 is viable.
+**A custom cooked world loads, and the mission runs on it** (2026-08-02). An empty world
+installed over A15's package produced a running A15 mission — HUD, objective prompts, a
+possessed pawn — with reflection confirming the loaded world was ours. Cooking in stock UE 5.5
+is viable.
 
-**But cooked actor components are binary-incompatible.** A world containing a `PlayerStart` or
-a `DirectionalLight` dies during load:
+**It renders, and you can walk on it** (2026-08-03). With the world builder mod supplying a
+floor, a directional light, a sky atmosphere and a sky light, the pad draws, the sky draws, and
+the player walks across it while A15's Blam entities go about their business on top.
+
+### Cooked actor components are binary-incompatible — all of them, one cause
+
+Three different component classes, three different-looking deaths during load:
 
 ```text
-CapsuleComponent ... Serial size mismatch: Expected read size 34, Actual read size 14
+CapsuleComponent ...          Serial size mismatch: Expected read size 34, Actual read size 14
 DirectionalLightComponent ... Serial size mismatch: Expected read size 67, Actual read size 21
+StaticMeshComponent ...       Bad export index 201463809/7
 ```
 
-343's engine serializes these classes differently from stock 5.5. So:
+One cause: **UE5 cooks properties *unversioned*** — no names on the wire, just a bitmask of
+which properties differ from defaults, read back in class-layout order. 343's build has its own
+layouts for these classes, so the reader walks off the end of the stream and either miscounts
+bytes or reads a garbage object index. Nothing about the *world* is wrong; the actors inside it
+are being read with the wrong ruler.
 
-> **Ship the world empty; build the map at runtime.** `MJOLNIR_EMPTY_WORLD=1` cooks the bare
-> level. Spawning actors in-process from a UE4SS Lua mod works — `LoadAsset` on
-> `/Engine/BasicShapes/Cube`, `World:SpawnActor`, `SetStaticMesh` and `SetActorScale3D` all
-> succeed — because runtime spawning uses the game's own class layouts.
+> **Ship the world empty (`MJOLNIR_CONTENT=none`); build the map at runtime.**
+
+**The open lead:** cook with *tagged* properties instead, so each property carries its name and
+type and the game's loader can skip what it does not recognise.
+`package.ps1 -TaggedProperties` does this. It cannot be a project setting — with
+`CanUseUnversionedPropertySerialization=False` in `DefaultEngine.ini` the editor asserts at
+startup, because the same flag gates *reading* unversioned data and the editor's own caches are
+full of it — so it is passed to the cook process alone. **Untested against the game.** If it
+works, modders get to author real geometry in the editor instead of scripting it.
+
+### Runtime spawning has one sharp edge
+
+`AStaticMeshActor`'s component ships with **`Mobility = Static`**, and `SetStaticMesh` silently
+refuses to do anything on a registered static component — it logs "not movable" and returns. The
+result is a live actor with no geometry, which from the outside is indistinguishable from a
+rendering bug. Set `Mobility = 2` (Movable) *first*:
+
+```lua
+comp.Mobility = 2
+comp:SetStaticMesh(mesh)
+```
+
+Then read `comp.StaticMesh` back to confirm. (`GetStaticMesh()` is not callable through UE4SS
+reflection here; the property is.) The same ordering applies to spawned lights.
+
+### The Blam simulation brings its own collision
+
+In an empty custom world overriding A15, the pawn does **not** fall — it settles at `z = 2` and
+walks around on collision that has no Unreal geometry behind it at all. The `a15` scenario tag's
+BSP collision is still live. So a world overriding a campaign scenario inherits that mission's
+invisible floor plan, which is useful to know before wondering why a player will not stand where
+you put your slab.
 
 **Scenario names are gated by Blam tags.** Only the 13 shipped campaign scenarios have
 `*-scenario` tags, and the campaign flow resolves the scenario *name* against those tags. A
 `testing_*` name cannot launch regardless of what world package exists, so a custom world must
-override a campaign scenario's world (the table of free `Testing_*` slots below is therefore
+override a campaign scenario's world (the table of free `Testing_*` slots above is therefore
 aspirational until scenario-tag generation works).
 
 **Environment switches** on the generator: `MJOLNIR_LEVEL_PACKAGE` (target package path),
-`MJOLNIR_EMPTY_WORLD=1` (no actors), `MJOLNIR_SKIP_PLAYERSTART=1` (omit the capsule actor).
+`MJOLNIR_CONTENT` (comma-separated list of `floor,playerstart,lights,markers`, or `none`),
+`MJOLNIR_FLOOR_ORIGIN` / `MJOLNIR_FLOOR_EXTENT_M` (where the pad sits and how big it is).
 
-## Known unknowns (the experiment this kit runs)
+## Known unknowns
 
-- The 13 shipped campaign worlds all have generated **Blam scenario/BSP tags**;
-  the stripped test worlds have none in the retail build. If the simulation
-  requires them, the world may load and then fail to start — that outcome
-  would itself be the next lead (generate minimal scenario tags; see
-  [`docs/tag_data_pipeline.md`](../../docs/tag_data_pipeline.md)).
-- The game runs a **modified 5.5**. If 343's engine changes touched core class
-  serialization, a stock-5.5 cook may fail to load. Fallback documented in the
-  investigation notes: re-key the shipped `SeamlessTravelTEst` world into a
-  free scenario slot instead.
-- Player spawning: campaign missions spawn via Blam scenario data, but plain
-  `PlayerStart` is the best first bet for the plain-UE test worlds.
+- **Tagged-property cooking is untested** — see above. It is the difference between authoring
+  maps in the editor and scripting them in Lua.
+- The 13 shipped campaign worlds all have generated **Blam scenario/BSP tags**; the stripped
+  test worlds have none in the retail build. Generating one is what would free a custom map
+  from having to squat on a campaign scenario ([`docs/tag_data_pipeline.md`](../../docs/tag_data_pipeline.md)).
+- Whether the Blam-driven pawn collides with **runtime-spawned Unreal geometry** at all. It
+  walks on Blam BSP collision; our slab has not been shown to be stood on.
 
 ## How the container works
 
