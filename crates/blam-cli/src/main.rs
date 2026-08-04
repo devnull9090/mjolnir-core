@@ -94,6 +94,22 @@ enum Command {
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
     Scripting(ScriptingArgs),
+    /// Compile `.hsc` files and report what the compiler makes of them.
+    Compile(CompileArgs),
+}
+
+#[derive(Args)]
+struct CompileArgs {
+    /// The `.hsc` files to compile. They are compiled together, so a script in
+    /// one may call a script in another.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    /// Recovered scripting corpus, which supplies the function table.
+    #[arg(long, default_value = "defs/hce/scripting.json")]
+    corpus: PathBuf,
+    /// Print the tree the compiler produced, decompiled.
+    #[arg(long)]
+    show: bool,
 }
 
 #[derive(Args)]
@@ -137,6 +153,10 @@ struct ScriptArgs {
     /// shipped with.
     #[arg(long)]
     verify: bool,
+    /// Compile the scenario's own source files back into an expression tree,
+    /// then decompile that and check every script comes back unchanged.
+    #[arg(long)]
+    recompile: bool,
     /// With --verify, print the first few disagreements in full.
     #[arg(long, default_value_t = 5)]
     show: usize,
@@ -419,6 +439,7 @@ fn main() -> Result<()> {
         Command::Poke(a) => poke(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
+        Command::Compile(a) => compile(a),
     }
 }
 
@@ -1694,6 +1715,11 @@ fn script(a: ScriptArgs) -> Result<()> {
             return Ok(());
         }
 
+        if a.recompile {
+            recompile_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
+            continue;
+        }
+
         if a.verify {
             verify_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
             continue;
@@ -1769,7 +1795,7 @@ fn script(a: ScriptArgs) -> Result<()> {
         println!();
     }
 
-    if a.verify {
+    if a.verify || a.recompile {
         println!(
             "total  {} of {} scripts match ({:.1}%), {} desugared cond, {} no source, {} differ",
             totals.matched,
@@ -1781,6 +1807,28 @@ fn script(a: ScriptArgs) -> Result<()> {
         );
         for (kind, n) in &totals.kinds {
             println!("       {n:>5} {kind:?}");
+        }
+        if totals.compile_warnings > 0 {
+            println!(
+                "       {} literal(s) the compiler had to guess a type for",
+                totals.compile_warnings
+            );
+        }
+        if totals.fixpoint_ok + totals.fixpoint_broken > 0 {
+            println!(
+                "       {} of {} scenarios recompile their own output to the same tree",
+                totals.fixpoint_ok,
+                totals.fixpoint_ok + totals.fixpoint_broken
+            );
+        }
+        if totals.fixpoint_broken > 0 {
+            anyhow::bail!(
+                "{} scenario(s) do not recompile to the same tree",
+                totals.fixpoint_broken
+            );
+        }
+        if totals.compile_errors > 0 {
+            anyhow::bail!("{} compile error(s)", totals.compile_errors);
         }
         if totals.differs > 0 {
             anyhow::bail!(
@@ -1799,6 +1847,10 @@ struct VerifyTotals {
     no_source: usize,
     differs: usize,
     shown: usize,
+    compile_errors: usize,
+    compile_warnings: usize,
+    fixpoint_ok: usize,
+    fixpoint_broken: usize,
     kinds: BTreeMap<hsc::Difference, usize>,
 }
 
@@ -1836,7 +1888,7 @@ fn verify_scripts(
     let (mut matched, mut cond, mut no_source, mut differs) = (0, 0, 0, 0);
 
     for s in &hs.scripts {
-        match hsc::compare(blocks.get(&s.name), &d.script(s)) {
+        match hsc::compare(blocks.get(&s.name), &d.script(s), &value_types) {
             Verdict::Match => matched += 1,
             Verdict::DesugaredCond => cond += 1,
             Verdict::NoSource => no_source += 1,
@@ -1867,6 +1919,288 @@ fn verify_scripts(
     totals.cond += cond;
     totals.no_source += no_source;
     totals.differs += differs;
+}
+
+/// Compile a scenario's own source back into a tree, then decompile that and
+/// check each script survived the trip.
+///
+/// This is the compiler's acceptance test and it is deliberately end-to-end.
+/// The output tree is not byte-identical to the shipped one — salts, free slots
+/// and string-blob layout are the compiler's own — so what is checked is that
+/// the *meaning* survives: compile, decompile, and compare tokens against the
+/// source that went in.
+fn recompile_scripts(
+    hs: &blam_hsc::ScriptSection,
+    corpus: Option<&blam_hsc::ScriptCorpus>,
+    path: &str,
+    show: usize,
+    totals: &mut VerifyTotals,
+) {
+    use hsc::Verdict;
+
+    let short = path.rsplit('/').next().unwrap_or(path);
+    let Some(corpus) = corpus else {
+        println!("{short:<28} skipped: no scripting corpus to compile against");
+        return;
+    };
+
+    // Every file at once: the scenario's sources are one compilation unit as
+    // far as name resolution goes, and scripts routinely call across files.
+    let texts: Vec<(String, String)> = hs
+        .source_files
+        .iter()
+        .map(|f| (f.name.clone(), f.text().into_owned()))
+        .collect();
+    let files: Vec<(&str, &str)> = texts
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    let errors: Vec<_> = compiled.errors().collect();
+    if !errors.is_empty() {
+        println!("{short:<28} {} compile error(s)", errors.len());
+        for e in errors.iter().take(show) {
+            println!("    {e}");
+        }
+        totals.compile_errors += errors.len();
+    }
+    totals.compile_warnings += compiled.diagnostics.len() - errors.len();
+
+    // Grade against the source that went in, the same way `--verify` grades the
+    // shipped tree, so the two numbers are comparable.
+    let value_types: std::collections::BTreeSet<String> =
+        hs.value_types.names().iter().cloned().collect();
+    let mut blocks = BTreeMap::new();
+    for f in &hs.source_files {
+        blocks.extend(hsc::script_blocks(&f.text(), &value_types));
+    }
+
+    let d = blam_hsc::Decompiler::with_corpus(&compiled.section, corpus);
+    let (mut matched, mut cond, mut no_source, mut differs) = (0, 0, 0, 0);
+    for s in &compiled.section.scripts {
+        match hsc::compare(blocks.get(&s.name), &d.script(s), &value_types) {
+            Verdict::Match => matched += 1,
+            Verdict::DesugaredCond => cond += 1,
+            Verdict::NoSource => no_source += 1,
+            Verdict::Differs {
+                at,
+                kind,
+                source,
+                ours,
+            } => {
+                differs += 1;
+                *totals.kinds.entry(kind).or_default() += 1;
+                if totals.shown < show {
+                    totals.shown += 1;
+                    println!("  {} differs at token {at} ({kind:?})", s.name);
+                    println!("    source: {source}");
+                    println!("    ours:   {ours}");
+                }
+            }
+        }
+    }
+
+    // Compiling the decompiled output again must produce the same tree.
+    //
+    // The token comparison above cannot separate a compiler bug from the
+    // decompiler rendering a literal differently — most of what it reports is
+    // the known quoting classification, which is a rendering question. This
+    // does: the tree is the compiler's own output either way, so any difference
+    // is the compiler's.
+    let second =
+        blam_hsc::Compiler::from_corpus(corpus).compile(&[("<decompiled>", &d.scenario())]);
+    match tree_difference(&compiled.section, &second.section) {
+        None => totals.fixpoint_ok += 1,
+        Some(why) => {
+            totals.fixpoint_broken += 1;
+            println!("  {short}: recompiling its own output changed the tree — {why}");
+        }
+    }
+
+    let total = matched + cond + no_source + differs;
+    println!(
+        "{short:<28} {matched}/{total} match, {cond} cond, {no_source} no source, {differs} differ"
+    );
+    totals.matched += matched;
+    totals.cond += cond;
+    totals.no_source += no_source;
+    totals.differs += differs;
+}
+
+/// The first way two compiled trees differ, or `None` if they agree.
+///
+/// Compares what the engine reads — shape, opcodes, types and strings — not the
+/// raw bytes, because a string offset is only meaningful against its own blob.
+fn tree_difference(a: &blam_hsc::ScriptSection, b: &blam_hsc::ScriptSection) -> Option<String> {
+    if a.scripts.len() != b.scripts.len() {
+        return Some(format!(
+            "{} scripts became {}",
+            a.scripts.len(),
+            b.scripts.len()
+        ));
+    }
+    if a.globals.len() != b.globals.len() {
+        return Some(format!(
+            "{} globals became {}",
+            a.globals.len(),
+            b.globals.len()
+        ));
+    }
+    let (live_a, live_b) = (a.live().count(), b.live().count());
+    if live_a != live_b {
+        return Some(format!("{live_a} expressions became {live_b}"));
+    }
+
+    // Walk each declaration's tree from its root rather than comparing the
+    // arrays position by position: the decompiler writes globals before
+    // scripts, so the same tree lands at different indices the second time
+    // round. What has to match is the shape reachable from each root.
+    for (x, y) in a.scripts.iter().zip(&b.scripts) {
+        if x.name != y.name || x.script_type != y.script_type || x.return_type != y.return_type {
+            return Some(format!("script `{}` changed shape", x.name));
+        }
+        if x.parameters != y.parameters {
+            return Some(format!("script `{}` changed its parameters", x.name));
+        }
+        if let Some(why) = walk_difference(a, x.root, b, y.root, &x.name, 0) {
+            return Some(why);
+        }
+    }
+    for (x, y) in a.globals.iter().zip(&b.globals) {
+        if x.name != y.name || x.value_type != y.value_type {
+            return Some(format!("global `{}` changed shape", x.name));
+        }
+        if let Some(why) = walk_difference(a, x.initializer, b, y.initializer, &x.name, 0) {
+            return Some(why);
+        }
+    }
+    None
+}
+
+/// Compare two subtrees node for node, in traversal order.
+fn walk_difference(
+    a: &blam_hsc::ScriptSection,
+    ha: blam_hsc::DatumHandle,
+    b: &blam_hsc::ScriptSection,
+    hb: blam_hsc::DatumHandle,
+    what: &str,
+    depth: u32,
+) -> Option<String> {
+    if depth > 128 {
+        return None;
+    }
+    let (ea, eb) = (a.get(ha), b.get(hb));
+    let (ea, eb) = match (ea, eb) {
+        (None, None) => return None,
+        (Some(ea), Some(eb)) => (ea, eb),
+        _ => {
+            return Some(format!(
+                "`{what}`: one side has a node where the other has none"
+            ))
+        }
+    };
+
+    if ea.expression_type != eb.expression_type
+        || ea.opcode != eb.opcode
+        || ea.value_type != eb.value_type
+    {
+        return Some(format!(
+            "`{what}`: {:?}/{:#x}/{} became {:?}/{:#x}/{}",
+            ea.expression_type,
+            ea.opcode,
+            ea.value_type,
+            eb.expression_type,
+            eb.opcode,
+            eb.value_type
+        ));
+    }
+    if a.string_at(ea.string_offset) != b.string_at(eb.string_offset) {
+        return Some(format!(
+            "`{what}`: {:?} became {:?}",
+            a.string_at(ea.string_offset),
+            b.string_at(eb.string_offset)
+        ));
+    }
+    // A call's `data` is a handle into its own array, so only a literal's
+    // payload can be compared directly.
+    if !ea.expression_type.has_children() && ea.data != eb.data {
+        return Some(format!("`{what}`: {:#x} became {:#x}", ea.data, eb.data));
+    }
+
+    let (args_a, args_b) = (a.arguments(ea), b.arguments(eb));
+    if args_a.len() != args_b.len() {
+        return Some(format!(
+            "`{what}`: a call with {} children became one with {}",
+            args_a.len(),
+            args_b.len()
+        ));
+    }
+    for (ca, cb) in args_a.into_iter().zip(args_b) {
+        if let Some(why) = walk_difference(a, ca, b, cb, what, depth + 1) {
+            return Some(why);
+        }
+    }
+    None
+}
+
+/// Compile `.hsc` files from disk.
+///
+/// Needs no game installation: the function table and both enums come from the
+/// committed corpus, so a mod author can check a script without one.
+fn compile(a: CompileArgs) -> Result<()> {
+    let corpus = blam_hsc::ScriptCorpus::load(&a.corpus).with_context(|| {
+        format!(
+            "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
+            a.corpus.display()
+        )
+    })?;
+
+    let mut sources = Vec::new();
+    for path in &a.files {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read {}", path.display()))?;
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        sources.push((name, text));
+    }
+    let files: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+
+    let compiled = blam_hsc::Compiler::from_corpus(&corpus).compile(&files);
+    for d in &compiled.diagnostics {
+        eprintln!("{d}");
+    }
+
+    let warnings = compiled.diagnostics.len() - compiled.errors().count();
+    println!(
+        "  {} script(s), {} global(s), {} expression(s), {} of strings",
+        compiled.section.scripts.len(),
+        compiled.section.globals.len(),
+        compiled.section.live().count(),
+        human_bytes(compiled.section.strings.len())
+    );
+    println!(
+        "  {} error(s), {warnings} warning(s)",
+        compiled.errors().count()
+    );
+
+    if a.show {
+        println!();
+        print!(
+            "{}",
+            blam_hsc::Decompiler::with_corpus(&compiled.section, &corpus).scenario()
+        );
+    }
+
+    if !compiled.ok() {
+        anyhow::bail!("compilation failed");
+    }
+    Ok(())
 }
 
 /// Recover the scripting function table from every shipped scenario.

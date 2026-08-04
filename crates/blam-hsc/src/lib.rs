@@ -15,15 +15,19 @@
 //! the value-type enum come from the tag's own `blay` definitions, the same way
 //! [`blam_tag`] recovers field definitions — see `docs/tag_body_format.md`.
 
+pub mod compile;
 pub mod corpus;
 pub mod decompile;
 pub mod expr;
 pub mod lex;
+pub mod parse;
 pub mod read;
 
+pub use compile::{Compiled, Compiler, Diagnostic, Severity};
 pub use corpus::{CorpusBuilder, FunctionDef, ScriptCorpus};
 pub use decompile::Decompiler;
 pub use expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
+pub use parse::{Declaration, Vocabulary};
 pub use read::{Global, Script, ScriptSection, SourceFile};
 
 #[derive(Debug, thiserror::Error)]

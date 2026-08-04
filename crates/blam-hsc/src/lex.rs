@@ -82,6 +82,25 @@ pub fn tokenize(src: &str) -> Vec<Lexeme> {
         match c {
             ';' => {
                 flush(&mut word, word_line, &mut out);
+                // `;*` opens a block comment that runs to `*;`; a bare `;`
+                // comments out the rest of the line. The shipped
+                // `global_scripts` uses both, and reading a block comment as a
+                // line comment turns the rest of it into stray top-level
+                // tokens.
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    let mut prev = '\0';
+                    for c in chars.by_ref() {
+                        if c == '\n' {
+                            line += 1;
+                        }
+                        if prev == '*' && c == ';' {
+                            break;
+                        }
+                        prev = c;
+                    }
+                    continue;
+                }
                 for c in chars.by_ref() {
                     if c == '\n' {
                         line += 1;
@@ -226,6 +245,43 @@ mod tests {
                 Token::Close
             ]
         );
+    }
+
+    #[test]
+    fn a_block_comment_swallows_everything_to_its_close() {
+        assert_eq!(
+            words(";*\n0. objective\n(script dormant ghost)\n*;\n(wake x)"),
+            vec![
+                Token::Open,
+                Token::Word("wake".into()),
+                Token::Word("x".into()),
+                Token::Close
+            ]
+        );
+    }
+
+    #[test]
+    fn a_block_comment_still_advances_the_line_count() {
+        let lex = tokenize(";*\n\n\n*;\n(wake x)");
+        assert_eq!(lex[0].line, 5);
+    }
+
+    #[test]
+    fn a_lone_semicolon_is_still_a_line_comment() {
+        assert_eq!(
+            words("; not a block\n(wake x)"),
+            vec![
+                Token::Open,
+                Token::Word("wake".into()),
+                Token::Word("x".into()),
+                Token::Close
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_block_comment_runs_to_the_end_rather_than_hanging() {
+        assert!(words(";* (wake x)").is_empty());
     }
 
     #[test]

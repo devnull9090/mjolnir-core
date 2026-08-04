@@ -52,8 +52,18 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
+    /// The source as text, without the terminator the blob carries.
+    ///
+    /// Every shipped source file ends with a NUL. It is not whitespace, so a
+    /// lexer that does not strip it reads it as part of a trailing word and the
+    /// parser then reports a stray token at the end of every file.
     pub fn text(&self) -> std::borrow::Cow<'_, str> {
-        String::from_utf8_lossy(&self.source)
+        let end = self
+            .source
+            .iter()
+            .rposition(|b| *b != 0)
+            .map_or(0, |i| i + 1);
+        String::from_utf8_lossy(&self.source[..end])
     }
 }
 

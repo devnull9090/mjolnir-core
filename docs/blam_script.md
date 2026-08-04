@@ -1,7 +1,7 @@
 # Blam Script (HSC) in Halo Campaign Evolved
 
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
-**Crates:** `crates/blam-hsc`, exposed through `mjolnir script` and `mjolnir scripting`
+**Crates:** `crates/blam-hsc`, exposed through `mjolnir script`, `mjolnir scripting` and `mjolnir compile`
 **Artifacts:** `defs/hce/scripting.json`
 **Date:** 2026-08-03
 
@@ -33,7 +33,11 @@ cargo run --release -p blam-cli -- script --tag a30 --declarations
 cargo run --release -p blam-cli -- script --tag a30 --source a30
 cargo run --release -p blam-cli -- script --tag a15 --decompile f_md_3d_play
 cargo run --release -p blam-cli -- script --verify
+cargo run --release -p blam-cli -- script --recompile
 cargo run --release -p blam-cli -- scripting --build "<build string>"
+
+# No game installation needed; reads the committed corpus.
+cargo run --release -p blam-cli -- compile my_mod.hsc --show
 ```
 
 ## Where it lives
@@ -125,6 +129,20 @@ that matter:
   and bare in plenty of other places, so a position with its own evidence overrules the
   type-level rule.
 
+## Syntax worth knowing
+
+Three things bit the lexer, all confirmed against the shipped source:
+
+- **`;*` … `*;` is a block comment.** `global_scripts` uses them, and reading one as a
+  line comment leaves the rest of the block as stray top-level tokens — and made `a30`
+  look like it had an unbalanced paren at line 2030 when it does not.
+- **A `;` inside a string is text**, not a comment. The dialogue lines are full of them.
+- **A backslash in a tag path is a literal character**, not an escape:
+  `"objects\characters\marine"` is a path, not an escape for `\c`.
+
+Source files are NUL-terminated in the tag; the terminator is not whitespace, so a lexer
+that keeps it reads a stray token at the end of every file.
+
 ## How well the decompiler does
 
 `mjolnir script --verify` decompiles all 6,827 campaign scripts and compares each
@@ -133,28 +151,84 @@ back, and the compiler coerces `-1` to `-1.0` and accepts `0` for `false`.
 
 | Outcome | Scripts |
 |---|---:|
-| Token-for-token match | 6,241 (91.4%) |
+| Token-for-token match | 6,284 (92.0%) |
 | Differ only because the source used `cond` | 205 |
 | No source block to compare against | 150 |
-| Genuinely differ | 231 |
+| Genuinely differ | 188 |
 
-Of the 231, **186 are a quoting disagreement** and 45 are unexplained. That residue is
-worth closing before anyone relies on decompiled output for a scenario whose source was
-stripped; it does not affect reading a shipped scenario, where the original source is
-right there in the tag.
+**Every one of the 188 is a quoting disagreement** — same text, quoted on one side and
+bare on the other. Nothing else is unexplained.
+
+## The compiler
+
+`crates/blam-hsc/src/compile.rs` goes the other way: HSC source into an expression tree,
+string blob, and `scripts`/`globals` blocks. `mjolnir compile <file.hsc>` runs it against
+the committed corpus and needs no game installation.
+
+What it reproduces is the tree **semantically**, not byte for byte. Three things are
+deliberately the compiler's own:
+
+- **Salts.** The shipped arrays use two salt bases per scenario, an artifact of the
+  engine compiler's datum allocator wrapping mid-run. A handle only has to agree with
+  its target, so this emits one base throughout.
+- **Free slots.** A shipped array is sparse; this emits a dense one.
+- **String blob.** The shipped blob repeats strings — 9,168 distinct offsets across
+  2,806 distinct strings in `a30` — and this interns instead.
+
+Everything the engine reads is reproduced: expression types, opcodes, value types,
+sibling chains, and the rule that a call's first child names it and carries the same
+opcode. Rules confirmed against the shipped data rather than assumed:
+
+| Node | `opcode` | `data` |
+|---|---|---|
+| Group (call) | the engine function | handle of the first child |
+| Script reference | index into `scripts` | handle of the first child |
+| Globals reference | the value type | index into `globals` |
+| Parameter reference | the value type | the parameter's index |
+| Literal | its own value type | the packed value |
+
+The type of a literal is chosen by asking the position what it usually holds and then
+checking the token can actually be that. Taking the position's commonest type alone gets
+real cases wrong: the corpus says `set` usually takes a `boolean`, which compiled
+`(set s_music_trigger 30)` to `true`, and it says `<` usually takes a `short`, which
+compiled `0.6` to `0`. Candidates are now tried commonest-first and the first one that
+fits the token wins.
+
+### How well it does
+
+`mjolnir script --recompile` compiles each scenario's own source files, decompiles the
+result, and compares against the source that went in:
+
+| Outcome | Scripts |
+|---|---:|
+| Token-for-token match | 6,284 (94.1%) |
+| Differ only because the source used `cond` | 205 |
+| Differ | 188 |
+| Compile errors | 0 |
+
+Again **all 188 are the quoting disagreement**, which is a decompiler rendering question,
+not a compiler one. The check that separates the two is the fixpoint: compiling the
+decompiled output a second time must produce the same tree, since both trees are the
+compiler's own. **All 13 scenarios reach it.** 78 literals across the whole campaign had
+no usable type from either the position or the token, and are reported as warnings.
 
 ## In the tag editor
 
 A `scenario` tag gets a third view alongside Form and Tree. It shows the shipped source
 files with HSC highlighting, an outline of every script and global that jumps to its
 declaration, and export to `.hsc`. When a scenario carries no source — a stripped or
-hand-built mod — it shows decompiled output instead and says so.
+hand-built mod — it shows decompiled output instead and says so. It is read-only until
+the write-back below lands.
 
 ## Not done yet
 
-**Compiling edited script back into a scenario.** The game runs the expression tree, not
-the text, so changing a script means rebuilding the tree, the string blob, and the
-`scripts`/`globals` blocks. `crates/blam-hsc` has the reader, the lexer and the corpus a
-compiler needs, but the compiler itself is not written, and the editor's script view is
-therefore read-only. The acceptance test for it already has an obvious shape: recompile
-each shipped source file and compare against the shipped tree.
+**Writing a compiled section back into a scenario tag**, and therefore import in the
+editor. The compiler produces the section; what is missing is the ability to substitute
+whole *blocks* when re-serialising a tag. `blam_tag::write::write_block_subst` can
+replace one section's content, which covers `script string data`, but `hs syntax datums`,
+`scripts` and `globals` are `tgbl` blocks whose element count and packed bytes both
+change. That is a `blam-tag` extension, not a compiler one. After it: bake through
+`blam-pack` into a `_P` override container, as other tag edits already do.
+
+**The 188 quoting disagreements.** Both directions now hit exactly this one class. It is
+the only thing standing between the round-trip and 100%.

@@ -54,7 +54,7 @@ mjolnir-core/
 │   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
 │   ├── blam-tag/                # Blam tag reader, writer and editor
-│   ├── blam-hsc/                # Blam script: expression tree, decompiler, opcode table
+│   ├── blam-hsc/                # Blam script: expression tree, decompiler, compiler, opcode table
 │   ├── blam-pack/               # Bake edited tags into `_P` override containers
 │   ├── blam-live/               # Read and patch tag payloads in the running game
 │   ├── mjolnir-sign/            # Ed25519 author signatures for .mjolnir archives

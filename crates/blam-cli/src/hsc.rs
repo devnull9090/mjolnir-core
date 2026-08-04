@@ -79,17 +79,7 @@ pub fn script_blocks(
 /// known type name is what keeps a script legitimately called `player` from
 /// being read as a return type.
 fn script_name(block: &[Token], value_types: &BTreeSet<String>) -> Option<String> {
-    let Token::Word(kind) = block.get(2)? else {
-        return None;
-    };
-    let mut i = 3;
-    if matches!(kind.as_str(), "static" | "stub") {
-        if let Some(Token::Word(w)) = block.get(i) {
-            if value_types.contains(w) {
-                i += 1;
-            }
-        }
-    }
+    let i = name_slot(block, value_types)?;
     match block.get(i)? {
         Token::Word(name) => Some(name.clone()),
         // `(script static void (f_a (short n)) ...)`
@@ -158,15 +148,19 @@ impl Difference {
 /// An overload set is a match if any of its members matches; otherwise the
 /// closest one is reported, since that is the one most likely to be the
 /// intended counterpart.
-pub fn compare(candidates: Option<&Vec<Vec<Token>>>, decompiled: &str) -> Verdict {
+pub fn compare(
+    candidates: Option<&Vec<Vec<Token>>>,
+    decompiled: &str,
+    value_types: &BTreeSet<String>,
+) -> Verdict {
     let Some(candidates) = candidates else {
         return Verdict::NoSource;
     };
-    let got = normalise_header(&lex::tokens(decompiled));
+    let got = normalise_header(&lex::tokens(decompiled), value_types);
 
     let mut best: Option<Verdict> = None;
     for want in candidates {
-        let verdict = compare_one(&normalise_header(want), &got);
+        let verdict = compare_one(&normalise_header(want, value_types), &got);
         let better = match (&verdict, &best) {
             (Verdict::Match, _) => return Verdict::Match,
             (_, None) => true,
@@ -188,20 +182,45 @@ pub fn compare(candidates: Option<&Vec<Vec<Token>>>, decompiled: &str) -> Verdic
 /// A script with no parameters is written both `(script static void f_a ...)`
 /// and `(script static void (f_a) ...)`; the tag records no difference between
 /// them, so neither should the comparison.
-fn normalise_header(tokens: &[Token]) -> Vec<Token> {
+///
+/// Only the name slot is touched. Scanning the first few tokens for any
+/// `( word )` looks equivalent and is not: a parameterless script whose first
+/// statement is a nullary call — `(script static void f_game_save
+/// (game_save_no_timeout) …)` — has that shape at the same place, and stripping
+/// it there rewrites the body.
+fn normalise_header(tokens: &[Token], value_types: &BTreeSet<String>) -> Vec<Token> {
+    let Some(i) = name_slot(tokens, value_types) else {
+        return tokens.to_vec();
+    };
+    if tokens.get(i) != Some(&Token::Open)
+        || !matches!(tokens.get(i + 1), Some(Token::Word(_)))
+        || tokens.get(i + 2) != Some(&Token::Close)
+    {
+        return tokens.to_vec();
+    }
     let mut out = tokens.to_vec();
-    // ( script <type> [<return>] ( <name> ) ...
-    for i in 2..out.len().min(6) {
-        if out[i] == Token::Open
-            && matches!(out.get(i + 1), Some(Token::Word(_)))
-            && out.get(i + 2) == Some(&Token::Close)
-        {
-            out.remove(i + 2);
-            out.remove(i);
-            break;
+    out.remove(i + 2);
+    out.remove(i);
+    out
+}
+
+/// The token index where a `(script ...)` block's name begins.
+fn name_slot(block: &[Token], value_types: &BTreeSet<String>) -> Option<usize> {
+    if block.first() != Some(&Token::Open) || block.get(1) != Some(&Token::Word("script".into())) {
+        return None;
+    }
+    let Token::Word(kind) = block.get(2)? else {
+        return None;
+    };
+    let mut i = 3;
+    if matches!(kind.as_str(), "static" | "stub") {
+        if let Some(Token::Word(w)) = block.get(i) {
+            if value_types.contains(w) {
+                i += 1;
+            }
         }
     }
-    out
+    Some(i)
 }
 
 fn compare_one(want: &[Token], got: &[Token]) -> Verdict {
@@ -276,7 +295,8 @@ mod tests {
         assert_eq!(
             compare(
                 blocks.get("f_c"),
-                "(script static void (f_c (short n) (ai who))\n\t(wake y)\n)"
+                "(script static void (f_c (short n) (ai who))\n\t(wake y)\n)",
+                &types(),
             ),
             Verdict::Match
         );
@@ -286,7 +306,11 @@ mod tests {
     fn a_name_wrapped_in_its_own_parens_is_the_same_script() {
         let blocks = script_blocks("(script static void (f_d) (wake x))", &types());
         assert_eq!(
-            compare(blocks.get("f_d"), "(script static void f_d\n\t(wake x)\n)"),
+            compare(
+                blocks.get("f_d"),
+                "(script static void f_d\n\t(wake x)\n)",
+                &types()
+            ),
             Verdict::Match
         );
     }
@@ -295,7 +319,11 @@ mod tests {
     fn a_matching_decompilation_is_a_match() {
         let blocks = script_blocks("(script dormant f_b (wake f_a))", &types());
         assert_eq!(
-            compare(blocks.get("f_b"), "(script dormant f_b\n\t(wake f_a)\n)"),
+            compare(
+                blocks.get("f_b"),
+                "(script dormant f_b\n\t(wake f_a)\n)",
+                &types()
+            ),
             Verdict::Match
         );
     }
@@ -306,7 +334,8 @@ mod tests {
         assert_eq!(
             compare(
                 blocks.get("f_b"),
-                "(script dormant f_b (sleep -1.0) (ai_berserk x false))"
+                "(script dormant f_b (sleep -1.0) (ai_berserk x false))",
+                &types(),
             ),
             Verdict::Match
         );
@@ -318,7 +347,8 @@ mod tests {
         assert_eq!(
             compare(
                 blocks.get("f_b"),
-                "(script dormant f_b (if (= a b) (wake x)))"
+                "(script dormant f_b (if (= a b) (wake x)))",
+                &types(),
             ),
             Verdict::DesugaredCond
         );
@@ -327,7 +357,11 @@ mod tests {
     #[test]
     fn a_real_difference_reports_where() {
         let blocks = script_blocks("(script dormant f_b (wake f_a))", &types());
-        match compare(blocks.get("f_b"), "(script dormant f_b (wake f_c))") {
+        match compare(
+            blocks.get("f_b"),
+            "(script dormant f_b (wake f_c))",
+            &types(),
+        ) {
             Verdict::Differs { source, ours, .. } => {
                 assert!(source.contains("f_a"));
                 assert!(ours.contains("f_c"));
@@ -340,14 +374,21 @@ mod tests {
     fn a_truncated_decompilation_is_not_a_match() {
         let blocks = script_blocks("(script dormant f_b (wake f_a) (wake f_c))", &types());
         assert!(matches!(
-            compare(blocks.get("f_b"), "(script dormant f_b (wake f_a))"),
+            compare(
+                blocks.get("f_b"),
+                "(script dormant f_b (wake f_a))",
+                &types()
+            ),
             Verdict::Differs { .. }
         ));
     }
 
     #[test]
     fn a_script_declared_with_no_source_is_reported_as_such() {
-        assert_eq!(compare(None, "(script dormant f_b)"), Verdict::NoSource);
+        assert_eq!(
+            compare(None, "(script dormant f_b)", &types()),
+            Verdict::NoSource
+        );
     }
 
     #[test]
