@@ -43,10 +43,9 @@ blam-live = { path = "../../../crates/blam-live" }
 blam-pack = { path = "../../../crates/blam-pack" }
 mjolnir-sign = { path = "../../../crates/mjolnir-sign" }
 ue-iostore = { path = "../../../crates/ue-iostore" }
+ue-texture = { path = "../../../crates/ue-texture" }
 getrandom = "0.3"
 humantime = "2"
-texture2ddecoder = "0.1"
-png = "0.17"
 base64 = "0.22"
 zip = "2"
 reqwest = { version = "0.12", features = ["blocking", "json"] }

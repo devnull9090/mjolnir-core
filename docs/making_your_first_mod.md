@@ -127,8 +127,9 @@ make your changes, publish again. Players see the update in their launcher.
 
 ## Where this is going
 
-- **Texture swaps** are the most-requested next step; the editor can view and export
-  textures today, and replacement is designed but not built.
+- **Texture swaps** work today on the command line — see
+  [the texture swapping guide](texture_swapping.md). Folding them into the editor's mod
+  recipe, so a repaint ships as part of a mod project, is the next step.
 - **Recipe distribution**: because mods are authored as recipes, the hub will eventually
   ship the recipe itself and let each player's launcher bake it locally against their own
   installation — smaller downloads, cleaner updates, and no game bytes in the archive.

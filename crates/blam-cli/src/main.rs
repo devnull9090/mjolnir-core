@@ -14,6 +14,7 @@ use clap::{Args, Parser, Subcommand};
 mod defs;
 mod hsc;
 mod index;
+mod texture;
 
 fn hex(bytes: &[u8]) -> String {
     bytes
@@ -31,7 +32,7 @@ struct Cli {
 }
 
 #[derive(Args, Clone)]
-struct Source {
+pub struct Source {
     /// Path to the game's `Meteorite/Content/Paks` directory.
     #[arg(long, env = "HCE_PAKS")]
     paks: PathBuf,
@@ -96,6 +97,9 @@ enum Command {
     Scripting(ScriptingArgs),
     /// Compile `.hsc` files and report what the compiler makes of them.
     Compile(CompileArgs),
+    /// Inspect, export and swap cooked textures.
+    #[command(subcommand_help_heading = "Texture")]
+    Texture(texture::TextureArgs),
 }
 
 #[derive(Args)]
@@ -448,6 +452,7 @@ fn main() -> Result<()> {
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Compile(a) => compile(a),
+        Command::Texture(a) => texture::run(a),
     }
 }
 
@@ -1092,7 +1097,7 @@ fn pack(a: PackArgs) -> Result<()> {
     let built = blam_pack::build_override(
         source,
         &a.src.oodle_roots(),
-        &[blam_pack::TagEdit {
+        &[blam_pack::ChunkEdit {
             label: entry.path.clone(),
             chunk: entry.chunk,
             original_len: original.len(),
