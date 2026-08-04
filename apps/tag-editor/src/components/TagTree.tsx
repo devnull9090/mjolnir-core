@@ -26,7 +26,7 @@ export function TagTree() {
             type="button"
             onClick={() => setBrowse(mode.id)}
             title={mode.hint}
-            className={`flex-1 px-3 py-2 text-xs uppercase tracking-wider ${
+            className={`relative flex-1 whitespace-nowrap px-2 py-2 text-[11px] uppercase tracking-wide ${
               browse === mode.id
                 ? "border-b-2 border-mjolnir-gold text-mjolnir-gold"
                 : "text-text-dim hover:text-text-secondary"
@@ -34,8 +34,10 @@ export function TagTree() {
           >
             {mode.label}
             {mode.id === "mod" && project && (
+              // Absolute so the indicator costs no width. Inline, it pushed the
+              // label past the tab and wrapped the dot onto its own line.
               <span
-                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-mjolnir-gold align-middle"
+                className="absolute right-1 top-1.5 h-1.5 w-1.5 rounded-full bg-mjolnir-gold"
                 title={`${project.meta.name} is open`}
               />
             )}
