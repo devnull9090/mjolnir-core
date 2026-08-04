@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use ue_iostore::{ChunkEntry, Container};
-use ue_texture::encode::{rewrite, Image};
+use ue_texture::encode::Image;
 
 use crate::Source;
 
@@ -338,59 +338,21 @@ fn swap(a: SwapArgs) -> Result<()> {
         }
     );
 
-    let out = rewrite(&tex, &[], &ubulk, &img).map_err(|e| anyhow::anyhow!(e))?;
-    if out.export.is_some() {
-        // Only classic chains with inline mips need this, and wiring the
-        // rewritten export into the container is a second chunk this command
-        // does not build yet.
-        anyhow::bail!(
-            "{} keeps mips inline in its export, which this command cannot rewrite yet",
-            t.path
-        );
-    }
-    if out.ubulk.len() != ubulk.len() {
-        anyhow::bail!(
-            "internal error: rewrote {} bytes over a {} byte payload",
-            out.ubulk.len(),
-            ubulk.len()
-        );
-    }
-    let changed = (0..ubulk.len()).filter(|i| ubulk[*i] != out.ubulk[*i]).count();
+    // Every safety gate — the inline-mip refusal, the length invariant and the
+    // readback comparison — lives in the crate, so this command and the tag
+    // editor cannot drift apart on what counts as a swap worth shipping.
+    let out = ue_texture::encode::swap(&tex, &ubulk, &img)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", t.path))?;
     println!(
-        "  rewrote  {} mip(s), {changed} of {} payload bytes changed",
+        "  rewrote  {} mip(s), {} of {} payload bytes changed",
         out.mips,
+        out.changed,
         ubulk.len()
     );
-
-    // Decode the payload we just wrote, through the same reader the game's
-    // format rules imply, and compare it against the image that went in. A
-    // tile written to the wrong offset still packs and still verifies
-    // byte-exactly — this is the check that would catch it.
-    let back = ue_texture::assemble_mip(&tex, &out.ubulk, 0).map_err(|e| anyhow::anyhow!(e))?;
-    let want = img.resized(tex.width, tex.height);
-    let error: u64 = back
-        .rgba
-        .chunks(4)
-        .zip(want.rgba.chunks(4))
-        .map(|(a, b)| {
-            (0..3)
-                .map(|c| (a[c] as i32 - b[c] as i32).unsigned_abs() as u64)
-                .sum::<u64>()
-        })
-        .sum();
-    let mean = error as f64 / (back.rgba.len() as f64 / 4.0 * 3.0);
-    println!("  readback mean channel error {mean:.2} / 255");
-    // Block compression costs a few levels; tiles in the wrong place cost
-    // dozens. The gap between the two is wide enough to draw a line in.
-    if mean > 12.0 {
-        anyhow::bail!(
-            "the rewritten payload does not decode back to the image that went in \
-             (mean error {mean:.2}) — the tile layout is wrong, refusing to write it"
-        );
-    }
+    println!("  readback mean channel error {:.2} / 255", out.error);
 
     if let Some(path) = &a.preview {
-        let png = ue_texture::to_png(&back).map_err(|e| anyhow::anyhow!(e))?;
+        let png = ue_texture::to_png(&out.decoded).map_err(|e| anyhow::anyhow!(e))?;
         std::fs::write(path, &png)
             .with_context(|| format!("cannot write {}", path.display()))?;
         println!("  preview  {}", path.display());
