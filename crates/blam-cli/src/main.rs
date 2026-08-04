@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
+mod container;
 mod defs;
 mod hsc;
 mod index;
@@ -87,6 +88,8 @@ enum Command {
     Pack(PackArgs),
     /// Hexdump any chunk in the shipped containers, found by path.
     Chunk(ChunkArgs),
+    /// Name the shipped assets an override container replaces.
+    Container(container::ContainerArgs),
     /// Print or edit a tag payload already on disk, without the paks or Oodle.
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
@@ -447,6 +450,7 @@ fn main() -> Result<()> {
         Command::TocRoundtrip(a) => toc_roundtrip(a),
         Command::Pack(a) => pack(a),
         Command::Chunk(a) => chunk(a),
+        Command::Container(a) => container::run(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
         Command::Script(a) => script(a),
