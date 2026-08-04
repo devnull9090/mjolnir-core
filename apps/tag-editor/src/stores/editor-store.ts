@@ -19,11 +19,13 @@ import {
   type TestView,
   type TextureSummary,
   type TextureView,
+  type ScriptView,
+  type CompileReport,
 } from "../lib/api";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree";
+export type ViewMode = "form" | "tree" | "script";
 
 /** One open document: a tag, a texture or a sound, shown as a tab. */
 export type Tab = {
@@ -163,6 +165,29 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+
+  /** The open scenario's Blam script, loaded on demand. */
+  scripts: ScriptView | null;
+  scriptsLoading: boolean;
+  scriptsError: string | null;
+  /** Which source file the script view is showing. */
+  scriptFile: string | null;
+  loadScripts: () => Promise<void>;
+  setScriptFile: (name: string) => void;
+  exportScript: (dest: string, name: string) => Promise<number | null>;
+
+  /** Source the user has changed but not applied, by file name. */
+  scriptDrafts: Record<string, string>;
+  /** What the last compile said. Null before one has run. */
+  scriptReport: CompileReport | null;
+  scriptCompiling: boolean;
+  /** Whether this scenario's script is part of the mod. */
+  scriptApplied: boolean;
+  editScript: (name: string, text: string) => void;
+  compileScripts: () => Promise<void>;
+  applyScripts: () => Promise<boolean>;
+  revertScripts: () => Promise<void>;
+  discardScriptDrafts: () => void;
   sounds: SoundSummary[];
   soundQuery: string;
   /** A listing is in flight; an empty list means "not yet", not "none". */
@@ -194,6 +219,26 @@ export function tagLabel(t: { short: string; group: string }): string {
 }
 
 const textureCache = new Map<number, TextureView>();
+
+/** The catalog index of the tag in the active tab, if there is one. */
+function activeTagIndex(s: EditorState): number | null {
+  const tab = s.tabs.find((t) => t.id === s.activeTab);
+  return tab && tab.kind === "tag" ? tab.index : null;
+}
+
+/**
+ * Every source file as it currently stands, drafts applied.
+ *
+ * The decompiled fallback is left out: it is a rendering of the tree, not
+ * source the scenario carries, and compiling it back in would silently make it
+ * the mod's source of truth.
+ */
+function scriptFilesFor(s: EditorState): [string, string][] {
+  const files = s.scripts?.source_files ?? [];
+  return files
+    .filter((f) => !f.name.startsWith("<"))
+    .map((f) => [f.name, s.scriptDrafts[f.name] ?? f.text] as [string, string]);
+}
 
 export const useEditor = create<EditorState>((set, get) => {
   /** Load a tag into the active-content slots. */
@@ -448,6 +493,130 @@ export const useEditor = create<EditorState>((set, get) => {
         return null;
       }
     },
+    scripts: null,
+    scriptsLoading: false,
+    scriptsError: null,
+    scriptFile: null,
+
+    /**
+     * Load the open tag's script section.
+     *
+     * Only scenarios have one, and a scenario is the largest tag the game
+     * ships, so this is on demand rather than part of `loadTag`.
+     */
+    async loadScripts() {
+      const { tabs, activeTab } = get();
+      const tab = tabs.find((t) => t.id === activeTab);
+      if (!tab || tab.kind !== "tag") return;
+      const index = tab.index;
+      set({ scriptsLoading: true, scriptsError: null, scripts: null });
+      try {
+        const scripts = await api.readScripts(index);
+        // The tab can change while a twelve-megabyte scenario is being read.
+        const current = get().tabs.find((t) => t.id === get().activeTab);
+        if (current?.index !== index) return;
+        set({
+          scripts,
+          scriptsLoading: false,
+          scriptFile: scripts.source_files[0]?.name ?? null,
+        });
+      } catch (e) {
+        set({ scriptsError: String(e), scriptsLoading: false });
+      }
+    },
+
+    setScriptFile(name) {
+      set({ scriptFile: name });
+    },
+
+    scriptDrafts: {},
+    scriptReport: null,
+    scriptCompiling: false,
+    scriptApplied: false,
+
+    editScript(name, text) {
+      set((s) => ({ scriptDrafts: { ...s.scriptDrafts, [name]: text } }));
+    },
+
+    discardScriptDrafts() {
+      set({ scriptDrafts: {}, scriptReport: null });
+    },
+
+    /**
+     * Compile what is on screen without recording anything.
+     *
+     * Sends every file, not just the edited one: a script may call one declared
+     * in another file, so compiling a single file in isolation would report
+     * every cross-file call as an unknown name.
+     */
+    async compileScripts() {
+      const index = activeTagIndex(get());
+      if (index === null) return;
+      const files = scriptFilesFor(get());
+      if (files.length === 0) return;
+      set({ scriptCompiling: true });
+      try {
+        const report = await api.compileScripts(index, files);
+        if (activeTagIndex(get()) === index) set({ scriptReport: report });
+      } catch (e) {
+        set({ scriptsError: String(e) });
+      } finally {
+        set({ scriptCompiling: false });
+      }
+    },
+
+    async applyScripts() {
+      const index = activeTagIndex(get());
+      if (index === null) return false;
+      const files = scriptFilesFor(get());
+      set({ scriptCompiling: true, scriptsError: null });
+      try {
+        const report = await api.setScripts(index, files);
+        set({ scriptReport: report });
+        if (!report.ok) return false;
+        // The drafts are now what the tag holds, so re-reading is what keeps
+        // the outline and the decompiled view honest.
+        set((s) => ({
+          scriptDrafts: {},
+          scriptApplied: true,
+          dirtyTags: { ...s.dirtyTags, [index]: true },
+        }));
+        await get().loadScripts();
+        await get().refreshProject();
+        return true;
+      } catch (e) {
+        set({ scriptsError: String(e) });
+        return false;
+      } finally {
+        set({ scriptCompiling: false });
+      }
+    },
+
+    async revertScripts() {
+      const index = activeTagIndex(get());
+      if (index === null) return;
+      try {
+        await api.revertScripts(index);
+        set({ scriptDrafts: {}, scriptReport: null, scriptApplied: false });
+        await get().loadScripts();
+        await get().refreshProject();
+      } catch (e) {
+        set({ scriptsError: String(e) });
+      }
+    },
+
+    async exportScript(dest, name) {
+      const { tabs, activeTab } = get();
+      const tab = tabs.find((t) => t.id === activeTab);
+      if (!tab || tab.kind !== "tag") return null;
+      try {
+        return await api.exportScript(tab.index, name, dest);
+      } catch (e) {
+        set({ scriptsError: String(e) });
+        return null;
+      }
+    },
+
     sounds: [],
     soundQuery: "",
     soundsLoading: false,

@@ -42,10 +42,35 @@ pub struct SavedEdit {
     pub value: String,
 }
 
+/// A scenario whose Blam script the mod replaces.
+///
+/// The source itself is not in `edits.json`: a mission's script runs to
+/// hundreds of kilobytes, and a mod author wants it as `.hsc` files they can
+/// open in any editor and put under version control. They live under
+/// `scripts/<group>/<tag>/`, and this records which tags have them.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SavedScript {
+    pub group: String,
+    pub tag: String,
+}
+
 #[derive(Serialize, Deserialize)]
 struct EditsFile {
     schema_version: u32,
     edits: Vec<SavedEdit>,
+    /// Absent in projects written before script editing existed, which is what
+    /// the default is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    scripts: Vec<SavedScript>,
+}
+
+/// Where a tag's `.hsc` files live inside a project.
+pub fn script_dir(root: &Path, group: &str, tag: &str) -> PathBuf {
+    let mut dir = root.join("scripts").join(group);
+    for part in tag.split('/') {
+        dir.push(part);
+    }
+    dir
 }
 
 pub struct Project {
@@ -170,13 +195,98 @@ impl Project {
     }
 
     pub fn save_edits(&self, edits: &[SavedEdit]) -> Result<(), String> {
+        let scripts = self.load_scripts().unwrap_or_default();
+        self.save_edits_and_scripts(edits, &scripts)
+    }
+
+    pub fn save_edits_and_scripts(
+        &self,
+        edits: &[SavedEdit],
+        scripts: &[SavedScript],
+    ) -> Result<(), String> {
         write_json(
             &self.root.join(EDITS_FILE),
             &EditsFile {
                 schema_version: 1,
                 edits: edits.to_vec(),
+                scripts: scripts.to_vec(),
             },
         )
+    }
+
+    /// Which tags have a script override, from `edits.json`.
+    pub fn load_scripts(&self) -> Result<Vec<SavedScript>, String> {
+        let path = self.root.join(EDITS_FILE);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let file: EditsFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        Ok(file.scripts)
+    }
+
+    /// Read one tag's `.hsc` files back, in name order.
+    ///
+    /// Order matters: it is the order the compiler sees declarations in, and
+    /// therefore the order they end up in the tag. Sorting by name keeps a
+    /// rebuild from the same folder deterministic.
+    pub fn read_script_files(&self, group: &str, tag: &str) -> Result<Vec<(String, String)>, String> {
+        let dir = script_dir(&self.root, group, tag);
+        let mut out = Vec::new();
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(out),
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("hsc") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            out.push((name, text));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
+    /// Write one tag's `.hsc` files, replacing whatever was there.
+    pub fn write_script_files(
+        &self,
+        group: &str,
+        tag: &str,
+        files: &[(String, String)],
+    ) -> Result<(), String> {
+        let dir = script_dir(&self.root, group, tag);
+        // Removing first means a file the user deleted in the editor does not
+        // linger on disk and get compiled back in on the next build.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (name, text) in files {
+            // A source file's name comes from the tag, so it is not trusted to
+            // be a safe path component.
+            let safe: String = name
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                .collect();
+            if safe.is_empty() {
+                continue;
+            }
+            std::fs::write(dir.join(format!("{safe}.hsc")), text).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn remove_script_files(&self, group: &str, tag: &str) -> Result<(), String> {
+        let dir = script_dir(&self.root, group, tag);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }
 

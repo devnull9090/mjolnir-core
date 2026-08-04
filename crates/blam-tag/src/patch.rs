@@ -508,6 +508,43 @@ pub fn set_text(
     ))
 }
 
+/// Rebuild a tag with several sections and blocks replaced at once.
+///
+/// [`set_text`] rebuilds a tag around one changed leaf section; this does the
+/// same around any number of them, and around whole blocks as well, which is
+/// what an edit that changes how many elements a block has requires. The layout
+/// section and the file header are untouched — only `bdat` is rebuilt, and the
+/// container's payload size follows from it.
+///
+/// Passing no edits reproduces `file` byte for byte, which is the check that
+/// any difference belongs to the edits.
+pub fn rewrite(file: &[u8], edits: &crate::write::Edits<'_>) -> Result<Vec<u8>, Error> {
+    let tag = crate::TagFile::parse(file, None).map_err(|_| Error::NoData)?;
+    let layout = tag.layout().map_err(|_| Error::NoData)?;
+    let block = tag.read_data(&layout).map_err(|_| Error::NoData)?;
+
+    let sections = tag.sections();
+    let bdat = crate::section::find(&sections, "bdat").ok_or(Error::NoData)?;
+    let payload = crate::write::write_block_edits(&block, edits);
+
+    let body_before_bdat = bdat.at;
+    let mut out = Vec::with_capacity(HEADER_SIZE + body_before_bdat + payload.len() + 24);
+    out.extend_from_slice(&file[..HEADER_SIZE + body_before_bdat]);
+
+    let tgbl_total = crate::section::SECTION_HEADER + payload.len();
+    out.extend(b"tadb".iter().copied());
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&(tgbl_total as u32).to_le_bytes());
+    out.extend(b"lbgt".iter().copied());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&payload);
+
+    let body_len = out.len() - HEADER_SIZE;
+    out[0x48..0x4C].copy_from_slice(&(body_len as u32).to_le_bytes());
+    Ok(out)
+}
+
 /// Where the `bdat` payload starts within a tag file, for reporting.
 pub fn payload_offset(body_offset: usize) -> usize {
     HEADER_SIZE + body_offset

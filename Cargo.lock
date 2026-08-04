@@ -91,6 +91,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blam-defs",
+ "blam-hsc",
  "blam-live",
  "blam-pack",
  "blam-tag",
@@ -103,6 +104,16 @@ dependencies = [
 name = "blam-defs"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "blam-hsc"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
  "serde",
  "serde_json",
  "thiserror",

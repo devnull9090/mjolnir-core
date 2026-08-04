@@ -21,6 +21,7 @@ pub mod keystore;
 pub mod live;
 pub mod modpack;
 pub mod project;
+pub mod scripts;
 pub mod secret;
 pub mod sounds;
 pub mod textures;
@@ -44,6 +45,11 @@ type TagKey = (String, String);
 #[derive(Default)]
 struct Workbench {
     edits: BTreeMap<TagKey, Vec<PendingEdit>>,
+    /// Scenarios whose Blam script the mod replaces, as `.hsc` source keyed by
+    /// file name. Held as source rather than as a compiled tree so the recipe
+    /// stays readable and re-applies against whatever the player's game ships,
+    /// exactly like a field edit does.
+    scripts: BTreeMap<TagKey, Vec<(String, String)>>,
     /// When set, every change to `edits` is mirrored to the project folder.
     project: Option<project::Project>,
 }
@@ -277,18 +283,51 @@ fn parse_edits(
 /// The tag as the user currently sees it: the shipped bytes with any pending
 /// edits applied.
 fn patched_bytes(c: &Catalog, index: usize, pending: &[PendingEdit]) -> Result<Vec<u8>, String> {
+    patched_with_script(c, index, pending, None)
+}
+
+/// The tag as the mod leaves it: field edits first, then a script rewrite.
+///
+/// Order matters. A field edit is a byte-level patch resolved against the tag
+/// it was recorded on, so it goes first; the script rewrite re-reads whatever
+/// that produced and rebuilds `bdat` around it.
+fn patched_with_script(
+    c: &Catalog,
+    index: usize,
+    pending: &[PendingEdit],
+    script: Option<&[(String, String)]>,
+) -> Result<Vec<u8>, String> {
     let file = c.read_tag(index)?;
-    if pending.is_empty() {
-        return Ok(file);
-    }
     let entry = c.entry(index).ok_or("tag index out of range")?;
-    let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
-        .map_err(|e| e.to_string())?;
-    let layout = tag.layout().map_err(|e| e.to_string())?;
-    let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-    let edits = parse_edits(&layout, &file, &block, pending);
-    let (out, _) =
-        blam_tag::patch::set_many(&layout, &file, &block, &edits).map_err(|e| e.to_string())?;
+    let chunk_len = entry.chunk.length as usize;
+
+    let mut out = file;
+    if !pending.is_empty() {
+        let tag = blam_tag::TagFile::parse(&out, Some(chunk_len)).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        let edits = parse_edits(&layout, &out, &block, pending);
+        let (patched, _) = blam_tag::patch::set_many(&layout, &out, &block, &edits)
+            .map_err(|e| e.to_string())?;
+        out = patched;
+    }
+
+    if let Some(sources) = script.filter(|s| !s.is_empty()) {
+        let len = out.len();
+        let (rewritten, report) = scripts::compile_into(&out, len.min(chunk_len.max(len)), sources)?;
+        if !report.ok {
+            let first = report
+                .errors
+                .first()
+                .map(|e| format!("line {}: {}", e.line, e.message))
+                .unwrap_or_else(|| "compilation failed".into());
+            return Err(format!(
+                "the script does not compile ({} error(s)); first is {first}",
+                report.errors.len()
+            ));
+        }
+        out = rewritten;
+    }
     Ok(out)
 }
 
@@ -322,6 +361,15 @@ fn tag_key(state: &State<'_, AppState>, index: usize) -> Result<TagKey, String> 
 fn pending_for(state: &State<'_, AppState>, key: &TagKey) -> Result<Vec<PendingEdit>, String> {
     let work = state.work.lock().map_err(|e| e.to_string())?;
     Ok(work.edits.get(key).cloned().unwrap_or_default())
+}
+
+/// The script override for a tag, if the mod has one.
+fn script_for(
+    state: &State<'_, AppState>,
+    key: &TagKey,
+) -> Result<Option<Vec<(String, String)>>, String> {
+    let work = state.work.lock().map_err(|e| e.to_string())?;
+    Ok(work.scripts.get(key).cloned())
 }
 
 #[tauri::command]
@@ -709,6 +757,155 @@ fn decode_texture(
     }
     let img = textures::assemble_mip(&tex, &ubulk, mip)?;
     Ok((tex, img))
+}
+
+/// Read the Blam script a scenario carries.
+///
+/// Goes through `patched_bytes` like the field commands do, so a scenario with
+/// unexported edits reports the script section of the tag as it now stands
+/// rather than as it shipped.
+#[tauri::command]
+fn read_scripts(index: usize, state: State<'_, AppState>) -> Result<scripts::ScriptView, String> {
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
+    let script = script_for(&state, &key)?;
+    with_catalog(&state, |c| {
+        // Shows the tag as the mod leaves it, so an applied script edit is what
+        // comes back rather than what the game shipped.
+        let file = patched_with_script(c, index, &pending, script.as_deref())?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario" {
+            return Err(format!("{} tags carry no script", entry.group));
+        }
+        let path = entry.short.clone();
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        scripts::view(path, &layout, &block, &file, script.is_some())
+    })
+}
+
+/// Compile edited script source without changing anything.
+///
+/// The editor calls this as the user types so diagnostics are live; nothing is
+/// recorded and no tag is touched.
+#[tauri::command]
+fn compile_scripts(
+    index: usize,
+    files: Vec<(String, String)>,
+    state: State<'_, AppState>,
+) -> Result<scripts::CompileReport, String> {
+    with_catalog(&state, |c| {
+        let file = c.read_tag(index)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let len = entry.chunk.length as usize;
+        scripts::compile_into(&file, len, &files).map(|(_, report)| report)
+    })
+}
+
+/// Record edited script source as part of the mod.
+///
+/// Compiles first and refuses to record anything that does not build, so the
+/// recipe never holds a state the bake would choke on.
+#[tauri::command]
+fn set_scripts(
+    index: usize,
+    files: Vec<(String, String)>,
+    state: State<'_, AppState>,
+) -> Result<scripts::CompileReport, String> {
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
+
+    let report = with_catalog(&state, |c| {
+        let patched = patched_with_script(c, index, &pending, Some(&files))?;
+        let file = c.read_tag(index)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let (_, mut report) =
+            scripts::compile_into(&file, entry.chunk.length as usize, &files)?;
+        report.tag_bytes = patched.len();
+        Ok(report)
+    })?;
+    if !report.ok {
+        return Ok(report);
+    }
+
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.scripts.insert(key.clone(), files.clone());
+    save_scripts(&work)?;
+    if let Some(p) = &work.project {
+        p.write_script_files(&key.0, &key.1, &files)?;
+    }
+    Ok(report)
+}
+
+/// Drop a scenario's script override, restoring what the game ships.
+#[tauri::command]
+fn revert_scripts(index: usize, state: State<'_, AppState>) -> Result<(), String> {
+    let key = tag_key(&state, index)?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.scripts.remove(&key);
+    save_scripts(&work)?;
+    if let Some(p) = &work.project {
+        p.remove_script_files(&key.0, &key.1)?;
+    }
+    Ok(())
+}
+
+/// Mirror the script overrides into `edits.json`.
+fn save_scripts(work: &Workbench) -> Result<(), String> {
+    let Some(p) = &work.project else {
+        return Ok(());
+    };
+    let scripts: Vec<project::SavedScript> = work
+        .scripts
+        .keys()
+        .map(|(group, tag)| project::SavedScript {
+            group: group.clone(),
+            tag: tag.clone(),
+        })
+        .collect();
+    p.save_edits_and_scripts(&work.saved_edits(), &scripts)
+}
+
+/// Write one of a scenario's source files to disk as `.hsc`.
+///
+/// `name` is the source file's name as `read_scripts` lists it, or
+/// `<decompiled>` for the rendered tree when the scenario shipped no source.
+#[tauri::command]
+fn export_script(
+    index: usize,
+    name: String,
+    dest: String,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let view = read_scripts(index, state)?;
+    let file = view
+        .source_files
+        .iter()
+        .find(|f| f.name == name)
+        .ok_or_else(|| format!("no source file named {name:?}"))?;
+    std::fs::write(&dest, file.text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(file.text.len())
+}
+
+/// Render one script back from the compiled tree, for comparing against the
+/// source the scenario shipped with.
+#[tauri::command]
+fn decompile_script(
+    index: usize,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    with_catalog(&state, |c| {
+        let file = c.read_tag(index)?;
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            .map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        scripts::decompile_one(&layout, &block, &file, &name)
+    })
 }
 
 #[tauri::command]
@@ -1152,11 +1349,19 @@ fn last_project() -> Option<String> {
 fn resolved_edits(
     c: &Catalog,
     edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
+    scripts: &BTreeMap<TagKey, Vec<(String, String)>>,
 ) -> Result<(Vec<modpack::ResolvedEdit>, Vec<String>), String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
-    for ((group, tag), pending) in edits {
-        if pending.is_empty() {
+    // A scenario may be changed only by its script, with no field edits at all,
+    // so the two sets are walked together rather than iterating `edits` alone.
+    let keys: std::collections::BTreeSet<&TagKey> = edits.keys().chain(scripts.keys()).collect();
+    for key in keys {
+        let (group, tag) = key;
+        let no_edits = Vec::new();
+        let pending = edits.get(key).unwrap_or(&no_edits);
+        let script = scripts.get(key).map(Vec::as_slice);
+        if pending.is_empty() && script.is_none() {
             continue;
         }
         let label = format!("{tag}.{group}");
@@ -1257,10 +1462,14 @@ fn export_archive(
     state: &State<'_, AppState>,
     allow_sign: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
-    let (root, meta, edits) = {
+    let (root, meta, (edits, scripts)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
-        (p.root.clone(), p.meta.clone(), work.edits.clone())
+        (
+            p.root.clone(),
+            p.meta.clone(),
+            (work.edits.clone(), work.scripts.clone()),
+        )
     };
     // The device key signs every archive it can; the author identity rides
     // along when a publish has cached it. Failing to sign is a warning, not
@@ -1273,7 +1482,7 @@ fn export_archive(
     let author =
         install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
-        let (resolved, mut warnings) = resolved_edits(c, &edits)?;
+        let (resolved, mut warnings) = resolved_edits(c, &edits, &scripts)?;
         let baked = modpack::bake(c, &meta.slug, resolved)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
@@ -1339,13 +1548,13 @@ struct TestView {
 /// Bake the project and install it into the Paks folder for an in-game test.
 #[tauri::command]
 fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
-    let (meta, edits) = {
+    let (meta, (edits, scripts)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
-        (p.meta.clone(), work.edits.clone())
+        (p.meta.clone(), (work.edits.clone(), work.scripts.clone()))
     };
     with_catalog(&state, |c| {
-        let (resolved, warnings) = resolved_edits(c, &edits)?;
+        let (resolved, warnings) = resolved_edits(c, &edits, &scripts)?;
         let baked = modpack::bake(c, &meta.slug, resolved)?;
         let resized = baked.iter().any(|b| b.built.resized());
         let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
@@ -1520,6 +1729,9 @@ pub fn run() {
             signing_status,
             list_textures,
             read_texture,
+            read_scripts,
+            decompile_script,
+            export_script,
             export_texture,
             list_sounds,
             read_sound,
