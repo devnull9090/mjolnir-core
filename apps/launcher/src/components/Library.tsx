@@ -24,6 +24,7 @@ import { ActionButton, Badge, ErrorNote, ShieldIcon, Spinner } from "@mjolnir/hu
 
 import SetupPanel from "./SetupPanel";
 import { InstalledPanel } from "./hub/InstalledPanel";
+import type { InstallStatus } from "./GameLocation";
 import type { Library as HubLibrary } from "../hub/library";
 
 interface ModEntry {
@@ -31,16 +32,6 @@ interface ModEntry {
   enabled: boolean;
   description: string;
   version: string;
-}
-
-interface InstallStatus {
-  game_found: boolean;
-  install_path: string | null;
-  platform: string;
-  ue4ss_installed: boolean;
-  modpack_enabled: boolean;
-  manifest_version: string | null;
-  ue4ss_version: string | null;
 }
 
 type Integrity = "not_installed" | "verified" | "modified" | "unverified";

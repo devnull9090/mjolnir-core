@@ -368,7 +368,7 @@ export type Poked = {
 const tauriApi = {
   detectInstall: () => invoke<Install>("detect_install"),
   openInstall: (paks: string, oodle: string) =>
-    invoke<{ groups: number; tags: number }>("open_install", { paks, oodle }),
+    invoke<{ groups: number; tags: number; paks: string }>("open_install", { paks, oodle }),
   listGroups: () => invoke<GroupSummary[]>("list_groups"),
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),

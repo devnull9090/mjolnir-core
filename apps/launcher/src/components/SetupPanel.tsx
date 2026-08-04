@@ -1,16 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-
-interface InstallStatus {
-  game_found: boolean;
-  install_path: string | null;
-  platform: string;
-  ue4ss_installed: boolean;
-  modpack_enabled: boolean;
-  manifest_version: string | null;
-  ue4ss_version: string | null;
-}
+import GameLocation, { type InstallStatus } from "./GameLocation";
 
 interface InstallProgress {
   stage: string;
@@ -87,7 +78,7 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
 
   if (!installStatus.game_found) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center px-8">
+      <div className="flex flex-col items-center h-full overflow-y-auto text-center px-8 py-10">
         <div className="w-20 h-20 rounded-2xl bg-accent-red/10 border border-accent-red/30 flex items-center justify-center mb-6">
           <svg className="w-10 h-10 text-accent-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -95,18 +86,24 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
         </div>
         <h2 className="text-xl font-bold text-text-primary mb-2">Game Not Found</h2>
         <p className="text-sm text-text-secondary max-w-md mb-6">
-          Could not detect <strong>Halo Campaign Evolved</strong>. Please install it via Steam
-          first, then relaunch MJOLNIR.
+          Could not detect <strong>Halo Campaign Evolved</strong> in any of the usual places.
+          If it is installed somewhere else — another drive, a moved folder — point MJOLNIR
+          at it below. Otherwise install it first, then relaunch MJOLNIR.
         </p>
         <a
           href="https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/"
           target="_blank"
           rel="noopener noreferrer"
           className="px-5 py-2.5 rounded-lg text-sm font-medium bg-accent-blue/15 border border-accent-blue/30 text-accent-blue
-            hover:bg-accent-blue/25 transition-all duration-150"
+            hover:bg-accent-blue/25 transition-all duration-150 mb-8"
         >
           View on Steam →
         </a>
+
+        {/* The way out of the dead end this screen used to be. */}
+        <div className="w-full max-w-xl border-t border-border-subtle pt-8">
+          <GameLocation onChanged={(status) => status.game_found && onInstallComplete()} />
+        </div>
       </div>
     );
   }

@@ -49,6 +49,17 @@ pub struct GameInfo {
 pub struct LauncherSettings {
     pub launch_method: String, // "steam" | "gamepass" | "exe"
     pub custom_exe_path: Option<String>,
+    /// Where the game is, when the player says so rather than the probes.
+    ///
+    /// Detection only knows the conventional layouts, so a Steam library on a
+    /// drive it does not guess, a moved install, or a copy kept outside a
+    /// store leaves the launcher with nothing to work on. This overrides the
+    /// search entirely — see `find_game_install`.
+    ///
+    /// Defaulted, so a settings file written before this field existed still
+    /// reads.
+    #[serde(default)]
+    pub install_path: Option<String>,
 }
 
 impl Default for LauncherSettings {
@@ -56,6 +67,7 @@ impl Default for LauncherSettings {
         Self {
             launch_method: "steam".to_string(),
             custom_exe_path: None,
+            install_path: None,
         }
     }
 }
@@ -66,6 +78,8 @@ pub struct BuildInfo {
     pub launcher_version: String,
     pub game_found: bool,
     pub install_path: Option<String>,
+    /// How the install path was arrived at — see `install_source`.
+    pub install_source: String,
     pub ue4ss_installed: bool,
     pub mods_path: Option<String>,
     pub mods_count: usize,
@@ -100,11 +114,32 @@ pub struct ManifestFile {
 pub struct InstallStatus {
     pub game_found: bool,
     pub install_path: Option<String>,
-    pub platform: String, // "steam" | "gamepass" | "unknown"
+    pub platform: String, // "steam" | "gamepass" | "manual" | "unknown"
     pub ue4ss_installed: bool,
     pub modpack_enabled: bool,
     pub manifest_version: Option<String>,
     pub ue4ss_version: Option<String>,
+    /// How the install path was arrived at — see `install_source`.
+    pub source: String,
+    /// The manual location as it was configured, whether or not it resolved.
+    ///
+    /// Present alongside `game_found: false` when a set location has gone
+    /// missing, which is the one case the UI has to explain rather than
+    /// offering to search again.
+    pub manual_path: Option<String>,
+}
+
+/// Where the install path came from. A location set in Settings wins over the
+/// environment, which wins over detection.
+mod install_source {
+    /// Nothing set here, but `MJOLNIR_GAME_DIR` says where the game is.
+    pub const ENV: &str = "env";
+    /// The player chose it in Settings.
+    pub const MANUAL: &str = "manual";
+    /// Found by probing the conventional store locations.
+    pub const AUTO: &str = "auto";
+    /// Nothing configured and nothing found.
+    pub const NONE: &str = "none";
 }
 
 /// Result of verifying installed files against manifest
@@ -142,8 +177,112 @@ fn cached_manifest_path() -> PathBuf {
     dir
 }
 
+/// Overrides detection for a single run, and is handed to every tool the
+/// launcher starts. A directory: the install root, or anything inside it that
+/// names the root — see `resolve_install_root`.
+///
+/// It sits *below* the saved setting on purpose. The setting is something the
+/// player typed into this window; an environment variable that quietly beat it
+/// would leave a control in Settings that does nothing.
+pub(crate) const GAME_DIR_ENV: &str = "MJOLNIR_GAME_DIR";
+
+/// Directories that only exist inside a Halo Campaign Evolved install. One is
+/// enough: a Game Pass copy that has never been launched has the content but
+/// not always the binaries beside it.
+const INSTALL_MARKERS: &[&str] = &["Meteorite/Binaries/Win64", "Meteorite/Content/Paks"];
+
+/// What the install folder is called under a library folder, on every store.
+const GAME_DIR: &str = "Halo Campaign Evolved";
+
+/// How far above a chosen folder the install root may be. Deepest accepted
+/// pick is `Meteorite\Content\Paks`, three levels down.
+const ROOT_SEARCH_DEPTH: usize = 4;
+
+fn is_install_root(path: &Path) -> bool {
+    INSTALL_MARKERS.iter().any(|m| path.join(m).is_dir())
+}
+
+/// Resolve whatever the player pointed at to the install root.
+///
+/// A folder picker invites the wrong depth — the game folder, the `Meteorite`
+/// folder inside it, the `Win64` folder someone was just looking at, or the
+/// executable itself are all reasonable answers to "where is the game". Each
+/// of them names the root, so each is accepted and walked up from rather than
+/// rejected with a note about which one was meant.
+///
+/// `None` means nothing in that chain looks like an install, which is the only
+/// answer worth refusing: a path that is not the game would otherwise be
+/// reported as found and fail later, during an install, with a confusing error.
+fn resolve_install_root(input: &str) -> Option<PathBuf> {
+    let raw = PathBuf::from(input.trim().trim_matches('"').trim());
+    // An executable, or any other file, identifies the folder holding it.
+    let start = if raw.is_file() {
+        raw.parent()?.to_path_buf()
+    } else {
+        raw
+    };
+    if !start.is_dir() {
+        return None;
+    }
+
+    // A folder holding the game by name — a Steam library, or wherever a
+    // moved copy was put — names it just as well as the install itself.
+    let named = start.join(GAME_DIR);
+    if is_install_root(&named) {
+        return Some(named);
+    }
+
+    let mut current = start.as_path();
+    for _ in 0..=ROOT_SEARCH_DEPTH {
+        if is_install_root(current) {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
+    None
+}
+
+/// Guess the storefront from where the install sits. Only cosmetic — the
+/// launch route is a separate setting the player owns.
+fn platform_for(path: &Path) -> String {
+    let text = path.to_string_lossy().to_ascii_lowercase();
+    if text.contains("steamapps") {
+        "steam".to_string()
+    } else if text.contains("xboxgames") || text.contains("windowsapps") {
+        "gamepass".to_string()
+    } else {
+        "manual".to_string()
+    }
+}
+
+/// The manual location and where it was configured, if there is one.
+fn manual_install() -> Option<(String, &'static str)> {
+    let saved = get_settings()
+        .install_path
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    if let Some(path) = saved {
+        return Some((path, install_source::MANUAL));
+    }
+    let from_env = std::env::var(GAME_DIR_ENV)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())?;
+    Some((from_env, install_source::ENV))
+}
+
 /// Find HCE install and return (path, platform)
 pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
+    // A manual location wins outright, and deliberately does not fall back to
+    // the probes when it does not resolve: installing UE4SS into some other
+    // copy of the game than the one the player named is worse than reporting
+    // the location as missing and letting them fix it.
+    if let Some((path, _)) = manual_install() {
+        let root = resolve_install_root(&path)?;
+        let platform = platform_for(&root);
+        return Some((root, platform));
+    }
+
     // Check Steam locations first
     let steam_dirs = vec![
         r"C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved",
@@ -449,10 +588,86 @@ fn get_build_info() -> BuildInfo {
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
         game_found: game_info.found,
         install_path: game_info.install_path,
+        install_source: match (manual_install(), game_info.found) {
+            (Some((_, source)), _) => source.to_string(),
+            (None, true) => install_source::AUTO.to_string(),
+            (None, false) => install_source::NONE.to_string(),
+        },
         ue4ss_installed: game_info.ue4ss_installed,
         mods_path: game_info.mods_path,
         mods_count: mods.len(),
     }
+}
+
+// ─── Manual install location ────────────────────────────────────────────
+
+/// What a candidate folder turns out to be, so the player can see what they
+/// picked before it becomes the location everything else writes into.
+#[derive(Debug, Serialize)]
+pub struct InstallPathCheck {
+    pub valid: bool,
+    /// The install root the pick resolved to, which may be a parent of it.
+    pub resolved: Option<String>,
+    pub ue4ss_installed: bool,
+    /// Why it was refused, or what was found when it was accepted.
+    pub message: String,
+}
+
+#[tauri::command]
+fn check_install_path(path: String) -> InstallPathCheck {
+    match resolve_install_root(&path) {
+        Some(root) => {
+            let bin_dir = root.join("Meteorite/Binaries/Win64");
+            let (dll_installed, _) = check_ue4ss_dll(&bin_dir);
+            let ue4ss_installed = dll_installed && bin_dir.join("ue4ss").exists();
+            let resolved = root.to_string_lossy().to_string();
+            let asked = path.trim().trim_matches('"').trim_end_matches(['\\', '/']);
+            let message = if resolved.eq_ignore_ascii_case(asked) {
+                "Halo Campaign Evolved found here.".to_string()
+            } else {
+                // Say so plainly: the folder that gets saved is not the one
+                // they clicked, and that difference is worth seeing now.
+                format!("Halo Campaign Evolved found. Using the install root: {resolved}")
+            };
+            InstallPathCheck {
+                valid: true,
+                resolved: Some(resolved),
+                ue4ss_installed,
+                message,
+            }
+        }
+        None => InstallPathCheck {
+            valid: false,
+            resolved: None,
+            ue4ss_installed: false,
+            message: format!(
+                "No Halo Campaign Evolved install at {}. Pick the folder holding \
+                 Meteorite\\Binaries\\Win64 — usually the one named \
+                 \"Halo Campaign Evolved\".",
+                path.trim()
+            ),
+        },
+    }
+}
+
+/// Set (or, with `None`, clear) the manual install location.
+///
+/// Clearing hands the job back to detection rather than leaving the launcher
+/// with nothing, so there is always a way out of a bad path.
+#[tauri::command]
+fn set_install_path(path: Option<String>) -> Result<InstallStatus, String> {
+    let resolved = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => {
+            let root = resolve_install_root(p).ok_or_else(|| check_install_path(p.to_string()).message)?;
+            Some(root.to_string_lossy().to_string())
+        }
+        None => None,
+    };
+
+    let mut settings = get_settings();
+    settings.install_path = resolved;
+    save_settings(settings)?;
+    Ok(get_install_status())
 }
 
 #[tauri::command]
@@ -530,6 +745,8 @@ fn launch_game() -> Result<(), String> {
 #[tauri::command]
 fn get_install_status() -> InstallStatus {
     let manifest = load_cached_manifest();
+    let manual = manual_install();
+    let manual_path = manual.as_ref().map(|(p, _)| p.clone());
 
     match find_game_install() {
         Some((install_path, platform)) => {
@@ -549,6 +766,10 @@ fn get_install_status() -> InstallStatus {
                 modpack_enabled: dll_enabled,
                 manifest_version: manifest.as_ref().map(|m| m.version.clone()),
                 ue4ss_version: manifest.as_ref().map(|m| m.ue4ss_version.clone()),
+                source: manual
+                    .map(|(_, src)| src.to_string())
+                    .unwrap_or_else(|| install_source::AUTO.to_string()),
+                manual_path,
             }
         }
         None => InstallStatus {
@@ -559,6 +780,12 @@ fn get_install_status() -> InstallStatus {
             modpack_enabled: false,
             manifest_version: None,
             ue4ss_version: None,
+            // A set-but-unresolvable location is still the reason nothing was
+            // found, so it is reported as the source rather than as "none".
+            source: manual
+                .map(|(_, src)| src.to_string())
+                .unwrap_or_else(|| install_source::NONE.to_string()),
+            manual_path,
         },
     }
 }
@@ -1204,6 +1431,8 @@ pub fn run() {
             save_settings,
             get_build_info,
             get_install_status,
+            check_install_path,
+            set_install_path,
             check_modpack_update,
             verify_install,
             install_modpack,
@@ -1290,5 +1519,96 @@ mod tests {
         // schema_version is additive; an older launcher must ignore it rather
         // than fail to read the manifest at all.
         assert_eq!(m.ue4ss_version, "3.0.1-1018-g662df915");
+    }
+
+    /// A settings file written before the manual location existed must still
+    /// read, and must read as "detect it".
+    #[test]
+    fn settings_without_an_install_path_still_read() {
+        let json = r#"{"launch_method":"steam","custom_exe_path":null}"#;
+        let s: LauncherSettings = serde_json::from_str(json).expect("old settings must parse");
+        assert_eq!(s.install_path, None);
+    }
+
+    /// A stand-in install tree under the temp directory, inside a library
+    /// folder as every store lays it out. Returns the install root.
+    fn fake_install(name: &str) -> PathBuf {
+        let library = std::env::temp_dir().join(format!("mjolnir-launcher-{name}"));
+        let _ = fs::remove_dir_all(&library);
+        let root = library.join(GAME_DIR);
+        fs::create_dir_all(root.join("Meteorite/Binaries/Win64")).expect("scratch tree");
+        fs::create_dir_all(root.join("Meteorite/Content/Paks")).expect("scratch tree");
+        fs::write(
+            root.join("Meteorite/Binaries/Win64/Meteorite-Win64-Shipping.exe"),
+            b"",
+        )
+        .expect("scratch exe");
+        root
+    }
+
+    /// The picker invites the wrong depth, so every folder in the chain — and
+    /// the executable itself — has to name the same root.
+    #[test]
+    fn a_manual_location_resolves_from_any_depth() {
+        let root = fake_install("depth");
+        let picks = [
+            // The library holding it, one level above.
+            root.parent().expect("library").to_path_buf(),
+            root.clone(),
+            root.join("Meteorite"),
+            root.join("Meteorite/Binaries"),
+            root.join("Meteorite/Binaries/Win64"),
+            root.join("Meteorite/Content/Paks"),
+            root.join("Meteorite/Binaries/Win64/Meteorite-Win64-Shipping.exe"),
+        ];
+        for pick in picks {
+            assert_eq!(
+                resolve_install_root(&pick.to_string_lossy()),
+                Some(root.clone()),
+                "{} should name the install root",
+                pick.display()
+            );
+        }
+        // Quoted, padded and trailing-slashed, as a path pasted from Explorer
+        // arrives.
+        let pasted = format!("  \"{}\\\"  ", root.display());
+        assert_eq!(resolve_install_root(&pasted), Some(root.clone()));
+
+        let _ = fs::remove_dir_all(root.parent().expect("library"));
+    }
+
+    /// Anything that is not the game has to be refused here rather than
+    /// accepted and failed later, mid-install, from inside it.
+    #[test]
+    fn a_folder_without_the_game_is_refused() {
+        let empty = std::env::temp_dir().join("mjolnir-launcher-empty");
+        let _ = fs::remove_dir_all(&empty);
+        fs::create_dir_all(empty.join("Some/Other/Game")).expect("scratch tree");
+
+        assert_eq!(resolve_install_root(&empty.to_string_lossy()), None);
+        assert_eq!(
+            resolve_install_root(&empty.join("Some/Other/Game").to_string_lossy()),
+            None
+        );
+        assert_eq!(resolve_install_root(""), None);
+        assert_eq!(resolve_install_root(r"Z:\nothing\here"), None);
+
+        let _ = fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn the_storefront_is_read_off_the_path() {
+        assert_eq!(
+            platform_for(Path::new(
+                r"D:\SteamLibrary\steamapps\common\Halo Campaign Evolved"
+            )),
+            "steam"
+        );
+        assert_eq!(
+            platform_for(Path::new(r"E:\XboxGames\Halo Campaign Evolved")),
+            "gamepass"
+        );
+        // A copy somewhere of the player's own choosing is neither.
+        assert_eq!(platform_for(Path::new(r"G:\Games\HCE")), "manual");
     }
 }

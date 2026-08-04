@@ -21,6 +21,15 @@ const PAKS_SUFFIX: &str = r"Meteorite\Content\Paks";
 /// Overrides the search entirely. A file path or a directory holding the DLL.
 const OODLE_ENV: &str = "MJOLNIR_OODLE";
 
+/// Where the game is, for a copy the search cannot reach. The launcher sets it
+/// for the tools it starts, so a location set there carries over to here.
+///
+/// It sits *below* the remembered path: opening an installation from the setup
+/// form is a deliberate act and the more recent one, so it must not be undone
+/// by whatever started the editor. It is the answer on a first run, when there
+/// is nothing remembered to prefer.
+const GAME_DIR_ENV: &str = "MJOLNIR_GAME_DIR";
+
 /// Directories one scan may open before giving up. A scan runs on startup, so
 /// it is bounded rather than exhaustive: the conventional locations are shallow
 /// and breadth-first finds them long before this runs out.
@@ -281,9 +290,72 @@ fn epic_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// Does this directory hold IoStore containers — i.e. is it the Paks folder?
+///
+/// Checked by content rather than by name: the folder is what it holds, and a
+/// `Paks` directory left behind by an uninstall would otherwise be accepted
+/// and then fail to open.
+fn has_containers(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        e.path()
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.eq_ignore_ascii_case("utoc") || s.eq_ignore_ascii_case("pak"))
+            .unwrap_or(false)
+    })
+}
+
+/// Resolve whatever the user pointed at to the Paks folder.
+///
+/// "Where is the game" has several right answers — the folder named after the
+/// game, the `Meteorite` folder inside it, the Steam library holding it, or
+/// the Paks folder itself — and a form that accepts only the last of them
+/// fails the people who most need it. Each is tried, and anything with no
+/// containers under it is refused so the error arrives here rather than out of
+/// the reader.
+pub fn resolve_paks(input: &str) -> Option<PathBuf> {
+    let raw = PathBuf::from(input.trim().trim_matches('"').trim());
+    // A file identifies the folder holding it.
+    let start = if raw.is_file() {
+        raw.parent()?.to_path_buf()
+    } else {
+        raw
+    };
+    if !start.is_dir() {
+        return None;
+    }
+    if has_containers(&start) {
+        return Some(start);
+    }
+    // Suffixes ordered outermost-first: a Steam library, the install root, the
+    // `Meteorite` folder, its `Content`.
+    let below = [
+        PathBuf::from(GAME_DIR).join(PAKS_SUFFIX),
+        PathBuf::from(PAKS_SUFFIX),
+        PathBuf::from(r"Content\Paks"),
+        PathBuf::from("Paks"),
+    ];
+    below
+        .into_iter()
+        .map(|suffix| start.join(suffix))
+        .find(|p| p.is_dir() && has_containers(p))
+}
+
 fn find_paks() -> Option<PathBuf> {
-    let remembered = recall().paks.map(PathBuf::from);
-    if let Some(p) = remembered.filter(|p| p.is_dir()) {
+    // Resolved rather than trusted: a path remembered by an older build, or
+    // hand-edited into the settings file, may name the install root instead.
+    let remembered = recall().paks.as_deref().and_then(resolve_paks);
+    if let Some(p) = remembered {
+        return Some(p);
+    }
+    if let Some(p) = std::env::var(GAME_DIR_ENV)
+        .ok()
+        .as_deref()
+        .and_then(resolve_paks)
+    {
         return Some(p);
     }
     steam_libraries()
@@ -409,7 +481,9 @@ fn note_for(paks: &Option<PathBuf>, oodle: &Option<PathBuf>) -> Option<String> {
     let mut parts = Vec::new();
     if paks.is_none() {
         parts.push(
-            "Could not find Halo Campaign Evolved. Choose the Paks folder manually.".to_string(),
+            "Could not find Halo Campaign Evolved. Choose it below — the game folder itself, \
+             or its Meteorite\\Content\\Paks folder."
+                .to_string(),
         );
     }
     if oodle.is_none() {
@@ -484,6 +558,71 @@ mod tests {
         assert_eq!(vdf_path(line), Some(PathBuf::from(r"D:\SteamLibrary")));
         assert_eq!(vdf_path("\t\"1\"\t\t\"228980\""), None);
         assert_eq!(vdf_path("{"), None);
+    }
+
+    /// A stand-in install tree: the Paks folder with a container in it, under
+    /// the layout the game ships.
+    fn fake_install(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("mjolnir-tag-editor-{name}"));
+        let _ = std::fs::remove_dir_all(&root);
+        let paks = root.join(GAME_DIR).join(PAKS_SUFFIX);
+        std::fs::create_dir_all(&paks).expect("scratch tree");
+        std::fs::write(paks.join("global.utoc"), b"").expect("scratch container");
+        root
+    }
+
+    /// Every folder in the chain is a reasonable answer to "where is the
+    /// game", so every one of them has to resolve to the same Paks folder.
+    #[test]
+    fn paks_resolve_from_the_library_the_root_or_the_folder_itself() {
+        let library = fake_install("resolve");
+        let game = library.join(GAME_DIR);
+        let paks = game.join(PAKS_SUFFIX);
+
+        for pick in [
+            library.clone(),
+            game.clone(),
+            game.join("Meteorite"),
+            game.join(r"Meteorite\Content"),
+            paks.clone(),
+        ] {
+            assert_eq!(
+                resolve_paks(&pick.to_string_lossy()),
+                Some(paks.clone()),
+                "{} should name the Paks folder",
+                pick.display()
+            );
+        }
+        // A container inside it, and a quoted path pasted from Explorer.
+        assert_eq!(
+            resolve_paks(&paks.join("global.utoc").to_string_lossy()),
+            Some(paks.clone())
+        );
+        assert_eq!(
+            resolve_paks(&format!("  \"{}\"  ", game.display())),
+            Some(paks)
+        );
+
+        let _ = std::fs::remove_dir_all(&library);
+    }
+
+    /// An empty `Paks` folder — what an uninstall leaves behind — is not an
+    /// installation, and saying so here beats failing inside the reader.
+    #[test]
+    fn a_folder_without_containers_is_refused() {
+        let root = std::env::temp_dir().join("mjolnir-tag-editor-empty");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(PAKS_SUFFIX)).expect("scratch tree");
+
+        assert_eq!(resolve_paks(&root.to_string_lossy()), None);
+        assert_eq!(
+            resolve_paks(&root.join(PAKS_SUFFIX).to_string_lossy()),
+            None
+        );
+        assert_eq!(resolve_paks(""), None);
+        assert_eq!(resolve_paks(r"Z:\nothing\here"), None);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

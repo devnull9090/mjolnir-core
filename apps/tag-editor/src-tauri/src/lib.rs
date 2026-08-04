@@ -133,6 +133,9 @@ struct OpenResult {
     tags: usize,
     /// `dll` or `built-in`, so the UI can say which decoder is in use.
     decoder: &'static str,
+    /// The Paks folder actually opened, which is not always the path that was
+    /// asked for — see `open_install`.
+    paks: String,
 }
 
 #[derive(Serialize)]
@@ -253,6 +256,18 @@ fn open_install(
     oodle: String,
     state: State<'_, AppState>,
 ) -> Result<OpenResult, String> {
+    // The form takes whatever names the installation — the game folder, the
+    // Steam library holding it, the Paks folder — so the reader is handed the
+    // one path it can actually open.
+    let paks = install::resolve_paks(&paks)
+        .map(|p| p.display().to_string())
+        .ok_or_else(|| {
+            format!(
+                "No game containers under {}. Choose the folder holding Halo Campaign Evolved, \
+                 or its Meteorite\\Content\\Paks folder.",
+                paks.trim()
+            )
+        })?;
     let catalog = Catalog::open(&paks, &oodle)?;
     let groups = catalog.groups()?.len();
     let tags = catalog.tags.len();
@@ -267,6 +282,7 @@ fn open_install(
         groups,
         tags,
         decoder,
+        paks,
     })
 }
 

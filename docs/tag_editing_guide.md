@@ -237,7 +237,14 @@ pnpm tauri dev
 ```
 
 On first run it looks for your installation and the Oodle DLL. If it cannot find them, point
-it at the two paths above.
+it at the two paths above. The game field takes anything that names the install — the folder
+named after the game, the Steam library holding it, the `Meteorite\Content\Paks` folder, or a
+container inside it — and resolves the rest itself.
+
+Whichever installation is open is named at the bottom of the left panel, with **change** beside
+it to open a different one. Setting `MJOLNIR_GAME_DIR` picks the install for a run where nothing
+has been opened before; the launcher sets it for the tools it starts, so a location set there
+carries over. A folder chosen in the editor is remembered and wins over it from then on.
 
 ### Getting around
 

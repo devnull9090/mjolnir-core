@@ -55,6 +55,44 @@ export function TagTree() {
       ) : (
         <ModPanel />
       )}
+      <InstallFooter />
+    </div>
+  );
+}
+
+/**
+ * Which installation is open, and the way to another one.
+ *
+ * Detection is silent when it works, which leaves no answer to "which copy am
+ * I editing?" on a machine with more than one — and no way to switch without
+ * hand-editing the settings file.
+ */
+function InstallFooter() {
+  const paks = useEditor((s) => s.paks);
+  const changeInstall = useEditor((s) => s.changeInstall);
+
+  // The Paks folder is three levels below the name the user knows the install
+  // by, so the folder above `Meteorite` is what gets shown.
+  const parts = (paks ?? "").split(/[\\/]/).filter(Boolean);
+  const meteorite = parts.lastIndexOf("Meteorite");
+  const label = (meteorite > 0 ? parts[meteorite - 1] : parts[parts.length - 1]) ?? "none";
+
+  return (
+    <div className="flex items-center gap-2 border-t border-border-subtle px-3 py-2">
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-[10px] text-text-dim"
+        title={paks ?? "No installation open"}
+      >
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={changeInstall}
+        title="Open a different installation of the game"
+        className="shrink-0 text-[10px] uppercase tracking-wider text-text-dim hover:text-mjolnir-gold"
+      >
+        change
+      </button>
     </div>
   );
 }
