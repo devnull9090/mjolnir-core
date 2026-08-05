@@ -374,6 +374,52 @@ sooner, and CTF becomes a content problem instead of a content-plus-systems prob
 
 Decides between A and B. Do not build anything until this returns.
 
+> **Result, 2026-08-04: step 2 was attempted and did not answer the question. Recorded here rather
+> than quietly retried, because the failure is informative and the next person should not repeat it.**
+>
+> `AnalyzeGameEngineCode.java` walks from a probe string up to whatever code consumes it, with two
+> calibration groups: known tag-definition names and known console-command names. Version one asked
+> the naive question — is the string referenced from an instruction? — and got zero for every group
+> *including both controls*. Blam is table-driven: strings are referenced only by pointer-table
+> entries, and code holds the table base.
+>
+> Version two follows the chain, scanning backwards in pointer steps when a hop dead-ends on a table
+> interior. Its summary looks like a result and is not one:
+>
+> ```text
+> CONTROL_DEFINITION found=5  code=3  stranded=2  avgHops=8.0
+> CONTROL_CODE       found=5  code=2  stranded=1  unref=2  avgHops=4.0
+> CTF                found=7  code=0  stranded=7
+> OTHER_MODES        found=6  code=0  stranded=6
+> ```
+>
+> The mode groups strand completely while the controls reach code, which is the shape a real finding
+> would have. But the trails say otherwise:
+>
+> - Every CTF probe converges on an **identical** tail — `180a45c00 → 180a43260 → 180a43230 →
+>   180a43060 → 180a42f40 → 180a42db8 → 180a42d98` — no matter which string it started from. The
+>   backward scan is wandering through a data region, not climbing a real hierarchy.
+> - The three `CONTROL_DEFINITION` successes all landed at *exactly* the 8-hop limit, two of them in
+>   the same function through a shared tail. That is the scan eventually bumping into something
+>   referenced, not a traced chain.
+> - `game_set_variant` and `game_multiplayer` came back **unreferenced**. They are console command
+>   names; they are certainly reachable. A control that reports the impossible invalidates the run.
+>
+> So the 100% strand rate on the mode groups is at least as likely to mean "the walk ran out of hops
+> on a wandering path" as "there is no code". **No conclusion may be drawn from it.** The independent
+> string-level check is weakly consistent with definitions-only — the DLL has no megalo interpreter
+> strings and no game-variant-file parsing structures — but absence of strings is not absence of code.
+>
+> **The gate is being closed on different grounds.** Architecture A needs two things: game-engine
+> code in the DLL, *and* a reachable path to invoke it. The second is already **Verified absent** —
+> the host's `EBlamGameEngineType` has only `Campaign` and the executable cannot name a competitive
+> mode. Even if the DLL code were fully intact, reaching it would mean hand-synthesising calls into
+> the shell, which is its own research project rather than a route to two players in a lobby.
+> Resolving step 2 properly would need a sounder method (typing the pointer tables and following real
+> structure, rather than a proximity heuristic) and would not change what we build next.
+>
+> **Proceed on architecture B.** Steps 1 and 3 are deferred, not done. Step 5 is now the priority.
+
 1. **Ghidra: shell primary slot 2.** The 14.6 MB DLL's slot 2 is the large startup path
    ([`halosimulation_tag_release.md`](halosimulation_tag_release.md)). Recover the structure it takes
    and look for a game-engine-type field. Extend `AnalyzeBlamShell.java`.
@@ -397,8 +443,9 @@ Decides between A and B. Do not build anything until this returns.
    This is cheap, it needs no second player, and it is the single check that most determines how
    much work architecture B is. Do it first.
 
-**Gate:** if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.
-Either way (5) tells us what B costs, so run it regardless of how the Ghidra items land.
+**Gate:** ~~if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.~~
+**Closed 2026-08-04 on B**, for the reason recorded above: the invocation path for A is verified
+absent, so the DLL-code question no longer changes the decision.
 
 ### Phase 2 — Get two humans into one session, unmodified
 
