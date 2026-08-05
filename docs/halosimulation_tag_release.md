@@ -110,6 +110,15 @@ Infection, Juggernaut, Assault, Territories, team options, respawn, loadouts, Me
 Sandbox. This verifies that those definitions are present; it does not prove the shipping UE5 layer
 can select or run each mode.
 
+**Resolved 2026-08-04:** it cannot. The host executable registers `EBlamGameEngineType` with exactly
+`None`, `Campaign`, `Num`, and contains zero occurrences of any competitive mode name. Whether the
+DLL still holds *executable* game-engine code behind those definitions is the open question; see
+[`multiplayer_ctf_plan.md`](multiplayer_ctf_plan.md) Phase 1.
+
+The DLL also carries the complete Halo Reach network layer — 131 `net_*`/`network_*` command names
+covering session classes, privacy, host selection, host migration, and game/map variant build and
+load — plus the Reach lobby data model as `prop_*` UI bindings.
+
 ## Reproduction
 
 Use Ghidra 12.1.2 or newer. The current headless launcher does not execute repository Python scripts

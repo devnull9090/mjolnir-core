@@ -1,0 +1,382 @@
+# Getting Two Players Into a Match
+
+**Status:** Plan. Research section verified 2026-08-04.
+**Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
+**Goal:** two or more human players in a shared lobby, playing an objective game mode.
+
+This supersedes the CTF-related speculation in
+[`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md), which was written from
+string extraction alone. Strings told us the definitions exist. Reading the shipped tags tells us
+which of those definitions have anything behind them, and the answer changes the plan.
+
+## Evidence Labels
+
+- **Verified:** reproduced by dumping shipped data or decompiling the matching binary.
+- **Observed:** present in an artifact, runtime reachability not proven.
+- **Unverified:** a testable claim with no discriminating check run yet.
+
+---
+
+## Part 1 — What Actually Ships
+
+### The short version
+
+| Question | Answer |
+|---|---|
+| Are there CTF sounds? | **No.** Every announcer slot is empty and the referenced sound tags are absent. |
+| Are there CTF strings? | **Yes.** Fully localized, 12 languages, including "You captured a flag!" |
+| Is there a flag object? | **No.** Oddball and the assault bomb ship; the flag does not. |
+| Can the UE5 layer start a competitive match? | **No.** Its game-mode enum contains `Campaign` and nothing else. |
+| Is there a network stack? | **Yes, two of them.** Neither is currently wired to a competitive mode. |
+
+### CTF audio: the table ships empty
+
+**Verified.** `multiplayer_globals` points at `multiplayer\megalo\english (mgls)`, the table that maps
+game-engine events to announcer sounds. It ships with **94 of its 95 slots empty**:
+
+```text
+flag_captured  =     [tag reference]
+flag_taken     =     [tag reference]
+flag_dropped   =     [tag reference]
+flag_stolen    =     [tag reference]
+flag_recovered =     [tag reference]
+flag_reset     =     [tag reference]
+...
+invasion_beginning = sound\music\invasion_temp_cues\invasion_beginning (snd!)
+```
+
+The one populated slot is a leftover Halo Reach Invasion cue, and **its target does not ship either** —
+there is no `invasion_beginning` anywhere in the containers. The reference dangles.
+
+`game_engine_globals` tells the same story from the other side. Its event-response list *does* name
+sounds — `sound\dialog\multiplayer\flavor\triple_kill` for a triple kill, and so on. **Verified:** the
+`Tags/sound/dialog/multiplayer` directory does not exist in this build. Zero entries. Every announcer
+reference in that tag is dangling.
+
+What *does* ship under `Audio/game_sfx/multiplayer` is twelve non-vocal effects:
+
+```text
+comm_fail  comm_loop_mp (+3 stems)  countdown_for_respawn  flag_failure
+player_respawn  player_timer_beep  shield_hit  teleporter_activate
+```
+
+Plus `sound/Weapons/flag/flag_drop-sound`. So there is a flag-drop stinger and a flag-failure
+stinger, and nothing that says the word "flag" out loud. **Any CTF announcer audio has to be
+supplied by us.**
+
+### CTF text: complete and localized
+
+**Verified.** `multiplayer\in_game_multiplayer_messages` carries **318 string ids** with translations
+into English, Japanese, German, French, Spanish, Mexican Spanish, Italian, Korean, Traditional and
+Simplified Chinese, and Portuguese. The CTF set is whole:
+
+```text
+ctf_flag_captured        ctf_flag_captured_cp     ctf_flag_grabbed_ct
+ctf_flag_dropped         ctf_flag_dropped_et      ctf_flag_grabbed_cp
+ctf_flag_recovered       ctf_flag_recovered_et    ctf_flag_grabbed_et
+ctf_flag_reset           ctf_flag_reset_et        ctf_failed_capture_cp
+ctf_game_start           ctf_new_defensive_team   ctf_new_defensive_team_ct
+ctf_kill_carrier_cp/ct/ep/et
+state_you_have_flag      state_enemy_has_your_flag
+state_flag_away_from_home  state_flag_contested
+medal_flag_grab          medal_flag_carrier_kill
+```
+
+With real text behind them: `You captured a flag!`, `#cause_team captured a flag!`,
+`Enemy has your flag!`, `Your flag is missing!`, `Flag is contested`, `Flag Taken`, `Flag Save`,
+`#effect_team flag reset`, and `Capture the Flag` as the mode name. The full medal set is there too —
+`medal_killtacular`, `medal_running_riot`, `medal_sniper_kill`, and the rest.
+
+`global_multiplayer_messages` adds the mode roster (`variant_ctf`, `variant_slayer`,
+`variant_oddball`, `variant_king`, `variant_juggernaut`, `variant_territories`, `variant_infection`,
+`variant_assault`, `variant_vip`), scoreboard headers, placings, and the Reach default variant names
+(`variant_name_team_slayer`, `variant_name_rockets`, `variant_name_elimination`, `variant_name_duel`).
+
+**So the entire text layer of a CTF match is already shipping in twelve languages.** This is the
+single largest piece of work we do not have to do.
+
+> **Tooling defect found.** `mjolnir values` reports these blocks as having exactly 64 elements.
+> The raw payload has 318. The `unic` reader truncates. Every string-count figure in the older notes
+> that came from `values` is wrong low. Filed as a follow-up; the numbers in this document were read
+> from the raw chunk instead.
+
+### The flag object does not exist
+
+**Verified.** `multiplayer_object_type_list` ships with 18 entries. All eighteen are weapons —
+assault rifle through sentinel gun. There are no objective objects in it.
+
+`multiplayer_globals` names exactly two objective objects, and carries a shipped warning about them:
+
+```text
+ball         = objects\weapons\multiplayer\skull\oddball (weap)
+assault bomb = objects\weapons\multiplayer\assault_bomb\assault_bomb (weap)
+```
+
+> "the ball and bomb references are not directly touched by game code, but the references are load
+> baring \[sic]. Removing these fields or emptying the reference will cause their
+> multiplayer_object_type_list entries to fail to resolve and result in oddball/assault megalo
+> variants to fail to load"
+
+Both ship complete — model, collision, physics, skeleton, animation graph, effects. **There is no
+equivalent for the flag.** No `weap`, no model, no animation graph. The `mulg` structure has no flag
+field at all.
+
+This is why **CTF is the most expensive objective mode to target, not the cheapest.** Oddball needs
+no new art. CTF needs a carryable flag object built from scratch.
+
+### The variant settings tags were cut
+
+**Verified.** The DLL's definition strings promise a settings UI for every mode — `ctf top level
+options`, `ctf primary options`, `ctf advanced options`, `ctf carrier traits` and its
+appearance/movement/sensors/shields/weapons children, and the same for Slayer, Oddball, KOTH,
+Infection, Juggernaut, Assault, Territories.
+
+The shipped tag tree under `Tags/multiplayer/game_variant_settings/` contains nine directories:
+
+```text
+custom_loadouts (440)  player_traits_template (88)  map_overrides (22)  Sandbox (22)
+respawn_options (18)   global_options (12)          social_options (6)  megalo (6)
+multiplayer_editable_settings
+```
+
+**No `ctf`. No `slayer`. No per-mode directory of any kind.** The shared machinery survived the cut;
+every mode-specific settings tag was removed. `game_engine_settings` itself ships, but contains only
+the player-traits schema — damage resistance, shield multipliers, weapon modifiers — with no mode
+definitions.
+
+Likewise `megalo_string_id_table` ships, but its 57 entries are Reach map and character leftovers
+(`mp_boneyard_a_fly_in`, `carter`, `emile`, `mp_spire_fp`), not gameplay hooks.
+
+### The hard blocker: the UE5 layer only knows Campaign
+
+**Verified in the matching host executable.** `EBlamGameEngineType` is registered with exactly three
+members:
+
+```text
+EBlamGameEngineType::None
+EBlamGameEngineType::Campaign
+EBlamGameEngineType::Num
+```
+
+The reflected variant classes are `UBlamGameEngineBaseVariant` and `UBlamGameEngineCampaignVariant`.
+There is no CTF variant class, no Slayer variant class, nothing else deriving from the base.
+
+And a whole-binary check, both ASCII and UTF-16:
+
+| Term | Occurrences in `HaloCampaignEvolved.exe` |
+|---|---:|
+| `Slayer` | 0 |
+| `CaptureTheFlag` | 0 |
+| `Oddball` | 0 |
+| `Juggernaut` / `Territories` / `Infection` | 0 |
+| `Firefight` | 0 |
+| `Multiplayer` | 531 |
+| `Matchmaking` | 101 |
+
+**The host has no notion that competitive modes exist.** The Blam DLL carries their definitions; the
+UE5 process that drives the Blam DLL cannot name one. This is the reason no console command, tag
+edit, or Blueprint mod is going to "turn CTF back on" — there is nothing on the UE5 side to turn on.
+
+**Unverified, and the one check that could still change this:** whether the Blam DLL retains
+*executable* game-engine code for the competitive modes, reachable through the shell interface
+without the UE5 enum. String evidence is ambiguous — the megalo material in the DLL is definitions,
+traits, and HUD widgets rather than an interpreter. See Phase 1.
+
+### Two network stacks, both real
+
+**Verified — Blam side.** The simulation DLL carries the complete Halo Reach network layer. 131
+`net_*` / `network_*` console command names, including:
+
+```text
+network_session_class_system_link / xbox_live / offline
+network_session_privacy_open / friends_only / invitation_only
+net_build_game_variant       net_load_and_use_game_variant   net_verify_game_variant
+net_build_map_variant        net_load_and_use_map_variant
+net_force_host  net_force_host_squad  net_host_delegation_disable
+net_speculative_host_migration_disable
+net_status_sessions / connections / channels / link
+net_maximum_machine_count  net_maximum_player_count  net_skip_countdown
+```
+
+Plus host-selection quality metrics, host migration, a full `join_failed_*` reason set (NAT
+strictness, version mismatch, game not open, not enough space), and the Reach lobby data model as
+`prop_*` UI bindings — `prop_game_start_countdown_timer_total_seconds`, `prop_game_start_status_ready`,
+`prop_game_variant_name`, `prop_game_variant_max_team_count`, `prop_hopper_id`.
+
+The Blam HSC command table also carries `game_multiplayer`, `game_set_variant`, `game_start`,
+`game_start_when_ready`, `game_start_when_joined`, `game_start_with_squad_session`, `game_player_count`,
+`game_splitscreen`, `map_name`, `switch_map_and_zone_set`.
+
+**Verified — UE5 side.** The host links the standard Unreal networking stack: `IpNetDriver`,
+`GameNetDriver`, `?listen`, `UWorld::ServerTravel`, `IsDedicatedServer`, Iris replication configs,
+and `OnlineSubsystemNull` with `bIsLanMatch` and LAN session support. It also links the PlayFab
+lobby and multiplayer-server client APIs (`CreateLobby`, `JoinLobby`, `JoinLobbyAsServer`,
+`RequestMultiplayerServer`, `ListMultiplayerServers`) and `PartyWin` for P2P and voice.
+
+`EBlamMultiplayerTeam` ships complete: `Red, Blue, Green, Orange, Purple, Yellow, Brown, Grey`,
+matching the eleven team colors in `multiplayer_globals`. Teams are a live concept in the host.
+
+**So:** a UE5 listen server is architecturally available, and `EBlamOnlineSessionTransitionState`
+(`CreatingSession`, `JoiningSession`, `LeavingForJoin`, …) shows the game already drives session
+create/join for campaign co-op. What is missing is not transport. It is a mode to play.
+
+### Where that leaves us
+
+```
+Blam DLL          ██████████████████░░  definitions, network layer, lobby model — no launch path
+Shipped tags      ████░░░░░░░░░░░░░░░░  strings + oddball + bomb + traits; no modes, no flag
+UE5 host          ██░░░░░░░░░░░░░░░░░░  Campaign only; teams and sessions exist
+Transport         ████████████████████  UE net driver, LAN, PlayFab lobbies, Party P2P — all present
+```
+
+The gap is a **game mode**, not a network layer and not content. That reframes the whole project.
+
+---
+
+## Part 2 — The Plan
+
+### The decision this plan turns on
+
+Three architectures could put two players in a CTF match. They are not equally likely to work.
+
+**A. Revive the Blam competitive engine.** Find the shell's startup structure, set the game-engine
+type to CTF, feed it a game variant, let the Blam DLL run the match. *If* the code is still in the
+DLL, this is the highest-fidelity outcome — real Blam CTF. If the code was stripped along with the
+UE5 enum, it is a dead end. **Unverified. Phase 1 decides it.**
+
+**B. Reimplement the mode on the UE5 side.** Ride the existing campaign co-op session as transport.
+Implement flag carry, capture, return, scoring, and respawn as UE5 actors and Blueprint logic, using
+the shipped string tags for text, the team enum for sides, and the oddball skull as a stand-in
+carryable until a flag object is built. *Always available.* Lower fidelity, much more of our own code.
+
+**C. External dedicated server.** Not a real option for the first milestone. Both PlayFab's server
+product and a UE dedicated build need a server-side executable we do not have — the shipping binary
+is a client. Revisit only after B works.
+
+**Recommendation: run Phase 1 to settle A, and build B's foundation in parallel** — the transport
+and lobby work in Phases 2–3 is needed under either architecture, so it is not wasted either way.
+
+**Recommendation on the mode: target Oddball first, CTF second.** Oddball needs no new art (the
+skull ships complete with model, physics, and animation), has the same carry/drop/score shape as
+CTF, and its strings ship too. Prove the loop with the skull, then swap in a flag once we are
+building objects. The user goal — *two or more players in a lobby playing an objective mode* — is met
+sooner, and CTF becomes a content problem instead of a content-plus-systems problem.
+
+### Phase 1 — Settle whether the Blam engine can still run a match
+
+Decides between A and B. Do not build anything until this returns.
+
+1. **Ghidra: shell primary slot 2.** The 14.6 MB DLL's slot 2 is the large startup path
+   ([`halosimulation_tag_release.md`](halosimulation_tag_release.md)). Recover the structure it takes
+   and look for a game-engine-type field. Extend `AnalyzeBlamShell.java`.
+2. **Ghidra: is there code behind the definitions?** Cross-reference the `game_engine_*` and CTF
+   strings to their owning functions. Distinguish *definition tables* (data describing a tag layout)
+   from *game-engine update functions* (code that would run a match). This is the discriminating
+   check. If every CTF string resolves only into definition tables, A is dead.
+3. **Ghidra: the console command table.** The 131 `net_*` names imply a Blam command registry. Find
+   its dispatch entry point. If we can call it, `net_status_sessions`, `game_multiplayer`, and
+   `game_set_variant` become directly testable.
+4. **Runtime: probe the variant surface.** Using the existing bridge, call
+   `UBlamGameEngineBaseVariant::GetGameEngineType` and `GetVariantStorage` on the live campaign
+   variant, and try to construct a base variant with a non-Campaign type. Confirms or refutes the
+   enum finding from the inside.
+
+**Gate:** if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.
+
+### Phase 2 — Get two humans into one session, unmodified
+
+This is the milestone everything else stands on, and it is the one thing in this whole plan that the
+shipping game already does. It also needs a second person; the existing notes flag that as the
+standing blocker, and every "co-op" capture so far has been a solo baseline mislabelled.
+
+1. Bring in a second tester. Nothing below is meaningful without one.
+2. Capture a real two-player campaign co-op session with `mjolnir_trace_network` and
+   `mjolnir_dump_state`, at the frontend and again in-mission.
+3. Diff against the solo baseline already recorded on 2026-07-26. The known solo values are
+   `bSessionRunning = false`, both endpoint IDs `0`, `TotalPlayerCount = 1`. Establish which of
+   those actually change when a peer connects — endpoint generation advancing to `1` is *not* a peer
+   signal, that happens solo.
+4. Record which layer carries gameplay state: UE replication, or the Blam DLL's own WS2_32 sockets.
+   This determines where a custom mode's state has to live, and it is currently a guess.
+
+**Deliverable:** a verified two-player state fingerprint. **Gate:** we can reliably get two players
+into one session and read that fact programmatically.
+
+### Phase 3 — A lobby we control
+
+1. Stand up a session outside the campaign flow. Try, in order of decreasing preference:
+   `OnlineSubsystemNull` LAN (no accounts, no PlayFab, easiest to iterate); the reflected
+   `BlamOnlineSessionSubsystem` create/join path; raw `?listen` server travel.
+   Note that `open` from the frontend crashes this build — `EXCEPTION_ACCESS_VIOLATION` reading
+   `0x1c`, see [`game_automation.md`](game_automation.md) — so travel has to happen from in-game or
+   through the session subsystem, not from the menu.
+2. Build a minimal join UI. The `Meteorite` squad-lobby view models (`UMeteoriteSquadLobbyViewModel`,
+   `UMeteoriteSquadWidgetBase`) already exist and already show player count and crossplay state;
+   extend rather than replace.
+3. Only once a LAN join works end to end, consider a master server list. It is a thin directory over
+   a working join, and worthless before one.
+
+**Deliverable:** two players in a lobby we built, on a map we chose. **This meets the stated goal,
+before any game mode exists.**
+
+### Phase 4 — The mode
+
+Under architecture B. Under A, this collapses to configuring a variant instead.
+
+1. **Scoring and state.** Team scores, round timer, win condition. Server-authoritative on the
+   listen host.
+2. **The carryable.** Start with the shipped oddball skull. Pick up, drop on death, return on timer.
+3. **Objective volumes.** Capture points and return points as actors placed in a custom map — we
+   have already proven custom maps work.
+4. **Feedback.** Wire the shipped strings: `state_you_have_flag`, `ctf_flag_captured`,
+   `medal_flag_grab`. The text and its twelve translations are free. Announcer audio is not — it does
+   not ship and must be authored or left silent. `flag_drop` and `flag_failure` stingers exist and
+   should be used.
+5. **Then CTF.** Build the flag object — model, collision, physics, skeleton, animation graph,
+   following `objects/Weapons/multiplayer/Skull/` as the template, since that is the shipped example
+   of exactly this kind of object. Swap it for the skull.
+
+### What would change this plan
+
+- **Phase 1 finds live Blam game-engine code.** Then architecture A, and Phase 4 becomes variant
+  authoring instead of gameplay programming. Best outcome; treat as unlikely given the UE5 enum, but
+  it is the cheapest thing to check and the payoff is large.
+- **A later game update restores competitive content.** The build is version-locked above; re-run
+  the Part 1 checks against any new build before trusting this document.
+- **Gameplay state turns out to live entirely in the Blam DLL.** Then a UE5-side mode cannot own
+  authoritative state, and Phase 4 needs a different design. Phase 2 step 4 is what tells us.
+
+---
+
+## Reproduction
+
+Dumps in Part 1 came from the repository CLI against an untouched install. Nothing is written to
+disk; extracted tag data is copyrighted game content and stays in memory.
+
+```bash
+export HCE_PAKS="/c/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
+cargo build --release -p blam-cli
+```
+
+```bash
+./target/release/mjolnir.exe values --group megalogamengine_sounds --all --elements 200
+```
+
+```bash
+./target/release/mjolnir.exe values --group multiplayer_globals --depth 5
+```
+
+```bash
+./target/release/mjolnir.exe values --group multiplayer_object_type_list --depth 5 --elements 100
+```
+
+String-id and localized-text counts must be read from the raw chunk, because `values` truncates
+`unic` blocks at 64 elements:
+
+```bash
+./target/release/mjolnir.exe chunk --path "in_game_multiplayer_messages-multilingual_unicode_string_list.ubulk" --hexdump 200000
+```
+
+Host-executable enum checks were done by extracting both ASCII and UTF-16 strings from
+`HaloCampaignEvolved.exe` and searching for `EBlamGameEngineType::`, `EBlamMultiplayerTeam::`, and
+the mode names in the table above.
