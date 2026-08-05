@@ -120,7 +120,7 @@ six-plus-player parties, so the cap is policy rather than capacity; see
 | `mjolnir_coop8_raise [n]` | Raise every reachable player cap to `n` (default 8) and report each write |
 | `mjolnir_coop8_status` | Read live squad, session, and network-component player counts |
 | `mjolnir_coop8_watch` | Hook the lobby, login, and session paths that refuse the extra players |
-| `mjolnir_coop8_ui [n]` | Relabel the frontend fireteam panel `1/n` (`0` releases it) |
+| `mjolnir_coop8_ui [n]` | Show `n` fireteam slots on the frontend panel, held (`0` releases it) |
 
 Verified on the CU3 frontend, read back after each write: `net.MaxPlayersOverride` dispatched,
 `GameSession.MaxPlayers` 4 → 8, `MaxSpectators` 0 → 8, `MaxSplitscreensPerConnection` 2 → 8, and
@@ -128,10 +128,10 @@ Verified on the CU3 frontend, read back after each write: `net.MaxPlayersOverrid
 
 > **Experimental.** This does not make eight-player co-op work. It raises the client-side limits and
 > records which layer still says no — the measurement that everything after it depends on. The
-> fireteam panel relabels to `FIRETEAM 1/8` via `mjolnir_coop8_ui`, but that is cosmetic — it does
-> not add real slots, and the module says so every run. Adding rows to the list *is* reachable
-> and crashes the process a few seconds later; see [`docs/coop_player_cap.md`](docs/coop_player_cap.md)
-> for why, and for the safer route through the view model.
+> fireteam panel does show `FIRETEAM 1/8` with eight slots via `mjolnir_coop8_ui`, held across menu
+> transitions — but those slots are cosmetic. They add no player capacity below the UI and
+> `TotalPlayerCount` stays at 1, which the module reports every run. See
+> [`docs/coop_player_cap.md`](docs/coop_player_cap.md).
 
 ### MJOLNIRTagProbe
 Reads loaded Blam tag assets from inside the running game, so an override container can be checked

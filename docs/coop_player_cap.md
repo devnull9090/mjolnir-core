@@ -290,7 +290,7 @@ Both need a second machine. Neither needs a controller, and neither needs new sp
 | Member | Type | Result |
 |:--|:--|:--|
 | `FireteamHeader` | `HaloUITextBlock` | `SetText` works, but **does not hold** on its own |
-| `SquadListView` | `HaloUIListView` | `AddItem` puts eight slots on screen and then **crashes the process** |
+| `SquadListView` | `HaloUIListView` | `AddItem` adds rows, which also **do not hold** on their own |
 
 ### The header: works, with a catch worth knowing
 
@@ -302,30 +302,43 @@ Re-applying on a 500 ms interval makes it stick. `mjolnir_coop8_ui <n>` does tha
 menu animation and idle; `mjolnir_coop8_ui 0` releases it, after which the label reverts at the
 widget's next refresh rather than immediately.
 
-### The rows: reachable, and not safe
+### The rows: they work, and they need re-asserting too
 
-Constructing `MeteoriteSquadLobbyViewItemData` objects and calling `AddItem` genuinely rendered
-eight slots. It also killed the process every time — once about thirty seconds later, once
-immediately. Both were `EXCEPTION_ACCESS_VIOLATION`.
+Constructing `MeteoriteSquadLobbyViewItemData` objects and calling `AddItem` renders the extra
+slots. `mjolnir_coop8_ui 8` does this, and the panel holds at eight rows across repeated menu
+transitions and idle.
 
-**Observed**, not Verified: nothing holds a reference to an object built by `StaticConstructObject`.
-No `UPROPERTY` points at it, so the collector is free to take it while the list still holds the
-pointer, and the crash lands well after the call that caused it. That also explains why the first
-attempt appeared to survive — the collector simply had not run yet.
+**A correction, because the first write-up of this was wrong.** Early attempts crashed, and that was
+attributed to garbage collection — the theory being that nothing rooted an object built by
+`StaticConstructObject`. That theory does not hold: `UListView::ListItems` is a `UPROPERTY`, so items
+handed to `AddItem` *are* traced. The crashes are better explained by the two hazards below, both of
+which were being tripped in the same sessions. Adding rows on its own has since run clean across
+many rebuilds.
 
-Two further notes for whoever picks this up:
+Two things that are easy to get wrong:
 
-1. The added rows rendered with the *player* template — crown and controller icons, no name —
-   rather than `INVITE +`, even though `FireteamRowType` was set to `2` and read back as `2`, the
-   same value the live `INVITE +` rows carry (the player row reads `0`). So the entry widget is
-   chosen by something other than that field; a `GetDesiredEntryClassForItem` override on the
-   Blueprint is the likely candidate. **Unverified.**
-2. The right route is almost certainly the view model's `SquadMembers` array rather than the
-   ListView directly. The engine already traces it, which solves the lifetime problem, and it is
-   what drives the correct row template.
+1. **Count with `GetNumItems`, not by counting row widgets.** Discarded row widgets stay alive and
+   findable after the panel rebuilds, so a `FindAllOf` tally read `8` while the list actually held
+   `4`. A top-up loop using that tally concludes it has nothing to do, and the rows silently stay
+   gone after the first menu transition. `GetNumItems` reported `4` correctly.
+2. **Neither the label nor the rows survive a rebuild.** Leaving the menu and coming back is enough
+   to reset both. The loop re-asserts them every 500 ms, only ever appending the shortfall, so the
+   panel settles at the target instead of growing.
 
-And the reason this is a footnote rather than a feature: adding a row does not create a player slot
-anywhere below the UI. `TotalPlayerCount` was untouched by it.
+Known cost: each rebuild leaves the previous batch of item objects behind for the collector — 44
+were alive after a handful of transitions. They are small and unreferenced, but it is a real
+churn rather than a free effect.
+
+The added rows still render with the *player* template — crown and controller icons, no name —
+rather than `INVITE +`, even though `FireteamRowType` is set to `2` and reads back as `2`, the same
+value the live `INVITE +` rows carry. So the entry widget is chosen by something other than that
+field; a `GetDesiredEntryClassForItem` override on the Blueprint is the likely candidate.
+**Unverified.** Routing through the view model's `SquadMembers` array instead of the ListView would
+probably fix both the template and the churn.
+
+And the reason this stays cosmetic: adding a row does not create a player slot anywhere below the
+UI. `TotalPlayerCount` stays at `1`. A real second local player — see below — makes the panel
+populate a genuine row on its own, with none of this.
 
 **A warning for whoever picks this up.** Three game crashes came out of probing this widget live,
 all `EXCEPTION_ACCESS_VIOLATION`:
@@ -365,11 +378,10 @@ The plausible order of work:
 14.6 MB stripped DLL that reshuffles every content update, and step 6 means the result only works
 between consenting modded clients. Nobody should expect this to work with matchmade strangers.
 
-**The UI is deliberately not on that list.** `mjolnir_coop8_ui` relabels the panel because it was
-asked for and it is stable, but the label is cosmetic and the module says so every time it runs.
-Adding real slots is a separate job, and it should wait: showing eight slots changes nothing about
-how many players the session seats, and a lobby that displays a capacity it does not have is worse
-than one that displays the truth. Extend the panel when the layers underneath it can fill it.
+**The UI is not on that list.** `mjolnir_coop8_ui 8` shows eight slots and holds them, and it is
+opt-in for a reason: the slots are cosmetic. They add no player capacity anywhere below the UI, and
+the module says so every time it runs. Treat the panel as a display, not as evidence — a lobby
+showing a capacity the session does not have is worse than one showing the truth.
 
 ---
 

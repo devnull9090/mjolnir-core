@@ -294,46 +294,30 @@ end
 
 --- Retitle the frontend fireteam panel: "FIRETEAM 1/4" -> "FIRETEAM 1/<target>".
 ---
---- Text only, and that boundary is deliberate. The panel is a HaloUIListView, and
---- it does take more rows: constructing MeteoriteSquadLobbyViewItemData objects and
---- calling AddItem put eight slots on screen. It also killed the process a few
---- seconds later, every time.
----
---- **Observed**, not Verified: nothing holds a reference to an object built by
---- StaticConstructObject. No UPROPERTY points at it, so the collector is free to
---- take it while the list still holds the pointer, and the crash lands well after
---- the call that caused it. The fix is not to root it harder from Lua -- it is to
---- go through the view model's SquadMembers array, which the engine already traces
---- and which drives the correct row template. Until someone does that, adding rows
---- from here is a crash with a screenshot attached.
----
 --- The live instance is found by filtering for /Engine/Transient. FindFirstOf on a
 --- widget class returns the class-default archetype, whose sub-widget pointers are
 --- null, and calling into one reads address 0x10 and takes the process down.
-local function setFireteamHeader(target)
-    local widget
-    for _, candidate in ipairs(FindAllOf("WBP_SquadWidget_C") or {}) do
+local function liveTransient(className)
+    local out = {}
+    for _, candidate in ipairs(FindAllOf(className) or {}) do
         if candidate and candidate:IsValid()
             and candidate:GetFullName():find("/Engine/Transient", 1, true) then
-            widget = candidate
-            break
+            out[#out + 1] = candidate
         end
     end
+    return out
+end
+
+local function setFireteamHeader(target)
+    local widget = liveTransient("WBP_SquadWidget_C")[1]
     if not widget then
-        write("Fireteam panel: no live squad widget (it exists on the main menu, not the title screen).")
-        return
+        return false
     end
 
     local okHeader, header = pcall(function() return widget.FireteamHeader end)
-    if not okHeader or not header then
-        write("Fireteam panel: FireteamHeader missing.")
-        return
-    end
+    if not okHeader or not header then return false end
     local okValid, valid = pcall(function() return header:IsValid() end)
-    if not okValid or not valid then
-        write("Fireteam panel: FireteamHeader is not a live widget.")
-        return
-    end
+    if not okValid or not valid then return false end
 
     -- The count of real members, so the label stays honest about who is present.
     local present = 1
@@ -348,14 +332,60 @@ local function setFireteamHeader(target)
     return ok, label
 end
 
--- One SetText does not hold. The widget re-applies its own binding on the next
--- refresh, so a single write reverts to "1/4" within a second or so - long enough
--- to screenshot and believe it worked, which is exactly what happened the first
--- time. Re-applying on an interval is what makes the label stick.
+--- Top the fireteam list up to `target` rows by appending blank ("INVITE +") items.
+---
+--- The items are outered to the ListView and carry FireteamRowType 2, matching the
+--- blank rows the game builds itself. Adding is idempotent per tick: it only ever
+--- appends the shortfall, so the panel settles at `target` instead of growing.
+---
+--- The count comes from GetNumItems, not from counting row widgets. Discarded row
+--- widgets stay alive and findable after the panel rebuilds, so a FindAllOf tally
+--- read 8 while the list actually held 4 - and the top-up concluded it had nothing
+--- to do. That is why the rows vanished on the first menu transition.
+local function topUpFireteamRows(target)
+    local widget = liveTransient("WBP_SquadWidget_C")[1]
+    if not widget then return 0 end
+    local okLv, listView = pcall(function() return widget.SquadListView end)
+    if not okLv or not listView then return 0 end
+    local okValid, valid = pcall(function() return listView:IsValid() end)
+    if not okValid or not valid then return 0 end
+
+    local okCount, current = pcall(function() return listView:GetNumItems() end)
+    if not okCount or type(current) ~= "number" then return 0 end
+    if current == 0 or current >= target then return 0 end
+
+    local itemClass = StaticFindObject("/Script/Meteorite.MeteoriteSquadLobbyViewItemData")
+    if not itemClass or not itemClass:IsValid() then return 0 end
+
+    local added = 0
+    for _ = 1, (target - current) do
+        local ok = pcall(function()
+            local item = StaticConstructObject(itemClass, listView)
+            if not item or not item:IsValid() then error("construct failed") end
+            item.FireteamRowType = 2
+            listView:AddItem(item)
+        end)
+        if not ok then break end
+        added = added + 1
+    end
+    return added
+end
+
+-- Neither half of this holds on its own.
+--
+-- SetText reverts within about a second when the widget re-applies its binding,
+-- and the added rows are discarded outright whenever the panel rebuilds - leaving
+-- a menu transition is enough. Both were verified reverting on CU3. So the loop
+-- re-asserts both, which is what makes the panel stay at 1/8 with eight slots.
+--
+-- This is presentation. The rows are inert: they add no player slot anywhere below
+-- the UI, and TotalPlayerCount is untouched by them. A real second local player
+-- (UGameplayStatics::CreatePlayer) makes the panel populate a genuine row on its
+-- own, without any of this.
 local uiTarget = nil
 local uiLoopRunning = false
 
-local function startFireteamHeaderLoop()
+local function startFireteamUiLoop()
     if uiLoopRunning then return end
     uiLoopRunning = true
     local lastReported = nil
@@ -365,11 +395,12 @@ local function startFireteamHeaderLoop()
             return true          -- stop the loop
         end
         local ok, label = setFireteamHeader(uiTarget)
-        -- Log transitions only. This runs twice a second; logging every pass
-        -- would bury the report it shares a file with.
+        local added = topUpFireteamRows(uiTarget)
+        -- Log transitions only. This runs twice a second; logging every pass would
+        -- bury the report it shares a file with.
         if ok and label ~= lastReported then
             lastReported = label
-            write(string.format("Fireteam panel: holding %s", label))
+            write(string.format("Fireteam panel: holding %s (%d row(s) added)", label, added))
         end
         return false
     end)
@@ -395,7 +426,7 @@ local function registerCommands()
             return true
         end
         uiTarget = requested
-        ExecuteInGameThread(startFireteamHeaderLoop)
+        ExecuteInGameThread(startFireteamUiLoop)
         return true
     end)
 
