@@ -184,11 +184,44 @@ One thing did **not** move: `MeteoriteSquadLobbyViewModel:CanAddSplitscreenPlaye
 **Verified** present in the host: `PFLobbyGetMaxMemberCount`, `LobbyCurrentPlayersMoreThanMaxPlayers`,
 `LobbyPlayerMaxLobbyLimitExceeded`, `MaxMembers`, `MaxPartySize`.
 
-Lobby membership is validated by the PlayFab service, not by the client. If `CreateLobby` is issued
+Lobby membership is validated by the PlayFab service, not by the client. If the lobby is created
 with `maxMemberCount = 4`, the fifth join is refused server-side no matter what the client believes.
-Whether the client picks that number — in which case it is patchable — or the title configuration
-pins it — in which case it is not — is **Unverified** and is the single highest-value thing to
-measure next. `MJOLNIRCoop8` hooks `CreateLobby`, `JoinLobby`, and `JoinArrangedLobby` to capture it.
+
+### The client supplies `maxMemberCount`
+
+**Verified by disassembly**, and it is the answer to the question this section used to leave open.
+
+The Blueprint hooks do not help: `MJOLNIRCoop8` registers
+`/Script/PlayFab.PlayFabMultiplayerAPI:CreateLobby` and it never fires, through the co-op menu and
+into campaign selection. Those reflected wrappers exist but this flow does not use them — the host
+calls the native SDK directly.
+
+The exe imports `PFMultiplayerCreateAndJoinLobby` from `PlayFabMultiplayerWin.dll` (IAT
+`0x14a8b3630`) and calls it from exactly **one** site, `0x146f3f74e`. The third argument is the
+`PFLobbyCreateConfiguration`, whose first field is `maxMemberCount`. That struct is built at
+`0x146f3ec8f`:
+
+```asm
+146f3ec84  call  0x14691b9a0              ; keyed lookup, 0x38-byte elements
+146f3ec89  mov   eax, [rbp + 0x238]       ; field +0x8 of the result
+146f3ec8f  mov   [rbp + 0x110], eax       ; -> maxMemberCount
+146f3ec95  mov   [rbp + 0x114], 2         ; ownerMigrationPolicy, a literal
+146f3ec9f  mov   [rbp + 0x118], 2         ; accessPolicy, a literal
+```
+
+**The size is not a literal.** The two policy fields beside it are, which makes the contrast
+concrete: `maxMemberCount` alone is fetched, from a struct field behind a hash lookup. So the client
+decides the lobby size and tells the service — it is not handed down by the title configuration at
+this point in the flow.
+
+**What that does and does not mean.** It means the number is client-side data, so a mod that finds
+that data can change what gets requested. It does **not** mean PlayFab will honour it: the service
+validates the request against title limits, and whether an eight-member lobby is accepted is still
+**Unverified**. It also does not help unless every peer agrees.
+
+**Not yet found:** where the looked-up table lives. It is keyed data with `0x38`-byte entries, likely
+a settings asset rather than a hardcoded array. Locating it is the next concrete step on this layer,
+and it is static-analysis work — no second machine required.
 
 ---
 
@@ -387,8 +420,10 @@ The plausible order of work:
    route needs only that the host may bring a guest into a session. No hardware required.
 2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
    four layers says no first. Everything below is guesswork until this exists.
-3. **If PlayFab refuses at four**, find whether `maxMemberCount` is client-supplied. If the title
-   pins it, peer-to-peer/LAN co-op becomes the only viable target and matchmade co-op is out.
+3. **Find the table behind `maxMemberCount`.** It is already established that the client supplies
+   the number rather than the title pinning it, so the remaining work is locating the keyed data it
+   reads (0x38-byte entries, fetched at `0x14691b9a0`) and changing what gets requested. Static
+   analysis; no second machine needed.
 4. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
 5. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
    fixed-size arrays are sized by `k_maximum_campaign_players`. Appearance customization is
