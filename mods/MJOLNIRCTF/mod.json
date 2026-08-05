@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Installs a game mode into the game's own Experience framework at runtime, and lays out a two-base Capture the Flag arena inside a custom world.",
+  "category": "tools"
+}

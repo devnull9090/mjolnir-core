@@ -170,6 +170,29 @@ local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
 print(ksl:GetCommandLine():ToString())
 ```
 
+**Two reads of the same UObject property are not `==` to each other.** Reflection returns a fresh
+wrapper per read, so identity comparison silently answers "different object" for the same object:
+
+```lua
+local a, b = comp.CurrentExperience, comp.CurrentExperience
+a == b            --> false
+```
+
+Compare `GetFullName()` instead. A name is unique within a world, which is the only scope these
+comparisons span. This is easy to miss because the wrong answer is plausible — a mod that checks
+"did my value stick?" this way reports failure while working perfectly.
+
+**There are two PlayerControllers in a loaded mission.** A pawnless `BP_FrontendPlayerController_C`
+survives alongside the real `BP_MeteoritePlayerController_C`, **and it sorts first**. Taking
+`FindAllOf("PlayerController")[1]` gets the frontend one, finds no pawn, and concludes there is no
+player. Pick the controller that actually possesses something:
+
+```lua
+for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+    if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then return pc end
+end
+```
+
 **`mj.props()` on a Blueprint CDO with authored array data can kill the game.** The native
 `Default__BlamExperienceDefinition` dumps fine. `Default__BP_BlamExperienceDefault_C` — the same
 class with real content behind it — took the process down. Read named fields individually with

@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Builds a playable map inside a custom world at runtime: lighting and floor geometry the cooked package cannot carry.",
+  "category": "tools"
+}

@@ -321,7 +321,12 @@ functions are the matching `OnRep_` handlers. Server-authoritative, no Blueprint
 multi-player load-and-ready coordination is already there.
 
 **Verified: `-BlamExperience=` does not select the experience.** A bogus id changes nothing; see
-Phase 1 step 5 for the three-run table. Selection has to happen the way the engine does it.
+Phase 1 step 5 for the three-run table.
+
+**Verified: it does not need to.** `CurrentExperience` is writable at runtime, and a definition can
+be constructed in-process with `StaticConstructObject` and installed on the live component. That is
+how [`mods/MJOLNIRCTF`](../mods/MJOLNIRCTF/Scripts/main.lua) puts a game mode in, with no cooked
+asset, no switch, and no AssetManager involvement. See Phase 4 step 0.
 
 And there is a selector. The string `-BlamExperience=` sits directly alongside `OptionsString`,
 `ABlamGameMode`, `ABlamGameModePlayerStart`, and `UBlamGameInstance` — the exact neighbourhood of
@@ -643,24 +648,56 @@ before any game mode exists.**
 
 Under architecture B. Under A, this collapses to configuring a variant instead.
 
-0. **The Experience asset.** Author a second `UBlamExperienceDefinition` and get the game to select
-   it, before writing any gameplay. Everything below then hangs off that asset instead of being
-   patched into the campaign.
+0. **The Experience.** ✅ **Done 2026-08-04 — and it needed no cooking at all.**
 
-   **Phase 1 step 5 settled how not to do it:** `-BlamExperience=` is ignored, so selection cannot
-   come from outside the process. Do it the way the engine does — a map of our own whose GameMode or
-   `WorldSettings` names the experience, with the asset shipped in a pak under an AssetManager-scanned
-   path so it is discovered without a code change. Selection is server-authoritative and replicated;
-   there is no Blueprint-callable setter to shortcut, which is the correct ownership model anyway.
+   The plan assumed authoring a `UBlamExperienceDefinition` asset, shipping it in a pak, and getting
+   a map to name it. None of that is necessary. **`CurrentExperience` is writable at runtime**, and
+   the definition can be constructed in-process from the game's own class:
+
+   ```lua
+   local class = StaticFindObject("/Script/BlamExperience.BlamExperienceDefinition")
+   local made  = StaticConstructObject(class, comp:GetOuter(), FName("MJOLNIR_CTF_Experience"))
+   comp.CurrentExperience = made
+   comp:OnRep_CurrentExperience()
+   ```
+
+   **Verified in mission A30 on CU3.** `StaticConstructObject` succeeds, the assignment sticks, the
+   game does not revert it, and `OnRep_CurrentExperience()` is callable without incident:
+
+   ```text
+   was: BP_BlamExperienceDefault_C  .../BP_BlamExperienceDefault.Default__BP_BlamExperienceDefault_C
+   now: BlamExperienceDefinition    ...A30:PersistentLevel.BP_MeteoriteGameState_C.MJOLNIR_CTF_Experience
+   ```
+
+   This sidesteps every wall the earlier passes hit. No cooked asset means no unversioned-property
+   serialization mismatch. No command-line switch means the dead `-BlamExperience=` does not matter.
+   No AssetManager registration is needed because nothing is being discovered from disk.
+
+   Shipped as [`mods/MJOLNIRCTF`](../mods/MJOLNIRCTF/Scripts/main.lua) — `mjolnir_ctf_experience`.
 
    Note the component already owns `bWaitingForAllInitialPlayersToLoadLevel`,
    `bWaitingForAllInitialPlayersToBeReadyForGameplay`, and `bWaitingForBlamGameplayStart`. Read those
    during Phase 2's two-player capture before building anything of our own for the same job.
+
+   **Still open:** an empty experience is installed but nothing *consumes* it yet. Whether populating
+   `Actions` / `ActionSets` at runtime makes the game act on them is the next question, and it is the
+   one that decides whether the experience is a real lever or just a labelled slot.
 1. **Scoring and state.** Team scores, round timer, win condition. Server-authoritative on the
    listen host.
 2. **The carryable.** Start with the shipped oddball skull. Pick up, drop on death, return on timer.
-3. **Objective volumes.** Capture points and return points as actors placed in a custom map — we
-   have already proven custom maps work.
+3. **Objective volumes.** ⏳ **Arena laid out 2026-08-04**, though the objectives are still markers.
+   `mjolnir_ctf_arena` builds a symmetric two-base layout at runtime — a 120 m floor, two raised base
+   pads 82 m apart on the X axis, and a flag stand on each. Verified in-game: five `StaticMeshActor`s
+   carrying `/Engine/BasicShapes/Cube`, standing and rendering.
+
+   Runtime construction is not a shortcut here, it is the only route:
+   [`unreal/MJOLNIRMapKit`](../unreal/MJOLNIRMapKit/README.md) establishes that cooked *actors* do not
+   deserialize in this engine build, so a custom world ships empty and is furnished in-process. The
+   arena is built the same way [`MJOLNIRWorldBuilder`](../mods/MJOLNIRWorldBuilder/Scripts/main.lua)
+   builds floors, and for the same reason.
+
+   The flag stands are markers. **The flag object does not ship** — see *The flag object does not
+   exist* above — so a carryable means the oddball skull until one is built.
 4. **Feedback.** Wire the shipped strings: `state_you_have_flag`, `ctf_flag_captured`,
    `medal_flag_grab`. The text and its twelve translations are free.
    Announcer audio is a separate, smaller task than it first looked: `game_engine_globals` already
