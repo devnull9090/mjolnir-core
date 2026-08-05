@@ -175,8 +175,7 @@ back as UE4SS's `TrivialObject` placeholder, including ones that certainly exist
 reflection data rather than a missing property. Anything needing it has to go through an ini.
 
 One thing did **not** move: `MeteoriteSquadLobbyViewModel:CanAddSplitscreenPlayer` still returned
-`false` after every cap above was raised. Whatever gates a second local player, it is not these
-properties.
+`false` after every cap above was raised. It is gated on hardware, not on a limit — see below.
 
 ---
 
@@ -204,6 +203,42 @@ bOfferJoinSlots         EMeteoriteSquadLobbyRowType::{Player, SplitscreenPrompt,
 
 The lobby is a row list with explicit blank rows, so the visible four slots come from a count the
 widget is given.
+
+### `CanAddSplitscreenPlayer` counts input devices, not slots
+
+This is the one that returned `false` no matter which cap was raised, so it looked like a second
+hidden limit. It is not a limit at all.
+
+**Verified by disassembly.** The exec thunk is registered in the class's native function table at
+`0xc1a86e0`, next to `CheckIsOffline`, `GetNumSquadMembers` and — the useful neighbour —
+`HandleInputDeviceConnectionChange`. The thunk at `0x147c4f480` tail-calls the implementation at
+`0x147c8ac90`, which runs in two phases:
+
+1. Reaches an object through `GameInstance + 0x1d8 -> +0x30 -> +0x200`, returning **false** if
+   either pointer is null, then compares two small containers by count and, when the counts match
+   and exceed one, by first element.
+2. Calls a lazy singleton (`0x1439d2f10`, a 0x78-byte object built on first use), invokes
+   `[vtbl+0x18]` to fill an array of 4-byte IDs, then per entry calls `[vtbl+0x58]` to map that ID
+   to another 4-byte value, appending to a result array **only when a linear scan finds no match**.
+
+That last step is a distinct-value count, and the binary exposes exactly the API it fits:
+`GetAllInputDevices`, `GetAllConnectedInputDevices`, `GetAllInputDevicesForUser`,
+`GetInputDeviceConnectionState`, `EInputDeviceConnectionState`, `FInputDeviceId` and
+`FPlatformUserId` — the last two being int32 wrappers, which is why the arrays step by four.
+
+**Observed:** the function counts how many distinct platform users the connected input devices imply,
+and refuses when there is no spare device to hand to a guest. The host machine had **no gamepad
+attached** when this was measured — `Get-PnpDevice` showed only generic HID system controllers — so
+one device meant one user meant `false`.
+
+**Unverified**, and it is a five-minute test: plug in a controller and read the method again. If it
+flips to `true`, splitscreen was never capped by anything moddable, and the four-player ceiling on
+*local* players is a hardware question rather than a code one.
+
+That matters for the eight-player goal more than it first looks. Four connections times two
+splitscreen players each is eight, and `MaxSplitscreensPerConnection` already moved from 2 to 8
+without complaint. Whether the simulation agrees is the open question — but the route exists, and it
+does not require defeating PlayFab.
 
 ### The FIRETEAM 1/4 panel can be extended at runtime
 
@@ -270,19 +305,22 @@ scaling tables already describe six-plus parties.
 
 The plausible order of work:
 
-1. **Measure the refusal.** Run `MJOLNIRCoop8` with a second player and find which of the four
-   layers says no first. Everything below is guesswork until this exists.
-2. **If PlayFab refuses at four**, find whether `maxMemberCount` is client-supplied. If the title
+1. **Plug in a controller and re-read `CanAddSplitscreenPlayer`.** Cheapest test on this list by a
+   wide margin, and if it flips to `true` then splitscreen is a route to eight (four connections
+   times two local players) that never has to argue with PlayFab.
+2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
+   four layers says no first. Everything below is guesswork until this exists.
+3. **If PlayFab refuses at four**, find whether `maxMemberCount` is client-supplied. If the title
    pins it, peer-to-peer/LAN co-op becomes the only viable target and matchmade co-op is out.
-3. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
-4. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
+4. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
+5. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
    fixed-size arrays are sized by `k_maximum_campaign_players`. Appearance customization is
    cosmetic; replication and respawn-zone tables are not.
-5. **Every peer must run the identical patch.** The simulation is lockstep — `network_coop_oos_alert`
+6. **Every peer must run the identical patch.** The simulation is lockstep — `network_coop_oos_alert`
    exists — so a mismatched player count between peers desynchronises rather than degrading.
 
-**Honest position:** steps 1–3 are ordinary modding. Step 4 is native reverse engineering against a
-14.6 MB stripped DLL that reshuffles every content update, and step 5 means the result only works
+**Honest position:** steps 1–4 are ordinary modding. Step 5 is native reverse engineering against a
+14.6 MB stripped DLL that reshuffles every content update, and step 6 means the result only works
 between consenting modded clients. Nobody should expect this to work with matchmade strangers.
 
 **The UI is deliberately not on that list.** `mjolnir_coop8_ui` relabels the panel because it was
