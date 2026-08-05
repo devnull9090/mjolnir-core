@@ -36,7 +36,7 @@ to separate them.
 |:--|:--|:--|
 | Unreal session | `MaxPlayers`, splitscreen counts, net driver | **Yes** — properties and a stock cvar |
 | Meteorite squad UI | Lobby rows, join slots, invite flow | Partly — reflected, but Blueprint-driven |
-| PlayFab lobby | `maxMemberCount`, membership validation | **No** — enforced by the service |
+| PlayFab lobby | `maxMemberCount`, membership validation | Partly — the client picks the number, the service validates it |
 | Blam simulation | Player datum array, campaign policy, replication | **No** — native, and every peer must match |
 
 ---
