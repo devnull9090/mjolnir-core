@@ -202,26 +202,43 @@ The exe imports `PFMultiplayerCreateAndJoinLobby` from `PlayFabMultiplayerWin.dl
 `0x146f3ec8f`:
 
 ```asm
-146f3ec84  call  0x14691b9a0              ; keyed lookup, 0x38-byte elements
-146f3ec89  mov   eax, [rbp + 0x238]       ; field +0x8 of the result
+146f3ec84  call  0x14691b9a0              ; generic helper, 29 call sites
+146f3ec89  mov   eax, [rbp + 0x238]       ; +0x8 of the struct it filled
 146f3ec8f  mov   [rbp + 0x110], eax       ; -> maxMemberCount
 146f3ec95  mov   [rbp + 0x114], 2         ; ownerMigrationPolicy, a literal
 146f3ec9f  mov   [rbp + 0x118], 2         ; accessPolicy, a literal
 ```
 
 **The size is not a literal.** The two policy fields beside it are, which makes the contrast
-concrete: `maxMemberCount` alone is fetched, from a struct field behind a hash lookup. So the client
-decides the lobby size and tells the service — it is not handed down by the title configuration at
-this point in the flow.
+concrete: `maxMemberCount` alone is read from memory at call time. And the PlayFab API has no
+"let the service choose" option — the caller must supply a number. So the client decides the lobby
+size and tells the service; it is not handed down by the title configuration at this point.
 
-**What that does and does not mean.** It means the number is client-side data, so a mod that finds
-that data can change what gets requested. It does **not** mean PlayFab will honour it: the service
-validates the request against title limits, and whether an eight-member lobby is accepted is still
-**Unverified**. It also does not help unless every peer agrees.
+**What that does and does not mean.** The number is client-side data, so a mod that finds that data
+can change what gets requested. It does **not** mean PlayFab will honour it: the service validates
+against title limits, and whether an eight-member lobby is accepted is **Unverified**. It also does
+not help unless every peer agrees.
 
-**Not yet found:** where the looked-up table lives. It is keyed data with `0x38`-byte entries, likely
-a settings asset rather than a hardcoded array. Locating it is the next concrete step on this layer,
-and it is static-analysis work — no second machine required.
+### Where the number comes from: not found
+
+**Unverified, and an earlier draft of this note overstated it.** `0x14691b9a0` was described here as
+a keyed lookup into a `0x38`-byte settings table. It has **29 call sites**, so it is a generic
+helper — the stride and element layout were inferred from one hash-shaped loop inside it and do not
+establish anything about the lobby's own configuration.
+
+What is actually known: `maxMemberCount` is read from `+0x8` of a struct that this helper fills at
+`[rbp+0x230]`, inside a large function whose only string references are the lobby property keys
+`OWNERNICKNAME`, `%llu` and `%llu:%s`. Tracing where that struct is populated ran out of thread.
+
+Ruled out along the way:
+
+- `FJoinabilitySettings::MaxPartySize` — stock `/Script/CoreOnline`, and far too small a struct.
+- `UGameSessionSettings::MaxPlayers` — stock `[/Script/Engine.GameSession]` config, which is the
+  value `MJOLNIRCoop8` already raises at the Unreal layer.
+
+Two routes remain, neither attempted: identify `0x14691b9a0` properly by looking at what its other
+28 callers pass it, or catch the value at runtime — `PFLobbyGetMaxMemberCount` is imported, so a
+live lobby can be asked directly, which needs a session rather than more disassembly.
 
 ---
 
@@ -420,10 +437,10 @@ The plausible order of work:
    route needs only that the host may bring a guest into a session. No hardware required.
 2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
    four layers says no first. Everything below is guesswork until this exists.
-3. **Find the table behind `maxMemberCount`.** It is already established that the client supplies
-   the number rather than the title pinning it, so the remaining work is locating the keyed data it
-   reads (0x38-byte entries, fetched at `0x14691b9a0`) and changing what gets requested. Static
-   analysis; no second machine needed.
+3. **Find where `maxMemberCount` is sourced.** The client supplies the number rather than the title
+   pinning it, so the remaining work is locating the data behind it. Static tracing stalled; the
+   cheaper route is probably runtime — `PFLobbyGetMaxMemberCount` is imported, so a live lobby can
+   be asked what it was created with.
 4. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
 5. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
    fixed-size arrays are sized by `k_maximum_campaign_players`. Appearance customization is
