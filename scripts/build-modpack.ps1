@@ -138,8 +138,10 @@ if (Test-Path $gameConfigsZip) {
 
 # Ours last, so a fix in the repo actually reaches users. Upstream's Steam
 # GUObjectHashTables.lua baked two RIP-relative displacements in as literal
-# bytes and stopped resolving after the 2026-08-01 game update; /signatures
-# carries the wildcarded fix. See signatures/README.md.
+# bytes and stopped resolving after the 2026-08-01 game update. Wildcarding
+# them fixed the miss but left the pattern matching 195 functions on CU3, so
+# /signatures now anchors it on a call site instead. See signatures/README.md,
+# and check with tools/pe/aob_scan.py after every game update.
 Write-Host "  Overlaying repo signatures..."
 Get-ChildItem (Join-Path $RepoRoot "signatures") -File -Filter "*.lua" | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $sigDir $_.Name) -Force

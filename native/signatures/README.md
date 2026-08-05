@@ -20,4 +20,20 @@ They are kept because the injector work is real and worth resuming. They are
 moved here so that a build can only pick them up deliberately.
 
 The signatures that actually ship live in `/signatures`. See that directory's
-README for the rule about RIP-relative displacements.
+README for the rules about RIP-relative displacements and match uniqueness.
+
+Consequently `tools/pe/aob_scan.py` reports this directory as mostly failing,
+and that is the expected result, not a regression:
+
+```
+$ python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe" --signatures native/signatures
+NO MATCH       ConsoleManager
+NO MATCH       FName_Constructor
+AMBIGUOUS x3   GameEngineTick
+OK             GUObjectArray
+OK             GUObjectHashTables
+```
+
+The two `OK` lines are coincidental byte matches against unrelated SSE code, not
+real resolutions. Point the tool at `/signatures` — its default — to check the
+set that ships.

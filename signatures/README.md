@@ -1,7 +1,13 @@
 # UE4SS AOB signatures (Halo Campaign Evolved, Steam)
 
 What UE4SS scans for to find engine internals in the shipping binary. All four
-are verified resolving against the 2026-08-01 game build.
+are verified resolving **uniquely** against CU3
+(`2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3`, host SHA-256
+`4D20DC56…D367753` — see [`config/hce-build.lock.json`](../config/hce-build.lock.json)):
+
+```bash
+python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe"
+```
 
 | signature | resolves |
 | --- | --- |
@@ -46,15 +52,49 @@ UE4SS retried the scan 1476 times and then killed the process with a fatal
 error. The other three resolved fine, because they follow the rule.
 
 Also wildcard TLS slot indices (`B9 <slot>`) — how many slots a binary
-allocates is a build-time detail.
+allocates is a build-time detail. Short branches (`75 <rel8>`, `EB <rel8>`) are
+the same class of noise: the displacement shifts whenever anything between the
+branch and its target changes size.
+
+## The second rule: one match, or it is still broken
+
+Wildcarding can go too far. Strip enough bytes and the pattern stops describing
+a function and starts describing an idiom the compiler emits everywhere.
+
+`GUObjectHashTables.lua` did exactly this. After the displacements were
+wildcarded it matched **195** functions on CU3, because what was left is the
+thread-safe accessor MSVC generates for every function-local static. UE4SS does
+not complain about that — it logs an address and carries on. The wrong address
+then fails somewhere else entirely, which is far harder to diagnose than a scan
+that never resolved.
+
+So a signature has to match **exactly once**, and that is not something the log
+tells you. Check it directly:
+
+```bash
+python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe"
+```
+
+It reports `OK`, `NO MATCH`, or `AMBIGUOUS xN` per signature and exits nonzero
+unless all four resolve uniquely. When a pattern cannot be made unique on its
+own, anchor on a call site and decode the `E8` rel32 instead — that is what
+`GUObjectHashTables.lua` now does.
 
 ## After a game update
 
-1. Launch and read `ue4ss/UE4SS.log`. Each signature logs either
-   `<name> address: 0x...` or `Was unable to find AOB for '<name>'`.
-2. For anything that failed, disassemble the old pattern and check whether the
+1. Run `aob_scan.py` against the new executable. This is the check that catches
+   both failure modes; do it before launching anything.
+2. Refresh the build lock and confirm what actually changed:
+   ```bash
+   python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json
+   ```
+3. For a signature that failed, disassemble the old pattern and check whether the
    broken bytes are a displacement. If so, wildcard them — that is usually the
-   whole fix, and it prevents the next break too.
-3. Re-scan only after clearing any cache: UE4SS's `InvalidateCacheIfDLLDiffers`
+   whole fix, and it prevents the next break too. Then re-run step 1 to confirm
+   you have not traded a missing match for an ambiguous one.
+4. Launch and read `ue4ss/UE4SS.log`. Each signature logs either
+   `<name> address: 0x...` or `Was unable to find AOB for '<name>'`. Treat this
+   as confirmation, not as the check — it cannot see ambiguity.
+5. Re-scan only after clearing any cache: UE4SS's `InvalidateCacheIfDLLDiffers`
    watches its own DLL, **not** the game executable, so a game update does not
    invalidate a cached scan on its own.
