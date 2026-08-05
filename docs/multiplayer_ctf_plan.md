@@ -312,6 +312,17 @@ nothing currently uses it. No shipped example shows how to compose a Halo mode f
 `AssetManagerSettings`, alongside `Map`, `GameFeatureData`, `Frontend`, and five others. An
 experience delivered in a mod pak under a scanned path is discoverable without a code change.
 
+**Verified: the experience is live, replicated, and already gates multiplayer start.** In a campaign
+mission the GameState carries a `BlamExperienceManagerComponent` whose `CurrentExperience` resolves
+to `BP_BlamExperienceDefault_C`. Its only four properties are all replicated, and three of them are
+session-start gates — `bWaitingForAllInitialPlayersToLoadLevel`,
+`bWaitingForAllInitialPlayersToBeReadyForGameplay`, `bWaitingForBlamGameplayStart`. Its only four
+functions are the matching `OnRep_` handlers. Server-authoritative, no Blueprint setter, and the
+multi-player load-and-ready coordination is already there.
+
+**Verified: `-BlamExperience=` does not select the experience.** A bogus id changes nothing; see
+Phase 1 step 5 for the three-run table. Selection has to happen the way the engine does it.
+
 And there is a selector. The string `-BlamExperience=` sits directly alongside `OptionsString`,
 `ABlamGameMode`, `ABlamGameModePlayerStart`, and `UBlamGameInstance` — the exact neighbourhood of
 Lyra's experience-resolution chain, where the game mode picks an experience from a command-line
@@ -530,10 +541,57 @@ Decides between A and B. Do not build anything until this returns.
    > focus warning. Reaching a gameplay world — needed to see `BlamExperienceManagerComponent` and
    > `CurrentExperience` — needs that cleared or a human at the keyboard.
    >
-   > **Next:** relaunch through Steam with
-   > `-BlamExperience=BlamExperienceDefinition:BP_BlamExperienceDefault`, get into any mission, and
-   > read `CurrentExperience` off the manager component. Passing a deliberately bogus id in a second
-   > run is the cheap discriminator: if the game behaves identically either way, the switch is dead.
+   > **Third pass, 2026-08-04, CU3. The test completed. `-BlamExperience=` is not honoured.**
+   >
+   > Three runs into mission A30, reading `CurrentExperience` off the live manager component, with the
+   > delivered command line confirmed each time through `KismetSystemLibrary::GetCommandLine()` so
+   > that "the switch did nothing" could never be confused with "the switch never arrived":
+   >
+   > | Run | Command line as the process saw it | `CurrentExperience` |
+   > |---|---|---|
+   > | Steam, no switch | *(empty)* | `BP_BlamExperienceDefault_C` |
+   > | Steam URL, valid id | `-BlamExperience=BlamExperienceDefinition:BP_BlamExperienceDefault` | `BP_BlamExperienceDefault_C` |
+   > | Steam URL, **bogus id** | `-BlamExperience=BlamExperienceDefinition:BP_MjolnirBogusExperienceThatDoesNotExist` | `BP_BlamExperienceDefault_C` |
+   >
+   > **Verified:** a deliberately nonexistent experience id changes nothing. No error, no fallback
+   > warning, no empty experience — the campaign loads its default regardless. The switch string is in
+   > the binary and the argument reaches the process; it does not drive experience selection on this
+   > path. Most likely the campaign flow sets the experience explicitly, which in Lyra's ordering beats
+   > any command-line override. **Whether the switch works in a context where nothing else sets the
+   > experience is untested, and matters less now** — see below.
+   >
+   > **Verified — arguments reach the game through Steam.**
+   > `steam://run/2806050//<url-encoded args>` passes them intact. That is the working way to launch
+   > with switches; `game_launch` has no passthrough and the direct-exe route is unusable (below).
+   >
+   > **Verified — why direct-exe launches were hanging.** Not the launch route as such: launching the
+   > exe outside Steam fails platform login. The game shows **"LOGIN FAILED … Error code: Alpha"**,
+   > and confirming it drops back to the title screen, forever. The earlier "hangs" were that modal,
+   > invisible because input could not be delivered, being hammered. Correction recorded in
+   > [`game_automation.md`](game_automation.md).
+   >
+   > **The useful finding is the component's shape.** `UBlamExperienceManagerComponent` has exactly
+   > four properties and four functions, and all four functions are `OnRep_`:
+   >
+   > ```text
+   > CurrentExperience                                (ObjectProperty, replicated)
+   > bWaitingForAllInitialPlayersToLoadLevel          (replicated)
+   > bWaitingForAllInitialPlayersToBeReadyForGameplay (replicated)
+   > bWaitingForBlamGameplayStart                     (replicated)
+   > ```
+   >
+   > Two things follow. The experience is **server-authoritative and replicated** — the server picks
+   > it, clients receive it — which is exactly the ownership model a game mode needs, and there is no
+   > Blueprint-callable setter to shortcut. And the other three properties are **multiplayer
+   > session-start gates**: waiting for all initial players to load the level, waiting for all of them
+   > to be ready, waiting for gameplay start. The experience component already coordinates multi-player
+   > level load and readiness. That is Phase 2 and Phase 3 machinery, shipping and replicated, sitting
+   > on the same component that will carry our mode.
+   >
+   > **Next:** stop trying to select an experience from outside. Set it the way the engine does —
+   > through whatever the campaign flow calls, or through `WorldSettings`/GameMode on a map of our
+   > own. Phase 4 step 0 should start from a custom map whose GameMode names our experience, not from
+   > a switch.
 
 **Gate:** ~~if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.~~
 **Closed 2026-08-04 on B**, for the reason recorded above: the invocation path for A is verified
@@ -554,6 +612,11 @@ standing blocker, and every "co-op" capture so far has been a solo baseline misl
    signal, that happens solo.
 4. Record which layer carries gameplay state: UE replication, or the Blam DLL's own WS2_32 sockets.
    This determines where a custom mode's state has to live, and it is currently a guess.
+5. Read the experience component's three session gates across the transition —
+   `bWaitingForAllInitialPlayersToLoadLevel`, `bWaitingForAllInitialPlayersToBeReadyForGameplay`,
+   `bWaitingForBlamGameplayStart`. They are replicated and they exist to coordinate exactly this. If
+   they move when a second player joins, they are the readiness signal Phase 3 needs and we should
+   not write our own.
 
 **Deliverable:** a verified two-player state fingerprint. **Gate:** we can reliably get two players
 into one session and read that fact programmatically.
@@ -582,8 +645,17 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
 
 0. **The Experience asset.** Author a second `UBlamExperienceDefinition` and get the game to select
    it, before writing any gameplay. Everything below then hangs off that asset instead of being
-   patched into the campaign. If Phase 1 step 5 showed the selector does not work, this step becomes
-   "find how `BP_BlamExperienceDefault` is chosen and hook that instead" — and the rest is unchanged.
+   patched into the campaign.
+
+   **Phase 1 step 5 settled how not to do it:** `-BlamExperience=` is ignored, so selection cannot
+   come from outside the process. Do it the way the engine does — a map of our own whose GameMode or
+   `WorldSettings` names the experience, with the asset shipped in a pak under an AssetManager-scanned
+   path so it is discovered without a code change. Selection is server-authoritative and replicated;
+   there is no Blueprint-callable setter to shortcut, which is the correct ownership model anyway.
+
+   Note the component already owns `bWaitingForAllInitialPlayersToLoadLevel`,
+   `bWaitingForAllInitialPlayersToBeReadyForGameplay`, and `bWaitingForBlamGameplayStart`. Read those
+   during Phase 2's two-player capture before building anything of our own for the same job.
 1. **Scoring and state.** Team scores, round timer, win condition. Server-authoritative on the
    listen host.
 2. **The carryable.** Start with the shipped oddball skull. Pick up, drop on death, return on timer.
@@ -612,9 +684,11 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
   none of the conclusions. Check the hashes first every time; do not assume.
 - **Gameplay state turns out to live entirely in the Blam DLL.** Then a UE5-side mode cannot own
   authoritative state, and Phase 4 needs a different design. Phase 2 step 4 is what tells us.
-- **The Experience selector turns out to be dead or editor-only.** Then architecture B loses its
-  clean extension point and falls back to hooking campaign flow, which is more work and more
-  fragile. Phase 1 step 5 is what tells us, and it is cheap enough to run before anything else.
+- ~~**The Experience selector turns out to be dead or editor-only.**~~ **Answered 2026-08-04: the
+  command-line selector is dead.** Architecture B keeps its extension point regardless — the
+  framework is live, replicated, and AssetManager-registered — but the experience has to be named by
+  a map we control rather than selected from outside. That moves work into Phase 4 step 0 and makes a
+  custom map a prerequisite rather than a later convenience.
 
 ---
 

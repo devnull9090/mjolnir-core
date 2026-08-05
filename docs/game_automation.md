@@ -136,16 +136,39 @@ Bandana).
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.
 
-**Direct-exe launch hangs leaving the title screen. Launch through Steam.** Verified 2026-08-04 on
-CU3, twice. `Start-Process` on `HaloCampaignEvolved.exe` reaches the frontend and the bridge answers
-normally, but the first input that takes it off the title screen wedges the game: not responding,
-one core spinning, ~6.5 GB resident, and it never recovers. A control launched the same way with no
-extra arguments hung identically — 2124s vs 2139s CPU, 6496 MB vs 6505 MB — so it is the launch
-route, not anything passed on the command line. Steam-launched runs stayed responsive through the
-same sequence. Steam being already running does not help; the game has to be started *by* Steam.
+**Direct-exe launch fails platform login and can never leave the title screen.** Verified 2026-08-04
+on CU3. `Start-Process` on `HaloCampaignEvolved.exe` reaches the frontend and the bridge answers
+normally, but pressing start raises
 
-This is why `game_launch` defaults to `via: "steam"`. The `exe` route is for cases that never leave
-the frontend.
+> **LOGIN FAILED** — We couldn't sign you in. Make sure you're logged into your platform account and
+> try again. Error code: Alpha
+
+and confirming it drops back to the title screen, indefinitely. Steam being already running does not
+help; the game has to be started *by* Steam.
+
+Earlier the same day this looked like a hang — not responding, one core spinning, ~6.5 GB resident —
+because input could not be delivered at the time, so the modal was never seen or dismissed and the
+attempts piled up against it. Two direct-exe runs behaved identically, one with extra command-line
+arguments and one without (2124s vs 2139s CPU, 6496 MB vs 6505 MB), which ruled out the arguments
+but wrongly implicated the launch route itself. The login dialog is the actual cause.
+
+This is why `game_launch` defaults to `via: "steam"`. The `exe` route is only for work that never
+leaves the frontend.
+
+**To launch with command-line switches, use the Steam URL.** `game_launch` has no passthrough, and
+direct-exe cannot get past login, so:
+
+```powershell
+Start-Process ("steam://run/2806050//" + [uri]::EscapeDataString("-YourSwitch=Value"))
+```
+
+Verified to deliver the argument intact. Confirm it arrived from inside the game rather than assuming
+— otherwise "the switch did nothing" is indistinguishable from "the switch never arrived":
+
+```lua
+local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+print(ksl:GetCommandLine():ToString())
+```
 
 **`mj.props()` on a Blueprint CDO with authored array data can kill the game.** The native
 `Default__BlamExperienceDefinition` dumps fine. `Default__BP_BlamExperienceDefault_C` — the same
