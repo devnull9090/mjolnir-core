@@ -50,6 +50,7 @@ which of those definitions have anything behind them, and the answer changes the
 | Is there a flag object? | **No.** Oddball and the assault bomb ship; the flag does not. |
 | Can the UE5 layer start a competitive match? | **No.** Its game-mode enum contains `Campaign` and nothing else. |
 | Is there a network stack? | **Yes, two of them.** Neither is currently wired to a competitive mode. |
+| Is there any way in? | **Yes.** A Lyra-style Experience framework ships with one asset in it and a `-BlamExperience=` selector. |
 
 ### CTF audio: the wiring survives, the voice does not
 
@@ -282,16 +283,58 @@ matching the eleven team colors in `multiplayer_globals`. Teams are a live conce
 (`CreatingSession`, `JoiningSession`, `LeavingForJoin`, …) shows the game already drives session
 create/join for campaign co-op. What is missing is not transport. It is a mode to play.
 
+### There is a supported way to add a game mode
+
+Everything above says what was taken out. This says what was left in, and it is the most useful
+finding in this document.
+
+**Verified.** The host ships a Lyra-style *Experience* system as its own reflected module,
+`/Script/BlamExperience`:
+
+```text
+UBlamExperienceDefinition          UBlamExperienceManager
+UBlamExperienceManagerComponent    UBlamExperiencePlayerStateComponent
+UAsyncAction_BlamExperienceReady   DefaultBlamExperience
+BlamEngine.ExperienceDelayLoad.MinSecs / .RandomSecs
+```
+
+In Unreal terms an Experience *is* a game mode: a data asset naming the pawn data, components,
+abilities, and GameFeature plugins to compose for a session. The full GameFeatures subsystem is
+linked too — `GameFeaturesSubsystem`, `GameFeaturePluginStateMachine`, `GameFeaturesToEnable`,
+`EGameFeatureTargetState`.
+
+**Verified: exactly one Experience ships.**
+`/Game/Blueprints/Experiences/BP_BlamExperienceDefault`. One asset, in a system built to hold many.
+
+And there is a selector. The string `-BlamExperience=` sits directly alongside `OptionsString`,
+`ABlamGameMode`, `ABlamGameModePlayerStart`, and `UBlamGameInstance` — the exact neighbourhood of
+Lyra's experience-resolution chain, where the game mode picks an experience from a command-line
+override, then a URL option, then world settings, then developer settings.
+
+**Unverified, and now the highest-value cheap test in the plan:** whether
+`-BlamExperience=<asset path>` actually selects an experience in the shipping build, and what
+`BP_BlamExperienceDefault` contains.
+
+Note also `ABlamGameModePlayerStart` — a player-start class already exists, which is what team spawns
+need.
+
+**Why this matters.** Architecture B does not have to mean bolting gameplay onto the campaign with
+Blueprint hooks and hoping. It can mean authoring a second Experience — the extension point the
+engine was built around, shipped, reflected, and selectable — and delivering it in a LogicMods pak.
+That is a supported path rather than a hack, which changes both the odds and the maintenance cost.
+
 ### Where that leaves us
 
 ```
 Blam DLL          ██████████████████░░  definitions, network layer, lobby model — no launch path
 Shipped tags      ████░░░░░░░░░░░░░░░░  strings + oddball + bomb + traits; no modes, no flag
 UE5 host          ██░░░░░░░░░░░░░░░░░░  Campaign only; teams and sessions exist
-Transport         ████████████████████  UE net driver, LAN, PlayFab lobbies, Party P2P — all present
+Experience system ████████████████░░░░  full framework, one asset in it, selector present
+Transport         ████████████████████  UE net driver, LAN, Steam, PlayFab lobbies, Party P2P
 ```
 
-The gap is a **game mode**, not a network layer and not content. That reframes the whole project.
+The gap is a **game mode**, not a network layer and not content — and the engine ships the socket a
+game mode plugs into. That reframes the whole project.
 
 ---
 
@@ -306,14 +349,17 @@ type to CTF, feed it a game variant, let the Blam DLL run the match. *If* the co
 DLL, this is the highest-fidelity outcome — real Blam CTF. If the code was stripped along with the
 UE5 enum, it is a dead end. **Unverified. Phase 1 decides it.**
 
-**B. Reimplement the mode on the UE5 side.** Ride the existing campaign co-op session as transport.
-Implement flag carry, capture, return, scoring, and respawn as UE5 actors and Blueprint logic, using
-the shipped string tags for text, the team enum for sides, and the oddball skull as a stand-in
-carryable until a flag object is built. *Always available.* Lower fidelity, much more of our own code.
+**B. Author a second Experience.** Use the shipped `/Script/BlamExperience` framework as intended:
+a new `UBlamExperienceDefinition` describing an objective mode, selected through the same chain
+`BP_BlamExperienceDefault` is, delivered in a LogicMods pak. Flag carry, scoring, and team spawns
+become components and actors composed by the experience, with the shipped string tags for text, the
+team enum for sides, `ABlamGameModePlayerStart` for spawns, and the oddball skull as the carryable.
+*Always available, and it is the engine's own extension point rather than a hook into campaign code.*
 
 **C. External dedicated server.** Not a real option for the first milestone. Both PlayFab's server
 product and a UE dedicated build need a server-side executable we do not have — the shipping binary
-is a client. Revisit only after B works.
+is a client. Worth noting that `SteamGameServer` symbols are linked, which is the usual route to a
+public server browser, but that is a Phase 5 question at the earliest. Revisit only after B works.
 
 **Recommendation: run Phase 1 to settle A, and build B's foundation in parallel** — the transport
 and lobby work in Phases 2–3 is needed under either architecture, so it is not wasted either way.
@@ -342,8 +388,17 @@ Decides between A and B. Do not build anything until this returns.
    `UBlamGameEngineBaseVariant::GetGameEngineType` and `GetVariantStorage` on the live campaign
    variant, and try to construct a base variant with a non-Campaign type. Confirms or refutes the
    enum finding from the inside.
+5. **Runtime: does `-BlamExperience=` work?** Launch with the switch pointing at
+   `/Game/Blueprints/Experiences/BP_BlamExperienceDefault` — the one experience that ships — and see
+   whether `UBlamExperienceManagerComponent` reports it as the selection. Selecting the *default*
+   proves the switch is honoured without needing a mod to exist yet. Then read
+   `BP_BlamExperienceDefault` to learn what a definition has to fill in.
+
+   This is cheap, it needs no second player, and it is the single check that most determines how
+   much work architecture B is. Do it first.
 
 **Gate:** if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.
+Either way (5) tells us what B costs, so run it regardless of how the Ghidra items land.
 
 ### Phase 2 — Get two humans into one session, unmodified
 
@@ -367,8 +422,9 @@ into one session and read that fact programmatically.
 ### Phase 3 — A lobby we control
 
 1. Stand up a session outside the campaign flow. Try, in order of decreasing preference:
-   `OnlineSubsystemNull` LAN (no accounts, no PlayFab, easiest to iterate); the reflected
-   `BlamOnlineSessionSubsystem` create/join path; raw `?listen` server travel.
+   `OnlineSubsystemNull` LAN (no accounts, no PlayFab, easiest to iterate); `OnlineSubsystemSteam`,
+   which is also linked and would give internet play without standing up our own service; the
+   reflected `BlamOnlineSessionSubsystem` create/join path; raw `?listen` server travel.
    Note that `open` from the frontend crashes this build — `EXCEPTION_ACCESS_VIOLATION` reading
    `0x1c`, see [`game_automation.md`](game_automation.md) — so travel has to happen from in-game or
    through the session subsystem, not from the menu.
@@ -385,6 +441,10 @@ before any game mode exists.**
 
 Under architecture B. Under A, this collapses to configuring a variant instead.
 
+0. **The Experience asset.** Author a second `UBlamExperienceDefinition` and get the game to select
+   it, before writing any gameplay. Everything below then hangs off that asset instead of being
+   patched into the campaign. If Phase 1 step 5 showed the selector does not work, this step becomes
+   "find how `BP_BlamExperienceDefault` is chosen and hook that instead" — and the rest is unchanged.
 1. **Scoring and state.** Team scores, round timer, win condition. Server-authoritative on the
    listen host.
 2. **The carryable.** Start with the shipped oddball skull. Pick up, drop on death, return on timer.
@@ -413,6 +473,9 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
   none of the conclusions. Check the hashes first every time; do not assume.
 - **Gameplay state turns out to live entirely in the Blam DLL.** Then a UE5-side mode cannot own
   authoritative state, and Phase 4 needs a different design. Phase 2 step 4 is what tells us.
+- **The Experience selector turns out to be dead or editor-only.** Then architecture B loses its
+  clean extension point and falls back to hooking campaign flow, which is more work and more
+  fragile. Phase 1 step 5 is what tells us, and it is cheap enough to run before anything else.
 
 ---
 
@@ -465,4 +528,13 @@ entries; the named Wwise *event* assets are in IoStore under
 
 Host-executable enum checks were done by extracting both ASCII and UTF-16 strings from
 `HaloCampaignEvolved.exe` and searching for `EBlamGameEngineType::`, `EBlamMultiplayerTeam::`, and
-the mode names in the table above.
+the mode names in the table above. The Experience framework was found the same way — search the
+UTF-16 set for `Experience` and for `-BlamExperience=`, whose neighbours in the string table are
+`OptionsString`, `ABlamGameMode`, and `ABlamGameModePlayerStart`. The reflected module list comes
+from the ASCII set, matching `^/Script/[A-Za-z]+$`.
+
+The one shipped Experience asset is in the IoStore path index:
+
+```bash
+grep -i experience out/iostore_paths.tsv
+```
