@@ -38,6 +38,7 @@ mjolnir-core/
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
 │   ├── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
+│   ├── MJOLNIRCoop8/            # Raise the co-op player caps and find which layer refuses
 │   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
@@ -105,6 +106,30 @@ administration. Runtime travel and session preservation still require in-game ve
 | `mjolnir_scan_worlds` | Dump loaded Halo world objects |
 | `mjolnir_trace_network` | Hook co-op session, lobby, and travel lifecycle functions |
 | `mjolnir_dump_state` | Snapshot live variant and Blam network component properties |
+
+### MJOLNIRCoop8
+Campaign co-op seats four. That cap is four separate numbers — Unreal session limits, the squad
+lobby UI, the PlayFab lobby, and the Blam simulation — and only the first is reachable from Lua.
+This module raises what it can and instruments the rest, so the fifth player is refused somewhere
+named. The simulation's player table is 32 wide and its AI scaling tables already describe
+six-plus-player parties, so the cap is policy rather than capacity; see
+[`docs/coop_player_cap.md`](docs/coop_player_cap.md) for what was measured and what is still open.
+
+| Command | Purpose |
+| :--- | :--- |
+| `mjolnir_coop8_raise [n]` | Raise every reachable player cap to `n` (default 8) and report each write |
+| `mjolnir_coop8_status` | Read live squad, session, and network-component player counts |
+| `mjolnir_coop8_watch` | Hook the lobby, login, and session paths that refuse the extra players |
+
+Verified on the CU3 frontend, read back after each write: `net.MaxPlayersOverride` dispatched,
+`GameSession.MaxPlayers` 4 → 8, `MaxSpectators` 0 → 8, `MaxSplitscreensPerConnection` 2 → 8, and
+`GameViewportClient.MaxSplitscreenPlayers` 4 → 8.
+
+> **Experimental.** This does not make eight-player co-op work. It raises the client-side limits and
+> records which layer still says no — the measurement that everything after it depends on. The
+> fireteam panel can also be extended to eight slots at runtime, which the mod deliberately does
+> **not** do: a lobby that displays a capacity the session does not have is worse than one that
+> displays the truth. See [`docs/coop_player_cap.md`](docs/coop_player_cap.md).
 
 ### MJOLNIRTagProbe
 Reads loaded Blam tag assets from inside the running game, so an override container can be checked

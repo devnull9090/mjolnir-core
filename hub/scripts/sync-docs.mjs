@@ -28,6 +28,7 @@ const ORDER = [
   "wwise_audio_format.md",
   "halosimulation_tag_release.md",
   "multiplayer_investigation_notes.md",
+  "coop_player_cap.md",
   "mjolnir_format.md",
   "hub_architecture.md",
   "mod_authoring_design.md",
