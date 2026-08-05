@@ -264,10 +264,35 @@ settings struct is the member at `+0x320`, and the two fields we care about are
 Corroborated independently: other callers of the property getter reach the same map as
 `[r12 + 0x320]` and `[r13 + 0x320]`.
 
-**Unverified:** which class the object is. `BlamOnlineSessionSubsystem` is the obvious candidate and
-is reflected, but nothing here proves it. Confirming the class — and then reading `+0x328` on a live
-instance — is what turns this into a patch. `crates/blam-live` already reads and writes live process
-memory, which is the tool for it.
+### The owning object is not reachable by reflection
+
+**Verified:** `r12` is `this` — the containing function's second instruction is `mov r12, rcx`. So
+`maxMemberCount` is a plain member at `this+0x328`, and the offset does not depend on any of the
+readings that were retracted above.
+
+**Observed:** that object is not a UObject we can find. Three independent checks agree:
+
+- The owning method has **no vtable entry and no static callers** — nothing in the image holds its
+  address as a qword, and no `E8` targets it. It is reached through a delegate or function pointer,
+  which is what the PlayFab async callback style produces.
+- Reading `+0x320` on every plausible reflected candidate — `BlamOnlineSessionSubsystem`,
+  `MeteoriteGameInstance`, `MeteoriteLobbyNotifier`, `MeteoriteSquadLobbyViewModel`,
+  `GameSession`, `BlamCampaignFlowGameSubsystem` — returns neighbouring-heap contents. Several show
+  a **code-section pointer** at `+0x358` where the property map's element array should be, i.e. the
+  read has run past the end of the object into the next allocation's vtable.
+- The property keys are OnlineSubsystem-shaped (`NETWORKID`, `CONNECTIONSTRING`, `HOSTCONNECTINFO`,
+  `OWNERNICKNAME`, `MAPNAME`), which is what a native session-interface object holds, not a UObject.
+
+So the instance cannot be located by name, and **the patch was not attempted**. Writing `8` to
+`+0x328` of a guessed base is a blind poke into a live process, and this chain has already produced
+three retracted readings; the offset is only useful once the object it is relative to is known.
+
+**What unblocks it:** a live lobby. With one open, the settings struct is populated and the instance
+becomes findable by structure — scan for a properties map holding the known keys, confirm `+0x8`
+of its enclosing struct reads the lobby size, then write there. That needs a second player, the same
+blocker as steps 1 and 2. Hooking `PFMultiplayerCreateAndJoinLobby` in the import table and
+rewriting the third argument in flight would sidestep the search entirely, and needs no UE
+reflection at all.
 
 Ruled out along the way:
 
@@ -483,10 +508,11 @@ The plausible order of work:
    route needs only that the host may bring a guest into a session. No hardware required.
 2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
    four layers says no first. Everything below is guesswork until this exists.
-3. **Confirm the class holding `+0x320` and patch `+0x328`.** `maxMemberCount` is a member of the
-   session object at `+0x328`; what remains is identifying the class (`BlamOnlineSessionSubsystem`
-   is the candidate) and writing to it before the lobby is created. `crates/blam-live` already does
-   live memory reads and writes.
+3. **Rewrite `maxMemberCount` at the import boundary.** It is a member at `this+0x328`, but the
+   owning object is not reflected and cannot be located by name, so patching the member needs a live
+   lobby to find the instance. Hooking `PFMultiplayerCreateAndJoinLobby` (IAT `0x14a8b3630`) and
+   editing the `PFLobbyCreateConfiguration` in flight avoids the search and works from the first
+   lobby the host creates.
 4. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
 5. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
    fixed-size arrays are sized by `k_maximum_campaign_players`. Appearance customization is
