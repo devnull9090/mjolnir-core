@@ -11,6 +11,11 @@
 //! measured jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it
 //! back.
 //!
+//! That header says CU2, but the CU3 update landed on 2026-08-01, so a run dated
+//! 2026-08-03 was against CU3. The label was carried forward rather than re-checked.
+//! It is left as written because that is an inference from the update date, not a
+//! record of which binary was installed; see `docs/build_lock.md`.
+//!
 //! Two things make it more than a guess that this is the engine's working copy
 //! rather than a cached copy of the file:
 //!

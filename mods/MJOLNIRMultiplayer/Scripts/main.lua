@@ -1,5 +1,13 @@
 -- MJOLNIR Multiplayer Experiments
 -- Provides verified HCE map paths, travel probes, and player administration commands.
+--
+-- The UEHelpers copy in this directory is load-bearing, not redundant.
+-- `require("UEHelpers")` searches this mod's own `Scripts/` first and UE4SS's
+-- `Mods/shared/` second. Without a local copy this bound to upstream's UEHelpers,
+-- which has no SafeGetPlayerName, FindObjectSafe or GetAllPlayerControllers -- so
+-- every command here died on a nil call at its first use, not at load.
+-- Verified on CU3: mjolnir_kick raised
+-- "attempt to call a nil value (field 'SafeGetPlayerName')".
 
 local UEHelpers = require("UEHelpers")
 
@@ -27,18 +35,56 @@ local function eachPlayer(fn)
 end
 
 local function kickPlayer(targetName)
+    if targetName == "" then
+        print("[MJOLNIR Multiplayer] Usage: mjolnir_kick <player name>\n")
+        return
+    end
+
+    -- This notifies rather than disconnects, and the distinction is not a shortcut.
+    --
+    -- `AGameSession::KickPlayer` is the function that actually closes a connection,
+    -- and it is a plain C++ virtual with no UFUNCTION macro, so it is absent from
+    -- Unreal's reflection tables and unreachable from UE4SS. Calling it raises
+    -- "attempt to call a TrivialObject value" - UE4SS's placeholder for a member it
+    -- has no reflection data for, which is why a `~= nil` guard does not catch it.
+    -- Verified on CU3; the only kick-shaped reflected function in the whole build is
+    -- PlayerController:ClientWasKicked.
+    --
+    -- So this sends the client the kick notification and leaves the disconnect to
+    -- the client's own handler. Against a cooperative client that is a kick; against
+    -- one that ignores it, nothing happens. Do not treat it as enforcement.
+    local gameMode = UEHelpers.GetGameModeBase()
+    if not gameMode then
+        print("[MJOLNIR Multiplayer] No live game mode; only the host can kick.\n")
+        return
+    end
+
+    local matched = 0
     eachPlayer(function(ps)
-        if UEHelpers.SafeGetPlayerName(ps) == targetName then
-            local pc = ps.Owner
-            if pc and pc:IsValid() then
-                local gm = UEHelpers.GetGameModeBase()
-                if gm and gm.GameSession and gm.GameSession:IsValid() then
-                    gm.GameSession:KickPlayer(pc, FText("Kicked by MJOLNIR Admin"))
-                    print(string.format("[MJOLNIR Multiplayer] Kicked player %s\n", targetName))
-                end
-            end
+        if UEHelpers.SafeGetPlayerName(ps) ~= targetName then return end
+        matched = matched + 1
+
+        local controller = ps.Owner
+        if not controller or not controller:IsValid() then
+            print(string.format("[MJOLNIR Multiplayer] %s has no owning controller.\n", targetName))
+            return
+        end
+
+        local ok, err = pcall(function()
+            controller:ClientWasKicked(FText("Kicked by MJOLNIR Admin"))
+        end)
+        if ok then
+            print(string.format(
+                "[MJOLNIR Multiplayer] Sent kick notice to %s (client decides whether to leave).\n",
+                targetName))
+        else
+            print(string.format("[MJOLNIR Multiplayer] Kick notice failed for %s: %s\n", targetName, tostring(err)))
         end
     end)
+
+    if matched == 0 then
+        print(string.format("[MJOLNIR Multiplayer] No player named '%s' is connected.\n", targetName))
+    end
 end
 
 local function getPlayerController()
@@ -103,7 +149,7 @@ local function openMap(mapName, listen)
 end
 
 local function listMaps()
-    print("[MJOLNIR Multiplayer] Verified CU2 root world packages:\n")
+    print("[MJOLNIR Multiplayer] Verified CU3 root world packages:\n")
     local keys = {}
     for key in pairs(MAP_URLS) do
         table.insert(keys, key)
@@ -114,10 +160,16 @@ local function listMaps()
     end
 end
 
+-- UE4SS passes the handler (FullCommand, Parameters, OutputDevice), and Parameters
+-- holds only the words *after* the command name: `mjolnir_travel a15` arrives as
+-- args[1] == "a15". Every command here read args[2], so each one silently received
+-- an empty string and reported the fault as the user's - an unknown map key, or a
+-- missing player name. Measured on CU3 against both dispatch routes; MJOLNIRTagProbe
+-- already used args[1].
 local function initializeMultiplayer()
     print("[MJOLNIR Multiplayer] Registering experimental travel and admin commands...\n")
     RegisterConsoleCommandHandler("mjolnir_kick", function(_, args)
-        kickPlayer(args[2] or "")
+        kickPlayer(args and args[1] or "")
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_maps", function()
@@ -125,11 +177,11 @@ local function initializeMultiplayer()
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_travel", function(_, args)
-        openMap(args[2] or "", false)
+        openMap(args and args[1] or "", false)
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_listen", function(_, args)
-        openMap(args[2] or "", true)
+        openMap(args and args[1] or "", true)
         return true
     end)
 end

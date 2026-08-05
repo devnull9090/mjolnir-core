@@ -1,0 +1,1288 @@
+{
+  "generator": "tools/build_lock.py",
+  "version": "2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3",
+  "engine": "5.5.4",
+  "host_sha256": "4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753",
+  "simulation_sha256": "82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC",
+  "file_count": 255,
+  "total_bytes": 79523871405,
+  "scope": "full",
+  "files": [
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/DbgHelp/dbghelp.dll",
+      "size": 2221984,
+      "sha256": "4B803D0BFA5D360CFCB3237D260226743D2255EACF6A98615334FB55DEB7CF88"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/MsQuic/v220/win64/msquic.dll",
+      "size": 2536368,
+      "sha256": "150963F4A05FFDDC9A8498AE0EC4DDF5BED762A83B6AD089D2FD8D499101C7EA"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/NVIDIA/NVaftermath/Win64/GFSDK_Aftermath_Lib.x64.dll",
+      "size": 5431880,
+      "sha256": "072D085F523BC244CF4DF401DEE5C5D2E0C19B7E0CB5F62E55B3DA5F674A8CFA"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/Ogg/Win64/VS2015/libogg_64.dll",
+      "size": 49152,
+      "sha256": "284A6E70A6DCE01F8A02D93E1BB78BAF0EFB6140459C587D8986D59FB6BD675B"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/Steamworks/Steamv163/Win64/steam_api64.dll",
+      "size": 317080,
+      "sha256": "E3FE06E2D802C2F753AEB46869E2AF898F34715CE85F08001456FD8A80ECD21E"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/Vorbis/Win64/VS2015/libvorbis_64.dll",
+      "size": 1714176,
+      "sha256": "0F66DCB5837E9B59C499277FD272B862043356AA9145802CF0A63E00A1BCCA59"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/Vorbis/Win64/VS2015/libvorbisfile_64.dll",
+      "size": 37888,
+      "sha256": "A9D6F5538F44011C1F65D7ACE64216A237636717CB0C8C59F4F89CC08DD3D24F"
+    },
+    {
+      "path": "DigitalExtras/Engine/Binaries/ThirdParty/Windows/XAudio2_9/x64/xaudio2_9redist.dll",
+      "size": 847440,
+      "sha256": "0E01F400BAA09694CACFD2CFBFF0D721C17B56785D2D6E29B6FDD117F70CCC1E"
+    },
+    {
+      "path": "DigitalExtras/Engine/Config/StagedBuild_HCEDigitalExtrasApp.ini",
+      "size": 3,
+      "sha256": "F1945CD6C19E56B3C1C78943EF5EC18116907A4CA1EFC40A57D48AB1DB7ADFC5"
+    },
+    {
+      "path": "DigitalExtras/Engine/Content/Renderer/TessellationTable.bin",
+      "size": 259568,
+      "sha256": "EDC4F3B628A139C5E185BBAECA661C95C1F427368D3B92892C5CFF36C56DD941"
+    },
+    {
+      "path": "DigitalExtras/Engine/Content/Slate/Cursor/invisible.cur",
+      "size": 326,
+      "sha256": "FEF3980FA567E9C45D5D8DCAA432A2C1A3F3BB17FE67D7AB198164F56C142AA1"
+    },
+    {
+      "path": "DigitalExtras/Engine/Extras/Redist/en-us/vc_redist.arm64.exe",
+      "size": 11722888,
+      "sha256": "8A81A52B7FF6B194CB88E1BB48D597B6588D2B840552909359F286FB1699235C"
+    },
+    {
+      "path": "DigitalExtras/Engine/Extras/Redist/en-us/vc_redist.x64.exe",
+      "size": 25641968,
+      "sha256": "8F9FB1B3CFE6E5092CF1225ECD6659DAB7CE50B8BF935CB79BFEDE1F3C895240"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Binaries/Win64/D3D12/x64/D3D12Core.dll",
+      "size": 3334176,
+      "sha256": "5528998B9B894F518C734FE22EFF9F173DDBA5F3110709050F0026B205EDA3D0"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Binaries/Win64/D3D12/x64/d3d12SDKLayers.dll",
+      "size": 5773344,
+      "sha256": "665D77A8F664F40AC09A8BD9F9F472D092D397834FBFC6703F15FFD058A2244A"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Binaries/Win64/HCEDigitalExtrasApp-Win64-Shipping.exe",
+      "size": 147451392,
+      "sha256": "6985F36BCF2844FCA11E67D98DF15323DE0B689F5D21BA0D7CC7DB3001D00C29"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Binaries/Win64/tbb12.dll",
+      "size": 321024,
+      "sha256": "C7714BC85993AAC8B3FA5CDF90767CDA5F5CD038B028B8E4E60708EF543FBA24"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Binaries/Win64/tbbmalloc.dll",
+      "size": 107008,
+      "sha256": "06306B683C493A3C4CA3A551E6B32D27EEF3CF9E7B7FBF82DF1B982ABCD12E77"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Paks/global.ucas",
+      "size": 2516496,
+      "sha256": "04E243599712C8759CC1A1D17BCB6C1253D44C0E60D6412D13BCD9D6985F96B4"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Paks/global.utoc",
+      "size": 662,
+      "sha256": "53B25F08A287D9CD9E943EBC14136E3784FA03C8CEA276653FFD4DD89A310A96"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Paks/HCEDigitalExtrasApp-Windows.pak",
+      "size": 91449700,
+      "sha256": "34FDCF8B4594993031844B40C76485C90A95681F064A7A945C7703EFA120B7DB"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Paks/HCEDigitalExtrasApp-Windows.ucas",
+      "size": 2578122352,
+      "sha256": "4D3598F18D9A590D2FEBB18BB0128C6162D3716E2D3CC83B5CCF2A7ECF98EBC0"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Paks/HCEDigitalExtrasApp-Windows.utoc",
+      "size": 2483103,
+      "sha256": "4E7072F6F3C76847D7D925D7BEEFAB0D938C3BDE50764B56688B87C291E8FD21"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp/Content/Splash/Splash.bmp",
+      "size": 6744054,
+      "sha256": "02CE87CB36A0F3085A68E7A0734BFFEF8146EA2A3B7BAABE35199F1BECDE30EB"
+    },
+    {
+      "path": "DigitalExtras/HCEDigitalExtrasApp.exe",
+      "size": 303104,
+      "sha256": "C9F8DA449C896083F401737565FB60AEFE6975D1FBC7FAD9E6B5F23B1F7F84BD"
+    },
+    {
+      "path": "DigitalExtras/Manifest_NonUFSFiles_Win64.txt",
+      "size": 1623,
+      "sha256": "A9B30215E5A13CDEB244655FF6FEC94F94E6AF7D06324A2133CC60B9562B7D57"
+    },
+    {
+      "path": "DigitalExtras/Manifest_UFSFiles_Win64.txt",
+      "size": 418580,
+      "sha256": "7E0CAB8D708EECB3A05400C3EA82A053D73189546D12BF05373DCEDE9A49F266"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/DbgHelp/dbghelp.dll",
+      "size": 2221984,
+      "sha256": "4B803D0BFA5D360CFCB3237D260226743D2255EACF6A98615334FB55DEB7CF88"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/FreeImage/Win64/FreeImage.dll",
+      "size": 6900224,
+      "sha256": "BA70D813D8A1E2581F5D162E88E213B2E124DF615137096093D25DE807314D5D"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/MsQuic/v220/win64/msquic.dll",
+      "size": 2536368,
+      "sha256": "150963F4A05FFDDC9A8498AE0EC4DDF5BED762A83B6AD089D2FD8D499101C7EA"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/NVIDIA/NVaftermath/Win64/GFSDK_Aftermath_Lib.x64.dll",
+      "size": 5431880,
+      "sha256": "072D085F523BC244CF4DF401DEE5C5D2E0C19B7E0CB5F62E55B3DA5F674A8CFA"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/Ogg/Win64/VS2015/libogg_64.dll",
+      "size": 49152,
+      "sha256": "284A6E70A6DCE01F8A02D93E1BB78BAF0EFB6140459C587D8986D59FB6BD675B"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/Steamworks/Steamv157/Win64/steam_api64.dll",
+      "size": 295336,
+      "sha256": "4DF999C0C8CB12589F0864D52BE5D4C775577AEB27FEE28B49B188F9BA083EEA"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/Vorbis/Win64/VS2015/libvorbis_64.dll",
+      "size": 1714176,
+      "sha256": "0F66DCB5837E9B59C499277FD272B862043356AA9145802CF0A63E00A1BCCA59"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/Vorbis/Win64/VS2015/libvorbisfile_64.dll",
+      "size": 37888,
+      "sha256": "A9D6F5538F44011C1F65D7ACE64216A237636717CB0C8C59F4F89CC08DD3D24F"
+    },
+    {
+      "path": "Engine/Binaries/ThirdParty/Windows/XAudio2_9/x64/xaudio2_9redist.dll",
+      "size": 847440,
+      "sha256": "0E01F400BAA09694CACFD2CFBFF0D721C17B56785D2D6E29B6FDD117F70CCC1E"
+    },
+    {
+      "path": "Engine/Binaries/Win64/CrashReportClient.exe",
+      "size": 26539008,
+      "sha256": "53133EF07C119AC43EA76CEB817EA59D9608D437855B544EB6FE58E8DCA940A1"
+    },
+    {
+      "path": "Engine/Binaries/Win64/EOSSDK-Win64-Shipping.dll",
+      "size": 18266584,
+      "sha256": "B0591A96E7DAA4A1031FFF1FC1FF4332285E1D38D9676C33AB32D9DA2FF8F765"
+    },
+    {
+      "path": "Engine/Binaries/Win64/tbb.dll",
+      "size": 213504,
+      "sha256": "D5DB1D48D7025F2C59704DAD2E9BA8DFC5562C134FA49D8373B823CF9CCD1957"
+    },
+    {
+      "path": "Engine/Binaries/Win64/tbbmalloc.dll",
+      "size": 55296,
+      "sha256": "C14EA6F54CDFE42B7E87455E220589799B764C5335DD3665E7343A404AFADB34"
+    },
+    {
+      "path": "Engine/Config/CommandLineAliases.txt",
+      "size": 1516,
+      "sha256": "F9B4ED836493A655D41BEDE9016DF92FEC19D4BBBF0419807092F2E9D148B830"
+    },
+    {
+      "path": "Engine/Config/StagedBuild_Meteorite.ini",
+      "size": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "Engine/Content/Renderer/TessellationTable.bin",
+      "size": 259568,
+      "sha256": "EDC4F3B628A139C5E185BBAECA661C95C1F427368D3B92892C5CFF36C56DD941"
+    },
+    {
+      "path": "Engine/Content/Slate/Cursor/invisible.cur",
+      "size": 326,
+      "sha256": "FEF3980FA567E9C45D5D8DCAA432A2C1A3F3BB17FE67D7AB198164F56C142AA1"
+    },
+    {
+      "path": "Engine/Content/SlateDebug/Fonts/LastResort.tps",
+      "size": 930,
+      "sha256": "0F775FA99D05E21D43D2D06D55982B23DCDCCDB512A9A5A07AFF674F212C41B8"
+    },
+    {
+      "path": "Engine/Content/SlateDebug/Fonts/LastResort.ttf",
+      "size": 5395052,
+      "sha256": "FFF0F8DE0B868B964950FE97C9B60F893E9BC85A4F90B3629C5693DB058B97B9"
+    },
+    {
+      "path": "Engine/Plugins/Halo/HaloUI/Content/Assets/Textures/LoadingScreen/T_HaloUI_DefaultLoadingImage.png",
+      "size": 22954,
+      "sha256": "09FD5A153A49282094F145AD4F0BA6251D054E1CBCCD26C03636CDB8B33D4BF1"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/DLSS/Binaries/ThirdParty/Win64/nvngx_dlss.dll",
+      "size": 48972848,
+      "sha256": "139F682991C40B36695F0E9D8993901D276E0E7B1EEFD5E5C88D74AE714020D4"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/DLSS/Binaries/ThirdParty/Win64/nvngx_dlssd.dll",
+      "size": 72980024,
+      "sha256": "599940728E5E93AE930ADC36D90DAD1F00CF92A5612488140A024DCAAD00382E"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/FSR4/Source/fidelityfx-sdk/Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_dx12.dll",
+      "size": 38245640,
+      "sha256": "3F5E674A59B400756E98EF31FD583A4EB08AD567EC8DEE362886BC96E55ED347"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/FSR4/Source/fidelityfx-sdk/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll",
+      "size": 22348552,
+      "sha256": "3EAB9A448DB1CA09D5ABA17D11DF5B789649C11D60F1281F4BE97BD007AC7D6D"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/nvngx_deepdvc.dll",
+      "size": 3277352,
+      "sha256": "473F83072B8873D23809A346C768E6AF07EE103DD853DB404EE69CC22D62A330"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/nvngx_dlssg.dll",
+      "size": 7597104,
+      "sha256": "3D17996B4C4F669F0FE27C9672E9FA71A39E997E09AC020C077EDEC682570CE8"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.common.dll",
+      "size": 672216,
+      "sha256": "1942AA47A8504EB09B3A0B074D47BD66F5D6BDE8F67E00C4177342FF939AF2B0"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.deepdvc.dll",
+      "size": 184280,
+      "sha256": "2BCB5E0B68EC97DF99168E0E9E23667C145A4F17AE03B39B563FEBBF7F33A026"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.dlss_g.dll",
+      "size": 447960,
+      "sha256": "A5CFCF553A3C6D4559A78DF2617C52D8B25D02A2458BC5E1178ACEB19F676AE2"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.interposer.dll",
+      "size": 543200,
+      "sha256": "34411F9AE0BA3C55897AA8BD229568671409D1094F210D75595FF57DC6AB6908"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.pcl.dll",
+      "size": 175064,
+      "sha256": "A944784BAB320D3A59C48AEAA291FA3D7254A2E9DA765A847DF0CA1E92B2BEFE"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/StreamlineCore/Binaries/ThirdParty/Win64/sl.reflex.dll",
+      "size": 198104,
+      "sha256": "E0FDE699F74634892A4BDC3209310463A334510FBF0CEBC7B65A2B5A9A41BE8F"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/XeSS/Binaries/ThirdParty/Win64/libxell.dll",
+      "size": 411504,
+      "sha256": "61AEEAB7FDCFB6D1742F86C14C68C663D759607D01A6132645C857291EAEBB86"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/XeSS/Binaries/ThirdParty/Win64/libxess.dll",
+      "size": 77771112,
+      "sha256": "23B3EBC802185F537423965C2EE9C8AD8ADB5D137B004CE027A4088E629B5FD3"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/XeSS/Binaries/ThirdParty/Win64/libxess_dx11.dll",
+      "size": 156016,
+      "sha256": "C7CFE86F0C9D94E4FB3696D3CD5035E2BBB6A8B1B0572F8B7395A4CDFD0C625E"
+    },
+    {
+      "path": "Engine/Plugins/Halo.External/XeSS/Binaries/ThirdParty/Win64/libxess_fg.dll",
+      "size": 22955384,
+      "sha256": "9D074C7CB931D450875373372DA832304B82A2DCAC51CB17DF44B49F00E2961C"
+    },
+    {
+      "path": "Engine/Plugins/NNE/NNERuntimeORT/Binaries/ThirdParty/Onnxruntime/Win64/onnxruntime.dll",
+      "size": 13552168,
+      "sha256": "7D9C6F9E0675E04458B0146962D8D6DFB0BE9A160963609FFB39DCFDAE2A3802"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/Ak3DAudioBedMixer.dll",
+      "size": 127464,
+      "sha256": "5F90A45C109292E0A026DC567D31A491076A658830559E4DD883ACA929C86B7C"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkAudioInput.dll",
+      "size": 133096,
+      "sha256": "4AE4BFAE25AD8A3C5ACE1ADDB616C5651C49B0B95097EE2757D092C1ABD8929A"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkCompressor.dll",
+      "size": 151016,
+      "sha256": "EF4BD9A47D7D573D1B12C5A0108294492B09BD97748AEC46341268380DD11BC0"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkConvolutionReverb.dll",
+      "size": 233448,
+      "sha256": "CFDEB7F9119C56F10645F3BBCDCFF1D468F812BE25BCD92340149B1530878C1C"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkDelay.dll",
+      "size": 138216,
+      "sha256": "52C35FA663F61041B686A0EB6B4267D65F570FFBB1541CE298A1AFF1AD3C93BD"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkExpander.dll",
+      "size": 151016,
+      "sha256": "C7ECFE52E7B53942B396F8F19968CF0EBB94A65909EE2D1E2E574E798ACA9AF5"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkFlanger.dll",
+      "size": 160232,
+      "sha256": "1C08EEB4B874BC11DAF9F94650E1720A07979424AF82A6BFA63439685443C167"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkGain.dll",
+      "size": 132584,
+      "sha256": "E119DDCA3A437B0020F4276311CE3D80D68C0F55F5F2A0D38AE5D94ABFD2C83D"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkGuitarDistortion.dll",
+      "size": 173032,
+      "sha256": "C3D9385222D842233075B2BE563F8938A665004287FA83411E4507851B727E98"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkHarmonizer.dll",
+      "size": 236008,
+      "sha256": "2D8865EE975225DA9E577D4A7D87120F801E36BEAA01611547A8C777689214D9"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkMatrixReverb.dll",
+      "size": 198632,
+      "sha256": "F87FF34104C5961B2C396D878A22DA0CB4A08B423C77861D2C702F0A44D35D9B"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkMotion.dll",
+      "size": 208872,
+      "sha256": "DDFB291B592C0E084BF8521621CD9F504EDE41D7E3A082029E19EDA621CD8ABA"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkParametricEQ.dll",
+      "size": 160232,
+      "sha256": "6D7721ADDA46274E26ED5382529661614B978638C478B98F6E945646EBCA0775"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkPeakLimiter.dll",
+      "size": 140776,
+      "sha256": "88E58B97EE545F9A35F313056C9AE32EAE41232FCD5ACFB5DC9C486A5C17C6CD"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkPitchShifter.dll",
+      "size": 167400,
+      "sha256": "5E9388C20A2B1ED76233B19AD9FDE867FFAAFD70166C4BC51ED7F1DD9FA9CB8D"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkRecorder.dll",
+      "size": 133608,
+      "sha256": "4B72F20804B175C039CDE0EDF12D222DD22A90B907DEABA8B8F4323C77614B1B"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkReflect.dll",
+      "size": 378856,
+      "sha256": "076F6B2B37F05A45DCCEFBEAB8834CF4280F53F8E30B10F48FDB347939651D93"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkRoomVerb.dll",
+      "size": 250856,
+      "sha256": "943A49D745E48062B50596E27209F3CCE43C62CEB196D3D4C53CFF939CE98D2B"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSilenceGenerator.dll",
+      "size": 124392,
+      "sha256": "103AF24D11A3DB9EF4407C791E04A7AB2393D96DE1A5F77D6CB7760150E65A39"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSineTone.dll",
+      "size": 133096,
+      "sha256": "4CFC167BCDF3C3096FF669B63E71730D966E49136B1A9FF6DE0249A54967A83B"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSoundEngineDLL.dll",
+      "size": 1834984,
+      "sha256": "158519981F1A24C6F0B0457D1E88A4957FEAE07BAAF55975845614E6D97BAF6C"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSoundSeedAir.dll",
+      "size": 205288,
+      "sha256": "B97B0F5EE45151CA1BA9432F5E93C4CFAC7E74EA3121CA876B04342CC28EB087"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSoundSeedGrain.dll",
+      "size": 200168,
+      "sha256": "DD268BC2A031B32A5CAB3F77679B421C0D75354929C6740ED4FE7ED1D778E2AA"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkStereoDelay.dll",
+      "size": 174056,
+      "sha256": "25ED0C24C27C26561AE00DB61D816169E12DD1623A6A21A90348CA09577B2616"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkSynthOne.dll",
+      "size": 178664,
+      "sha256": "A539017E6F9A3B1DD4C707BDFC04253179E2FB53FC29BF512E6E384E7A9FA0D7"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkTimeStretch.dll",
+      "size": 244200,
+      "sha256": "DFD60AEFF4F248EEAE0A23462DAEE97ECF232AF1A5A2415B581A73451FBB1FD2"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkToneGen.dll",
+      "size": 154088,
+      "sha256": "A3869540B38AD4C9371A96F2F45122649E0332880721713C9D5AABE6349C59C7"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/AkTremolo.dll",
+      "size": 157672,
+      "sha256": "01527AB9768D8AE2478C0D7A23654C8CFBF57588A5A6A8903963AEB67FE974FA"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/Auro.dll",
+      "size": 2569704,
+      "sha256": "95B28CF4E3DA421CEEB52C51307B5BAE291D0751F25F9A20BDB743792C4C4F4A"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/CrankcaseAudioREVModelPlayer.dll",
+      "size": 261608,
+      "sha256": "3F638CB1D395F7907CABF0CED3A5EE081407C330B2CCF1662837E1B70141192F"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/iZotope.dll",
+      "size": 581608,
+      "sha256": "6691CB42C7F4A4848F804A27FD108D1C5615F43316A85CE6DF85B2622E0F0535"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/MasteringSuite.dll",
+      "size": 261096,
+      "sha256": "364BD36959C08C66158ED83474402EBAE64E34F00CDC85C84FB20BCA9F40E959"
+    },
+    {
+      "path": "Engine/Plugins/Wwise/ThirdParty/x64_vc170/Release/bin/McDSP.dll",
+      "size": 319976,
+      "sha256": "D1D7191E75A984C4A4C9A565DD8C024205FD8BBCC60A003B6B943834D7D4ED08"
+    },
+    {
+      "path": "Engine/Programs/CrashReportClient/Content/Paks/CrashReportClient.pak",
+      "size": 47710977,
+      "sha256": "139E89B37568EA45446F1688743B3D533BE35F0CA1CA60FB539EC8FB7E5D3294"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_atomic-mt-x64.dll",
+      "size": 33040,
+      "sha256": "58A89812C2A0453D596C39203796ED034D1B8F41568AA9A3D7ED43B24EF12B0B"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_chrono-mt-x64.dll",
+      "size": 50960,
+      "sha256": "DFAEB8CDF61232814C7EDE429C042910281A7F86E4F5BF17031713C4A9265600"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_filesystem-mt-x64.dll",
+      "size": 155920,
+      "sha256": "DC5EDE14ABF19755908CB31D56DD405347F01BBC41D0680405101C6E457026BE"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_iostreams-mt-x64.dll",
+      "size": 64272,
+      "sha256": "E1F49BD63AC0A33EFC3B0F9403EA497B39BFC52C37B1C4B600B8861C274CE19E"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_program_options-mt-x64.dll",
+      "size": 366864,
+      "sha256": "BEA4AA40BBD62CBA417D87A51FF432F37AFD98C1B712FF7A000227531702DC8C"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_python311-mt-x64.dll",
+      "size": 208144,
+      "sha256": "EF14898A3BB4FDF7E5F102D048E4DF8FA8430554D02FDCB575B12EE58892BA2A"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_regex-mt-x64.dll",
+      "size": 250128,
+      "sha256": "65637937DD29DE9794C4DEF113ED1760EC69BBBC1D606ED4EB9B9A342802427A"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_system-mt-x64.dll",
+      "size": 25360,
+      "sha256": "A4F7810690ABF6E34641EA547E477DDE12D4B35A0122A9FDF06B217C4A7C0A56"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/boost_thread-mt-x64.dll",
+      "size": 89872,
+      "sha256": "470EA2453EA5474D818125AC5F7C75DF55604E82E90B39E82D6E1961BE169111"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/D3D12/x64/D3D12Core.dll",
+      "size": 5015624,
+      "sha256": "021B47FF5A0C33F03D84C51B1CE730C717798D3190658A27DA92C637A1FE93B5"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/D3D12/x64/d3d12SDKLayers.dll",
+      "size": 4959776,
+      "sha256": "213EE0105B64314A8BC45C28E935F72D8371DC9DC2B6B5731C8837F92B460E00"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/DML/DirectML.dll",
+      "size": 14021152,
+      "sha256": "5AB77CC5DB8E1544D386FD28586598317DA8DCBEF098FB86D8D8A60E739E0E5D"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/HaloCampaignEvolved.exe",
+      "size": 230823184,
+      "sha256": "4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/HaloSimulation_tag_release.dll",
+      "size": 14668560,
+      "sha256": "82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/libHttpClient.Win32.dll",
+      "size": 258320,
+      "sha256": "6488416D788FAA0CABA39F3CDB8442D827933B72A411E2051F71A7A6DFB02691"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/OpenColorIO_2_3.dll",
+      "size": 4290320,
+      "sha256": "00FAB4B4D862410759E37C93169252B718F0EB0A84CA06E401E9B4CEC754E532"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/PartyWin.dll",
+      "size": 4002840,
+      "sha256": "037CAFB5B3682A4EAB8D55A72ED79BBE8D2A73EAC524AD65377217AC67B9F222"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/PlayFabMultiplayerWin.dll",
+      "size": 1845280,
+      "sha256": "8991E3B9ED098FCF4430C790CC3ABEDC9080F7E567E907F258326B52DAF1A756"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/tbb.dll",
+      "size": 229136,
+      "sha256": "5C3F7A0EED3E1C99D3FEB46D20B9EB4BEF6884DF1CEBE8BA718FC88062211AE6"
+    },
+    {
+      "path": "Meteorite/Binaries/Win64/tbbmalloc.dll",
+      "size": 70928,
+      "sha256": "7E0D404518610A39E249D0E3F362267F62673B11079081A23DA0A57772C7A6A9"
+    },
+    {
+      "path": "Meteorite/Content/Config/Achievements/Achievements.json",
+      "size": 1925,
+      "sha256": "BBCD6671AC4043C6B201839FB2BAE72927EF0C61527F1CC59276BE6369E39EEB"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin01_sc01_space/m01_POA-cin01_sc01_space.mp4",
+      "size": 370497879,
+      "sha256": "D8DDB47594C6EA24529C5A1E9B8F8BCC644B997F0523F1F2DACC34A887C6108C"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin01_sc03_sarge/m01_POA-cin01_sc03_sarge_easy.mp4",
+      "size": 387171840,
+      "sha256": "EDD8A0D43F30B2E4C069B1FCB28980D30B74C5244867D3EAB09E3599EF7F2557"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin01_sc03_sarge/m01_POA-cin01_sc03_sarge_heroic.mp4",
+      "size": 415118745,
+      "sha256": "AE21D9B8CC855687F42CB9CA52FD8BE854B72505CA8B2993F9F3566C13F5BAC0"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin01_sc03_sarge/m01_POA-cin01_sc03_sarge_legendary.mp4",
+      "size": 486011302,
+      "sha256": "4EED97D02813ECCCD1526351DC9A781BDBFF8A8CBD131DA984870B14AFB3C07D"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin01_sc05_cryo/m01_POA-cin01_sc05_cryo.mp4",
+      "size": 114284899,
+      "sha256": "BB8D9BA767E32DB9BFDF87EA506F8D22B837AE2AA59D3CACDE86D1D9980E430F"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin02_bridge/m01_POA-cin02_bridge.mp4",
+      "size": 672320172,
+      "sha256": "BEE4714F41B457C06D5A39999FB615015DA294EE2BEDD252C6821CC325A29693"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A15/m01_POA-cin03_outro/m01_POA-cin03_outro.mp4",
+      "size": 445925117,
+      "sha256": "13D9C2DAA8356892CBAE5A0F6AE211F081CA7BC00864918A86C15E2318CCAD61"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A30/m02_HALO-cin01_intro/m02_HALO_cin01_intro.mp4",
+      "size": 89577162,
+      "sha256": "6DED241D587D22A75B9C978AD94D6E4078E6965A0C1BE6FFFDE30277E4BC5436"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A30/m02_HALO-cin03_outro/m02_HALO_cin03_outro.mp4",
+      "size": 111991471,
+      "sha256": "B33B350E8563FC7481CCF60209587B05FDE47B851DEDE1971C357B8EA2A8834E"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A50/m03_TAR-cin01_intro/m03_TAR-cin01_intro.mp4",
+      "size": 101902277,
+      "sha256": "A5F1A2BE5C2C2E7E2101AA8B7581193D928AE19E62D27F68B8A206BC509EE662"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A50/m03_TAR-cin03_brig/m03_TAR-cin03_brig.mp4",
+      "size": 356199629,
+      "sha256": "D0B9B2C3288E117C9AB4E9DDA9C7BF5E6F9B7920E6ECCD24D9FDFCA34B5CF683"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/A50/m03_TAR-cin04_outro/m03_TAR-cin04_outro.mp4",
+      "size": 158314012,
+      "sha256": "ECD6A9FDE327C7FFC04F3F243C8B847ADD151669CF4AC6241362C6D69D69EA55"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B30/m04_SC-cin01_intro/m04_SC-cin01_intro.mp4",
+      "size": 184406967,
+      "sha256": "A23EA516F0BC41416CC793660924EAF27FE4C92F4A46F9B2E47A6DBF31D8EBF5"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B30/m04_SC-cin02_door/m04_SC-cin02_door.mp4",
+      "size": 41976652,
+      "sha256": "C8D5D86FB1DBD9E639205E509BA5B2871C1542B85AC433C673FEA5BF3AAE7C52"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B30/m04_SC-cin03_ledge/m04_SC-cin03_ledge.mp4",
+      "size": 122642491,
+      "sha256": "09369348F4E300AF0CC0A81A4141964923965642B92467AF9AAE85EDE2ACAA05"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B30/m04_SC-cin04_map/m04_SC-cin04_map.mp4",
+      "size": 173167857,
+      "sha256": "5D36D29D6A5F90F29AFB2ACA13A2A03655BB5F3FB9BFBD5405932FAE189212D8"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B30/m04_SC-cin05_outro/m04_SC-cin05_outro.mp4",
+      "size": 84456115,
+      "sha256": "C8B24CF32DC5BA73B909DD42C89249BBA4199F3159D929BA7E57D178CEC6A2BA"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B40/m05_ACR-cin01_intro/m05_ACR-cin01_intro.mp4",
+      "size": 91367494,
+      "sha256": "46C1A4F1C9ABB9AA7939BCC52EC1E4DBB03C6813E81818A6D2E5B116BFEB0347"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/B40/m05_ACR-cin02_outro/m05_ACR-cin02_outro.mp4",
+      "size": 568526496,
+      "sha256": "FDDD0D0557C6E3EB7A003E22B2F8DBFCED897604AAC0A68E7260F3BF3B984B13"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C10/m06_343-cin01_intro/m06_343-cin01_intro.mp4",
+      "size": 93471601,
+      "sha256": "4AC1414F94C9057FB2226357C03ABC5B7B78168A5721BEBF5C55CFA204957971"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C10/m06_343-cin02_sc01_jenkins/m06_343-cin02_sc01_jenkins.mp4",
+      "size": 1033742717,
+      "sha256": "547909E92B8D9B5D3031820A63FE66F5A55B7EE5BDCF05450269C07EC29EDFB9"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C10/m06_343-cin03_outro/m06_343-cin03_outro.mp4",
+      "size": 112997836,
+      "sha256": "811F163E3DA24573DFB27F068E14D8230DAA7AF5B0460B9D1E75FA096119FE66"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C20/m07_LIB-cin01_intro/m07_LIB-cin01_intro.mp4",
+      "size": 139929016,
+      "sha256": "5943296FF4F9564D165A62650357DE96F77A7FB0DF63D88DB421FC41F36308B4"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C20/m07_LIB-cin02_outro/m07_LIB-cin02_outro.mp4",
+      "size": 118882446,
+      "sha256": "6D6F1C3B382568C8D651E715217F021A87ECD97D2DB34BFE8CDE0646A32546A3"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C45/m08_TB-cin01_intro/m08_TB-cin01_intro.mp4",
+      "size": 896366728,
+      "sha256": "40AD673BB723E1BD477FDC16FE2DE4DE16F13A9B33DA20E78B48D9EE7EB13EC7"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/C45/m08_TB-cin02_outro/m08_TB-cin02_outro.mp4",
+      "size": 96429641,
+      "sha256": "7C7D434FBDBB07114617E2E4DB95FE70C6DC8760E65C6950B1A4AE9CA3385BA9"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/Cinematics_BlackVideo.mp4",
+      "size": 224360,
+      "sha256": "7D8D924D5FB9178885AF31E1280842CEDDB351501E699B8FFFF5B62DDB4A1893"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D20/m09_KEY-cin01_intro/m09_KEY-cin01_intro.mp4",
+      "size": 144120029,
+      "sha256": "0D20729C5A57951EAF8CB295319D3028A1598F1B378ED460C3EC360CA2BE3A9E"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D20/m09_KEY-cin04_keyes/m09_KEY-cin04_keyes.mp4",
+      "size": 314725260,
+      "sha256": "B5D3F6DE7D26018F98D713B1F74FA96571640D2594C5F5B01E5DDD184BE630F3"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D20/m09_KEY-cin05_outro/m09_KEY-cin05_outro.mp4",
+      "size": 48047009,
+      "sha256": "30EFC90B753BCA0ABDC68372A7BD5D11996685EABEDC6C84E42B4D0BF30E4288"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M10_MAW-cin01_intro/m10_MAW-cin01_intro.mp4",
+      "size": 156728855,
+      "sha256": "F5268A6AF8BCA136D6C6F7F240BD1DB8BD1B5018BECD46D1723158A45417A2BA"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M10_MAW-cin02_bridge/m10_MAW-cin02_bridge.mp4",
+      "size": 364506542,
+      "sha256": "B0C1039E8B45F443EF37F334B91BD4B2406DCAF490863081A501411C5EDDF01D"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M10_MAW-cin03_fail/m10_MAW-cin03_fail.mp4",
+      "size": 43751241,
+      "sha256": "300EF84600EBFEAE769CCACC05733365DBA4FA0F4E17E108ADEEB458A0D31E7C"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M10_MAW-cin04_outro/m10_MAW-cin04_outro.mp4",
+      "size": 489744674,
+      "sha256": "B116BE4D09C70EAB162CB4AFFBA0C96AAA6A1E3C1F72602BC417C0F48B3D377A"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M10_MAW-cin05_outro_legend/m10_MAW-cin05_outro_legend.mp4",
+      "size": 242987101,
+      "sha256": "3D28737235133E9A269BBC2730EFFE7BBF5F2F0DAA8F26E62EDC31A5A5BA46CB"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/D40/M11_CREDITS-post_guilty_spark/m11_CREDITS-post_guilty_spark.mp4",
+      "size": 38653830,
+      "sha256": "F78BD873471FBF85DD579004BFD157C51C7FFABC6AE4CEAB1EDB4120FF84CAB8"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E10/e10_BA-cin01_boarding/e10_BA-cin01_boarding.mp4",
+      "size": 365548177,
+      "sha256": "5FCB563396F6A328618B039595C41E47DCBE0154A3054BF008DCF4710FD7A937"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E10/e10_BA-cin02_copilot/e10_BA-cin02_copilot.mp4",
+      "size": 117954107,
+      "sha256": "A8E48D4817005E1044309786B5C61261353C616D6AFD259C59091AAC6D3598D3"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E10/e10_BA-cin03_signals/e10_BA-cin03_signals.mp4",
+      "size": 153542773,
+      "sha256": "0C1444B14B47AAB8759D7FB4B0377271571D05BDBB5E8D2FBA906B9235765029"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E10/e10_BA-cin04_forge/e10_BA-cin04_forge.mp4",
+      "size": 480851492,
+      "sha256": "B468EDD961AF12DF28F82F0F118E7C3B9513E593ABC0679BF9C007A669DC12B0"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E20/e20_TMDG-cin01_dome/e20_TMDG-cin01_dome.mp4",
+      "size": 73640288,
+      "sha256": "C47ABF210E269C725D3E6ADDC1F9622A70E53679D121921AC173FC60248B1C45"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E20/e20_TMDG-cin02_williams/e20_TMDG-cin02_williams.mp4",
+      "size": 287966747,
+      "sha256": "44635549446F1C7AD7469FD5674258EBE7E140EFE8A70E0D32738C0586FBFD93"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E20/e20_TMDG-cin03_split/e20_TMDG-cin03_split.mp4",
+      "size": 132159718,
+      "sha256": "1EC91ACDDA7D61A398BBD6466650B748AEE5F4B9C925345C116A210BBE8238E6"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E30/e30_BH-cin01_bridge/e30_BH-cin01_bridge.mp4",
+      "size": 173524648,
+      "sha256": "A6FAA95BBC443D68DC66675C56204A82CA9EBE1755B87248FD10749F90FD111F"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E30/e30_BH-cin02_change/e30_BH-cin02_change.mp4",
+      "size": 522558663,
+      "sha256": "A82AD0EB5C51486E1AF9200AAA5AE41163D1D8477479E453BD12CE2F97A04A38"
+    },
+    {
+      "path": "Meteorite/Content/Movies/CinematicsPreRenders/E30/e30_BH-cin03_mac/e30_BH-cin03_mac.mp4",
+      "size": 300051251,
+      "sha256": "A24FE961D224801D871520A6B5BB2406B9EC4027D2C318A54DCC4DB501B417BC"
+    },
+    {
+      "path": "Meteorite/Content/Movies/LogoParade.mp4",
+      "size": 25944980,
+      "sha256": "A2D9A6927BBB9E462A31E00D058E7C0E196A1CBE2813F978C2D02F009D182EA7"
+    },
+    {
+      "path": "Meteorite/Content/Movies/MainMenu_Background/FMS_MainMenuBackground.mp4",
+      "size": 101622423,
+      "sha256": "C0E45C31BD8AC28F8B1071029796DB9756557A53E92975CFFBE1F6615E13FFCF"
+    },
+    {
+      "path": "Meteorite/Content/Paks/global.ucas",
+      "size": 3606432,
+      "sha256": "3D4BE22FB1475FC697AA8F499546F71356AB5A48B12F57B1374DF871F519742D"
+    },
+    {
+      "path": "Meteorite/Content/Paks/global.utoc",
+      "size": 866,
+      "sha256": "257AED0DC54F7FEE840006039D49DE38B204F7B133FBED417477CDB75CFF1FAB"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk0-Windows.pak",
+      "size": 2588322305,
+      "sha256": "79691E5A07D5BC1142EC8B9EC1BB9302C2391DEE4F066B654124CE555F5D4744"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk0-Windows.ucas",
+      "size": 40226157456,
+      "sha256": "E4721DC4336A537BC42595D2C49F71296532AEA4DEC9C0AE8D3B8CC95823B9EA"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk0-Windows.utoc",
+      "size": 26604610,
+      "sha256": "6B33C64BBCED6C4A04EE8CF899E1436126EFCA0D3701A79622760DB8256A920F"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk1-Windows.pak",
+      "size": 354821554,
+      "sha256": "308190D318FF91CE0263ABC697380E85FD5745887F4FD0247DA9B8464A570DB2"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk1-Windows.ucas",
+      "size": 48,
+      "sha256": "8FFF6B7F22EF76E4CA047A15271D9F5C3808945A63CCFB4E5698C656514B1B57"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk1-Windows.utoc",
+      "size": 240,
+      "sha256": "5C9A22D0EB3AE61694765513C4D157EF7C399E320104D2AA9CFDDEA4D75EAE99"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk10-Windows.pak",
+      "size": 341394018,
+      "sha256": "41F8BC73867412C87E5D0AFE9ADA2A0F17191506FC27F30EB420BF241B7D89DF"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk10-Windows.ucas",
+      "size": 48,
+      "sha256": "8122E8A9E0C4724D21CE832748B0770CD8676D4070C0CE3AF31E435FAEAAE21E"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk10-Windows.utoc",
+      "size": 240,
+      "sha256": "309D65E2E10B23EC6A0A1E6AAA13AEE7A754891F13C3CA9D8E3C5209535A1FB1"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk115-Windows.pak",
+      "size": 339,
+      "sha256": "7DDE1328A9650EAD4F300FFCAE4425D1AB3B32153A99D398262141CCFAB3A51B"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk115-Windows.ucas",
+      "size": 352217552,
+      "sha256": "599E9CC54F04880852884ED3BA15E9F11371B00346142C7C8BC9FB6E5F56F7D9"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk115-Windows.utoc",
+      "size": 327717,
+      "sha256": "D37BE5FA89C3148EDC929710B08B1D490DCB43EAB651D364FA42E5A4008F7D37"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk12-Windows.pak",
+      "size": 337858322,
+      "sha256": "61ACB02DD48F98BD12EF085F076D0D33CFD481619460753298C2B788B6AD0889"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk12-Windows.ucas",
+      "size": 48,
+      "sha256": "26128EE68A327D7E37B8EC4D4BEE82AB316A65F714F34E8B9D8B473B5F163930"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk12-Windows.utoc",
+      "size": 240,
+      "sha256": "7318DD27985A9FE1A9CA0D744EAD30FE9A3B5A1427DD6EC5DB7938CA048A4EF7"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk13-Windows.pak",
+      "size": 334031341,
+      "sha256": "0E7C43DEA82494FC0D76B8CFFA481A36C999DFEEDE51DC68CE9526005F9E9D21"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk13-Windows.ucas",
+      "size": 48,
+      "sha256": "4F0EFCADAF16BB64B6C60AE7D5EEFBD46DCC4190599BDAE29D41BCCE10E32F5C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk13-Windows.utoc",
+      "size": 240,
+      "sha256": "1357DC9E2CC566DFFE5A24892A31EEE7EF2A1E37C83A95DCE8C679A5754EE712"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk130-Windows.pak",
+      "size": 339,
+      "sha256": "D455817C3C8939DC7330861D4F1D1298B188B232DA784240B021FA963DAABA57"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk130-Windows.ucas",
+      "size": 1158284608,
+      "sha256": "643215052BB8955811D067BCD75173FFD0624FC4ADEE6019E6387076C82929D1"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk130-Windows.utoc",
+      "size": 636339,
+      "sha256": "9ACF2032F4CF1ABFD0A374CEE44AFE37F19B637C89765BD60BE264FF21223855"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk150-Windows.pak",
+      "size": 339,
+      "sha256": "228002CB826934188030FE41B3730CA3FF12AB6DD27679BEB1CE00EE6945D6F6"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk150-Windows.ucas",
+      "size": 1633902992,
+      "sha256": "C588A2A862C2F53E8827275D2597C5A23B2B30A9DC2BC86C3CD5A72EF1278C89"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk150-Windows.utoc",
+      "size": 878523,
+      "sha256": "509383261B2D30AD0B4D3290E3116C411A04EE96D746432B9B6AF30B0E47878C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk2-Windows.pak",
+      "size": 340045476,
+      "sha256": "E145C72F90BCFA455C48E34018E5B648F22115B87CA7941EA1D84FC16C3E9D4A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk2-Windows.ucas",
+      "size": 48,
+      "sha256": "F06EA338C20B2A0158F82B3B8D41FED2229E0A3A3AD685A86EE363B457890157"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk2-Windows.utoc",
+      "size": 240,
+      "sha256": "5F81A88C47C3A8C44FE955CD7C5435CFEA788DF01D2DF69ABFE5EFBD06D1E6EA"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk230-Windows.pak",
+      "size": 339,
+      "sha256": "E698CA275DCF66C6845FD35879DC2B02DD5BC969B7F7DA3FE3F7F5AC85C02149"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk230-Windows.ucas",
+      "size": 911994032,
+      "sha256": "54C82D451543F37B2D82E80E419656D05A2A2B15DCD7DE114006502AF59E7ADB"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk230-Windows.utoc",
+      "size": 569707,
+      "sha256": "0237E3978CAC6484C3EB72B1593B9B2CACF6E3B2B475E9D5745CFFA2BAE775DE"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk240-Windows.pak",
+      "size": 339,
+      "sha256": "862BEC03C11F414E30BCC3A1C7A29CDFA52D506EE1B78FCE1388B967F9DDCD4A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk240-Windows.ucas",
+      "size": 2858735200,
+      "sha256": "0348B7F5344705C8CA2EDF3D2BB58A2E02DCD235BB9FB7273865F637A8CC1419"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk240-Windows.utoc",
+      "size": 1927792,
+      "sha256": "FC7E71992A6AE641EECCC2FE63C2BA19E79E5FB96B7BCBB261585E019D128D53"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk3-Windows.pak",
+      "size": 363478157,
+      "sha256": "B473FACC243D982BE2C7C0BC5DCC2749F7E267F05B76AB8628DFC07671ED9F1D"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk3-Windows.ucas",
+      "size": 48,
+      "sha256": "5F6224D89341883A62F59DF556DD331C29714A0F3ED33A113956F1AAD92A7E0C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk3-Windows.utoc",
+      "size": 240,
+      "sha256": "C503E16D2D85B934A86F4821768A87304C786D5B9CDBB9E5281E952119E91825"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk310-Windows.pak",
+      "size": 339,
+      "sha256": "F0E37D4AB40EF125CD39D782C469C0A2188E6E0F1C967D0E40A052071B32105F"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk310-Windows.ucas",
+      "size": 1325698608,
+      "sha256": "A522E1C9F1BBA6069B8390DB16AF23D1E3011E973968DFB5838AA801A731F867"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk310-Windows.utoc",
+      "size": 833186,
+      "sha256": "895D3272EC783BCF92E90EC806B26437AA66E30E9406F0E1076543138E00EF73"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk320-Windows.pak",
+      "size": 339,
+      "sha256": "F9CB76BCB0F6222612A006CFB0BA6317A0F74B2C2BE5DC6A736EAC00E1EDB25E"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk320-Windows.ucas",
+      "size": 605939440,
+      "sha256": "AC0D857A36405E98CD7FF6ED31A59DBA9E46222D53C4C0D5AB389AD90ECA90B0"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk320-Windows.utoc",
+      "size": 427735,
+      "sha256": "96513A71C633877672CCFD0A971F2E348FDDD76A2097F5C73A44DAE9B127393D"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk340-Windows.pak",
+      "size": 339,
+      "sha256": "E86E0D5FE3662A946B7F2DB605F57B0971805AA137D0F68C84180D206A28E629"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk340-Windows.ucas",
+      "size": 10416,
+      "sha256": "69E3B079A554F9D96BCF4E3CBF98D60A029AAA9DAB409CD4DD10DD2FFE0487C4"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk340-Windows.utoc",
+      "size": 630,
+      "sha256": "3EEBFBE6A2B70F08C00EF8C55F5367E1AE1F9981B4AF58C6720353C015DEC64A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk345-Windows.pak",
+      "size": 339,
+      "sha256": "1093D2731FEE86620B1564DB0FBBFF9F4CC7F40229462CB98035D28E5ABECB3F"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk345-Windows.ucas",
+      "size": 1606012304,
+      "sha256": "8CC3D3043AFF4F9244E72AC7BA547D33367DEC4A34425F69D07EE275643C1C14"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk345-Windows.utoc",
+      "size": 944937,
+      "sha256": "007A63040727B636340DD92E04F491BBC03E72FB81BC2702553F5356DBDF480C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk4-Windows.pak",
+      "size": 354946149,
+      "sha256": "620BE5EB35AAF7D634101204B22111FCDFE2D5C3F590A4490A9A82ACF7038F3D"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk4-Windows.ucas",
+      "size": 48,
+      "sha256": "4FEBC9EF313CBCBB47AA46C18EE503372EE73F340C7FF5E5FDCE6423840A1C80"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk4-Windows.utoc",
+      "size": 240,
+      "sha256": "E1E134386A9D3FE6909636BCA78EE0B4E0E6B68B2B07D34DAE7B21168AF2CE3C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk420-Windows.pak",
+      "size": 339,
+      "sha256": "BC4B3ADEB4C9DCBFCA9634231BFCAC2FE902A5EDBF8B70B278D9B127E646566A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk420-Windows.ucas",
+      "size": 1485388832,
+      "sha256": "92A0FBC537E2F70ECC3A3A80591113887DB1262D8AD4A715F1ACE271DC02475F"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk420-Windows.utoc",
+      "size": 725307,
+      "sha256": "F24D764AEF3E16159FCC9DEEBAFD0DA063158DA4EC7954C900231DE189A68495"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk440-Windows.pak",
+      "size": 339,
+      "sha256": "AE64F77100DDCF1FF50F790ADD90B7EF61D29D12BA2EC4FAACC731E534C50A26"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk440-Windows.ucas",
+      "size": 1625909520,
+      "sha256": "2E36B155102520233EA1FF45EE6AC23EEEACFCB42D6D03129BB06BB33F7FBF44"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk440-Windows.utoc",
+      "size": 878666,
+      "sha256": "A9D0494FB638B44A46B7DD806524E093C358E53CCEF973C628533CB2893CF753"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk5-Windows.pak",
+      "size": 334591758,
+      "sha256": "129345505902013B2603FABF31CDBD591D83D92D22F6F5B4DBF272AD6B423C24"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk5-Windows.ucas",
+      "size": 48,
+      "sha256": "43CC73FD99F1069EE7099D4B2D07666001B59D36F0A600FBD89E8B3E9E96C311"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk5-Windows.utoc",
+      "size": 240,
+      "sha256": "DE5CC54619E7CACA797F3C412DCA14D094FFEF0879FF6476C8C976858D4E6CBE"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk510-Windows.pak",
+      "size": 339,
+      "sha256": "2F947B03F417A383C4430D1D3D1C326A02283B7B3BFE8A3B45053A9CA0309D2E"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk510-Windows.ucas",
+      "size": 262927232,
+      "sha256": "8B8082D23207CBE7FEBB8349B892C9E653608B83631BC45F1DD4C714B930D8F1"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk510-Windows.utoc",
+      "size": 210370,
+      "sha256": "D184579C53029E641CCFB9CA537D7920FAB8442A48772B21F57EBB9D20BE9ABC"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk520-Windows.pak",
+      "size": 339,
+      "sha256": "18CC25497C38AA25895154280D2E6B1840F99D3021DC48D70E888F74ED4F161A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk520-Windows.ucas",
+      "size": 2659295632,
+      "sha256": "48B2442BCEDFDC32287BE3F88B8060B6D029FC40800F5F993915329124845FF3"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk520-Windows.utoc",
+      "size": 1465365,
+      "sha256": "E957AB28888FCFC35D28E59ACFF4BE32E609D693A8D65E0B0077CD15CDF0AB21"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk530-Windows.pak",
+      "size": 339,
+      "sha256": "D2204E868453D73C2FB04F3ECFCC95A780309D835BC20DDFCB75A12B2ADD802A"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk530-Windows.ucas",
+      "size": 398298912,
+      "sha256": "306F00DD0BEE3523827F7040853C5C0A824C3A2F7CE884DD05D4BBA7D6B73F17"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk530-Windows.utoc",
+      "size": 249378,
+      "sha256": "0EF079ECF369230434E8A5AF1B3BBC50BBEB06811BE366DC3DF6FC70829FE91E"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk6-Windows.pak",
+      "size": 371538078,
+      "sha256": "F6D955B1117336E4F903A74DB05C9CA6971FACA2C223A10C7CCBE68EC3B3525B"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk6-Windows.ucas",
+      "size": 48,
+      "sha256": "1CB7C9904636342429735D69AD19A7FB755471CAF38E6FD22564AD3898B16385"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk6-Windows.utoc",
+      "size": 240,
+      "sha256": "93CDEDF273BCFA46FA69ACD19D43B0D12DFE1DDE863A95A971F189F4D51B9C6F"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk7-Windows.pak",
+      "size": 308066039,
+      "sha256": "D8DB15D400C2C461BAE906FA1CF2B943973AC538AA1FB90F64B439103A0B2114"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk7-Windows.ucas",
+      "size": 48,
+      "sha256": "16B7FC83406E24AB3421818C121175810CB4D7FFE72FEED864D2021E1FA54A41"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk7-Windows.utoc",
+      "size": 240,
+      "sha256": "911E93EB0196506FD04D28674DAF725681397567736C9BAFFA81F884F6C5C1A3"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk8-Windows.pak",
+      "size": 333305521,
+      "sha256": "AAA32BC9C183FC2F5D7026EB1BFF6CD640240C5306636AFFE18806823D8FEC21"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk8-Windows.ucas",
+      "size": 48,
+      "sha256": "D217E2326CC59D177FD3DC038EACE3F9EBCB4C1CD12ACC3BCDFB4C691124C7E0"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk8-Windows.utoc",
+      "size": 240,
+      "sha256": "4D9D34B9295884E9D565ECABAE91A27B31643C41AF2E04368D59B8BAFF9B3508"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk9-Windows.pak",
+      "size": 342441492,
+      "sha256": "8A46D109FA7943CE5DCD1AB1EB913877962F19BD0E0BF1EBF9C291F253A8589D"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk9-Windows.ucas",
+      "size": 48,
+      "sha256": "92867BA9ABC080E0025296EBAB31EBD3681C7E2F0F92108CCEF690F894121FDC"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk9-Windows.utoc",
+      "size": 240,
+      "sha256": "F0757B7DF7C4368CF3007CB1CD93ED533CFD24C8925D6AD8BEE7772535FCDE63"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.pak",
+      "size": 339,
+      "sha256": "7DDE1328A9650EAD4F300FFCAE4425D1AB3B32153A99D398262141CCFAB3A51B"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.ucas",
+      "size": 816,
+      "sha256": "13D4FB782685F3D26CF809F213E5656E8914B60904FFD11B503F97B15EC20E7C"
+    },
+    {
+      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.utoc",
+      "size": 403,
+      "sha256": "EE71B52D0DFDC3AD20F7755BAB57BDB68FBEE4882935AAAC8929E21BE5E022DC"
+    },
+    {
+      "path": "Meteorite/Content/Splash/Splash.bmp",
+      "size": 1555254,
+      "sha256": "A130E4BD72A01D1C2FC6B7CD9EDA9DBE7CB0DE4102785228328583B9FB208B9F"
+    },
+    {
+      "path": "Meteorite/Content/UI/Frontend/LoadingScreen/Textures/T_B30_LoadingScreenBackground.png",
+      "size": 8969576,
+      "sha256": "DD1136004772B3422549FC4A2AB75017CE2C9C8815EE5D71A17FBDFDB0D3CB73"
+    }
+  ],
+  "generated": "2026-08-05"
+}

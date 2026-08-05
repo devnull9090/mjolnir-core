@@ -4,6 +4,10 @@
 **Last verified:** 2026-08-03
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 A shipped `Texture2D` in this build cooks one of two ways, and both are common:
 
 - **Virtual texture** — about half the catalogue. The `.uasset` export carries
