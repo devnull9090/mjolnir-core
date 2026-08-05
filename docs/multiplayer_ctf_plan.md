@@ -303,8 +303,14 @@ abilities, and GameFeature plugins to compose for a session. The full GameFeatur
 linked too — `GameFeaturesSubsystem`, `GameFeaturePluginStateMachine`, `GameFeaturesToEnable`,
 `EGameFeatureTargetState`.
 
-**Verified: exactly one Experience ships.**
-`/Game/Blueprints/Experiences/BP_BlamExperienceDefault`. One asset, in a system built to hold many.
+**Verified: exactly one Experience ships, and it is empty.**
+`/Game/Blueprints/Experiences/BP_BlamExperienceDefault` — one asset in a system built to hold many,
+and its `GameFeaturesToEnable`, `Actions`, and `ActionSets` are all zero-length. The framework runs;
+nothing currently uses it. No shipped example shows how to compose a Halo mode from one.
+
+**Verified: `BlamExperienceDefinition` is a registered primary asset type** in the engine's
+`AssetManagerSettings`, alongside `Map`, `GameFeatureData`, `Frontend`, and five others. An
+experience delivered in a mod pak under a scanned path is discoverable without a code change.
 
 And there is a selector. The string `-BlamExperience=` sits directly alongside `OptionsString`,
 `ABlamGameMode`, `ABlamGameModePlayerStart`, and `UBlamGameInstance` — the exact neighbourhood of
@@ -479,9 +485,55 @@ Decides between A and B. Do not build anything until this returns.
    > different modules, which is exactly that failure mode. **Disregard those; they were never
    > verified.**
    >
-   > **Next:** validate every lookup with `GetFullName()` first, read the settings CDO by walking
-   > `UDeveloperSettings` subclasses rather than guessing paths, and run the switch test from a
-   > gameplay world rather than the frontend.
+   > **Second pass, same day, CU3.** The switch test was run and **did not produce a verdict**, for a
+   > reason worth recording: it passed the wrong kind of value.
+   >
+   > **Verified — the shipped experience is empty.** `BP_BlamExperienceDefault` loads via `LoadAsset`,
+   > and its class chain is
+   >
+   > ```text
+   > BP_BlamExperienceDefault_C
+   >   -> /Script/BlamExperience.BlamExperienceDefinition
+   >   -> /Script/Engine.PrimaryDataAsset
+   >   -> /Script/Engine.DataAsset -> Object
+   > ```
+   >
+   > Its CDO carries `GameFeaturesToEnable = 0`, `Actions = 0`, `ActionSets = 0`. **All three are
+   > empty.** The framework is live but *unused*: the campaign does not get its gameplay from it.
+   > That cuts both ways — nothing to conflict with, but also no worked example of how to compose a
+   > Halo mode out of one.
+   >
+   > **Verified — experiences are a registered primary asset type.** The engine's
+   > `AssetManagerSettings` scans eight types, and `BlamExperienceDefinition` is one of them:
+   >
+   > ```text
+   > Map  PrimaryAssetLabel  InputMappingContext  Frontend
+   > GameFeatureData  BlamBuiltInMapInfoDataAsset  BlamExperienceDefinition  Audio Globals
+   > ```
+   >
+   > This matters twice over. An experience shipped in a mod pak under a scanned path will be
+   > *discovered* by the AssetManager without any code change. And it means `-BlamExperience=`
+   > almost certainly takes an `FPrimaryAssetId` — `BlamExperienceDefinition:BP_BlamExperienceDefault`
+   > — the way Lyra's `-Experience=` does, **not** the `/Game/…` object path the test passed.
+   >
+   > **So the switch remains unverified**, and the next attempt should pass the primary-asset-id form.
+   >
+   > **Also verified, and it clears the switch of suspicion:** the direct-exe run hung after the title
+   > screen, but a control launch with **no switch at all** hung identically — same place, 2124s vs
+   > 2139s CPU, 6496 MB vs 6505 MB resident. The hang is the launch route, not the switch. A
+   > Steam-launched run stayed responsive throughout. **Launch through Steam; direct-exe launches hang
+   > leaving the title screen even though the bridge answers and the frontend renders.**
+   >
+   > **Blocked on the environment, not the game.** Menu input could not be delivered: the foreground
+   > window was held by an *invisible* `GameInputSvc` window, so `SetForegroundWindow` failed, a
+   > synthetic click at the window centre failed to claim it, and `game_input` correctly reported the
+   > focus warning. Reaching a gameplay world — needed to see `BlamExperienceManagerComponent` and
+   > `CurrentExperience` — needs that cleared or a human at the keyboard.
+   >
+   > **Next:** relaunch through Steam with
+   > `-BlamExperience=BlamExperienceDefinition:BP_BlamExperienceDefault`, get into any mission, and
+   > read `CurrentExperience` off the manager component. Passing a deliberately bogus id in a second
+   > run is the cheap discriminator: if the game behaves identically either way, the switch is dead.
 
 **Gate:** ~~if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.~~
 **Closed 2026-08-04 on B**, for the reason recorded above: the invocation path for A is verified

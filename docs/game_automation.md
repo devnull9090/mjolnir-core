@@ -136,6 +136,22 @@ Bandana).
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.
 
+**Direct-exe launch hangs leaving the title screen. Launch through Steam.** Verified 2026-08-04 on
+CU3, twice. `Start-Process` on `HaloCampaignEvolved.exe` reaches the frontend and the bridge answers
+normally, but the first input that takes it off the title screen wedges the game: not responding,
+one core spinning, ~6.5 GB resident, and it never recovers. A control launched the same way with no
+extra arguments hung identically — 2124s vs 2139s CPU, 6496 MB vs 6505 MB — so it is the launch
+route, not anything passed on the command line. Steam-launched runs stayed responsive through the
+same sequence. Steam being already running does not help; the game has to be started *by* Steam.
+
+This is why `game_launch` defaults to `via: "steam"`. The `exe` route is for cases that never leave
+the frontend.
+
+**`mj.props()` on a Blueprint CDO with authored array data can kill the game.** The native
+`Default__BlamExperienceDefinition` dumps fine. `Default__BP_BlamExperienceDefault_C` — the same
+class with real content behind it — took the process down. Read named fields individually with
+`pcall`, and prefer `GetArrayNum()` over stringifying an array whole.
+
 **`StaticFindObject` returns a non-null garbage pointer for paths that do not exist, and reading
 properties off one kills the process.** Verified 2026-08-04 on CU3. A loop that looked up
 `/Script/<module>.<name>` for five module names and four class names printed `FOUND` for all
