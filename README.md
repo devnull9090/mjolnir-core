@@ -41,14 +41,15 @@ mjolnir-core/
 │   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
-├── config/                      # Reference UE4SS-settings.ini
+├── config/                      # Reference UE4SS-settings.ini + CU3 build lock
 ├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
 ├── keys/                        # Public release-signing keys
 ├── defs/                        # Exported tag definition corpus (schema only)
+├── changelog/                   # Public release notes, one file per tagged release
 ├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
-├── tools/pe/                    # PE/binary inspection helpers
+├── tools/pe/                    # PE/binary inspection, AOB signature checker
 ├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer
@@ -96,7 +97,8 @@ administration. Runtime travel and session preservation still require in-game ve
 
 | Command | Purpose |
 | :--- | :--- |
-| `mjolnir_maps` | List verified CU2 root world package keys and paths |
+| `mjolnir_maps` | List verified CU3 root world package keys and paths |
+| `mjolnir_kick <name>` | Send a player the kick notice (see caveat below) |
 | `mjolnir_travel a15` | Dispatch plain travel to the A15 campaign world |
 | `mjolnir_listen a15` | Dispatch travel to A15 with `?listen` |
 | `mjolnir_scan_blam` | Dump live BlamEngine classes, functions, and candidate instances |
@@ -121,8 +123,20 @@ gives launch, level load, live state reads, input and screenshots without a pers
 Install with `scripts/install-bridge.ps1`; see
 [`docs/game_automation.md`](docs/game_automation.md).
 
+> **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
+> C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and
+> unreachable from UE4SS — the call raises "attempt to call a TrivialObject value". The only
+> kick-shaped reflected function in the build is `PlayerController:ClientWasKicked`, so the
+> command sends that and leaves the disconnect to the client. It is not enforcement.
+
 ### MJOLNIRCore
 Core framework initialization and `UEHelpers` utility library.
+
+> **A mod that calls a MJOLNIR-only helper must ship its own `Scripts/UEHelpers.lua`.**
+> `require("UEHelpers")` searches the mod's own `Scripts/` first and UE4SS's `Mods/shared/`
+> second. Without a local copy it silently binds to upstream's UEHelpers, which has no
+> `SafeGetPlayerName`, `FindObjectSafe`, `GetAllPlayerControllers` or `GetGameSession` — and
+> the failure surfaces as a nil call at the first use, not at load.
 
 ---
 
@@ -153,6 +167,28 @@ Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not cur
 ---
 
 ## Development
+
+### After a Game Update
+
+The game updates without asking, and two things break quietly when it does: the AOB signatures
+UE4SS uses to find engine internals, and every offset recorded in `docs/`. Both checks are cheap,
+and neither is visible in the UE4SS log.
+
+```bash
+python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe"
+```
+
+Reports `OK`, `NO MATCH`, or `AMBIGUOUS xN` per signature, and exits nonzero unless all four
+resolve **uniquely**. Ambiguity is the dangerous case: UE4SS logs an address and starts fine, then
+fails somewhere unrelated. See [`signatures/README.md`](signatures/README.md).
+
+```bash
+python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json
+```
+
+Checks the install against the committed lock and names every file that moved. Regenerate with
+`-o config/hce-build.lock.json`; `--binaries-only` skips the 74 GiB content pass. The current build
+and what has been re-verified against it are in [`docs/build_lock.md`](docs/build_lock.md).
 
 ### Reverse Engineering
 Ghidra Java scripts for the simulation factory and host loader path:
@@ -262,8 +298,8 @@ directory and release pipeline. Build it from `apps/launcher` as before.
 
 ### Tag Editor
 
-`apps/tag-editor` is a Guerilla-style tag, texture and audio browser and editor built on the same
-stack as the launcher: Tauri 2, React 19, Vite, and Tailwind 4. It reads assets from your own
+`apps/tag-editor` is a Guerilla-style tag, texture, audio and script browser and editor built on
+the same stack as the launcher: Tauri 2, React 19, Vite, and Tailwind 4. It reads assets from your own
 installation — nothing is bundled, and nothing shipped is ever modified.
 
 Most people should install it from the **launcher's Tools tab**, which keeps it updated. To build
@@ -286,20 +322,31 @@ Fields are editable: click a value, type a new one, press Enter. Every edit is a
 re-parsed from scratch and re-walked before it is kept, so a value that does not fit is rejected
 rather than written.
 
-Beyond tags, it browses the two asset kinds that used to need external tools:
+Beyond tags, it opens the three things that used to need external tools:
 
 - **Textures** — decoded and displayed, with zoom and PNG export. Both cook paths are handled
   (virtual textures and classic mip chains); 4787 of 4844 decode, and the 57 that do not ship no
-  pixel data at all. See [`docs/ue_texture_format.md`](docs/ue_texture_format.md).
+  pixel data at all. They can also be **swapped**: point a texture at a PNG from inside a mod
+  project, or run `mjolnir texture swap` on the command line. Either way the image is re-encoded
+  into a payload of exactly the shipped size, so the override replaces one chunk and moves no
+  metadata. See [`docs/texture_swapping.md`](docs/texture_swapping.md) for the walkthrough and
+  [`docs/ue_texture_format.md`](docs/ue_texture_format.md) for the format.
 - **Audio** — the ~6 GB of Wwise sound in the `.pak` siblings, played in the editor, named by the
   event that plays it rather than by a bare numeric ID, and exportable as `.wem`. See
   [`docs/wwise_audio_format.md`](docs/wwise_audio_format.md).
+- **Scripts** — every campaign mission is scripted in HSC, and the original source ships in the
+  `scenario` tag. A mission gets a third view beside Form and Tree: the source with highlighting
+  and an outline that jumps to any script or global. It is editable, and compiles back into the
+  tag — writing all thirteen missions back unmodified reproduces them byte for byte. See
+  [`docs/blam_script.md`](docs/blam_script.md).
 
 Edits belong to a **mod project** — a folder of small JSON recipe files naming tags and fields
-rather than byte offsets, which autosaves on every edit and survives game updates. From the mod
-panel a project can be **tested in game** (baked into an override container and installed beside
-the shipped ones, removable in one click), **exported** as a `.mjolnir` archive, and **published**
-to [the hub](https://mjolnircore.com) — signed with a per-device Ed25519 key, over an account link
+rather than byte offsets, which autosaves on every edit and survives game updates. Script rewrites
+and replacement textures are stored alongside those field edits and re-applied against whatever
+the player has installed whenever the project is built. From the mod panel a project can be
+**tested in game** (baked into an override container and installed beside the shipped ones,
+removable in one click), **exported** as a `.mjolnir` archive, and **published** to
+[the hub](https://mjolnircore.com) — signed with a per-device Ed25519 key, over an account link
 established by device pairing rather than by pasting a key.
 
 Editing a tag and shipping the result **works end to end**, resizes included — verified by editing
@@ -339,10 +386,19 @@ conflict?" is an exact set intersection rather than an author's declaration. See
 to run it locally.
 
 ### Coming Soon
-- **Texture replacement**: the editor views and exports textures today; writing them back is designed, not built
-- **Recipe distribution**: ship the mod recipe rather than baked containers, and let each launcher bake locally
-- **Collections**: shareable profiles — a list of mod references, not bytes
-- **Player Tracker**: Multiplayer stats and leaderboards
+
+Phase 4 in [`docs/hub_architecture.md`](docs/hub_architecture.md), which tracks what is live per
+phase. Texture replacement used to head this list and shipped in
+[tag editor 0.8.0](changelog/tag-editor/0.8.0.md).
+
+- **Recipe distribution**: mods are *authored* as recipes today — a project names tags and fields
+  rather than byte offsets — but what ships is still a baked container. Distributing the recipe
+  itself, and letting each launcher bake it against its own install, is the remaining half
+- **Delta content mods**: patch against the player's own install rather than replacing a whole
+  chunk, and merge soft conflicts field by field
+- **Collections**: shareable profiles — a list of mod references, not bytes. Local profiles are
+  live in the launcher; publishing one to the hub is not built
+- **Player Tracker**: multiplayer stats and leaderboards
 
 ---
 

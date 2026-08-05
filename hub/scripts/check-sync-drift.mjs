@@ -2,7 +2,7 @@
 // generate. Run after `npm run sync` — see the `sync:check` script.
 //
 // The artifacts are snapshots of files that live outside the Next project
-// (docs/, defs/), so nothing in the hub notices when the source moves and the
+// (docs/, defs/, changelog/), so nothing in the hub notices when the source moves and the
 // snapshot does not. `pnpm build` regenerates them, which means a stale commit
 // still builds and deploys correctly, and the only symptom is a site missing
 // content nobody thinks to look for.
@@ -20,11 +20,12 @@ import { fileURLToPath } from "node:url";
 
 const hubDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Everything the two sync scripts write, relative to hub/. */
+/** Everything the sync scripts write, relative to hub/. */
 const OUTPUTS = [
   "src/generated/docs.json",
   "src/generated/tag-defs.json",
   "src/generated/tag-index.json",
+  "src/generated/changelog.json",
   "public/tag-search.json",
   "public/docs-images",
 ];

@@ -266,8 +266,16 @@ pub fn launch(id: &str) -> Result<(), String> {
     let id = known(id)?.id;
     let record = installed(id).ok_or("That tool is not installed.")?;
     let exe = tool_dir(id).join(&record.exe);
-    std::process::Command::new(&exe)
-        .current_dir(tool_dir(id))
+    let mut command = std::process::Command::new(&exe);
+    command.current_dir(tool_dir(id));
+    // Hand the tool the install this launcher is working on, so a location
+    // the player had to set here is not something they have to find again
+    // over there. Each tool treats it as a starting point: a location chosen
+    // inside the tool still wins.
+    if let Some((install, _)) = crate::find_game_install() {
+        command.env(crate::GAME_DIR_ENV, install);
+    }
+    command
         .spawn()
         .map_err(|e| format!("Could not start {}: {e}", exe.display()))?;
     Ok(())

@@ -1,4 +1,4 @@
-//! Cooked Texture2D reading.
+//! Cooked Texture2D reading and rewriting.
 //!
 //! Format documented in `docs/ue_texture_format.md`. A cooked texture is
 //! serialized as `FTexturePlatformData`: `SizeX`, `SizeY`, `PackedData`, the
@@ -7,6 +7,12 @@
 //! `.ubulk`, addressed by Morton code through an RLE offset table. Otherwise it
 //! is a classic mip chain: each mip is either inline in the export or appended
 //! to the `.ubulk` in order.
+//!
+//! [`encode`] is the inverse: it writes new pixels back into a payload of
+//! exactly the shipped size, which is what makes a texture swap a chunk
+//! replacement rather than a re-cook.
+
+pub mod encode;
 
 use serde::Serialize;
 
@@ -42,8 +48,10 @@ pub struct Mip {
 pub enum MipSource {
     /// Byte range in the `.ubulk`, which holds the external mips in order.
     Bulk { offset: u64, len: u64 },
-    /// Payload carried inline in the export.
-    Inline(Vec<u8>),
+    /// Payload carried inline in the export. `at` is its offset within the
+    /// export blob, which is what lets a rewrite splice new pixels back in
+    /// without re-serialising the package.
+    Inline { at: usize, bytes: Vec<u8> },
 }
 
 impl Texture {
@@ -100,6 +108,12 @@ impl TileOffsets {
             return None;
         }
         Some(base + (address - self.addresses[i]))
+    }
+
+    /// Whether a tile is actually stored at this grid position. A mip's grid
+    /// is usually sparse, so this is how a caller counts what is really there.
+    pub fn has_tile(&self, tx: u32, ty: u32) -> bool {
+        self.offset_of(morton(tx, ty)).is_some()
     }
 }
 
@@ -319,7 +333,10 @@ pub fn parse_texture(data: &[u8]) -> Result<Texture, String> {
             };
             let start = r.pos;
             r.pos = end;
-            MipSource::Inline(data[start..end].to_vec())
+            MipSource::Inline {
+                at: start,
+                bytes: data[start..end].to_vec(),
+            }
         };
         r.skip(12);
         mips.push(Mip {
@@ -554,7 +571,7 @@ pub fn assemble_mip(tex: &Texture, ubulk: &[u8], mip: u32) -> Result<TextureImag
         Payload::Classic(mips) => {
             let m = &mips[mip as usize];
             let data: &[u8] = match &m.source {
-                MipSource::Inline(bytes) => bytes,
+                MipSource::Inline { bytes, .. } => bytes,
                 MipSource::Bulk { offset, len } => {
                     let (start, end) = (*offset as usize, (*offset + *len) as usize);
                     ubulk

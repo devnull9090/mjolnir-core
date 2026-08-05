@@ -74,6 +74,9 @@ export function Navbar() {
           <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Mods
           </Link>
+          <Link href="/changelog" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Changelog
+          </Link>
           <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors flex items-center gap-1.5">
             <DiscordIcon className="w-4 h-4" />
             Discord

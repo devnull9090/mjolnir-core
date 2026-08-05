@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEditor } from "../stores/editor-store";
 import { isTauri } from "../lib/mock";
-import type { HubStatus, ProjectMeta, TagChange } from "../lib/api";
+import type { HubStatus, ProjectMeta, TagChange, TextureChange } from "../lib/api";
 
 /** Folder picker; outside Tauri (browser dev against the mock) any string
  *  keeps the flow walkable. */
@@ -199,6 +199,42 @@ function MetaForm({ meta }: { meta: ProjectMeta }) {
 }
 
 /** One tag's edits: open the tag, revert a line, or drop the lot. */
+/** One replaced texture in the change list. */
+function TextureRow({ change }: { change: TextureChange }) {
+  const openTab = useEditor((s) => s.openTab);
+  const label = change.path.split("/").pop() ?? change.path;
+  const stale = change.index === null;
+
+  return (
+    <div className="flex items-baseline gap-2 border-b border-border-subtle/60 px-3 py-2">
+      <button
+        type="button"
+        disabled={stale}
+        title={change.path}
+        onClick={() => {
+          if (change.index !== null) void openTab("texture", change.index, label);
+        }}
+        className={`min-w-0 truncate font-mono text-xs ${
+          stale ? "cursor-default text-text-dim" : "text-mjolnir-gold hover:underline"
+        }`}
+      >
+        {label}
+      </button>
+      {stale && (
+        <span
+          className="shrink-0 text-[10px] text-accent-red"
+          title="This texture is not in the open installation — the game may have updated. Revert the swap, or fix the recipe by hand."
+        >
+          missing
+        </span>
+      )}
+      <span className="ml-auto shrink-0 font-mono text-[10px] text-text-dim">
+        {Math.round(change.bytes / 1024).toLocaleString()} KB
+      </span>
+    </div>
+  );
+}
+
 function ChangeRow({ change }: { change: TagChange }) {
   const openTab = useEditor((s) => s.openTab);
   const revertProjectEdit = useEditor((s) => s.revertProjectEdit);
@@ -496,9 +532,12 @@ function ProjectPanel() {
   const testMod = useEditor((s) => s.testMod);
   const untestMod = useEditor((s) => s.untestMod);
 
-  const hasChanges = project.changes.length > 0;
+  // A mod that only repaints a texture still has something to bake, so the
+  // test and export buttons key off both lists.
+  const hasChanges = project.changes.length > 0 || project.textures.length > 0;
   const tested = project.test_files.length > 0;
   const editCount = project.changes.reduce((n, c) => n + c.edits.length, 0);
+  const swapCount = project.textures.length;
 
   return (
     <>
@@ -531,12 +570,22 @@ function ProjectPanel() {
         <h2 className="px-3 pt-2 text-[10px] uppercase tracking-wider text-text-dim">
           Changes · {editCount} edit{editCount === 1 ? "" : "s"} in {project.changes.length} tag
           {project.changes.length === 1 ? "" : "s"}
+          {swapCount > 0 &&
+            ` · ${swapCount} texture${swapCount === 1 ? "" : "s"}`}
         </h2>
         {hasChanges ? (
-          project.changes.map((c) => <ChangeRow key={`${c.group}:${c.tag}`} change={c} />)
+          <>
+            {project.changes.map((c) => (
+              <ChangeRow key={`${c.group}:${c.tag}`} change={c} />
+            ))}
+            {project.textures.map((t) => (
+              <TextureRow key={t.path} change={t} />
+            ))}
+          </>
         ) : (
           <p className="px-3 py-2 text-[11px] text-text-dim">
-            No changes yet. Open a tag and edit a field — it lands here automatically.
+            No changes yet. Open a tag and edit a field, or replace a texture —
+            it lands here automatically.
           </p>
         )}
       </div>

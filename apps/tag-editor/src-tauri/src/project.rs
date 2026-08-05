@@ -54,6 +54,20 @@ pub struct SavedScript {
     pub tag: String,
 }
 
+/// A texture whose pixels the mod replaces.
+///
+/// The replacement image is not in `edits.json` either, and for the same
+/// reason as a script: a PNG runs to megabytes of binary, and a mod author
+/// wants it as a file they can repaint in any image editor and put under
+/// version control. They live at `textures/<path>.png`, and this records
+/// which textures have one.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SavedTexture {
+    /// Texture path as the catalog knows it, with no extension, e.g.
+    /// `characters/weapons/assaultrifle/T_ar_default_D`.
+    pub path: String,
+}
+
 #[derive(Serialize, Deserialize)]
 struct EditsFile {
     schema_version: u32,
@@ -62,6 +76,9 @@ struct EditsFile {
     /// the default is for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     scripts: Vec<SavedScript>,
+    /// Likewise absent in projects written before texture swapping existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    textures: Vec<SavedTexture>,
 }
 
 /// Where a tag's `.hsc` files live inside a project.
@@ -71,6 +88,39 @@ pub fn script_dir(root: &Path, group: &str, tag: &str) -> PathBuf {
         dir.push(part);
     }
     dir
+}
+
+/// Turn one path component into something safe to join onto a project folder.
+///
+/// Asset paths come out of the game's own containers, so they are data rather
+/// than something the editor chose; a component of `..` must never walk out
+/// of the project.
+fn safe_component(part: &str) -> String {
+    part.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .replace("..", "__")
+}
+
+/// Where one texture's replacement PNG lives inside a project.
+pub fn texture_path(root: &Path, path: &str) -> PathBuf {
+    let mut file = root.join("textures");
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    for (i, part) in parts.iter().enumerate() {
+        let safe = safe_component(part);
+        if i + 1 == parts.len() {
+            file.push(format!("{safe}.png"));
+        } else {
+            file.push(safe);
+        }
+    }
+    file
 }
 
 pub struct Project {
@@ -195,8 +245,8 @@ impl Project {
     }
 
     pub fn save_edits(&self, edits: &[SavedEdit]) -> Result<(), String> {
-        let scripts = self.load_scripts().unwrap_or_default();
-        self.save_edits_and_scripts(edits, &scripts)
+        let (scripts, textures) = self.load_sidecars();
+        self.save_all(edits, &scripts, &textures)
     }
 
     pub fn save_edits_and_scripts(
@@ -204,25 +254,90 @@ impl Project {
         edits: &[SavedEdit],
         scripts: &[SavedScript],
     ) -> Result<(), String> {
+        let (_, textures) = self.load_sidecars();
+        self.save_all(edits, scripts, &textures)
+    }
+
+    pub fn save_edits_and_textures(
+        &self,
+        edits: &[SavedEdit],
+        textures: &[SavedTexture],
+    ) -> Result<(), String> {
+        let (scripts, _) = self.load_sidecars();
+        self.save_all(edits, &scripts, textures)
+    }
+
+    /// Write `edits.json` whole. Every other save funnels through here, so a
+    /// save that only means to touch one list can never drop the others.
+    pub fn save_all(
+        &self,
+        edits: &[SavedEdit],
+        scripts: &[SavedScript],
+        textures: &[SavedTexture],
+    ) -> Result<(), String> {
         write_json(
             &self.root.join(EDITS_FILE),
             &EditsFile {
                 schema_version: 1,
                 edits: edits.to_vec(),
                 scripts: scripts.to_vec(),
+                textures: textures.to_vec(),
             },
         )
     }
 
-    /// Which tags have a script override, from `edits.json`.
-    pub fn load_scripts(&self) -> Result<Vec<SavedScript>, String> {
+    fn read_edits_file(&self) -> Result<EditsFile, String> {
         let path = self.root.join(EDITS_FILE);
         if !path.exists() {
-            return Ok(Vec::new());
+            return Ok(EditsFile {
+                schema_version: 1,
+                edits: Vec::new(),
+                scripts: Vec::new(),
+                textures: Vec::new(),
+            });
         }
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let file: EditsFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        Ok(file.scripts)
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    fn load_sidecars(&self) -> (Vec<SavedScript>, Vec<SavedTexture>) {
+        match self.read_edits_file() {
+            Ok(f) => (f.scripts, f.textures),
+            Err(_) => (Vec::new(), Vec::new()),
+        }
+    }
+
+    /// Which tags have a script override, from `edits.json`.
+    pub fn load_scripts(&self) -> Result<Vec<SavedScript>, String> {
+        Ok(self.read_edits_file()?.scripts)
+    }
+
+    /// Which textures have a replacement image, from `edits.json`.
+    pub fn load_textures(&self) -> Result<Vec<SavedTexture>, String> {
+        Ok(self.read_edits_file()?.textures)
+    }
+
+    /// Read one texture's replacement PNG back off disk.
+    pub fn read_texture_file(&self, path: &str) -> Result<Vec<u8>, String> {
+        let file = texture_path(&self.root, path);
+        std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))
+    }
+
+    /// Store a texture's replacement PNG, replacing whatever was there.
+    pub fn write_texture_file(&self, path: &str, png: &[u8]) -> Result<(), String> {
+        let file = texture_path(&self.root, path);
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(&file, png).map_err(|e| format!("{}: {e}", file.display()))
+    }
+
+    pub fn remove_texture_file(&self, path: &str) -> Result<(), String> {
+        let file = texture_path(&self.root, path);
+        if file.exists() {
+            std::fs::remove_file(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        }
+        Ok(())
     }
 
     /// Read one tag's `.hsc` files back, in name order.
@@ -321,6 +436,52 @@ mod tests {
         assert!(validate_version("1.2").is_err());
         assert!(validate_version("1.2.x").is_err());
         assert!(validate_version("1.2.3-").is_err());
+    }
+
+    #[test]
+    fn a_texture_swap_round_trips_and_survives_an_edit_save() {
+        let dir = std::env::temp_dir().join(format!("mjolnir-texture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let project = Project::create(&dir, meta()).unwrap();
+
+        let path = "characters/weapons/ar/T_ar_default_D";
+        project.write_texture_file(path, b"not really a png").unwrap();
+        project
+            .save_edits_and_textures(&[], &[SavedTexture { path: path.into() }])
+            .unwrap();
+        assert_eq!(project.load_textures().unwrap().len(), 1);
+        assert_eq!(project.read_texture_file(path).unwrap(), b"not really a png");
+
+        // A field edit saving on its own must not drop the texture list.
+        project
+            .save_edits(&[SavedEdit {
+                group: "weapon".into(),
+                tag: "objects/weapons/pistol/pistol".into(),
+                field: "magazines[0].rounds loaded maximum".into(),
+                value: "24".into(),
+            }])
+            .unwrap();
+        assert_eq!(project.load_textures().unwrap().len(), 1, "textures dropped");
+
+        project.remove_texture_file(path).unwrap();
+        assert!(project.read_texture_file(path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_texture_path_cannot_walk_out_of_the_project() {
+        let root = Path::new("/project");
+        let evil = texture_path(root, "../../../etc/passwd");
+        assert!(
+            evil.starts_with(root.join("textures")),
+            "{} escaped",
+            evil.display()
+        );
+        assert!(!evil.to_string_lossy().contains(".."));
+        assert_eq!(
+            texture_path(root, "a/b/T_x"),
+            root.join("textures").join("a").join("b").join("T_x.png")
+        );
     }
 
     #[test]

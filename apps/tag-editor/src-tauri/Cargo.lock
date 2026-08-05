@@ -2350,6 +2350,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "libredox"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2482,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-tag-editor"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "blam-defs",
@@ -2495,7 +2501,6 @@ dependencies = [
  "humantime",
  "lewton",
  "mjolnir-sign",
- "png 0.17.16",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2503,8 +2508,8 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
- "texture2ddecoder",
  "ue-iostore",
+ "ue-texture",
  "windows",
  "ww2ogg",
  "zip",
@@ -4522,6 +4527,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "texpresso"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8550677e2259d675a7841cb1403db35f330cc9e58674c8c5caa12dd12c51dc71"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "texture2ddecoder"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4966,6 +4980,16 @@ dependencies = [
  "libloading 0.8.9",
  "oozextract",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "ue-texture"
+version = "0.1.0"
+dependencies = [
+ "png 0.17.16",
+ "serde",
+ "texpresso",
+ "texture2ddecoder",
 ]
 
 [[package]]

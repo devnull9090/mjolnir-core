@@ -1,0 +1,15 @@
+[package]
+name = "ue-texture"
+description = "Read and rewrite cooked Unreal Texture2D payloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+texture2ddecoder = "0.1"
+# Pure-Rust BC1/BC2/BC3 encoder (a port of libsquish), so a texture swap needs
+# no ISPC toolchain or prebuilt binaries.
+texpresso = "2"
+png = "0.17"

@@ -563,10 +563,10 @@ impl<'a> Layout<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn section_bytes(magic: &[u8; 4], version: u32, content: &[u8]) -> Vec<u8> {
+    pub(crate) fn section_bytes(magic: &[u8; 4], version: u32, content: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(magic);
         out.extend_from_slice(&version.to_le_bytes());
@@ -575,7 +575,7 @@ mod tests {
         out
     }
 
-    fn words(vals: &[u32]) -> Vec<u8> {
+    pub(crate) fn words(vals: &[u32]) -> Vec<u8> {
         vals.iter().flat_map(|v| v.to_le_bytes()).collect()
     }
 
@@ -590,7 +590,7 @@ mod tests {
 
     /// Mirrors the real camera_track layout: a control-points block holding a
     /// position and an orientation.
-    fn synth_camera_track() -> Vec<u8> {
+    pub(crate) fn synth_camera_track() -> Vec<u8> {
         let mut blob = Vec::new();
         for s in [
             "control points",

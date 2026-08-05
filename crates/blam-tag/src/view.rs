@@ -415,6 +415,69 @@ fn array_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::tests::{section_bytes, synth_camera_track, words};
+
+    /// A camera_track payload whose control-points block holds `n` elements.
+    ///
+    /// The root block carries one element wrapper; the inner block is flagged
+    /// `1`, so its fixed-width elements follow the header with no wrappers.
+    fn camera_track_payload(n: u32) -> Vec<u8> {
+        let mut inner = words(&[n, 1]);
+        inner.extend(std::iter::repeat_n(0u8, n as usize * 28));
+        let wrapper = section_bytes(b"lbgt", 0, &inner);
+
+        let mut out = words(&[1, 0]);
+        out.extend_from_slice(&[0u8; 12]);
+        out.extend_from_slice(&section_bytes(b"tsgt", wrapper.len() as u32, &wrapper));
+        out
+    }
+
+    fn control_points(n: u32, cap: usize) -> Node {
+        let body = synth_camera_track();
+        let layout = Layout::parse(&body).expect("layout");
+        let payload = camera_track_payload(n);
+        let block = crate::data::read_block(&layout, &payload, 0).expect("walk");
+        let mut nodes = root_capped(&layout, &block, cap);
+        assert_eq!(nodes.len(), 1, "the root declares one block field");
+        nodes.remove(0)
+    }
+
+    /// A block's `count` is what the tag holds, whatever the element cap
+    /// materialised. Conflating the two is what made `mjolnir values` report
+    /// exactly 64 string references for every `unic` tag carrying more.
+    #[test]
+    fn a_block_counts_every_element_past_the_build_cap() {
+        let node = control_points(318, DEFAULT_MAX_ELEMENTS);
+
+        assert_eq!(node.kind, Kind::Block);
+        assert_eq!(node.count, Some(318));
+        assert_eq!(
+            node.children.len(),
+            DEFAULT_MAX_ELEMENTS,
+            "the cap bounds what is built, not what is counted"
+        );
+    }
+
+    /// Raising the cap materialises the rest, so a caller asking for every
+    /// element gets every element rather than the first 64.
+    #[test]
+    fn a_raised_cap_materialises_every_element() {
+        let node = control_points(318, 4000);
+
+        assert_eq!(node.count, Some(318));
+        assert_eq!(node.children.len(), 318);
+    }
+
+    /// The cap is per block, so a count under it is materialised whole and the
+    /// two numbers agree — the case that hid the defect (`team_names` reports 9
+    /// correctly).
+    #[test]
+    fn a_block_under_the_cap_is_built_whole() {
+        let node = control_points(9, DEFAULT_MAX_ELEMENTS);
+
+        assert_eq!(node.count, Some(9));
+        assert_eq!(node.children.len(), 9);
+    }
 
     #[test]
     fn structural_types_are_not_shown() {

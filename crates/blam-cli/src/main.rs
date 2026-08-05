@@ -11,9 +11,11 @@ use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
+mod container;
 mod defs;
 mod hsc;
 mod index;
+mod texture;
 
 fn hex(bytes: &[u8]) -> String {
     bytes
@@ -31,7 +33,7 @@ struct Cli {
 }
 
 #[derive(Args, Clone)]
-struct Source {
+pub struct Source {
     /// Path to the game's `Meteorite/Content/Paks` directory.
     #[arg(long, env = "HCE_PAKS")]
     paks: PathBuf,
@@ -86,6 +88,8 @@ enum Command {
     Pack(PackArgs),
     /// Hexdump any chunk in the shipped containers, found by path.
     Chunk(ChunkArgs),
+    /// Name the shipped assets an override container replaces.
+    Container(container::ContainerArgs),
     /// Print or edit a tag payload already on disk, without the paks or Oodle.
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
@@ -96,6 +100,9 @@ enum Command {
     Scripting(ScriptingArgs),
     /// Compile `.hsc` files and report what the compiler makes of them.
     Compile(CompileArgs),
+    /// Inspect, export and swap cooked textures.
+    #[command(subcommand_help_heading = "Texture")]
+    Texture(texture::TextureArgs),
 }
 
 #[derive(Args)]
@@ -443,11 +450,13 @@ fn main() -> Result<()> {
         Command::TocRoundtrip(a) => toc_roundtrip(a),
         Command::Pack(a) => pack(a),
         Command::Chunk(a) => chunk(a),
+        Command::Container(a) => container::run(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Compile(a) => compile(a),
+        Command::Texture(a) => texture::run(a),
     }
 }
 
@@ -468,7 +477,7 @@ fn tag_file(a: TagFileArgs) -> Result<()> {
         .with_context(|| format!("{} is not readable as a tag", a.file.display()))?;
 
     let Some(field) = a.field.as_deref() else {
-        let nodes = blam_tag::view::root(&l, &block);
+        let nodes = blam_tag::view::root_capped(&l, &block, build_cap(a.elements));
         println!("{}", a.file.display());
         println!(
             "  {} v{} - {} bytes, {} nodes\n",
@@ -1092,7 +1101,7 @@ fn pack(a: PackArgs) -> Result<()> {
     let built = blam_pack::build_override(
         source,
         &a.src.oodle_roots(),
-        &[blam_pack::TagEdit {
+        &[blam_pack::ChunkEdit {
             label: entry.path.clone(),
             chunk: entry.chunk,
             original_len: original.len(),
@@ -1641,7 +1650,7 @@ fn values(a: ValuesArgs) -> Result<()> {
     let block = tag
         .read_data(&l)
         .with_context(|| format!("{} values are not readable", entry.path))?;
-    let nodes = blam_tag::view::root(&l, &block);
+    let nodes = blam_tag::view::root_capped(&l, &block, build_cap(a.elements));
 
     println!("{}", entry.path);
     println!(
@@ -2454,6 +2463,38 @@ struct PrintOpts {
     all: bool,
 }
 
+/// How many elements per block to materialise so `--elements n` can print `n`.
+///
+/// The printer can only show what the tree holds, so a cap below `--elements`
+/// silently truncates the listing. The default cap is still the floor: it keeps
+/// the node totals `values` prints stable for the common case, and asking for
+/// fewer elements is a display choice, not a reason to build a smaller tree.
+fn build_cap(elements: usize) -> usize {
+    elements.max(blam_tag::view::DEFAULT_MAX_ELEMENTS)
+}
+
+/// The `[n element(s) of max]` summary for a block.
+///
+/// The count is [`blam_tag::view::Node::count`] — what the tag holds — not
+/// `children.len()`, which is only what the walk materialised. Reading the
+/// latter made every `unic` tag report exactly 64 string references, the
+/// per-block build cap, in place of the hundreds actually there.
+///
+/// `shown` is how many elements the printer is about to list, or `None` when it
+/// lists none because the depth limit stops here.
+fn block_summary(node: &blam_tag::view::Node, shown: Option<usize>) -> String {
+    let total = node.count.map(|c| c as usize).unwrap_or(node.children.len());
+    let limit = node
+        .max_count
+        .map(|m| format!(" of {m}"))
+        .unwrap_or_default();
+    let cut = match shown {
+        Some(n) if n < total => format!(", showing {n}"),
+        _ => String::new(),
+    };
+    format!("[{total} element(s){limit}{cut}]")
+}
+
 fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
     use blam_tag::view::Kind;
 
@@ -2467,19 +2508,22 @@ fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
         &node.name
     };
 
+    // Children are printed one level down, which the depth limit may cut off.
+    let lists_children = depth < a.depth + 1;
+
     match node.kind {
         Kind::Block => {
-            let limit = node
-                .max_count
-                .map(|m| format!(" of {m}"))
-                .unwrap_or_default();
+            let shown = lists_children.then(|| node.children.len().min(a.elements));
             println!(
-                "{indent}{name}  [{} element(s){limit}]  {}",
-                node.children.len(),
+                "{indent}{name}  {}  {}",
+                block_summary(node, shown),
                 node.block_name.as_deref().unwrap_or("")
             );
         }
-        Kind::Array => println!("{indent}{name}  [array of {}]", node.children.len()),
+        Kind::Array => println!(
+            "{indent}{name}  [array of {}]",
+            node.count.map(|c| c as usize).unwrap_or(node.children.len())
+        ),
         Kind::Element => println!("{indent}{name}"),
         Kind::Struct => println!("{indent}{name}  ({})", node.type_name),
         Kind::Field => {
@@ -2499,8 +2543,11 @@ fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
     for child in node.children.iter().take(limit) {
         print_node(child, depth + 1, a);
     }
-    if node.children.len() > limit {
-        println!("{indent}  ... {} more", node.children.len() - limit);
+    // What is left unprinted is measured against the real count, so elements
+    // the build cap never materialised are counted too.
+    let total = node.count.map(|c| c as usize).unwrap_or(node.children.len());
+    if lists_children && total > limit {
+        println!("{indent}  ... {} more", total - limit);
     }
 }
 
@@ -3208,4 +3255,72 @@ fn validate(a: ValidateArgs) -> Result<()> {
         pct(c.data_exact)
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blam_tag::view::{Kind, Node};
+    use blam_tag::Scalar;
+
+    fn node(kind: Kind) -> Node {
+        Node {
+            kind,
+            name: "string references".into(),
+            type_name: "block".into(),
+            offset: 0,
+            size: 12,
+            value: Scalar::Empty,
+            options: Vec::new(),
+            block_name: None,
+            max_count: None,
+            count: None,
+            children: Vec::new(),
+        }
+    }
+
+    /// A block holding `count` elements of which `built` were materialised.
+    fn block(count: u32, built: usize, max: u32) -> Node {
+        Node {
+            count: Some(count),
+            max_count: Some(max),
+            children: vec![node(Kind::Element); built],
+            ..node(Kind::Block)
+        }
+    }
+
+    /// The regression: a `unic` tag's 318 string references were printed as 64,
+    /// the per-block build cap, because the summary read `children.len()`.
+    #[test]
+    fn a_block_summary_reports_the_real_count_not_what_was_built() {
+        let node = block(318, blam_tag::view::DEFAULT_MAX_ELEMENTS, 24576);
+        assert_eq!(
+            block_summary(&node, Some(4)),
+            "[318 element(s) of 24576, showing 4]"
+        );
+    }
+
+    /// A block printed whole says so, with no trailing note.
+    #[test]
+    fn a_fully_shown_block_is_not_marked_truncated() {
+        let node = block(9, 9, 24576);
+        assert_eq!(block_summary(&node, Some(9)), "[9 element(s) of 24576]");
+    }
+
+    /// When the depth limit stops before the elements, the count still stands
+    /// on its own — claiming to be "showing 4" of a listing that prints nothing
+    /// would be worse than saying nothing.
+    #[test]
+    fn a_depth_limited_block_states_its_count_alone() {
+        let node = block(318, blam_tag::view::DEFAULT_MAX_ELEMENTS, 24576);
+        assert_eq!(block_summary(&node, None), "[318 element(s) of 24576]");
+    }
+
+    /// `--elements` has to reach the builder, or the printer can never show
+    /// more than the default cap however high it is set.
+    #[test]
+    fn the_build_cap_never_falls_below_what_was_asked_for() {
+        assert_eq!(build_cap(4000), 4000);
+        assert_eq!(build_cap(4), blam_tag::view::DEFAULT_MAX_ELEMENTS);
+    }
 }

@@ -3,6 +3,10 @@
 **Status:** Working. Verified end to end on 2026-07-27 against
 `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam).
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 Every experiment in this repository used to end at the same place: build the thing, then sit in
 front of the game and type at it. Load a level, alt-tab, run a command, read a number off the
 screen, write it down. That is slow, it is easy to get wrong, and it means no experiment can be

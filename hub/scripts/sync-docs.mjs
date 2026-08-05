@@ -20,6 +20,7 @@ const GITHUB_BLOB = "https://github.com/devnull9090/mjolnir-core/blob/main/docs"
 
 /** Notes are rendered in this order. Anything else in docs/ is ignored. */
 const ORDER = [
+  "build_lock.md",
   "tag_data_pipeline.md",
   "tag_body_format.md",
   "iostore_packaging.md",
@@ -42,6 +43,7 @@ const GUIDES = [
   "getting_started.md",
   "making_your_first_mod.md",
   "tag_editing_guide.md",
+  "texture_swapping.md",
   "game_automation.md",
 ];
 

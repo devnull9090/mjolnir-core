@@ -20,6 +20,10 @@ It is written as a working log, oldest first, so the reasoning stays legible —
 conclusions that were wrong and how they were caught. If you only want the recipe, read
 [`getting_started.md`](getting_started.md) instead.
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 ## The problem, as it stood
 
 The game loads tags from UE5 IoStore containers — `.utoc` index plus `.ucas` data — under
@@ -159,6 +163,33 @@ Modelling the index for writing turned up one thing the reader had missed: the r
 directory index is **24 bytes per chunk**, not a fixed file trailer. Measured across every
 shipped container, from the single-chunk ones up to `pakchunk0` with 122,800 chunks. Treating
 it as a trailer produced a 2.9 MB index for a one-chunk container, which is how it was caught.
+
+### Reading one back: `mjolnir container`
+
+Being addressed purely by chunk ID is what makes an override work, and also what makes it
+opaque — it carries no directory index, so nothing inside it says which asset a chunk *is*.
+The names are recoverable, because the shipped containers do carry one, and matching the IDs
+back against it turns a list of hex into a list of assets:
+
+```powershell
+mjolnir container "$env:HCE_PAKS\pakchunk999-MJOLNIRDEV-super-jump_P.utoc"
+```
+
+```
+pakchunk999-MJOLNIRDEV-super-jump_P.utoc
+  container id 0x4d4a4f4c4e495200
+  1 chunk(s)
+
+  0x8da5079fbe947049 BulkData              51023 bytes  .../Tags/objects/characters/Spartans/spartans-biped.ubulk
+
+  1 shipped asset(s) replaced
+```
+
+It also reports the ways a container can be silently ignored, which all look identical from
+the outside — the mod simply does nothing and the shipped asset loads instead: a name without
+the `_P` suffix, chunks that landed in the overflow list (see *the perfect hash* below), and
+chunks matching no shipped asset at all. `--verify` additionally reads every chunk back
+through the ordinary reader.
 
 ## Step 3: making the game use it — in progress
 

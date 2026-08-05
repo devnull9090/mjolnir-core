@@ -87,7 +87,16 @@ interface ModpackUpdate {
   file_count: number;
 }
 
-export function useUpdates(updater: UpdateState): UpdatesState {
+export function useUpdates(
+  updater: UpdateState,
+  /**
+   * Called with the items an apply run actually completed, before the refresh
+   * that recomputes what is out of date. The "What's new" dialog uses it — it
+   * needs the version each item came *from*, which stops being knowable the
+   * moment the refresh records the new one.
+   */
+  onApplied?: (completed: UpdateItem[]) => void,
+): UpdatesState {
   const [items, setItems] = useState<UpdateItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,10 +225,12 @@ export function useUpdates(updater: UpdateState): UpdatesState {
         .filter((i): i is UpdateItem => !!i)
         .sort((a, b) => Number(a.restarts ?? false) - Number(b.restarts ?? false));
 
+      const completed: UpdateItem[] = [];
       for (const item of queue) {
         setProgress((p) => ({ ...p, [item.key]: { status: "running" } }));
         try {
           await item.apply();
+          completed.push(item);
           setProgress((p) => ({ ...p, [item.key]: { status: "done" } }));
         } catch (e) {
           setProgress((p) => ({
@@ -230,9 +241,10 @@ export function useUpdates(updater: UpdateState): UpdatesState {
       }
 
       setApplying(false);
+      if (completed.length > 0) onApplied?.(completed);
       await refresh();
     },
-    [applying, items, refresh],
+    [applying, items, refresh, onApplied],
   );
 
   return { items, loading, warnings, progress, applying, refresh, apply };
