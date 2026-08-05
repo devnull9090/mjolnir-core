@@ -1,11 +1,22 @@
 // Headless Ghidra probe: does the simulation DLL still hold executable game-engine
 // code for the competitive modes, or only tag definition tables?
 //
-// The discriminator is where a string is referenced FROM. A tag definition table is
-// data describing a layout: its name strings are reached from other data. Running
-// game-engine code reaches its strings from instructions. This script classifies
-// every reference to a set of probe strings as CODE or DATA and reports the owning
-// functions, so the two cases can be told apart rather than guessed at.
+// The naive form of this question — "is the string referenced from an instruction?" —
+// does not work on this binary. Blam is table-driven: a name string is referenced only
+// by a pointer table entry, and the table base is what code touches. A first version of
+// this script reported zero code references for every group INCLUDING its own control
+// group of known console-command names, which is how we know the one-hop model was
+// wrong rather than the modes being absent.
+//
+// So this walks up. From a string, follow data references to the table entry, find the
+// table base (entries in the middle of a table are usually unreferenced, so scan
+// backwards for the nearest referenced address), and repeat until the chain reaches an
+// instruction. What comes out is the function that ultimately consumes the string, plus
+// how many hops away it was.
+//
+// Two calibration groups anchor the reading: CONTROL_DEFINITION is known tag-definition
+// field names, CONTROL_CODE is known console-command names. Mode groups are only
+// meaningful when read against both.
 //
 // @category MJOLNIR
 
@@ -19,6 +30,7 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.ReferenceManager;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,6 +38,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,15 +47,6 @@ import java.util.Set;
 
 public class AnalyzeGameEngineCode extends GhidraScript {
 
-    /**
-     * Probe strings, grouped so the report can compare groups against each other.
-     *
-     * CONTROL_DEFINITION exists to calibrate: these are known tag-definition field
-     * names, so whatever reference shape they show is what "definitions only" looks
-     * like in this binary. CONTROL_CODE is the opposite calibration — console command
-     * names must be registered by code, so they show what a real code reference looks
-     * like. The mode groups are then read against those two baselines.
-     */
     private static final String[][] GROUPS = {
         {"CONTROL_DEFINITION",
             "game_engine_respawn_options_block",
@@ -83,8 +87,26 @@ public class AnalyzeGameEngineCode extends GhidraScript {
             "game_engine_globals"},
     };
 
-    /** Functions this big are almost certainly real logic rather than a thunk. */
+    /** How many data-to-data hops to follow before giving up on reaching code. */
+    private static final int MAX_HOPS = 8;
+    /** How far back to scan for a table base, in bytes. */
+    private static final int TABLE_SCAN_BYTES = 0x4000;
+    /** Pointer stride to step by when scanning backwards for a table base. */
+    private static final int POINTER_STRIDE = 8;
+    /** Functions at least this large are logic rather than a thunk. */
     private static final long SUBSTANTIAL_BODY_BYTES = 256;
+
+    private Listing listing;
+    private FunctionManager functionManager;
+    private ReferenceManager referenceManager;
+
+    /** Where a walk ended up. */
+    private static final class Landing {
+        Function function;
+        int hops;
+        String trail;
+        String outcome;
+    }
 
     @Override
     protected void run() throws Exception {
@@ -94,29 +116,32 @@ public class AnalyzeGameEngineCode extends GhidraScript {
             : Paths.get(System.getProperty("user.dir"));
         Files.createDirectories(outputDirectory);
 
-        Listing listing = currentProgram.getListing();
-        FunctionManager functionManager = currentProgram.getFunctionManager();
+        listing = currentProgram.getListing();
+        functionManager = currentProgram.getFunctionManager();
+        referenceManager = currentProgram.getReferenceManager();
 
         StringBuilder output = new StringBuilder();
         appendLines(output,
-            "=== MJOLNIR Game-Engine Code Probe ===",
+            "=== MJOLNIR Game-Engine Code Probe (multi-hop) ===",
             "Program: " + currentProgram.getName(),
             "Executable path: " + currentProgram.getExecutablePath(),
-            "Executable SHA-256 is verified out of band; MD5 here for cross-check: "
-                + currentProgram.getExecutableMD5(),
+            "Executable MD5: " + currentProgram.getExecutableMD5(),
             "Image base: " + currentProgram.getImageBase(),
+            "Max hops: " + MAX_HOPS + "   table scan window: 0x"
+                + Integer.toHexString(TABLE_SCAN_BYTES) + " bytes",
             "");
 
-        Map<String, Function> codeFunctions = new LinkedHashMap<>();
+        Map<String, Function> reached = new LinkedHashMap<>();
         List<String> summary = new ArrayList<>();
 
         for (String[] group : GROUPS) {
             String groupName = group[0];
-            int found = 0;
-            int codeRefs = 0;
-            int dataRefs = 0;
-            int noRefs = 0;
+            int probesFound = 0;
+            int landedInCode = 0;
+            int strandedInData = 0;
+            int unreferenced = 0;
             Set<String> groupFunctions = new LinkedHashSet<>();
+            long hopTotal = 0;
 
             appendLines(output, "=== Group " + groupName + " ===");
 
@@ -127,65 +152,51 @@ public class AnalyzeGameEngineCode extends GhidraScript {
                     appendLines(output, "  " + probe + " | NOT FOUND");
                     continue;
                 }
-                found++;
+                probesFound++;
 
-                for (Address hit : hits) {
-                    int probeCode = 0;
-                    int probeData = 0;
-                    List<String> detail = new ArrayList<>();
+                // One representative hit per probe keeps the report readable; duplicate
+                // string copies land in the same place.
+                Address hit = hits.get(0);
+                Landing landing = walkToCode(hit);
 
-                    ReferenceIterator references =
-                        currentProgram.getReferenceManager().getReferencesTo(hit);
-                    while (references.hasNext()) {
-                        Reference reference = references.next();
-                        Address from = reference.getFromAddress();
-                        boolean isCode = listing.getInstructionAt(from) != null;
-                        Function owner = functionManager.getFunctionContaining(from);
-
-                        if (isCode) {
-                            probeCode++;
-                            if (owner != null) {
-                                codeFunctions.put(owner.getEntryPoint().toString(), owner);
-                                groupFunctions.add(owner.getName() + " @ " + owner.getEntryPoint());
-                            }
-                        } else {
-                            probeData++;
-                        }
-
-                        detail.add("      " + from
-                            + " | " + (isCode ? "CODE" : "DATA")
-                            + " | " + reference.getReferenceType()
-                            + " | " + (owner == null
-                                ? "no containing function"
-                                : owner.getName() + " @ " + owner.getEntryPoint()
-                                    + " (" + owner.getBody().getNumAddresses() + " bytes)"));
-                    }
-
-                    codeRefs += probeCode;
-                    dataRefs += probeData;
-                    if (probeCode == 0 && probeData == 0) {
-                        noRefs++;
-                    }
-
-                    appendLines(output, "  " + probe + " @ " + hit
-                        + " | code=" + probeCode + " data=" + probeData);
-                    for (String line : detail) {
-                        appendLines(output, line);
-                    }
+                if (landing.function != null) {
+                    landedInCode++;
+                    hopTotal += landing.hops;
+                    reached.put(landing.function.getEntryPoint().toString(), landing.function);
+                    groupFunctions.add(landing.function.getName()
+                        + " @ " + landing.function.getEntryPoint()
+                        + " (" + landing.function.getBody().getNumAddresses() + " bytes)");
+                } else if ("unreferenced".equals(landing.outcome)) {
+                    unreferenced++;
+                } else {
+                    strandedInData++;
                 }
+
+                appendLines(output,
+                    "  " + probe + " @ " + hit
+                        + " | " + landing.outcome
+                        + (landing.function == null
+                            ? ""
+                            : " in " + landing.function.getName()
+                                + " @ " + landing.function.getEntryPoint()
+                                + " after " + landing.hops + " hop(s)"),
+                    "      trail: " + landing.trail,
+                    "  (" + hits.size() + " copies of this string)");
             }
 
             appendLines(output, "",
-                "  " + groupName + " totals: probes found=" + found
-                    + " codeRefs=" + codeRefs
-                    + " dataRefs=" + dataRefs
-                    + " unreferenced=" + noRefs,
+                "  " + groupName + " totals: found=" + probesFound
+                    + " landedInCode=" + landedInCode
+                    + " strandedInData=" + strandedInData
+                    + " unreferenced=" + unreferenced,
                 "");
             summary.add(String.format(
-                "%-18s found=%-3d codeRefs=%-5d dataRefs=%-5d unreferenced=%-3d functions=%d",
-                groupName, found, codeRefs, dataRefs, noRefs, groupFunctions.size()));
+                "%-18s found=%-3d code=%-3d stranded=%-3d unref=%-3d fns=%-3d avgHops=%s",
+                groupName, probesFound, landedInCode, strandedInData, unreferenced,
+                groupFunctions.size(),
+                landedInCode == 0 ? "-" : String.format("%.1f", (double) hopTotal / landedInCode)));
             for (String function : groupFunctions) {
-                appendLines(output, "  owning function: " + function);
+                appendLines(output, "  reached: " + function);
             }
             appendLines(output, "");
         }
@@ -195,13 +206,19 @@ public class AnalyzeGameEngineCode extends GhidraScript {
             appendLines(output, line);
         }
         appendLines(output, "",
-            "Read this against the two controls. If a mode group's codeRefs are ~0 while",
-            "CONTROL_CODE's are not, the mode survives as definitions only. If a mode group",
-            "shows code references into substantial functions, live game-engine code remains.",
+            "How to read it. CONTROL_DEFINITION is the shape of 'definitions only'.",
+            "CONTROL_CODE is the shape of 'a real code table'. A mode group that matches",
+            "CONTROL_CODE — landing in substantial functions at similar hop counts — means",
+            "live game-engine code remains. A mode group that matches CONTROL_DEFINITION,",
+            "or that strands in data where CONTROL_CODE reaches code, means the mode",
+            "survives as tag definitions only.",
+            "",
+            "If CONTROL_CODE itself strands, the walk is still not modelling this binary",
+            "and NO conclusion should be drawn about the mode groups.",
             "");
 
         List<Function> substantial = new ArrayList<>();
-        for (Function function : codeFunctions.values()) {
+        for (Function function : reached.values()) {
             if (function.getBody().getNumAddresses() >= SUBSTANTIAL_BODY_BYTES) {
                 substantial.add(function);
             }
@@ -209,8 +226,8 @@ public class AnalyzeGameEngineCode extends GhidraScript {
         substantial.sort(Comparator.comparingLong(
             (Function f) -> f.getBody().getNumAddresses()).reversed());
 
-        appendLines(output, "=== Substantial Code-Referencing Functions ("
-            + substantial.size() + " of " + codeFunctions.size() + ") ===");
+        appendLines(output, "=== Reached Functions, Substantial First ("
+            + substantial.size() + " of " + reached.size() + ") ===");
 
         DecompInterface decompiler = new DecompInterface();
         decompiler.openProgram(currentProgram);
@@ -220,11 +237,11 @@ public class AnalyzeGameEngineCode extends GhidraScript {
                 "=== " + function.getName() + " @ " + function.getEntryPoint()
                     + " (" + function.getBody().getNumAddresses() + " bytes, "
                     + function.getCalledFunctions(monitor).size() + " callees) ===");
-            if (decompiled < 25) {
+            if (decompiled < 20) {
                 appendLines(output, decompile(decompiler, function));
                 decompiled++;
             } else {
-                appendLines(output, "[decompilation capped at 25 functions]");
+                appendLines(output, "[decompilation capped at 20 functions]");
             }
         }
         decompiler.dispose();
@@ -235,6 +252,102 @@ public class AnalyzeGameEngineCode extends GhidraScript {
         for (String line : summary) {
             println("[MJOLNIR Ghidra] " + line);
         }
+    }
+
+    /**
+     * Follow references up from a string until the chain reaches an instruction.
+     *
+     * At each hop: if anything referencing the current address is code, we are done.
+     * Otherwise step to a data referrer. When an address has no references at all it is
+     * usually the interior of a table, so scan backwards for the nearest address that
+     * does — that is the table base, and the base is what code holds.
+     */
+    private Landing walkToCode(Address start) throws Exception {
+        Landing landing = new Landing();
+        StringBuilder trail = new StringBuilder(start.toString());
+        Set<Address> seen = new HashSet<>();
+
+        Address current = start;
+        boolean everReferenced = false;
+
+        for (int hop = 1; hop <= MAX_HOPS; hop++) {
+            if (!seen.add(current)) {
+                landing.outcome = "cycle";
+                landing.trail = trail.toString();
+                return landing;
+            }
+
+            Address dataStep = null;
+            boolean referenced = false;
+
+            ReferenceIterator references = referenceManager.getReferencesTo(current);
+            while (references.hasNext()) {
+                Reference reference = references.next();
+                Address from = reference.getFromAddress();
+                referenced = true;
+                everReferenced = true;
+
+                if (listing.getInstructionAt(from) != null) {
+                    Function owner = functionManager.getFunctionContaining(from);
+                    trail.append(" -> CODE ").append(from);
+                    landing.function = owner;
+                    landing.hops = hop;
+                    landing.trail = trail.toString();
+                    landing.outcome = owner == null
+                        ? "reached code outside any function"
+                        : "reached code";
+                    return landing;
+                }
+                if (dataStep == null) {
+                    dataStep = from;
+                }
+            }
+
+            if (dataStep == null) {
+                // Nothing points here. Most likely a table interior; find the base.
+                Address base = scanBackForReferencedAddress(current);
+                if (base == null) {
+                    landing.outcome = everReferenced || referenced
+                        ? "stranded in data"
+                        : "unreferenced";
+                    landing.trail = trail.toString();
+                    return landing;
+                }
+                trail.append(" ~> base ").append(base);
+                current = base;
+                continue;
+            }
+
+            trail.append(" -> data ").append(dataStep);
+            current = dataStep;
+        }
+
+        landing.outcome = "stranded in data (hop limit)";
+        landing.trail = trail.toString();
+        return landing;
+    }
+
+    /**
+     * Walk backwards in pointer-sized steps looking for an address something refers to.
+     * Table entries in the middle of an array are unreferenced; the base is not.
+     */
+    private Address scanBackForReferencedAddress(Address from) {
+        Memory memory = currentProgram.getMemory();
+        for (int offset = POINTER_STRIDE; offset <= TABLE_SCAN_BYTES; offset += POINTER_STRIDE) {
+            Address candidate;
+            try {
+                candidate = from.subtract(offset);
+            } catch (Exception e) {
+                return null;
+            }
+            if (!memory.contains(candidate)) {
+                return null;
+            }
+            if (referenceManager.getReferenceCountTo(candidate) > 0) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private List<Address> findAll(byte[] pattern) throws Exception {
