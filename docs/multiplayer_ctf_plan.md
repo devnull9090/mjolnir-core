@@ -1,8 +1,30 @@
 # Getting Two Players Into a Match
 
 **Status:** Plan. Research section verified 2026-08-04.
-**Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 **Goal:** two or more human players in a shared lobby, playing an objective game mode.
+
+### Build Lock
+
+Every finding in Part 1 was read from **CU3**, which the installed game had already updated to when
+this was written. The earlier multiplayer notes in this repository are CU2 and are not
+interchangeable with it.
+
+| Artifact | Value |
+|---|---|
+| Build | `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3` |
+| Binaries dated | 2026-07-31 |
+| Host SHA-256 | `4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753` |
+| Simulation SHA-256 | `82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC` |
+| `CreateBlamEngineShell` | RVA `0x6980` — unchanged from CU2 |
+
+**Verified: CU3 did not restore competitive content.** Still 13 scenario tags, all solo campaign
+(`a15`…`e30`). Still no per-mode directory under `Tags/multiplayer/game_variant_settings/`. The
+inventory below is CU3's, not inherited.
+
+**Unverified:** the shell interface table RVAs recorded in
+[`halosimulation_tag_release.md`](halosimulation_tag_release.md) (`0x7B1560`, `0x7B1610`) are CU2
+figures. The export entry point did not move, but the tables may have; re-verify before relying on
+them.
 
 This supersedes the CTF-related speculation in
 [`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md), which was written from
@@ -386,7 +408,9 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
   authoring instead of gameplay programming. Best outcome; treat as unlikely given the UE5 enum, but
   it is the cheapest thing to check and the payoff is large.
 - **A later game update restores competitive content.** The build is version-locked above; re-run
-  the Part 1 checks against any new build before trusting this document.
+  the Part 1 checks against any new build before trusting this document. This already happened once
+  — the install moved CU2 → CU3 between the previous investigation and this one, and CU3 changed
+  none of the conclusions. Check the hashes first every time; do not assume.
 - **Gameplay state turns out to live entirely in the Blam DLL.** Then a UE5-side mode cannot own
   authoritative state, and Phase 4 needs a different design. Phase 2 step 4 is what tells us.
 

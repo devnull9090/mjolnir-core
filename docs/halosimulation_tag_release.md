@@ -4,6 +4,14 @@
 **Last verified:** 2026-07-26
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
+> **Build moved on 2026-08-04.** The installed game is now
+> `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3` (binaries dated 2026-07-31), simulation SHA-256
+> `82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC`, host SHA-256
+> `4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753`. **Verified:**
+> `CreateBlamEngineShell` is still exported at RVA `0x6980`. **Unverified:** every other RVA on this
+> page is a CU2 figure and has not been re-checked against CU3. See
+> [`multiplayer_ctf_plan.md`](multiplayer_ctf_plan.md) for the CU3 content inventory.
+
 ## Artifact
 
 | Property | Value |
