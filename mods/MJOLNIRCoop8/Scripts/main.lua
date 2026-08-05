@@ -292,6 +292,89 @@ local function runReport(target)
     write("simulation and the PlayFab lobby enforce their own. See docs/coop_player_cap.md.")
 end
 
+--- Retitle the frontend fireteam panel: "FIRETEAM 1/4" -> "FIRETEAM 1/<target>".
+---
+--- Text only, and that boundary is deliberate. The panel is a HaloUIListView, and
+--- it does take more rows: constructing MeteoriteSquadLobbyViewItemData objects and
+--- calling AddItem put eight slots on screen. It also killed the process a few
+--- seconds later, every time.
+---
+--- **Observed**, not Verified: nothing holds a reference to an object built by
+--- StaticConstructObject. No UPROPERTY points at it, so the collector is free to
+--- take it while the list still holds the pointer, and the crash lands well after
+--- the call that caused it. The fix is not to root it harder from Lua -- it is to
+--- go through the view model's SquadMembers array, which the engine already traces
+--- and which drives the correct row template. Until someone does that, adding rows
+--- from here is a crash with a screenshot attached.
+---
+--- The live instance is found by filtering for /Engine/Transient. FindFirstOf on a
+--- widget class returns the class-default archetype, whose sub-widget pointers are
+--- null, and calling into one reads address 0x10 and takes the process down.
+local function setFireteamHeader(target)
+    local widget
+    for _, candidate in ipairs(FindAllOf("WBP_SquadWidget_C") or {}) do
+        if candidate and candidate:IsValid()
+            and candidate:GetFullName():find("/Engine/Transient", 1, true) then
+            widget = candidate
+            break
+        end
+    end
+    if not widget then
+        write("Fireteam panel: no live squad widget (it exists on the main menu, not the title screen).")
+        return
+    end
+
+    local okHeader, header = pcall(function() return widget.FireteamHeader end)
+    if not okHeader or not header then
+        write("Fireteam panel: FireteamHeader missing.")
+        return
+    end
+    local okValid, valid = pcall(function() return header:IsValid() end)
+    if not okValid or not valid then
+        write("Fireteam panel: FireteamHeader is not a live widget.")
+        return
+    end
+
+    -- The count of real members, so the label stays honest about who is present.
+    local present = 1
+    local viewModel = FindFirstOf("MeteoriteSquadLobbyViewModel")
+    if viewModel and viewModel:IsValid() then
+        local ok, count = pcall(function() return viewModel.TotalPlayerCount end)
+        if ok and type(count) == "number" and count > 0 then present = count end
+    end
+
+    local label = string.format("FIRETEAM %d/%d", present, target)
+    local ok = pcall(function() header:SetText(FText(label)) end)
+    return ok, label
+end
+
+-- One SetText does not hold. The widget re-applies its own binding on the next
+-- refresh, so a single write reverts to "1/4" within a second or so - long enough
+-- to screenshot and believe it worked, which is exactly what happened the first
+-- time. Re-applying on an interval is what makes the label stick.
+local uiTarget = nil
+local uiLoopRunning = false
+
+local function startFireteamHeaderLoop()
+    if uiLoopRunning then return end
+    uiLoopRunning = true
+    local lastReported = nil
+    LoopAsync(500, function()
+        if not uiTarget then
+            uiLoopRunning = false
+            return true          -- stop the loop
+        end
+        local ok, label = setFireteamHeader(uiTarget)
+        -- Log transitions only. This runs twice a second; logging every pass
+        -- would bury the report it shares a file with.
+        if ok and label ~= lastReported then
+            lastReported = label
+            write(string.format("Fireteam panel: holding %s", label))
+        end
+        return false
+    end)
+end
+
 local function registerCommands()
     print("[MJOLNIR Coop8] Registering co-op cap commands...\n")
 
@@ -300,10 +383,28 @@ local function registerCommands()
         return true
     end)
 
+    RegisterConsoleCommandHandler("mjolnir_coop8_ui", function(_, args)
+        local requested = math.floor(tonumber(args and args[1] or "") or DEFAULT_TARGET)
+        if requested == 0 then
+            uiTarget = nil          -- the loop sees this and stops on its next tick
+            print("[MJOLNIR Coop8] Fireteam label released; it reverts on the next refresh.\n")
+            return true
+        end
+        if requested < 1 or requested > 32 then
+            print("[MJOLNIR Coop8] Target must be between 1 and 32, or 0 to release.\n")
+            return true
+        end
+        uiTarget = requested
+        ExecuteInGameThread(startFireteamHeaderLoop)
+        return true
+    end)
+
     RegisterConsoleCommandHandler("mjolnir_coop8_raise", function(_, args)
+        -- args[1], not args[2]: UE4SS passes the parameters *after* the command
+        -- name, so args[2] silently read empty and every target fell back to 8.
         -- Floored because string.format("%d") raises on a non-integer float, and
         -- "mjolnir_coop8_raise 8.5" should not be the thing that breaks the module.
-        local requested = math.floor(tonumber(args[2] or "") or DEFAULT_TARGET)
+        local requested = math.floor(tonumber(args and args[1] or "") or DEFAULT_TARGET)
         if requested < 1 or requested > 32 then
             -- 32 is the size of the simulation's player datum array; asking for more
             -- than it can hold is a guaranteed no.

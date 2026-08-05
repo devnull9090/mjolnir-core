@@ -210,24 +210,45 @@ widget is given.
 **Verified on the CU3 main menu**, on screen, not inferred. The live widget is
 `WBP_SquadWidget_C` under `WBP_MeteoriteUILayout_C`, and the two members that matter are:
 
-| Member | Type | Effect |
+| Member | Type | Result |
 |:--|:--|:--|
-| `FireteamHeader` | `HaloUITextBlock` | `SetText(FText("FIRETEAM 1/8"))` — the header re-rendered as `1/8` |
-| `SquadListView` | `HaloUIListView` | `AddItem(<new MeteoriteSquadLobbyViewItemData>)` — the panel grew from four rows to eight |
+| `FireteamHeader` | `HaloUITextBlock` | `SetText` works, but **does not hold** on its own |
+| `SquadListView` | `HaloUIListView` | `AddItem` puts eight slots on screen and then **crashes the process** |
 
-Both calls succeeded and both changes were visible in a screenshot. **The four-slot panel is not a
-fixed layout — it is a list, and the list takes more items.**
+### The header: works, with a catch worth knowing
 
-**Two caveats, and they matter:**
+A single `SetText(FText("FIRETEAM 1/8"))` succeeds, renders, and reverts within about a second when
+the widget re-applies its own binding. That window is long enough to screenshot and believe it
+worked, which is exactly what happened the first time this was tried.
 
-1. The four added rows rendered with the *player* row template — crown and controller icons, no
-   name — rather than as `INVITE +`. Setting `FireteamRowType = 2` on the new item data was not
-   enough, even though the three live `INVITE +` rows read `FireteamRowType = 2` and the player row
-   reads `0`. So the entry widget is chosen by something other than that field alone; the likely
-   candidate is a `GetDesiredEntryClassForItem` override on the Blueprint. **Unverified.**
-2. This is presentation only. Adding a row does not create a player slot anywhere below the UI, and
-   the view model's `TotalPlayerCount` was untouched by it. A panel that shows eight slots while the
-   session seats four is a worse bug than a panel that shows four.
+Re-applying on a 500 ms interval makes it stick. `mjolnir_coop8_ui <n>` does that and holds through
+menu animation and idle; `mjolnir_coop8_ui 0` releases it, after which the label reverts at the
+widget's next refresh rather than immediately.
+
+### The rows: reachable, and not safe
+
+Constructing `MeteoriteSquadLobbyViewItemData` objects and calling `AddItem` genuinely rendered
+eight slots. It also killed the process every time — once about thirty seconds later, once
+immediately. Both were `EXCEPTION_ACCESS_VIOLATION`.
+
+**Observed**, not Verified: nothing holds a reference to an object built by `StaticConstructObject`.
+No `UPROPERTY` points at it, so the collector is free to take it while the list still holds the
+pointer, and the crash lands well after the call that caused it. That also explains why the first
+attempt appeared to survive — the collector simply had not run yet.
+
+Two further notes for whoever picks this up:
+
+1. The added rows rendered with the *player* template — crown and controller icons, no name —
+   rather than `INVITE +`, even though `FireteamRowType` was set to `2` and read back as `2`, the
+   same value the live `INVITE +` rows carry (the player row reads `0`). So the entry widget is
+   chosen by something other than that field; a `GetDesiredEntryClassForItem` override on the
+   Blueprint is the likely candidate. **Unverified.**
+2. The right route is almost certainly the view model's `SquadMembers` array rather than the
+   ListView directly. The engine already traces it, which solves the lifetime problem, and it is
+   what drives the correct row template.
+
+And the reason this is a footnote rather than a feature: adding a row does not create a player slot
+anywhere below the UI. `TotalPlayerCount` was untouched by it.
 
 **A warning for whoever picks this up.** Three game crashes came out of probing this widget live,
 all `EXCEPTION_ACCESS_VIOLATION`:
@@ -264,11 +285,11 @@ The plausible order of work:
 14.6 MB stripped DLL that reshuffles every content update, and step 5 means the result only works
 between consenting modded clients. Nobody should expect this to work with matchmade strangers.
 
-**The UI is deliberately not on that list.** The fireteam panel extends to eight slots today, and it
-would be easy to ship that and call it progress. It would be the wrong thing to ship: showing eight
-slots changes nothing about how many players the session seats, and a lobby that displays a
-capacity it does not have is worse than one that displays the truth. Extend the panel when the
-layers underneath it can fill it.
+**The UI is deliberately not on that list.** `mjolnir_coop8_ui` relabels the panel because it was
+asked for and it is stable, but the label is cosmetic and the module says so every time it runs.
+Adding real slots is a separate job, and it should wait: showing eight slots changes nothing about
+how many players the session seats, and a lobby that displays a capacity it does not have is worse
+than one that displays the truth. Extend the panel when the layers underneath it can fill it.
 
 ---
 
