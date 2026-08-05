@@ -67,6 +67,10 @@ local Spawned = {}
 local Experience = nil
 local LastWorldName = nil
 
+-- Names have to be unique within the outer, so installing twice in one session
+-- cannot reuse one. A counter does that without reaching for a clock.
+local InstallCount = 0
+
 local function Log(msg)
     print("[MJOLNIR CTF] " .. tostring(msg) .. "\n")
 end
@@ -196,7 +200,8 @@ local function installExperience(label)
         return false
     end
 
-    local name = label or ("MJOLNIR_CTF_Experience_" .. tostring(math.floor(os.clock() * 1000)))
+    InstallCount = InstallCount + 1
+    local name = label or ("MJOLNIR_CTF_Experience_" .. tostring(InstallCount))
     local okNew, made = pcall(function()
         return StaticConstructObject(class, outer, FName(name))
     end)
