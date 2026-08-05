@@ -36,8 +36,13 @@ local CAP_PROPERTIES = {
 -- CU3. Anything that needs it has to go through an ini, not through Lua.
 
 -- Console variables that gate the same limits from the other side. `net.MaxPlayersOverride`
--- is stock Unreal: AGameSession::InitOptions prefers it over MaxPlayers whenever it is
--- above zero, which makes it the one lever that survives the session being rebuilt.
+-- is stock Unreal: AGameSession::InitOptions is documented to prefer it over MaxPlayers
+-- whenever it is above zero.
+--
+-- It does not do that here. Setting it to 8 at the frontend and then loading a mission
+-- produced a fresh HaloOnlineGameSession -- Meteorite's own AGameSession subclass -- sitting
+-- at MaxPlayers 4. Verified on CU3. So this is dispatched for completeness, but the property
+-- writes are what actually move the number, and they have to be redone per level.
 local function capCommands(target)
     return {
         string.format("net.MaxPlayersOverride %d", target),
@@ -424,6 +429,39 @@ local function startFireteamUiLoop()
     end)
 end
 
+-- The caps do not survive a level load. Loading a mission builds a fresh
+-- HaloOnlineGameSession at MaxPlayers 4, and `net.MaxPlayersOverride` does not carry
+-- into it despite being the documented lever for exactly that. Verified on CU3: raised
+-- to 8 at the frontend, read back 4 in mission.
+--
+-- So the caps are re-asserted on an interval, the same way the fireteam panel is. Two
+-- seconds rather than the panel's 500 ms: a session appearing mid-level is rare, and
+-- this walks every GameSession instance to do it.
+local function startCapHoldLoop()
+    local lastLogged = nil
+    LoopAsync(2000, function()
+        local raised = {}
+        for _, cap in ipairs(CAP_PROPERTIES) do
+            eachInstance(cap.class, function(object)
+                local before, outcome = raiseProperty(object, cap.property, targetPlayers)
+                if outcome and outcome:find("raised", 1, true) then
+                    raised[#raised + 1] = string.format("%s.%s %s->%d",
+                        cap.class, cap.property, tostring(before), targetPlayers)
+                end
+            end)
+        end
+        -- Only a genuine re-raise is worth a line; the steady state is silence.
+        if #raised > 0 then
+            local summary = table.concat(raised, ", ")
+            if summary ~= lastLogged then
+                lastLogged = summary
+                write("Caps re-applied after rebuild: " .. summary)
+            end
+        end
+        return false
+    end)
+end
+
 local function registerCommands()
     print("[MJOLNIR Coop8] Registering co-op cap commands...\n")
 
@@ -471,6 +509,7 @@ local function registerCommands()
     end)
 
     ExecuteInGameThread(function() runReport(targetPlayers) end)
+    ExecuteInGameThread(startCapHoldLoop)
 end
 
 ExecuteInGameThreadWithDelay(5000, registerCommands)

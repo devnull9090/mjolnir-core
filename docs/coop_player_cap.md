@@ -150,9 +150,13 @@ net.MaxPlayersOverride          MaxPlayers            GetMaxPlayers
 MaxSplitscreensPerConnection    MaxSplitscreenPlayers
 ```
 
-`net.MaxPlayersOverride` is stock Unreal: `AGameSession::InitOptions` prefers it over the configured
-`MaxPlayers` whenever it is greater than zero. It is a normal console variable and survives the
-session object being rebuilt, which the raw property write does not.
+`net.MaxPlayersOverride` is stock Unreal: `AGameSession::InitOptions` is documented to prefer it
+over the configured `MaxPlayers` whenever it is greater than zero.
+
+**It does not do that here, and an earlier draft of this note claimed it did.** Set to 8 at the
+frontend, then loading a mission produced a fresh `HaloOnlineGameSession` — Meteorite's own
+`AGameSession` subclass — sitting at `MaxPlayers` 4. So the cvar is not the durable lever; the
+property writes are, and they have to be redone every level.
 
 `MJOLNIRCoop8` sets the cvar and raises `MaxPlayers`, `MaxSpectators`,
 `MaxSplitscreensPerConnection` and `MaxSplitscreenPlayers` on every live instance it can find.
@@ -167,8 +171,13 @@ session object being rebuilt, which the raw property write does not.
 [prop] GameViewportClient.MaxSplitscreenPlayers  raised 4 -> 8
 ```
 
-So the Unreal layer's stock 4 is real, and it moves. Whether anything downstream honours the new
-value is a separate question that needs a second player.
+So the Unreal layer's stock 4 is real, and it moves — but **it does not stay moved**. Every level
+load rebuilds the session at 4. `MJOLNIRCoop8` therefore re-asserts the caps on a 2-second loop,
+verified restoring `MaxPlayers` 4 → 8 and `MaxSplitscreensPerConnection` 2 → 8 within six seconds of
+being knocked back down.
+
+Whether anything downstream honours the raised value is a separate question that needs a second
+player.
 
 `UGameMapsSettings` is **not** reachable this way. Its CDO resolves, but every property on it reads
 back as UE4SS's `TrivialObject` placeholder, including ones that certainly exist — missing
@@ -236,9 +245,17 @@ Ruled out along the way:
 - `UGameSessionSettings::MaxPlayers` — stock `[/Script/Engine.GameSession]` config, which is the
   value `MJOLNIRCoop8` already raises at the Unreal layer.
 
-Two routes remain, neither attempted: identify `0x14691b9a0` properly by looking at what its other
-28 callers pass it, or catch the value at runtime — `PFLobbyGetMaxMemberCount` is imported, so a
-live lobby can be asked directly, which needs a session rather than more disassembly.
+The runtime route was tried and is blocked for a different reason than expected.
+
+**Verified:** starting a bonus mission through the co-op menu creates **no lobby at all**. In
+mission, `BlamNetworkGameStateComponent.bSessionRunning` is `false` and
+`BlamEngineAudioGameSubsystem:IsNetworkCoop` is `false`, and none of the registered PlayFab hooks
+fired at any point. The host runs locally until a peer actually joins; the lobby forms on join or
+invite, not on mission start.
+
+So `PFLobbyGetMaxMemberCount` has nothing to query without a second player, and this layer is
+blocked on the same thing the rest of the network work is. The remaining static route — identifying
+`0x14691b9a0` from what its other 28 callers pass it — is untouched.
 
 ---
 
