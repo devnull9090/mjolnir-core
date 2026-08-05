@@ -23,16 +23,23 @@ which of those definitions have anything behind them, and the answer changes the
 
 | Question | Answer |
 |---|---|
-| Are there CTF sounds? | **No.** Every announcer slot is empty and the referenced sound tags are absent. |
+| Are there CTF sounds? | **No audio, but the wiring is complete.** 510 events name their announcer sounds and display strings correctly; all 205 announcer sound tags are absent. |
 | Are there CTF strings? | **Yes.** Fully localized, 12 languages, including "You captured a flag!" |
 | Is there a flag object? | **No.** Oddball and the assault bomb ship; the flag does not. |
 | Can the UE5 layer start a competitive match? | **No.** Its game-mode enum contains `Campaign` and nothing else. |
 | Is there a network stack? | **Yes, two of them.** Neither is currently wired to a competitive mode. |
 
-### CTF audio: the table ships empty
+### CTF audio: the wiring survives, the voice does not
 
-**Verified.** `multiplayer_globals` points at `multiplayer\megalo\english (mgls)`, the table that maps
-game-engine events to announcer sounds. It ships with **94 of its 95 slots empty**:
+> **Revised 2026-08-04, after the `values` fix in PR #46.** The first pass read this section through
+> a value tree capped at 64 elements and concluded the event table was as empty as the megalo sound
+> table. It is not. `game_engine_globals` has **510 events, not 64**, and they are fully wired. The
+> conclusion below is unchanged — there is no CTF announcer audio — but the reason matters, because
+> it makes authoring that audio far cheaper than first estimated.
+
+**Verified.** Two tables map game-engine events to announcer sounds, and they are in opposite states.
+
+`multiplayer\megalo\english (mgls)` ships with **94 of its 95 slots empty**:
 
 ```text
 flag_captured  =     [tag reference]
@@ -48,10 +55,39 @@ invasion_beginning = sound\music\invasion_temp_cues\invasion_beginning (snd!)
 The one populated slot is a leftover Halo Reach Invasion cue, and **its target does not ship either** —
 there is no `invasion_beginning` anywhere in the containers. The reference dangles.
 
-`game_engine_globals` tells the same story from the other side. Its event-response list *does* name
-sounds — `sound\dialog\multiplayer\flavor\triple_kill` for a triple kill, and so on. **Verified:** the
-`Tags/sound/dialog/multiplayer` directory does not exist in this build. Zero entries. Every announcer
-reference in that tag is dangling.
+`game_engine_globals` is the opposite: **completely wired**. Its event-response list holds 510 events
+naming 256 distinct sounds, 205 of them under `sound\dialog\multiplayer\`. The CTF events are there,
+pointing at the right strings and the right audio:
+
+```text
+name = "flag_scored"
+  display string = "ctf_flag_captured"
+  sound = sound\dialog\multiplayer\capture_the_flag\flag_captured (snd!)
+```
+
+Alongside `flag_grabbed`, `flag_dropped`, `flag_dropped_neutral`, `flag_grabbed_neutral`,
+`flag_reset`, `flag_reset_neutral`, `flag_recovered`, `neutral_flag_grabbed`, `flagcarrier_kill` —
+and the equivalents for Oddball, KOTH, Assault, Territories, Infection, Juggernaut, plus the full
+medal and spree set. The CTF announcer slots are exactly nine:
+
+```text
+sound\dialog\multiplayer\capture_the_flag\{capture_the_flag, offense, defense,
+  flag_taken, flag_stolen, flag_dropped, flag_captured, flag_recovered, flag_reset}
+```
+
+**Verified: not one of those 205 sound tags ships.** `Tags/sound/dialog/` contains a single
+subdirectory, `combat`, with 4,754 campaign battle-chatter entries. Nothing else.
+
+**Verified in the `.pak` containers too**, which is where this build keeps its Wwise audio rather
+than in IoStore. All 200,029 pak entries were listed: 194,559 are `WwiseAudio/Media` files named by
+numeric hash, and the named Wwise *event* assets in IoStore are 14,339 `Systemic` entries plus
+campaign categories — every VO event is battle chatter (`VO_SYS_Johnson`, `VO_SYS_Mendoza`, and so
+on). There is no announcer event, in either container, under any name.
+
+**What this changes.** The event table is not a ruin to be rebuilt; it is a finished harness with the
+speaker unplugged. Supplying CTF announcer audio means authoring nine sound tags at nine known paths
+and letting the existing wiring fire them — not implementing an event system. That is a content
+task, and a small one.
 
 What *does* ship under `Audio/game_sfx/multiplayer` is twelve non-vocal effects:
 
@@ -61,8 +97,7 @@ player_respawn  player_timer_beep  shield_hit  teleporter_activate
 ```
 
 Plus `sound/Weapons/flag/flag_drop-sound`. So there is a flag-drop stinger and a flag-failure
-stinger, and nothing that says the word "flag" out loud. **Any CTF announcer audio has to be
-supplied by us.**
+stinger, and nothing that says the word "flag" out loud.
 
 ### CTF text: complete and localized
 
@@ -87,18 +122,23 @@ With real text behind them: `You captured a flag!`, `#cause_team captured a flag
 `#effect_team flag reset`, and `Capture the Flag` as the mode name. The full medal set is there too —
 `medal_killtacular`, `medal_running_riot`, `medal_sniper_kill`, and the rest.
 
-`global_multiplayer_messages` adds the mode roster (`variant_ctf`, `variant_slayer`,
+`global_multiplayer_messages` (152 ids) adds the mode roster (`variant_ctf`, `variant_slayer`,
 `variant_oddball`, `variant_king`, `variant_juggernaut`, `variant_territories`, `variant_infection`,
 `variant_assault`, `variant_vip`), scoreboard headers, placings, and the Reach default variant names
 (`variant_name_team_slayer`, `variant_name_rockets`, `variant_name_elimination`, `variant_name_duel`).
+`globals/game_engine_text` carries another 553, and `UI/Hud/hud_messages` 695.
 
 **So the entire text layer of a CTF match is already shipping in twelve languages.** This is the
 single largest piece of work we do not have to do.
 
-> **Tooling defect found.** `mjolnir values` reports these blocks as having exactly 64 elements.
-> The raw payload has 318. The `unic` reader truncates. Every string-count figure in the older notes
-> that came from `values` is wrong low. Filed as a follow-up; the numbers in this document were read
-> from the raw chunk instead.
+> **Tooling defect — fixed.** `mjolnir values` used to report these blocks as having exactly 64
+> elements when the raw payload has 318. The `unic` reader was never at fault: it read the true
+> count all along, and the CLI printed how many elements the value tree had *materialised* instead.
+> The tree is capped at 64 elements per block so a `scenario_structure_bsp` cannot exhaust memory,
+> and `--elements` only ever trimmed the printout, so it could not raise that cap. `values` now
+> prints the block's real count and `--elements n` builds enough of the tree to show `n`. Any
+> string-count figure in the older notes that came from `values` and reads exactly 64 is wrong low
+> and should be re-read.
 
 ### The flag object does not exist
 
@@ -329,9 +369,13 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
 3. **Objective volumes.** Capture points and return points as actors placed in a custom map — we
    have already proven custom maps work.
 4. **Feedback.** Wire the shipped strings: `state_you_have_flag`, `ctf_flag_captured`,
-   `medal_flag_grab`. The text and its twelve translations are free. Announcer audio is not — it does
-   not ship and must be authored or left silent. `flag_drop` and `flag_failure` stingers exist and
-   should be used.
+   `medal_flag_grab`. The text and its twelve translations are free.
+   Announcer audio is a separate, smaller task than it first looked: `game_engine_globals` already
+   binds each event to a display string *and* a sound path, so filling the nine
+   `sound\dialog\multiplayer\capture_the_flag\` tags is all that stands between the existing harness
+   and a talking announcer. Under architecture B this only pays off if our mode raises the same Blam
+   events; under A it is close to free. Either way, `flag_drop` and `flag_failure` ship and should be
+   used regardless.
 5. **Then CTF.** Build the flag object — model, collision, physics, skeleton, animation graph,
    following `objects/Weapons/multiplayer/Skull/` as the template, since that is the shipped example
    of exactly this kind of object. Swap it for the skull.
@@ -370,12 +414,30 @@ cargo build --release -p blam-cli
 ./target/release/mjolnir.exe values --group multiplayer_object_type_list --depth 5 --elements 100
 ```
 
-String-id and localized-text counts must be read from the raw chunk, because `values` truncates
-`unic` blocks at 64 elements:
+String-id and localized-text counts were read from the raw chunk, because `values` truncated `unic`
+blocks at 64 elements when this document was written:
 
 ```bash
 ./target/release/mjolnir.exe chunk --path "in_game_multiplayer_messages-multilingual_unicode_string_list.ubulk" --hexdump 200000
 ```
+
+That defect is fixed, so `values` now reports the block's real count and lists every element when
+asked. The two agree at 318 for `in_game_multiplayer_messages`:
+
+```bash
+./target/release/mjolnir.exe values --group multilingual_unicode_string_list --tag in_game_multiplayer_messages --depth 5 --elements 4000
+```
+
+The 510-event announcer table:
+
+```bash
+./target/release/mjolnir.exe values --group game_engine_globals --depth 5 --elements 2000
+```
+
+Wwise audio lives in the `.pak` containers, not IoStore, so the absence of announcer audio has to be
+checked there too. `ue_iostore::pak::load_all` over `Meteorite/Content/Paks` lists all 200,029
+entries; the named Wwise *event* assets are in IoStore under
+`Meteorite/Content/WwiseAudio/Events/`, and every VO category there is campaign battle chatter.
 
 Host-executable enum checks were done by extracting both ASCII and UTF-16 strings from
 `HaloCampaignEvolved.exe` and searching for `EBlamGameEngineType::`, `EBlamMultiplayerTeam::`, and
