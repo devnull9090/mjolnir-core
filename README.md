@@ -50,7 +50,7 @@ mjolnir-core/
 ├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
-├── tools/pe/                    # PE/binary inspection, AOB signature checker
+├── tools/pe/                    # PE/binary inspection, AOB checker, lobby-size IAT hook
 ├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer

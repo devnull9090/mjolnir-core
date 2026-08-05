@@ -287,12 +287,41 @@ So the instance cannot be located by name, and **the patch was not attempted**. 
 `+0x328` of a guessed base is a blind poke into a live process, and this chain has already produced
 three retracted readings; the offset is only useful once the object it is relative to is known.
 
-**What unblocks it:** a live lobby. With one open, the settings struct is populated and the instance
-becomes findable by structure — scan for a properties map holding the known keys, confirm `+0x8`
-of its enclosing struct reads the lobby size, then write there. That needs a second player, the same
-blocker as steps 1 and 2. Hooking `PFMultiplayerCreateAndJoinLobby` in the import table and
-rewriting the third argument in flight would sidestep the search entirely, and needs no UE
-reflection at all.
+### Hooking the import boundary instead
+
+Since the value is an argument by the time it leaves the exe, the object holding it does not need to
+be identified at all. [`tools/pe/lobby_size_hook.py`](../tools/pe/lobby_size_hook.py) overwrites the
+`PFMultiplayerCreateAndJoinLobby` IAT slot with a 24-byte stub that edits the config in flight:
+
+```asm
+test r8, r8                ; the PFLobbyCreateConfiguration
+jz   original              ; leave a null alone
+mov  dword ptr [r8], 8     ; maxMemberCount, its first field
+mov  rax, <original>
+jmp  rax
+```
+
+```bash
+python tools/pe/lobby_size_hook.py --status
+python tools/pe/lobby_size_hook.py --size 8
+python tools/pe/lobby_size_hook.py --revert
+```
+
+The slot is found by walking the on-disk import table for the export name, never by a baked
+address, so a game update relocates it without breaking the tool — the same rule the AOB signatures
+follow. It resolved to exe RVA `0xa8b3630`, matching the static analysis but derived independently.
+
+**Verified** on CU3, pid alive throughout: the slot reads back as the stub, the stub disassembles to
+exactly the five instructions above with the original export in the tail jump, `--status` reports
+the requested size, and install → revert → reinstall round-trips cleanly.
+
+**Unverified, and this is the important caveat: the stub has never executed.** No lobby is created
+without a peer, so nothing has called through that slot. The hook is correct by construction and
+unproven in practice. It also lives in process memory, so it is gone on restart.
+
+Two things remain unknown until someone joins: whether the stub fires where expected, and whether
+PlayFab accepts an eight-member lobby at all. The second is the one no amount of client-side work
+can settle.
 
 Ruled out along the way:
 
