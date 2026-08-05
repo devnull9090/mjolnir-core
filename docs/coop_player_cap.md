@@ -228,16 +228,46 @@ can change what gets requested. It does **not** mean PlayFab will honour it: the
 against title limits, and whether an eight-member lobby is accepted is **Unverified**. It also does
 not help unless every peer agrees.
 
-### Where the number comes from: not found
+### Where the number comes from: a member at `+0x320` of the session object
 
-**Unverified, and an earlier draft of this note overstated it.** `0x14691b9a0` was described here as
-a keyed lookup into a `0x38`-byte settings table. It has **29 call sites**, so it is a generic
-helper — the stride and element layout were inferred from one hash-shaped loop inside it and do not
-establish anything about the lobby's own configuration.
+Surveying all 29 callers of `0x14691b9a0` settled what it is, and it is **not** what two earlier
+drafts of this note claimed. Every caller passes it a lobby property name:
 
-What is actually known: `maxMemberCount` is read from `+0x8` of a struct that this helper fills at
-`[rbp+0x230]`, inside a large function whose only string references are the lobby property keys
-`OWNERNICKNAME`, `%llu` and `%llu:%s`. Tracing where that struct is populated ran out of thread.
+```
+MAPNAME   CONNECTIONSTRING   NETWORKID   NETWORKDESCRIPTOR   HOSTCONNECTINFO   OWNERNICKNAME
+```
+
+So it is a **property-map getter** — `get(map, FName key, out value)`, with the key hashed as a
+32-bit index plus a 32-bit number, which is why the argument is an 8-byte FName. It has nothing to
+do with reading a configured player limit.
+
+That also means `maxMemberCount` is **not** this helper's output. The helper writes to `r8`
+(`[rbp+0xe8]` at the lobby site). The `mov eax, [rbp+0x238]` that follows reads `+0x8` of the
+*container* passed in `rcx` — a different thing that merely sits next to it.
+
+Following the container instead:
+
+```asm
+146f3eae9  call 0x146934720        ; copies the struct into [rbp+0x230] from r9
+...
+146f13f7d  lea  r9, [r12 + 0x320]  ; and r9 is a member of the session object
+```
+
+The lobby-create function has exactly **one** caller, so the chain is unambiguous. **Verified:** the
+settings struct is the member at `+0x320`, and the two fields we care about are
+
+| Offset | Contents |
+|:--|:--|
+| `+0x328` | `maxMemberCount` — the number handed to PlayFab |
+| `+0x358` | the property map holding `MAPNAME`, `NETWORKID`, `OWNERNICKNAME`, … |
+
+Corroborated independently: other callers of the property getter reach the same map as
+`[r12 + 0x320]` and `[r13 + 0x320]`.
+
+**Unverified:** which class the object is. `BlamOnlineSessionSubsystem` is the obvious candidate and
+is reflected, but nothing here proves it. Confirming the class — and then reading `+0x328` on a live
+instance — is what turns this into a patch. `crates/blam-live` already reads and writes live process
+memory, which is the tool for it.
 
 Ruled out along the way:
 
@@ -245,7 +275,7 @@ Ruled out along the way:
 - `UGameSessionSettings::MaxPlayers` — stock `[/Script/Engine.GameSession]` config, which is the
   value `MJOLNIRCoop8` already raises at the Unreal layer.
 
-The runtime route was tried and is blocked for a different reason than expected.
+The runtime route is blocked for a different reason than expected.
 
 **Verified:** starting a bonus mission through the co-op menu creates **no lobby at all**. In
 mission, `BlamNetworkGameStateComponent.bSessionRunning` is `false` and
@@ -253,9 +283,8 @@ mission, `BlamNetworkGameStateComponent.bSessionRunning` is `false` and
 fired at any point. The host runs locally until a peer actually joins; the lobby forms on join or
 invite, not on mission start.
 
-So `PFLobbyGetMaxMemberCount` has nothing to query without a second player, and this layer is
-blocked on the same thing the rest of the network work is. The remaining static route — identifying
-`0x14691b9a0` from what its other 28 callers pass it — is untouched.
+So `PFLobbyGetMaxMemberCount` has nothing to query without a second player. The static route was
+taken instead, and it worked — see above.
 
 ---
 
@@ -454,10 +483,10 @@ The plausible order of work:
    route needs only that the host may bring a guest into a session. No hardware required.
 2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
    four layers says no first. Everything below is guesswork until this exists.
-3. **Find where `maxMemberCount` is sourced.** The client supplies the number rather than the title
-   pinning it, so the remaining work is locating the data behind it. Static tracing stalled; the
-   cheaper route is probably runtime — `PFLobbyGetMaxMemberCount` is imported, so a live lobby can
-   be asked what it was created with.
+3. **Confirm the class holding `+0x320` and patch `+0x328`.** `maxMemberCount` is a member of the
+   session object at `+0x328`; what remains is identifying the class (`BlamOnlineSessionSubsystem`
+   is the candidate) and writing to it before the lobby is created. `crates/blam-live` already does
+   live memory reads and writes.
 4. **If Unreal refuses**, the cvar and property raises in this mod are probably already enough.
 5. **If the simulation refuses**, locate the campaign policy comparison against 4 and confirm which
    fixed-size arrays are sized by `k_maximum_campaign_players`. Appearance customization is
