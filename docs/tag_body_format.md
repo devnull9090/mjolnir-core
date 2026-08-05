@@ -5,6 +5,10 @@
 **Tool:** `crates/blam-cli` (`mjolnir`)
 **Date:** 2026-07-26
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 ## Summary
 
 **Verified:** the Blam tag body that follows the `0x4C`-byte container header is

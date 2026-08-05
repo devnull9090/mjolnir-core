@@ -20,6 +20,10 @@ It is written as a working log, oldest first, so the reasoning stays legible —
 conclusions that were wrong and how they were caught. If you only want the recipe, read
 [`getting_started.md`](getting_started.md) instead.
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 ## The problem, as it stood
 
 The game loads tags from UE5 IoStore containers — `.utoc` index plus `.ucas` data — under

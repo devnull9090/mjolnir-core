@@ -41,7 +41,7 @@ mjolnir-core/
 │   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
 ├── native/                      # C source for FName trampoline DLL
-├── config/                      # Reference UE4SS-settings.ini
+├── config/                      # Reference UE4SS-settings.ini + CU3 build lock
 ├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
 ├── keys/                        # Public release-signing keys
 ├── defs/                        # Exported tag definition corpus (schema only)
@@ -49,7 +49,7 @@ mjolnir-core/
 ├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
-├── tools/pe/                    # PE/binary inspection helpers
+├── tools/pe/                    # PE/binary inspection, AOB signature checker
 ├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer
@@ -97,7 +97,8 @@ administration. Runtime travel and session preservation still require in-game ve
 
 | Command | Purpose |
 | :--- | :--- |
-| `mjolnir_maps` | List verified CU2 root world package keys and paths |
+| `mjolnir_maps` | List verified CU3 root world package keys and paths |
+| `mjolnir_kick <name>` | Send a player the kick notice (see caveat below) |
 | `mjolnir_travel a15` | Dispatch plain travel to the A15 campaign world |
 | `mjolnir_listen a15` | Dispatch travel to A15 with `?listen` |
 | `mjolnir_scan_blam` | Dump live BlamEngine classes, functions, and candidate instances |
@@ -122,8 +123,20 @@ gives launch, level load, live state reads, input and screenshots without a pers
 Install with `scripts/install-bridge.ps1`; see
 [`docs/game_automation.md`](docs/game_automation.md).
 
+> **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
+> C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and
+> unreachable from UE4SS — the call raises "attempt to call a TrivialObject value". The only
+> kick-shaped reflected function in the build is `PlayerController:ClientWasKicked`, so the
+> command sends that and leaves the disconnect to the client. It is not enforcement.
+
 ### MJOLNIRCore
 Core framework initialization and `UEHelpers` utility library.
+
+> **A mod that calls a MJOLNIR-only helper must ship its own `Scripts/UEHelpers.lua`.**
+> `require("UEHelpers")` searches the mod's own `Scripts/` first and UE4SS's `Mods/shared/`
+> second. Without a local copy it silently binds to upstream's UEHelpers, which has no
+> `SafeGetPlayerName`, `FindObjectSafe`, `GetAllPlayerControllers` or `GetGameSession` — and
+> the failure surfaces as a nil call at the first use, not at load.
 
 ---
 
@@ -154,6 +167,28 @@ Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not cur
 ---
 
 ## Development
+
+### After a Game Update
+
+The game updates without asking, and two things break quietly when it does: the AOB signatures
+UE4SS uses to find engine internals, and every offset recorded in `docs/`. Both checks are cheap,
+and neither is visible in the UE4SS log.
+
+```bash
+python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe"
+```
+
+Reports `OK`, `NO MATCH`, or `AMBIGUOUS xN` per signature, and exits nonzero unless all four
+resolve **uniquely**. Ambiguity is the dangerous case: UE4SS logs an address and starts fine, then
+fails somewhere unrelated. See [`signatures/README.md`](signatures/README.md).
+
+```bash
+python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json
+```
+
+Checks the install against the committed lock and names every file that moved. Regenerate with
+`-o config/hce-build.lock.json`; `--binaries-only` skips the 74 GiB content pass. The current build
+and what has been re-verified against it are in [`docs/build_lock.md`](docs/build_lock.md).
 
 ### Reverse Engineering
 Ghidra Java scripts for the simulation factory and host loader path:

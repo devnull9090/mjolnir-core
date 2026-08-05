@@ -2,6 +2,10 @@
 **Date**: 2026-07-25 ~11:50 PM PST
 **Conversation ID**: `f74b07be-cdb9-4b3f-ac8b-b193380aa670`
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. The 13 root
+> world package paths below have been re-verified against CU3; nothing else here has.
+> See [`build_lock.md`](build_lock.md).
+
 ---
 
 ## 🗂️ Key Paths

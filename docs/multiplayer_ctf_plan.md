@@ -5,26 +5,22 @@
 
 ### Build Lock
 
-Every finding in Part 1 was read from **CU3**, which the installed game had already updated to when
-this was written. The earlier multiplayer notes in this repository are CU2 and are not
-interchangeable with it.
+Every finding in Part 1 was read from **CU3** — `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3`,
+binaries dated 2026-07-31 — which the installed game had already updated to when this was written.
+The earlier multiplayer notes in this repository are CU2 and are not interchangeable with it.
 
-| Artifact | Value |
-|---|---|
-| Build | `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3` |
-| Binaries dated | 2026-07-31 |
-| Host SHA-256 | `4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753` |
-| Simulation SHA-256 | `82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC` |
-| `CreateBlamEngineShell` | RVA `0x6980` — unchanged from CU2 |
+Hashes live in [`build_lock.md`](build_lock.md) rather than here, so there is one place to update
+when the game moves. Verify an install against it with
+`python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json`.
 
 **Verified: CU3 did not restore competitive content.** Still 13 scenario tags, all solo campaign
 (`a15`…`e30`). Still no per-mode directory under `Tags/multiplayer/game_variant_settings/`. The
 inventory below is CU3's, not inherited.
 
-**Unverified:** the shell interface table RVAs recorded in
-[`halosimulation_tag_release.md`](halosimulation_tag_release.md) (`0x7B1560`, `0x7B1610`) are CU2
-figures. The export entry point did not move, but the tables may have; re-verify before relying on
-them.
+**Verified on CU3:** `CreateBlamEngineShell` is still exported at RVA `0x6980`. **Unverified:** the
+shell interface table RVAs in [`halosimulation_tag_release.md`](halosimulation_tag_release.md)
+(`0x7B1560`, `0x7B1610`) are CU2 figures. The export entry point did not move, but the tables may
+have; re-verify before relying on them.
 
 This supersedes the CTF-related speculation in
 [`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md), which was written from
