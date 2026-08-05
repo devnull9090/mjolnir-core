@@ -231,14 +231,56 @@ and refuses when there is no spare device to hand to a guest. The host machine h
 attached** when this was measured — `Get-PnpDevice` showed only generic HID system controllers — so
 one device meant one user meant `false`.
 
-**Unverified**, and it is a five-minute test: plug in a controller and read the method again. If it
-flips to `true`, splitscreen was never capped by anything moddable, and the four-player ceiling on
-*local* players is a hardware question rather than a code one.
+### …and it does not gate local players at all
 
-That matters for the eight-player goal more than it first looks. Four connections times two
-splitscreen players each is eight, and `MaxSplitscreensPerConnection` already moved from 2 to 8
-without complaint. Whether the simulation agrees is the open question — but the route exists, and it
-does not require defeating PlayFab.
+**Verified in the running game**, and it makes the controller question moot. `CanAddSplitscreenPlayer`
+governs the UI's *offer* to add a guest. It does not govern whether a second local player can exist:
+
+```
+UGameplayStatics::CreatePlayer(world, 1, true)  ->  ok, LocalPlayers 1 -> 2
+```
+
+No controller was attached. The squad panel updated itself to **FIRETEAM 2/4** with a real second
+member row, and the view model's `TotalPlayerCount` went to `2` on its own. `CanAddSplitscreenPlayer`
+stayed `false` throughout — so it is advisory, and the engine will seat the player regardless.
+
+That also retires the idea of hand-building rows: the panel is data-driven and populates itself the
+moment a real local player exists. Faking list entries was solving the wrong problem.
+
+### Local players stop at four, and it is Unreal's enum
+
+**Verified.** With every cap already raised (`MaxSplitscreenPlayers` 4 → 8,
+`MaxSplitscreensPerConnection` 2 → 8, logged earlier in the same session), repeated `CreatePlayer`
+calls gave:
+
+```
+CreatePlayer(id=2): ok  LocalPlayers 2 -> 3
+CreatePlayer(id=3): ok  LocalPlayers 3 -> 4
+CreatePlayer(id=4): process died
+```
+
+Four local players work. The fifth is an `EXCEPTION_ACCESS_VIOLATION`.
+
+**Observed** cause: the shipping binary's `ESplitScreenType` enumerates
+`None`, `TwoPlayer_Horizontal`, `TwoPlayer_Vertical`, `ThreePlayer_{FavorTop,FavorBottom,Horizontal,Vertical}`
+and `FourPlayer_{Grid,Horizontal,Vertical}` — and stops. There is no five-player layout, so a fifth
+viewport has no entry to index. This is stock Unreal, not a Meteorite choice, which is why raising
+`MaxSplitscreenPlayers` to 8 changed nothing: the property is a bound, and the layout table behind
+it only describes four.
+
+### What that means for eight
+
+Better than it first sounds. The route was never "eight players on one screen" — it is **four
+connections carrying two local players each**, and two-per-machine sits comfortably inside a limit
+that demonstrably reaches four. PlayFab's connection cap does not have to be beaten for that;
+it already allows the four connections the plan needs.
+
+So the open questions narrow to two, and neither is the splitscreen layout:
+
+- Does the game let a host bring splitscreen guests into a *network* co-op session?
+- Does the simulation seat eight players across four connections?
+
+Both need a second machine. Neither needs a controller, and neither needs new splitscreen layouts.
 
 ### The FIRETEAM 1/4 panel can be extended at runtime
 
@@ -305,9 +347,9 @@ scaling tables already describe six-plus parties.
 
 The plausible order of work:
 
-1. **Plug in a controller and re-read `CanAddSplitscreenPlayer`.** Cheapest test on this list by a
-   wide margin, and if it flips to `true` then splitscreen is a route to eight (four connections
-   times two local players) that never has to argue with PlayFab.
+1. **Take two local players into a network co-op session.** `CreatePlayer` already seats a second
+   local player with no controller attached, and four work locally, so the four-connections-times-two
+   route needs only that the host may bring a guest into a session. No hardware required.
 2. **Measure the network refusal.** Run `MJOLNIRCoop8` with a second player and find which of the
    four layers says no first. Everything below is guesswork until this exists.
 3. **If PlayFab refuses at four**, find whether `maxMemberCount` is client-supplied. If the title
