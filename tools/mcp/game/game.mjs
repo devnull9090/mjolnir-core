@@ -299,7 +299,7 @@ async function powershell(script, args) {
 // Tools
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Verified CU2 root world packages, same list the multiplayer mod carries.
+// Verified CU3 root world packages, same list the multiplayer mod carries.
 const MAPS = {
   a15: "/Game/Levels/Halo1/Solo/A15/A15",
   a30: "/Game/Levels/Halo1/Solo/A30/A30",

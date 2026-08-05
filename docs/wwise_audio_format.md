@@ -4,6 +4,10 @@
 **Last verified:** 2026-08-03
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 Almost none of the game's audio is reachable through the IoStore reader. The
 cooked packages in `.ucas`/`.utoc` hold Wwise *event* metadata; the samples
 themselves sit in the `.pak` siblings, which are a completely different

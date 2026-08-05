@@ -5,6 +5,10 @@
 **Artifacts:** `defs/hce/scripting.json`
 **Date:** 2026-08-03
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 ## Summary
 
 Halo Campaign Evolved's missions are scripted in HSC, the same S-expression language

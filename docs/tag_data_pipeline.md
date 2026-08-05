@@ -5,6 +5,10 @@
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 **Host SHA-256:** `0670FAA751E2553940B90DF6BE43D3B0FF59EA87F22155CF3C3FE9D439367F1D`
 
+> **Build label:** this note is stamped CU2; the installed build is CU3. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
+> caveat about CU2-stamped notes dated after 2026-08-01.
+
 ## Question
 
 Does Halo Campaign Evolved run on real Blam tag data like the classic games, or are bipeds,
