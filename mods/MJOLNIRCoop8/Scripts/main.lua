@@ -342,6 +342,14 @@ end
 --- widgets stay alive and findable after the panel rebuilds, so a FindAllOf tally
 --- read 8 while the list actually held 4 - and the top-up concluded it had nothing
 --- to do. That is why the rows vanished on the first menu transition.
+---
+--- The row's look comes from the list's EntryWidgetClass, *not* from the item's
+--- FireteamRowType. Appending one item of each row type produced four identical
+--- rows, all wearing the player template, because EntryWidgetClass defaults to
+--- WBP_SquadPlayerListViewItem. Pointing it at the view model's BlankWidgetClass
+--- first is what makes an appended row render as "INVITE +". Leaving it pointed
+--- there is safe: the panel sets the class itself as it repopulates, so the real
+--- player row still comes back correctly after a rebuild.
 local function topUpFireteamRows(target)
     local widget = liveTransient("WBP_SquadWidget_C")[1]
     if not widget then return 0 end
@@ -356,6 +364,16 @@ local function topUpFireteamRows(target)
 
     local itemClass = StaticFindObject("/Script/Meteorite.MeteoriteSquadLobbyViewItemData")
     if not itemClass or not itemClass:IsValid() then return 0 end
+
+    -- Blank template, so the appended rows read "INVITE +" rather than wearing
+    -- empty player chrome. Skipped rather than forced if the view model is absent.
+    local viewModel = FindFirstOf("MeteoriteSquadLobbyViewModel")
+    if viewModel and viewModel:IsValid() then
+        pcall(function()
+            local blank = viewModel.BlankWidgetClass
+            if blank and blank:IsValid() then listView.EntryWidgetClass = blank end
+        end)
+    end
 
     local added = 0
     for _ = 1, (target - current) do

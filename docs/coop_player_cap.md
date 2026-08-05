@@ -329,12 +329,30 @@ Known cost: each rebuild leaves the previous batch of item objects behind for th
 were alive after a handful of transitions. They are small and unreferenced, but it is a real
 churn rather than a free effect.
 
-The added rows still render with the *player* template — crown and controller icons, no name —
-rather than `INVITE +`, even though `FireteamRowType` is set to `2` and reads back as `2`, the same
-value the live `INVITE +` rows carry. So the entry widget is chosen by something other than that
-field; a `GetDesiredEntryClassForItem` override on the Blueprint is the likely candidate.
-**Unverified.** Routing through the view model's `SquadMembers` array instead of the ListView would
-probably fix both the template and the churn.
+### Making the rows read `INVITE +`
+
+The added rows first came out wearing the player template — crown and controller icons, no name.
+`FireteamRowType` was the obvious suspect and it was the wrong one, twice: setting it to `2` did
+nothing, and appending one row of *each* value produced four identical player-chrome rows.
+
+**Verified.** The row's look comes from the list's `EntryWidgetClass`, which defaults to the player
+template:
+
+```
+ListView.EntryWidgetClass  = WBP_SquadPlayerListViewItem_C
+vm.PlayerWidgetClass       = WBP_SquadPlayerListViewItem_C
+vm.BlankWidgetClass        = WBP_SquadBlankListViewItem_C
+vm.SplitscreenWidgetClass  = WBP_SquadBlankListViewItem_C
+```
+
+The view model carries three widget classes precisely so the panel can swap `EntryWidgetClass` as it
+populates. Doing the same — pointing it at `BlankWidgetClass` before appending — makes the rows
+render as `INVITE +`, matching the game's own. Leaving it pointed there is safe: the panel sets the
+class itself as it repopulates, so the real player row still comes back correctly after a rebuild,
+confirmed across menu transitions.
+
+Still open: each rebuild leaves the previous batch of item objects for the collector. Routing through
+the view model's `SquadMembers` array rather than the ListView would likely remove that churn.
 
 And the reason this stays cosmetic: adding a row does not create a player slot anywhere below the
 UI. `TotalPlayerCount` stays at `1`. A real second local player — see below — makes the panel
@@ -349,6 +367,10 @@ all `EXCEPTION_ACCESS_VIOLATION`:
   the live instance, and guard every member with `:IsValid()` before calling into it.
 - `UEnum` reflection (`NumEnums`, `GetNameStringByIndex`) crashes outright. Read enum values off
   live objects instead.
+- **TArray-returning reflected functions crash**, consistently: `GetListItems`,
+  `GetDisplayedEntryWidgets` and `UInputDeviceLibrary::GetAllInputDevices` all took the process
+  down or failed outright. Scalar-returning ones such as `GetNumItems` are fine, which is usually
+  enough — prefer them, and derive the rest from live object scans.
 
 ---
 

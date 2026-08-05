@@ -120,7 +120,7 @@ six-plus-player parties, so the cap is policy rather than capacity; see
 | `mjolnir_coop8_raise [n]` | Raise every reachable player cap to `n` (default 8) and report each write |
 | `mjolnir_coop8_status` | Read live squad, session, and network-component player counts |
 | `mjolnir_coop8_watch` | Hook the lobby, login, and session paths that refuse the extra players |
-| `mjolnir_coop8_ui [n]` | Show `n` fireteam slots on the frontend panel, held (`0` releases it) |
+| `mjolnir_coop8_ui [n]` | Show `n` `INVITE +` fireteam slots on the frontend panel, held (`0` releases it) |
 
 Verified on the CU3 frontend, read back after each write: `net.MaxPlayersOverride` dispatched,
 `GameSession.MaxPlayers` 4 → 8, `MaxSpectators` 0 → 8, `MaxSplitscreensPerConnection` 2 → 8, and
