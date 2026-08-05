@@ -311,9 +311,14 @@ And there is a selector. The string `-BlamExperience=` sits directly alongside `
 Lyra's experience-resolution chain, where the game mode picks an experience from a command-line
 override, then a URL option, then world settings, then developer settings.
 
-**Unverified, and now the highest-value cheap test in the plan:** whether
-`-BlamExperience=<asset path>` actually selects an experience in the shipping build, and what
-`BP_BlamExperienceDefault` contains.
+**Verified at runtime on CU3:** all five of those classes resolve, a `BlamExperienceManager` is live
+on the engine at the frontend, and `UBlamExperienceDefinition`'s CDO carries exactly
+`GameFeaturesToEnable`, `Actions`, and `ActionSets` — Lyra's definition, field for field. The
+framework is not vestigial; it is running.
+
+**Still unverified:** whether `-BlamExperience=<asset path>` is honoured, and what
+`BP_BlamExperienceDefault` contains. See Phase 1 step 5 for how far that got and what took the game
+down.
 
 Note also `ABlamGameModePlayerStart` — a player-start class already exists, which is what team spawns
 need.
@@ -442,6 +447,41 @@ Decides between A and B. Do not build anything until this returns.
 
    This is cheap, it needs no second player, and it is the single check that most determines how
    much work architecture B is. Do it first.
+
+   > **Partial result, 2026-08-04, CU3, at the frontend.** The framework is real and live.
+   >
+   > **Verified** — each of these printed a genuine object path, not just a non-null pointer:
+   >
+   > ```text
+   > Class /Script/BlamExperience.BlamExperienceDefinition
+   > Class /Script/BlamExperience.BlamExperienceManager
+   > Class /Script/BlamExperience.BlamExperienceManagerComponent
+   > Class /Script/BlamExperience.BlamExperiencePlayerStateComponent
+   > Class /Script/BlamExperience.AsyncAction_BlamExperienceReady
+   > ```
+   >
+   > **Verified:** `UBlamExperienceDefinition`'s CDO carries exactly three properties —
+   > `GameFeaturesToEnable`, `Actions`, `ActionSets`. That is Lyra's `ULyraExperienceDefinition`
+   > field for field, which tells us precisely what a new experience has to fill in.
+   >
+   > **Verified:** a `BlamExperienceManager` instance is live on the engine at the frontend,
+   > `/Engine/Transient.GameEngine_*:BlamExperienceManager_*`, before any gameplay world exists. The
+   > system is running in the shipping build, not merely compiled in.
+   >
+   > **Verified:** no `BlamExperienceManagerComponent` and no definition instance exist at the
+   > frontend, which matches Lyra — the component lives on the GameState of a gameplay world.
+   >
+   > **Not established, and the probe that tried it crashed the game:** where the default experience
+   > is configured, and whether `-BlamExperience=` is honoured. `StaticFindObject` returns a garbage
+   > non-null pointer for paths that do not exist, and reading properties off one exits the process;
+   > see the hazard note in [`game_automation.md`](game_automation.md). An earlier loop in the same
+   > session reported `BlamExperienceSettings` and `BlamDeveloperSettings` as present in five
+   > different modules, which is exactly that failure mode. **Disregard those; they were never
+   > verified.**
+   >
+   > **Next:** validate every lookup with `GetFullName()` first, read the settings CDO by walking
+   > `UDeveloperSettings` subclasses rather than guessing paths, and run the switch test from a
+   > gameplay world rather than the frontend.
 
 **Gate:** ~~if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.~~
 **Closed 2026-08-04 on B**, for the reason recorded above: the invocation path for A is verified

@@ -136,6 +136,28 @@ Bandana).
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.
 
+**`StaticFindObject` returns a non-null garbage pointer for paths that do not exist, and reading
+properties off one kills the process.** Verified 2026-08-04 on CU3. A loop that looked up
+`/Script/<module>.<name>` for five module names and four class names printed `FOUND` for all
+twenty combinations — including modules that plainly do not own those classes. The return value
+is not a valid object; it is not null either. Calling `mj.props()` on one took the game down with
+no Lua error, only a silent process exit and a `UECC-Windows-*` crash dump.
+
+Always validate before touching the result:
+
+```lua
+local o = StaticFindObject(path)
+local ok, full = pcall(function() return o and o:GetFullName() end)
+if not (ok and full) then return end   -- not a real object, do not go further
+```
+
+A real hit prints a real full name (`Class /Script/BlamExperience.BlamExperienceDefinition`). A
+phantom prints nothing, which is the tell — the crash above was preceded in the log by
+`/Script/BlamExperience.Default__BlamExperienceSettings -> [no name]`.
+
+Treat any conclusion drawn from an unvalidated `StaticFindObject` as worthless, including "class X
+exists in module Y". Module membership in particular cannot be established this way.
+
 **Long work on the game thread freezes the game.** Walking every property of all 37,000 loaded
 objects ran past three minutes and the game was unresponsive throughout. It recovers, and the
 heartbeat keeps ticking because the poll thread is separate, but scans should be narrowed to
