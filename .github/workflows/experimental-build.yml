@@ -4,9 +4,15 @@ name: Experimental PR Build
 # shipping anything to users.
 #
 # A maintainer comments `/experimental` on the PR. This packages that PR's mods
-# and attaches them to a pre-release tagged `experimental-pr<N>`, then replies
-# with the link. The tag moves as the PR is updated and is deleted when the PR
-# closes, so there is one link per PR and no clutter afterwards.
+# and attaches them to a pre-release tagged `experimental-pr<N>-<shortsha>`, then
+# replies with the link. Every build gets its own tag and the PR's releases are
+# removed when it closes.
+#
+# The tag carries the commit rather than moving, because this repository has
+# immutable releases enabled: once a tag has been used by a published release,
+# that name can never be reused — even after the release and its tag are both
+# deleted. A per-PR moving tag was tried and fails with "tag_name was used by an
+# immutable release" on the second build.
 #
 # Three properties keep this safe to run on pull requests from forks:
 #
@@ -236,12 +242,15 @@ jobs:
           SHA: ${{ steps.built.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG="experimental-pr${PR}"
+          TAG="experimental-pr${PR}-${VERSION##*-}"
 
-          # The tag moves with the PR, so delete the old release first and let
-          # the new one recreate it. `--cleanup-tag` keeps a stale tag from
-          # surviving a deleted release.
-          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          # Deliberately no delete-then-recreate: immutable releases burn a tag
+          # name permanently, so reusing one fails even after the release is
+          # gone. Re-running on the same commit is a no-op instead.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$TAG already published for this commit; nothing to rebuild."
+            exit 0
+          fi
 
           cat > notes.md <<'NOTES'
           **Experimental build — not a release.** Built from an open pull request
@@ -258,7 +267,8 @@ jobs:
           4. Launch through Steam as usual.
 
           To go back, restore your backup or reinstall the signed set from the
-          launcher.
+          launcher. Each build has its own tag, so this link always points at
+          the exact commit named below.
 
           ### Why it is unsigned
 
@@ -302,7 +312,7 @@ jobs:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          TAG="experimental-pr${PR}"
+          TAG="experimental-pr${PR}-${VERSION##*-}"
           if [ "$OUTCOME" = "success" ]; then
             body=$(printf '%s\n' \
               "🧪 **Experimental build ready** — \`${VERSION}\`" \
@@ -312,7 +322,7 @@ jobs:
               "Unzip \`mjolnir-experimental-*.zip\` over \`ue4ss/\`, back up what it replaces, and add any new mod to \`mods.txt\`." \
               "Unsigned and manual-install by design — it is not on the auto-update path, and nobody's install changes until they copy it in." \
               "" \
-              "The tag moves with this PR and is deleted when it closes.")
+              "Each build gets its own tag; this PR's builds are removed when it closes.")
           else
             body=$(printf '%s\n' \
               "❌ **Experimental build failed** for \`${SHA:0:7}\`." \
@@ -335,10 +345,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          TAG="experimental-pr${PR}"
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
-            echo "Deleted $TAG"
-          else
-            echo "No experimental release for PR #$PR"
-          fi
+          # One tag per build, so a PR can have several. Delete whatever it has.
+          found=0
+          for tag in $(gh api "repos/$REPO/releases" --paginate                          --jq '.[].tag_name' | grep -E "^experimental-pr${PR}(-|$)" || true); do
+            gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag && echo "Deleted $tag"
+            found=$((found + 1))
+          done
+          [ "$found" -gt 0 ] || echo "No experimental releases for PR #$PR"
