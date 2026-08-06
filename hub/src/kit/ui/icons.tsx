@@ -119,6 +119,57 @@ export function RefreshIcon(props: IconProps) {
   );
 }
 
+export function PlayIcon({ filled, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <Svg {...props} fill={filled ? "currentColor" : "none"}>
+      <path d="M6 3l14 9-14 9V3Z" />
+    </Svg>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+      <circle cx="12" cy="12" r="3" />
+    </Svg>
+  );
+}
+
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </Svg>
+  );
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </Svg>
+  );
+}
+
+export function ClockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </Svg>
+  );
+}
+
+export function PlusIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </Svg>
+  );
+}
+
 export function BoltIcon(props: IconProps) {
   return (
     <Svg {...props}>

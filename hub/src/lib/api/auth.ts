@@ -129,6 +129,18 @@ export async function loginCallback(c: Ctx) {
   if (!row) return c.json({ error: "user_upsert_failed" }, 500);
   if (row.banned_at) return c.json({ error: "banned" }, 403);
 
+  // Seat the configured super admin on every login rather than once in a
+  // migration, so the role survives database resets and first-ever sign-ins.
+  const superAdmin = process.env.SUPER_ADMIN_DISCORD_ID ?? c.env.SUPER_ADMIN_DISCORD_ID;
+  if (superAdmin && me.id === superAdmin) {
+    await c.env.DB.prepare(
+      `UPDATE users SET role = 'admin', updated_at = datetime('now')
+       WHERE id = ?1 AND role <> 'admin'`,
+    )
+      .bind(row.id)
+      .run();
+  }
+
   const jwt = await signSession({ sub: row.id, did: me.id }, secret);
   setCookie(c, SESSION_COOKIE, jwt, {
     httpOnly: true,

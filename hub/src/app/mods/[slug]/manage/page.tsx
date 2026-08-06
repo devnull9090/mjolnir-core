@@ -31,6 +31,8 @@ interface Media {
   id: string;
   url: string;
   alt_text: string;
+  kind: "screenshot" | "thumbnail" | "video";
+  status: "pending" | "approved" | "rejected";
 }
 
 interface Release {
@@ -91,8 +93,10 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
   // ── Screenshots ─────────────────────────────────────────────────────
 
   const stageFiles = (files: FileList | File[]) => {
-    const imgs = [...files].filter((f) => /image\/(png|jpeg|webp)/.test(f.type));
-    setPendingShots((p) => [...p, ...imgs.map((file) => ({ file, alt: "" }))]);
+    const accepted = [...files].filter((f) =>
+      /image\/(png|jpeg|webp)|video\/(mp4|webm)/.test(f.type),
+    );
+    setPendingShots((p) => [...p, ...accepted.map((file) => ({ file, alt: "" }))]);
   };
 
   const uploadShot = async (i: number) => {
@@ -197,9 +201,9 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
           </div>
         )}
 
-        {/* ── Screenshots ── */}
+        {/* ── Gallery ── */}
         <section className="mb-12">
-          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Screenshots</h2>
+          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Gallery</h2>
 
           <div
             ref={dropRef}
@@ -217,36 +221,42 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
           >
             <ImagePlus className="w-8 h-8 text-text-dim mx-auto mb-2" />
             <p className="text-sm text-text-muted">
-              Drag screenshots here, or{" "}
+              Drag screenshots or videos here, or{" "}
               <label className="text-gold hover:underline cursor-pointer">
                 browse
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
                   multiple
                   className="hidden"
                   onChange={(e) => e.target.files && stageFiles(e.target.files)}
                 />
               </label>
             </p>
-            <p className="text-[11px] text-text-dim mt-1">png / jpeg / webp, ≤ 8 MiB</p>
+            <p className="text-[11px] text-text-dim mt-1">
+              png / jpeg / webp ≤ 8 MiB · mp4 / webm ≤ 64 MiB · published after moderator review
+            </p>
           </div>
 
           {/* Staged, awaiting alt text */}
           {pendingShots.map((s, i) => (
             <div key={i} className="mt-3 flex items-center gap-3 rounded-lg border border-border p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={URL.createObjectURL(s.file)}
-                alt=""
-                className="w-16 h-10 object-cover rounded"
-              />
+              {s.file.type.startsWith("video/") ? (
+                <video src={URL.createObjectURL(s.file)} muted className="w-16 h-10 object-cover rounded" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={URL.createObjectURL(s.file)}
+                  alt=""
+                  className="w-16 h-10 object-cover rounded"
+                />
+              )}
               <input
                 value={s.alt}
                 onChange={(e) =>
                   setPendingShots((p) => p.map((x, j) => (j === i ? { ...x, alt: e.target.value } : x)))
                 }
-                placeholder="Describe this image (required)"
+                placeholder="Describe this file (required)"
                 className="flex-1 px-3 py-1.5 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-text-dim focus:border-gold/60 focus:outline-none"
               />
               <button
@@ -271,12 +281,32 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
             <div className="mt-4 grid grid-cols-3 gap-3">
               {media.map((m) => (
                 <figure key={m.id} className="relative group">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={m.url}
-                    alt={m.alt_text}
-                    className="rounded-lg border border-border aspect-video object-cover w-full"
-                  />
+                  {m.kind === "video" ? (
+                    <video
+                      src={m.url}
+                      preload="metadata"
+                      muted
+                      className="rounded-lg border border-border aspect-video object-cover w-full"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.url}
+                      alt={m.alt_text}
+                      className="rounded-lg border border-border aspect-video object-cover w-full"
+                    />
+                  )}
+                  {m.status !== "approved" && (
+                    <span
+                      className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        m.status === "pending"
+                          ? "bg-yellow-500/15 text-yellow-400"
+                          : "bg-red-500/15 text-red-400"
+                      }`}
+                    >
+                      {m.status === "pending" ? "awaiting review" : "rejected"}
+                    </span>
+                  )}
                   <figcaption className="text-[11px] text-text-dim mt-1 truncate" title={m.alt_text}>
                     {m.alt_text}
                   </figcaption>

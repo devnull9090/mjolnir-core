@@ -6,7 +6,7 @@
  * API remains the contract for everyone else.
  */
 import type { D1Database } from "@cloudflare/workers-types";
-import type { Mod, Release } from "@mjolnir/hub-kit";
+import type { Media, Mod, Release } from "@mjolnir/hub-kit";
 
 /**
  * Listing rows are the API's `Mod` shape so pages can hand them straight to
@@ -38,7 +38,8 @@ export async function listPublishedMods(
   const rows = await db
     .prepare(
       `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
-              m.download_count, m.rating_count, m.rating_mean, m.created_at, m.updated_at,
+              m.download_count, m.view_count, m.rating_count, m.rating_mean,
+              m.created_at, m.updated_at,
               COALESCE(u.display_name, u.discord_username) AS author
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
@@ -61,11 +62,9 @@ export interface ModPage extends Omit<Mod, "nsfw"> {
   status: string;
 }
 
-export interface MediaRow {
-  id: string;
-  alt_text: string;
-  position: number;
-}
+/** Server-rendered gallery rows are the API's `Media` shape so the page can
+ *  hand them straight to the shared <ModGallery> as its first paint. */
+export type MediaRow = Media;
 
 /**
  * Server-rendered release rows carry the same shape the API publishes, so
@@ -84,8 +83,18 @@ export async function getModPage(db: D1Database, slug: string) {
   if (!mod) return null;
 
   const [media, releases] = await Promise.all([
+    // Approved only: the page is public, and a caller's own pending items
+    // arrive through the API refetch that knows who is asking.
     db
-      .prepare(`SELECT id, alt_text, position FROM media WHERE mod_id = ?1 ORDER BY position`)
+      .prepare(
+        `SELECT media.id, media.mod_id, media.kind, media.alt_text, media.status,
+                media.view_count, media.uploader_id, media.width, media.height,
+                media.position, media.created_at,
+                COALESCE(u.display_name, u.discord_username) AS uploader
+         FROM media JOIN users u ON u.id = media.uploader_id
+         WHERE media.mod_id = ?1 AND media.status = 'approved'
+         ORDER BY media.position, media.created_at`,
+      )
       .bind(mod.id)
       .all(),
     db
@@ -100,7 +109,11 @@ export async function getModPage(db: D1Database, slug: string) {
   ]);
   return {
     mod,
-    media: media.results as unknown as MediaRow[],
+    // `url` is derived, not stored — the API's mediaFromRow does the same.
+    media: media.results.map((r) => ({
+      ...r,
+      url: `/api/v1/media/${r.id}`,
+    })) as unknown as MediaRow[],
     releases: releases.results as unknown as ReleaseRow[],
   };
 }
