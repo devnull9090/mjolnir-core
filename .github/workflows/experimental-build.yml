@@ -51,22 +51,18 @@ jobs:
   # repository, and refuses otherwise. Author association is not used — it
   # reports the relationship, not the permission.
   authorize:
-    # `github.event.issue.pull_request != null` looks right and never fires:
-    # GitHub coerces mismatched types to number for comparisons, an object
-    # becomes NaN, and NaN comparisons evaluate false. Comparing the nested
-    # `.url` string is well-defined under the same rules — absent is null,
-    # which coerces to 0 and equals '', while a real PR gives a non-empty URL.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request.url != '' &&
-       startsWith(github.event.comment.body, '/experimental'))
+    # Deliberately a trivial condition. Two attempts at expressing "this is a
+    # PR comment starting with /experimental" as a job-level `if` both silently
+    # evaluated false and skipped the whole run, with no way to see why. The
+    # decision now happens in the step below, in shell, where it can be logged.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write          # add a reaction to the triggering comment
       pull-requests: read
     outputs:
+      go: ${{ steps.check.outputs.go }}
       pr: ${{ steps.check.outputs.pr }}
       sha: ${{ steps.check.outputs.sha }}
       short: ${{ steps.check.outputs.short }}
@@ -76,11 +72,32 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
           PR: ${{ github.event.issue.number || inputs.pr }}
           ACTOR: ${{ github.event.comment.user.login || github.actor }}
           COMMENT_ID: ${{ github.event.comment.id }}
+          # Empty when the comment is on an issue rather than a pull request.
+          PR_URL: ${{ github.event.issue.pull_request.url }}
+          BODY: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
+          echo "go=false" >> "$GITHUB_OUTPUT"
+
+          # Log the inputs before deciding on them. The previous two versions of
+          # this gate failed invisibly; this one says what it saw.
+          echo "event=$EVENT pr=${PR:-} actor=$ACTOR"
+          echo "pull_request url: ${PR_URL:-<none, so this was an issue>}"
+
+          if [ "$EVENT" = "issue_comment" ]; then
+            if [ -z "${PR_URL:-}" ]; then
+              echo "Comment was on an issue, not a pull request. Nothing to build."
+              exit 0
+            fi
+            case "${BODY:-}" in
+              /experimental*) echo "Command recognised." ;;
+              *) echo "Not an /experimental command. Ignoring."; exit 0 ;;
+            esac
+          fi
 
           # workflow_dispatch already requires write access to the repository,
           # so the explicit check matters for the comment path. Doing it for
@@ -118,11 +135,13 @@ jobs:
             gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
               -f content=eyes --silent || true
           fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
           echo "Building PR #$PR at $sha"
 
   # ── Package and publish ───────────────────────────────────────────────────
   build:
     needs: authorize
+    if: needs.authorize.outputs.go == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write        # create the pre-release and its tag
