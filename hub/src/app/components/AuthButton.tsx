@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import Link from "next/link";
+import { LogOut, ShieldCheck } from "lucide-react";
 
 import { useHub } from "./HubKit";
 
@@ -27,6 +28,15 @@ export function AuthButton() {
 
   return (
     <div className="flex items-center gap-2">
+      {user.role !== "user" && (
+        <Link
+          href="/moderation"
+          title="Moderation queue"
+          className="text-gold hover:brightness-110"
+        >
+          <ShieldCheck className="w-4 h-4" />
+        </Link>
+      )}
       {user.avatar_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full" />

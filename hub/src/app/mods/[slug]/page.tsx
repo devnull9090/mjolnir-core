@@ -9,7 +9,8 @@ import { Markdown } from "../../docs/_components/Markdown";
 import { getModPage } from "@/lib/api/queries";
 import {
   CommentThread,
-  Gallery,
+  ModGallery,
+  ModViewBeacon,
   RatingPanel,
   ReleaseDownloadList,
   ReportButton,
@@ -61,6 +62,7 @@ export default async function ModDetailPage({
               by <span className="text-foreground">{mod.author}</span>
               {mod.license ? <span className="text-text-dim"> · {mod.license}</span> : null}
               <span className="text-text-dim"> · {mod.download_count} downloads</span>
+              <span className="text-text-dim"> · {mod.view_count} views</span>
             </p>
           </div>
           <OwnerBar slug={mod.slug} ownerId={mod.owner_id} />
@@ -68,18 +70,15 @@ export default async function ModDetailPage({
 
         {mod.summary && <p className="text-lg text-text-muted mb-8">{mod.summary}</p>}
 
-        {/* Screenshots */}
-        {media.length > 0 && (
-          <div className="mb-10">
-            <Gallery
-              items={media.map((m) => ({
-                id: m.id,
-                url: `/api/v1/media/${m.id}`,
-                alt: m.alt_text,
-              }))}
-            />
-          </div>
-        )}
+        {/* Gallery: server-rendered approved media as the first paint; the
+            client refetch layers in the viewer's own pending submissions
+            and the upload flow. */}
+        <div className="mb-10">
+          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Gallery</h2>
+          <ModGallery slug={mod.slug} allowUpload initial={media} />
+        </div>
+
+        <ModViewBeacon slug={mod.slug} />
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-10">
           <div>

@@ -16,12 +16,15 @@ import type {
   DevicePoll,
   DeviceStart,
   Media,
+  MediaStatus,
   ModDetail,
   ModList,
   ModListQuery,
+  QueuedMedia,
   RatingSummary,
   Release,
   ReleaseStatusDetail,
+  Report,
   ReportReason,
   ReportSubject,
   User,
@@ -32,6 +35,9 @@ export interface HubRequest {
   /** API path below the version prefix, e.g. `/mods/my-pack/ratings`. */
   path: string;
   query?: Record<string, string | number | undefined>;
+  /** JSON-serialized, except FormData, which goes through as multipart.
+   *  Custom transports that cannot carry FormData should reject it rather
+   *  than stringify it. */
   body?: unknown;
 }
 
@@ -87,14 +93,16 @@ function buildPath(req: HubRequest): string {
 function fetchTransport(options: HubClientOptions): HubTransport {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   return async (req) => {
+    // FormData sets its own multipart boundary header; JSON declares itself.
+    const isForm = typeof FormData !== "undefined" && req.body instanceof FormData;
     const headers: Record<string, string> = {};
-    if (req.body !== undefined) headers["Content-Type"] = "application/json";
+    if (req.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
 
     const res = await doFetch(`${options.baseUrl ?? ""}${buildPath(req)}`, {
       method: req.method,
       headers,
-      body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      body: req.body === undefined ? undefined : isForm ? (req.body as FormData) : JSON.stringify(req.body),
       // Cookie sessions are the website's whole auth story.
       credentials: options.token ? "omit" : "include",
     });
@@ -169,6 +177,35 @@ export class HubClient {
     return r.media;
   }
 
+  /**
+   * Submit a screenshot or video to a mod's gallery. Lands as `pending`
+   * (check `status` on the result) unless the caller is a moderator.
+   * Multipart under the hood — a custom transport must support FormData.
+   */
+  uploadMedia(slug: string, file: Blob, altText: string): Promise<Media> {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("alt_text", altText);
+    return this.call({
+      method: "POST",
+      path: `/mods/${encodeURIComponent(slug)}/media`,
+      body: form,
+    });
+  }
+
+  deleteMedia(id: string): Promise<{ ok: boolean }> {
+    return this.call({ method: "DELETE", path: `/media/${encodeURIComponent(id)}` });
+  }
+
+  /** View beacons; the server folds repeats per viewer per hour. */
+  recordMediaView(id: string): Promise<{ views: number }> {
+    return this.call({ method: "POST", path: `/media/${encodeURIComponent(id)}/view` });
+  }
+
+  recordModView(slug: string): Promise<{ views: number }> {
+    return this.call({ method: "POST", path: `/mods/${encodeURIComponent(slug)}/view` });
+  }
+
   // ── Ratings & comments ──────────────────────────────────────────────
 
   getRatings(slug: string): Promise<RatingSummary> {
@@ -227,6 +264,42 @@ export class HubClient {
       method: "POST",
       path: "/reports",
       body: { subject_type: subjectType, subject_id: subjectId, reason, detail: detail || undefined },
+    });
+  }
+
+  /** The gallery review queue. Moderators only. */
+  async listModerationMedia(status: MediaStatus = "pending"): Promise<QueuedMedia[]> {
+    const r = await this.call<{ media: QueuedMedia[] }>({
+      method: "GET",
+      path: "/moderation/media",
+      query: { status },
+    });
+    return r.media;
+  }
+
+  decideMedia(id: string, action: "approve" | "reject"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/media/${encodeURIComponent(id)}`,
+      body: { action },
+    });
+  }
+
+  /** The report queue. Moderators only. */
+  async listReports(status: Report["status"] = "open"): Promise<Report[]> {
+    const r = await this.call<{ reports: Report[] }>({
+      method: "GET",
+      path: "/moderation/reports",
+      query: { status },
+    });
+    return r.reports;
+  }
+
+  decideReport(id: string, action: "resolve" | "dismiss"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/reports/${encodeURIComponent(id)}`,
+      body: { action },
     });
   }
 
