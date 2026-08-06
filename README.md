@@ -198,10 +198,14 @@ To get a change in front of testers before it ships, a maintainer comments on th
 /experimental
 ```
 
-That packages the PR's mods and attaches them to a pre-release tagged `experimental-pr<N>`, then
-replies with the link. The tag moves as the PR is updated and is deleted when the PR closes, so
-there is one link per PR and no clutter afterwards. `workflow_dispatch` with a PR number does the
-same thing.
+That packages the PR's mods and attaches them to a pre-release tagged
+`experimental-pr<N>-<shortsha>`, then replies with the link. Every build gets its own tag, and a
+PR's releases are removed when it closes. `workflow_dispatch` with a PR number does the same thing.
+
+The tag carries the commit rather than moving, because this repository has **immutable releases**
+enabled: once a tag has been used by a published release that name can never be reused, even after
+the release and its tag are both deleted. A moving per-PR tag was tried first and fails on the
+second build with `tag_name was used by an immutable release`.
 
 **Only users with write access can trigger it.** The permission is checked against the repository
 rather than inferred from the commenter's relationship to it, so a `/experimental` from anyone else
