@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -17,18 +18,50 @@ import {
 } from "../../components/HubKit";
 import { OwnerBar } from "./OwnerBar";
 
+/**
+ * `generateMetadata` and the page itself both need the whole mod row, and
+ * `cache` collapses that into one set of D1 reads per request rather than two.
+ */
+const loadModPage = cache((slug: string) => {
+  const { env } = getCloudflareContext();
+  return getModPage(env.DB as never, slug);
+});
+
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const { env } = getCloudflareContext();
-  const page = await getModPage(env.DB as never, slug);
+  const page = await loadModPage(slug);
   if (!page || page.mod.status !== "published") return { title: "Mods | MJOLNIR Core" };
+
+  // The card image is the first approved screenshot, which is the one the
+  // gallery shows first: `media` arrives ordered by position. Videos are
+  // skipped because a link preview wants a still and none is generated.
+  const hero = page.media.find((m) => m.kind !== "video");
+  const description = page.mod.summary ?? undefined;
+
   return {
     title: `${page.mod.name} | MJOLNIR Core`,
-    description: page.mod.summary ?? undefined,
+    description,
+    alternates: { canonical: `/mods/${page.mod.slug}` },
+    openGraph: {
+      title: page.mod.name,
+      description,
+      url: `/mods/${page.mod.slug}`,
+      siteName: "MJOLNIR Core",
+      type: "article",
+      images: hero ? [{ url: hero.url, alt: hero.alt_text }] : undefined,
+    },
+    twitter: {
+      // Without an image the wide card renders as an empty box, so a mod
+      // with no screenshots yet asks for the small one instead.
+      card: hero ? "summary_large_image" : "summary",
+      title: page.mod.name,
+      description,
+      images: hero ? [hero.url] : undefined,
+    },
   };
 }
 
@@ -38,8 +71,7 @@ export default async function ModDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const { env } = getCloudflareContext();
-  const page = await getModPage(env.DB as never, slug);
+  const page = await loadModPage(slug);
   // Draft mods stay invisible here; owners reach them at /mods/{slug}/manage.
   if (!page || page.mod.status !== "published") notFound();
   const { mod, media, releases } = page;
