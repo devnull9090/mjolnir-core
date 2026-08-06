@@ -3,7 +3,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
 import { getTagGroups } from "@/lib/tags";
-import { listModsForSitemap, type SitemapMod } from "@/lib/api/queries";
+import { listModsForSitemap, listToolImages, type MediaRow, type SitemapMod } from "@/lib/api/queries";
+import { TOOLS } from "@/lib/tools";
 
 /**
  * Every other entry here comes from files on disk and could be prerendered,
@@ -41,12 +42,22 @@ async function modEntries(): Promise<MetadataRoute.Sitemap> {
   }));
 }
 
+/** Tool previews, so the screenshots are indexable rather than merely present. */
+async function toolImages(): Promise<Map<string, MediaRow[]>> {
+  try {
+    const { env } = getCloudflareContext();
+    return await listToolImages(env.DB as never);
+  } catch {
+    return new Map();
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const notes = getDocNotes();
   const tagGroups = getTagGroups();
   const releases = getReleases();
   const changelogUpdated = getLastModified();
-  const mods = await modEntries();
+  const [mods, previews] = await Promise.all([modEntries(), toolImages()]);
 
   return [
     {
@@ -74,6 +85,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.9,
     },
     ...mods,
+    {
+      url: `${baseUrl}/tools`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    // A tool page changes when its tool releases, which the changelog dates.
+    ...TOOLS.map((tool) => {
+      const images = previews.get(tool.slug) ?? [];
+      return {
+        url: `${baseUrl}/tools/${tool.slug}`,
+        lastModified: changelogUpdated,
+        changeFrequency: "weekly" as const,
+        priority: 0.7,
+        images: images.length > 0 ? images.map((m) => `${baseUrl}${m.url}`) : undefined,
+      };
+    }),
     {
       url: `${baseUrl}/download`,
       lastModified: new Date(),

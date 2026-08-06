@@ -8,13 +8,15 @@
  * fires `onView` once per mount, which is how view counts advance without
  * counting every re-render.
  *
- * <ModGallery> adds the community-submission flow: any signed-in user may
- * upload, the item shows immediately to them with an "awaiting review"
- * badge, and it goes public when a moderator approves it.
+ * <MediaGallery> adds the submission flow on top, against whichever owner it
+ * is given — a mod, where any signed-in user may upload and the item shows
+ * immediately to them with an "awaiting review" badge until a moderator
+ * approves it, or a tool, where moderators curate and everyone else reads.
+ * <ModGallery> and <ToolGallery> are those two policies, named.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { Media } from "../types";
+import type { Media, MediaOwner } from "../types";
 import { useHub } from "./context";
 import {
   ChevronLeftIcon,
@@ -280,18 +282,22 @@ function toItem(m: Media): GalleryItem {
 }
 
 /**
- * The full community gallery for one mod: the strip above, wired to the
- * API, plus the submission flow when `allowUpload` is set. Off by default
- * because a host's transport must carry FormData to upload — the website's
- * does; the launcher's Tauri bridge does not yet.
+ * The full gallery for one mod or tool: the strip above, wired to the API,
+ * plus the submission flow.
+ *
+ * `uploads` is the policy, not just a switch, because the two owners differ:
+ * anyone signed in may submit to a mod (and is invited to sign in), while a
+ * tool's previews are moderator-only and nobody else is asked. "nobody"
+ * turns the flow off entirely — which is what the launcher gets, since its
+ * Tauri transport cannot carry FormData yet.
  */
-export function ModGallery({
-  slug,
-  allowUpload = false,
+export function MediaGallery({
+  owner,
+  uploads = "nobody",
   initial,
 }: {
-  slug: string;
-  allowUpload?: boolean;
+  owner: MediaOwner;
+  uploads?: "anyone" | "moderators" | "nobody";
   initial?: Media[];
 }) {
   const { client, user, signIn } = useHub();
@@ -299,15 +305,24 @@ export function ModGallery({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const moderator = !!user && user.role !== "user";
+  const mayUpload = uploads === "anyone" ? !!user : uploads === "moderators" && moderator;
+  // Only a gallery anyone may add to has anything to gain by asking a
+  // signed-out reader to sign in.
+  const inviteSignIn = uploads === "anyone" && !user;
+
+  // Keyed on the two primitives rather than on `owner`, so a caller writing
+  // the object inline does not re-arm the fetch on every render.
+  const { type, slug } = owner;
   const load = useCallback(() => {
     client
-      .listMedia(slug)
+      .listMedia({ type, slug })
       .then((m) => {
         setMedia(m);
         setError(null);
       })
       .catch(() => setMedia((prev) => prev));
-  }, [client, slug]);
+  }, [client, type, slug]);
 
   // Refetch when the identity changes: the list carries the caller's own
   // pending submissions, so it depends on who is asking.
@@ -335,8 +350,11 @@ export function ModGallery({
 
   const items = media.map((m) => ({
     ...toItem(m),
+    // Your own unreviewed submissions, always; anything at all when you are
+    // the moderator who curates this gallery.
     onRemove:
-      user && m.uploader_id === user.id && m.status !== "approved"
+      (user && m.uploader_id === user.id && m.status !== "approved") ||
+      (moderator && uploads === "moderators")
         ? () => void remove(m.id)
         : undefined,
   }));
@@ -360,25 +378,58 @@ export function ModGallery({
 
       {items.length === 0 && (
         <p className="text-xs text-[var(--mj-text-dim)]">
-          No screenshots yet{allowUpload && user ? " — add the first one." : "."}
+          No screenshots yet{mayUpload ? " — add the first one." : "."}
         </p>
       )}
 
       {error && <ErrorNote>{error}</ErrorNote>}
       {notice && <p className="text-xs text-[var(--mj-text-muted)]">{notice}</p>}
 
-      {allowUpload &&
-        (user ? (
-          <MediaUploader slug={slug} variant="inline" onUploaded={onUploaded} />
-        ) : (
-          <button
-            type="button"
-            onClick={signIn}
-            className="text-xs text-[var(--mj-gold)] hover:underline cursor-pointer"
-          >
-            Sign in to add screenshots or videos
-          </button>
-        ))}
+      {mayUpload && (
+        <MediaUploader owner={{ type, slug }} variant="inline" onUploaded={onUploaded} />
+      )}
+
+      {inviteSignIn && (
+        <button
+          type="button"
+          onClick={signIn}
+          className="text-xs text-[var(--mj-gold)] hover:underline cursor-pointer"
+        >
+          Sign in to add screenshots or videos
+        </button>
+      )}
     </div>
   );
+}
+
+/**
+ * A mod's community gallery. Upload is off by default because a host's
+ * transport must carry FormData to submit — the website's does; the
+ * launcher's Tauri bridge does not yet.
+ */
+export function ModGallery({
+  slug,
+  allowUpload = false,
+  initial,
+}: {
+  slug: string;
+  allowUpload?: boolean;
+  initial?: Media[];
+}) {
+  return (
+    <MediaGallery
+      owner={{ type: "mod", slug }}
+      uploads={allowUpload ? "anyone" : "nobody"}
+      initial={initial}
+    />
+  );
+}
+
+/**
+ * A tool's preview gallery. Tools are first-party and defined in code, so
+ * their screenshots are curated: moderators add and remove, everyone else
+ * reads.
+ */
+export function ToolGallery({ slug, initial }: { slug: string; initial?: Media[] }) {
+  return <MediaGallery owner={{ type: "tool", slug }} uploads="moderators" initial={initial} />;
 }

@@ -268,7 +268,12 @@ export const ConflictCheckResponseSchema = z
 export const MediaSchema = z
   .object({
     id: z.string(),
-    mod_id: z.string(),
+    mod_id: z.string().nullable().openapi({
+      description: "The mod this belongs to; null for a tool preview.",
+    }),
+    tool_slug: z.string().nullable().openapi({
+      description: "The tool this belongs to; null for a mod's gallery item.",
+    }),
     url: z.string().openapi({ description: "Where the file is served from." }),
     kind: z.enum(["screenshot", "thumbnail", "video"]),
     alt_text: z.string().openapi({

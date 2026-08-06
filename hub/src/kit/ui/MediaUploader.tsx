@@ -1,10 +1,11 @@
 /**
  * The gallery submission flow, in one place.
  *
- * Both surfaces that add screenshots — a mod's public page and its owner's
- * manage page — mount this, so drag-and-drop, previews, per-file descriptions
- * and the upload queue exist once. The only difference between them is
- * `variant`: a full dashed panel where uploading is the point of the page, a
+ * Every surface that adds screenshots — a mod's public page, its owner's
+ * manage page, and a tool page for moderators — mounts this, so
+ * drag-and-drop, previews, per-file descriptions and the upload queue exist
+ * once. `owner` decides where the files go; `variant` decides how much room
+ * it takes: a full dashed panel where uploading is the point of the page, a
  * one-line strip where the gallery is just another section.
  *
  * Files go up one at a time rather than all at once. A gallery submission can
@@ -15,7 +16,7 @@
 import { useCallback, useState } from "react";
 
 import { HubError } from "../client";
-import type { Media } from "../types";
+import type { Media, MediaOwner } from "../types";
 import { useHub } from "./context";
 import {
   FileDropzone,
@@ -45,12 +46,13 @@ function message(e: unknown): string {
 }
 
 export function MediaUploader({
-  slug,
+  owner,
   variant = "panel",
   onUploaded,
   className = "",
 }: {
-  slug: string;
+  /** The mod or tool the files are being added to. */
+  owner: MediaOwner;
   variant?: "panel" | "inline";
   /** Fired per accepted item, so the gallery can show it without a refetch. */
   onUploaded?: (media: Media) => void;
@@ -77,7 +79,7 @@ export function MediaUploader({
       // re-render of the list.
       let lastPct = -1;
       try {
-        const created = await client.uploadMedia(slug, item.file, caption, (p) => {
+        const created = await client.uploadMedia(owner, item.file, caption, (p) => {
           const pct = Math.round(p * 100);
           if (pct === lastPct) return;
           lastPct = pct;
@@ -93,7 +95,7 @@ export function MediaUploader({
         return undefined;
       }
     },
-    [client, onUploaded, remove, slug, update],
+    [client, onUploaded, owner, remove, update],
   );
 
   const uploadAll = async () => {

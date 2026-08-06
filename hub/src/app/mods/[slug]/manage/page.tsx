@@ -51,7 +51,7 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
   const loadMedia = useCallback(
     () =>
       client
-        .listMedia(slug)
+        .listMedia({ type: "mod", slug })
         .then(setMedia)
         .catch(() => {}),
     [client, slug],
@@ -180,7 +180,7 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
           <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Gallery</h2>
 
           <MediaUploader
-            slug={slug}
+            owner={{ type: "mod", slug }}
             onUploaded={(m) => setMedia((prev) => [...prev, m])}
           />
           <p className="text-[11px] text-text-dim mt-2">

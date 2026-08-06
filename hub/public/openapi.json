@@ -756,7 +756,18 @@
             "type": "string"
           },
           "mod_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The mod this belongs to; null for a tool preview."
+          },
+          "tool_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tool this belongs to; null for a mod's gallery item."
           },
           "url": {
             "type": "string",
@@ -819,6 +830,7 @@
         "required": [
           "id",
           "mod_id",
+          "tool_slug",
           "url",
           "kind",
           "alt_text",
@@ -1316,10 +1328,27 @@
           "uploader": {
             "type": "string"
           },
-          "mod_slug": {
-            "type": "string"
+          "owner": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "mod",
+                  "tool"
+                ]
+              },
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "slug"
+            ],
+            "description": "What it was submitted to, and where that lives on the site."
           },
-          "mod_name": {
+          "owner_name": {
             "type": "string"
           },
           "created_at": {
@@ -1334,8 +1363,8 @@
           "status",
           "file_size",
           "uploader",
-          "mod_slug",
-          "mod_name",
+          "owner",
+          "owner_name",
           "created_at"
         ]
       },
@@ -2631,13 +2660,156 @@
         }
       }
     },
+    "/api/v1/tools/{slug}/media": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "A tool's previews",
+        "description": "Approved screenshots and videos for one of the tools on /tools. Moderators additionally see anything not yet approved.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The gallery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Add a preview to a tool (moderators)",
+        "description": "multipart/form-data with `file` (png/jpeg/webp ≤ 8 MiB, or mp4/webm ≤ 64 MiB) and `alt_text` (required — every item ships with a description). Moderators only, and the item publishes immediately: there is no queue for a gallery only moderators can write to.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "alt_text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "alt_text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The stored item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing alt text, unsupported file, or a full gallery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/media/{id}": {
       "delete": {
         "tags": [
           "media"
         ],
         "summary": "Delete a gallery item",
-        "description": "The uploader, the mod's owner, or a moderator.",
+        "description": "The uploader, the mod's owner, or a moderator. A tool preview has no owner, so it is the uploader or a moderator.",
         "parameters": [
           {
             "schema": {

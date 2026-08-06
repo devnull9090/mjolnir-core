@@ -46,6 +46,9 @@ export function Footer() {
           <Link href="/mods" className="hover:text-foreground transition-colors py-1">
             Mods
           </Link>
+          <Link href="/tools" className="hover:text-foreground transition-colors py-1">
+            Tools
+          </Link>
           <Link href="/docs" className="hover:text-foreground transition-colors py-1">
             Docs
           </Link>

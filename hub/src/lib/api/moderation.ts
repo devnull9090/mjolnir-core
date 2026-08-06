@@ -10,6 +10,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 
 import type { ApiEnv } from "./bindings";
+import { getTool } from "../tools";
 import { authenticate, rateLimit } from "./auth";
 import { requireModerator } from "./account";
 import { ErrorSchema } from "./schemas";
@@ -41,7 +42,8 @@ const ReportSchema = z
   .openapi("Report");
 
 /** A gallery submission as the review queue sees it: the item plus enough
- *  context (mod, uploader) to judge it without leaving the page. */
+ *  context (what it was submitted to, uploader) to judge it without leaving
+ *  the page. */
 const QueuedMediaSchema = z
   .object({
     id: z.string(),
@@ -51,8 +53,10 @@ const QueuedMediaSchema = z
     status: z.enum(["pending", "approved", "rejected"]),
     file_size: z.number().int().nullable(),
     uploader: z.string(),
-    mod_slug: z.string(),
-    mod_name: z.string(),
+    owner: z
+      .object({ type: z.enum(["mod", "tool"]), slug: z.string() })
+      .openapi({ description: "What it was submitted to, and where that lives on the site." }),
+    owner_name: z.string(),
     created_at: z.string(),
   })
   .openapi("QueuedMedia");
@@ -219,12 +223,14 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       await requireModerator(c);
       const { status } = c.req.valid("query");
+      // LEFT JOIN on mods: a tool preview has no mod row, and an inner join
+      // would drop it out of the queue entirely.
       const rows = await c.env.DB.prepare(
         `SELECT media.id, media.kind, media.alt_text, media.status, media.file_size,
-                media.created_at, m.slug AS mod_slug, m.name AS mod_name,
+                media.created_at, media.tool_slug, m.slug AS mod_slug, m.name AS mod_name,
                 COALESCE(u.display_name, u.discord_username) AS uploader
          FROM media
-         JOIN mods m ON m.id = media.mod_id
+         LEFT JOIN mods m ON m.id = media.mod_id
          JOIN users u ON u.id = media.uploader_id
          WHERE media.status = ?1 ORDER BY media.created_at LIMIT 200`,
       )
@@ -232,18 +238,26 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         .all();
       return c.json(
         {
-          media: rows.results.map((r) => ({
-            id: r.id as string,
-            url: `/api/v1/media/${r.id}`,
-            kind: r.kind as "screenshot" | "thumbnail" | "video",
-            alt_text: r.alt_text as string,
-            status: r.status as "pending" | "approved" | "rejected",
-            file_size: (r.file_size as number) ?? null,
-            uploader: r.uploader as string,
-            mod_slug: r.mod_slug as string,
-            mod_name: r.mod_name as string,
-            created_at: r.created_at as string,
-          })),
+          media: rows.results.map((r) => {
+            const toolSlug = (r.tool_slug as string) ?? null;
+            const tool = toolSlug ? getTool(toolSlug) : null;
+            return {
+              id: r.id as string,
+              url: `/api/v1/media/${r.id}`,
+              kind: r.kind as "screenshot" | "thumbnail" | "video",
+              alt_text: r.alt_text as string,
+              status: r.status as "pending" | "approved" | "rejected",
+              file_size: (r.file_size as number) ?? null,
+              uploader: r.uploader as string,
+              owner: toolSlug
+                ? { type: "tool" as const, slug: toolSlug }
+                : { type: "mod" as const, slug: r.mod_slug as string },
+              // A tool that has since left the registry still names itself
+              // by its slug rather than rendering as a blank row.
+              owner_name: toolSlug ? (tool?.name ?? toolSlug) : (r.mod_name as string),
+              created_at: r.created_at as string,
+            };
+          }),
         },
         200,
       );

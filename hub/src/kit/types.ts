@@ -99,9 +99,23 @@ export interface ReleaseStatusDetail {
 
 export type MediaStatus = "pending" | "approved" | "rejected";
 
+/**
+ * What a gallery hangs off: a community mod, or one of the first-party tools
+ * on /tools. The two differ in who may add to them — anyone signed in for a
+ * mod, moderators only for a tool — but in nothing else, so every media path
+ * below takes this rather than a bare slug.
+ */
+export interface MediaOwner {
+  type: "mod" | "tool";
+  slug: string;
+}
+
 export interface Media {
   id: string;
-  mod_id: string;
+  /** Set for a mod's gallery; null for a tool's. */
+  mod_id: string | null;
+  /** Set for a tool's gallery; null for a mod's. */
+  tool_slug: string | null;
   url: string;
   kind: "screenshot" | "thumbnail" | "video";
   alt_text: string;
@@ -127,8 +141,9 @@ export interface QueuedMedia {
   status: MediaStatus;
   file_size: number | null;
   uploader: string;
-  mod_slug: string;
-  mod_name: string;
+  /** What it was submitted to, and where that lives on the site. */
+  owner: MediaOwner;
+  owner_name: string;
   created_at: string;
 }
 

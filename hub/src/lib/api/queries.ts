@@ -51,6 +51,65 @@ export async function listPublishedMods(
   return rows.results.map((r) => ({ ...r, nsfw: !!r.nsfw })) as unknown as ModListRow[];
 }
 
+/**
+ * The approved previews for one tool, in gallery order.
+ *
+ * Server-rendered so a tool page paints its screenshots on first load and
+ * can put one in its link preview. The client gallery refetches on mount,
+ * which is what layers in anything a moderator has yet to approve.
+ */
+export async function listToolMedia(db: D1Database, slug: string): Promise<MediaRow[]> {
+  const rows = await db
+    .prepare(
+      `SELECT media.id, media.mod_id, media.tool_slug, media.kind, media.alt_text,
+              media.status, media.view_count, media.uploader_id, media.width,
+              media.height, media.position, media.created_at,
+              COALESCE(u.display_name, u.discord_username) AS uploader
+       FROM media JOIN users u ON u.id = media.uploader_id
+       WHERE media.tool_slug = ?1 AND media.status = 'approved'
+       ORDER BY media.position, media.created_at`,
+    )
+    .bind(slug)
+    .all();
+  return rows.results.map((r) => ({
+    ...r,
+    url: `/api/v1/media/${r.id}`,
+  })) as unknown as MediaRow[];
+}
+
+/**
+ * Every tool's approved stills, keyed by slug and in gallery order — one
+ * query for the whole /tools index and for the sitemap, rather than one per
+ * tool. The index takes the first of each as the card image.
+ *
+ * Videos are skipped for the same reason the mod sitemap skips them: a card
+ * and an `<image:loc>` both want a picture, and none is generated for a clip.
+ */
+export async function listToolImages(db: D1Database): Promise<Map<string, MediaRow[]>> {
+  const rows = await db
+    .prepare(
+      `SELECT media.id, media.mod_id, media.tool_slug, media.kind, media.alt_text,
+              media.status, media.view_count, media.uploader_id, media.width,
+              media.height, media.position, media.created_at,
+              COALESCE(u.display_name, u.discord_username) AS uploader
+       FROM media JOIN users u ON u.id = media.uploader_id
+       WHERE media.tool_slug IS NOT NULL AND media.status = 'approved'
+         AND media.kind <> 'video'
+       ORDER BY media.position, media.created_at`,
+    )
+    .all();
+  const bySlug = new Map<string, MediaRow[]>();
+  for (const row of rows.results as unknown as MediaRow[]) {
+    const slug = row.tool_slug;
+    if (!slug) continue;
+    const item = { ...row, url: `/api/v1/media/${row.id}` };
+    const list = bySlug.get(slug);
+    if (list) list.push(item);
+    else bySlug.set(slug, [item]);
+  }
+  return bySlug;
+}
+
 /** One published mod as the sitemap needs it, with its listable images. */
 export interface SitemapMod {
   slug: string;

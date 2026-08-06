@@ -23,6 +23,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
+import { getTool } from "../tools";
 import { authenticate, rateLimit, requireScoped } from "./auth";
 import {
   CommentCreateSchema,
@@ -38,8 +39,8 @@ type Ctx = Context<ApiEnv>;
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
-const MAX_MEDIA_PER_MOD = 20;
-/** Queue-flooding guard: undecided submissions one user may hold per mod. */
+const MAX_MEDIA_PER_GALLERY = 20;
+/** Queue-flooding guard: undecided submissions one user may hold per gallery. */
 const MAX_PENDING_PER_USER = 5;
 
 interface MediaSniffer {
@@ -99,6 +100,38 @@ async function modBySlug(c: Ctx, slug: string) {
 }
 
 /**
+ * What a gallery hangs off, as the queries below need it: a mod's row id, or
+ * a tool's slug. Exactly one is set, which is what the `media` CHECK
+ * constraint enforces on the way in (migration 0009).
+ */
+type GalleryOwner = { modId: string | null; toolSlug: string | null };
+
+/**
+ * Resolve a tool gallery. Tools live in the code registry rather than in D1,
+ * so this is the only thing standing between a URL and a row keyed by an
+ * arbitrary string — hence the registry lookup rather than a bare accept.
+ */
+function toolOwner(c: Ctx, slug: string): GalleryOwner {
+  if (!getTool(slug)) throw new HTTPException(404, { res: c.json({ error: "not_found" }, 404) });
+  return { modId: null, toolSlug: slug };
+}
+
+/**
+ * `WHERE` fragment for "the media belonging to this owner", against the
+ * given placeholder — which differs per statement, so it is passed in rather
+ * than assumed to be `?1`.
+ */
+function ownerFilter(owner: GalleryOwner, placeholder: string, qualified = true): string {
+  const column = owner.modId !== null ? "mod_id" : "tool_slug";
+  return `${qualified ? "media." : ""}${column} = ${placeholder}`;
+}
+
+/** The value that fragment's placeholder takes. */
+function ownerBind(owner: GalleryOwner): string {
+  return owner.modId ?? owner.toolSlug!;
+}
+
+/**
  * Wilson score lower bound (95%) of the positive fraction, with 1–5 stars
  * mapped onto [0, 1]. The ranking statistic listings sort by: pessimistic
  * for tiny sample sizes, converging on the mean as votes accumulate.
@@ -137,7 +170,8 @@ function mediaUrl(id: string): string {
 function mediaFromRow(r: any) {
   return {
     id: r.id as string,
-    mod_id: r.mod_id as string,
+    mod_id: (r.mod_id as string) ?? null,
+    tool_slug: (r.tool_slug as string) ?? null,
     url: mediaUrl(r.id as string),
     kind: r.kind as "screenshot" | "thumbnail" | "video",
     alt_text: r.alt_text as string,
@@ -156,6 +190,111 @@ function mediaFromRow(r: any) {
  *  open to signed-out visitors, so the key cannot require an account. */
 function viewerKey(c: Ctx): string {
   return `ip:${c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown"}`;
+}
+
+/**
+ * One owner's gallery: approved items for everyone, plus the caller's own
+ * unreviewed submissions, plus everything for a moderator.
+ */
+async function listGallery(c: Ctx, owner: GalleryOwner) {
+  const me = (await authenticate(c))?.user ?? null;
+  const moderator = me !== null && me.role !== "user";
+  const rows = await c.env.DB.prepare(
+    `SELECT media.*, COALESCE(u.display_name, u.discord_username) AS uploader
+     FROM media JOIN users u ON u.id = media.uploader_id
+     WHERE ${ownerFilter(owner, "?1")}
+       AND (?3 OR media.status = 'approved' OR media.uploader_id = ?2)
+     ORDER BY media.position, media.created_at`,
+  )
+    .bind(ownerBind(owner), me?.id ?? "", moderator ? 1 : 0)
+    .all();
+  return { media: rows.results.map(mediaFromRow) };
+}
+
+/**
+ * The upload path, shared by both kinds of gallery.
+ *
+ * Everything about handling the bytes is identical — magic-byte sniffing,
+ * size ceilings, R2 storage, the row — so the only thing an owner changes is
+ * where the object lands in the bucket. Who may submit is decided by the
+ * route before it gets here, because the two answer it differently and only
+ * one of them can answer 403.
+ */
+async function submitMedia(
+  c: Ctx,
+  owner: GalleryOwner,
+  user: { id: string; role: string },
+  keyPrefix: string,
+) {
+  const form = await c.req.parseBody();
+  const file = form["file"];
+  const alt = form["alt_text"];
+  if (typeof alt !== "string" || alt.trim().length === 0) {
+    return c.json(
+      { error: "alt_text_required", message: "Describe the file for people who cannot see it." },
+      400,
+    );
+  }
+  if (!(file instanceof File)) {
+    return c.json({ error: "no_file", message: "Attach the image or video as `file`." }, 400);
+  }
+  if (file.size > MAX_VIDEO_BYTES) return c.json({ error: "too_large" }, 413);
+
+  // Sniff the leading bytes only; a 64 MiB video never needs a second
+  // in-memory copy just to be identified.
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const type = MEDIA_TYPES.find((t) => t.match(head));
+  if (!type) {
+    return c.json(
+      { error: "unsupported_type", message: "Only png, jpeg, webp, mp4 and webm are accepted." },
+      400,
+    );
+  }
+  if (type.kind === "screenshot" && file.size > MAX_IMAGE_BYTES) {
+    return c.json({ error: "too_large" }, 413);
+  }
+
+  const counts = await c.env.DB.prepare(
+    `SELECT
+       SUM(CASE WHEN status <> 'rejected' THEN 1 ELSE 0 END) AS live,
+       SUM(CASE WHEN status = 'pending' AND uploader_id = ?2 THEN 1 ELSE 0 END) AS mine_pending
+     FROM media WHERE ${ownerFilter(owner, "?1", false)}`,
+  )
+    .bind(ownerBind(owner), user.id)
+    .first<{ live: number | null; mine_pending: number | null }>();
+  if ((counts?.live ?? 0) >= MAX_MEDIA_PER_GALLERY) {
+    return c.json({ error: "too_many", message: `At most ${MAX_MEDIA_PER_GALLERY} items each.` }, 400);
+  }
+  if (user.role === "user" && (counts?.mine_pending ?? 0) >= MAX_PENDING_PER_USER) {
+    return c.json(
+      { error: "too_many_pending", message: `At most ${MAX_PENDING_PER_USER} submissions awaiting review.` },
+      400,
+    );
+  }
+
+  const status = user.role === "user" ? "pending" : "approved";
+  const id = crypto.randomUUID();
+  const key = `${keyPrefix}/${id}.${type.ext}`;
+  // The File goes to R2 as a Blob: known length (which a bare stream
+  // would lack) and no second in-memory copy of a large video.
+  await c.env.MODS_BUCKET.put(key, file as unknown as Parameters<typeof c.env.MODS_BUCKET.put>[1], {
+    httpMetadata: { contentType: type.mime },
+  });
+  await c.env.DB.prepare(
+    `INSERT INTO media (id, mod_id, tool_slug, uploader_id, r2_key, kind, alt_text, status, file_size, position)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+             COALESCE((SELECT MAX(position) + 1 FROM media WHERE ${ownerFilter(owner, "?10", false)}), 0))`,
+  )
+    .bind(id, owner.modId, owner.toolSlug, user.id, key, type.kind, alt.trim(), status, file.size, ownerBind(owner))
+    .run();
+
+  const row = await c.env.DB.prepare(
+    `SELECT media.*, COALESCE(u.display_name, u.discord_username) AS uploader
+     FROM media JOIN users u ON u.id = media.uploader_id WHERE media.id = ?1`,
+  )
+    .bind(id)
+    .first();
+  return c.json(mediaFromRow(row), 201);
 }
 
 export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
@@ -180,18 +319,7 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       const { slug } = c.req.valid("param");
       const mod = await modBySlug(c, slug);
-      const me = (await authenticate(c))?.user ?? null;
-      const moderator = me !== null && me.role !== "user";
-      const rows = await c.env.DB.prepare(
-        `SELECT media.*, COALESCE(u.display_name, u.discord_username) AS uploader
-         FROM media JOIN users u ON u.id = media.uploader_id
-         WHERE media.mod_id = ?1
-           AND (?3 OR media.status = 'approved' OR media.uploader_id = ?2)
-         ORDER BY media.position, media.created_at`,
-      )
-        .bind(mod.id, me?.id ?? "", moderator ? 1 : 0)
-        .all();
-      return c.json({ media: rows.results.map(mediaFromRow) }, 200);
+      return c.json(await listGallery(c, { modId: mod.id, toolSlug: null }), 200);
     },
   );
 
@@ -232,76 +360,82 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       const { user } = await requireScoped(c, "mods:write", "media", 60);
       const { slug } = c.req.valid("param");
       const mod = await modBySlug(c, slug);
+      return submitMedia(c, { modId: mod.id, toolSlug: null }, user, `media/${mod.id}`);
+    },
+  );
 
-      const form = await c.req.parseBody();
-      const file = form["file"];
-      const alt = form["alt_text"];
-      if (typeof alt !== "string" || alt.trim().length === 0) {
+  // ── Tool previews ───────────────────────────────────────────────────
+  //
+  // The same gallery, against a tool in the code registry rather than a mod
+  // row. The one difference is who may add: tools are first-party, so their
+  // screenshots are curated by moderators rather than submitted by anyone.
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/tools/{slug}/media",
+      tags: ["media"],
+      summary: "A tool's previews",
+      description:
+        "Approved screenshots and videos for one of the tools on /tools. " +
+        "Moderators additionally see anything not yet approved.",
+      request: { params: z.object({ slug: z.string() }) },
+      responses: {
+        200: { description: "The gallery.", content: { "application/json": { schema: MediaListSchema } } },
+        404: { description: "No such tool.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { slug } = c.req.valid("param");
+      return c.json(await listGallery(c, toolOwner(c, slug)), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/tools/{slug}/media",
+      tags: ["media"],
+      summary: "Add a preview to a tool (moderators)",
+      description:
+        "multipart/form-data with `file` (png/jpeg/webp ≤ 8 MiB, or " +
+        "mp4/webm ≤ 64 MiB) and `alt_text` (required — every item ships " +
+        "with a description). Moderators only, and the item publishes " +
+        "immediately: there is no queue for a gallery only moderators can " +
+        "write to.",
+      request: {
+        params: z.object({ slug: z.string() }),
+        body: {
+          content: {
+            "multipart/form-data": {
+              schema: z.object({
+                file: z.any().openapi({ type: "string", format: "binary" }),
+                alt_text: z.string().min(1).max(500),
+              }),
+            },
+          },
+        },
+      },
+      responses: {
+        201: { description: "The stored item.", content: { "application/json": { schema: MediaSchema } } },
+        400: { description: "Missing alt text, unsupported file, or a full gallery.", content: { "application/json": { schema: ErrorSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such tool.", content: { "application/json": { schema: ErrorSchema } } },
+        413: { description: "File too large.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { user } = await requireScoped(c, "mods:write", "media", 60);
+      const { slug } = c.req.valid("param");
+      const owner = toolOwner(c, slug);
+      if (user.role === "user") {
         return c.json(
-          { error: "alt_text_required", message: "Describe the file for people who cannot see it." },
-          400,
+          { error: "forbidden", message: "Tool previews are curated by moderators." },
+          403,
         );
       }
-      if (!(file instanceof File)) {
-        return c.json({ error: "no_file", message: "Attach the image or video as `file`." }, 400);
-      }
-      if (file.size > MAX_VIDEO_BYTES) return c.json({ error: "too_large" }, 413);
-
-      // Sniff the leading bytes only; a 64 MiB video never needs a second
-      // in-memory copy just to be identified.
-      const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-      const type = MEDIA_TYPES.find((t) => t.match(head));
-      if (!type) {
-        return c.json(
-          { error: "unsupported_type", message: "Only png, jpeg, webp, mp4 and webm are accepted." },
-          400,
-        );
-      }
-      if (type.kind === "screenshot" && file.size > MAX_IMAGE_BYTES) {
-        return c.json({ error: "too_large" }, 413);
-      }
-
-      const counts = await c.env.DB.prepare(
-        `SELECT
-           SUM(CASE WHEN status <> 'rejected' THEN 1 ELSE 0 END) AS live,
-           SUM(CASE WHEN status = 'pending' AND uploader_id = ?2 THEN 1 ELSE 0 END) AS mine_pending
-         FROM media WHERE mod_id = ?1`,
-      )
-        .bind(mod.id, user.id)
-        .first<{ live: number | null; mine_pending: number | null }>();
-      if ((counts?.live ?? 0) >= MAX_MEDIA_PER_MOD) {
-        return c.json({ error: "too_many", message: `At most ${MAX_MEDIA_PER_MOD} items per mod.` }, 400);
-      }
-      if (user.role === "user" && (counts?.mine_pending ?? 0) >= MAX_PENDING_PER_USER) {
-        return c.json(
-          { error: "too_many_pending", message: `At most ${MAX_PENDING_PER_USER} submissions awaiting review per mod.` },
-          400,
-        );
-      }
-
-      const status = user.role === "user" ? "pending" : "approved";
-      const id = crypto.randomUUID();
-      const key = `media/${mod.id}/${id}.${type.ext}`;
-      // The File goes to R2 as a Blob: known length (which a bare stream
-      // would lack) and no second in-memory copy of a large video.
-      await c.env.MODS_BUCKET.put(key, file as unknown as Parameters<typeof c.env.MODS_BUCKET.put>[1], {
-        httpMetadata: { contentType: type.mime },
-      });
-      await c.env.DB.prepare(
-        `INSERT INTO media (id, mod_id, uploader_id, r2_key, kind, alt_text, status, file_size, position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                 COALESCE((SELECT MAX(position) + 1 FROM media WHERE mod_id = ?2), 0))`,
-      )
-        .bind(id, mod.id, user.id, key, type.kind, alt.trim(), status, file.size)
-        .run();
-
-      const row = await c.env.DB.prepare(
-        `SELECT media.*, COALESCE(u.display_name, u.discord_username) AS uploader
-         FROM media JOIN users u ON u.id = media.uploader_id WHERE media.id = ?1`,
-      )
-        .bind(id)
-        .first();
-      return c.json(mediaFromRow(row), 201);
+      return submitMedia(c, owner, user, `media/tools/${slug}`);
     },
   );
 
@@ -311,7 +445,9 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
       path: "/media/{id}",
       tags: ["media"],
       summary: "Delete a gallery item",
-      description: "The uploader, the mod's owner, or a moderator.",
+      description:
+        "The uploader, the mod's owner, or a moderator. A tool preview has " +
+        "no owner, so it is the uploader or a moderator.",
       request: { params: z.object({ id: z.string() }) },
       responses: {
         200: { description: "Gone.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
@@ -323,12 +459,14 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       const { user } = await requireScoped(c, "mods:write", "media", 60);
       const { id } = c.req.valid("param");
+      // LEFT JOIN: a tool preview has no mod row behind it, and an inner
+      // join would report it as missing rather than as undeletable.
       const row = await c.env.DB.prepare(
         `SELECT media.id, media.r2_key, media.uploader_id, mods.owner_id FROM media
-         JOIN mods ON mods.id = media.mod_id WHERE media.id = ?1`,
+         LEFT JOIN mods ON mods.id = media.mod_id WHERE media.id = ?1`,
       )
         .bind(id)
-        .first<{ id: string; r2_key: string; uploader_id: string; owner_id: string }>();
+        .first<{ id: string; r2_key: string; uploader_id: string; owner_id: string | null }>();
       if (!row) return c.json({ error: "not_found" }, 404);
       if (row.owner_id !== user.id && row.uploader_id !== user.id && user.role === "user") {
         return c.json({ error: "forbidden" }, 403);

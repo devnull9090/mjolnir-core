@@ -127,9 +127,15 @@ export default function ModerationPage() {
                         <p className="text-xs text-text-dim mb-3">
                           {m.kind} · {m.file_size ? formatBytes(m.file_size) : "size unknown"} · by{" "}
                           <span className="text-text-muted">{m.uploader}</span> · for{" "}
-                          <Link href={`/mods/${m.mod_slug}`} className="text-gold hover:underline">
-                            {m.mod_name}
+                          <Link
+                            href={`/${m.owner.type}s/${m.owner.slug}`}
+                            className="text-gold hover:underline"
+                          >
+                            {m.owner_name}
                           </Link>
+                          {m.owner.type === "tool" && (
+                            <span className="text-text-dim"> (tool)</span>
+                          )}
                         </p>
                         <div className="flex gap-2">
                           <button

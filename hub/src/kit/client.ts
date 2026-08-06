@@ -16,6 +16,7 @@ import type {
   DevicePoll,
   DeviceStart,
   Media,
+  MediaOwner,
   MediaStatus,
   ModDetail,
   ModList,
@@ -86,6 +87,11 @@ export interface HubClientOptions {
 }
 
 const PREFIX = "/api/v1";
+
+/** Where one owner's gallery lives: `/mods/{slug}` or `/tools/{slug}`. */
+function galleryPath(owner: MediaOwner): string {
+  return `/${owner.type}s/${encodeURIComponent(owner.slug)}`;
+}
 
 function buildPath(req: HubRequest): string {
   const q = new URLSearchParams();
@@ -221,22 +227,23 @@ export class HubClient {
     return this.absolute(`${PREFIX}/releases/${encodeURIComponent(id)}/download`);
   }
 
-  async listMedia(slug: string): Promise<Media[]> {
+  async listMedia(owner: MediaOwner): Promise<Media[]> {
     const r = await this.call<{ media: Media[] }>({
       method: "GET",
-      path: `/mods/${encodeURIComponent(slug)}/media`,
+      path: `${galleryPath(owner)}/media`,
     });
     return r.media;
   }
 
   /**
-   * Submit a screenshot or video to a mod's gallery. Lands as `pending`
-   * (check `status` on the result) unless the caller is a moderator.
+   * Submit a screenshot or video to a gallery. On a mod it lands as
+   * `pending` (check `status` on the result) unless the caller is a
+   * moderator; on a tool only moderators may submit at all.
    * Multipart under the hood — a custom transport must support FormData.
    * `onProgress` reports bytes sent, 0→1, where the transport can measure it.
    */
   uploadMedia(
-    slug: string,
+    owner: MediaOwner,
     file: Blob,
     altText: string,
     onProgress?: (fraction: number) => void,
@@ -246,7 +253,7 @@ export class HubClient {
     form.set("alt_text", altText);
     return this.call({
       method: "POST",
-      path: `/mods/${encodeURIComponent(slug)}/media`,
+      path: `${galleryPath(owner)}/media`,
       body: form,
       onProgress,
     });

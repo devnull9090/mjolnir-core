@@ -67,21 +67,26 @@ export function Navbar() {
         </Link>
 
         {/* Desktop links */}
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex items-center gap-6 lg:gap-8">
           <Link href="/docs" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Docs
           </Link>
           <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Mods
           </Link>
+          <Link href="/tools" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Tools
+          </Link>
           <Link href="/changelog" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Changelog
           </Link>
-          <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors flex items-center gap-1.5">
+          {/* Both held back until lg: with Tools in the row there is no space
+              for them at md, and both are still one tap away in the footer. */}
+          <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="hidden lg:flex text-sm text-text-muted hover:text-foreground transition-colors items-center gap-1.5">
             <DiscordIcon className="w-4 h-4" />
             Discord
           </Link>
-          <Link href="https://github.com/devnull9090/mjolnir-core" target="_blank" className="text-sm text-text-muted hover:text-foreground transition-colors flex items-center gap-1.5">
+          <Link href="https://github.com/devnull9090/mjolnir-core" target="_blank" className="hidden lg:flex text-sm text-text-muted hover:text-foreground transition-colors items-center gap-1.5">
             <GitHubIcon className="w-4 h-4" />
             GitHub
           </Link>
