@@ -51,10 +51,15 @@ jobs:
   # repository, and refuses otherwise. Author association is not used — it
   # reports the relationship, not the permission.
   authorize:
+    # `github.event.issue.pull_request != null` looks right and never fires:
+    # GitHub coerces mismatched types to number for comparisons, an object
+    # becomes NaN, and NaN comparisons evaluate false. Comparing the nested
+    # `.url` string is well-defined under the same rules — absent is null,
+    # which coerces to 0 and equals '', while a real PR gives a non-empty URL.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request != null &&
+       github.event.issue.pull_request.url != '' &&
        startsWith(github.event.comment.body, '/experimental'))
     runs-on: ubuntu-latest
     permissions:
