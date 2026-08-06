@@ -560,6 +560,73 @@ showing a capacity the session does not have is worse than one showing the truth
 
 ---
 
+## The second-player test
+
+Everything still open needs one thing: a second machine. This is the runbook, written while the
+answers are still unknown so it cannot be bent to fit them.
+
+### Before starting
+
+| | |
+|:--|:--|
+| Both machines | Same build. `python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json` |
+| Both machines | `MJOLNIRCoop8` enabled in `mods.txt`. It re-asserts the session caps on a 2-second loop, which matters because every level load resets them to 4 |
+| Host only | `python tools/pe/lobby_size_hook.py --size 8` **after** launching. It patches process memory, so it does not survive a restart |
+| Host only | `python tools/pe/lobby_size_hook.py --status` must show `maxMemberCount = 8` and `intercepted = 0` before you begin |
+
+### The sequence
+
+1. Host launches, installs the hook, confirms `--status`.
+2. Host: **PLAY CO-OP**, invite the guest. Do not start a mission first — the lobby forms on
+   join or invite, not on mission start.
+3. Guest accepts.
+4. **The moment the guest connects**, on the host: `python tools/pe/lobby_size_hook.py --status`.
+5. Both: `mjolnir_coop8_status` in the console.
+6. Repeat the invite for a third, fourth, and — the actual question — a **fifth** player.
+
+### What to record
+
+- The hook's `intercepted` count, at every step.
+- `TotalPlayerCount`, `GetNumSquadMembers`, `bSessionRunning`, `IsNetworkCoop` on both machines.
+  All four have only ever been observed in a solo session; the values in
+  [Layer 1](#layer-1-the-unreal-session-limits-are-reachable) are the baseline to diff against.
+  `bSessionRunning` and `IsNetworkCoop` becoming `true` would be the first real network co-op
+  capture this repo has.
+- `ue4ss/UE4SS.log` on both, whole file, for the refusal hooks and any error identifier.
+- Exactly which player index is refused, and what the UI says when it happens.
+
+### Reading the result
+
+The `intercepted` count is the first fork, and it is the reason the counter exists:
+
+**`intercepted == 0`** — the stub never ran, and nothing about lobby size has been tested. The
+lobby is being created somewhere other than `PFMultiplayerCreateAndJoinLobby`; the likely
+candidates are `PFMultiplayerJoinLobby` and `PFMultiplayerJoinArrangedLobby`, both imported and
+both unhooked. Extend the tool to those before drawing any conclusion.
+
+**`intercepted >= 1` and a fifth player joins** — the client supplies the number, the service
+honoured it, and the PlayFab layer is solved. What remains is whether Unreal and the simulation
+seat them: watch `GameSession.MaxPlayers` (the mod should be holding 8) and the Blam refusals.
+
+**`intercepted >= 1` and the fifth player is refused** — something below the request said no, and
+the log identifies which. `error_too_many_players_for_network_coop` (`0x50000a`) is the
+simulation. A PlayFab error instead means the service validated the request against the title's
+limits and rejected it — which is the outcome no client-side change can fix, and would make
+peer-to-peer or LAN the only route to eight.
+
+### Things that will mislead you
+
+- **The fireteam panel is cosmetic.** `mjolnir_coop8_ui 8` shows eight `INVITE +` slots and adds no
+  capacity whatsoever. It is not evidence of anything; leave it off during the test.
+- **`mjolnir_coop8_watch` will not catch the lobby.** Its PlayFab hooks are Blueprint wrappers and
+  never fired once through the entire co-op menu. Use the hook's counter, not those hooks.
+- **`CanAddSplitscreenPlayer` staying `false` means nothing here.** It counts input devices, not
+  session slots.
+- **Caps reset on every level load.** If you check `GameSession.MaxPlayers` right after a mission
+  loads and see 4, that is the 2-second loop not having run yet, not a refusal.
+
+---
+
 ## Reproduction
 
 Static analysis is read-only; no game content is copied into the repository. The runtime figures

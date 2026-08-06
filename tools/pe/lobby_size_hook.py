@@ -11,14 +11,20 @@ no vtable, and no reflected class has the right layout. See
 `docs/coop_player_cap.md`. Hooking the import boundary avoids the search
 entirely and fires on the first lobby the host creates.
 
-The hook is a 24-byte stub written into the target process, installed by
+The hook is a small stub written into the target process, installed by
 overwriting one Import Address Table slot:
 
+    inc  dword ptr [rip+N]     ; fire counter, read back by --status
     test r8, r8                ; the config pointer
-    jz   original              ; leave a null alone
+    jz   tail                  ; leave a null alone
     mov  dword ptr [r8], N     ; maxMemberCount
+    tail:
     mov  rax, <original>
     jmp  rax
+
+The counter exists so a failed experiment can be told apart from an experiment
+that never ran. Without it, "the lobby still seated four" cannot distinguish
+`the stub was never called` from `the service refused the number`.
 
 The IAT slot is resolved by walking the on-disk import table for the export
 name, never by a baked address, so a game update moves it without breaking this.
@@ -50,6 +56,7 @@ MEM_COMMIT_RESERVE = 0x1000 | 0x2000
 MEM_RELEASE = 0x8000
 PAGE_RW = 0x04
 PAGE_RX = 0x20
+PAGE_RWX = 0x40
 TH32CS_SNAPMODULE = 0x00000008 | 0x00000010
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -189,32 +196,39 @@ class Target:
                                  old, ctypes.byref(again))
 
     def alloc_exec(self, payload: bytes) -> int:
+        """RWX because the stub increments its own fire counter in this page."""
         addr = k32.VirtualAllocEx(self.h, None, max(len(payload), 0x1000),
-                                  MEM_COMMIT_RESERVE, PAGE_RW)
+                                  MEM_COMMIT_RESERVE, PAGE_RWX)
         if not addr:
-            raise OSError(f"VirtualAllocEx failed: {ctypes.get_last_error()}")
+            raise OSError(f"VirtualAllocEx failed: {ctypes.get_last_error()}. "
+                          "A process with ACG enabled will refuse this.")
         self.write(addr, payload)
-        old = wintypes.DWORD(0)
-        k32.VirtualProtectEx(self.h, ctypes.c_void_p(addr), len(payload), PAGE_RX,
-                             ctypes.byref(old))
         return addr
 
 
 # Byte offsets into the stub built below, for reading a live one back:
-#   0  test r8,r8 | 3  jz | 5  mov dword ptr [r8], imm32  -> imm at 8
-#   12 mov rax, imm64                                     -> imm at 14
-STUB_SIZE_OFFSET = 0x08
-STUB_ORIGINAL_OFFSET = 0x0E
+#    0  inc dword ptr [rip+0x1a]        -> counter at 0x20
+#    6  test r8, r8
+#    9  jz +7                           -> lands on 18, skipping the mov
+#   11  mov dword ptr [r8], imm32       -> size imm at 0x0E
+#   18  mov rax, imm64                  -> original at 0x14
+#   28  jmp rax
+STUB_SIZE_OFFSET = 0x0E
+STUB_ORIGINAL_OFFSET = 0x14
+STUB_COUNTER_OFFSET = 0x20
 
 
 def build_stub(size: int, original: int) -> bytes:
-    return (
-        b"\x4D\x85\xC0"                              # test r8, r8
-        + b"\x74\x07"                                # jz  -> tail
-        + b"\x41\xC7\x00" + struct.pack("<I", size)  # mov dword ptr [r8], size
-        + b"\x48\xB8" + struct.pack("<Q", original)  # mov rax, original
-        + b"\xFF\xE0"                                # jmp rax
+    code = (
+        b"\xFF\x05" + struct.pack("<i", STUB_COUNTER_OFFSET - 6)  # inc [rip+disp]
+        + b"\x4D\x85\xC0"                                         # test r8, r8
+        + b"\x74\x07"                                             # jz -> tail
+        + b"\x41\xC7\x00" + struct.pack("<I", size)               # mov [r8], size
+        + b"\x48\xB8" + struct.pack("<Q", original)               # mov rax, original
+        + b"\xFF\xE0"                                             # jmp rax
     )
+    assert len(code) == 30, len(code)
+    return code + b"\xCC" * (STUB_COUNTER_OFFSET - len(code)) + struct.pack("<I", 0)
 
 
 def main() -> int:
@@ -251,7 +265,11 @@ def main() -> int:
         if not in_dll:
             stub_orig = struct.unpack("<Q", t.read(current + STUB_ORIGINAL_OFFSET, 8))[0]
             size = struct.unpack("<I", t.read(current + STUB_SIZE_OFFSET, 4))[0]
+            fired = struct.unpack("<I", t.read(current + STUB_COUNTER_OFFSET, 4))[0]
             print(f"  stub requests maxMemberCount = {size}, original {stub_orig:#x}")
+            print(f"  lobby creations intercepted   = {fired}")
+            if fired == 0:
+                print("  (the stub has not run; no lobby has been created since it was installed)")
         return 0
 
     if args.revert:
