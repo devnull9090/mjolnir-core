@@ -32,6 +32,38 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.4.0",
+      "tag": "mods-v0.4.0",
+      "title": "Four new mods, and missions launch the way the game launches them",
+      "date": "2026-08-06",
+      "summary": "CTF, an eight-player co-op experiment, custom-world tooling and the debug map menu join the set, and Multiplayer gains safe mission launching.",
+      "body": "### Added\n\n- **MJOLNIRCTF** — installs a Capture the Flag game mode into the game's own\n  Experience framework at runtime and lays out a two-base arena inside a custom\n  world. `mjolnir_ctf_experience`, `mjolnir_ctf_arena`, `mjolnir_ctf_status`,\n  `mjolnir_ctf_reset`.\n- **MJOLNIRCoop8** — raises every client-reachable co-op player limit toward\n  eight and reports, by name, which layer refuses the extra players.\n  `mjolnir_coop8_status`, `mjolnir_coop8_raise`, `mjolnir_coop8_ui`,\n  `mjolnir_coop8_watch`.\n- **MJOLNIRWorldBuilder** — furnishes a custom world at runtime with the\n  lighting and floor geometry its cooked package cannot carry.\n  `mjolnir_world_probe`, `mjolnir_world_build`, `mjolnir_world_light`,\n  `mjolnir_world_floor`.\n- **MJOLNIRMapMenu** — reveals the debug map menu the game already ships\n  (main menu → Test options → Debug Level Select) and puts custom worlds on\n  its map select pages. `mjolnir_menu_debug`, `mjolnir_menu_open`,\n  `mjolnir_menu_add`, `mjolnir_menu_list`.\n- **MJOLNIRMultiplayer 0.2.0** adds `mjolnir_mission <scenario>`, which\n  launches campaign missions through the same campaign-flow call the game's\n  own debug menu uses — it validates the target instead of crashing the way\n  `open` does — and `mjolnir_debug_ui` to toggle that hidden menu from the\n  console.\n\n### Fixed\n\n- **MJOLNIRCore 1.0.2 and MJOLNIRConsoleEnabler 1.0.1** no longer resolve\n  class default objects where a live instance was wanted. The console\n  enabler previously could retry forever without ever attaching the\n  developer console; it now attaches on the first try.\n- **MJOLNIRMultiplayer commands read their arguments correctly.**\n  `mjolnir_travel`, `mjolnir_listen` and `mjolnir_kick` were reading the\n  wrong argument slot, so every invocation saw an empty string and blamed\n  the user. `mjolnir_kick` also now states the engine-level limitation it\n  runs into instead of pretending to succeed.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "MJOLNIRCTF — installs a Capture the Flag game mode into the game's own Experience framework at runtime and lays out a two-base arena inside a custom world. mjolnirctfexperience, mjolnirctfarena, mjolnirctfstatus, mjolnirctfreset.",
+            "MJOLNIRCoop8 — raises every client-reachable co-op player limit toward eight and reports, by name, which layer refuses the extra players. mjolnircoop8status, mjolnircoop8raise, mjolnircoop8ui, mjolnircoop8watch.",
+            "MJOLNIRWorldBuilder — furnishes a custom world at runtime with the lighting and floor geometry its cooked package cannot carry. mjolnirworldprobe, mjolnirworldbuild, mjolnirworldlight, mjolnirworldfloor.",
+            "MJOLNIRMapMenu — reveals the debug map menu the game already ships (main menu → Test options → Debug Level Select) and puts custom worlds on its map select pages. mjolnirmenudebug, mjolnirmenuopen, mjolnirmenuadd, mjolnirmenulist.",
+            "MJOLNIRMultiplayer 0.2.0 adds mjolnirmission <scenario>, which launches campaign missions through the same campaign-flow call the game's own debug menu uses — it validates the target instead of crashing the way open does — and mjolnirdebugui to toggle that hidden menu from the console."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "MJOLNIRCore 1.0.2 and MJOLNIRConsoleEnabler 1.0.1 no longer resolve class default objects where a live instance was wanted. The console enabler previously could retry forever without ever attaching the developer console; it now attaches on the first try.",
+            "MJOLNIRMultiplayer commands read their arguments correctly. mjolnirtravel, mjolnirlisten and mjolnirkick were reading the wrong argument slot, so every invocation saw an empty string and blamed the user. mjolnirkick also now states the engine-level limitation it runs into instead of pretending to succeed."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.4.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.4.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.4.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.6.0",
