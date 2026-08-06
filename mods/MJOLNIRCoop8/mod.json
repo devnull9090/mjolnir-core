@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Raises every client-reachable co-op player limit and reports which layer refuses the extra players.",
+  "category": "multiplayer"
+}

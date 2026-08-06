@@ -148,6 +148,113 @@ local function openMap(mapName, listen)
     executeConsoleCommand("open " .. mapUrl)
 end
 
+-- ---------------------------------------------------------------------------
+-- Launching a mission the way the game does
+-- ---------------------------------------------------------------------------
+--
+-- `open` crashes from the frontend and is unsafe solo-to-solo (see
+-- docs/game_automation.md). SetAndBeginCampaign is the route the game's own
+-- hidden debug menu uses (main menu -> Test options -> Debug Level Select).
+-- Unlike `open` it performs the full campaign setup and validates the target
+-- synchronously: a scenario whose world is not cooked returns false rather
+-- than crashing, which is what makes it safe to point at a custom world.
+--
+-- Scenario names come from DT_Scenarios (A15..D40, E10..E30) and
+-- DT_Test_Scenarios (testing_*, d40_warthog_testkit). The test worlds are not
+-- cooked in CU3, so those return false until a mod container supplies them --
+-- which is exactly what unreal/MJOLNIRMapKit exists to do.
+
+local CAMPAIGN_ASSETS = {
+    first = "/Game/Blueprints/Campaign/DA_FirstPlayableCampaign.DA_FirstPlayableCampaign",
+    additional = "/Game/Blueprints/Campaign/DA_AdditionalCampaign.DA_AdditionalCampaign",
+    test = "/Game/Blueprints/Campaign/DA_TestMapsCampaign.DA_TestMapsCampaign",
+}
+
+local CAMPAIGN_SCENARIOS = {
+    A15 = "first", A30 = "first", A50 = "first", B30 = "first", B40 = "first",
+    C10 = "first", C20 = "first", C45 = "first", D20 = "first", D40 = "first",
+    E10 = "additional", E20 = "additional", E30 = "additional",
+}
+
+local function firstValid(objects)
+    for _, o in ipairs(objects or {}) do
+        if o and o:IsValid() then return o end
+    end
+    return nil
+end
+
+local function resolveScenario(raw)
+    local upper = string.upper(raw or "")
+    if CAMPAIGN_SCENARIOS[upper] then
+        return upper, CAMPAIGN_ASSETS[CAMPAIGN_SCENARIOS[upper]]
+    end
+    local lower = string.lower(raw or "")
+    if lower:find("^testing_") or lower == "d40_warthog_testkit" then
+        return lower, CAMPAIGN_ASSETS.test
+    end
+    return nil, nil
+end
+
+local function launchMission(rawName)
+    local scenario, campaignPath = resolveScenario(rawName)
+    if not scenario then
+        print(string.format(
+            "[MJOLNIR Multiplayer] Unknown scenario '%s'. Use A15..D40, E10..E30, or testing_*.\n",
+            tostring(rawName)))
+        return
+    end
+
+    local subsystem = firstValid(FindAllOf("BlamCampaignFlowGameSubsystem"))
+    local campaign = StaticFindObject(campaignPath)
+    if not subsystem or not campaign or not campaign:IsValid() then
+        print("[MJOLNIR Multiplayer] Campaign flow subsystem or data asset unavailable.\n")
+        return
+    end
+
+    -- Reuse a live campaign variant when one exists (always true in-mission).
+    -- A nil variant is fine: the campaign flow spawns its own default --
+    -- verified launching A15 from the frontend with variant nil on CU3.
+    local variant = firstValid(FindAllOf("BlamGameEngineCampaignVariant"))
+    local ok, accepted = pcall(function()
+        return subsystem:SetAndBeginCampaign(campaign, FName(scenario), {
+            bLoadFromCoreSave = false,
+            SaveSlot = 0,
+            SavedFilmName = "",
+            CampaignDifficultyLevel = 1,
+            InsertionPoint = 0,
+            bFriendlyFireEnabled = true,
+            bIsLASO = false,
+            GameVariant = variant,
+        })
+    end)
+
+    if not ok then
+        print(string.format("[MJOLNIR Multiplayer] SetAndBeginCampaign errored: %s\n", tostring(accepted)))
+    elseif accepted then
+        print(string.format(
+            "[MJOLNIR Multiplayer] Mission '%s' accepted (variant %s). Loading...\n",
+            scenario, variant and "reused" or "nil"))
+    else
+        print(string.format(
+            "[MJOLNIR Multiplayer] Mission '%s' rejected -- the scenario's world is not cooked or the flow refused it.\n",
+            scenario))
+    end
+end
+
+local function toggleDebugUi()
+    local menu = firstValid(FindAllOf("WBP_MainMenu_C"))
+    if not menu then
+        print("[MJOLNIR Multiplayer] No main menu on screen; mjolnir_debug_ui works at the frontend.\n")
+        return
+    end
+    local ok, err = pcall(function() menu:OnToggleDebugMenu() end)
+    if ok then
+        print("[MJOLNIR Multiplayer] Toggled the Test options panel (Debug Level Select lives there).\n")
+    else
+        print(string.format("[MJOLNIR Multiplayer] OnToggleDebugMenu failed: %s\n", tostring(err)))
+    end
+end
+
 local function listMaps()
     print("[MJOLNIR Multiplayer] Verified CU3 root world packages:\n")
     local keys = {}
@@ -182,6 +289,14 @@ local function initializeMultiplayer()
     end)
     RegisterConsoleCommandHandler("mjolnir_listen", function(_, args)
         openMap(args and args[1] or "", true)
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_mission", function(_, args)
+        launchMission(args and args[1] or "")
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_debug_ui", function()
+        toggleDebugUi()
         return true
     end)
 end
