@@ -56,6 +56,25 @@ gold `--color-gold` and the launcher calls it `--color-mjolnir-gold`. They
 style against the `--mj-*` variables declared in `ui/theme.css`, and each app
 re-points those at its own palette after importing it.
 
+## Uploads
+
+`ui/FileDrop.tsx` holds the parts every upload surface needs, so no page grows
+its own: `<FileDropzone>` (drag, click, paste-safe, and a document-level guard
+so a near-miss drop cannot navigate the page away), `useFileStaging` (the
+chosen files, their object-URL previews, and the revoking of those previews),
+and `<StagedFileRow>` (thumbnail, size, description field, progress, remove).
+
+A surface declares what it takes as a `FileRules` — an `accept` string, byte
+ceilings per MIME prefix, a file count — and the zone applies it to dropped
+files as well as picked ones, which the browser does not.
+
+`ui/MediaUploader.tsx` composes those into the gallery submission flow and is
+what both the mod page and the owner's manage page mount; the release archive
+takes only the dropzone. Progress comes from the client's optional
+`onProgress`, which the browser transport serves over `XMLHttpRequest` because
+`fetch` still cannot report bytes sent — a transport that cannot measure it
+just never calls back, and the bar stays indeterminate.
+
 ## The client
 
 `createHubClient({ baseUrl, token, transport })` returns a typed client for the

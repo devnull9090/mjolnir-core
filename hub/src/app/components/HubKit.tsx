@@ -15,7 +15,9 @@ import { useEffect, type ReactNode } from "react";
 
 export {
   CommentThread,
+  FileDropzone,
   Gallery,
+  MediaUploader,
   ModCard,
   ModGallery,
   RatingPanel,

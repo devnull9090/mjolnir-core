@@ -39,6 +39,12 @@ export interface HubRequest {
    *  Custom transports that cannot carry FormData should reject it rather
    *  than stringify it. */
   body?: unknown;
+  /**
+   * Bytes-sent progress, 0→1, for uploads big enough to be worth watching.
+   * Optional on both sides: a transport that cannot measure it simply never
+   * calls it, and the caller falls back to an indeterminate indicator.
+   */
+  onProgress?: (fraction: number) => void;
 }
 
 export interface HubResponse {
@@ -90,6 +96,47 @@ function buildPath(req: HubRequest): string {
   return `${PREFIX}${req.path}${qs ? `?${qs}` : ""}`;
 }
 
+/**
+ * The one thing `fetch` still cannot do: report how much of the body has gone
+ * out. Used only when a caller asks for progress on a multipart body, so every
+ * other request stays on `fetch`.
+ */
+function xhrSend(
+  url: string,
+  req: HubRequest,
+  headers: Record<string, string>,
+  withCredentials: boolean,
+): Promise<HubResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(req.method, url, true);
+    xhr.withCredentials = withCredentials;
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.addEventListener("progress", (e) => {
+      // Chunked bodies report no total; leave those to the caller's fallback.
+      if (e.lengthComputable && e.total > 0) req.onProgress?.(e.loaded / e.total);
+    });
+    xhr.addEventListener("load", () => {
+      // The bytes are gone even if the server is still thinking about them.
+      req.onProgress?.(1);
+      let body: unknown = null;
+      try {
+        body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        body = null;
+      }
+      resolve({ status: xhr.status, body });
+    });
+    xhr.addEventListener("error", () =>
+      reject(new HubError(0, "network_error", "The upload could not reach the hub.")),
+    );
+    xhr.addEventListener("abort", () =>
+      reject(new HubError(0, "aborted", "The upload was cancelled.")),
+    );
+    xhr.send(req.body as XMLHttpRequestBodyInit);
+  });
+}
+
 function fetchTransport(options: HubClientOptions): HubTransport {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   return async (req) => {
@@ -99,7 +146,12 @@ function fetchTransport(options: HubClientOptions): HubTransport {
     if (req.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
 
-    const res = await doFetch(`${options.baseUrl ?? ""}${buildPath(req)}`, {
+    const url = `${options.baseUrl ?? ""}${buildPath(req)}`;
+    if (req.onProgress && isForm && typeof XMLHttpRequest !== "undefined") {
+      return xhrSend(url, req, headers, !options.token);
+    }
+
+    const res = await doFetch(url, {
       method: req.method,
       headers,
       body: req.body === undefined ? undefined : isForm ? (req.body as FormData) : JSON.stringify(req.body),
@@ -181,8 +233,14 @@ export class HubClient {
    * Submit a screenshot or video to a mod's gallery. Lands as `pending`
    * (check `status` on the result) unless the caller is a moderator.
    * Multipart under the hood — a custom transport must support FormData.
+   * `onProgress` reports bytes sent, 0→1, where the transport can measure it.
    */
-  uploadMedia(slug: string, file: Blob, altText: string): Promise<Media> {
+  uploadMedia(
+    slug: string,
+    file: Blob,
+    altText: string,
+    onProgress?: (fraction: number) => void,
+  ): Promise<Media> {
     const form = new FormData();
     form.set("file", file);
     form.set("alt_text", altText);
@@ -190,6 +248,7 @@ export class HubClient {
       method: "POST",
       path: `/mods/${encodeURIComponent(slug)}/media`,
       body: form,
+      onProgress,
     });
   }
 
