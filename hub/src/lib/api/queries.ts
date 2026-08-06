@@ -51,6 +51,54 @@ export async function listPublishedMods(
   return rows.results.map((r) => ({ ...r, nsfw: !!r.nsfw })) as unknown as ModListRow[];
 }
 
+/** One published mod as the sitemap needs it, with its listable images. */
+export interface SitemapMod {
+  slug: string;
+  /** SQLite `datetime('now')` text: "YYYY-MM-DD HH:MM:SS", always UTC. */
+  updated_at: string;
+  /** Hub-relative paths to approved screenshots, in gallery order. */
+  images: string[];
+}
+
+/**
+ * Every published mod and the screenshots worth listing beside it.
+ *
+ * Two queries rather than one per mod: the second pulls the media for the
+ * whole site at once and they are grouped here. Videos are left out because
+ * an image sitemap's `<image:loc>` wants a still, and the gallery does not
+ * generate one — `media.kind = 'thumbnail'` exists for that day.
+ */
+export async function listModsForSitemap(db: D1Database): Promise<SitemapMod[]> {
+  const [mods, media] = await Promise.all([
+    db
+      .prepare(
+        `SELECT slug, updated_at FROM mods
+         WHERE status = 'published' ORDER BY updated_at DESC`,
+      )
+      .all(),
+    db
+      .prepare(
+        `SELECT m.slug AS slug, media.id AS id
+         FROM media JOIN mods m ON m.id = media.mod_id
+         WHERE m.status = 'published' AND media.status = 'approved' AND media.kind <> 'video'
+         ORDER BY media.position, media.created_at`,
+      )
+      .all(),
+  ]);
+
+  const bySlug = new Map<string, string[]>();
+  for (const row of media.results as unknown as { slug: string; id: string }[]) {
+    const list = bySlug.get(row.slug);
+    if (list) list.push(`/api/v1/media/${row.id}`);
+    else bySlug.set(row.slug, [`/api/v1/media/${row.id}`]);
+  }
+
+  return (mods.results as unknown as { slug: string; updated_at: string }[]).map((m) => ({
+    ...m,
+    images: bySlug.get(m.slug) ?? [],
+  }));
+}
+
 /**
  * A mod row straight out of D1: the API shape plus the columns only the
  * server-rendered page needs, and `nsfw` still as the integer SQLite stores.
