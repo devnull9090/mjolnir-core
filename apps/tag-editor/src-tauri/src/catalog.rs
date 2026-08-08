@@ -75,6 +75,17 @@ pub struct DirEntry {
     pub children: Option<usize>,
 }
 
+/// One cooked mesh package: `SM_` static or `SK_` skeletal, with its bulk
+/// sibling (Nanite pages or streamed buffers) when it has one.
+pub struct MeshEntry {
+    pub container: usize,
+    pub uasset: ChunkEntry,
+    pub ubulk: Option<(usize, ChunkEntry)>,
+    /// Path with the mount prefix and extension stripped.
+    pub short: String,
+    pub skeletal: bool,
+}
+
 /// A loaded catalog of every tag in an installation.
 pub struct Catalog {
     pub(crate) containers: Vec<Container>,
@@ -90,6 +101,13 @@ pub struct Catalog {
     pub tags: Vec<TagEntry>,
     pub textures: Vec<TextureEntry>,
     pub sounds: Vec<SoundEntry>,
+    pub meshes: Vec<MeshEntry>,
+    /// Lowercased content-relative package stem to `(container, chunk)` for
+    /// every cooked `.uasset`, built on first use; how a material instance's
+    /// package name becomes readable bytes.
+    package_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
+    /// The global container's script-object table, parsed on first use.
+    script_objects: std::sync::OnceLock<Option<ue_asset::zen::ScriptObjects>>,
     /// Every asset by virtual path, sorted, so a listing is a contiguous range.
     files: Vec<VirtualFile>,
     /// Where to look for the optional Oodle DLL; empty means use the built-in
@@ -186,6 +204,10 @@ impl Catalog {
         // one is actually opened.
         let mut candidates: BTreeMap<String, (usize, ChunkEntry, Option<(usize, ChunkEntry)>)> =
             BTreeMap::new();
+        let mut mesh_candidates: BTreeMap<
+            String,
+            (usize, ChunkEntry, Option<(usize, ChunkEntry)>),
+        > = BTreeMap::new();
         let mut audio_packages = Vec::new();
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
@@ -217,10 +239,30 @@ impl Catalog {
                 if full.contains("/Engine/") || full.contains("/Tags/") {
                     continue;
                 }
-                let is_texture_path = full
-                    .rsplit('/')
-                    .next()
-                    .is_some_and(|f| f.starts_with("T_") || full.contains("/Textures/"));
+                let leaf = full.rsplit('/').next().unwrap_or("");
+                let is_mesh_path = leaf.starts_with("SM_") || leaf.starts_with("SK_");
+                if is_mesh_path {
+                    let (stem, is_uasset) = if let Some(s) = full.strip_suffix(".uasset") {
+                        (s, true)
+                    } else if let Some(s) = full.strip_suffix(".ubulk") {
+                        (s, false)
+                    } else {
+                        continue;
+                    };
+                    let entry = mesh_candidates.entry(stem.to_string()).or_insert((
+                        usize::MAX,
+                        c.chunks[*chunk_index],
+                        None,
+                    ));
+                    if is_uasset {
+                        entry.0 = ci;
+                        entry.1 = c.chunks[*chunk_index];
+                    } else {
+                        entry.2 = Some((ci, c.chunks[*chunk_index]));
+                    }
+                    continue;
+                }
+                let is_texture_path = leaf.starts_with("T_") || full.contains("/Textures/");
                 if !is_texture_path {
                     continue;
                 }
@@ -262,6 +304,28 @@ impl Catalog {
             })
             .collect();
         textures.sort_by(|a, b| a.short.cmp(&b.short));
+
+        let mut meshes: Vec<MeshEntry> = mesh_candidates
+            .into_iter()
+            .filter(|(_, (ci, _, _))| *ci != usize::MAX)
+            .map(|(stem, (ci, uasset, ubulk))| {
+                let short = stem
+                    .trim_start_matches("../../../Meteorite/Content/")
+                    .to_string();
+                let skeletal = short
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|leaf| leaf.starts_with("SK_"));
+                MeshEntry {
+                    container: ci,
+                    uasset,
+                    ubulk,
+                    short,
+                    skeletal,
+                }
+            })
+            .collect();
+        meshes.sort_by(|a, b| a.short.cmp(&b.short));
 
         // Wwise audio ships in the `.pak` siblings, not the IoStore. A pak
         // that fails to parse is skipped rather than failing the whole load.
@@ -310,6 +374,12 @@ impl Catalog {
                 index,
                 size: t.ubulk.map(|(_, c)| c.length).unwrap_or(0),
             }))
+            .chain(meshes.iter().enumerate().map(|(index, m)| VirtualFile {
+                path: format!("meshes/{}", m.short),
+                kind: "mesh",
+                index,
+                size: m.uasset.length + m.ubulk.map(|(_, c)| c.length).unwrap_or(0),
+            }))
             .chain(sounds.iter().enumerate().map(|(index, s)| VirtualFile {
                 // Localised audio is grouped by language so the same line in
                 // two languages sits side by side.
@@ -334,6 +404,9 @@ impl Catalog {
             tags,
             textures,
             sounds,
+            meshes,
+            package_index: std::sync::OnceLock::new(),
+            script_objects: std::sync::OnceLock::new(),
             files,
             // Empty means the caller has no DLL, which is fine: the reader
             // falls back to its own decoder.
@@ -553,6 +626,65 @@ impl Catalog {
         self.textures
             .iter()
             .position(|t| t.short.eq_ignore_ascii_case(rest))
+    }
+
+    /// Read a mesh's `.uasset` package.
+    pub fn read_mesh_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
+        let m = self.meshes.get(index).ok_or("mesh index out of range")?;
+        ue_iostore::read_chunk(&self.containers[m.container], &m.uasset, None, &self.oodle)
+            .map_err(|e| format!("{}: {e}", m.short))
+    }
+
+    /// Read a mesh's `.ubulk` payload, if it has one.
+    pub fn read_mesh_ubulk(&self, index: usize) -> Result<Option<Vec<u8>>, String> {
+        let m = self.meshes.get(index).ok_or("mesh index out of range")?;
+        let Some((ci, chunk)) = m.ubulk else {
+            return Ok(None);
+        };
+        ue_iostore::read_chunk(&self.containers[ci], &chunk, None, &self.oodle)
+            .map(Some)
+            .map_err(|e| format!("{}: {e}", m.short))
+    }
+
+    /// Read any cooked package by its `/Game/...` name — how a mesh's
+    /// material-instance reference becomes bytes.
+    pub fn read_package(&self, package: &str) -> Option<Vec<u8>> {
+        let index = self.package_index.get_or_init(|| {
+            let mut map = BTreeMap::new();
+            for (ci, c) in self.containers.iter().enumerate() {
+                for (rel, &chunk_index) in &c.files {
+                    if let Some(stem) = rel.strip_suffix(".uasset") {
+                        let key = stem
+                            .trim_start_matches("Meteorite/Content/")
+                            .to_ascii_lowercase();
+                        map.insert(key, (ci, c.chunks[chunk_index]));
+                    }
+                }
+            }
+            map
+        });
+        let key = package.strip_prefix("/Game/")?.to_ascii_lowercase();
+        let (ci, chunk) = index.get(&key)?;
+        ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
+    }
+
+    /// The global container's script-object table, for resolving export
+    /// classes; `None` when the global container cannot be read.
+    pub fn script_objects(&self) -> Option<&ue_asset::zen::ScriptObjects> {
+        self.script_objects
+            .get_or_init(|| {
+                let global = self
+                    .containers
+                    .iter()
+                    .find(|c| c.utoc_path.file_name().is_some_and(|n| n == "global.utoc"))?;
+                let chunk = global
+                    .chunks
+                    .iter()
+                    .find(|c| c.type_name() == "ScriptObjects")?;
+                let bytes = ue_iostore::read_chunk(global, chunk, None, &self.oodle).ok()?;
+                ue_asset::zen::ScriptObjects::parse(&bytes).ok()
+            })
+            .as_ref()
     }
 
     /// Resolve a texture's stored path back to an index.

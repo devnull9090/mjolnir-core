@@ -26,12 +26,15 @@ import {
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree" | "script";
+export type ViewMode = "form" | "tree" | "script" | "model" | "world";
 
-/** One open document: a tag, a texture or a sound, shown as a tab. */
+/** Groups whose geometry the Model view can draw. */
+export const MODEL_GROUPS = ["model", "collision_model", "skeleton_model"];
+
+/** One open document: a tag, a texture, a sound or a mesh, shown as a tab. */
 export type Tab = {
   id: number;
-  kind: "tag" | "texture" | "sound";
+  kind: "tag" | "texture" | "sound" | "mesh";
   /** Catalog index within its kind. */
   index: number;
   label: string;
@@ -73,6 +76,8 @@ type EditorState = {
   dirtyTags: Record<number, boolean>;
 
   selectedTag: number | null;
+  /** Mesh catalog index shown by the active mesh tab, if any. */
+  selectedMesh: number | null;
   tag: TagView | null;
   tagLoading: boolean;
   /** Packages the current tag imports, resolved to openable things. */
@@ -398,6 +403,14 @@ export const useEditor = create<EditorState>((set, get) => {
         await loadTag(tab.index);
       } else if (tab.kind === "sound") {
         await loadSound(tab.index);
+      } else if (tab.kind === "mesh") {
+        // The mesh viewer loads its own payload; just mark the selection.
+        set({
+          selectedMesh: tab.index,
+          selectedTag: null,
+          selectedTexture: null,
+          selectedSound: null,
+        });
       } else {
         await loadTexture(tab.index);
       }
@@ -432,6 +445,7 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     selectedTag: null,
+    selectedMesh: null,
     tag: null,
     tagLoading: false,
     tagLinks: [],

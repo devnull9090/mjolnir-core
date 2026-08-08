@@ -94,10 +94,20 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
                 ? "text-accent-blue"
                 : entry.kind === "sound"
                   ? "text-accent-green"
-                  : "text-mjolnir-gold/70"
+                  : entry.kind === "mesh"
+                    ? "text-accent-purple"
+                    : "text-mjolnir-gold/70"
           }`}
         >
-          {isDir ? "▸" : entry.kind === "texture" ? "▣" : entry.kind === "sound" ? "♪" : "◆"}
+          {isDir
+            ? "▸"
+            : entry.kind === "texture"
+              ? "▣"
+              : entry.kind === "sound"
+                ? "♪"
+                : entry.kind === "mesh"
+                  ? "◈"
+                  : "◆"}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-mono text-xs">{entry.name}</span>

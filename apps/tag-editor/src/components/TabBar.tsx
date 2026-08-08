@@ -6,6 +6,7 @@ const KINDS: Record<Tab["kind"], { badge: string; color: string }> = {
   tag: { badge: "tag", color: "text-mjolnir-gold" },
   texture: { badge: "tex", color: "text-accent-blue" },
   sound: { badge: "snd", color: "text-accent-green" },
+  mesh: { badge: "msh", color: "text-accent-purple" },
 };
 
 /** The strip of open documents: tags, textures and sounds, with dirty markers. */
