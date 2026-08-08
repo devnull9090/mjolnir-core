@@ -20,10 +20,11 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://mjolnircore.com"),
   title: "MJOLNIR Core — Halo Campaign Evolved Modding Platform",
   description:
-    "The open-source modding framework and community platform for Halo Campaign Evolved. Download mods, share your creations, and join the community.",
+    "The open-source modding framework for Halo Campaign Evolved: a one-click mod launcher, a Guerilla-style tag editor, and the mjolnir command line — with a hub for signed mods.",
   openGraph: {
     title: "MJOLNIR Core",
-    description: "Modding platform for Halo Campaign Evolved",
+    description:
+      "The open-source modding framework and community platform for Halo Campaign Evolved.",
     url: "https://mjolnircore.com",
     siteName: "MJOLNIR Core",
     type: "website",

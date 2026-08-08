@@ -204,6 +204,40 @@ tags are emitted from the Unreal world at cook time, giving the simulation the c
 structure representation it requires. The `_Generated_` directory name and the absence of any
 hand-authored scenario tag support this, but the cooker itself has not been observed.
 
+**Verified 2026-08-07:** the shipped `sbsp` payloads carry no render geometry, only its skeleton.
+Walking `holdouts-scenario_structure_bsp` (143.1 MiB) in full shows the tag is dominated by
+collision data — winged-edge collision BSPs for 754 instanced-geometry definitions (~110 MiB),
+Havok mopp code, and kd/supernode hierarchies — while `render geometry` holds 755 mesh
+descriptors and compression-info bounds with an `api resource` body of **zero bytes**, and both
+`resource interface` pageable resources are likewise unattached (section magic third byte NUL).
+The same holds for per-object tags: `collision_model` and `skeleton_model` payloads are complete,
+but no vertex or index buffer exists anywhere in the Blam data. Mesh data ships only as Unreal
+`SK_*`/`SM_*` packages (593 skeletal-mesh and 22,610 static-mesh packages in the index).
+Reproduce with `cargo run --example probe_geometry -- scenario_structure_bsp holdouts` and
+`--example probe_meshes -- elite` in `apps/tag-editor/src-tauri`.
+
+**Verified 2026-08-08 — the game uses Nanite.** Static-mesh `.ubulk` payloads open with the
+`NFM` fixup magic: they are Nanite cluster pages, and the "cooked out" LOD0 slots in
+`FStaticMeshRenderData` are the LODs Nanite replaced. What remains readable classically is the
+inline Nanite **fallback** mesh (correct shape and materials, reduced density) — that is what the
+tag editor's mesh viewer shows for `SM_` assets. Skeletal meshes do not use Nanite and keep full
+detail. The `ue-asset` crate reads the whole chain — usmap reflection schemas (dumped from the
+running game via UE4SS `DumpUSMAP`, `defs/ue/Meteorite-2607-CU3.usmap`), zen package structure,
+unversioned properties, StaticMesh buffers, and MaterialInstance texture parameters — a 1,200
+package soak parses 99.25%.
+
+**Verified 2026-08-07 — scenario placements drive the runtime spawn.** An override built with
+`mjolnir pack --group scenario --tag a30 --set "weapons[1].object data.position=(8.0, 47.0, 65.5)"`
+moved the shipped assault-rifle placement (shipped `(4.671514, 50.428234, 63.94416)`). On a fresh
+a30 start the `BP_AssaultRifle_WeaponActor_C` for that placement spawned at engine location
+`(8.00, -47.00, 65.51)` world units — magnitudes matching the edit exactly, Y negated as the
+engine negates it for every placement (the shipped rifle likewise reads `(4.67, -50.43, …)` live).
+So a Blam `scnr` placement edit is authoritative over where the object appears in the Unreal
+world; this is the write path the tag editor's World view uses. Caveat: vehicle placements are
+consumed at level load and their runtime actor sits at a fix-up location, so a vehicle move is not
+observable by reading the live actor — but it rides the same `scnr` field, so the pack/verify path
+proves the edit lands even where the runtime read does not.
+
 ## Why the DLL Is Named `tag_release`
 
 **Verified:** the host executable contains the reflected enumeration

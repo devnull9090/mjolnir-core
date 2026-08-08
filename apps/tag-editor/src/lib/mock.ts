@@ -24,6 +24,7 @@ import type {
 
 /** A slice of the virtual filesystem, shaped like the real one. */
 const mockFiles: Omit<DirEntry, "name" | "children">[] = [
+  { path: "meshes/Env/Sample/SM_Sample", kind: "mesh", index: 0, size: 162_856 },
   { path: "tags/levels/b30/b30.scenario", kind: "tag", index: 0, size: 481_204 },
   { path: "tags/levels/a30/a30.scenario", kind: "tag", index: 1, size: 371_020 },
   { path: "tags/objects/characters/elite/elite.biped", kind: "tag", index: 0, size: 49_702 },
@@ -234,6 +235,7 @@ const mockTag: TagView = {
 
 const mockGroups: GroupSummary[] = [
   { group: "biped", four_cc: "bipd", count: 32 },
+  { group: "model", four_cc: "hlmt", count: 451 },
   { group: "scenario", four_cc: "scnr", count: 13 },
   { group: "vehicle", four_cc: "vehi", count: 25 },
   { group: "weapon", four_cc: "weap", count: 75 },
@@ -242,12 +244,45 @@ const mockGroups: GroupSummary[] = [
 const mockTags: TagSummary[] = [
   { index: 0, group: "scenario", path: mockTag.path, short: "levels/b30/b30", size: 481_204 },
   { index: 1, group: "scenario", path: "", short: "levels/a30/a30", size: 371_020 },
+  { index: 2, group: "model", path: "", short: "objects/sample/sample", size: 21_325 },
 ];
+
+/** A minimal hlmt view, so the Model segment is reachable in a browser. */
+const mockModelTag: TagView = {
+  path: "../../../Meteorite/Content/Tags/objects/sample/sample-model.ubulk",
+  group: "model",
+  four_cc: "hlmt",
+  version: 27,
+  chunk_size: 21_325,
+  data_size: 20_988,
+  data_exact: true,
+  error: null,
+  node_count: 12,
+  edited: [],
+  fields: [
+    field({
+      name: "collision model",
+      type: "tag reference",
+      value: "objects\\sample\\sample",
+      reference: { group: "coll", path: "objects\\sample\\sample" },
+      size: 16,
+    }),
+    field({
+      name: "skeleton model",
+      type: "tag reference",
+      value: "objects\\sample\\sample",
+      reference: { group: "skel", path: "objects\\sample\\sample" },
+      size: 16,
+    }),
+    field({ name: "disappear distance", type: "real", value: "250" }),
+  ],
+};
 
 const edits = new Map<string, string>();
 
-function withEdits(): TagView {
-  return { ...mockTag, edited: [...edits.keys()] };
+function withEdits(index = 0): TagView {
+  const base = index === 2 ? mockModelTag : mockTag;
+  return { ...base, edited: [...edits.keys()] };
 }
 
 /**
@@ -291,12 +326,198 @@ export const mockApi = {
   }),
   openInstall: async () => ({ groups: mockGroups.length, tags: mockTags.length }),
   listGroups: async () => mockGroups,
-  listTags: async (group: string) =>
-    group === "scenario" ? mockTags : ([] as TagSummary[]),
+  listTags: async (group: string) => mockTags.filter((t) => t.group === group),
   searchTags: async (query: string) =>
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
-  readTag: async () => withEdits(),
+  readTag: async (index: number) => withEdits(index),
   readTagBytes: async () => [] as number[],
+  readMesh: async () => {
+    // A textured-slot cube so the mesh viewer runs in a browser.
+    const header = new TextEncoder().encode(
+      JSON.stringify({
+        path: "Env/Sample/SM_Sample",
+        verts: 8,
+        tris: 12,
+        sections: [{ first_index: 0, num_triangles: 12, material: 0 }],
+        materials: [
+          { slot: "Base", texture: 0, texture_path: "T_Sample_D", material_path: "MI_Sample" },
+        ],
+        lod: 1,
+        skeletal: false,
+      }),
+    );
+    const pad = (4 - ((8 + header.length) % 4)) % 4;
+    const verts = 8;
+    const size = 8 + header.length + pad + verts * (12 + 12 + 8) + 12 * 3 * 4;
+    const buffer = new ArrayBuffer(size);
+    const view = new DataView(buffer);
+    new Uint8Array(buffer).set(header, 8);
+    view.setUint32(0, 0x48534d55, true);
+    view.setUint32(4, header.length, true);
+    let at = 8 + header.length + pad;
+    const f32 = (v: number) => {
+      view.setFloat32(at, v, true);
+      at += 4;
+    };
+    const corners = [
+      [-50, -50, -50], [50, -50, -50], [50, 50, -50], [-50, 50, -50],
+      [-50, -50, 50], [50, -50, 50], [50, 50, 50], [-50, 50, 50],
+    ];
+    for (const c of corners) c.forEach(f32);
+    for (let i = 0; i < corners.length; i++) [0, 0, 1].forEach(f32); // normals, close enough
+    for (let v = 0; v < verts; v++) [v % 2, Math.floor(v / 2) % 2].forEach(f32);
+    const tris = [
+      0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+      2, 3, 7, 2, 7, 6, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
+    ];
+    for (const t of tris) {
+      view.setUint32(at, t, true);
+      at += 4;
+    }
+    return buffer;
+  },
+  readScenarioLayout: async () => ({
+    layout: {
+      bsps: ["levels\\halo1\\solo\\b30\\b30"],
+      object_names: ["hog_one"],
+      categories: [
+        {
+          block: "vehicles",
+          group: "vehicle",
+          palette: ["objects\\vehicles\\human\\warthog\\warthog"],
+          placements: [
+            {
+              element: 0,
+              palette: 0,
+              name: 0,
+              position: [2, 3, 0.6] as [number, number, number],
+              rotation: [0.6, 0, 0] as [number, number, number],
+              scale: 1,
+            },
+            {
+              element: 1,
+              palette: -1,
+              name: -1,
+              position: [-3, -2, 0.6] as [number, number, number],
+              rotation: [0, 0, 0] as [number, number, number],
+              scale: 1,
+            },
+          ],
+        },
+      ],
+      trigger_volumes: [
+        {
+          name: "kill_ocean",
+          position: [-6, -6, 0] as [number, number, number],
+          forward: [1, 0, 0] as [number, number, number],
+          up: [0, 0, 1] as [number, number, number],
+          extents: [3, 3, 2] as [number, number, number],
+        },
+      ],
+      squads: [
+        {
+          name: "covenant_beach",
+          spawn_points: [
+            { name: "", position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
+            { name: "", position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
+          ],
+        },
+      ],
+      player_starts: [
+        { position: [0, 0, 0] as [number, number, number], facing: [0.5, 0] as [number, number] },
+      ],
+    },
+    bsp_indices: [0],
+    palette_models: [[2]],
+  }),
+  readSbspWorld: async () => {
+    // A 20×20 ground slab def instanced twice, so the world path renders in a
+    // browser. Format mirrors geometry.rs `sbsp_world`.
+    const defs = [{ verts: 4, tris: 2 }];
+    const header = new TextEncoder().encode(
+      JSON.stringify({ defs, world: null, instances: 2 }),
+    );
+    const headerPad = (4 - ((8 + header.length) % 4)) % 4;
+    const size = 8 + header.length + headerPad + (4 * 12 + 2 * 12 + 2 * 4) + 2 * 56;
+    const buffer = new ArrayBuffer(size);
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    view.setUint32(0, 0x50534253, true);
+    view.setUint32(4, header.length, true);
+    bytes.set(header, 8);
+    let at = 8 + header.length + headerPad;
+    const f32 = (v: number) => {
+      view.setFloat32(at, v, true);
+      at += 4;
+    };
+    const u32 = (v: number) => {
+      view.setUint32(at, v, true);
+      at += 4;
+    };
+    for (const [x, y] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) {
+      f32(x);
+      f32(y);
+      f32(0);
+    }
+    [0, 1, 2, 0, 2, 3].forEach(u32);
+    [0, 0].forEach(u32);
+    for (const dx of [0, 20]) {
+      u32(0);
+      f32(1);
+      [1, 0, 0, 0, 1, 0, 0, 0, 1].forEach(f32);
+      f32(dx);
+      f32(0);
+      f32(0);
+    }
+    return buffer;
+  },
+  readModelGeometry: async () => {
+    // A crate on a post: enough to exercise node posing, region filtering and
+    // the skeleton overlay in a browser.
+    const box = (w: number, h: number, d: number) => ({
+      positions: [
+        -w, -h, -d, w, -h, -d, w, h, -d, -w, h, -d,
+        -w, -h, d, w, -h, d, w, h, d, -w, h, d,
+      ],
+      indices: [
+        0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+        2, 3, 7, 2, 7, 6, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
+      ],
+    });
+    const body = box(0.25, 0.25, 0.1);
+    const head = box(0.12, 0.12, 0.08);
+    return {
+      collision: "objects/sample/sample",
+      skeleton: "objects/sample/sample",
+      meshes: [
+        {
+          region: "body",
+          permutation: "default",
+          node: 1,
+          ...body,
+          flags: body.indices.map(() => 0).slice(0, body.indices.length / 3),
+        },
+        {
+          region: "head",
+          permutation: "default",
+          node: 2,
+          ...head,
+          flags: head.indices.map(() => 0).slice(0, head.indices.length / 3),
+        },
+      ],
+      nodes: [
+        { name: "b_pedestal", parent: -1, translation: [0, 0, 0], rotation: [0, 0, 0, 1] },
+        { name: "b_body", parent: 0, translation: [0, 0, 0.3], rotation: [0, 0, 0, 1] },
+        { name: "b_head", parent: 1, translation: [0, 0, 0.35], rotation: [0, 0, 0.383, 0.924] },
+      ],
+      marker_groups: [
+        {
+          name: "primary_trigger",
+          markers: [{ node: 2, translation: [0.15, 0, 0], rotation: [0, 0, 0, 1] }],
+        },
+      ],
+    };
+  },
   setField: async (_index: number, path: string, value: string): Promise<EditResult> => {
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };

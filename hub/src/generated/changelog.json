@@ -32,6 +32,34 @@
   ],
   "releases": [
     {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.10.0",
+      "tag": "tag-editor-v0.10.0",
+      "title": "See models and levels in 3D",
+      "date": "2026-08-07",
+      "summary": "A Model view for objects and a World view for levels — the game's simulation geometry drawn in 3D, with level placements you can select and move like a lightweight Sapien.",
+      "body": "### Added\n\n- **Model view.** Open any `model`, `collision_model` or `skeleton_model` tag\n  and switch to the Model tab to see it in 3D: the collision shell flat-shaded\n  and posed by its skeleton, with a bone overlay, marker triads, per-region\n  toggles, wireframe, and an invisible-surfaces toggle for the collision the\n  player never sees (ladders, kill volumes). Halo ships no render meshes in its\n  tag data — the visuals are Unreal assets — so this draws the collision model,\n  which is the shape the simulation actually plays.\n\n- **World view for scenarios.** Open a `scenario` and switch to the World tab\n  for the whole level: the collision world built from its structure BSPs (every\n  piece of ground is instanced geometry, drawn with one GPU instance per\n  placement), tinted by collision material so rock, dirt and metal read apart.\n  On top of it, every placed object drawn as its own collision shell —\n  scenery, vehicles, weapons, equipment, machines, controls, crates — plus\n  trigger volumes, squad spawn points and player starts, each toggleable.\n\n  Click to select an object, drag the gizmo to move or rotate it, and the edit\n  is recorded exactly like a field edit — saved into your mod project, carried\n  through test, export and publish. Double-click to move the camera pivot.\n\n  Verified in the game on the a30 mission: a weapon moved in the World view\n  spawned at the edited coordinates on a fresh mission start.\n\n### Notes\n\n- No textures yet: the game keeps no bitmaps in its tag data, so both views\n  show untextured geometry. Real materials mean reading the Unreal mesh\n  packages, which is the next milestone.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Model view. Open any model, collisionmodel or skeletonmodel tag and switch to the Model tab to see it in 3D: the collision shell flat-shaded and posed by its skeleton, with a bone overlay, marker triads, per-region toggles, wireframe, and an invisible-surfaces toggle for the collision the player never sees (ladders, kill volumes). Halo ships no render meshes in its tag data — the visuals are Unreal assets — so this draws the collision model, which is the shape the simulation actually plays.",
+            "World view for scenarios. Open a scenario and switch to the World tab for the whole level: the collision world built from its structure BSPs (every piece of ground is instanced geometry, drawn with one GPU instance per placement), tinted by collision material so rock, dirt and metal read apart. On top of it, every placed object drawn as its own collision shell — scenery, vehicles, weapons, equipment, machines, controls, crates — plus trigger volumes, squad spawn points and player starts, each toggleable."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "No textures yet: the game keeps no bitmaps in its tag data, so both views show untextured geometry. Real materials mean reading the Unreal mesh packages, which is the next milestone."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.10.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.10.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.10.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.4.0",

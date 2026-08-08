@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ue-iostore",
     "crates/ue-texture",
+    "crates/ue-asset",
     "crates/blam-defs",
     "crates/blam-tag",
     "crates/blam-hsc",

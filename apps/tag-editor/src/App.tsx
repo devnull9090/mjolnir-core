@@ -11,7 +11,11 @@ import { FormInspector } from "./components/FormInspector";
 import { TextureViewer } from "./components/TextureViewer";
 import { SoundViewer } from "./components/SoundViewer";
 import { ScriptViewer } from "./components/ScriptViewer";
+import { ScenarioViewer } from "./components/ScenarioViewer";
+import { ModelViewer } from "./components/ModelViewer";
+import { MeshViewer } from "./components/MeshViewer";
 import { TabBar } from "./components/TabBar";
+import { MODEL_GROUPS } from "./stores/editor-store";
 
 export default function App() {
   const whatsNew = useWhatsNew();
@@ -55,8 +59,10 @@ function Editor() {
 
   const active = tabs.find((t) => t.id === activeTab);
   // Only a scenario carries script, so the script view falls back to the form
-  // for anything else rather than showing an empty panel.
+  // for anything else rather than showing an empty panel. Same rule for the
+  // model view and the groups that carry geometry.
   const scriptable = tag?.group === "scenario";
+  const modelable = MODEL_GROUPS.includes(tag?.group ?? "");
 
   return (
     <div className="flex h-full min-h-0">
@@ -71,8 +77,14 @@ function Editor() {
           <TextureViewer />
         ) : active.kind === "sound" ? (
           <SoundViewer />
+        ) : active.kind === "mesh" ? (
+          <MeshViewer />
         ) : viewMode === "script" && scriptable ? (
           <ScriptViewer />
+        ) : viewMode === "world" && scriptable ? (
+          <ScenarioViewer />
+        ) : viewMode === "model" && modelable ? (
+          <ModelViewer />
         ) : viewMode === "tree" ? (
           <Inspector />
         ) : (

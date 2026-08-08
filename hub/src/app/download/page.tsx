@@ -1,22 +1,33 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  ArrowRight,
   Download,
   Shield,
   Terminal,
   CheckCircle,
   ExternalLink,
+  Wrench,
 } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { GitHubIcon } from "../components/icons";
 import ChecksumViewer from "./ChecksumViewer";
 
-function GitHubIcon({ className = "w-5 h-5" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-    </svg>
-  );
-}
+export const metadata: Metadata = {
+  title: "Download | MJOLNIR Core",
+  description:
+    "Download the MJOLNIR Launcher for Halo Campaign Evolved — one-click installs for signed mods and tools, with SHA-256 checksums to verify every build.",
+  alternates: { canonical: "https://mjolnircore.com/download" },
+  openGraph: {
+    title: "Download the MJOLNIR Launcher",
+    description:
+      "One-click mod management for Halo Campaign Evolved. Auto-detects your game, verifies every download.",
+    url: "https://mjolnircore.com/download",
+    siteName: "MJOLNIR Core",
+    type: "website",
+  },
+};
 
 export default function DownloadPage() {
   return (
@@ -126,6 +137,30 @@ export default function DownloadPage() {
                   </p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* The launcher is also how the tools install */}
+        <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8 mb-8">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
+              <Wrench className="w-6 h-6 sm:w-7 sm:h-7" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xl font-bold text-foreground">The tools install from here too</h2>
+              <p className="text-sm text-text-muted mt-1 leading-6">
+                The launcher&apos;s Tools view installs and updates the MJOLNIR Tag Editor — the
+                Guerilla-style editor for the game&apos;s tags, textures, audio and scripts — and
+                checks every build against its published hash.
+              </p>
+              <Link
+                href="/tools"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-gold hover:underline"
+              >
+                See the tools
+                <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
           </div>
         </div>
