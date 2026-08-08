@@ -190,6 +190,41 @@ Checks the install against the committed lock and names every file that moved. R
 `-o config/hce-build.lock.json`; `--binaries-only` skips the 74 GiB content pass. The current build
 and what has been re-verified against it are in [`docs/build_lock.md`](docs/build_lock.md).
 
+### Experimental Builds from a Pull Request
+
+To get a change in front of testers before it ships, a maintainer comments on the pull request:
+
+```
+/experimental
+```
+
+That packages the PR's mods and attaches them to a pre-release tagged
+`experimental-pr<N>-<shortsha>`, then replies with the link. Every build gets its own tag, and a
+PR's releases are removed when it closes. `workflow_dispatch` with a PR number does the same thing.
+
+The tag carries the commit rather than moving, because this repository has **immutable releases**
+enabled: once a tag has been used by a published release that name can never be reused, even after
+the release and its tag are both deleted. A moving per-PR tag was tried first and fails on the
+second build with `tag_name was used by an immutable release`.
+
+**Only users with write access can trigger it.** The permission is checked against the repository
+rather than inferred from the commenter's relationship to it, so a `/experimental` from anyone else
+is refused with a reaction and no build.
+
+Testers install by hand — unzip over `ue4ss/`, back up what it replaces, and add any new mod to
+`mods.txt`. That is the deliberate shape of it:
+
+- **Experimental builds are unsigned**, so the launcher will not install one. The launcher pins a
+  single public key and installs nothing that fails verification. The release-signing key is never
+  given to a build of unreviewed pull-request code, which is what makes this safe to run on pull
+  requests from forks.
+- **Nothing on the auto-update path changes.** The workflow never writes `mods/latest/` and never
+  touches R2 at all. No existing install changes until someone copies the files in.
+- **Nothing from the pull request executes.** Script mods are Lua text and packaging them is `zip`;
+  no build script and none of this repository's own `scripts/` are run from the checked-out branch.
+
+See [`.github/workflows/experimental-build.yml`](.github/workflows/experimental-build.yml).
+
 ### Reverse Engineering
 Ghidra Java scripts for the simulation factory and host loader path:
 ```powershell

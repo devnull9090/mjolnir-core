@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useEditor, type ViewMode } from "../stores/editor-store";
+import { MODEL_GROUPS, useEditor, type ViewMode } from "../stores/editor-store";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -165,6 +165,22 @@ export function TagHeader() {
             mode: "script" as ViewMode,
             label: "Script",
             title: "The mission's Blam script, as the scenario shipped it",
+          },
+          {
+            mode: "world" as ViewMode,
+            label: "World",
+            title:
+              "The level in 3D: collision world, placements, squads and volumes — select and move things",
+          },
+        ]
+      : []),
+    ...(MODEL_GROUPS.includes(tag.group)
+      ? [
+          {
+            mode: "model" as ViewMode,
+            label: "Model",
+            title:
+              "3D view of the simulation geometry: collision shell, skeleton and markers",
           },
         ]
       : []),

@@ -11,12 +11,17 @@
 import { Download } from "lucide-react";
 import { createHubClient, formatBytes, HubProvider, ReleaseList } from "@mjolnir/hub-kit";
 import type { Release } from "@mjolnir/hub-kit";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 export {
   CommentThread,
+  FileDropzone,
   Gallery,
+  MediaGallery,
+  MediaUploader,
   ModCard,
+  ModGallery,
+  ToolGallery,
   RatingPanel,
   ReleaseList,
   ReportButton,
@@ -34,6 +39,17 @@ const client = createHubClient({});
 /** Mounted once in the root layout; every kit component reads from it. */
 export function HubKitProvider({ children }: { children: ReactNode }) {
   return <HubProvider client={client}>{children}</HubProvider>;
+}
+
+/**
+ * Counts a mod page view once per mount. The server folds repeats per
+ * viewer per hour, so this needs no client-side bookkeeping.
+ */
+export function ModViewBeacon({ slug }: { slug: string }) {
+  useEffect(() => {
+    client.recordModView(slug).catch(() => {});
+  }, [slug]);
+  return null;
 }
 
 /**

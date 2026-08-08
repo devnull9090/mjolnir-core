@@ -1,14 +1,63 @@
 import type { MetadataRoute } from "next";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
 import { getTagGroups } from "@/lib/tags";
+import { listModsForSitemap, listToolImages, type MediaRow, type SitemapMod } from "@/lib/api/queries";
+import { TOOLS } from "@/lib/tools";
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = "https://mjolnircore.com";
+/**
+ * Every other entry here comes from files on disk and could be prerendered,
+ * but the mod pages come from D1, which is only bound at request time. Two
+ * indexed reads per request, in front of Cloudflare's cache.
+ */
+export const dynamic = "force-dynamic";
+
+const baseUrl = "https://mjolnircore.com";
+
+/** SQLite writes "YYYY-MM-DD HH:MM:SS" and means UTC; `new Date` does not. */
+function utcDate(sqlite: string): Date {
+  const parsed = new Date(sqlite.includes("T") ? sqlite : `${sqlite.replace(" ", "T")}Z`);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+async function modEntries(): Promise<MetadataRoute.Sitemap> {
+  let mods: SitemapMod[] = [];
+  try {
+    const { env } = getCloudflareContext();
+    mods = await listModsForSitemap(env.DB as never);
+  } catch {
+    // A sitemap missing its mod pages still beats a 500 that costs the
+    // crawler every other page on the site.
+    return [];
+  }
+  return mods.map((mod) => ({
+    url: `${baseUrl}/mods/${mod.slug}`,
+    lastModified: utcDate(mod.updated_at),
+    changeFrequency: "weekly" as const,
+    priority: 0.7,
+    // Screenshots ride along as an image sitemap, which is how the gallery
+    // becomes indexable rather than merely present in the HTML.
+    images: mod.images.length > 0 ? mod.images.map((path) => `${baseUrl}${path}`) : undefined,
+  }));
+}
+
+/** Tool previews, so the screenshots are indexable rather than merely present. */
+async function toolImages(): Promise<Map<string, MediaRow[]>> {
+  try {
+    const { env } = getCloudflareContext();
+    return await listToolImages(env.DB as never);
+  } catch {
+    return new Map();
+  }
+}
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const notes = getDocNotes();
   const tagGroups = getTagGroups();
   const releases = getReleases();
   const changelogUpdated = getLastModified();
+  const [mods, previews] = await Promise.all([modEntries(), toolImages()]);
 
   return [
     {
@@ -35,6 +84,24 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "daily",
       priority: 0.9,
     },
+    ...mods,
+    {
+      url: `${baseUrl}/tools`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    // A tool page changes when its tool releases, which the changelog dates.
+    ...TOOLS.map((tool) => {
+      const images = previews.get(tool.slug) ?? [];
+      return {
+        url: `${baseUrl}/tools/${tool.slug}`,
+        lastModified: changelogUpdated,
+        changeFrequency: "weekly" as const,
+        priority: 0.7,
+        images: images.length > 0 ? images.map((m) => `${baseUrl}${m.url}`) : undefined,
+      };
+    }),
     {
       url: `${baseUrl}/download`,
       lastModified: new Date(),

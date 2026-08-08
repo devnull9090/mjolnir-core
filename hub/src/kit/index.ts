@@ -17,6 +17,8 @@ export * from "./ui/primitives";
 export * from "./ui/ModCard";
 export * from "./ui/RatingPanel";
 export * from "./ui/CommentThread";
+export * from "./ui/FileDrop";
+export * from "./ui/MediaUploader";
 export * from "./ui/Gallery";
 export * from "./ui/ReleaseList";
 export * from "./ui/ReportButton";

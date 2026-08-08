@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -9,12 +10,22 @@ import { Markdown } from "../../docs/_components/Markdown";
 import { getModPage } from "@/lib/api/queries";
 import {
   CommentThread,
-  Gallery,
+  ModGallery,
+  ModViewBeacon,
   RatingPanel,
   ReleaseDownloadList,
   ReportButton,
 } from "../../components/HubKit";
 import { OwnerBar } from "./OwnerBar";
+
+/**
+ * `generateMetadata` and the page itself both need the whole mod row, and
+ * `cache` collapses that into one set of D1 reads per request rather than two.
+ */
+const loadModPage = cache((slug: string) => {
+  const { env } = getCloudflareContext();
+  return getModPage(env.DB as never, slug);
+});
 
 export async function generateMetadata({
   params,
@@ -22,12 +33,35 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const { env } = getCloudflareContext();
-  const page = await getModPage(env.DB as never, slug);
+  const page = await loadModPage(slug);
   if (!page || page.mod.status !== "published") return { title: "Mods | MJOLNIR Core" };
+
+  // The card image is the first approved screenshot, which is the one the
+  // gallery shows first: `media` arrives ordered by position. Videos are
+  // skipped because a link preview wants a still and none is generated.
+  const hero = page.media.find((m) => m.kind !== "video");
+  const description = page.mod.summary ?? undefined;
+
   return {
     title: `${page.mod.name} | MJOLNIR Core`,
-    description: page.mod.summary ?? undefined,
+    description,
+    alternates: { canonical: `/mods/${page.mod.slug}` },
+    openGraph: {
+      title: page.mod.name,
+      description,
+      url: `/mods/${page.mod.slug}`,
+      siteName: "MJOLNIR Core",
+      type: "article",
+      images: hero ? [{ url: hero.url, alt: hero.alt_text }] : undefined,
+    },
+    twitter: {
+      // Without an image the wide card renders as an empty box, so a mod
+      // with no screenshots yet asks for the small one instead.
+      card: hero ? "summary_large_image" : "summary",
+      title: page.mod.name,
+      description,
+      images: hero ? [hero.url] : undefined,
+    },
   };
 }
 
@@ -37,8 +71,7 @@ export default async function ModDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const { env } = getCloudflareContext();
-  const page = await getModPage(env.DB as never, slug);
+  const page = await loadModPage(slug);
   // Draft mods stay invisible here; owners reach them at /mods/{slug}/manage.
   if (!page || page.mod.status !== "published") notFound();
   const { mod, media, releases } = page;
@@ -61,6 +94,7 @@ export default async function ModDetailPage({
               by <span className="text-foreground">{mod.author}</span>
               {mod.license ? <span className="text-text-dim"> · {mod.license}</span> : null}
               <span className="text-text-dim"> · {mod.download_count} downloads</span>
+              <span className="text-text-dim"> · {mod.view_count} views</span>
             </p>
           </div>
           <OwnerBar slug={mod.slug} ownerId={mod.owner_id} />
@@ -68,18 +102,15 @@ export default async function ModDetailPage({
 
         {mod.summary && <p className="text-lg text-text-muted mb-8">{mod.summary}</p>}
 
-        {/* Screenshots */}
-        {media.length > 0 && (
-          <div className="mb-10">
-            <Gallery
-              items={media.map((m) => ({
-                id: m.id,
-                url: `/api/v1/media/${m.id}`,
-                alt: m.alt_text,
-              }))}
-            />
-          </div>
-        )}
+        {/* Gallery: server-rendered approved media as the first paint; the
+            client refetch layers in the viewer's own pending submissions
+            and the upload flow. */}
+        <div className="mb-10">
+          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Gallery</h2>
+          <ModGallery slug={mod.slug} allowUpload initial={media} />
+        </div>
+
+        <ModViewBeacon slug={mod.slug} />
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-10">
           <div>

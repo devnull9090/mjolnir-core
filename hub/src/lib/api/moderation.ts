@@ -1,5 +1,6 @@
 /**
- * Reports, the moderation queue, yanks, and the audit trail.
+ * Reports, the moderation queues (reports and gallery submissions), yanks,
+ * and the audit trail.
  *
  * Every moderator decision writes audit_log — the append-only record of
  * who did what to whose content, queryable when a decision is disputed.
@@ -9,6 +10,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 
 import type { ApiEnv } from "./bindings";
+import { getTool } from "../tools";
 import { authenticate, rateLimit } from "./auth";
 import { requireModerator } from "./account";
 import { ErrorSchema } from "./schemas";
@@ -38,6 +40,26 @@ const ReportSchema = z
     created_at: z.string(),
   })
   .openapi("Report");
+
+/** A gallery submission as the review queue sees it: the item plus enough
+ *  context (what it was submitted to, uploader) to judge it without leaving
+ *  the page. */
+const QueuedMediaSchema = z
+  .object({
+    id: z.string(),
+    url: z.string(),
+    kind: z.enum(["screenshot", "thumbnail", "video"]),
+    alt_text: z.string(),
+    status: z.enum(["pending", "approved", "rejected"]),
+    file_size: z.number().int().nullable(),
+    uploader: z.string(),
+    owner: z
+      .object({ type: z.enum(["mod", "tool"]), slug: z.string() })
+      .openapi({ description: "What it was submitted to, and where that lives on the site." }),
+    owner_name: z.string(),
+    created_at: z.string(),
+  })
+  .openapi("QueuedMedia");
 
 export async function audit(
   c: Ctx,
@@ -172,6 +194,115 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         .run();
       if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
       await audit(c, auth.user.id, `report_${action}`, "report", id);
+      return c.json({ ok: true }, 200);
+    },
+  );
+
+  // ── Gallery queue ───────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/moderation/media",
+      tags: ["moderation"],
+      summary: "The gallery review queue (moderators)",
+      request: {
+        query: z.object({
+          status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+        }),
+      },
+      responses: {
+        200: {
+          description: "Submissions, oldest first.",
+          content: { "application/json": { schema: z.object({ media: z.array(QueuedMediaSchema) }) } },
+        },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      await requireModerator(c);
+      const { status } = c.req.valid("query");
+      // LEFT JOIN on mods: a tool preview has no mod row, and an inner join
+      // would drop it out of the queue entirely.
+      const rows = await c.env.DB.prepare(
+        `SELECT media.id, media.kind, media.alt_text, media.status, media.file_size,
+                media.created_at, media.tool_slug, m.slug AS mod_slug, m.name AS mod_name,
+                COALESCE(u.display_name, u.discord_username) AS uploader
+         FROM media
+         LEFT JOIN mods m ON m.id = media.mod_id
+         JOIN users u ON u.id = media.uploader_id
+         WHERE media.status = ?1 ORDER BY media.created_at LIMIT 200`,
+      )
+        .bind(status)
+        .all();
+      return c.json(
+        {
+          media: rows.results.map((r) => {
+            const toolSlug = (r.tool_slug as string) ?? null;
+            const tool = toolSlug ? getTool(toolSlug) : null;
+            return {
+              id: r.id as string,
+              url: `/api/v1/media/${r.id}`,
+              kind: r.kind as "screenshot" | "thumbnail" | "video",
+              alt_text: r.alt_text as string,
+              status: r.status as "pending" | "approved" | "rejected",
+              file_size: (r.file_size as number) ?? null,
+              uploader: r.uploader as string,
+              owner: toolSlug
+                ? { type: "tool" as const, slug: toolSlug }
+                : { type: "mod" as const, slug: r.mod_slug as string },
+              // A tool that has since left the registry still names itself
+              // by its slug rather than rendering as a blank row.
+              owner_name: toolSlug ? (tool?.name ?? toolSlug) : (r.mod_name as string),
+              created_at: r.created_at as string,
+            };
+          }),
+        },
+        200,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/moderation/media/{id}",
+      tags: ["moderation"],
+      summary: "Approve or reject a gallery submission (moderators)",
+      description:
+        "Approval publishes the item to the mod's gallery. Rejection keeps " +
+        "the record (and the bytes, visible only to the uploader) so the " +
+        "submitter can see what happened and delete it themselves.",
+      request: {
+        params: z.object({ id: z.string() }),
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({ action: z.enum(["approve", "reject"]) }).openapi("MediaDecision"),
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "Decided.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such pending submission.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await requireModerator(c);
+      const { id } = c.req.valid("param");
+      const { action } = c.req.valid("json");
+      const res = await c.env.DB.prepare(
+        `UPDATE media SET status = ?2, reviewed_by = ?3, reviewed_at = datetime('now')
+         WHERE id = ?1 AND status = 'pending'`,
+      )
+        .bind(id, action === "approve" ? "approved" : "rejected", auth.user.id)
+        .run();
+      if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
+      await audit(c, auth.user.id, `media_${action}`, "media", id);
       return c.json({ ok: true }, 200);
     },
   );

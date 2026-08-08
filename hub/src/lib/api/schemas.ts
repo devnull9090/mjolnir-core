@@ -69,6 +69,7 @@ export const ModSchema = z
     license: z.string().nullable(),
     nsfw: z.boolean(),
     download_count: z.number().int(),
+    view_count: z.number().int(),
     rating_count: z.number().int(),
     rating_mean: z.number().nullable(),
     author: z.string().openapi({
@@ -267,11 +268,30 @@ export const ConflictCheckResponseSchema = z
 export const MediaSchema = z
   .object({
     id: z.string(),
-    mod_id: z.string(),
-    url: z.string().openapi({ description: "Where the image is served from." }),
-    kind: z.enum(["screenshot", "thumbnail"]),
+    mod_id: z.string().nullable().openapi({
+      description: "The mod this belongs to; null for a tool preview.",
+    }),
+    tool_slug: z.string().nullable().openapi({
+      description: "The tool this belongs to; null for a mod's gallery item.",
+    }),
+    url: z.string().openapi({ description: "Where the file is served from." }),
+    kind: z.enum(["screenshot", "thumbnail", "video"]),
     alt_text: z.string().openapi({
       description: "Author-provided description; required on upload.",
+    }),
+    status: z.enum(["pending", "approved", "rejected"]).openapi({
+      description:
+        "Moderation state. Listings only include non-approved items for " +
+        "their own uploader; everyone else sees approved media only.",
+    }),
+    view_count: z.number().int(),
+    uploader: z.string().nullable().openapi({
+      description: "Display name of whoever submitted this item.",
+    }),
+    uploader_id: z.string().openapi({
+      description:
+        "The submitter's user id, so a client can tell whose items carry " +
+        "controls without matching on display names.",
     }),
     width: z.number().int().nullable(),
     height: z.number().int().nullable(),
@@ -360,6 +380,7 @@ export function modFromRow(r: any): z.infer<typeof ModSchema> {
     license: r.license ?? null,
     nsfw: !!r.nsfw,
     download_count: r.download_count ?? 0,
+    view_count: r.view_count ?? 0,
     rating_count: r.rating_count ?? 0,
     rating_mean: r.rating_mean ?? null,
     author: r.author ?? "unknown",
