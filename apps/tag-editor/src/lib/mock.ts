@@ -234,6 +234,7 @@ const mockTag: TagView = {
 
 const mockGroups: GroupSummary[] = [
   { group: "biped", four_cc: "bipd", count: 32 },
+  { group: "model", four_cc: "hlmt", count: 451 },
   { group: "scenario", four_cc: "scnr", count: 13 },
   { group: "vehicle", four_cc: "vehi", count: 25 },
   { group: "weapon", four_cc: "weap", count: 75 },
@@ -242,12 +243,45 @@ const mockGroups: GroupSummary[] = [
 const mockTags: TagSummary[] = [
   { index: 0, group: "scenario", path: mockTag.path, short: "levels/b30/b30", size: 481_204 },
   { index: 1, group: "scenario", path: "", short: "levels/a30/a30", size: 371_020 },
+  { index: 2, group: "model", path: "", short: "objects/sample/sample", size: 21_325 },
 ];
+
+/** A minimal hlmt view, so the Model segment is reachable in a browser. */
+const mockModelTag: TagView = {
+  path: "../../../Meteorite/Content/Tags/objects/sample/sample-model.ubulk",
+  group: "model",
+  four_cc: "hlmt",
+  version: 27,
+  chunk_size: 21_325,
+  data_size: 20_988,
+  data_exact: true,
+  error: null,
+  node_count: 12,
+  edited: [],
+  fields: [
+    field({
+      name: "collision model",
+      type: "tag reference",
+      value: "objects\\sample\\sample",
+      reference: { group: "coll", path: "objects\\sample\\sample" },
+      size: 16,
+    }),
+    field({
+      name: "skeleton model",
+      type: "tag reference",
+      value: "objects\\sample\\sample",
+      reference: { group: "skel", path: "objects\\sample\\sample" },
+      size: 16,
+    }),
+    field({ name: "disappear distance", type: "real", value: "250" }),
+  ],
+};
 
 const edits = new Map<string, string>();
 
-function withEdits(): TagView {
-  return { ...mockTag, edited: [...edits.keys()] };
+function withEdits(index = 0): TagView {
+  const base = index === 2 ? mockModelTag : mockTag;
+  return { ...base, edited: [...edits.keys()] };
 }
 
 /**
@@ -291,12 +325,58 @@ export const mockApi = {
   }),
   openInstall: async () => ({ groups: mockGroups.length, tags: mockTags.length }),
   listGroups: async () => mockGroups,
-  listTags: async (group: string) =>
-    group === "scenario" ? mockTags : ([] as TagSummary[]),
+  listTags: async (group: string) => mockTags.filter((t) => t.group === group),
   searchTags: async (query: string) =>
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
-  readTag: async () => withEdits(),
+  readTag: async (index: number) => withEdits(index),
   readTagBytes: async () => [] as number[],
+  readModelGeometry: async () => {
+    // A crate on a post: enough to exercise node posing, region filtering and
+    // the skeleton overlay in a browser.
+    const box = (w: number, h: number, d: number) => ({
+      positions: [
+        -w, -h, -d, w, -h, -d, w, h, -d, -w, h, -d,
+        -w, -h, d, w, -h, d, w, h, d, -w, h, d,
+      ],
+      indices: [
+        0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+        2, 3, 7, 2, 7, 6, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
+      ],
+    });
+    const body = box(0.25, 0.25, 0.1);
+    const head = box(0.12, 0.12, 0.08);
+    return {
+      collision: "objects/sample/sample",
+      skeleton: "objects/sample/sample",
+      meshes: [
+        {
+          region: "body",
+          permutation: "default",
+          node: 1,
+          ...body,
+          flags: body.indices.map(() => 0).slice(0, body.indices.length / 3),
+        },
+        {
+          region: "head",
+          permutation: "default",
+          node: 2,
+          ...head,
+          flags: head.indices.map(() => 0).slice(0, head.indices.length / 3),
+        },
+      ],
+      nodes: [
+        { name: "b_pedestal", parent: -1, translation: [0, 0, 0], rotation: [0, 0, 0, 1] },
+        { name: "b_body", parent: 0, translation: [0, 0, 0.3], rotation: [0, 0, 0, 1] },
+        { name: "b_head", parent: 1, translation: [0, 0, 0.35], rotation: [0, 0, 0.383, 0.924] },
+      ],
+      marker_groups: [
+        {
+          name: "primary_trigger",
+          markers: [{ node: 2, translation: [0.15, 0, 0], rotation: [0, 0, 0, 1] }],
+        },
+      ],
+    };
+  },
   setField: async (_index: number, path: string, value: string): Promise<EditResult> => {
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };

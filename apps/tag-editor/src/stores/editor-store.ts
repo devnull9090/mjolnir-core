@@ -26,7 +26,10 @@ import {
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree" | "script";
+export type ViewMode = "form" | "tree" | "script" | "model";
+
+/** Groups whose geometry the Model view can draw. */
+export const MODEL_GROUPS = ["model", "collision_model", "skeleton_model"];
 
 /** One open document: a tag, a texture or a sound, shown as a tab. */
 export type Tab = {

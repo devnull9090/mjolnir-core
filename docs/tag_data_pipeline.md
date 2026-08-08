@@ -204,6 +204,18 @@ tags are emitted from the Unreal world at cook time, giving the simulation the c
 structure representation it requires. The `_Generated_` directory name and the absence of any
 hand-authored scenario tag support this, but the cooker itself has not been observed.
 
+**Verified 2026-08-07:** the shipped `sbsp` payloads carry no render geometry, only its skeleton.
+Walking `holdouts-scenario_structure_bsp` (143.1 MiB) in full shows the tag is dominated by
+collision data — winged-edge collision BSPs for 754 instanced-geometry definitions (~110 MiB),
+Havok mopp code, and kd/supernode hierarchies — while `render geometry` holds 755 mesh
+descriptors and compression-info bounds with an `api resource` body of **zero bytes**, and both
+`resource interface` pageable resources are likewise unattached (section magic third byte NUL).
+The same holds for per-object tags: `collision_model` and `skeleton_model` payloads are complete,
+but no vertex or index buffer exists anywhere in the Blam data. Mesh data ships only as Unreal
+`SK_*`/`SM_*` packages (593 skeletal-mesh and 22,610 static-mesh packages in the index).
+Reproduce with `cargo run --example probe_geometry -- scenario_structure_bsp holdouts` and
+`--example probe_meshes -- elite` in `apps/tag-editor/src-tauri`.
+
 ## Why the DLL Is Named `tag_release`
 
 **Verified:** the host executable contains the reflected enumeration

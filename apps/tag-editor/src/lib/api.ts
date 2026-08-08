@@ -207,6 +207,54 @@ export type SoundView = {
   events: EventRef[];
 };
 
+/** One collision BSP, triangulated. Vertices are local to the skeleton node
+ *  the BSP attaches to. */
+export type CollisionMesh = {
+  region: string;
+  permutation: string;
+  /** Skeleton node index this piece attaches to, or -1. */
+  node: number;
+  /** xyz triplets. */
+  positions: number[];
+  /** Triangle list into `positions`. */
+  indices: number[];
+  /** One surface-flag word per triangle (bit 0 two sided, bit 1 invisible,
+   *  bit 2 climbable, bit 3 breakable). */
+  flags: number[];
+};
+
+export type SkeletonNode = {
+  name: string;
+  /** Parent node index, or -1 at the root. */
+  parent: number;
+  /** Rest-pose translation relative to the parent. */
+  translation: [number, number, number];
+  /** Rest-pose rotation relative to the parent, as i j k w. */
+  rotation: [number, number, number, number];
+};
+
+export type ModelMarker = {
+  node: number;
+  translation: [number, number, number];
+  rotation: [number, number, number, number];
+};
+
+export type MarkerGroup = {
+  name: string;
+  markers: ModelMarker[];
+};
+
+/** Everything the model viewer draws for one object. */
+export type ModelGeometry = {
+  /** Short path of the collision_model the meshes came from. */
+  collision: string | null;
+  /** Short path of the skeleton_model the nodes came from. */
+  skeleton: string | null;
+  meshes: CollisionMesh[];
+  nodes: SkeletonNode[];
+  marker_groups: MarkerGroup[];
+};
+
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
 export type DirEntry = {
   name: string;
@@ -373,6 +421,8 @@ const tauriApi = {
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
+  readModelGeometry: (index: number) =>
+    invoke<ModelGeometry>("read_model_geometry", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>

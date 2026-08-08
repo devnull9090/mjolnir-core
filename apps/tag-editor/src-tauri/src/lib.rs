@@ -16,6 +16,7 @@ pub mod bnk;
 pub mod catalog;
 pub mod changelog;
 pub mod decode;
+pub mod geometry;
 pub mod hub;
 pub mod install;
 pub mod keystore;
@@ -679,6 +680,78 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
 
 fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
+}
+
+/// Find a tag by group and reference path. Reference paths come out of tag
+/// bodies backslash-separated and in authored case; catalog shorts are
+/// slash-separated container paths.
+fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
+    let want = path.replace('\\', "/").to_ascii_lowercase();
+    c.tags
+        .iter()
+        .position(|t| t.group == group && t.short.to_ascii_lowercase() == want)
+}
+
+/// Geometry for the model viewer: collision meshes plus the skeleton that
+/// poses them.
+///
+/// Accepts a `model` (hlmt), `collision_model`, or `skeleton_model` tag and
+/// assembles whichever halves it can reach: an hlmt names both explicitly; a
+/// bare half looks for its sibling at the same tag path.
+#[tauri::command]
+fn read_model_geometry(
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<geometry::ModelGeometry, String> {
+    with_catalog(&state, |c| {
+        // Each tag is read as the user currently sees it: with its own
+        // pending edits applied.
+        let read = |i: usize| -> Result<Vec<u8>, String> {
+            let e = c.entry(i).ok_or("tag index out of range")?;
+            let key = (e.group.clone(), e.short.clone());
+            let pending = pending_for(&state, &key)?;
+            patched_bytes(c, i, &pending)
+        };
+
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let short = entry.short.clone();
+        let (coll, skel) = match entry.group.as_str() {
+            "model" => {
+                let file = read(index)?;
+                let mut coll = None;
+                let mut skel = None;
+                for r in geometry::model_refs(&file)? {
+                    let found = tag_by_ref(c, r.group, &r.path);
+                    match r.group {
+                        "collision_model" => coll = found,
+                        _ => skel = found,
+                    }
+                }
+                (coll, skel)
+            }
+            "collision_model" => (Some(index), tag_by_ref(c, "skeleton_model", &short)),
+            "skeleton_model" => (tag_by_ref(c, "collision_model", &short), Some(index)),
+            other => return Err(format!("a {other} tag has no viewable geometry")),
+        };
+        if coll.is_none() && skel.is_none() {
+            return Err("no collision_model or skeleton_model reachable from this tag".into());
+        }
+
+        let mut geo = geometry::ModelGeometry::default();
+        if let Some(ci) = coll {
+            let file = read(ci)?;
+            geo.meshes = geometry::collision_meshes(&file)?;
+            geo.collision = c.entry(ci).map(|e| e.short.clone());
+        }
+        if let Some(si) = skel {
+            let file = read(si)?;
+            let (nodes, marker_groups) = geometry::skeleton(&file)?;
+            geo.nodes = nodes;
+            geo.marker_groups = marker_groups;
+            geo.skeleton = c.entry(si).map(|e| e.short.clone());
+        }
+        Ok(geo)
+    })
 }
 
 /// One package a tag imports, resolved to something openable when possible.
@@ -1992,6 +2065,7 @@ pub fn run() {
             search_tags,
             read_tag,
             read_tag_bytes,
+            read_model_geometry,
             set_field,
             live_status,
             live_forget,
