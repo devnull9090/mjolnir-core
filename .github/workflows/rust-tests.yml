@@ -1,0 +1,68 @@
+# Runs the Rust test suites on pull requests, so a broken test (or a test
+# helper that doesn't even compile) is caught before merge instead of on the
+# next release run — release-tag-editor.yml was the only thing compiling the
+# tag-editor tests until PR #60 merged one that didn't build and broke the
+# v0.10.0 release.
+#
+# Path-filtered so PRs that touch neither the crates nor the tag editor's Rust
+# side skip both jobs entirely.
+name: Rust Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'apps/tag-editor/src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'apps/tag-editor/src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-tests.yml'
+
+jobs:
+  crates:
+    name: Workspace crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+  tag-editor:
+    name: Tag editor
+    # Windows to match the release build environment; the crate also has
+    # cfg(windows) dependencies, and Tauri needs no system packages here,
+    # unlike a Linux runner.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tag-editor/src-tauri -> target
+
+      # Without the default `custom-protocol` feature, `generate_context!()`
+      # does not embed `../dist`, so no frontend build is needed. Debug rather
+      # than --release keeps the PR loop fast; the release workflow still runs
+      # the suite with shipping features before anything is published. The two
+      # e2e tests are #[ignore]d (they need an installed game) but still get
+      # compiled, which is the failure mode this job exists to catch.
+      - name: Test
+        run: cargo test --no-default-features
+        working-directory: apps/tag-editor/src-tauri
