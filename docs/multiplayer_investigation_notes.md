@@ -100,6 +100,12 @@ The `BlamGameEngineVariant` header file confirms: **game engine variants (Slayer
 
 **Contains ALL classic Halo multiplayer game modes** (verified via string extraction):
 
+> **Superseded 2026-08-04.** The mode list below is read from the DLL's *tag definition* strings. It
+> describes what the definitions can express, not what ships. Reading the actual tags shows no
+> per-mode settings tags, no flag object, an empty announcer sound table, and a host executable whose
+> `EBlamGameEngineType` enum contains only `Campaign`. See
+> [`multiplayer_ctf_plan.md`](multiplayer_ctf_plan.md).
+
 #### Game Modes Found
 - **Slayer** — top level options, primary options, advanced options, scoring options, leader traits (appearance/movement/sensors/shields/weapons)
 - **CTF** — top level, primary, advanced options, carrier traits (full set)

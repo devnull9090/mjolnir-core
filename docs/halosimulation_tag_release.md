@@ -7,6 +7,12 @@
 > **Build label:** this note is stamped CU2; the installed build is CU3. See
 > [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
 > caveat about CU2-stamped notes dated after 2026-08-01.
+>
+> **What that means for the addresses below.** **Verified on CU3:**
+> `CreateBlamEngineShell` is still exported at RVA `0x6980`. **Unverified:** every other RVA on
+> this page — both interface tables and the host loader functions — is a CU2 figure and has not
+> been re-checked. Re-verify before relying on one. The CU3 content inventory is in
+> [`multiplayer_ctf_plan.md`](multiplayer_ctf_plan.md).
 
 ## Artifact
 
@@ -113,6 +119,15 @@ The DLL contains strings and data definitions for CTF, Slayer, Oddball, King of 
 Infection, Juggernaut, Assault, Territories, team options, respawn, loadouts, Megalo, Forge, and
 Sandbox. This verifies that those definitions are present; it does not prove the shipping UE5 layer
 can select or run each mode.
+
+**Resolved 2026-08-04:** it cannot. The host executable registers `EBlamGameEngineType` with exactly
+`None`, `Campaign`, `Num`, and contains zero occurrences of any competitive mode name. Whether the
+DLL still holds *executable* game-engine code behind those definitions is the open question; see
+[`multiplayer_ctf_plan.md`](multiplayer_ctf_plan.md) Phase 1.
+
+The DLL also carries the complete Halo Reach network layer — 131 `net_*`/`network_*` command names
+covering session classes, privacy, host selection, host migration, and game/map variant build and
+load — plus the Reach lobby data model as `prop_*` UI bindings.
 
 ## Reproduction
 
