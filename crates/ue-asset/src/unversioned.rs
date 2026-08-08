@@ -402,6 +402,17 @@ impl<'a> Walker<'a> {
                 self.skip(count * 8)?;
                 Ok(Value::Opaque)
             }
+            "SkeletalMeshSamplingLODBuiltData" | "SkeletalMeshAreaWeightedTriangleSampler"
+            | "WeightedRandomSampler" => {
+                // FWeightedRandomSampler: probability array, alias array,
+                // total weight.
+                let n = self.u32()? as usize;
+                self.skip(n * 4)?;
+                let m = self.u32()? as usize;
+                self.skip(m * 4)?;
+                self.skip(4)?;
+                Ok(Value::Opaque)
+            }
             "SoftObjectPath" | "SoftClassPath" => {
                 let package = self.fname()?;
                 let asset = self.fname()?;
