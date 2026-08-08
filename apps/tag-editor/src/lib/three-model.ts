@@ -75,12 +75,18 @@ export function disposeGeometries(root: THREE.Object3D) {
 // ---------------------------------------------------------------------------
 // The packed sbsp world (see geometry.rs `sbsp_world` for the format).
 
+/** One drawable collision mesh: geometry with one group per material, and the
+ *  material key for each group — a collision-material index, or "invisible"
+ *  for surfaces the player never sees. */
+export type SbspMesh = {
+  geometry: THREE.BufferGeometry;
+  groups: (number | "invisible")[];
+};
+
 export type SbspWorld = {
-  /** One geometry per instanced-geometry definition; empty defs are null. */
-  defs: (THREE.BufferGeometry | null)[];
-  /** Triangles flagged invisible, split out per def; null when none. */
-  defsInvisible: (THREE.BufferGeometry | null)[];
-  world: THREE.BufferGeometry | null;
+  /** One mesh per instanced-geometry definition; empty defs are null. */
+  defs: (SbspMesh | null)[];
+  world: SbspMesh | null;
   instances: { def: number; matrix: THREE.Matrix4 }[];
 };
 
@@ -105,44 +111,56 @@ export function parseSbspWorld(buffer: ArrayBuffer): SbspWorld {
     at += counts.verts * 12;
     const indices = new Uint32Array(buffer, at, counts.tris * 3);
     at += counts.tris * 12;
+    // Surface flags low half, collision-material index high half.
     const flags = new Uint32Array(buffer, at, counts.tris);
     at += counts.tris * 4;
     return { positions, indices, flags };
   };
 
-  const build = (
-    positions: Float32Array,
-    indices: ArrayLike<number>,
-  ): THREE.BufferGeometry => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(positions.slice(), 3));
-    geo.setIndex(new THREE.BufferAttribute(Uint32Array.from(indices), 1));
-    return geo;
+  // Bucket triangles by material so each bucket becomes a geometry group and
+  // can carry its own tint. Invisible surfaces get one bucket of their own,
+  // toggled globally through their shared material's `visible`.
+  const build = (m: ReturnType<typeof readMesh>, tris: number): SbspMesh => {
+    const buckets = new Map<number | "invisible", number[]>();
+    for (let t = 0; t < tris; t++) {
+      const key: number | "invisible" =
+        (m.flags[t] & FLAG_INVISIBLE) !== 0 ? "invisible" : m.flags[t] >>> 16;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(m.indices[t * 3], m.indices[t * 3 + 1], m.indices[t * 3 + 2]);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(m.positions.slice(), 3));
+    const index = new Uint32Array([...buckets.values()].reduce((n, b) => n + b.length, 0));
+    const groups: (number | "invisible")[] = [];
+    let start = 0;
+    let slot = 0;
+    for (const [key, bucket] of buckets) {
+      index.set(bucket, start);
+      geometry.addGroup(start, bucket.length, slot);
+      groups.push(key);
+      start += bucket.length;
+      slot++;
+    }
+    geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    return { geometry, groups };
   };
 
-  const defs: (THREE.BufferGeometry | null)[] = [];
-  const defsInvisible: (THREE.BufferGeometry | null)[] = [];
+  const defs: (SbspMesh | null)[] = [];
   for (const counts of header.defs) {
     if (counts.tris === 0) {
       defs.push(null);
-      defsInvisible.push(null);
       continue;
     }
-    const m = readMesh(counts);
-    const vis: number[] = [];
-    const inv: number[] = [];
-    for (let t = 0; t < counts.tris; t++) {
-      const target = (m.flags[t] & FLAG_INVISIBLE) !== 0 ? inv : vis;
-      target.push(m.indices[t * 3], m.indices[t * 3 + 1], m.indices[t * 3 + 2]);
-    }
-    defs.push(vis.length > 0 ? build(m.positions, vis) : null);
-    defsInvisible.push(inv.length > 0 ? build(m.positions, inv) : null);
+    defs.push(build(readMesh(counts), counts.tris));
   }
 
-  let world: THREE.BufferGeometry | null = null;
+  let world: SbspMesh | null = null;
   if (header.world && header.world.tris > 0) {
-    const m = readMesh(header.world);
-    world = build(m.positions, m.indices);
+    world = build(readMesh(header.world), header.world.tris);
   }
 
   const instances: SbspWorld["instances"] = [];
@@ -167,5 +185,5 @@ export function parseSbspWorld(buffer: ArrayBuffer): SbspWorld {
     matrix.setPosition(v(44));
     instances.push({ def, matrix });
   }
-  return { defs, defsInvisible, world, instances };
+  return { defs, world, instances };
 }

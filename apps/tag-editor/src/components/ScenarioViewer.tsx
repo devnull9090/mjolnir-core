@@ -118,6 +118,7 @@ function World(props: {
   const [saving, setSaving] = useState<string | null>(null);
   const selectedRef = useRef<Selected | null>(null);
   const categoryGroups = useRef<Map<string, THREE.Group>>(new Map());
+  const invisibleMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const sceneRef = useRef<{
     placements: THREE.Group;
     gizmo: TransformControls;
@@ -152,50 +153,53 @@ function World(props: {
     scene.add(model);
 
     // --- the world ---------------------------------------------------------
-    const worldMat = new THREE.MeshStandardMaterial({
-      color: 0x8a939e,
-      flatShading: true,
-      side: THREE.DoubleSide,
-      metalness: 0.05,
-      roughness: 0.9,
-    });
+    // One muted tint per collision material: no textures ship in the tag
+    // data, but material boundaries (rock/dirt/metal) still read clearly.
+    const materialTints = new Map<number, THREE.MeshStandardMaterial>();
+    const tintFor = (id: number) => {
+      let mat = materialTints.get(id);
+      if (!mat) {
+        const hue = (id * 0.618034) % 1;
+        mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setHSL(hue, 0.14, 0.5 + ((id * 0.37) % 0.2)),
+          flatShading: true,
+          side: THREE.DoubleSide,
+          metalness: 0.05,
+          roughness: 0.9,
+        });
+        materialTints.set(id, mat);
+      }
+      return mat;
+    };
     const invisibleMat = new THREE.MeshStandardMaterial({
       color: 0xd06040,
       transparent: true,
       opacity: 0.25,
       side: THREE.DoubleSide,
       depthWrite: false,
+      visible: false,
     });
     const worldGroup = new THREE.Group();
-    const invisibleGroup = new THREE.Group();
-    invisibleGroup.visible = false;
     for (const buffer of props.worlds) {
       const parsed = parseSbspWorld(buffer);
       const byDef: THREE.Matrix4[][] = parsed.defs.map(() => []);
       for (const inst of parsed.instances) {
         byDef[inst.def]?.push(inst.matrix);
       }
-      const place = (
-        geometries: (THREE.BufferGeometry | null)[],
-        material: THREE.Material,
-        into: THREE.Group,
-      ) => {
-        geometries.forEach((geo, d) => {
-          if (!geo || byDef[d].length === 0) return;
-          const mesh = new THREE.InstancedMesh(geo, material, byDef[d].length);
-          byDef[d].forEach((m, i) => mesh.setMatrixAt(i, m));
-          mesh.instanceMatrix.needsUpdate = true;
-          into.add(mesh);
-        });
-      };
-      place(parsed.defs, worldMat, worldGroup);
-      place(parsed.defsInvisible, invisibleMat, invisibleGroup);
+      const materialsOf = (mesh: NonNullable<typeof parsed.world>) =>
+        mesh.groups.map((g) => (g === "invisible" ? invisibleMat : tintFor(g)));
+      parsed.defs.forEach((def, d) => {
+        if (!def || byDef[d].length === 0) return;
+        const mesh = new THREE.InstancedMesh(def.geometry, materialsOf(def), byDef[d].length);
+        byDef[d].forEach((m, i) => mesh.setMatrixAt(i, m));
+        mesh.instanceMatrix.needsUpdate = true;
+        worldGroup.add(mesh);
+      });
       if (parsed.world) {
-        worldGroup.add(new THREE.Mesh(parsed.world, worldMat));
+        worldGroup.add(new THREE.Mesh(parsed.world.geometry, materialsOf(parsed.world)));
       }
     }
     model.add(worldGroup);
-    model.add(invisibleGroup);
 
     // --- placements --------------------------------------------------------
     const placements = new THREE.Group();
@@ -336,8 +340,8 @@ function World(props: {
     overlays.push(["player starts", starts]);
 
     for (const [, g] of overlays) model.add(g);
-    overlays.push(["invisible surfaces", invisibleGroup]);
     for (const [name, g] of overlays) categoryGroups.current.set(name, g);
+    invisibleMatRef.current = invisibleMat;
 
     // --- selection + gizmo -------------------------------------------------
     const highlight = new THREE.BoxHelper(new THREE.Object3D(), 0xf0d060);
@@ -502,6 +506,9 @@ function World(props: {
   useEffect(() => {
     for (const [name, group] of categoryGroups.current) {
       group.visible = !hidden.has(name);
+    }
+    if (invisibleMatRef.current) {
+      invisibleMatRef.current.visible = !hidden.has("invisible surfaces");
     }
   }, [hidden]);
 

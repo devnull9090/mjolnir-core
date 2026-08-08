@@ -47,6 +47,9 @@ fn main() -> Result<(), String> {
             c.palette.len(),
             c.placements.len()
         );
+        for (i, p) in c.palette.iter().enumerate() {
+            println!("    palette[{i}] {p}");
+        }
         for p in c.placements.iter().take(2) {
             println!(
                 "    [{}] palette {} pos ({:+.2} {:+.2} {:+.2}) rot ({:+.2} {:+.2} {:+.2}) scale {:.2}",

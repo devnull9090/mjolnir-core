@@ -216,6 +216,18 @@ but no vertex or index buffer exists anywhere in the Blam data. Mesh data ships 
 Reproduce with `cargo run --example probe_geometry -- scenario_structure_bsp holdouts` and
 `--example probe_meshes -- elite` in `apps/tag-editor/src-tauri`.
 
+**Verified 2026-08-07 — scenario placements drive the runtime spawn.** An override built with
+`mjolnir pack --group scenario --tag a30 --set "weapons[1].object data.position=(8.0, 47.0, 65.5)"`
+moved the shipped assault-rifle placement (shipped `(4.671514, 50.428234, 63.94416)`). On a fresh
+a30 start the `BP_AssaultRifle_WeaponActor_C` for that placement spawned at engine location
+`(8.00, -47.00, 65.51)` world units — magnitudes matching the edit exactly, Y negated as the
+engine negates it for every placement (the shipped rifle likewise reads `(4.67, -50.43, …)` live).
+So a Blam `scnr` placement edit is authoritative over where the object appears in the Unreal
+world; this is the write path the tag editor's World view uses. Caveat: vehicle placements are
+consumed at level load and their runtime actor sits at a fix-up location, so a vehicle move is not
+observable by reading the live actor — but it rides the same `scnr` field, so the pack/verify path
+proves the edit lands even where the runtime read does not.
+
 ## Why the DLL Is Named `tag_release`
 
 **Verified:** the host executable contains the reflected enumeration

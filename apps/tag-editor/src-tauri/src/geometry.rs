@@ -275,7 +275,7 @@ pub fn collision_meshes(file: &[u8]) -> Result<Vec<CollisionMesh>, String> {
                         node,
                         positions: mesh.0,
                         indices: mesh.1,
-                        flags: mesh.2,
+                        flags: mesh.2.iter().map(|f| *f as u16).collect(),
                     });
                 }
             }
@@ -296,7 +296,7 @@ pub fn collision_meshes(file: &[u8]) -> Result<Vec<CollisionMesh>, String> {
 fn triangulate_bsp(
     layout: &Layout<'_>,
     bsp: &Elem<'_, '_>,
-) -> Option<(Vec<f32>, Vec<u32>, Vec<u16>)> {
+) -> Option<(Vec<f32>, Vec<u32>, Vec<u32>)> {
     let vertices = bsp.block("vertices")?;
     let edges = bsp.block("edges")?;
     let surfaces = bsp.block("surfaces")?;
@@ -316,6 +316,7 @@ fn triangulate_bsp(
     let s0 = Elem::of(layout, surfaces, 0)?;
     let first = s0.offset("first edge")?;
     let (flags_off, _) = s0.offset("flags")?;
+    let (mat_off, _) = s0.offset("material")?;
 
     let mut positions = Vec::with_capacity(vertices.count as usize * 3);
     for i in 0..vertices.count as usize {
@@ -334,7 +335,10 @@ fn triangulate_bsp(
         if first_edge == NONE {
             continue;
         }
-        let flag_word = read_u16(surface, flags_off);
+        // Flags in the low half, the surface's material index in the high
+        // half — the viewer tints by material.
+        let flag_word =
+            read_u16(surface, flags_off) as u32 | ((read_u16(surface, mat_off) as u32) << 16);
 
         // Collect the polygon's vertex loop.
         polygon.clear();
@@ -441,11 +445,12 @@ pub fn skeleton(file: &[u8]) -> Result<(Vec<SkeletonNode>, Vec<MarkerGroup>), St
 // ---------------------------------------------------------------------------
 // scenario_structure_bsp
 
-/// One triangulated collision mesh, before packing.
+/// One triangulated collision mesh, before packing. `flags` carries the
+/// surface flags in its low half and the material index in its high half.
 struct WorldMesh {
     positions: Vec<f32>,
     indices: Vec<u32>,
-    flags: Vec<u16>,
+    flags: Vec<u32>,
 }
 
 /// The level's collision world, packed for the viewer:
@@ -601,7 +606,7 @@ pub fn sbsp_world(file: &[u8]) -> Result<Vec<u8>, String> {
             out.extend_from_slice(&i.to_le_bytes());
         }
         for f in &m.flags {
-            out.extend_from_slice(&(*f as u32).to_le_bytes());
+            out.extend_from_slice(&f.to_le_bytes());
         }
     };
     for d in &defs {
