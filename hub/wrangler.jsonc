@@ -32,6 +32,10 @@
     // Publishing therefore requires a tag editor that signs (0.3.0+).
     // Lives here rather than as a secret so the policy is visible and
     // deploys atomically with the worker (docs/mod_signing_design.md).
-    "REQUIRE_SIGNED_UPLOADS": "1"
+    "REQUIRE_SIGNED_UPLOADS": "1",
+    // The platform's one super admin, by Discord snowflake. The OAuth
+    // callback grants this account the admin role on every login, so the
+    // seat survives database resets and works before first sign-in.
+    "SUPER_ADMIN_DISCORD_ID": "867190209217429514"
   }
 }

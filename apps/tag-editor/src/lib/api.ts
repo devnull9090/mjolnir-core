@@ -207,16 +207,146 @@ export type SoundView = {
   events: EventRef[];
 };
 
+/** One collision BSP, triangulated. Vertices are local to the skeleton node
+ *  the BSP attaches to. */
+export type CollisionMesh = {
+  region: string;
+  permutation: string;
+  /** Skeleton node index this piece attaches to, or -1. */
+  node: number;
+  /** xyz triplets. */
+  positions: number[];
+  /** Triangle list into `positions`. */
+  indices: number[];
+  /** One surface-flag word per triangle (bit 0 two sided, bit 1 invisible,
+   *  bit 2 climbable, bit 3 breakable). */
+  flags: number[];
+};
+
+export type SkeletonNode = {
+  name: string;
+  /** Parent node index, or -1 at the root. */
+  parent: number;
+  /** Rest-pose translation relative to the parent. */
+  translation: [number, number, number];
+  /** Rest-pose rotation relative to the parent, as i j k w. */
+  rotation: [number, number, number, number];
+};
+
+export type ModelMarker = {
+  node: number;
+  translation: [number, number, number];
+  rotation: [number, number, number, number];
+};
+
+export type MarkerGroup = {
+  name: string;
+  markers: ModelMarker[];
+};
+
+/** Everything the model viewer draws for one object. */
+export type ModelGeometry = {
+  /** Short path of the collision_model the meshes came from. */
+  collision: string | null;
+  /** Short path of the skeleton_model the nodes came from. */
+  skeleton: string | null;
+  meshes: CollisionMesh[];
+  nodes: SkeletonNode[];
+  marker_groups: MarkerGroup[];
+};
+
+/** One placed object in a scenario. */
+export type ScenarioPlacement = {
+  /** Element index within its block — the `[i]` of a patch path. */
+  element: number;
+  /** Palette index, or -1. */
+  palette: number;
+  /** Object-name index, or -1. */
+  name: number;
+  position: [number, number, number];
+  /** Euler angles as stored, radians. */
+  rotation: [number, number, number];
+  scale: number;
+};
+
+export type ScenarioCategory = {
+  /** Block name; also the patch-path prefix (`vehicles[3].object data.position`). */
+  block: string;
+  /** Catalog group of the palette's tags. */
+  group: string;
+  palette: string[];
+  placements: ScenarioPlacement[];
+};
+
+export type ScenarioTriggerVolume = {
+  name: string;
+  position: [number, number, number];
+  forward: [number, number, number];
+  up: [number, number, number];
+  extents: [number, number, number];
+};
+
+export type ScenarioSquad = {
+  name: string;
+  spawn_points: { name: string; position: [number, number, number]; facing: [number, number] }[];
+};
+
+export type ScenarioLayoutData = {
+  bsps: string[];
+  object_names: string[];
+  categories: ScenarioCategory[];
+  trigger_volumes: ScenarioTriggerVolume[];
+  squads: ScenarioSquad[];
+  player_starts: { position: [number, number, number]; facing: [number, number] }[];
+};
+
+/** A scenario resolved for drawing: layout plus catalog indices. */
+export type ScenarioWorldView = {
+  layout: ScenarioLayoutData;
+  /** Catalog index per layout.bsps entry. */
+  bsp_indices: (number | null)[];
+  /** hlmt catalog index per palette entry, per category. */
+  palette_models: (number | null)[][];
+};
+
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
 export type DirEntry = {
   name: string;
   path: string;
-  kind: "dir" | "tag" | "texture" | "sound";
+  kind: "dir" | "tag" | "texture" | "sound" | "mesh";
   /** Catalog index, for files only. */
   index: number | null;
   size: number;
   /** Assets beneath a folder, at any depth. */
   children: number | null;
+};
+
+/** One section of a cooked mesh, indexing into its triangle list. */
+export type MeshSection = {
+  first_index: number;
+  num_triangles: number;
+  material: number;
+};
+
+export type MeshMaterial = {
+  slot: string;
+  /** Texture catalog index of the base colour, when the chain resolved. */
+  texture: number | null;
+  texture_path: string | null;
+  material_path: string | null;
+};
+
+/** The JSON header of a `read_mesh` payload. */
+export type MeshHeader = {
+  path: string;
+  verts: number;
+  tris: number;
+  sections: MeshSection[];
+  materials: MeshMaterial[];
+  /** Which LOD the buffers are; 0 is full detail, higher is the Nanite
+   *  fallback the cook kept. */
+  lod: number;
+  skeletal: boolean;
 };
 
 /** One package a tag imports, resolved to something openable when possible. */
@@ -373,6 +503,13 @@ const tauriApi = {
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
+  readModelGeometry: (index: number) =>
+    invoke<ModelGeometry>("read_model_geometry", { index }),
+  readScenarioLayout: (index: number) =>
+    invoke<ScenarioWorldView>("read_scenario_layout", { index }),
+  readSbspWorld: (index: number) =>
+    invoke<ArrayBuffer>("read_sbsp_world", { index }),
+  readMesh: (index: number) => invoke<ArrayBuffer>("read_mesh", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>

@@ -22,6 +22,7 @@ export interface Mod {
   license: string | null;
   nsfw: boolean;
   download_count: number;
+  view_count: number;
   rating_count: number;
   rating_mean: number | null;
   author: string;
@@ -96,15 +97,64 @@ export interface ReleaseStatusDetail {
   signer_key_revoked?: boolean;
 }
 
+export type MediaStatus = "pending" | "approved" | "rejected";
+
+/**
+ * What a gallery hangs off: a community mod, or one of the first-party tools
+ * on /tools. The two differ in who may add to them — anyone signed in for a
+ * mod, moderators only for a tool — but in nothing else, so every media path
+ * below takes this rather than a bare slug.
+ */
+export interface MediaOwner {
+  type: "mod" | "tool";
+  slug: string;
+}
+
 export interface Media {
   id: string;
-  mod_id: string;
+  /** Set for a mod's gallery; null for a tool's. */
+  mod_id: string | null;
+  /** Set for a tool's gallery; null for a mod's. */
+  tool_slug: string | null;
   url: string;
-  kind: "screenshot" | "thumbnail";
+  kind: "screenshot" | "thumbnail" | "video";
   alt_text: string;
+  /** Moderation state; listings only carry non-approved items for their uploader. */
+  status: MediaStatus;
+  view_count: number;
+  /** Display name of whoever submitted this item. */
+  uploader: string | null;
+  /** The submitter's user id, for deciding whose items carry controls. */
+  uploader_id: string;
   width: number | null;
   height: number | null;
   position: number;
+  created_at: string;
+}
+
+/** A gallery submission as the moderation queue lists it. */
+export interface QueuedMedia {
+  id: string;
+  url: string;
+  kind: "screenshot" | "thumbnail" | "video";
+  alt_text: string;
+  status: MediaStatus;
+  file_size: number | null;
+  uploader: string;
+  /** What it was submitted to, and where that lives on the site. */
+  owner: MediaOwner;
+  owner_name: string;
+  created_at: string;
+}
+
+export interface Report {
+  id: string;
+  reporter: string;
+  subject_type: string;
+  subject_id: string;
+  reason: string;
+  detail: string | null;
+  status: "open" | "resolved" | "dismissed";
   created_at: string;
 }
 

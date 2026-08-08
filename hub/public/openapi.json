@@ -253,6 +253,9 @@
           "download_count": {
             "type": "integer"
           },
+          "view_count": {
+            "type": "integer"
+          },
           "rating_count": {
             "type": "integer"
           },
@@ -283,6 +286,7 @@
           "license",
           "nsfw",
           "download_count",
+          "view_count",
           "rating_count",
           "rating_mean",
           "author",
@@ -752,22 +756,57 @@
             "type": "string"
           },
           "mod_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The mod this belongs to; null for a tool preview."
+          },
+          "tool_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tool this belongs to; null for a mod's gallery item."
           },
           "url": {
             "type": "string",
-            "description": "Where the image is served from."
+            "description": "Where the file is served from."
           },
           "kind": {
             "type": "string",
             "enum": [
               "screenshot",
-              "thumbnail"
+              "thumbnail",
+              "video"
             ]
           },
           "alt_text": {
             "type": "string",
             "description": "Author-provided description; required on upload."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "description": "Moderation state. Listings only include non-approved items for their own uploader; everyone else sees approved media only."
+          },
+          "view_count": {
+            "type": "integer"
+          },
+          "uploader": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name of whoever submitted this item."
+          },
+          "uploader_id": {
+            "type": "string",
+            "description": "The submitter's user id, so a client can tell whose items carry controls without matching on display names."
           },
           "width": {
             "type": [
@@ -791,9 +830,14 @@
         "required": [
           "id",
           "mod_id",
+          "tool_slug",
           "url",
           "kind",
           "alt_text",
+          "status",
+          "view_count",
+          "uploader",
+          "uploader_id",
           "width",
           "height",
           "position",
@@ -1240,6 +1284,98 @@
             "enum": [
               "resolve",
               "dismiss"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "QueuedMedia": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "screenshot",
+              "thumbnail",
+              "video"
+            ]
+          },
+          "alt_text": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "uploader": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "mod",
+                  "tool"
+                ]
+              },
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "slug"
+            ],
+            "description": "What it was submitted to, and where that lives on the site."
+          },
+          "owner_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "kind",
+          "alt_text",
+          "status",
+          "file_size",
+          "uploader",
+          "owner",
+          "owner_name",
+          "created_at"
+        ]
+      },
+      "MediaDecision": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
             ]
           }
         },
@@ -2396,7 +2532,8 @@
         "tags": [
           "media"
         ],
-        "summary": "A mod's screenshots",
+        "summary": "A mod's gallery",
+        "description": "Approved screenshots and videos. A signed-in caller also gets their own pending and rejected submissions, marked by `status`; moderators see everything.",
         "parameters": [
           {
             "schema": {
@@ -2409,7 +2546,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The images.",
+            "description": "The gallery.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2434,8 +2571,8 @@
         "tags": [
           "media"
         ],
-        "summary": "Upload a screenshot",
-        "description": "multipart/form-data with `file` (png, jpeg or webp, ≤ 8 MiB) and `alt_text` (required — every image ships with a description).",
+        "summary": "Submit a screenshot or video to a mod's gallery",
+        "description": "multipart/form-data with `file` (png/jpeg/webp ≤ 8 MiB, or mp4/webm ≤ 64 MiB) and `alt_text` (required — every item ships with a description). Any signed-in account may submit; the item stays `pending` and invisible to others until a moderator approves it. Moderator submissions publish immediately.",
         "parameters": [
           {
             "schema": {
@@ -2471,7 +2608,7 @@
         },
         "responses": {
           "201": {
-            "description": "The stored image.",
+            "description": "The stored item, with its moderation status.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2481,7 +2618,7 @@
             }
           },
           "400": {
-            "description": "Missing alt text or not an image.",
+            "description": "Missing alt text, unsupported file, or a full gallery.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2492,16 +2629,6 @@
           },
           "401": {
             "description": "Not signed in.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not the owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2521,7 +2648,150 @@
             }
           },
           "413": {
-            "description": "Image too large.",
+            "description": "File too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/{slug}/media": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "A tool's previews",
+        "description": "Approved screenshots and videos for one of the tools on /tools. Moderators additionally see anything not yet approved.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The gallery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Add a preview to a tool (moderators)",
+        "description": "multipart/form-data with `file` (png/jpeg/webp ≤ 8 MiB, or mp4/webm ≤ 64 MiB) and `alt_text` (required — every item ships with a description). Moderators only, and the item publishes immediately: there is no queue for a gallery only moderators can write to.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "alt_text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "alt_text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The stored item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing alt text, unsupported file, or a full gallery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File too large.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2538,7 +2808,8 @@
         "tags": [
           "media"
         ],
-        "summary": "Delete a screenshot",
+        "summary": "Delete a gallery item",
+        "description": "The uploader, the mod's owner, or a moderator. A tool preview has no owner, so it is the uploader or a moderator.",
         "parameters": [
           {
             "schema": {
@@ -2579,7 +2850,7 @@
             }
           },
           "403": {
-            "description": "Not the owner.",
+            "description": "Not yours.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2589,7 +2860,7 @@
             }
           },
           "404": {
-            "description": "No such image.",
+            "description": "No such item.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2604,7 +2875,8 @@
         "tags": [
           "media"
         ],
-        "summary": "Serve an image",
+        "summary": "Serve a gallery file",
+        "description": "Streams the image or video. Byte ranges are honoured so videos can seek. Items not yet approved are served only to their uploader and moderators; everyone else gets 404, not 403 — the queue's existence is nobody else's business.",
         "parameters": [
           {
             "schema": {
@@ -2617,10 +2889,109 @@
         ],
         "responses": {
           "200": {
-            "description": "The image bytes."
+            "description": "The file bytes."
+          },
+          "206": {
+            "description": "The requested byte range."
           },
           "404": {
-            "description": "No such image.",
+            "description": "No such item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/{id}/view": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Count a gallery item view",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current total.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "views": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "views"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mods/{slug}/view": {
+      "post": {
+        "tags": [
+          "mods"
+        ],
+        "summary": "Count a mod page view",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current total.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "views": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "views"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3461,6 +3832,151 @@
           },
           "404": {
             "description": "No such open report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/media": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "The gallery review queue (moderators)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "default": "pending"
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Submissions, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "media": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/QueuedMedia"
+                      }
+                    }
+                  },
+                  "required": [
+                    "media"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/media/{id}": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Approve or reject a gallery submission (moderators)",
+        "description": "Approval publishes the item to the mod's gallery. Rejection keeps the record (and the bytes, visible only to the uploader) so the submitter can see what happened and delete it themselves.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pending submission.",
             "content": {
               "application/json": {
                 "schema": {

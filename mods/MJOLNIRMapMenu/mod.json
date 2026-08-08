@@ -1,5 +1,5 @@
 {
   "version": "0.1.0",
-  "summary": "Keeps the game's shipped debug map menu reachable and adds custom worlds to the TEST MAPS page.",
+  "summary": "Reveals the game's shipped debug map menu and adds custom worlds to its map select pages.",
   "category": "tools"
 }

@@ -16,6 +16,7 @@ pub mod bnk;
 pub mod catalog;
 pub mod changelog;
 pub mod decode;
+pub mod geometry;
 pub mod hub;
 pub mod install;
 pub mod keystore;
@@ -679,6 +680,339 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
 
 fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
+}
+
+/// Find a tag by group and reference path. Reference paths come out of tag
+/// bodies backslash-separated and in authored case; catalog shorts are
+/// slash-separated container paths. The cooker also inserts a `_Generated_`
+/// directory the authored paths never mention (a scenario references
+/// `levels\halo1\solo\a30\holdouts`, the container holds
+/// `Levels/Halo1/Solo/A30/_Generated_/holdouts`), so that segment is ignored
+/// on both sides.
+fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
+    let normalize = |p: &str| p.replace('\\', "/").to_ascii_lowercase().replace("/_generated_/", "/");
+    let want = normalize(path);
+    c.tags
+        .iter()
+        .position(|t| t.group == group && normalize(&t.short) == want)
+}
+
+/// The reflection schema for this game build, dumped by UE4SS and shipped
+/// with the editor. Cooked packages serialize properties unversioned, so
+/// nothing Unreal-side can be read without it. A game update changes the
+/// schema; the errors that follow are loud rather than silent.
+static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
+
+fn usmap() -> Result<&'static ue_asset::Usmap, String> {
+    USMAP
+        .get_or_init(|| {
+            static BYTES: &[u8] = include_bytes!("../../../../defs/ue/Meteorite-2607-CU3.usmap");
+            ue_asset::Usmap::parse(BYTES).ok()
+        })
+        .as_ref()
+        .ok_or_else(|| "the bundled usmap does not parse".to_string())
+}
+
+/// One section of a mesh, with its material resolved as far as it goes.
+#[derive(Serialize)]
+struct MeshSection {
+    first_index: u32,
+    num_triangles: u32,
+    material: i32,
+}
+
+#[derive(Serialize)]
+struct MeshMaterial {
+    slot: String,
+    /// Texture catalog index of the base colour, when the chain resolved.
+    texture: Option<usize>,
+    texture_path: Option<String>,
+    material_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MeshHeader {
+    path: String,
+    verts: u32,
+    tris: u32,
+    sections: Vec<MeshSection>,
+    materials: Vec<MeshMaterial>,
+    /// Which LOD the buffers come from; higher means further from full
+    /// detail (LOD0 slots replaced by Nanite carry no classic buffers).
+    lod: usize,
+    skeletal: bool,
+}
+
+/// A cooked mesh's renderable geometry, packed as `"UMSH"`, a u32 JSON
+/// length, the JSON header, then positions, normals, uvs and indices.
+#[tauri::command]
+fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    with_catalog(&state, |c| {
+        let entry = c.meshes.get(index).ok_or("mesh index out of range")?;
+        let skeletal = entry.skeletal;
+        let usmap = usmap()?;
+        let data = c.read_mesh_uasset(index)?;
+        let ubulk = c.read_mesh_ubulk(index)?;
+        let package = ue_asset::zen::Package::parse(&data).map_err(|e| e.to_string())?;
+        let scripts = c.script_objects().ok_or("no script-object table")?;
+        let wanted_class = if skeletal { "SkeletalMesh" } else { "StaticMesh" };
+        let export = package
+            .exports
+            .iter()
+            .position(|e| scripts.leaf(e.class) == Some(wanted_class))
+            .ok_or_else(|| format!("{} has no {wanted_class} export", entry.short))?;
+        let bytes = package.export_data(&data, export).map_err(|e| e.to_string())?;
+        let ctx = ue_asset::unversioned::Ctx {
+            usmap,
+            names: &package.names,
+        };
+        let mesh = if skeletal {
+            let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
+                .map_err(|e| e.to_string())?;
+            ue_asset::mesh::StaticMeshData {
+                materials: sk.materials,
+                lods: sk.lods,
+            }
+        } else {
+            ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+                .map_err(|e| e.to_string())?
+        };
+
+        // Chase each material slot to a base-colour texture.
+        let materials: Vec<MeshMaterial> = mesh
+            .materials
+            .iter()
+            .map(|(slot, object)| {
+                let material_path = ue_asset::material::import_package_name(&package, *object);
+                let mut texture_path = None;
+                let mut query = material_path.clone();
+                for _ in 0..4 {
+                    let Some(pkg_name) = query.take() else { break };
+                    let Some(bytes) = c.read_package(&pkg_name) else { break };
+                    let Ok(mi_package) = ue_asset::zen::Package::parse(&bytes) else { break };
+                    let Some(mi_export) = mi_package.exports.iter().position(|e| {
+                        scripts.leaf(e.class) == Some("MaterialInstanceConstant")
+                    }) else {
+                        break;
+                    };
+                    let Ok(mi_bytes) = mi_package.export_data(&bytes, mi_export) else { break };
+                    let mi_ctx = ue_asset::unversioned::Ctx {
+                        usmap,
+                        names: &mi_package.names,
+                    };
+                    let Ok(info) =
+                        ue_asset::material::parse_material_instance(&mi_ctx, &mi_package, mi_bytes)
+                    else {
+                        break;
+                    };
+                    if let Some(base) = ue_asset::material::base_color(&info.textures) {
+                        texture_path = Some(base.package.clone());
+                        break;
+                    }
+                    query = info.parent;
+                }
+                let texture = texture_path.as_deref().and_then(|p| c.texture_by_package(p));
+                MeshMaterial {
+                    slot: slot.clone(),
+                    texture,
+                    texture_path,
+                    material_path,
+                }
+            })
+            .collect();
+
+        // The best LOD that actually carries buffers. Skeletal Nanite meshes
+        // ship a single placeholder triangle, which is worth naming.
+        let (lod_index, lod) = mesh
+            .lods
+            .iter()
+            .enumerate()
+            .find(|(_, l)| !l.indices.is_empty())
+            .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+        if lod.indices.len() <= 3 {
+            return Err(format!(
+                "{} is Nanite-only: its classic buffers hold a placeholder triangle, and the \
+                 reader does not decode Nanite cluster pages",
+                entry.short
+            ));
+        }
+
+        let header = MeshHeader {
+            path: entry.short.clone(),
+            verts: (lod.positions.len() / 3) as u32,
+            tris: (lod.indices.len() / 3) as u32,
+            sections: lod
+                .sections
+                .iter()
+                .map(|s| MeshSection {
+                    first_index: s.first_index,
+                    num_triangles: s.num_triangles,
+                    material: s.material_index,
+                })
+                .collect(),
+            materials,
+            lod: lod_index,
+            skeletal,
+        };
+        let json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
+        let mut out = Vec::with_capacity(
+            12 + json.len()
+                + lod.positions.len() * 4
+                + lod.normals.len() * 4
+                + lod.uvs.len() * 4
+                + lod.indices.len() * 4,
+        );
+        out.extend_from_slice(b"UMSH");
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        while out.len() % 4 != 0 {
+            out.push(0);
+        }
+        for v in lod
+            .positions
+            .iter()
+            .chain(&lod.normals)
+            .chain(&lod.uvs)
+        {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in &lod.indices {
+            out.extend_from_slice(&i.to_le_bytes());
+        }
+        Ok(tauri::ipc::Response::new(out))
+    })
+}
+
+/// The level's collision world, as the binary payload `geometry::sbsp_world`
+/// packs. Binary because a level is millions of triangles: holdouts packs to
+/// ~50 MB, which JSON-over-IPC would triple and then parse.
+#[tauri::command]
+fn read_sbsp_world(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario_structure_bsp" {
+            return Err(format!("{} is not a structure bsp", entry.short));
+        }
+        let file = c.read_tag(index)?;
+        Ok(tauri::ipc::Response::new(geometry::sbsp_world(&file)?))
+    })
+}
+
+/// A scenario's placements with everything resolved for drawing: BSP catalog
+/// indices, and each palette entry chased through its object tag to the hlmt
+/// whose geometry `read_model_geometry` serves.
+#[derive(Serialize)]
+struct ScenarioWorldView {
+    layout: geometry::ScenarioLayout,
+    /// Catalog index per `layout.bsps` entry.
+    bsp_indices: Vec<Option<usize>>,
+    /// Catalog index of the hlmt per palette entry, per category.
+    palette_models: Vec<Vec<Option<usize>>>,
+}
+
+#[tauri::command]
+fn read_scenario_layout(
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<ScenarioWorldView, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario" {
+            return Err(format!("{} is not a scenario", entry.short));
+        }
+        let key = (entry.group.clone(), entry.short.clone());
+        let pending = pending_for(&state, &key)?;
+        let file = patched_bytes(c, index, &pending)?;
+        let layout = geometry::scenario_layout(&file)?;
+
+        let bsp_indices = layout
+            .bsps
+            .iter()
+            .map(|p| tag_by_ref(c, "scenario_structure_bsp", p))
+            .collect();
+        let palette_models = layout
+            .categories
+            .iter()
+            .map(|cat| {
+                cat.palette
+                    .iter()
+                    .map(|path| {
+                        let oi = tag_by_ref(c, cat.group, path)?;
+                        let object = c.read_tag(oi).ok()?;
+                        let hlmt = geometry::object_model_ref(&object)?;
+                        tag_by_ref(c, "model", &hlmt)
+                    })
+                    .collect()
+            })
+            .collect();
+        Ok(ScenarioWorldView {
+            layout,
+            bsp_indices,
+            palette_models,
+        })
+    })
+}
+
+/// Geometry for the model viewer: collision meshes plus the skeleton that
+/// poses them.
+///
+/// Accepts a `model` (hlmt), `collision_model`, or `skeleton_model` tag and
+/// assembles whichever halves it can reach: an hlmt names both explicitly; a
+/// bare half looks for its sibling at the same tag path.
+#[tauri::command]
+fn read_model_geometry(
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<geometry::ModelGeometry, String> {
+    with_catalog(&state, |c| {
+        // Each tag is read as the user currently sees it: with its own
+        // pending edits applied.
+        let read = |i: usize| -> Result<Vec<u8>, String> {
+            let e = c.entry(i).ok_or("tag index out of range")?;
+            let key = (e.group.clone(), e.short.clone());
+            let pending = pending_for(&state, &key)?;
+            patched_bytes(c, i, &pending)
+        };
+
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let short = entry.short.clone();
+        let (coll, skel) = match entry.group.as_str() {
+            "model" => {
+                let file = read(index)?;
+                let mut coll = None;
+                let mut skel = None;
+                for r in geometry::model_refs(&file)? {
+                    let found = tag_by_ref(c, r.group, &r.path);
+                    match r.group {
+                        "collision_model" => coll = found,
+                        _ => skel = found,
+                    }
+                }
+                (coll, skel)
+            }
+            "collision_model" => (Some(index), tag_by_ref(c, "skeleton_model", &short)),
+            "skeleton_model" => (tag_by_ref(c, "collision_model", &short), Some(index)),
+            other => return Err(format!("a {other} tag has no viewable geometry")),
+        };
+        if coll.is_none() && skel.is_none() {
+            return Err("no collision_model or skeleton_model reachable from this tag".into());
+        }
+
+        let mut geo = geometry::ModelGeometry::default();
+        if let Some(ci) = coll {
+            let file = read(ci)?;
+            geo.meshes = geometry::collision_meshes(&file)?;
+            geo.collision = c.entry(ci).map(|e| e.short.clone());
+        }
+        if let Some(si) = skel {
+            let file = read(si)?;
+            let (nodes, marker_groups) = geometry::skeleton(&file)?;
+            geo.nodes = nodes;
+            geo.marker_groups = marker_groups;
+            geo.skeleton = c.entry(si).map(|e| e.short.clone());
+        }
+        Ok(geo)
+    })
 }
 
 /// One package a tag imports, resolved to something openable when possible.
@@ -1992,6 +2326,10 @@ pub fn run() {
             search_tags,
             read_tag,
             read_tag_bytes,
+            read_model_geometry,
+            read_sbsp_world,
+            read_scenario_layout,
+            read_mesh,
             set_field,
             live_status,
             live_forget,

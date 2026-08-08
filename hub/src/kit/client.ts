@@ -16,12 +16,16 @@ import type {
   DevicePoll,
   DeviceStart,
   Media,
+  MediaOwner,
+  MediaStatus,
   ModDetail,
   ModList,
   ModListQuery,
+  QueuedMedia,
   RatingSummary,
   Release,
   ReleaseStatusDetail,
+  Report,
   ReportReason,
   ReportSubject,
   User,
@@ -32,7 +36,16 @@ export interface HubRequest {
   /** API path below the version prefix, e.g. `/mods/my-pack/ratings`. */
   path: string;
   query?: Record<string, string | number | undefined>;
+  /** JSON-serialized, except FormData, which goes through as multipart.
+   *  Custom transports that cannot carry FormData should reject it rather
+   *  than stringify it. */
   body?: unknown;
+  /**
+   * Bytes-sent progress, 0→1, for uploads big enough to be worth watching.
+   * Optional on both sides: a transport that cannot measure it simply never
+   * calls it, and the caller falls back to an indeterminate indicator.
+   */
+  onProgress?: (fraction: number) => void;
 }
 
 export interface HubResponse {
@@ -75,6 +88,11 @@ export interface HubClientOptions {
 
 const PREFIX = "/api/v1";
 
+/** Where one owner's gallery lives: `/mods/{slug}` or `/tools/{slug}`. */
+function galleryPath(owner: MediaOwner): string {
+  return `/${owner.type}s/${encodeURIComponent(owner.slug)}`;
+}
+
 function buildPath(req: HubRequest): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query ?? {})) {
@@ -84,17 +102,65 @@ function buildPath(req: HubRequest): string {
   return `${PREFIX}${req.path}${qs ? `?${qs}` : ""}`;
 }
 
+/**
+ * The one thing `fetch` still cannot do: report how much of the body has gone
+ * out. Used only when a caller asks for progress on a multipart body, so every
+ * other request stays on `fetch`.
+ */
+function xhrSend(
+  url: string,
+  req: HubRequest,
+  headers: Record<string, string>,
+  withCredentials: boolean,
+): Promise<HubResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(req.method, url, true);
+    xhr.withCredentials = withCredentials;
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.addEventListener("progress", (e) => {
+      // Chunked bodies report no total; leave those to the caller's fallback.
+      if (e.lengthComputable && e.total > 0) req.onProgress?.(e.loaded / e.total);
+    });
+    xhr.addEventListener("load", () => {
+      // The bytes are gone even if the server is still thinking about them.
+      req.onProgress?.(1);
+      let body: unknown = null;
+      try {
+        body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        body = null;
+      }
+      resolve({ status: xhr.status, body });
+    });
+    xhr.addEventListener("error", () =>
+      reject(new HubError(0, "network_error", "The upload could not reach the hub.")),
+    );
+    xhr.addEventListener("abort", () =>
+      reject(new HubError(0, "aborted", "The upload was cancelled.")),
+    );
+    xhr.send(req.body as XMLHttpRequestBodyInit);
+  });
+}
+
 function fetchTransport(options: HubClientOptions): HubTransport {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   return async (req) => {
+    // FormData sets its own multipart boundary header; JSON declares itself.
+    const isForm = typeof FormData !== "undefined" && req.body instanceof FormData;
     const headers: Record<string, string> = {};
-    if (req.body !== undefined) headers["Content-Type"] = "application/json";
+    if (req.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
 
-    const res = await doFetch(`${options.baseUrl ?? ""}${buildPath(req)}`, {
+    const url = `${options.baseUrl ?? ""}${buildPath(req)}`;
+    if (req.onProgress && isForm && typeof XMLHttpRequest !== "undefined") {
+      return xhrSend(url, req, headers, !options.token);
+    }
+
+    const res = await doFetch(url, {
       method: req.method,
       headers,
-      body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      body: req.body === undefined ? undefined : isForm ? (req.body as FormData) : JSON.stringify(req.body),
       // Cookie sessions are the website's whole auth story.
       credentials: options.token ? "omit" : "include",
     });
@@ -161,12 +227,49 @@ export class HubClient {
     return this.absolute(`${PREFIX}/releases/${encodeURIComponent(id)}/download`);
   }
 
-  async listMedia(slug: string): Promise<Media[]> {
+  async listMedia(owner: MediaOwner): Promise<Media[]> {
     const r = await this.call<{ media: Media[] }>({
       method: "GET",
-      path: `/mods/${encodeURIComponent(slug)}/media`,
+      path: `${galleryPath(owner)}/media`,
     });
     return r.media;
+  }
+
+  /**
+   * Submit a screenshot or video to a gallery. On a mod it lands as
+   * `pending` (check `status` on the result) unless the caller is a
+   * moderator; on a tool only moderators may submit at all.
+   * Multipart under the hood — a custom transport must support FormData.
+   * `onProgress` reports bytes sent, 0→1, where the transport can measure it.
+   */
+  uploadMedia(
+    owner: MediaOwner,
+    file: Blob,
+    altText: string,
+    onProgress?: (fraction: number) => void,
+  ): Promise<Media> {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("alt_text", altText);
+    return this.call({
+      method: "POST",
+      path: `${galleryPath(owner)}/media`,
+      body: form,
+      onProgress,
+    });
+  }
+
+  deleteMedia(id: string): Promise<{ ok: boolean }> {
+    return this.call({ method: "DELETE", path: `/media/${encodeURIComponent(id)}` });
+  }
+
+  /** View beacons; the server folds repeats per viewer per hour. */
+  recordMediaView(id: string): Promise<{ views: number }> {
+    return this.call({ method: "POST", path: `/media/${encodeURIComponent(id)}/view` });
+  }
+
+  recordModView(slug: string): Promise<{ views: number }> {
+    return this.call({ method: "POST", path: `/mods/${encodeURIComponent(slug)}/view` });
   }
 
   // ── Ratings & comments ──────────────────────────────────────────────
@@ -227,6 +330,42 @@ export class HubClient {
       method: "POST",
       path: "/reports",
       body: { subject_type: subjectType, subject_id: subjectId, reason, detail: detail || undefined },
+    });
+  }
+
+  /** The gallery review queue. Moderators only. */
+  async listModerationMedia(status: MediaStatus = "pending"): Promise<QueuedMedia[]> {
+    const r = await this.call<{ media: QueuedMedia[] }>({
+      method: "GET",
+      path: "/moderation/media",
+      query: { status },
+    });
+    return r.media;
+  }
+
+  decideMedia(id: string, action: "approve" | "reject"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/media/${encodeURIComponent(id)}`,
+      body: { action },
+    });
+  }
+
+  /** The report queue. Moderators only. */
+  async listReports(status: Report["status"] = "open"): Promise<Report[]> {
+    const r = await this.call<{ reports: Report[] }>({
+      method: "GET",
+      path: "/moderation/reports",
+      query: { status },
+    });
+    return r.reports;
+  }
+
+  decideReport(id: string, action: "resolve" | "dismiss"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/reports/${encodeURIComponent(id)}`,
+      body: { action },
     });
   }
 

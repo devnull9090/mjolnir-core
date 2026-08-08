@@ -15,12 +15,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // What relative URLs in any page's metadata resolve against — without it
+  // an og:image of "/api/v1/media/…" is emitted pointing at localhost.
+  metadataBase: new URL("https://mjolnircore.com"),
   title: "MJOLNIR Core — Halo Campaign Evolved Modding Platform",
   description:
-    "The open-source modding framework and community platform for Halo Campaign Evolved. Download mods, share your creations, and join the community.",
+    "The open-source modding framework for Halo Campaign Evolved: a one-click mod launcher, a Guerilla-style tag editor, and the mjolnir command line — with a hub for signed mods.",
   openGraph: {
     title: "MJOLNIR Core",
-    description: "Modding platform for Halo Campaign Evolved",
+    description:
+      "The open-source modding framework and community platform for Halo Campaign Evolved.",
     url: "https://mjolnircore.com",
     siteName: "MJOLNIR Core",
     type: "website",

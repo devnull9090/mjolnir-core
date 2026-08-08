@@ -1,0 +1,354 @@
+name: Experimental PR Build
+
+# Puts a downloadable build of a pull request in testers' hands without
+# shipping anything to users.
+#
+# A maintainer comments `/experimental` on the PR. This packages that PR's mods
+# and attaches them to a pre-release tagged `experimental-pr<N>-<shortsha>`, then
+# replies with the link. Every build gets its own tag and the PR's releases are
+# removed when it closes.
+#
+# The tag carries the commit rather than moving, because this repository has
+# immutable releases enabled: once a tag has been used by a published release,
+# that name can never be reused — even after the release and its tag are both
+# deleted. A per-PR moving tag was tried and fails with "tag_name was used by an
+# immutable release" on the second build.
+#
+# Three properties keep this safe to run on pull requests from forks:
+#
+#  1. **No repository secrets are exposed.** Only the job's own GITHUB_TOKEN is
+#     used. In particular MODS_SIGNING_KEY is never in scope, so experimental
+#     artifacts are unsigned and the release-signing key cannot leak through a
+#     malicious pull request.
+#  2. **Nothing from the pull request is executed.** Script mods are Lua text;
+#     packaging them is `zip`. No build script, no npm install, and none of this
+#     repository's own `scripts/` are run from the checked-out branch. luacheck
+#     parses Lua, it does not run it.
+#  3. **`mods/latest/` is never written.** That path is what the launcher
+#     auto-updates from (`apps/launcher/src-tauri/src/hub.rs`), and nothing here
+#     touches R2 at all.
+#
+# The consequence of (1) is deliberate: the launcher pins one public key and
+# installs nothing that fails verification, so an unsigned experimental build is
+# a manual install. That is the correct trade — a tester copying folders is a
+# smaller problem than a signing key exposed to unreviewed code.
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to build"
+        required: true
+        type: string
+  pull_request:
+    types: [closed]
+
+concurrency:
+  # One build per PR; a newer comment supersedes an in-flight one.
+  group: experimental-${{ github.event.issue.number || inputs.pr || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Who asked? ────────────────────────────────────────────────────────────
+  # `issue_comment` fires for issues too, and for every commenter. This job is
+  # the gate: it resolves the PR, checks the commenter can actually write to the
+  # repository, and refuses otherwise. Author association is not used — it
+  # reports the relationship, not the permission.
+  authorize:
+    # Deliberately a trivial condition. Two attempts at expressing "this is a
+    # PR comment starting with /experimental" as a job-level `if` both silently
+    # evaluated false and skipped the whole run, with no way to see why. The
+    # decision now happens in the step below, in shell, where it can be logged.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write          # add a reaction to the triggering comment
+      pull-requests: read
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+      pr: ${{ steps.check.outputs.pr }}
+      sha: ${{ steps.check.outputs.sha }}
+      short: ${{ steps.check.outputs.short }}
+    steps:
+      - name: Resolve the pull request and the caller's permission
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.issue.number || inputs.pr }}
+          ACTOR: ${{ github.event.comment.user.login || github.actor }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          # Empty when the comment is on an issue rather than a pull request.
+          PR_URL: ${{ github.event.issue.pull_request.url }}
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          echo "go=false" >> "$GITHUB_OUTPUT"
+
+          # Log the inputs before deciding on them. The previous two versions of
+          # this gate failed invisibly; this one says what it saw.
+          echo "event=$EVENT pr=${PR:-} actor=$ACTOR"
+          echo "pull_request url: ${PR_URL:-<none, so this was an issue>}"
+
+          if [ "$EVENT" = "issue_comment" ]; then
+            if [ -z "${PR_URL:-}" ]; then
+              echo "Comment was on an issue, not a pull request. Nothing to build."
+              exit 0
+            fi
+            case "${BODY:-}" in
+              /experimental*) echo "Command recognised." ;;
+              *) echo "Not an /experimental command. Ignoring."; exit 0 ;;
+            esac
+          fi
+
+          # workflow_dispatch already requires write access to the repository,
+          # so the explicit check matters for the comment path. Doing it for
+          # both keeps one code path and costs one API call.
+          level=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
+          echo "$ACTOR has permission: $level"
+          case "$level" in
+            admin|write) ;;
+            *)
+              echo "::error::$ACTOR does not have write access; refusing to build."
+              if [ -n "${COMMENT_ID:-}" ]; then
+                gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+                  -f content=confused --silent || true
+              fi
+              exit 1
+              ;;
+          esac
+
+          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "::error::PR #$PR is $state; refusing to build."
+            exit 1
+          fi
+
+          # refs/pull/<n>/head exists in this repository even when the PR comes
+          # from a fork, so the checkout below needs no fork remote.
+          sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)
+          {
+            echo "pr=$PR"
+            echo "sha=$sha"
+            echo "short=${sha:0:7}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -n "${COMMENT_ID:-}" ]; then
+            gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+              -f content=eyes --silent || true
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          echo "Building PR #$PR at $sha"
+
+  # ── Package and publish ───────────────────────────────────────────────────
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the pre-release and its tag
+      pull-requests: write   # reply on the PR
+    steps:
+      - name: Check out the pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ needs.authorize.outputs.pr }}/head
+          # No submodules, no persisted credentials: this is untrusted content.
+          persist-credentials: false
+
+      - name: Report exactly what was built
+        id: built
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Built from $sha"
+          if [ "$sha" != "${{ needs.authorize.outputs.sha }}" ]; then
+            echo "::warning::PR moved between command and checkout: built $sha, command saw ${{ needs.authorize.outputs.sha }}"
+          fi
+
+      # Parses Lua, does not execute it. A build that would not lint is not
+      # worth putting in front of testers.
+      - name: Lint Lua mods
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq luarocks > /dev/null
+          sudo luarocks install luacheck > /dev/null
+          luacheck mods/ signatures/ \
+            --no-unused-args \
+            --no-max-line-length \
+            --std luajit+lua52 \
+            --globals RegisterHook RegisterKeyBindAsync RegisterKeyBind \
+                      RegisterConsoleCommandHandler IsKeyBindRegistered \
+                      ExecuteInGameThread ExecuteInGameThreadWithDelay \
+                      FindFirstOf FindAllOf StaticFindObject StaticConstructObject \
+                      FName FText Key ModifierKey NotifyOnNewObject \
+                      LoopAsync ExecuteAsync CreateInvalidationContext \
+                      LoadAsset ForEachUObject IterateGameDirectories \
+                      UEHelpers \
+            --ignore 111 112 113 114 131 212
+
+      - name: Package the mods
+        id: package
+        env:
+          PR: ${{ needs.authorize.outputs.pr }}
+          SHORT: ${{ steps.built.outputs.short }}
+        run: |
+          set -euo pipefail
+          VERSION="pr${PR}-${SHORT}"
+          mkdir -p dist
+
+          for dir in mods/*/; do
+            name=$(basename "$dir")
+            test -f "$dir/mod.json" || { echo "::error::mods/$name/mod.json is missing"; exit 1; }
+            (cd mods && zip -qr "../dist/${name}-${VERSION}.zip" "$name")
+            jq -n \
+              --arg id "$name" \
+              --arg file "${name}-${VERSION}.zip" \
+              --arg sha "$(sha256sum "dist/${name}-${VERSION}.zip" | cut -d' ' -f1)" \
+              --slurpfile meta "$dir/mod.json" \
+              '{id: $id, file: $file, sha256: $sha, version: $meta[0].version,
+                summary: $meta[0].summary, category: $meta[0].category}' \
+              > "dist/.entry-$name.json"
+          done
+
+          # One archive a tester can unzip straight into ue4ss/, carrying the
+          # signature overrides and reference settings the mods expect.
+          zip -qr "dist/mjolnir-experimental-${VERSION}.zip" mods signatures config
+
+          # Shaped like the real manifest so it is readable, but explicitly
+          # marked unsigned so nothing mistakes it for a release manifest.
+          jq -s --arg v "$VERSION" --arg pr "$PR" --arg sha "${{ steps.built.outputs.sha }}" \
+            '{schema_version: 1, set_version: $v, experimental: true, signed: false,
+              pull_request: ($pr|tonumber), commit: $sha, mods: .}' \
+            dist/.entry-*.json > dist/manifest.json
+          rm dist/.entry-*.json
+
+          (cd dist && sha256sum ./*.zip manifest.json > checksums.txt)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          cat dist/manifest.json
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+          VERSION: ${{ steps.package.outputs.version }}
+          SHA: ${{ steps.built.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG="experimental-pr${PR}-${VERSION##*-}"
+
+          # Deliberately no delete-then-recreate: immutable releases burn a tag
+          # name permanently, so reusing one fails even after the release is
+          # gone. Re-running on the same commit is a no-op instead.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$TAG already published for this commit; nothing to rebuild."
+            exit 0
+          fi
+
+          cat > notes.md <<'NOTES'
+          **Experimental build — not a release.** Built from an open pull request
+          for testing, and unsigned on purpose.
+
+          ### Install
+
+          1. Close the game.
+          2. Unzip `mjolnir-experimental-*.zip` over
+             `Meteorite/Binaries/Win64/ue4ss/`, so `mods/`, `signatures/` and
+             `config/` land beside the ones already there. **Back those up first**
+             — this overwrites them.
+          3. Add any new mod to `ue4ss/Mods/mods.txt` as `<ModName> : 1`.
+          4. Launch through Steam as usual.
+
+          To go back, restore your backup or reinstall the signed set from the
+          launcher. Each build has its own tag, so this link always points at
+          the exact commit named below.
+
+          ### Why it is unsigned
+
+          The launcher pins one public key and installs nothing that fails
+          verification, so this cannot be installed through it. That is
+          deliberate: the release-signing key is never given to a build of
+          unreviewed pull-request code. Manual install is the trade.
+
+          This build is **not** on the auto-update path and no existing install
+          changes until it is copied in by hand.
+          NOTES
+
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "Pull request: #${PR}"
+            echo "Commit: \`${SHA}\`"
+            echo "Version: \`${VERSION}\`"
+          } >> notes.md
+
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --target "$SHA" \
+            --title "Experimental — PR #${PR} (${VERSION})" \
+            --notes-file notes.md \
+            --prerelease \
+            dist/*.zip dist/manifest.json dist/checksums.txt
+
+          gh release view "$TAG" --repo "$REPO" --json url --jq .url
+
+      - name: Reply on the pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+          VERSION: ${{ steps.package.outputs.version }}
+          SHA: ${{ steps.built.outputs.sha }}
+          OUTCOME: ${{ job.status }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TAG="experimental-pr${PR}-${VERSION##*-}"
+          if [ "$OUTCOME" = "success" ]; then
+            body=$(printf '%s\n' \
+              "🧪 **Experimental build ready** — \`${VERSION}\`" \
+              "" \
+              "**[Download](${GITHUB_SERVER_URL}/${REPO}/releases/tag/${TAG})** · commit \`${SHA:0:7}\`" \
+              "" \
+              "Unzip \`mjolnir-experimental-*.zip\` over \`ue4ss/\`, back up what it replaces, and add any new mod to \`mods.txt\`." \
+              "Unsigned and manual-install by design — it is not on the auto-update path, and nobody's install changes until they copy it in." \
+              "" \
+              "Each build gets its own tag; this PR's builds are removed when it closes.")
+          else
+            body=$(printf '%s\n' \
+              "❌ **Experimental build failed** for \`${SHA:0:7}\`." \
+              "" \
+              "[Run log](${RUN})")
+          fi
+          gh pr comment "$PR" --repo "$REPO" --body "$body"
+
+  # ── Tidy up ───────────────────────────────────────────────────────────────
+  # A pre-release per open PR is useful; one per PR ever opened is noise.
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Remove this PR's experimental release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # One tag per build, so a PR can have several. Delete whatever it has.
+          found=0
+          for tag in $(gh api "repos/$REPO/releases" --paginate                          --jq '.[].tag_name' | grep -E "^experimental-pr${PR}(-|$)" || true); do
+            gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag && echo "Deleted $tag"
+            found=$((found + 1))
+          done
+          [ "$found" -gt 0 ] || echo "No experimental releases for PR #$PR"

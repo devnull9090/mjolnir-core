@@ -1,36 +1,31 @@
 "use client";
 
 /**
- * Owner tools for one mod: drag-and-drop screenshots (alt text required
- * before anything uploads) and the release pipeline — create version,
- * drop the .mjolnir archive, scan, publish. Scan findings render inline
- * so a rejection explains itself.
+ * Owner tools for one mod: the gallery, and the release pipeline — create
+ * version, drop the .mjolnir archive, scan, publish. Scan findings render
+ * inline so a rejection explains itself.
+ *
+ * The screenshot half is `<MediaUploader>` from the kit, the same component
+ * the public mod page mounts, so drag-and-drop, previews and the upload queue
+ * behave identically on both — an owner adding a screenshot here and a player
+ * adding one there are doing the same thing.
  */
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ImagePlus,
-  Loader2,
-  PackagePlus,
-  Trash2,
-  UploadCloud,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, PackagePlus, Trash2, UploadCloud } from "lucide-react";
 
+import type { FileRules, Media } from "@mjolnir/hub-kit";
 import { Navbar } from "../../../components/Navbar";
 import { Footer } from "../../../components/Footer";
+import { FileDropzone, MediaUploader, useHub } from "../../../components/HubKit";
+
+/** `.mjolnir` is a zip; some browsers report it as one, most as nothing. */
+const ARCHIVE_RULES: FileRules = { accept: ".mjolnir,.zip,application/zip" };
 
 interface Mod {
   id: string;
   slug: string;
   name: string;
-}
-
-interface Media {
-  id: string;
-  url: string;
-  alt_text: string;
 }
 
 interface Release {
@@ -45,21 +40,21 @@ interface Release {
 
 export default function ManagePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
+  const { client } = useHub();
   const [mod, setMod] = useState<Mod | null | undefined>(undefined);
   const [media, setMedia] = useState<Media[]>([]);
   const [releases, setReleases] = useState<Release[]>([]);
-  const [pendingShots, setPendingShots] = useState<{ file: File; alt: string }[]>([]);
   const [version, setVersion] = useState("1.0.0");
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const dropRef = useRef<HTMLDivElement>(null);
 
   const loadMedia = useCallback(
     () =>
-      fetch(`/api/v1/mods/${slug}/media`)
-        .then((r) => (r.ok ? r.json() : { media: [] }))
-        .then((d) => setMedia(d.media)),
-    [slug],
+      client
+        .listMedia({ type: "mod", slug })
+        .then(setMedia)
+        .catch(() => {}),
+    [client, slug],
   );
 
   const loadReleases = useCallback(async () => {
@@ -90,30 +85,13 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
 
   // ── Screenshots ─────────────────────────────────────────────────────
 
-  const stageFiles = (files: FileList | File[]) => {
-    const imgs = [...files].filter((f) => /image\/(png|jpeg|webp)/.test(f.type));
-    setPendingShots((p) => [...p, ...imgs.map((file) => ({ file, alt: "" }))]);
-  };
-
-  const uploadShot = async (i: number) => {
-    const shot = pendingShots[i];
-    if (!shot.alt.trim()) return;
-    const form = new FormData();
-    form.set("file", shot.file);
-    form.set("alt_text", shot.alt.trim());
-    const res = await fetch(`/api/v1/mods/${slug}/media`, { method: "POST", body: form });
-    if (res.ok) {
-      setPendingShots((p) => p.filter((_, j) => j !== i));
-      loadMedia();
-    } else {
-      const b = await res.json().catch(() => ({}));
-      setBanner(b.message ?? "Upload failed");
-    }
-  };
-
   const deleteShot = async (id: string) => {
-    await fetch(`/api/v1/media/${id}`, { method: "DELETE" });
-    loadMedia();
+    try {
+      await client.deleteMedia(id);
+      void loadMedia();
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e));
+    }
   };
 
   // ── Releases ────────────────────────────────────────────────────────
@@ -197,93 +175,57 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
           </div>
         )}
 
-        {/* ── Screenshots ── */}
+        {/* ── Gallery ── */}
         <section className="mb-12">
-          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Screenshots</h2>
+          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Gallery</h2>
 
-          <div
-            ref={dropRef}
-            onDragOver={(e) => {
-              e.preventDefault();
-              dropRef.current?.classList.add("border-gold/60");
-            }}
-            onDragLeave={() => dropRef.current?.classList.remove("border-gold/60")}
-            onDrop={(e) => {
-              e.preventDefault();
-              dropRef.current?.classList.remove("border-gold/60");
-              stageFiles(e.dataTransfer.files);
-            }}
-            className="rounded-xl border-2 border-dashed border-border p-8 text-center transition-colors"
-          >
-            <ImagePlus className="w-8 h-8 text-text-dim mx-auto mb-2" />
-            <p className="text-sm text-text-muted">
-              Drag screenshots here, or{" "}
-              <label className="text-gold hover:underline cursor-pointer">
-                browse
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => e.target.files && stageFiles(e.target.files)}
-                />
-              </label>
-            </p>
-            <p className="text-[11px] text-text-dim mt-1">png / jpeg / webp, ≤ 8 MiB</p>
-          </div>
-
-          {/* Staged, awaiting alt text */}
-          {pendingShots.map((s, i) => (
-            <div key={i} className="mt-3 flex items-center gap-3 rounded-lg border border-border p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={URL.createObjectURL(s.file)}
-                alt=""
-                className="w-16 h-10 object-cover rounded"
-              />
-              <input
-                value={s.alt}
-                onChange={(e) =>
-                  setPendingShots((p) => p.map((x, j) => (j === i ? { ...x, alt: e.target.value } : x)))
-                }
-                placeholder="Describe this image (required)"
-                className="flex-1 px-3 py-1.5 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-text-dim focus:border-gold/60 focus:outline-none"
-              />
-              <button
-                onClick={() => uploadShot(i)}
-                disabled={!s.alt.trim()}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gold text-background disabled:opacity-40"
-              >
-                Upload
-              </button>
-              <button
-                onClick={() => setPendingShots((p) => p.filter((_, j) => j !== i))}
-                className="text-text-dim hover:text-red-400"
-                aria-label="Discard"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+          <MediaUploader
+            owner={{ type: "mod", slug }}
+            onUploaded={(m) => setMedia((prev) => [...prev, m])}
+          />
+          <p className="text-[11px] text-text-dim mt-2">
+            Submissions are published once a moderator approves them.
+          </p>
 
           {/* Uploaded */}
           {media.length > 0 && (
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
               {media.map((m) => (
                 <figure key={m.id} className="relative group">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={m.url}
-                    alt={m.alt_text}
-                    className="rounded-lg border border-border aspect-video object-cover w-full"
-                  />
+                  {m.kind === "video" ? (
+                    <video
+                      src={m.url}
+                      preload="metadata"
+                      muted
+                      className="rounded-lg border border-border aspect-video object-cover w-full"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.url}
+                      alt={m.alt_text}
+                      className="rounded-lg border border-border aspect-video object-cover w-full"
+                    />
+                  )}
+                  {m.status !== "approved" && (
+                    <span
+                      className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        m.status === "pending"
+                          ? "bg-yellow-500/15 text-yellow-400"
+                          : "bg-red-500/15 text-red-400"
+                      }`}
+                    >
+                      {m.status === "pending" ? "awaiting review" : "rejected"}
+                    </span>
+                  )}
                   <figcaption className="text-[11px] text-text-dim mt-1 truncate" title={m.alt_text}>
                     {m.alt_text}
                   </figcaption>
+                  {/* Kept visible on touch, where there is no hover to reveal it. */}
                   <button
                     onClick={() => deleteShot(m.id)}
                     aria-label={`Delete ${m.alt_text}`}
-                    className="absolute top-1.5 right-1.5 p-1 rounded bg-background/80 text-text-dim hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1.5 right-1.5 p-2 sm:p-1 rounded bg-background/80 text-text-dim hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 transition-opacity"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -324,16 +266,24 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
                 </div>
 
                 {(r.status === "pending" || r.status === "rejected") && (
-                  <label className="mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-text-muted cursor-pointer hover:border-gold/50 transition-colors">
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-                    {r.status === "rejected" ? "Upload a fixed .mjolnir archive" : "Drop or choose the .mjolnir archive"}
-                    <input
-                      type="file"
-                      accept=".mjolnir,.zip"
-                      className="hidden"
-                      onChange={(e) => e.target.files?.[0] && uploadArchive(r.id, e.target.files[0])}
-                    />
-                  </label>
+                  <FileDropzone
+                    className="mt-2"
+                    rules={ARCHIVE_RULES}
+                    multiple={false}
+                    variant="inline"
+                    busy={busy}
+                    onFiles={(files, problems) => {
+                      if (problems.length > 0) setBanner(problems.join(" "));
+                      if (files[0]) void uploadArchive(r.id, files[0]);
+                    }}
+                    icon={<UploadCloud className="w-4 h-4 shrink-0 text-text-dim" />}
+                    ariaLabel={`Upload the .mjolnir archive for v${r.version}`}
+                    label={
+                      r.status === "rejected"
+                        ? "Drop a fixed .mjolnir archive here, or browse"
+                        : "Drop the .mjolnir archive here, or browse"
+                    }
+                  />
                 )}
 
                 {r.status === "published" && (
