@@ -13,6 +13,7 @@ import { SoundViewer } from "./components/SoundViewer";
 import { ScriptViewer } from "./components/ScriptViewer";
 import { ScenarioViewer } from "./components/ScenarioViewer";
 import { ModelViewer } from "./components/ModelViewer";
+import { MeshViewer } from "./components/MeshViewer";
 import { TabBar } from "./components/TabBar";
 import { MODEL_GROUPS } from "./stores/editor-store";
 
@@ -76,6 +77,8 @@ function Editor() {
           <TextureViewer />
         ) : active.kind === "sound" ? (
           <SoundViewer />
+        ) : active.kind === "mesh" ? (
+          <MeshViewer />
         ) : viewMode === "script" && scriptable ? (
           <ScriptViewer />
         ) : viewMode === "world" && scriptable ? (

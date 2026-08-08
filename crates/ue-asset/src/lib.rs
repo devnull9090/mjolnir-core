@@ -5,6 +5,7 @@
 //! game actually renders with. See `docs/tag_data_pipeline.md` for how the
 //! two halves relate.
 
+pub mod material;
 pub mod mesh;
 pub mod unversioned;
 pub mod usmap;

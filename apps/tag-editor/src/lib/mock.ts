@@ -24,6 +24,7 @@ import type {
 
 /** A slice of the virtual filesystem, shaped like the real one. */
 const mockFiles: Omit<DirEntry, "name" | "children">[] = [
+  { path: "meshes/Env/Sample/SM_Sample", kind: "mesh", index: 0, size: 162_856 },
   { path: "tags/levels/b30/b30.scenario", kind: "tag", index: 0, size: 481_204 },
   { path: "tags/levels/a30/a30.scenario", kind: "tag", index: 1, size: 371_020 },
   { path: "tags/objects/characters/elite/elite.biped", kind: "tag", index: 0, size: 49_702 },
@@ -330,6 +331,51 @@ export const mockApi = {
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
   readTag: async (index: number) => withEdits(index),
   readTagBytes: async () => [] as number[],
+  readMesh: async () => {
+    // A textured-slot cube so the mesh viewer runs in a browser.
+    const header = new TextEncoder().encode(
+      JSON.stringify({
+        path: "Env/Sample/SM_Sample",
+        verts: 8,
+        tris: 12,
+        sections: [{ first_index: 0, num_triangles: 12, material: 0 }],
+        materials: [
+          { slot: "Base", texture: 0, texture_path: "T_Sample_D", material_path: "MI_Sample" },
+        ],
+        lod: 1,
+        skeletal: false,
+      }),
+    );
+    const pad = (4 - ((8 + header.length) % 4)) % 4;
+    const verts = 8;
+    const size = 8 + header.length + pad + verts * (12 + 12 + 8) + 12 * 3 * 4;
+    const buffer = new ArrayBuffer(size);
+    const view = new DataView(buffer);
+    new Uint8Array(buffer).set(header, 8);
+    view.setUint32(0, 0x48534d55, true);
+    view.setUint32(4, header.length, true);
+    let at = 8 + header.length + pad;
+    const f32 = (v: number) => {
+      view.setFloat32(at, v, true);
+      at += 4;
+    };
+    const corners = [
+      [-50, -50, -50], [50, -50, -50], [50, 50, -50], [-50, 50, -50],
+      [-50, -50, 50], [50, -50, 50], [50, 50, 50], [-50, 50, 50],
+    ];
+    for (const c of corners) c.forEach(f32);
+    for (let i = 0; i < corners.length; i++) [0, 0, 1].forEach(f32); // normals, close enough
+    for (let v = 0; v < verts; v++) [v % 2, Math.floor(v / 2) % 2].forEach(f32);
+    const tris = [
+      0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+      2, 3, 7, 2, 7, 6, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5,
+    ];
+    for (const t of tris) {
+      view.setUint32(at, t, true);
+      at += 4;
+    }
+    return buffer;
+  },
   readScenarioLayout: async () => ({
     layout: {
       bsps: ["levels\\halo1\\solo\\b30\\b30"],

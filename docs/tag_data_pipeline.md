@@ -216,6 +216,16 @@ but no vertex or index buffer exists anywhere in the Blam data. Mesh data ships 
 Reproduce with `cargo run --example probe_geometry -- scenario_structure_bsp holdouts` and
 `--example probe_meshes -- elite` in `apps/tag-editor/src-tauri`.
 
+**Verified 2026-08-08 — the game uses Nanite.** Static-mesh `.ubulk` payloads open with the
+`NFM` fixup magic: they are Nanite cluster pages, and the "cooked out" LOD0 slots in
+`FStaticMeshRenderData` are the LODs Nanite replaced. What remains readable classically is the
+inline Nanite **fallback** mesh (correct shape and materials, reduced density) — that is what the
+tag editor's mesh viewer shows for `SM_` assets. Skeletal meshes do not use Nanite and keep full
+detail. The `ue-asset` crate reads the whole chain — usmap reflection schemas (dumped from the
+running game via UE4SS `DumpUSMAP`, `defs/ue/Meteorite-2607-CU3.usmap`), zen package structure,
+unversioned properties, StaticMesh buffers, and MaterialInstance texture parameters — a 1,200
+package soak parses 99.25%.
+
 **Verified 2026-08-07 — scenario placements drive the runtime spawn.** An override built with
 `mjolnir pack --group scenario --tag a30 --set "weapons[1].object data.position=(8.0, 47.0, 65.5)"`
 moved the shipped assault-rifle placement (shipped `(4.671514, 50.428234, 63.94416)`). On a fresh

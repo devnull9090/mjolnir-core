@@ -697,6 +697,179 @@ fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
         .position(|t| t.group == group && normalize(&t.short) == want)
 }
 
+/// The reflection schema for this game build, dumped by UE4SS and shipped
+/// with the editor. Cooked packages serialize properties unversioned, so
+/// nothing Unreal-side can be read without it. A game update changes the
+/// schema; the errors that follow are loud rather than silent.
+static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
+
+fn usmap() -> Result<&'static ue_asset::Usmap, String> {
+    USMAP
+        .get_or_init(|| {
+            static BYTES: &[u8] = include_bytes!("../../../../defs/ue/Meteorite-2607-CU3.usmap");
+            ue_asset::Usmap::parse(BYTES).ok()
+        })
+        .as_ref()
+        .ok_or_else(|| "the bundled usmap does not parse".to_string())
+}
+
+/// One section of a mesh, with its material resolved as far as it goes.
+#[derive(Serialize)]
+struct MeshSection {
+    first_index: u32,
+    num_triangles: u32,
+    material: i32,
+}
+
+#[derive(Serialize)]
+struct MeshMaterial {
+    slot: String,
+    /// Texture catalog index of the base colour, when the chain resolved.
+    texture: Option<usize>,
+    texture_path: Option<String>,
+    material_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MeshHeader {
+    path: String,
+    verts: u32,
+    tris: u32,
+    sections: Vec<MeshSection>,
+    materials: Vec<MeshMaterial>,
+    /// Which LOD the buffers come from; higher means further from full
+    /// detail (LOD0 slots replaced by Nanite carry no classic buffers).
+    lod: usize,
+    skeletal: bool,
+}
+
+/// A cooked mesh's renderable geometry, packed as `"UMSH"`, a u32 JSON
+/// length, the JSON header, then positions, normals, uvs and indices.
+#[tauri::command]
+fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    with_catalog(&state, |c| {
+        let entry = c.meshes.get(index).ok_or("mesh index out of range")?;
+        if entry.skeletal {
+            return Err(format!(
+                "{} is a skeletal mesh; the reader only handles static meshes so far",
+                entry.short
+            ));
+        }
+        let usmap = usmap()?;
+        let data = c.read_mesh_uasset(index)?;
+        let ubulk = c.read_mesh_ubulk(index)?;
+        let package = ue_asset::zen::Package::parse(&data).map_err(|e| e.to_string())?;
+        let scripts = c.script_objects().ok_or("no script-object table")?;
+        let export = package
+            .exports
+            .iter()
+            .position(|e| scripts.leaf(e.class) == Some("StaticMesh"))
+            .ok_or_else(|| format!("{} has no StaticMesh export", entry.short))?;
+        let bytes = package.export_data(&data, export).map_err(|e| e.to_string())?;
+        let ctx = ue_asset::unversioned::Ctx {
+            usmap,
+            names: &package.names,
+        };
+        let mesh = ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+            .map_err(|e| e.to_string())?;
+
+        // Chase each material slot to a base-colour texture.
+        let materials: Vec<MeshMaterial> = mesh
+            .materials
+            .iter()
+            .map(|(slot, object)| {
+                let material_path = ue_asset::material::import_package_name(&package, *object);
+                let mut texture_path = None;
+                let mut query = material_path.clone();
+                for _ in 0..4 {
+                    let Some(pkg_name) = query.take() else { break };
+                    let Some(bytes) = c.read_package(&pkg_name) else { break };
+                    let Ok(mi_package) = ue_asset::zen::Package::parse(&bytes) else { break };
+                    let Some(mi_export) = mi_package.exports.iter().position(|e| {
+                        scripts.leaf(e.class) == Some("MaterialInstanceConstant")
+                    }) else {
+                        break;
+                    };
+                    let Ok(mi_bytes) = mi_package.export_data(&bytes, mi_export) else { break };
+                    let mi_ctx = ue_asset::unversioned::Ctx {
+                        usmap,
+                        names: &mi_package.names,
+                    };
+                    let Ok(info) =
+                        ue_asset::material::parse_material_instance(&mi_ctx, &mi_package, mi_bytes)
+                    else {
+                        break;
+                    };
+                    if let Some(base) = ue_asset::material::base_color(&info.textures) {
+                        texture_path = Some(base.package.clone());
+                        break;
+                    }
+                    query = info.parent;
+                }
+                let texture = texture_path.as_deref().and_then(|p| c.texture_by_package(p));
+                MeshMaterial {
+                    slot: slot.clone(),
+                    texture,
+                    texture_path,
+                    material_path,
+                }
+            })
+            .collect();
+
+        // The best LOD that actually carries buffers.
+        let (lod_index, lod) = mesh
+            .lods
+            .iter()
+            .enumerate()
+            .find(|(_, l)| !l.indices.is_empty())
+            .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+
+        let header = MeshHeader {
+            path: entry.short.clone(),
+            verts: (lod.positions.len() / 3) as u32,
+            tris: (lod.indices.len() / 3) as u32,
+            sections: lod
+                .sections
+                .iter()
+                .map(|s| MeshSection {
+                    first_index: s.first_index,
+                    num_triangles: s.num_triangles,
+                    material: s.material_index,
+                })
+                .collect(),
+            materials,
+            lod: lod_index,
+            skeletal: false,
+        };
+        let json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
+        let mut out = Vec::with_capacity(
+            12 + json.len()
+                + lod.positions.len() * 4
+                + lod.normals.len() * 4
+                + lod.uvs.len() * 4
+                + lod.indices.len() * 4,
+        );
+        out.extend_from_slice(b"UMSH");
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        while out.len() % 4 != 0 {
+            out.push(0);
+        }
+        for v in lod
+            .positions
+            .iter()
+            .chain(&lod.normals)
+            .chain(&lod.uvs)
+        {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in &lod.indices {
+            out.extend_from_slice(&i.to_le_bytes());
+        }
+        Ok(tauri::ipc::Response::new(out))
+    })
+}
+
 /// The level's collision world, as the binary payload `geometry::sbsp_world`
 /// packs. Binary because a level is millions of triangles: holdouts packs to
 /// ~50 MB, which JSON-over-IPC would triple and then parse.
@@ -2143,6 +2316,7 @@ pub fn run() {
             read_model_geometry,
             read_sbsp_world,
             read_scenario_layout,
+            read_mesh,
             set_field,
             live_status,
             live_forget,

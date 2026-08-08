@@ -313,12 +313,40 @@ export type ScenarioWorldView = {
 export type DirEntry = {
   name: string;
   path: string;
-  kind: "dir" | "tag" | "texture" | "sound";
+  kind: "dir" | "tag" | "texture" | "sound" | "mesh";
   /** Catalog index, for files only. */
   index: number | null;
   size: number;
   /** Assets beneath a folder, at any depth. */
   children: number | null;
+};
+
+/** One section of a cooked mesh, indexing into its triangle list. */
+export type MeshSection = {
+  first_index: number;
+  num_triangles: number;
+  material: number;
+};
+
+export type MeshMaterial = {
+  slot: string;
+  /** Texture catalog index of the base colour, when the chain resolved. */
+  texture: number | null;
+  texture_path: string | null;
+  material_path: string | null;
+};
+
+/** The JSON header of a `read_mesh` payload. */
+export type MeshHeader = {
+  path: string;
+  verts: number;
+  tris: number;
+  sections: MeshSection[];
+  materials: MeshMaterial[];
+  /** Which LOD the buffers are; 0 is full detail, higher is the Nanite
+   *  fallback the cook kept. */
+  lod: number;
+  skeletal: boolean;
 };
 
 /** One package a tag imports, resolved to something openable when possible. */
@@ -481,6 +509,7 @@ const tauriApi = {
     invoke<ScenarioWorldView>("read_scenario_layout", { index }),
   readSbspWorld: (index: number) =>
     invoke<ArrayBuffer>("read_sbsp_world", { index }),
+  readMesh: (index: number) => invoke<ArrayBuffer>("read_mesh", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>

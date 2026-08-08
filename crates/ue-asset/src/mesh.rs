@@ -306,7 +306,7 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
 
 /// The buffer-availability metadata a streamed LOD keeps inline. Sizes only;
 /// consumed and discarded.
-fn read_streamed_metadata(w: &mut Walker<'_>) -> Result<(), Error> {
+fn read_streamed_metadata(_w: &mut Walker<'_>) -> Result<(), Error> {
     // Verified against this cook while parsing: see dump_mesh output.
     // Placeholder — refined empirically.
     Ok(())
