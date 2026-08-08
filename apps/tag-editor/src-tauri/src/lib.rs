@@ -684,12 +684,87 @@ fn count(nodes: &[NodeView]) -> usize {
 
 /// Find a tag by group and reference path. Reference paths come out of tag
 /// bodies backslash-separated and in authored case; catalog shorts are
-/// slash-separated container paths.
+/// slash-separated container paths. The cooker also inserts a `_Generated_`
+/// directory the authored paths never mention (a scenario references
+/// `levels\halo1\solo\a30\holdouts`, the container holds
+/// `Levels/Halo1/Solo/A30/_Generated_/holdouts`), so that segment is ignored
+/// on both sides.
 fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
-    let want = path.replace('\\', "/").to_ascii_lowercase();
+    let normalize = |p: &str| p.replace('\\', "/").to_ascii_lowercase().replace("/_generated_/", "/");
+    let want = normalize(path);
     c.tags
         .iter()
-        .position(|t| t.group == group && t.short.to_ascii_lowercase() == want)
+        .position(|t| t.group == group && normalize(&t.short) == want)
+}
+
+/// The level's collision world, as the binary payload `geometry::sbsp_world`
+/// packs. Binary because a level is millions of triangles: holdouts packs to
+/// ~50 MB, which JSON-over-IPC would triple and then parse.
+#[tauri::command]
+fn read_sbsp_world(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario_structure_bsp" {
+            return Err(format!("{} is not a structure bsp", entry.short));
+        }
+        let file = c.read_tag(index)?;
+        Ok(tauri::ipc::Response::new(geometry::sbsp_world(&file)?))
+    })
+}
+
+/// A scenario's placements with everything resolved for drawing: BSP catalog
+/// indices, and each palette entry chased through its object tag to the hlmt
+/// whose geometry `read_model_geometry` serves.
+#[derive(Serialize)]
+struct ScenarioWorldView {
+    layout: geometry::ScenarioLayout,
+    /// Catalog index per `layout.bsps` entry.
+    bsp_indices: Vec<Option<usize>>,
+    /// Catalog index of the hlmt per palette entry, per category.
+    palette_models: Vec<Vec<Option<usize>>>,
+}
+
+#[tauri::command]
+fn read_scenario_layout(
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<ScenarioWorldView, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if entry.group != "scenario" {
+            return Err(format!("{} is not a scenario", entry.short));
+        }
+        let key = (entry.group.clone(), entry.short.clone());
+        let pending = pending_for(&state, &key)?;
+        let file = patched_bytes(c, index, &pending)?;
+        let layout = geometry::scenario_layout(&file)?;
+
+        let bsp_indices = layout
+            .bsps
+            .iter()
+            .map(|p| tag_by_ref(c, "scenario_structure_bsp", p))
+            .collect();
+        let palette_models = layout
+            .categories
+            .iter()
+            .map(|cat| {
+                cat.palette
+                    .iter()
+                    .map(|path| {
+                        let oi = tag_by_ref(c, cat.group, path)?;
+                        let object = c.read_tag(oi).ok()?;
+                        let hlmt = geometry::object_model_ref(&object)?;
+                        tag_by_ref(c, "model", &hlmt)
+                    })
+                    .collect()
+            })
+            .collect();
+        Ok(ScenarioWorldView {
+            layout,
+            bsp_indices,
+            palette_models,
+        })
+    })
 }
 
 /// Geometry for the model viewer: collision meshes plus the skeleton that
@@ -2066,6 +2141,8 @@ pub fn run() {
             read_tag,
             read_tag_bytes,
             read_model_geometry,
+            read_sbsp_world,
+            read_scenario_layout,
             set_field,
             live_status,
             live_forget,

@@ -166,6 +166,12 @@ export function TagHeader() {
             label: "Script",
             title: "The mission's Blam script, as the scenario shipped it",
           },
+          {
+            mode: "world" as ViewMode,
+            label: "World",
+            title:
+              "The level in 3D: collision world, placements, squads and volumes — select and move things",
+          },
         ]
       : []),
     ...(MODEL_GROUPS.includes(tag.group)

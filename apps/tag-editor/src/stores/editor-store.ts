@@ -26,7 +26,7 @@ import {
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree" | "script" | "model";
+export type ViewMode = "form" | "tree" | "script" | "model" | "world";
 
 /** Groups whose geometry the Model view can draw. */
 export const MODEL_GROUPS = ["model", "collision_model", "skeleton_model"];

@@ -2,10 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { api, type ModelGeometry } from "../lib/api";
+import { FLAG_INVISIBLE, IDENTITY, hueOf, nodeWorlds, quat } from "../lib/three-model";
 import { useEditor } from "../stores/editor-store";
-
-/** Surface flag bit 1: collision the player never sees (ladders excepted). */
-const FLAG_INVISIBLE = 1 << 1;
 
 /**
  * The Model view: the object's simulation geometry in 3D.
@@ -415,34 +413,7 @@ function Scene(props: {
   return <div ref={mountRef} className="min-h-0 flex-1" />;
 }
 
-const IDENTITY = new THREE.Matrix4();
 const ONE = new THREE.Vector3(1, 1, 1);
-
-function quat(q: [number, number, number, number]): THREE.Quaternion {
-  return new THREE.Quaternion(q[0], q[1], q[2], q[3]).normalize();
-}
-
-/** Rest-pose world matrix per node. Parents precede children in Halo node
- *  arrays, so one forward pass composes the chain. */
-function nodeWorlds(nodes: ModelGeometry["nodes"]): THREE.Matrix4[] {
-  const worlds: THREE.Matrix4[] = [];
-  nodes.forEach((n, i) => {
-    const local = new THREE.Matrix4().compose(
-      new THREE.Vector3(...n.translation),
-      quat(n.rotation),
-      ONE,
-    );
-    worlds[i] =
-      n.parent >= 0 && n.parent < i ? worlds[n.parent].clone().multiply(local) : local;
-  });
-  return worlds;
-}
-
-function hueOf(name: string): number {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return (h % 360) / 360;
-}
 
 function disposeChildren(group: THREE.Group) {
   for (const child of [...group.children]) {

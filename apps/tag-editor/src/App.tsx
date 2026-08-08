@@ -11,6 +11,7 @@ import { FormInspector } from "./components/FormInspector";
 import { TextureViewer } from "./components/TextureViewer";
 import { SoundViewer } from "./components/SoundViewer";
 import { ScriptViewer } from "./components/ScriptViewer";
+import { ScenarioViewer } from "./components/ScenarioViewer";
 import { ModelViewer } from "./components/ModelViewer";
 import { TabBar } from "./components/TabBar";
 import { MODEL_GROUPS } from "./stores/editor-store";
@@ -77,6 +78,8 @@ function Editor() {
           <SoundViewer />
         ) : viewMode === "script" && scriptable ? (
           <ScriptViewer />
+        ) : viewMode === "world" && scriptable ? (
+          <ScenarioViewer />
         ) : viewMode === "model" && modelable ? (
           <ModelViewer />
         ) : viewMode === "tree" ? (

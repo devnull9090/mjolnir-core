@@ -330,6 +330,101 @@ export const mockApi = {
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
   readTag: async (index: number) => withEdits(index),
   readTagBytes: async () => [] as number[],
+  readScenarioLayout: async () => ({
+    layout: {
+      bsps: ["levels\\halo1\\solo\\b30\\b30"],
+      object_names: ["hog_one"],
+      categories: [
+        {
+          block: "vehicles",
+          group: "vehicle",
+          palette: ["objects\\vehicles\\human\\warthog\\warthog"],
+          placements: [
+            {
+              element: 0,
+              palette: 0,
+              name: 0,
+              position: [2, 3, 0.6] as [number, number, number],
+              rotation: [0.6, 0, 0] as [number, number, number],
+              scale: 1,
+            },
+            {
+              element: 1,
+              palette: -1,
+              name: -1,
+              position: [-3, -2, 0.6] as [number, number, number],
+              rotation: [0, 0, 0] as [number, number, number],
+              scale: 1,
+            },
+          ],
+        },
+      ],
+      trigger_volumes: [
+        {
+          name: "kill_ocean",
+          position: [-6, -6, 0] as [number, number, number],
+          forward: [1, 0, 0] as [number, number, number],
+          up: [0, 0, 1] as [number, number, number],
+          extents: [3, 3, 2] as [number, number, number],
+        },
+      ],
+      squads: [
+        {
+          name: "covenant_beach",
+          spawn_points: [
+            { name: "", position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
+            { name: "", position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
+          ],
+        },
+      ],
+      player_starts: [
+        { position: [0, 0, 0] as [number, number, number], facing: [0.5, 0] as [number, number] },
+      ],
+    },
+    bsp_indices: [0],
+    palette_models: [[2]],
+  }),
+  readSbspWorld: async () => {
+    // A 20×20 ground slab def instanced twice, so the world path renders in a
+    // browser. Format mirrors geometry.rs `sbsp_world`.
+    const defs = [{ verts: 4, tris: 2 }];
+    const header = new TextEncoder().encode(
+      JSON.stringify({ defs, world: null, instances: 2 }),
+    );
+    const headerPad = (4 - ((8 + header.length) % 4)) % 4;
+    const size = 8 + header.length + headerPad + (4 * 12 + 2 * 12 + 2 * 4) + 2 * 56;
+    const buffer = new ArrayBuffer(size);
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    view.setUint32(0, 0x50534253, true);
+    view.setUint32(4, header.length, true);
+    bytes.set(header, 8);
+    let at = 8 + header.length + headerPad;
+    const f32 = (v: number) => {
+      view.setFloat32(at, v, true);
+      at += 4;
+    };
+    const u32 = (v: number) => {
+      view.setUint32(at, v, true);
+      at += 4;
+    };
+    for (const [x, y] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) {
+      f32(x);
+      f32(y);
+      f32(0);
+    }
+    [0, 1, 2, 0, 2, 3].forEach(u32);
+    [0, 0].forEach(u32);
+    for (const dx of [0, 20]) {
+      u32(0);
+      f32(1);
+      [1, 0, 0, 0, 1, 0, 0, 0, 1].forEach(f32);
+      f32(dx);
+      f32(0);
+      f32(0);
+    }
+    return buffer;
+  },
   readModelGeometry: async () => {
     // A crate on a post: enough to exercise node posing, region filtering and
     // the skeleton overlay in a browser.

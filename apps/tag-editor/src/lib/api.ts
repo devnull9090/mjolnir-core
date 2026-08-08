@@ -255,6 +255,60 @@ export type ModelGeometry = {
   marker_groups: MarkerGroup[];
 };
 
+/** One placed object in a scenario. */
+export type ScenarioPlacement = {
+  /** Element index within its block — the `[i]` of a patch path. */
+  element: number;
+  /** Palette index, or -1. */
+  palette: number;
+  /** Object-name index, or -1. */
+  name: number;
+  position: [number, number, number];
+  /** Euler angles as stored, radians. */
+  rotation: [number, number, number];
+  scale: number;
+};
+
+export type ScenarioCategory = {
+  /** Block name; also the patch-path prefix (`vehicles[3].object data.position`). */
+  block: string;
+  /** Catalog group of the palette's tags. */
+  group: string;
+  palette: string[];
+  placements: ScenarioPlacement[];
+};
+
+export type ScenarioTriggerVolume = {
+  name: string;
+  position: [number, number, number];
+  forward: [number, number, number];
+  up: [number, number, number];
+  extents: [number, number, number];
+};
+
+export type ScenarioSquad = {
+  name: string;
+  spawn_points: { name: string; position: [number, number, number]; facing: [number, number] }[];
+};
+
+export type ScenarioLayoutData = {
+  bsps: string[];
+  object_names: string[];
+  categories: ScenarioCategory[];
+  trigger_volumes: ScenarioTriggerVolume[];
+  squads: ScenarioSquad[];
+  player_starts: { position: [number, number, number]; facing: [number, number] }[];
+};
+
+/** A scenario resolved for drawing: layout plus catalog indices. */
+export type ScenarioWorldView = {
+  layout: ScenarioLayoutData;
+  /** Catalog index per layout.bsps entry. */
+  bsp_indices: (number | null)[];
+  /** hlmt catalog index per palette entry, per category. */
+  palette_models: (number | null)[][];
+};
+
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
 export type DirEntry = {
   name: string;
@@ -423,6 +477,10 @@ const tauriApi = {
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
+  readScenarioLayout: (index: number) =>
+    invoke<ScenarioWorldView>("read_scenario_layout", { index }),
+  readSbspWorld: (index: number) =>
+    invoke<ArrayBuffer>("read_sbsp_world", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>
