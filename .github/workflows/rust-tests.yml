@@ -8,6 +8,10 @@
 # side skip both jobs entirely.
 name: Rust Tests
 
+# Test jobs only ever read the repo; keep the token to that.
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [main]
