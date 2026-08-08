@@ -98,9 +98,16 @@ fn main() -> Result<(), String> {
                     println!("  {k} = {}", &shown[..shown.len().min(120)]);
                 }
                 // The native tail's first bytes, to orient the mesh parser.
-                let tail = &bytes[walker.pos..bytes.len().min(walker.pos + 32)];
+                let window: usize = std::env::var("UE_ASSET_TAIL")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(32);
+                let tail = &bytes[walker.pos..bytes.len().min(walker.pos + window)];
                 print!("  native head:");
-                for b in tail {
+                for (n, b) in tail.iter().enumerate() {
+                    if n % 16 == 0 {
+                        print!("\n    +{n:4}:");
+                    }
                     print!(" {b:02x}");
                 }
                 println!();

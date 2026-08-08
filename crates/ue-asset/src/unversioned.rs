@@ -443,6 +443,12 @@ impl<'a> Walker<'a> {
 
     // -- primitives ---------------------------------------------------------
 
+    /// Look ahead without consuming, clamped to what remains.
+    pub fn peek(&self, n: usize) -> &'a [u8] {
+        let end = (self.pos + n).min(self.data.len());
+        &self.data[self.pos..end]
+    }
+
     pub fn bytes(&mut self, n: usize) -> Result<&'a [u8], Error> {
         let out = self
             .data

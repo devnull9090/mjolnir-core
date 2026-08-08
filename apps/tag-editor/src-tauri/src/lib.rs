@@ -749,29 +749,34 @@ struct MeshHeader {
 fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
     with_catalog(&state, |c| {
         let entry = c.meshes.get(index).ok_or("mesh index out of range")?;
-        if entry.skeletal {
-            return Err(format!(
-                "{} is a skeletal mesh; the reader only handles static meshes so far",
-                entry.short
-            ));
-        }
+        let skeletal = entry.skeletal;
         let usmap = usmap()?;
         let data = c.read_mesh_uasset(index)?;
         let ubulk = c.read_mesh_ubulk(index)?;
         let package = ue_asset::zen::Package::parse(&data).map_err(|e| e.to_string())?;
         let scripts = c.script_objects().ok_or("no script-object table")?;
+        let wanted_class = if skeletal { "SkeletalMesh" } else { "StaticMesh" };
         let export = package
             .exports
             .iter()
-            .position(|e| scripts.leaf(e.class) == Some("StaticMesh"))
-            .ok_or_else(|| format!("{} has no StaticMesh export", entry.short))?;
+            .position(|e| scripts.leaf(e.class) == Some(wanted_class))
+            .ok_or_else(|| format!("{} has no {wanted_class} export", entry.short))?;
         let bytes = package.export_data(&data, export).map_err(|e| e.to_string())?;
         let ctx = ue_asset::unversioned::Ctx {
             usmap,
             names: &package.names,
         };
-        let mesh = ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
-            .map_err(|e| e.to_string())?;
+        let mesh = if skeletal {
+            let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
+                .map_err(|e| e.to_string())?;
+            ue_asset::mesh::StaticMeshData {
+                materials: sk.materials,
+                lods: sk.lods,
+            }
+        } else {
+            ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+                .map_err(|e| e.to_string())?
+        };
 
         // Chase each material slot to a base-colour texture.
         let materials: Vec<MeshMaterial> = mesh
@@ -816,13 +821,21 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             })
             .collect();
 
-        // The best LOD that actually carries buffers.
+        // The best LOD that actually carries buffers. Skeletal Nanite meshes
+        // ship a single placeholder triangle, which is worth naming.
         let (lod_index, lod) = mesh
             .lods
             .iter()
             .enumerate()
             .find(|(_, l)| !l.indices.is_empty())
             .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+        if lod.indices.len() <= 3 {
+            return Err(format!(
+                "{} is Nanite-only: its classic buffers hold a placeholder triangle, and the \
+                 reader does not decode Nanite cluster pages",
+                entry.short
+            ));
+        }
 
         let header = MeshHeader {
             path: entry.short.clone(),
@@ -839,7 +852,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                 .collect(),
             materials,
             lod: lod_index,
-            skeletal: false,
+            skeletal,
         };
         let json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
         let mut out = Vec::with_capacity(
