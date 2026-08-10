@@ -2,9 +2,10 @@
 <!--
   Chocolatey package for the `mjolnir` command line.
 
-  The version here is a placeholder: pack.ps1 passes the real one with
-  `choco pack --version`, taken from the release tag, so this file never has to
-  be edited for a release.
+  The version here is a placeholder. pack.ps1 passes the real one to `choco
+  pack` on the command line, taken from the release tag, so this file never has
+  to be edited for a release. (No option flags in this comment: XML forbids a
+  double hyphen inside one, and choco reports that as an unhelpful parse error.)
 
   The binary is embedded in tools/ rather than downloaded at install time. It is
   our own MIT-licensed build, so the license permits redistribution, and it means

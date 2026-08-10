@@ -303,29 +303,37 @@ jobs:
           cat "$RUNNER_TEMP/mjolnir.json"
 
       # Committed to the default branch, not to the tag: a tag is a fixed point
-      # and `scoop bucket add` clones the branch. Commits made with GITHUB_TOKEN
-      # do not start further workflow runs, so this cannot loop.
+      # and `scoop bucket add` clones the branch. Written through the contents
+      # API rather than by pushing, because the checkout here is a shallow clone
+      # of a tag — committing from it would mean fetching and switching branches
+      # first, and a single atomic PUT is both shorter and harder to get wrong.
+      # Commits made with GITHUB_TOKEN do not start further workflow runs, so
+      # this cannot loop.
       - name: Commit the Scoop manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ needs.gate.outputs.version }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch --depth=1 origin main
-          git checkout -B scoop-update FETCH_HEAD
-          cp "$RUNNER_TEMP/mjolnir.json" bucket/mjolnir.json
-          if git diff --quiet -- bucket/mjolnir.json; then
+          path="bucket/mjolnir.json"
+          new=$(base64 -w0 "$RUNNER_TEMP/mjolnir.json")
+
+          # A release re-run should not add an empty commit, and the blob SHA is
+          # needed anyway: the API rejects an update that does not name the
+          # version it is replacing, which is what stops two runs racing.
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" 2>/dev/null || echo '{}')
+          sha=$(echo "$current" | jq -r '.sha // empty')
+          if [ "$(echo "$current" | jq -r '.content // empty' | tr -d '\n')" = "$new" ]; then
             echo "manifest already current"
             exit 0
           fi
-          git add bucket/mjolnir.json
-          git commit -m "scoop: mjolnir ${{ needs.gate.outputs.version }}"
-          # One retry: the only realistic conflict is another commit landing on
-          # main between the fetch and the push, and this file has one writer.
-          git push origin HEAD:main || {
-            git fetch origin main
-            git rebase FETCH_HEAD
-            git push origin HEAD:main
-          }
+
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message="scoop: mjolnir ${VER}" \
+            -f branch=main \
+            -f content="$new" \
+            ${sha:+-f sha="$sha"} > /dev/null
+          echo "bucket/mjolnir.json updated to $VER"
 
       - name: Post release notification to Discord
         env:

@@ -43,17 +43,19 @@ Expand-Archive -Path $zip -DestinationPath $unpack
 
 $exe = Get-ChildItem -Path $unpack -Filter "mjolnir.exe" -Recurse | Select-Object -First 1
 if (-not $exe) { throw "no mjolnir.exe inside $zip" }
-$licenseFile = Get-ChildItem -Path $unpack -Filter "LICENSE" -Recurse | Select-Object -First 1
+# Everything else is taken relative to the binary rather than searched for
+# again, so this cannot assemble a package out of two different archives.
+$root = $exe.Directory.FullName
 
 Copy-Item $exe.FullName (Join-Path $tools "mjolnir.exe")
-Copy-Item $licenseFile.FullName (Join-Path $tools "LICENSE.txt")
+Copy-Item (Join-Path $root "LICENSE") (Join-Path $tools "LICENSE.txt")
 
 # `mjolnir compile` reads the recovered function table, and looks for it next to
 # its own executable — which for a Chocolatey install is the package's tools
 # directory, not the shim on PATH.
 $defs = Join-Path $tools "defs\hce"
 New-Item -ItemType Directory -Path $defs -Force | Out-Null
-Copy-Item (Join-Path $unpack "mjolnir-$Version-x86_64-pc-windows-msvc\defs\hce\scripting.json") $defs
+Copy-Item (Join-Path $root "defs\hce\scripting.json") $defs
 
 # Required for any package that embeds a binary: it tells a moderator, and
 # anyone else, how to confirm the .exe in this package is the one the release
