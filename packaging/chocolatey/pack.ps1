@@ -25,7 +25,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
   throw "No version. Pass -Version or set VERSION."
 }
 
-$zipName = "mjolnir-$Version-x86_64-pc-windows-msvc.zip"
+$zipName = "mjolnir-$Version-windows-x64.zip"
 $zip = Join-Path $ZipDir $zipName
 if (-not (Test-Path $zip)) {
   throw "$zip not found. It is the archive the build job produced; pass -ZipDir to point at it."

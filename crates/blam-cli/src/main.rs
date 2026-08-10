@@ -20,11 +20,16 @@ mod texture;
 /// Find a data file that ships alongside the binary.
 ///
 /// The defaults for `--corpus` are repository-relative, which is right when the
-/// tool is run out of a checkout and useless when it is not: a released build
-/// lives wherever the person unpacked it, and their working directory is
-/// wherever they happen to be standing. So if the given path is not there, look
-/// next to the executable, and then one level up from it — the second covers a
-/// `cargo build` in a checkout, where the binary sits in `target/release`.
+/// tool is run out of a checkout and useless when it is not: an installed build
+/// lives wherever the packager put it, and the working directory is wherever the
+/// person happens to be standing. So if the given path is not there, look
+/// relative to the executable, in the four layouts this actually ships in:
+///
+/// | Where it came from | Binary | Data |
+/// | --- | --- | --- |
+/// | release archive, Scoop, Chocolatey | `<dir>/mjolnir` | `<dir>/defs/…` |
+/// | .deb, .rpm, Homebrew | `<prefix>/bin/mjolnir` | `<prefix>/share/mjolnir/defs/…` |
+/// | `cargo build` in a checkout | `target/release/mjolnir` | `<repo>/defs/…` |
 ///
 /// An explicit `--corpus` that does not exist still comes back unchanged, so the
 /// error names the path the caller asked for rather than one they never typed.
@@ -38,7 +43,16 @@ fn resolve_data_path(given: &std::path::Path) -> PathBuf {
     let Some(dir) = exe.parent() else {
         return given.to_path_buf();
     };
-    for base in [dir.to_path_buf(), dir.join(".."), dir.join("../..")] {
+    let candidates = [
+        dir.to_path_buf(),
+        // FHS: /usr/bin/mjolnir reads /usr/share/mjolnir/…, and the same
+        // relative step lands correctly under /usr/local and a Homebrew Cellar
+        // prefix, which is what makes one binary work for every packager.
+        dir.join("../share/mjolnir"),
+        dir.join(".."),
+        dir.join("../.."),
+    ];
+    for base in candidates {
         let candidate = base.join(given);
         if candidate.exists() {
             return candidate;
