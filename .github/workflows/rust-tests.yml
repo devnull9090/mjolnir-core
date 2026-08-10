@@ -32,8 +32,12 @@ on:
 
 jobs:
   crates:
-    name: Workspace crates
-    runs-on: ubuntu-latest
+    name: Workspace crates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +46,12 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
+      # Both platforms, because half of blam-live only exists on one of them:
+      # `sys.rs` carries a `cfg(windows)` implementation of ~280 lines of Win32
+      # and a stub for everything else, so a Linux-only run compiles the stub
+      # and never sees the code that actually attaches to the game. That half
+      # ships in the CLI release, and the release build should not be the first
+      # thing that ever compiles it.
       - name: Test
         run: cargo test --workspace
 
