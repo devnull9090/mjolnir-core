@@ -207,42 +207,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
-    name: Publish
+  # Its own job, and one that runs on a rehearsal too: fpm is the newest and
+  # least-exercised part of this pipeline, and a packaging failure that only
+  # ever appears during a real release is exactly what the rehearsal exists to
+  # prevent. It also verifies the package it just built, which is the only way
+  # to know the installed layout actually works.
+  package:
+    name: Linux packages
     needs: [gate, build]
-    # Skipped entirely on a rehearsal: a dispatch proves the build, and stops
-    # one step short of the release, the CDN, the bucket and Discord.
-    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      # The release, and the Scoop manifest commit at the end.
-      contents: write
-    outputs:
-      windows_sha256: ${{ steps.checksums.outputs.windows_sha256 }}
-    env:
-      TAG: ${{ needs.gate.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Mask sensitive values
-        run: |
-          echo "::add-mask::${{ secrets.ACCOUNT_NAME }}"
-          echo "::add-mask::${{ secrets.CLOUDFLARE_URL }}"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Read again rather than threaded through job outputs: the body is
-      # multi-line Markdown, and the gate job has already proved it parses.
-      - name: Read the changelog entry
-        id: changelog
-        run: node scripts/check-changelog.mjs "$TAG"
-
       - uses: actions/download-artifact@v4
         with:
+          name: mjolnir-linux-x64
           path: artifacts
-          merge-multiple: true
 
       # A .deb and an .rpm, from the same static binary the tarball carries.
       # fpm builds both from one staged tree, which is why it is worth a Ruby
@@ -283,6 +261,71 @@ jobs:
               .
           done
           ls -la artifacts/
+
+      # Unpack the .deb and run the binary out of the tree it installs. This is
+      # the one check that the FHS layout and the binary's own data lookup agree
+      # — get it wrong and `mjolnir compile` fails for every packaged install
+      # while every archive install keeps working.
+      - name: Verify the package installs a working tool
+        run: |
+          set -euo pipefail
+          deb=$(ls artifacts/*.deb)
+          rm -rf verify && mkdir verify
+          dpkg-deb -x "$deb" verify
+          find verify -type f | sort
+
+          echo '(script static void t (print "hi"))' > "$RUNNER_TEMP/v.hsc"
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/verify/usr/bin/mjolnir" --version
+          # Run from an unrelated directory: the corpus must be found through
+          # /usr/share/mjolnir, not through the working directory.
+          "$GITHUB_WORKSPACE/verify/usr/bin/mjolnir" compile v.hsc
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir-linux-packages
+          path: |
+            artifacts/*.deb
+            artifacts/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [gate, build, package]
+    # Skipped entirely on a rehearsal: a dispatch proves the build, and stops
+    # one step short of the release, the CDN, the bucket and Discord.
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # The release, and the Scoop manifest commit at the end.
+      contents: write
+    outputs:
+      windows_sha256: ${{ steps.checksums.outputs.windows_sha256 }}
+    env:
+      TAG: ${{ needs.gate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.ACCOUNT_NAME }}"
+          echo "::add-mask::${{ secrets.CLOUDFLARE_URL }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Read again rather than threaded through job outputs: the body is
+      # multi-line Markdown, and the gate job has already proved it parses.
+      - name: Read the changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "$TAG"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Checksums
         id: checksums

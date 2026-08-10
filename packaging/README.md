@@ -25,8 +25,9 @@ is missing, so a release does not fail over a channel nobody has set up yet.
 
 Run the **Release CLI** workflow by hand and give it the tag you are about to
 push. It runs the changelog gate, checks the tag against the crate version,
-builds all three platforms and smoke-tests each binary — then stops. Nothing is
-released, uploaded, committed or announced.
+builds all three platforms, smoke-tests each binary, builds the `.deb` and
+`.rpm`, and unpacks the `.deb` to confirm the installed tool actually finds its
+data — then stops. Nothing is released, uploaded, committed or announced.
 
 Worth doing before the first tag, and before any release that changes this
 pipeline. A release is the one run everybody is watching, and it should not also
