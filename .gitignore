@@ -45,6 +45,10 @@ target/
 !.env.example
 !.dev.vars.example
 
+# Chocolatey package staging — packaging/chocolatey/pack.ps1 rebuilds it from
+# the release archive on every run, so a checked-in copy could only ever be stale
+packaging/chocolatey/tools/
+
 # Python
 __pycache__/
 *.pyc

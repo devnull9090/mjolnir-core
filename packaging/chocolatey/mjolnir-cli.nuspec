@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chocolatey package for the `mjolnir` command line.
+
+  The version here is a placeholder: pack.ps1 passes the real one with
+  `choco pack --version`, taken from the release tag, so this file never has to
+  be edited for a release.
+
+  The binary is embedded in tools/ rather than downloaded at install time. It is
+  our own MIT-licensed build, so the license permits redistribution, and it means
+  the package cannot install something other than what was reviewed. Chocolatey
+  generates the `mjolnir` shim from the .exe automatically — no install script.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>mjolnir-cli</id>
+    <version>0.0.0</version>
+    <packageSourceUrl>https://github.com/devnull9090/mjolnir-core/tree/main/packaging/chocolatey</packageSourceUrl>
+    <owners>devnull9090</owners>
+    <title>MJOLNIR CLI</title>
+    <authors>MJOLNIR Core</authors>
+    <projectUrl>https://mjolnircore.com</projectUrl>
+    <iconUrl>https://mjolnircore.com/logo-transparent.png</iconUrl>
+    <licenseUrl>https://github.com/devnull9090/mjolnir-core/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/devnull9090/mjolnir-core</projectSourceUrl>
+    <docsUrl>https://mjolnircore.com/docs/guides/getting-started</docsUrl>
+    <bugTrackerUrl>https://github.com/devnull9090/mjolnir-core/issues</bugTrackerUrl>
+    <tags>mjolnir halo modding cli tags blam unreal foss cross-platform</tags>
+    <summary>Inspect and edit the Blam tag data inside an installed copy of Halo Campaign Evolved.</summary>
+    <description><![CDATA[
+`mjolnir` is the command line behind the MJOLNIR Core modding platform for
+Halo Campaign Evolved.
+
+It reads the game's own IoStore containers directly, so it needs nothing but an
+installed copy of the game:
+
+* List the tag groups and the tags in them.
+* Print any tag's fields with their decoded values — enums by name, bitfields by
+  the bits that are set, tag references by path.
+* Change a field and report exactly which bytes moved.
+* Bake edits into an override container the game loads, without touching the
+  shipped files.
+* Read, decompile and compile the game's Blam scripts.
+* Inspect, export and swap cooked textures.
+
+It writes nothing into your game install and extracts no game content to disk.
+
+Full documentation: https://mjolnircore.com/docs/guides/getting-started
+]]></description>
+    <releaseNotes>https://mjolnircore.com/changelog/cli</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

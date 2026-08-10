@@ -1,0 +1,428 @@
+name: Release CLI
+
+# Publishes `mjolnir`, the command line the guides are written around.
+#
+# It is the last thing this project shipped that could only be obtained by
+# installing a Rust toolchain and compiling the workspace — which is a lot to
+# ask of someone who wants to change one ammo count. Everything here exists to
+# make `mjolnir --version` reachable without a compiler: prebuilt archives on
+# the release and on releases.mjolnircore.com, a checksum for each, and a Scoop
+# manifest so Windows can install and update it with one command.
+#
+# WinGet and Chocolatey publishing live in the last two jobs and are skipped
+# unless their credentials are configured; see packaging/README.md.
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs before anything is compiled. Both checks can only be fixed by a new
+  # tag, so finding them after a ten-minute matrix build wastes the ten minutes
+  # and leaves a bad tag on the repository either way.
+  gate:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Require a changelog entry
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
+      # `clap(version)` prints CARGO_PKG_VERSION, so a tag that disagrees with
+      # the crate ships a binary that misreports its own version — and the Scoop
+      # manifest below would advertise a version no `mjolnir --version` will
+      # ever confirm.
+      - name: Tag must match the crate version
+        id: version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#cli-v}"
+          crate_version=$(sed -n '/^\[package\]/,/^\[/p' crates/blam-cli/Cargo.toml \
+            | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
+          echo "tag   $tag_version"
+          echo "crate $crate_version"
+          if [ "$tag_version" != "$crate_version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match blam-cli's version ($crate_version). Bump crates/blam-cli/Cargo.toml, or tag the version that is already there."
+            exit 1
+          fi
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide whether the other one works.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: mjolnir.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            exe: mjolnir
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release -p blam-cli --target ${{ matrix.target }}
+
+      # A binary that cannot start is the one failure a build step cannot catch,
+      # and it is exactly what a missing runtime library produces. Assert the
+      # version too: this is the artifact people install, and it has to agree
+      # with the tag it ships under.
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/${{ matrix.exe }}"
+          reported=$("$bin" --version)
+          echo "$reported"
+          if [ "$reported" != "mjolnir ${{ needs.gate.outputs.version }}" ]; then
+            echo "::error::built binary reports '$reported', expected 'mjolnir ${{ needs.gate.outputs.version }}'"
+            exit 1
+          fi
+          "$bin" --help > /dev/null
+
+      # `defs/hce/scripting.json` is the recovered function table `mjolnir
+      # compile` needs, and it is a repository file — so it travels in the
+      # archive, and the binary looks for it next to itself. LICENSE ships
+      # because MIT requires the notice to travel with the binary, not only
+      # with the source.
+      - name: Stage the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="mjolnir-${{ needs.gate.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$stage/defs/hce"
+          cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" "$stage/"
+          cp defs/hce/scripting.json "$stage/defs/hce/"
+          cp LICENSE "$stage/"
+          echo "stage=$stage" >> "$GITHUB_ENV"
+
+      # Native archive per platform: a Windows user gets a zip Explorer opens,
+      # a Linux user gets a tarball that keeps the executable bit — which a zip
+      # would not. Both hold one top-level directory, so unpacking in a full
+      # Downloads folder cannot scatter three files into it.
+      # 7-Zip rather than Compress-Archive: PowerShell writes `\` as the entry
+      # separator, which is not what the zip format says and which some
+      # extractors read as part of the filename rather than as a directory.
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: 7z a -tzip -mx=9 "$stage.zip" "$stage"
+
+      - name: Archive (tar.gz)
+        if: runner.os == 'Linux'
+        run: tar -czf "$stage.tar.gz" "$stage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir-${{ matrix.target }}
+          path: |
+            ${{ env.stage }}.zip
+            ${{ env.stage }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      # The release, and the Scoop manifest commit at the end.
+      contents: write
+    outputs:
+      windows_sha256: ${{ steps.checksums.outputs.windows_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.ACCOUNT_NAME }}"
+          echo "::add-mask::${{ secrets.CLOUDFLARE_URL }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Read again rather than threaded through job outputs: the body is
+      # multi-line Markdown, and the gate job has already proved it parses.
+      - name: Read the changelog entry
+        id: changelog
+        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        id: checksums
+        run: |
+          set -euo pipefail
+          VER="${{ needs.gate.outputs.version }}"
+          cd artifacts
+          ls -la
+          {
+            echo "# MJOLNIR CLI ${GITHUB_REF_NAME} - SHA-256 Checksums"
+            echo
+            sha256sum ./*.zip ./*.tar.gz | sed 's|\./||'
+          } > "checksums-${GITHUB_REF_NAME}.txt"
+          cat "checksums-${GITHUB_REF_NAME}.txt"
+          win="mjolnir-$VER-x86_64-pc-windows-msvc.zip"
+          linux="mjolnir-$VER-x86_64-unknown-linux-gnu.tar.gz"
+          echo "windows_sha256=$(sha256sum "$win" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "linux_sha256=$(sha256sum "$linux" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "MJOLNIR CLI ${{ github.ref_name }}"
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/checksums-${{ github.ref_name }}.txt
+          body: |
+            ## ${{ steps.changelog.outputs.title }}
+
+            ${{ steps.changelog.outputs.summary }}
+
+            ${{ steps.changelog.outputs.body }}
+
+            [Full changelog](${{ steps.changelog.outputs.url }}) · [All releases](https://mjolnircore.com/changelog/cli)
+
+            ---
+
+            ### Install on Windows
+
+            ```powershell
+            scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+            scoop install mjolnir
+            ```
+
+            Or take the archive below, unpack it anywhere, and put that folder
+            on your `PATH`.
+
+            ### Downloads
+            | File | SHA-256 |
+            | :--- | :--- |
+            | mjolnir-${{ needs.gate.outputs.version }}-x86_64-pc-windows-msvc.zip | `${{ steps.checksums.outputs.windows_sha256 }}` |
+            | mjolnir-${{ needs.gate.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz | `${{ steps.checksums.outputs.linux_sha256 }}` |
+
+            ### Verify your download
+            ```powershell
+            (Get-FileHash .\mjolnir-*.zip -Algorithm SHA256).Hash
+            ```
+
+            Compare the output with the checksum above. They must match exactly.
+
+      - name: Upload to R2 (releases.mjolnircore.com)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npm install -g wrangler
+          VER="${{ needs.gate.outputs.version }}"
+          BASE="mjolnir-releases/cli"
+          WIN="mjolnir-$VER-x86_64-pc-windows-msvc.zip"
+          LINUX="mjolnir-$VER-x86_64-unknown-linux-gnu.tar.gz"
+
+          # Versioned first and always: `latest` is a moving pointer, and a
+          # build that only ever existed under it cannot be gone back to.
+          wrangler r2 object put "$BASE/$VER/$WIN"   --file="artifacts/$WIN"   --remote
+          wrangler r2 object put "$BASE/$VER/$LINUX" --file="artifacts/$LINUX" --remote
+          wrangler r2 object put "$BASE/$VER/checksums.txt" --file="artifacts/checksums-${GITHUB_REF_NAME}.txt" --remote
+
+          # Stable names under latest/, so a download link on the site does not
+          # need editing every release.
+          wrangler r2 object put "$BASE/latest/mjolnir-windows-x64.zip"  --file="artifacts/$WIN"   --remote
+          wrangler r2 object put "$BASE/latest/mjolnir-linux-x64.tar.gz" --file="artifacts/$LINUX" --remote
+          wrangler r2 object put "$BASE/latest/checksums.txt" --file="artifacts/checksums-${GITHUB_REF_NAME}.txt" --remote
+          echo "Uploaded cli $VER"
+
+      # Scoop reads manifests straight out of a git repository, so the bucket is
+      # this repository and publishing is a commit. `checkver`/`autoupdate` are
+      # for Scoop's own excavator; the version and hash written here are what an
+      # install actually uses, which is why they are not left to a bot that may
+      # never run over this bucket.
+      - name: Build the Scoop manifest
+        run: |
+          set -euo pipefail
+          VER="${{ needs.gate.outputs.version }}"
+          REPO="https://github.com/${GITHUB_REPOSITORY}"
+          DL="$REPO/releases/download"
+          jq -n \
+            --arg version "$VER" \
+            --arg url "$DL/cli-v$VER/mjolnir-$VER-x86_64-pc-windows-msvc.zip" \
+            --arg hash "${{ steps.checksums.outputs.windows_sha256 }}" \
+            --arg dir "mjolnir-$VER-x86_64-pc-windows-msvc" \
+            --arg repo "$REPO" \
+            --arg autourl "$DL/cli-v\$version/mjolnir-\$version-x86_64-pc-windows-msvc.zip" \
+            --arg autohash "$DL/cli-v\$version/checksums-cli-v\$version.txt" \
+            '{
+              version: $version,
+              description: "Inspect and edit the Blam tag data inside an installed copy of Halo Campaign Evolved.",
+              homepage: "https://mjolnircore.com",
+              license: "MIT",
+              architecture: { "64bit": { url: $url, hash: $hash } },
+              extract_dir: $dir,
+              bin: "mjolnir.exe",
+              checkver: { github: $repo, regex: "cli-v([\\d.]+)" },
+              autoupdate: {
+                architecture: { "64bit": { url: $autourl } },
+                extract_dir: "mjolnir-$version-x86_64-pc-windows-msvc",
+                hash: { url: $autohash }
+              }
+            }' > "$RUNNER_TEMP/mjolnir.json"
+          cat "$RUNNER_TEMP/mjolnir.json"
+
+      # Committed to the default branch, not to the tag: a tag is a fixed point
+      # and `scoop bucket add` clones the branch. Commits made with GITHUB_TOKEN
+      # do not start further workflow runs, so this cannot loop.
+      - name: Commit the Scoop manifest
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin main
+          git checkout -B scoop-update FETCH_HEAD
+          cp "$RUNNER_TEMP/mjolnir.json" bucket/mjolnir.json
+          if git diff --quiet -- bucket/mjolnir.json; then
+            echo "manifest already current"
+            exit 0
+          fi
+          git add bucket/mjolnir.json
+          git commit -m "scoop: mjolnir ${{ needs.gate.outputs.version }}"
+          # One retry: the only realistic conflict is another commit landing on
+          # main between the fetch and the push, and this file has one writer.
+          git push origin HEAD:main || {
+            git fetch origin main
+            git rebase FETCH_HEAD
+            git push origin HEAD:main
+          }
+
+      - name: Post release notification to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          # Read from the environment and encoded by jq rather than pasted into
+          # the JSON: a changelog title is prose, and one apostrophe or quote in
+          # it would otherwise produce a malformed payload.
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
+          CHANGELOG_SUMMARY: ${{ steps.changelog.outputs.summary }}
+          CHANGELOG_URL: ${{ steps.changelog.outputs.url }}
+          VER: ${{ needs.gate.outputs.version }}
+          WIN_HASH: ${{ steps.checksums.outputs.windows_sha256 }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK_URL not set. Skipping."
+            exit 0
+          fi
+          echo "::add-mask::$DISCORD_WEBHOOK_URL"
+          jq -n \
+            --arg title "⌨️ MJOLNIR CLI $VER — $CHANGELOG_TITLE" \
+            --arg url "$CHANGELOG_URL" \
+            --arg description "$CHANGELOG_SUMMARY" \
+            --arg version "v$VER" \
+            --arg hash "$WIN_HASH" \
+            --arg get "\`scoop install mjolnir\` · [GitHub Release](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME})" \
+            '{
+              username: "MJOLNIR Core Releases",
+              avatar_url: "https://mjolnircore.com/logo-transparent.png",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $description,
+                color: 13936707,
+                fields: [
+                  { name: "📦 Version", value: $version, inline: true },
+                  { name: "🛡️ SHA-256 (Windows zip)", value: $hash, inline: false },
+                  { name: "🔗 Get it", value: $get, inline: false }
+                ],
+                footer: { text: "MJOLNIR Core · Halo Campaign Evolved Modding Platform" }
+              }]
+            }' \
+            | curl -sS -X POST -H 'Content-Type: application/json' "$DISCORD_WEBHOOK_URL" -d @-
+
+  # ── Third-party package managers ────────────────────────────────────────────
+  # Both need a one-time setup a workflow cannot do for itself — a fork and a
+  # token for WinGet, an account and a moderated first submission for Chocolatey
+  # — so both skip cleanly when their credential is absent rather than failing a
+  # release over a channel nobody has set up yet. See packaging/README.md.
+  #
+  # The gate is on `env`, not on `secrets`: a step's `if` cannot read the
+  # secrets context, so the value is lifted to a job-level env var first.
+
+  winget:
+    name: WinGet
+    needs: [gate, publish]
+    runs-on: ubuntu-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: Submit to winget-pkgs
+        if: env.WINGET_TOKEN != ''
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: MJOLNIRCore.CLI
+          version: ${{ needs.gate.outputs.version }}
+          release-tag: ${{ github.ref_name }}
+          installers-regex: 'x86_64-pc-windows-msvc\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
+
+      - name: Not configured
+        if: env.WINGET_TOKEN == ''
+        run: echo "WINGET_TOKEN is not set; skipping. See packaging/README.md."
+
+  chocolatey:
+    name: Chocolatey
+    needs: [gate, publish]
+    runs-on: windows-latest
+    env:
+      CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.CHOCO_API_KEY != ''
+
+      - uses: actions/download-artifact@v4
+        if: env.CHOCO_API_KEY != ''
+        with:
+          name: mjolnir-x86_64-pc-windows-msvc
+          path: artifacts
+
+      - name: Pack and push
+        if: env.CHOCO_API_KEY != ''
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          SHA256: ${{ needs.publish.outputs.windows_sha256 }}
+        run: ./packaging/chocolatey/pack.ps1 -ZipDir artifacts -Push
+
+      - name: Not configured
+        if: env.CHOCO_API_KEY == ''
+        run: echo "CHOCO_API_KEY is not set; skipping. See packaging/README.md."
