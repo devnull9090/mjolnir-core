@@ -54,9 +54,15 @@ $env:OODLE = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\DotNET\Automati
 ## Part 1: the command line
 
 ```powershell
-cargo build --release -p blam-cli
-# the binary lands at target/release/mjolnir
+scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+scoop install mjolnir
 ```
+
+Without Scoop, take the archive from the
+[latest release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v),
+unpack it, and put that folder on your `PATH`. To build it from source instead —
+which you need only if you are changing the tool — `cargo build --release -p
+blam-cli` puts the binary at `target/release/mjolnir`.
 
 ### Finding your way around
 

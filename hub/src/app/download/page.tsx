@@ -165,6 +165,43 @@ export default function DownloadPage() {
           </div>
         </div>
 
+        {/* The CLI does not come from the launcher: it is a standalone binary */}
+        <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8 mb-8">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-gold/10 text-gold flex items-center justify-center flex-shrink-0">
+              <Terminal className="w-6 h-6 sm:w-7 sm:h-7" />
+            </div>
+            <div className="min-w-0 w-full">
+              <h2 className="text-xl font-bold text-foreground">Prefer a command line?</h2>
+              <p className="text-sm text-text-muted mt-1 leading-6">
+                <code className="text-foreground">mjolnir</code> reads and edits the same tag data
+                from a terminal — list a group, print a tag&apos;s decoded fields, change one, and
+                bake the result into a container the game loads. Windows and Linux builds, with
+                checksums, on every release.
+              </p>
+              <pre className="mt-3 p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+scoop install mjolnir`}</code></pre>
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <Link
+                  href="https://github.com/devnull9090/mjolnir-core/releases?q=cli-v"
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gold hover:underline"
+                >
+                  Download an archive
+                  <ExternalLink className="w-4 h-4" />
+                </Link>
+                <Link
+                  href="/docs/guides/getting-started"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gold hover:underline"
+                >
+                  Read the walkthrough
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* System Requirements */}
         <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8">
           <h2 className="text-lg font-bold text-foreground mb-4">System Requirements</h2>

@@ -40,13 +40,39 @@ The rest of this guide is the mechanics of that.
 
 ## Step 1 — Install the tooling
 
+`mjolnir` is the command line that reads, inspects and edits tags. On Windows:
+
+```powershell
+scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+scoop install mjolnir
+```
+
+No Scoop? Take the archive from the
+[latest release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v),
+unpack it anywhere, and put that folder on your `PATH`. Linux builds are on the
+same release. Either way, check it landed:
+
+```powershell
+mjolnir --version
+```
+
+<details>
+<summary>Or build it from source</summary>
+
+You need this only if you are changing the tool itself, or if you want a build
+of something that has not been tagged yet. It needs a
+[Rust toolchain](https://rustup.rs).
+
 ```bash
 git clone https://github.com/devnull9090/mjolnir-core
 cd mjolnir-core
 cargo build --release -p blam-cli
 ```
 
-That gives you `target/release/mjolnir`, which reads, inspects and edits tags.
+That gives you `target/release/mjolnir`. The rest of this guide writes `mjolnir`;
+if you built it, that means `target/release/mjolnir`.
+
+</details>
 
 Optional but recommended, since it turns a twenty-minute manual test loop into a two-minute one:
 
