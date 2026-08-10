@@ -17,6 +17,17 @@ which runs on a `cli-v*` tag. Nothing in this directory is built by hand.
 The release workflow skips the WinGet and Chocolatey jobs when their credential
 is missing, so a release does not fail over a channel nobody has set up yet.
 
+## Rehearsing a release
+
+Run the **Release CLI** workflow by hand and give it the tag you are about to
+push. It runs the changelog gate, checks the tag against the crate version,
+builds both platforms and smoke-tests each binary — then stops. Nothing is
+released, uploaded, committed or announced.
+
+Worth doing before the first tag, and before any release that changes this
+pipeline. A release is the one run everybody is watching, and it should not also
+be the first run.
+
 ---
 
 ## Scoop — already working

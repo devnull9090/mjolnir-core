@@ -16,7 +16,15 @@ on:
   push:
     tags:
       - 'cli-v*'
+  # A rehearsal: everything a tag would do up to and including the archives,
+  # and then nothing published. Worth having, because the alternative is that
+  # this pipeline's first ever run is the one the whole audience is watching —
+  # which is exactly how tag-editor-v0.10.0's first release run went.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to rehearse, e.g. cli-v0.1.0. Builds and checks everything; publishes nothing.'
+        required: true
 
 permissions:
   contents: read
@@ -28,9 +36,10 @@ jobs:
   gate:
     name: Check the tag
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag'
     outputs:
+      tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,27 +47,47 @@ jobs:
         with:
           node-version: 22
 
-      - name: Require a changelog entry
-        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
-
-      # `clap(version)` prints CARGO_PKG_VERSION, so a tag that disagrees with
-      # the crate ships a binary that misreports its own version — and the Scoop
-      # manifest below would advertise a version no `mjolnir --version` will
-      # ever confirm.
-      - name: Tag must match the crate version
+      # A pushed tag is the real thing; a dispatch names the tag it is
+      # rehearsing and publishes nothing.
+      - name: Resolve the tag
         id: version
         run: |
           set -euo pipefail
-          tag_version="${GITHUB_REF_NAME#cli-v}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            publish=true
+          else
+            tag="${{ inputs.tag }}"
+            publish=false
+            echo "::notice::Rehearsal for $tag. Nothing will be published."
+          fi
+          case "$tag" in
+            cli-v*) ;;
+            *) echo "::error::'$tag' is not a CLI tag; it must start with cli-v."; exit 1 ;;
+          esac
+
+          # `clap(version)` prints CARGO_PKG_VERSION, so a tag that disagrees
+          # with the crate ships a binary that misreports its own version — and
+          # the Scoop manifest would advertise a version no `mjolnir --version`
+          # will ever confirm.
+          tag_version="${tag#cli-v}"
           crate_version=$(sed -n '/^\[package\]/,/^\[/p' crates/blam-cli/Cargo.toml \
             | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
           echo "tag   $tag_version"
           echo "crate $crate_version"
           if [ "$tag_version" != "$crate_version" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match blam-cli's version ($crate_version). Bump crates/blam-cli/Cargo.toml, or tag the version that is already there."
+            echo "::error::tag $tag does not match blam-cli's version ($crate_version). Bump crates/blam-cli/Cargo.toml, or tag the version that is already there."
             exit 1
           fi
-          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "tag=$tag"
+            echo "version=$tag_version"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require a changelog entry
+        run: node scripts/check-changelog.mjs "${{ steps.version.outputs.tag }}"
 
   build:
     name: Build ${{ matrix.target }}
@@ -151,12 +180,17 @@ jobs:
   publish:
     name: Publish
     needs: [gate, build]
+    # Skipped entirely on a rehearsal: a dispatch proves the build, and stops
+    # one step short of the release, the CDN, the bucket and Discord.
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       # The release, and the Scoop manifest commit at the end.
       contents: write
     outputs:
       windows_sha256: ${{ steps.checksums.outputs.windows_sha256 }}
+    env:
+      TAG: ${{ needs.gate.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -173,7 +207,7 @@ jobs:
       # multi-line Markdown, and the gate job has already proved it parses.
       - name: Read the changelog entry
         id: changelog
-        run: node scripts/check-changelog.mjs "${{ github.ref_name }}"
+        run: node scripts/check-changelog.mjs "$TAG"
 
       - uses: actions/download-artifact@v4
         with:
@@ -188,11 +222,11 @@ jobs:
           cd artifacts
           ls -la
           {
-            echo "# MJOLNIR CLI ${GITHUB_REF_NAME} - SHA-256 Checksums"
+            echo "# MJOLNIR CLI ${TAG} - SHA-256 Checksums"
             echo
             sha256sum ./*.zip ./*.tar.gz | sed 's|\./||'
-          } > "checksums-${GITHUB_REF_NAME}.txt"
-          cat "checksums-${GITHUB_REF_NAME}.txt"
+          } > "checksums-${TAG}.txt"
+          cat "checksums-${TAG}.txt"
           win="mjolnir-$VER-x86_64-pc-windows-msvc.zip"
           linux="mjolnir-$VER-x86_64-unknown-linux-gnu.tar.gz"
           echo "windows_sha256=$(sha256sum "$win" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -201,12 +235,12 @@ jobs:
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "MJOLNIR CLI ${{ github.ref_name }}"
+          tag_name: ${{ needs.gate.outputs.tag }}
+          name: "MJOLNIR CLI ${{ needs.gate.outputs.tag }}"
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
-            artifacts/checksums-${{ github.ref_name }}.txt
+            artifacts/checksums-${{ needs.gate.outputs.tag }}.txt
           body: |
             ## ${{ steps.changelog.outputs.title }}
 
@@ -257,13 +291,13 @@ jobs:
           # build that only ever existed under it cannot be gone back to.
           wrangler r2 object put "$BASE/$VER/$WIN"   --file="artifacts/$WIN"   --remote
           wrangler r2 object put "$BASE/$VER/$LINUX" --file="artifacts/$LINUX" --remote
-          wrangler r2 object put "$BASE/$VER/checksums.txt" --file="artifacts/checksums-${GITHUB_REF_NAME}.txt" --remote
+          wrangler r2 object put "$BASE/$VER/checksums.txt" --file="artifacts/checksums-${TAG}.txt" --remote
 
           # Stable names under latest/, so a download link on the site does not
           # need editing every release.
           wrangler r2 object put "$BASE/latest/mjolnir-windows-x64.zip"  --file="artifacts/$WIN"   --remote
           wrangler r2 object put "$BASE/latest/mjolnir-linux-x64.tar.gz" --file="artifacts/$LINUX" --remote
-          wrangler r2 object put "$BASE/latest/checksums.txt" --file="artifacts/checksums-${GITHUB_REF_NAME}.txt" --remote
+          wrangler r2 object put "$BASE/latest/checksums.txt" --file="artifacts/checksums-${TAG}.txt" --remote
           echo "Uploaded cli $VER"
 
       # Scoop reads manifests straight out of a git repository, so the bucket is
@@ -358,7 +392,7 @@ jobs:
             --arg description "$CHANGELOG_SUMMARY" \
             --arg version "v$VER" \
             --arg hash "$WIN_HASH" \
-            --arg get "\`scoop install mjolnir\` · [GitHub Release](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME})" \
+            --arg get "\`scoop install mjolnir\` · [GitHub Release](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG})" \
             '{
               username: "MJOLNIR Core Releases",
               avatar_url: "https://mjolnircore.com/logo-transparent.png",
@@ -399,7 +433,7 @@ jobs:
         with:
           identifier: MJOLNIRCore.CLI
           version: ${{ needs.gate.outputs.version }}
-          release-tag: ${{ github.ref_name }}
+          release-tag: ${{ needs.gate.outputs.tag }}
           installers-regex: 'x86_64-pc-windows-msvc\.zip$'
           token: ${{ secrets.WINGET_TOKEN }}
 
