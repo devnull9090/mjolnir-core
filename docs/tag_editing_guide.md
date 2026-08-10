@@ -37,7 +37,15 @@ names, types, offsets — never values.
 $env:HCE_PAKS = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Content\Paks"
 ```
 
+```bash
+# Linux: the game runs under Proton, but its files are an ordinary Steam library
+export HCE_PAKS="$HOME/.steam/steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
+```
+
 Both tools read that path, and the editor auto-detects it on first run.
+
+The command line in Part 1 runs on Windows, Linux and macOS. The editor in
+Part 2 is a Windows application today.
 
 **Oodle is optional.** The shipped containers are Oodle-compressed and the game links Oodle
 statically, so it ships no `oo2core_*_win64.dll` — but a decoder is built in and is what runs by
@@ -54,9 +62,20 @@ $env:OODLE = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\DotNET\Automati
 ## Part 1: the command line
 
 ```powershell
-cargo build --release -p blam-cli
-# the binary lands at target/release/mjolnir
+scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core   # Windows
+scoop install mjolnir
 ```
+
+```bash
+brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core  # macOS, Linux
+brew install mjolnir
+```
+
+There are also `.deb` and `.rpm` packages, and a plain archive for each platform,
+on the [latest release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v).
+To build it from source instead — which you need only if you are changing the
+tool — `cargo build --release -p blam-cli` puts the binary at
+`target/release/mjolnir`.
 
 ### Finding your way around
 

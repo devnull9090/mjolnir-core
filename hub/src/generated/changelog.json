@@ -23,6 +23,13 @@
       "docsUrl": "/docs/notes/hub-architecture"
     },
     {
+      "id": "cli",
+      "name": "MJOLNIR CLI",
+      "tagPrefix": "cli-v",
+      "blurb": "The `mjolnir` command line: list, inspect, edit and repack the tags in your installed game.",
+      "docsUrl": "/docs/guides/getting-started"
+    },
+    {
       "id": "mods",
       "name": "MJOLNIR Code Mods",
       "tagPrefix": "mods-v",
@@ -31,6 +38,45 @@
     }
   ],
   "releases": [
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.1.0",
+      "tag": "cli-v0.1.0",
+      "title": "Edit the game's tags from Windows, Linux or macOS",
+      "date": "2026-08-09",
+      "summary": "The first published build of mjolnir, the command line that reads and edits the tags in your installed game — now for three operating systems, where before it had to be compiled from source.",
+      "body": "`mjolnir` is the tool the guides use to find a tag, print its fields, change a\nvalue and bake the result into a container the game will load. It has always\nbeen in the repository; it has never been something you could just download.\n\nNow it is, and not only on Windows. The game is a Windows title — it runs on\nLinux under Proton and not at all on macOS — but its containers are just files,\nand reading and editing them turns out to need no Windows anywhere.\n\n```powershell\nscoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core\nscoop install mjolnir\n```\n\n```bash\nbrew tap devnull9090/core https://github.com/devnull9090/mjolnir-core\nbrew install mjolnir\n```\n\n### Added\n\n- **Prebuilt binaries for Windows, Linux and macOS**, attached to the release\n  and mirrored on releases.mjolnircore.com. Unpack, put it on your `PATH`, done —\n  no Rust toolchain, no twenty-minute first compile.\n- **Install with a package manager**: Scoop on Windows, Homebrew on macOS and\n  Linux, or the `.deb` and `.rpm` packages for Debian, Ubuntu, Fedora, RHEL and\n  openSUSE.\n- **One macOS download for both Intel and Apple Silicon.** No wrong choice to\n  make, and no Intel build quietly running under emulation.\n- **A Linux build that runs on any distribution.** It is statically linked, so\n  there is nothing to install alongside it and no minimum system version — it\n  works the same on a current Ubuntu and on a decade-old CentOS.\n- Every build is checksummed, and the checksums are published in the release\n  notes as well as next to the download.\n\n### Changed\n\n- The getting-started and tag-editing guides now open with the download, and say\n  where the game's files are on Linux as well as on Windows. Building from source\n  is still supported and still documented — it is just no longer the only door.\n\n### Known issues\n\n- `mjolnir poke`, which changes a value in the running game, is Windows-only. It\n  attaches to the game process, so it needs the machine the game is on.\n- macOS can read, edit and build containers, but the game has no macOS version,\n  so there is no local install to point at and nothing to test a mod in. It is a\n  machine for authoring, not for playing.\n- Only 64-bit builds are published. The game is 64-bit; ARM Linux is one line of\n  CI away if anyone wants it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Prebuilt binaries for Windows, Linux and macOS, attached to the release and mirrored on releases.mjolnircore.com. Unpack, put it on your PATH, done — no Rust toolchain, no twenty-minute first compile.",
+            "Install with a package manager: Scoop on Windows, Homebrew on macOS and Linux, or the .deb and .rpm packages for Debian, Ubuntu, Fedora, RHEL and openSUSE.",
+            "One macOS download for both Intel and Apple Silicon. No wrong choice to make, and no Intel build quietly running under emulation.",
+            "A Linux build that runs on any distribution. It is statically linked, so there is nothing to install alongside it and no minimum system version — it works the same on a current Ubuntu and on a decade-old CentOS.",
+            "Every build is checksummed, and the checksums are published in the release notes as well as next to the download."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The getting-started and tag-editing guides now open with the download, and say where the game's files are on Linux as well as on Windows. Building from source is still supported and still documented — it is just no longer the only door."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "mjolnir poke, which changes a value in the running game, is Windows-only. It attaches to the game process, so it needs the machine the game is on.",
+            "macOS can read, edit and build containers, but the game has no macOS version, so there is no local install to point at and nothing to test a mod in. It is a machine for authoring, not for playing.",
+            "Only 64-bit builds are published. The game is 64-bit; ARM Linux is one line of CI away if anyone wants it."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.1.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.1.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.1.0"
+    },
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",

@@ -17,6 +17,50 @@ mod hsc;
 mod index;
 mod texture;
 
+/// Find a data file that ships alongside the binary.
+///
+/// The defaults for `--corpus` are repository-relative, which is right when the
+/// tool is run out of a checkout and useless when it is not: an installed build
+/// lives wherever the packager put it, and the working directory is wherever the
+/// person happens to be standing. So if the given path is not there, look
+/// relative to the executable, in the four layouts this actually ships in:
+///
+/// | Where it came from | Binary | Data |
+/// | --- | --- | --- |
+/// | release archive, Scoop, Chocolatey | `<dir>/mjolnir` | `<dir>/defs/…` |
+/// | .deb, .rpm, Homebrew | `<prefix>/bin/mjolnir` | `<prefix>/share/mjolnir/defs/…` |
+/// | `cargo build` in a checkout | `target/release/mjolnir` | `<repo>/defs/…` |
+///
+/// An explicit `--corpus` that does not exist still comes back unchanged, so the
+/// error names the path the caller asked for rather than one they never typed.
+fn resolve_data_path(given: &std::path::Path) -> PathBuf {
+    if given.exists() || given.is_absolute() {
+        return given.to_path_buf();
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return given.to_path_buf();
+    };
+    let Some(dir) = exe.parent() else {
+        return given.to_path_buf();
+    };
+    let candidates = [
+        dir.to_path_buf(),
+        // FHS: /usr/bin/mjolnir reads /usr/share/mjolnir/…, and the same
+        // relative step lands correctly under /usr/local and a Homebrew Cellar
+        // prefix, which is what makes one binary work for every packager.
+        dir.join("../share/mjolnir"),
+        dir.join(".."),
+        dir.join("../.."),
+    ];
+    for base in candidates {
+        let candidate = base.join(given);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    given.to_path_buf()
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -1700,7 +1744,7 @@ fn script(a: ScriptArgs) -> Result<()> {
     // corpus. Without it the decompiler still works, but tag paths come back
     // unquoted, so say so rather than quietly producing source that will not
     // compile.
-    let corpus = match blam_hsc::ScriptCorpus::load(&a.corpus) {
+    let corpus = match blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)) {
         Ok(corpus) => Some(corpus),
         Err(_) if a.decompile.is_some() || a.verify => {
             eprintln!(
@@ -2312,7 +2356,7 @@ fn walk_difference(
 /// Needs no game installation: the function table and both enums come from the
 /// committed corpus, so a mod author can check a script without one.
 fn compile(a: CompileArgs) -> Result<()> {
-    let corpus = blam_hsc::ScriptCorpus::load(&a.corpus).with_context(|| {
+    let corpus = blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
         format!(
             "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
             a.corpus.display()
