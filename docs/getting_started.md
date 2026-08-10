@@ -40,19 +40,32 @@ The rest of this guide is the mechanics of that.
 
 ## Step 1 — Install the tooling
 
-`mjolnir` is the command line that reads, inspects and edits tags. On Windows:
+`mjolnir` is the command line that reads, inspects and edits tags. It runs on
+Windows, Linux and macOS.
 
 ```powershell
+# Windows
 scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
 scoop install mjolnir
 ```
 
-No Scoop? Take the archive from the
-[latest release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v),
-unpack it anywhere, and put that folder on your `PATH`. Linux builds are on the
-same release. Either way, check it landed:
+```bash
+# macOS and Linux
+brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core
+brew install mjolnir
 
-```powershell
+# or, on Debian/Ubuntu and Fedora/RHEL respectively
+sudo dpkg -i mjolnir_*_amd64.deb
+sudo rpm -i mjolnir-*.x86_64.rpm
+```
+
+None of those? Take the archive for your platform from the
+[latest release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v),
+unpack it anywhere, and put that folder on your `PATH`. The Linux binary is
+statically linked, so it runs on any distribution without installing anything
+alongside it. Either way, check it landed:
+
+```
 mjolnir --version
 ```
 
@@ -82,6 +95,34 @@ Optional but recommended, since it turns a twenty-minute manual test loop into a
 
 That installs a UE4SS mod letting tools drive the running game — launch it, start a mission, read
 values out of live objects, take screenshots. See [`game_automation.md`](game_automation.md).
+It is Windows-only.
+
+### Where the game is
+
+Every command below needs the `Paks` folder. Set it once and the rest of the guide
+just works:
+
+```powershell
+# Windows
+$env:HCE_PAKS = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Content\Paks"
+```
+
+```bash
+# Linux — the game is a Windows title that runs under Proton, but its files sit
+# in the ordinary Steam library, unencrypted and readable
+export HCE_PAKS="$HOME/.steam/steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
+```
+
+If Steam keeps your games on another drive, look for the library in
+`~/.steam/steam/steamapps/libraryfolders.vdf`. A Flatpak Steam puts everything
+under `~/.var/app/com.valvesoftware.Steam/`.
+
+> **On macOS the tool runs, the game does not.** Halo Campaign Evolved is a
+> Windows title with no macOS build, so there is no local install to point at.
+> The macOS binary is for reading and editing container files you copied from a
+> machine that does have the game — useful for authoring, not for playing.
+> Everything up to building the container (Step 6) works; installing it and
+> seeing it in game need the machine the game is on.
 
 ---
 

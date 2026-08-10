@@ -176,11 +176,21 @@ export default function DownloadPage() {
               <p className="text-sm text-text-muted mt-1 leading-6">
                 <code className="text-foreground">mjolnir</code> reads and edits the same tag data
                 from a terminal — list a group, print a tag&apos;s decoded fields, change one, and
-                bake the result into a container the game loads. Windows and Linux builds, with
-                checksums, on every release.
+                bake the result into a container the game loads. It runs on{" "}
+                <strong className="text-foreground">Windows, Linux and macOS</strong>, with a
+                checksum published for every build.
               </p>
-              <pre className="mt-3 p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
-scoop install mjolnir`}</code></pre>
+              <pre className="mt-3 p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`# Windows
+scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+scoop install mjolnir
+
+# macOS and Linux
+brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core
+brew install mjolnir`}</code></pre>
+              <p className="text-xs text-text-dim mt-2 leading-5">
+                Also as <code>.deb</code> and <code>.rpm</code>, or a plain archive. The Linux
+                build is statically linked, so it runs on any distribution.
+              </p>
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
                 <Link
                   href="https://github.com/devnull9090/mjolnir-core/releases?q=cli-v"
