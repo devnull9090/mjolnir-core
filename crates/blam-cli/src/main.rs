@@ -17,6 +17,36 @@ mod hsc;
 mod index;
 mod texture;
 
+/// Find a data file that ships alongside the binary.
+///
+/// The defaults for `--corpus` are repository-relative, which is right when the
+/// tool is run out of a checkout and useless when it is not: a released build
+/// lives wherever the person unpacked it, and their working directory is
+/// wherever they happen to be standing. So if the given path is not there, look
+/// next to the executable, and then one level up from it — the second covers a
+/// `cargo build` in a checkout, where the binary sits in `target/release`.
+///
+/// An explicit `--corpus` that does not exist still comes back unchanged, so the
+/// error names the path the caller asked for rather than one they never typed.
+fn resolve_data_path(given: &std::path::Path) -> PathBuf {
+    if given.exists() || given.is_absolute() {
+        return given.to_path_buf();
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return given.to_path_buf();
+    };
+    let Some(dir) = exe.parent() else {
+        return given.to_path_buf();
+    };
+    for base in [dir.to_path_buf(), dir.join(".."), dir.join("../..")] {
+        let candidate = base.join(given);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    given.to_path_buf()
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -1700,7 +1730,7 @@ fn script(a: ScriptArgs) -> Result<()> {
     // corpus. Without it the decompiler still works, but tag paths come back
     // unquoted, so say so rather than quietly producing source that will not
     // compile.
-    let corpus = match blam_hsc::ScriptCorpus::load(&a.corpus) {
+    let corpus = match blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)) {
         Ok(corpus) => Some(corpus),
         Err(_) if a.decompile.is_some() || a.verify => {
             eprintln!(
@@ -2312,7 +2342,7 @@ fn walk_difference(
 /// Needs no game installation: the function table and both enums come from the
 /// committed corpus, so a mod author can check a script without one.
 fn compile(a: CompileArgs) -> Result<()> {
-    let corpus = blam_hsc::ScriptCorpus::load(&a.corpus).with_context(|| {
+    let corpus = blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
         format!(
             "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
             a.corpus.display()
