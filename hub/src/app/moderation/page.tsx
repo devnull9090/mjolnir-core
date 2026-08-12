@@ -13,13 +13,14 @@ import { Check, ShieldCheck, X } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
 import { useHub } from "../components/HubKit";
-import type { QueuedMedia, Report } from "@mjolnir/hub-kit";
+import type { HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
 
 export default function ModerationPage() {
   const { client, user, ready, signIn } = useHub();
   const [queue, setQueue] = useState<QueuedMedia[] | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
+  const [hidden, setHidden] = useState<HiddenMod[] | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -34,6 +35,10 @@ export default function ModerationPage() {
     client
       .listReports("open")
       .then(setReports)
+      .catch((e) => setBanner(e instanceof Error ? e.message : String(e)));
+    client
+      .listHiddenMods()
+      .then(setHidden)
       .catch((e) => setBanner(e instanceof Error ? e.message : String(e)));
   }, [client, isModerator]);
 
@@ -58,6 +63,19 @@ export default function ModerationPage() {
     try {
       await client.decideReport(id, action);
       setReports((r) => (r ? r.filter((x) => x.id !== id) : r));
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const decideMod = async (slug: string, action: "restore" | "remove") => {
+    setBusy(slug);
+    setBanner(null);
+    try {
+      await client.decideMod(slug, action);
+      setHidden((h) => (h ? h.filter((m) => m.slug !== slug) : h));
     } catch (e) {
       setBanner(e instanceof Error ? e.message : String(e));
     } finally {
@@ -155,6 +173,52 @@ export default function ModerationPage() {
                             Reject
                           </button>
                         </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* ── Hidden mods ── */}
+            <section className="mb-12">
+              <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
+                Hidden mods{hidden ? ` · ${hidden.length}` : ""}
+              </h2>
+
+              {hidden === null ? (
+                <p className="text-text-dim text-sm">Loading…</p>
+              ) : hidden.length === 0 ? (
+                <p className="text-text-dim text-sm">Nothing is hidden.</p>
+              ) : (
+                <div className="space-y-3">
+                  {hidden.map((m) => (
+                    <div key={m.id} className="rounded-lg border border-border p-4">
+                      <p className="text-sm mb-1">
+                        <Link href={`/mods/${m.slug}`} className="text-gold hover:underline font-semibold">
+                          {m.name}
+                        </Link>{" "}
+                        <span className="text-text-dim">
+                          by <span className="text-text-muted">{m.owner}</span> ·{" "}
+                          {m.open_reporters} account{m.open_reporters === 1 ? "" : "s"} with open
+                          reports · hidden {m.hidden_at}
+                        </span>
+                      </p>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => decideMod(m.slug, "restore")}
+                          disabled={busy === m.slug}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 disabled:opacity-40 transition-colors cursor-pointer"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => decideMod(m.slug, "remove")}
+                          disabled={busy === m.slug}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:opacity-40 transition-colors cursor-pointer"
+                        >
+                          Remove
+                        </button>
                       </div>
                     </div>
                   ))}

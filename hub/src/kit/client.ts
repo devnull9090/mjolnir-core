@@ -15,6 +15,7 @@ import type {
   ConflictPair,
   DevicePoll,
   DeviceStart,
+  HiddenMod,
   Media,
   MediaOwner,
   MediaStatus,
@@ -24,6 +25,7 @@ import type {
   QueuedMedia,
   RatingSummary,
   Release,
+  ReleaseChanges,
   ReleaseStatusDetail,
   Report,
   ReportReason,
@@ -219,6 +221,11 @@ export class HubClient {
     return r.releases;
   }
 
+  /** What a release declares it changes, plus the measured chunk count. */
+  getReleaseChanges(id: string): Promise<ReleaseChanges> {
+    return this.call({ method: "GET", path: `/releases/${encodeURIComponent(id)}/changes` });
+  }
+
   getRelease(id: string): Promise<ReleaseStatusDetail> {
     return this.call({ method: "GET", path: `/releases/${encodeURIComponent(id)}` });
   }
@@ -365,6 +372,23 @@ export class HubClient {
     return this.call({
       method: "POST",
       path: `/moderation/reports/${encodeURIComponent(id)}`,
+      body: { action },
+    });
+  }
+
+  /** Mods pulled from public view, awaiting a decision. Moderators only. */
+  async listHiddenMods(): Promise<HiddenMod[]> {
+    const r = await this.call<{ mods: HiddenMod[] }>({
+      method: "GET",
+      path: "/moderation/mods",
+    });
+    return r.mods;
+  }
+
+  decideMod(slug: string, action: "restore" | "hide" | "remove"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/mods/${encodeURIComponent(slug)}`,
       body: { action },
     });
   }

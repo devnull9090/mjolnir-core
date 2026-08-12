@@ -6,7 +6,7 @@
  * API remains the contract for everyone else.
  */
 import type { D1Database } from "@cloudflare/workers-types";
-import type { Media, Mod, Release } from "@mjolnir/hub-kit";
+import type { Media, Mod, Release, ReleaseChanges } from "@mjolnir/hub-kit";
 
 /**
  * Listing rows are the API's `Mod` shape so pages can hand them straight to
@@ -189,7 +189,7 @@ export async function getModPage(db: D1Database, slug: string) {
     .first()) as unknown as ModPage | null;
   if (!mod) return null;
 
-  const [media, releases] = await Promise.all([
+  const [media, releases, latest] = await Promise.all([
     // Approved only: the page is public, and a caller's own pending items
     // arrive through the API refetch that knows who is asking.
     db
@@ -213,6 +213,17 @@ export async function getModPage(db: D1Database, slug: string) {
       )
       .bind(mod.id)
       .all(),
+    // The latest release's declared change list, for the transparency
+    // section — same shape the /releases/{id}/changes endpoint serves.
+    db
+      .prepare(
+        `SELECT r.id, r.version, r.changes_json,
+                (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count
+         FROM mod_releases r WHERE r.mod_id = ?1 AND r.status = 'published'
+         ORDER BY r.created_at DESC LIMIT 1`,
+      )
+      .bind(mod.id)
+      .first<{ id: string; version: string; changes_json: string | null; chunk_count: number }>(),
   ]);
   return {
     mod,
@@ -222,5 +233,13 @@ export async function getModPage(db: D1Database, slug: string) {
       url: `/api/v1/media/${r.id}`,
     })) as unknown as MediaRow[],
     releases: releases.results as unknown as ReleaseRow[],
+    latestChanges: latest
+      ? ({
+          release_id: latest.id,
+          version: latest.version,
+          chunk_count: latest.chunk_count,
+          changes: latest.changes_json ? JSON.parse(latest.changes_json) : null,
+        } satisfies ReleaseChanges)
+      : null,
   };
 }

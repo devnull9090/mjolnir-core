@@ -87,11 +87,27 @@ fn bake_export_and_test_install_against_the_real_game() {
     };
     let identity = mjolnir_sign::SigningIdentity::from_seed(&[42u8; 32]);
     let archive = dir.join("bake-e2e-0.0.1.mjolnir");
+    let declared = serde_json::to_string_pretty(&modpack::DeclaredChanges {
+        schema_version: 1,
+        tags: vec![modpack::DeclaredTag {
+            group: "weapon".into(),
+            tag: entry.short.clone(),
+            fields: vec![modpack::DeclaredField {
+                field: path.into(),
+                before: Some(target.current.display()),
+                value: "24".into(),
+            }],
+        }],
+        textures: Vec::new(),
+        scripts: Vec::new(),
+    })
+    .unwrap();
     let size = modpack::write_archive(
         &archive,
         &meta,
         &baked,
         None,
+        Some(&declared),
         Some(modpack::SignContext {
             identity: &identity,
             author: Some(mjolnir_sign::Author {
@@ -111,6 +127,7 @@ fn bake_export_and_test_install_against_the_real_game() {
         names,
         [
             "mjolnir.json",
+            "changes.json",
             "content/bake-e2e_P.utoc",
             "content/bake-e2e_P.ucas",
             "signature.json"

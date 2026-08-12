@@ -19,6 +19,14 @@ type Ctx = Context<ApiEnv>;
 
 const REPORT_REASONS = ["malware", "stolen", "broken", "nsfw", "spam", "other"] as const;
 
+/**
+ * Publishing is unmoderated, so this is the brake: once this many distinct
+ * accounts hold open reports against a mod (or its releases), it leaves
+ * public view until a moderator decides. Low on purpose — a hidden mod
+ * costs its author a review; a live bad mod costs players.
+ */
+const AUTO_HIDE_REPORTERS = 3;
+
 const ReportCreateSchema = z
   .object({
     subject_type: z.enum(["mod", "release", "comment", "media", "user"]),
@@ -40,6 +48,21 @@ const ReportSchema = z
     created_at: z.string(),
   })
   .openapi("Report");
+
+/** A hidden mod as the review queue sees it: enough to judge whether the
+ *  reports that pulled it were right. */
+const HiddenModSchema = z
+  .object({
+    id: z.string(),
+    slug: z.string(),
+    name: z.string(),
+    owner: z.string(),
+    open_reporters: z.number().int().openapi({
+      description: "Distinct accounts currently holding open reports against it.",
+    }),
+    hidden_at: z.string(),
+  })
+  .openapi("HiddenMod");
 
 /** A gallery submission as the review queue sees it: the item plus enough
  *  context (what it was submitted to, uploader) to judge it without leaving
@@ -63,7 +86,7 @@ const QueuedMediaSchema = z
 
 export async function audit(
   c: Ctx,
-  actorId: string,
+  actorId: string | null,
   action: string,
   subjectType: string,
   subjectId: string,
@@ -75,6 +98,25 @@ export async function audit(
   )
     .bind(actorId, action, subjectType, subjectId, detail ?? null)
     .run();
+}
+
+/** The mod a report is ultimately about, when its subject is a mod or one
+ *  of a mod's releases; reports on comments, media and users don't feed
+ *  the auto-hide count. */
+async function reportedModId(c: Ctx, subjectType: string, subjectId: string) {
+  if (subjectType === "mod") {
+    const row = await c.env.DB.prepare(`SELECT id FROM mods WHERE id = ?1`)
+      .bind(subjectId)
+      .first<{ id: string }>();
+    return row?.id ?? null;
+  }
+  if (subjectType === "release") {
+    const row = await c.env.DB.prepare(`SELECT mod_id FROM mod_releases WHERE id = ?1`)
+      .bind(subjectId)
+      .first<{ mod_id: string }>();
+    return row?.mod_id ?? null;
+  }
+  return null;
 }
 
 export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
@@ -107,6 +149,41 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       )
         .bind(id, auth.user.id, body.subject_type, body.subject_id, body.reason, body.detail ?? null)
         .run();
+
+      // Publishing needs no approval, so reporting is what pulls the brake:
+      // enough distinct accounts with open reports against one mod hides it
+      // until a moderator restores or removes it. Counting accounts rather
+      // than reports keeps one determined reporter from doing it alone.
+      const modId = await reportedModId(c, body.subject_type, body.subject_id);
+      if (modId) {
+        const reporters = await c.env.DB.prepare(
+          `SELECT COUNT(DISTINCT reporter_id) AS n FROM reports
+           WHERE status = 'open'
+             AND ((subject_type = 'mod' AND subject_id = ?1)
+               OR (subject_type = 'release' AND subject_id IN
+                    (SELECT id FROM mod_releases WHERE mod_id = ?1)))`,
+        )
+          .bind(modId)
+          .first<{ n: number }>();
+        if ((reporters?.n ?? 0) >= AUTO_HIDE_REPORTERS) {
+          const res = await c.env.DB.prepare(
+            `UPDATE mods SET status = 'hidden', updated_at = datetime('now')
+             WHERE id = ?1 AND status = 'published'`,
+          )
+            .bind(modId)
+            .run();
+          if (res.meta.changes) {
+            await audit(
+              c,
+              null,
+              "mod_auto_hidden",
+              "mod",
+              modId,
+              `${reporters!.n} accounts with open reports`,
+            );
+          }
+        }
+      }
       return c.json({ id }, 201);
     },
   );
@@ -194,6 +271,106 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         .run();
       if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
       await audit(c, auth.user.id, `report_${action}`, "report", id);
+      return c.json({ ok: true }, 200);
+    },
+  );
+
+  // ── Hidden mods ─────────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/moderation/mods",
+      tags: ["moderation"],
+      summary: "Hidden mods awaiting a decision (moderators)",
+      description:
+        "Mods pulled from public view — automatically by report volume, or " +
+        "by a moderator — each with its open-report tally so the queue can " +
+        "be worked without cross-referencing.",
+      responses: {
+        200: {
+          description: "Hidden mods, oldest first.",
+          content: { "application/json": { schema: z.object({ mods: z.array(HiddenModSchema) }) } },
+        },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      await requireModerator(c);
+      const rows = await c.env.DB.prepare(
+        `SELECT m.id, m.slug, m.name, m.updated_at,
+                COALESCE(u.display_name, u.discord_username) AS owner,
+                (SELECT COUNT(DISTINCT r.reporter_id) FROM reports r
+                 WHERE r.status = 'open'
+                   AND ((r.subject_type = 'mod' AND r.subject_id = m.id)
+                     OR (r.subject_type = 'release' AND r.subject_id IN
+                          (SELECT id FROM mod_releases WHERE mod_id = m.id)))) AS open_reporters
+         FROM mods m JOIN users u ON u.id = m.owner_id
+         WHERE m.status = 'hidden' ORDER BY m.updated_at LIMIT 200`,
+      ).all();
+      return c.json(
+        {
+          mods: rows.results.map((r) => ({
+            id: r.id as string,
+            slug: r.slug as string,
+            name: r.name as string,
+            owner: r.owner as string,
+            open_reporters: r.open_reporters as number,
+            hidden_at: r.updated_at as string,
+          })),
+        },
+        200,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/moderation/mods/{slug}",
+      tags: ["moderation"],
+      summary: "Restore, hide, or remove a mod (moderators)",
+      description:
+        "`restore` returns a hidden mod to public view, `hide` pulls a " +
+        "published one pending review, `remove` takes it down for good. " +
+        "Every decision lands in the audit log.",
+      request: {
+        params: z.object({ slug: z.string() }),
+        body: {
+          content: {
+            "application/json": {
+              schema: z
+                .object({ action: z.enum(["restore", "hide", "remove"]) })
+                .openapi("ModDecision"),
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "Decided.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such mod, or not in a state the action applies to.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await requireModerator(c);
+      const { slug } = c.req.valid("param");
+      const { action } = c.req.valid("json");
+      // Each action only makes sense from certain states; acting on a mod
+      // that already left that state 404s rather than silently rewriting.
+      const from = action === "restore" ? ["hidden"] : ["published", "hidden"];
+      const to = action === "restore" ? "published" : action === "hide" ? "hidden" : "removed";
+      const marks = from.map((_, i) => `?${i + 3}`).join(", ");
+      const res = await c.env.DB.prepare(
+        `UPDATE mods SET status = ?2, updated_at = datetime('now')
+         WHERE slug = ?1 AND status IN (${marks})`,
+      )
+        .bind(slug, to, ...from)
+        .run();
+      if (!res.meta.changes) return c.json({ error: "not_found" }, 404);
+      await audit(c, auth.user.id, `mod_${action}`, "mod", slug);
       return c.json({ ok: true }, 200);
     },
   );

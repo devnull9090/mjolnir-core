@@ -25,6 +25,7 @@ import {
   ErrorSchema,
   ModCreateSchema,
   ModDetailSchema,
+  ReleaseChangesSchema,
   ReleaseCreateSchema,
   ReleaseSchema,
   ReleaseStatusSchema,
@@ -383,8 +384,13 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         ),
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
         c.env.DB.prepare(
-          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3 WHERE id = ?1`,
-        ).bind(id, scan.verdict === "pass" ? "published" : "rejected", signingKeyId),
+          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3, changes_json = ?4 WHERE id = ?1`,
+        ).bind(
+          id,
+          scan.verdict === "pass" ? "published" : "rejected",
+          signingKeyId,
+          scan.changes ? JSON.stringify(scan.changes) : null,
+        ),
       ];
       if (signingKeyId) {
         statements.push(
@@ -510,6 +516,53 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
+  // ── Declared changes ────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/releases/{id}/changes",
+      tags: ["releases"],
+      summary: "What a release declares it changes",
+      description:
+        "The change list the archive carried (changes.json): tag edits as " +
+        "shipped → modded values, replaced textures and scripts. An author " +
+        "declaration rendered for transparency — compare `chunk_count`, " +
+        "which is measured from the uploaded containers, to spot a release " +
+        "claiming less than it touches. `changes` is null for archives " +
+        "predating the format.",
+      request: { params: z.object({ id: z.string() }) },
+      responses: {
+        200: {
+          description: "The declared changes.",
+          content: { "application/json": { schema: ReleaseChangesSchema } },
+        },
+        404: { description: "Not published.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const row = await c.env.DB.prepare(
+        `SELECT r.version, r.changes_json,
+                (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count
+         FROM mod_releases r JOIN mods m ON m.id = r.mod_id
+         WHERE r.id = ?1 AND r.status = 'published' AND m.status = 'published'`,
+      )
+        .bind(id)
+        .first<{ version: string; changes_json: string | null; chunk_count: number }>();
+      if (!row) return c.json({ error: "not_found" }, 404);
+      return c.json(
+        {
+          release_id: id,
+          version: row.version,
+          chunk_count: row.chunk_count,
+          changes: row.changes_json ? JSON.parse(row.changes_json) : null,
+        },
+        200,
+      );
+    },
+  );
+
   // ── Download ────────────────────────────────────────────────────────
 
   app.openapi(
@@ -530,7 +583,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       const release = await c.env.DB.prepare(
         `SELECT r.r2_key, r.download_url, r.mod_id, m.slug, r.version FROM mod_releases r
          JOIN mods m ON m.id = r.mod_id
-         WHERE r.id = ?1 AND r.status = 'published'`,
+         WHERE r.id = ?1 AND r.status = 'published' AND m.status = 'published'`,
       )
         .bind(id)
         .first<{

@@ -12,6 +12,8 @@
  */
 import { unzipSync } from "fflate";
 
+import type { DeclaredChanges } from "./changes";
+import { DeclaredChangesSchema, MAX_CHANGES_BYTES } from "./changes";
 import type { Manifest } from "./manifest";
 import { ManifestSchema } from "./manifest";
 import { chunkIdToHex, parseTocChunkIds } from "./iostore";
@@ -36,6 +38,8 @@ export interface ScanResult {
   verdict: "pass" | "fail";
   findings: Finding[];
   manifest: Manifest | null;
+  /** The declared change list, when the archive carries a valid one. */
+  changes: DeclaredChanges | null;
   /** Deduped raw 12-byte chunk IDs across every container in the archive. */
   chunkIds: Uint8Array[];
   containerCount: number;
@@ -62,7 +66,15 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
     });
   } catch (e) {
     err("bad_zip", `Archive did not unzip: ${e instanceof Error ? e.message : e}`);
-    return { verdict: "fail", findings, manifest: null, chunkIds: [], containerCount: 0, files: {} };
+    return {
+      verdict: "fail",
+      findings,
+      manifest: null,
+      changes: null,
+      chunkIds: [],
+      containerCount: 0,
+      files: {},
+    };
   }
 
   // Path hygiene before anything is trusted.
@@ -82,11 +94,46 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
       const parsed = ManifestSchema.safeParse(JSON.parse(new TextDecoder().decode(rawManifest)));
       if (parsed.success) {
         manifest = parsed.data;
+        if (!manifest.summary?.trim()) {
+          warn(
+            "no_summary",
+            "The manifest has no summary, so cards and the mod page say nothing " +
+              "about what this is. Set one in the project settings and re-export.",
+          );
+        }
       } else {
         err("bad_manifest", `mjolnir.json invalid: ${parsed.error.issues[0]?.message}`);
       }
     } catch {
       err("bad_manifest", "mjolnir.json is not valid JSON.");
+    }
+  }
+
+  // The declared change list. Optional — older editors don't write one —
+  // but present-and-broken is an error: it is machine-written, so a file
+  // that fails the schema means tampering or a bug worth stopping.
+  let changes: DeclaredChanges | null = null;
+  const rawChanges = files["changes.json"];
+  if (!rawChanges) {
+    warn(
+      "no_changes",
+      "No changes.json: the mod page cannot show players what this release edits. " +
+        "Export from a current tag editor to include the declared change list.",
+    );
+  } else if (rawChanges.length > MAX_CHANGES_BYTES) {
+    err("bad_changes", `changes.json is ${rawChanges.length} bytes; the cap is ${MAX_CHANGES_BYTES}.`);
+  } else {
+    try {
+      const parsed = DeclaredChangesSchema.safeParse(
+        JSON.parse(new TextDecoder().decode(rawChanges)),
+      );
+      if (parsed.success) {
+        changes = parsed.data;
+      } else {
+        err("bad_changes", `changes.json invalid: ${parsed.error.issues[0]?.message}`);
+      }
+    } catch {
+      err("bad_changes", "changes.json is not valid JSON.");
     }
   }
 
@@ -138,6 +185,7 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
     verdict: findings.some((f) => f.level === "error") ? "fail" : "pass",
     findings,
     manifest,
+    changes,
     chunkIds: [...seen.values()],
     containerCount: utocs.length,
     files,

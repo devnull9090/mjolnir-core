@@ -338,7 +338,9 @@ means an API key or a session cookie; everything else is public and CORS-open.
 | `PUT` | `/v1/mods/{slug}/ratings/me` | auth |
 | `POST` `DELETE` | `/v1/mods/{slug}/comments` · `/v1/comments/{id}` | auth |
 | `POST` | `/v1/reports` | auth |
+| `GET` | `/v1/releases/{id}/changes` | declared change list + measured chunk count |
 | `GET` `POST` | `/v1/moderation/reports`, `/v1/moderation/reports/{id}` | moderators |
+| `GET` `POST` | `/v1/moderation/mods`, `/v1/moderation/mods/{slug}` | moderators — hidden-mod queue |
 | `POST` | `/v1/releases/{id}/yank` | moderators |
 | `GET` `POST` `DELETE` | `/v1/account/api-keys`, `/v1/account/signing-keys` | auth — and `/{id}` to revoke |
 | `GET` | `/v1/account/me` | auth |
@@ -446,6 +448,14 @@ so moving it later is a change of host, not of design.
 API keys and scopes, `POST /v1/conflicts/check`, the spec rendered at `/docs/api`, rate limiting,
 CORS, cursor pagination, and the moderation queue with reports and an audit log. Still missing
 from this phase: the "worked integration example" alongside the spec.
+
+Publishing stays unmoderated, and reporting is the brake that makes that safe: once three
+distinct accounts hold open reports against one mod (or its releases), it is automatically
+hidden — delisted, page 404s, downloads stop — until a moderator restores or removes it from
+the hidden-mod queue. The flip is audit-logged as `mod_auto_hidden`. Transparency is the other
+half of the same bargain: every release carries its declared change list (`changes.json`,
+`mjolnir_format.md`), stored at scan time and rendered on the mod page and in the launcher as
+"what this mod does", beside the chunk count measured from the containers themselves.
 
 **Phase 2.5 — The launcher as a first-class client** *(done)*
 The launcher browses the hub with every filter the API offers (search, category, type, sort,

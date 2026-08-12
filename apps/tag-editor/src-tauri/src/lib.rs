@@ -2102,6 +2102,45 @@ fn export_archive(
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
 
+        // The declared change list the hub and launcher show players. Built
+        // from the same resolved view as the editor's Changes panel, so what
+        // the mod page says is what the author saw at export.
+        let declared = modpack::DeclaredChanges {
+            schema_version: 1,
+            tags: changes_for(c, &edits)
+                .into_iter()
+                .map(|t| modpack::DeclaredTag {
+                    group: t.group,
+                    tag: t.tag,
+                    fields: t
+                        .edits
+                        .into_iter()
+                        .map(|e| modpack::DeclaredField {
+                            field: e.field,
+                            before: e.before,
+                            value: e.value,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            textures: swaps
+                .iter()
+                .map(|(path, png)| modpack::DeclaredTexture {
+                    path: path.clone(),
+                    bytes: png.len(),
+                })
+                .collect(),
+            scripts: scripts
+                .keys()
+                .map(|(group, tag)| modpack::DeclaredScript {
+                    group: group.clone(),
+                    tag: tag.clone(),
+                })
+                .collect(),
+        };
+        let changes_json =
+            serde_json::to_string_pretty(&declared).map_err(|e| e.to_string())? + "\n";
+
         let (signer, signer_fingerprint) = match &identity {
             Some(Ok(identity)) => (
                 Some(modpack::SignContext {
@@ -2119,11 +2158,20 @@ fn export_archive(
 
         let archive = build_dir.join(format!("{}-{}.mjolnir", meta.slug, meta.version));
         let readme = root.join("README.md");
+        if meta.summary.trim().is_empty() && !readme.is_file() {
+            warnings.push(
+                "The mod has no summary and no README.md, so its hub page will say nothing \
+                 about it. Add a summary in the project settings or a README.md in the \
+                 project folder."
+                    .into(),
+            );
+        }
         let size = modpack::write_archive(
             &archive,
             &meta,
             &baked,
             readme.is_file().then(|| readme.as_path()),
+            Some(&changes_json),
             signer,
         )?;
 
