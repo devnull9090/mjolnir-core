@@ -39,6 +39,62 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.7.0",
+      "tag": "launcher-v0.7.0",
+      "title": "See what a mod does before you install it",
+      "date": "2026-08-11",
+      "summary": "Mod pages now show \"What this mod does\" — the declared list of every tag edit, texture, and script in the latest release — and mods the community reports are hidden automatically.",
+      "body": "A mod page used to be whatever the author wrote about it, which for the first\ncommunity-published mod was nothing at all. You installed it to find out.\n\n### Added\n\n- A **What this mod does** section on every content mod's page: the change\n  list the release declared at export — each tag field edit with the original\n  value beside the new one, each replaced texture, each script.\n\n### Changed\n\n- Mods reported by three different accounts are hidden everywhere — delisted,\n  page gone, downloads stopped — until a moderator looks. Before, a bad upload\n  stayed up until a moderator happened to notice on their own.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A What this mod does section on every content mod's page: the change list the release declared at export — each tag field edit with the original value beside the new one, each replaced texture, each script."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Mods reported by three different accounts are hidden everywhere — delisted, page gone, downloads stopped — until a moderator looks. Before, a bad upload stayed up until a moderator happened to notice on their own."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.7.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.7.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.7.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.11.0",
+      "tag": "tag-editor-v0.11.0",
+      "title": "Your exports now say what they change",
+      "date": "2026-08-11",
+      "summary": "Exported mods now carry a declared change list — every tag edit, texture, and script — shown on the mod's hub page and in the launcher before anyone installs.",
+      "body": "Until now a published mod was a sealed archive. The page for it could say\nwhatever the author wrote, or nothing at all, and the only way to know what a\nmod actually touched was to install it and look.\n\n### Added\n\n- Exports write a change list into the archive: each tag field edit with the\n  shipped value beside the new one, each replaced texture, each script. It is\n  built from the same resolved view as the editor's Changes panel, so what the\n  mod page says is exactly what you saw at export.\n- The change list is part of the signed archive, so it cannot be altered\n  without breaking the signature.\n- A warning at export when the project has no summary and no README, since a\n  mod page with nothing on it is the thing this release exists to end.\n\n### Changed\n\n- The hub shows the declared list beside the measured size of the archive, so\n  a mod that declares less than it ships is visible at a glance.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Exports write a change list into the archive: each tag field edit with the shipped value beside the new one, each replaced texture, each script. It is built from the same resolved view as the editor's Changes panel, so what the mod page says is exactly what you saw at export.",
+            "The change list is part of the signed archive, so it cannot be altered without breaking the signature.",
+            "A warning at export when the project has no summary and no README, since a mod page with nothing on it is the thing this release exists to end."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The hub shows the declared list beside the measured size of the archive, so a mod that declares less than it ships is visible at a glance."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.11.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.11.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.11.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.1.0",
