@@ -15,6 +15,7 @@ import {
   ErrorNote,
   ModGallery,
   RatingPanel,
+  ReleaseChangesPanel,
   ReleaseList,
   ReportButton,
   Spinner,
@@ -187,6 +188,18 @@ export function ModDetail({
               ) : (
                 <p className="text-sm text-text-secondary">No description yet.</p>
               )}
+
+              {/* What the latest release actually edits — the declared
+                  change list, shown before anyone decides to install. */}
+              {mod.type === "content" && releases[0] && (
+                <div>
+                  <h3 className="text-sm font-bold uppercase text-text-secondary mb-3">
+                    What this mod does
+                  </h3>
+                  <ReleaseChangesPanel releaseId={releases[0].id} />
+                </div>
+              )}
+
               <CommentThread slug={slug} />
             </div>
 

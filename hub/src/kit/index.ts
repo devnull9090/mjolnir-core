@@ -21,5 +21,7 @@ export * from "./ui/FileDrop";
 export * from "./ui/MediaUploader";
 export * from "./ui/Gallery";
 export * from "./ui/ReleaseList";
+export * from "./ui/ChangeList";
+export * from "./ui/ReleaseChangesPanel";
 export * from "./ui/ReportButton";
 export * from "./ui/WhatsNew";

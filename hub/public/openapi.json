@@ -630,6 +630,157 @@
           "message"
         ]
       },
+      "ReleaseChanges": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "description": "IoStore chunks the uploaded containers actually claim — measured by the scanner, not declared by the author."
+          },
+          "changes": {
+            "$ref": "#/components/schemas/DeclaredChanges"
+          }
+        },
+        "required": [
+          "release_id",
+          "version",
+          "chunk_count",
+          "changes"
+        ]
+      },
+      "DeclaredChanges": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeclaredTag"
+            },
+            "maxItems": 1000
+          },
+          "textures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "path"
+              ]
+            },
+            "maxItems": 500,
+            "default": []
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "group",
+                "tag"
+              ]
+            },
+            "maxItems": 500,
+            "default": []
+          }
+        },
+        "required": [
+          "schema_version",
+          "tags"
+        ],
+        "description": "The archive's declared change list; null when it carried none."
+      },
+      "DeclaredTag": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "example": "weapon"
+          },
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "example": "objects/weapons/pistol/pistol"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeclaredField"
+            },
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "group",
+          "tag",
+          "fields"
+        ]
+      },
+      "DeclaredField": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096,
+            "description": "The shipped value at export time, when it resolved."
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
       "ConflictList": {
         "type": "object",
         "properties": {
@@ -1284,6 +1435,54 @@
             "enum": [
               "resolve",
               "dismiss"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "HiddenMod": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "open_reporters": {
+            "type": "integer",
+            "description": "Distinct accounts currently holding open reports against it."
+          },
+          "hidden_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "owner",
+          "open_reporters",
+          "hidden_at"
+        ]
+      },
+      "ModDecision": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "restore",
+              "hide",
+              "remove"
             ]
           }
         },
@@ -2409,6 +2608,47 @@
           },
           "404": {
             "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/changes": {
+      "get": {
+        "tags": [
+          "releases"
+        ],
+        "summary": "What a release declares it changes",
+        "description": "The change list the archive carried (changes.json): tag edits as shipped → modded values, replaced textures and scripts. An author declaration rendered for transparency — compare `chunk_count`, which is measured from the uploaded containers, to spot a release claiming less than it touches. `changes` is null for archives predating the format.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The declared changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseChanges"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not published.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3832,6 +4072,136 @@
           },
           "404": {
             "description": "No such open report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/mods": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Hidden mods awaiting a decision (moderators)",
+        "description": "Mods pulled from public view — automatically by report volume, or by a moderator — each with its open-report tally so the queue can be worked without cross-referencing.",
+        "responses": {
+          "200": {
+            "description": "Hidden mods, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mods": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HiddenMod"
+                      }
+                    }
+                  },
+                  "required": [
+                    "mods"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/mods/{slug}": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Restore, hide, or remove a mod (moderators)",
+        "description": "`restore` returns a hidden mod to public view, `hide` pulls a published one pending review, `remove` takes it down for good. Every decision lands in the audit log.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod, or not in a state the action applies to.",
             "content": {
               "application/json": {
                 "schema": {

@@ -147,6 +147,17 @@ export interface QueuedMedia {
   created_at: string;
 }
 
+/** A hidden mod as the moderation queue lists it. */
+export interface HiddenMod {
+  id: string;
+  slug: string;
+  name: string;
+  owner: string;
+  /** Distinct accounts currently holding open reports against it. */
+  open_reporters: number;
+  hidden_at: string;
+}
+
 export interface Report {
   id: string;
   reporter: string;
@@ -192,6 +203,47 @@ export interface User {
   avatar_url: string | null;
   role: "user" | "moderator" | "admin";
   created_at: string;
+}
+
+/** One field edit as a release's changes.json declares it. */
+export interface DeclaredField {
+  field: string;
+  /** The shipped value at export time, when it resolved. */
+  before?: string | null;
+  value: string;
+}
+
+export interface DeclaredTag {
+  group: string;
+  tag: string;
+  fields: DeclaredField[];
+}
+
+export interface DeclaredTexture {
+  path: string;
+  bytes?: number;
+}
+
+export interface DeclaredScript {
+  group: string;
+  tag: string;
+}
+
+/** The declared change list a release archive carried. */
+export interface DeclaredChanges {
+  schema_version: 1;
+  tags: DeclaredTag[];
+  textures: DeclaredTexture[];
+  scripts: DeclaredScript[];
+}
+
+export interface ReleaseChanges {
+  release_id: string;
+  version: string;
+  /** Chunks the uploaded containers actually claim — measured, not declared. */
+  chunk_count: number;
+  /** Null when the archive predates the transparency format. */
+  changes: DeclaredChanges | null;
 }
 
 export interface ConflictPair {

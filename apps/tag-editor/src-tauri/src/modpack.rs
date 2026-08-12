@@ -107,6 +107,51 @@ struct Manifest<'a> {
     summary: &'a str,
 }
 
+/// One field edit as `changes.json` declares it to players.
+#[derive(Serialize)]
+pub struct DeclaredField {
+    pub field: String,
+    /// The shipped value at export time; absent only if it did not resolve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    pub value: String,
+}
+
+/// Every declared edit to one tag.
+#[derive(Serialize)]
+pub struct DeclaredTag {
+    pub group: String,
+    pub tag: String,
+    pub fields: Vec<DeclaredField>,
+}
+
+#[derive(Serialize)]
+pub struct DeclaredTexture {
+    pub path: String,
+    /// Size of the replacement image, so the list hints at scope.
+    pub bytes: usize,
+}
+
+#[derive(Serialize)]
+pub struct DeclaredScript {
+    pub group: String,
+    pub tag: String,
+}
+
+/// The `changes.json` an archive carries: the recipe resolved against the
+/// author's installation at export time, written for players rather than
+/// for re-application. The hub and the launcher render it as "what this
+/// mod does"; the containers remain the bytes that actually ship.
+#[derive(Serialize)]
+pub struct DeclaredChanges {
+    pub schema_version: u32,
+    pub tags: Vec<DeclaredTag>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub textures: Vec<DeclaredTexture>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scripts: Vec<DeclaredScript>,
+}
+
 /// The author identity an archive is signed with, when one exists.
 pub struct SignContext<'a> {
     pub identity: &'a mjolnir_sign::SigningIdentity,
@@ -114,16 +159,17 @@ pub struct SignContext<'a> {
     pub author: Option<mjolnir_sign::Author>,
 }
 
-/// Write the `.mjolnir` archive: manifest at the root, containers under
-/// `content/`, the project README under `docs/`, and — when a signer is
-/// given — a `signature.json` covering every other member's digest, so
-/// anyone holding the archive can check exactly who bundled exactly these
-/// bytes. Returns the archive size.
+/// Write the `.mjolnir` archive: manifest and declared change list at the
+/// root, containers under `content/`, the project README under `docs/`, and
+/// — when a signer is given — a `signature.json` covering every other
+/// member's digest, so anyone holding the archive can check exactly who
+/// bundled exactly these bytes. Returns the archive size.
 pub fn write_archive(
     dest: &Path,
     meta: &Meta,
     baked: &[Baked],
     readme: Option<&Path>,
+    changes: Option<&str>,
     signer: Option<SignContext<'_>>,
 ) -> Result<u64, String> {
     let manifest = serde_json::to_string_pretty(&Manifest {
@@ -139,21 +185,16 @@ pub fn write_archive(
 
     // The member list is built once and both zipped and signed, so the
     // signature can never drift from what is written.
-    let mut names: Vec<String> = vec!["mjolnir.json".into()];
+    let mut members: Vec<(String, &[u8])> = vec![("mjolnir.json".into(), &manifest_bytes)];
+    if let Some(changes) = changes {
+        members.push(("changes.json".into(), changes.as_bytes()));
+    }
     for b in baked {
-        names.push(format!("content/{}.utoc", b.basename));
-        names.push(format!("content/{}.ucas", b.basename));
-    }
-    if readme_bytes.is_some() {
-        names.push("docs/README.md".into());
-    }
-    let mut members: Vec<(String, &[u8])> = vec![(names[0].clone(), &manifest_bytes)];
-    for (i, b) in baked.iter().enumerate() {
-        members.push((names[1 + i * 2].clone(), &b.built.utoc));
-        members.push((names[2 + i * 2].clone(), &b.built.ucas));
+        members.push((format!("content/{}.utoc", b.basename), &b.built.utoc));
+        members.push((format!("content/{}.ucas", b.basename), &b.built.ucas));
     }
     if let Some(bytes) = &readme_bytes {
-        members.push((names[names.len() - 1].clone(), bytes));
+        members.push(("docs/README.md".into(), bytes));
     }
 
     let signature = match signer {

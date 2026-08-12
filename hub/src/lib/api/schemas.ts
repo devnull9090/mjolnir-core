@@ -7,6 +7,8 @@
  */
 import { z } from "@hono/zod-openapi";
 
+import { DeclaredChangesSchema } from "./changes";
+
 // ── Common ────────────────────────────────────────────────────────────
 
 export const ErrorSchema = z
@@ -212,6 +214,21 @@ export const ReleaseStatusSchema = z
     }),
   })
   .openapi("ReleaseStatus");
+
+export const ReleaseChangesSchema = z
+  .object({
+    release_id: z.string(),
+    version: z.string(),
+    chunk_count: z.number().int().openapi({
+      description:
+        "IoStore chunks the uploaded containers actually claim — measured " +
+        "by the scanner, not declared by the author.",
+    }),
+    changes: DeclaredChangesSchema.nullable().openapi({
+      description: "The archive's declared change list; null when it carried none.",
+    }),
+  })
+  .openapi("ReleaseChanges");
 
 // ── Conflicts ─────────────────────────────────────────────────────────
 

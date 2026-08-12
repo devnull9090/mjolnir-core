@@ -8,6 +8,9 @@ import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
 import { Markdown } from "../../docs/_components/Markdown";
 import { getModPage } from "@/lib/api/queries";
+// Module import, not the barrel: ChangeList is hook-free and renders on the
+// server; the barrel would drag client-only components into this graph.
+import { ChangeList } from "@mjolnir/hub-kit/ui/ChangeList";
 import {
   CommentThread,
   ModGallery,
@@ -74,7 +77,7 @@ export default async function ModDetailPage({
   const page = await loadModPage(slug);
   // Draft mods stay invisible here; owners reach them at /mods/{slug}/manage.
   if (!page || page.mod.status !== "published") notFound();
-  const { mod, media, releases } = page;
+  const { mod, media, releases, latestChanges } = page;
 
   return (
     <>
@@ -121,6 +124,18 @@ export default async function ModDetailPage({
               </article>
             ) : (
               <p className="mb-12 text-text-dim text-sm">No description yet.</p>
+            )}
+
+            {/* Transparency: what the latest release actually edits, from
+                the declared change list stored at scan time. */}
+            {latestChanges && (
+              <section className="mb-12">
+                <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
+                  What this mod does
+                  <span className="normal-case font-normal"> · v{latestChanges.version}</span>
+                </h2>
+                <ChangeList data={latestChanges} />
+              </section>
             )}
 
             {/* Comments */}
