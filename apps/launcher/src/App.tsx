@@ -10,6 +10,7 @@ import Tools from "./components/Tools";
 import Browse from "./components/Browse";
 import Updates from "./components/Updates";
 import { ModDetail } from "./components/hub/ModDetail";
+import { UserProfile } from "./components/hub/UserProfile";
 import { HubShell } from "./hub/HubShell";
 import { useHubLibrary } from "./hub/library";
 import { useUpdates } from "./updates/useUpdates";
@@ -24,17 +25,29 @@ export type View = "mods" | "tools" | "browse" | "updates" | "settings";
 
 function App() {
   const updater = useUpdater();
+  // Lifted out of AppBody because the provider needs it too: author names
+  // anywhere in the kit — a comment, a review, a mod byline — open a profile
+  // through the context, and the provider sits above the body.
+  const [openProfile, setOpenProfile] = useState<string | null>(null);
 
   return (
     // One hub session for the whole app: the account, the pairing dialog and
     // the API client are shared by My Mods and Browse Hub alike.
-    <HubShell>
-      <AppBody updater={updater} />
+    <HubShell onOpenProfile={setOpenProfile}>
+      <AppBody updater={updater} openProfile={openProfile} setOpenProfile={setOpenProfile} />
     </HubShell>
   );
 }
 
-function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
+function AppBody({
+  updater,
+  openProfile,
+  setOpenProfile,
+}: {
+  updater: ReturnType<typeof useUpdater>;
+  openProfile: string | null;
+  setOpenProfile: (id: string | null) => void;
+}) {
   const [activeView, setActiveView] = useState<View>("mods");
   const [openMod, setOpenMod] = useState<string | null>(null);
   // Both the library and the update manager read this; keeping one instance
@@ -50,8 +63,16 @@ function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
   );
   const updates = useUpdates(updater, announce);
 
-  const showMod = (slug: string) => setOpenMod(slug);
+  // A profile opens over whatever is already there, so Back from it reveals
+  // the mod you clicked the author on rather than dumping you at a list.
+  // Opening a mod from a profile replaces it, which is the direction people
+  // are actually travelling.
+  const showMod = (slug: string) => {
+    setOpenProfile(null);
+    setOpenMod(slug);
+  };
   const goTo = (view: View) => {
+    setOpenProfile(null);
     setOpenMod(null);
     setActiveView(view);
   };
@@ -68,7 +89,13 @@ function AppBody({ updater }: { updater: ReturnType<typeof useUpdater> }) {
         <UpdaterBanner updater={updater} onOpenUpdates={() => goTo("updates")} />
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
-          {openMod ? (
+          {openProfile ? (
+            <UserProfile
+              userId={openProfile}
+              onBack={() => setOpenProfile(null)}
+              onOpenMod={showMod}
+            />
+          ) : openMod ? (
             <ModDetail slug={openMod} library={library} onBack={() => setOpenMod(null)} />
           ) : (
             <>

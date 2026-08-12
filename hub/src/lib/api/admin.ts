@@ -13,7 +13,7 @@ import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
 import { authenticate } from "./auth";
-import { ErrorSchema } from "./schemas";
+import { ErrorSchema, avatarUrl } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
 
@@ -111,9 +111,7 @@ export function registerAdminRoutes(app: OpenAPIHono<ApiEnv>) {
             discord_id: r.discord_id as string,
             discord_username: r.discord_username as string,
             display_name: (r.display_name as string) ?? null,
-            avatar_url: r.discord_avatar
-              ? `https://cdn.discordapp.com/avatars/${r.discord_id}/${r.discord_avatar}.png`
-              : null,
+            avatar_url: avatarUrl(r.discord_id as string, r.discord_avatar as string | null),
             role: r.role as "user" | "moderator" | "admin",
             trust_level: r.trust_level as number,
             created_at: r.created_at as string,

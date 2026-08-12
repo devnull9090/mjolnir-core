@@ -36,9 +36,16 @@ export {
  */
 const client = createHubClient({});
 
+/** Where this site puts profiles; the kit links names through it. */
+const profileHref = (userId: string) => `/users/${userId}`;
+
 /** Mounted once in the root layout; every kit component reads from it. */
 export function HubKitProvider({ children }: { children: ReactNode }) {
-  return <HubProvider client={client}>{children}</HubProvider>;
+  return (
+    <HubProvider client={client} profileHref={profileHref}>
+      {children}
+    </HubProvider>
+  );
 }
 
 /**

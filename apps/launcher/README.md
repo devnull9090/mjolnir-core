@@ -30,7 +30,7 @@ update last, because that one restarts the process.
 
 | Layer | Where | What it does |
 | --- | --- | --- |
-| Community UI | `hub/src/kit` | Cards, galleries, ratings, reviews, comments, release lists — the same components mjolnircore.com renders |
+| Community UI | `hub/src/kit` | Cards, galleries, ratings, reviews, comments, release lists, profile summaries — the same components mjolnircore.com renders |
 | API client | `hub/src/kit/client.ts` | Typed calls; the launcher supplies a Tauri transport (`src/hub/client.ts`) |
 | Local library | `src-tauri/src/hub.rs` | Installs, profiles, load order, updates, integrity, pairing |
 

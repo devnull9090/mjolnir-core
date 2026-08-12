@@ -32,6 +32,18 @@ export interface HubContextValue {
   signOut: () => void;
   /** Opens a URL the way this app opens URLs (system browser in Tauri). */
   openUrl: (url: string) => void;
+  /**
+   * Where a user's profile lives, as a URL. The website answers /users/{id},
+   * which lets <UserLink> render a real anchor — middle-click and
+   * open-in-new-tab included.
+   */
+  profileHref?: (userId: string) => string | null;
+  /**
+   * Open a profile without navigating. The launcher's views are component
+   * state rather than URLs, so it sets this instead of `profileHref` and
+   * <UserLink> renders a button. Takes precedence when both are present.
+   */
+  openProfile?: (userId: string) => void;
 }
 
 const HubContext = createContext<HubContextValue | null>(null);
@@ -45,6 +57,10 @@ export interface HubProviderProps {
   onSignOut?: () => void | Promise<void>;
   /** Defaults to `window.open`; the launcher routes to the system browser. */
   onOpenUrl?: (url: string) => void;
+  /** Where this app puts profiles, as a URL. */
+  profileHref?: (userId: string) => string | null;
+  /** How this app opens a profile in place; wins over `profileHref`. */
+  openProfile?: (userId: string) => void;
   /** Skips the initial /auth/me call for surfaces that never write. */
   anonymous?: boolean;
 }
@@ -55,6 +71,8 @@ export function HubProvider({
   onSignIn,
   onSignOut,
   onOpenUrl,
+  profileHref,
+  openProfile,
   anonymous = false,
 }: HubProviderProps) {
   const [user, setUser] = useState<User | null>(null);
@@ -86,6 +104,8 @@ export function HubProvider({
       ready,
       refreshUser,
       openUrl,
+      profileHref,
+      openProfile,
       signIn:
         onSignIn ??
         (() => {
@@ -107,7 +127,7 @@ export function HubProvider({
           });
       },
     }),
-    [client, user, ready, refreshUser, openUrl, onSignIn, onSignOut],
+    [client, user, ready, refreshUser, openUrl, profileHref, openProfile, onSignIn, onSignOut],
   );
 
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>;

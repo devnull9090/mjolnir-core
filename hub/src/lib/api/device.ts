@@ -28,7 +28,7 @@ import type { Context } from "hono";
 import type { ApiEnv } from "./bindings";
 import { authenticate, rateLimit, sha256Hex } from "./auth";
 import { KNOWN_SCOPES, mintApiKey } from "./account";
-import { ErrorSchema, UserSchema } from "./schemas";
+import { ErrorSchema, UserSchema, avatarUrl } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
 
@@ -163,9 +163,7 @@ function userPayload(row: {
     id: row.id,
     username: row.discord_username,
     display_name: row.display_name,
-    avatar_url: row.discord_avatar
-      ? `https://cdn.discordapp.com/avatars/${row.discord_id}/${row.discord_avatar}.png`
-      : null,
+    avatar_url: avatarUrl(row.discord_id, row.discord_avatar),
     role: row.role as "user" | "moderator" | "admin",
     created_at: row.created_at,
   };

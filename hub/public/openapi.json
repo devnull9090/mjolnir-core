@@ -269,6 +269,17 @@
             "type": "string",
             "description": "Owner's display name (or Discord username)."
           },
+          "owner_id": {
+            "type": "string",
+            "description": "The owner's user id, for linking to their profile."
+          },
+          "author_avatar": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord CDN avatar of the owner, when they have one."
+          },
           "created_at": {
             "type": "string"
           },
@@ -290,6 +301,8 @@
           "rating_count",
           "rating_mean",
           "author",
+          "owner_id",
+          "author_avatar",
           "created_at",
           "updated_at"
         ]
@@ -1046,6 +1059,16 @@
                 "author": {
                   "type": "string"
                 },
+                "author_id": {
+                  "type": "string",
+                  "description": "The reviewer's user id, for linking to their profile."
+                },
+                "author_avatar": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "score": {
                   "type": "integer"
                 },
@@ -1058,6 +1081,8 @@
               },
               "required": [
                 "author",
+                "author_id",
+                "author_avatar",
                 "score",
                 "review_md",
                 "created_at"
@@ -1656,6 +1681,97 @@
           "trust_level",
           "created_at",
           "banned_at"
+        ]
+      },
+      "UserProfile": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/ProfileUser"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/UserStats"
+          },
+          "mods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mod"
+            },
+            "description": "Their published mods, newest first."
+          }
+        },
+        "required": [
+          "user",
+          "stats",
+          "mods"
+        ]
+      },
+      "ProfileUser": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/User"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "trust_level": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "trust_level"
+            ]
+          }
+        ]
+      },
+      "UserStats": {
+        "type": "object",
+        "properties": {
+          "mods_published": {
+            "type": "integer"
+          },
+          "downloads_received": {
+            "type": "integer",
+            "description": "Downloads across every published mod this account owns."
+          },
+          "views_received": {
+            "type": "integer"
+          },
+          "ratings_received": {
+            "type": "integer"
+          },
+          "rating_mean": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Rating-count-weighted mean across their published mods; null when unrated."
+          },
+          "mods_downloaded": {
+            "type": "integer",
+            "description": "Distinct mods this account has downloaded while signed in. Anonymous downloads are never attributed, and nothing before 2026-08-12 was recorded."
+          },
+          "ratings_given": {
+            "type": "integer"
+          },
+          "comments_posted": {
+            "type": "integer"
+          },
+          "media_contributed": {
+            "type": "integer",
+            "description": "Approved gallery items this account submitted."
+          }
+        },
+        "required": [
+          "mods_published",
+          "downloads_received",
+          "views_received",
+          "ratings_received",
+          "rating_mean",
+          "mods_downloaded",
+          "ratings_given",
+          "comments_posted",
+          "media_contributed"
         ]
       },
       "CodeSyncResult": {
@@ -2742,6 +2858,7 @@
           "releases"
         ],
         "summary": "Download the release archive",
+        "description": "Public. A caller that happens to carry a credential — a session cookie, or a paired client's API key — also has the download attributed to its account, which is what a profile's `mods_downloaded` counts. No credential, no attribution; the anonymous rollups are counted either way.",
         "parameters": [
           {
             "schema": {
@@ -4557,6 +4674,47 @@
           },
           "403": {
             "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "A public profile",
+        "description": "An account's identity, its activity totals, and the mods it has published. Counts only — no download or viewing history is exposed. A banned account answers 404 like a missing one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account.",
             "content": {
               "application/json": {
                 "schema": {

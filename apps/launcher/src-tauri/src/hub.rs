@@ -462,10 +462,16 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
     let expected = status.sha256.ok_or("Hub has no hash for this release")?;
 
     // Download and verify before a single byte lands anywhere permanent.
-    let mut resp = client
-        .get(format!("{api}/releases/{}/download", release.id))
-        .send()
-        .map_err(|e| e.to_string())?;
+    //
+    // The paired key rides along when there is one. The endpoint is public
+    // and works without it — this is what lets the hub attribute the install
+    // to the account, which is what a profile's "mods downloaded" counts.
+    // Unpaired, the download is still counted, just not to anybody.
+    let mut request = client.get(format!("{api}/releases/{}/download", release.id));
+    if let Some(auth) = load_auth() {
+        request = request.bearer_auth(auth.key);
+    }
+    let mut resp = request.send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Download failed: {}", resp.status()));
     }

@@ -32,6 +32,7 @@ import type {
   ReportReason,
   ReportSubject,
   User,
+  UserProfile,
 } from "./types";
 
 export interface HubRequest {
@@ -406,6 +407,14 @@ export class HubClient {
   }
 
   // ── Identity ────────────────────────────────────────────────────────
+
+  /**
+   * Someone's public profile: identity, activity totals, published mods.
+   * Counts only — the API publishes no download or viewing history.
+   */
+  getUserProfile(id: string): Promise<UserProfile> {
+    return this.call({ method: "GET", path: `/users/${encodeURIComponent(id)}` });
+  }
 
   /** The signed-in user, or null when the caller is anonymous. */
   async me(): Promise<User | null> {
