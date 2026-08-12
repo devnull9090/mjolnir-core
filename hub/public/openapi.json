@@ -1582,6 +1582,82 @@
           "action"
         ]
       },
+      "AdminUserList": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminUser"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "users",
+          "total"
+        ]
+      },
+      "AdminUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "discord_id": {
+            "type": "string",
+            "example": "867190209217429514"
+          },
+          "discord_username": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "moderator",
+              "admin"
+            ]
+          },
+          "trust_level": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "banned_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "discord_id",
+          "discord_username",
+          "display_name",
+          "avatar_url",
+          "role",
+          "trust_level",
+          "created_at",
+          "banned_at"
+        ]
+      },
       "CodeSyncResult": {
         "type": "object",
         "properties": {
@@ -4416,6 +4492,71 @@
           },
           "404": {
             "description": "No such published release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Look up registered accounts (admin)",
+        "description": "Every account that has signed in, with its Discord snowflake. `q` matches a Discord ID exactly, or the Discord username / display name as a substring; empty lists the newest signups.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "description": "Discord ID (exact) or name fragment."
+            },
+            "required": false,
+            "description": "Discord ID (exact) or name fragment.",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching accounts, newest first, plus the match count.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
             "content": {
               "application/json": {
                 "schema": {

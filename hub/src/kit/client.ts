@@ -11,6 +11,7 @@
  * written once, here.
  */
 import type {
+  AdminUserList,
   Comment,
   ConflictPair,
   DevicePoll,
@@ -391,6 +392,17 @@ export class HubClient {
       path: `/moderation/mods/${encodeURIComponent(slug)}`,
       body: { action },
     });
+  }
+
+  // ── Admin ───────────────────────────────────────────────────────────
+
+  /**
+   * Registered accounts with their Discord IDs. Admins only. `q` matches
+   * a Discord ID exactly or a name as a substring; empty lists the newest
+   * signups.
+   */
+  listUsers(q?: string, limit?: number): Promise<AdminUserList> {
+    return this.call({ method: "GET", path: "/admin/users", query: { q, limit } });
   }
 
   // ── Identity ────────────────────────────────────────────────────────

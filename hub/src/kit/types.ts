@@ -205,6 +205,25 @@ export interface User {
   created_at: string;
 }
 
+/** An account as the admin user directory lists it. Admin-only. */
+export interface AdminUser {
+  id: string;
+  discord_id: string;
+  discord_username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: "user" | "moderator" | "admin";
+  trust_level: number;
+  created_at: string;
+  banned_at: string | null;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  /** How many accounts match, beyond the page returned. */
+  total: number;
+}
+
 /** One field edit as a release's changes.json declares it. */
 export interface DeclaredField {
   field: string;

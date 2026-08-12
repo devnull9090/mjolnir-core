@@ -5,15 +5,18 @@
  * report queue. Every button here is a moderator-only API call — the
  * server enforces the role; this page just refuses to render for anyone
  * else so nobody stares at a wall of 403s.
+ *
+ * Admins additionally get the user directory: every registered account
+ * with its Discord ID, findable by ID or name.
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ShieldCheck, X } from "lucide-react";
+import { Check, Copy, Search, ShieldCheck, X } from "lucide-react";
 
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
 import { useHub } from "../components/HubKit";
-import type { HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
+import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
 
 export default function ModerationPage() {
@@ -23,8 +26,13 @@ export default function ModerationPage() {
   const [hidden, setHidden] = useState<HiddenMod[] | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [userQuery, setUserQuery] = useState("");
+  const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [userTotal, setUserTotal] = useState(0);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const isModerator = user !== null && user.role !== "user";
+  const isAdmin = user !== null && user.role === "admin";
 
   const load = useCallback(() => {
     if (!isModerator) return;
@@ -43,6 +51,32 @@ export default function ModerationPage() {
   }, [client, isModerator]);
 
   useEffect(load, [load]);
+
+  const searchUsers = useCallback(
+    (q: string) => {
+      if (!isAdmin) return;
+      client
+        .listUsers(q || undefined)
+        .then((r) => {
+          setUsers(r.users);
+          setUserTotal(r.total);
+        })
+        .catch((e) => setBanner(e instanceof Error ? e.message : String(e)));
+    },
+    [client, isAdmin],
+  );
+
+  useEffect(() => searchUsers(""), [searchUsers]);
+
+  const copyDiscordId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
+    } catch {
+      // Clipboard access denied; the ID is visible to select by hand.
+    }
+  };
 
   const decideMedia = async (id: string, action: "approve" | "reject") => {
     setBusy(id);
@@ -271,6 +305,100 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+
+            {/* ── User directory (admins) ── */}
+            {isAdmin && (
+              <section className="mt-12">
+                <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
+                  Users{users ? ` · ${userTotal}` : ""}
+                </h2>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    searchUsers(userQuery);
+                  }}
+                  className="flex gap-2 mb-4"
+                >
+                  <input
+                    type="text"
+                    value={userQuery}
+                    onChange={(e) => setUserQuery(e.target.value)}
+                    placeholder="Discord ID, username, or display name"
+                    className="flex-1 rounded-lg border border-border bg-surface-card px-3 py-2 text-sm text-foreground placeholder:text-text-dim focus:outline-none focus:border-gold"
+                  />
+                  <button
+                    type="submit"
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-gold/15 text-gold hover:bg-gold/25 transition-colors cursor-pointer"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    Search
+                  </button>
+                </form>
+
+                {users === null ? (
+                  <p className="text-text-dim text-sm">Loading…</p>
+                ) : users.length === 0 ? (
+                  <p className="text-text-dim text-sm">No accounts match.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {users.map((u) => (
+                      <div
+                        key={u.id}
+                        className="rounded-lg border border-border p-3 flex flex-wrap items-center gap-3"
+                      >
+                        {u.avatar_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={u.avatar_url}
+                            alt=""
+                            className="w-8 h-8 rounded-full border border-border"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full border border-border bg-surface-card" />
+                        )}
+                        <div className="min-w-40">
+                          <p className="text-sm text-foreground font-semibold">
+                            {u.display_name ?? u.discord_username}
+                            {u.role !== "user" && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gold/15 text-gold align-middle">
+                                {u.role}
+                              </span>
+                            )}
+                            {u.banned_at && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/15 text-red-400 align-middle">
+                                banned
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-text-dim">
+                            @{u.discord_username} · joined {u.created_at.slice(0, 10)} · trust{" "}
+                            {u.trust_level}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => copyDiscordId(u.discord_id)}
+                          title="Copy Discord ID"
+                          className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-mono rounded-lg bg-surface-card text-text-muted hover:text-foreground transition-colors cursor-pointer"
+                        >
+                          {copiedId === u.discord_id ? (
+                            <Check className="w-3.5 h-3.5 text-green-400" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                          {u.discord_id}
+                        </button>
+                      </div>
+                    ))}
+                    {userTotal > users.length && (
+                      <p className="text-xs text-text-dim">
+                        Showing {users.length} of {userTotal} — narrow the search to see the rest.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
       </main>

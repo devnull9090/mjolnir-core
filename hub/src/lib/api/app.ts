@@ -17,6 +17,7 @@ import { registerCommunityRoutes } from "./community";
 import { registerAccountRoutes } from "./account";
 import { registerDeviceRoutes } from "./device";
 import { registerModerationRoutes } from "./moderation";
+import { registerAdminRoutes } from "./admin";
 import { registerCodeSyncRoutes } from "./codesync";
 import {
   ErrorSchema,
@@ -416,6 +417,7 @@ registerCommunityRoutes(app);
 
 registerAccountRoutes(app);
 registerModerationRoutes(app);
+registerAdminRoutes(app);
 
 // ── Signed code-mod mirror ────────────────────────────────────────────
 
