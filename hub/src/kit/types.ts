@@ -26,6 +26,10 @@ export interface Mod {
   rating_count: number;
   rating_mean: number | null;
   author: string;
+  /** The owner's user id, for linking to their profile. */
+  owner_id: string;
+  /** Discord CDN avatar of the owner, when they have one. */
+  author_avatar: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +175,9 @@ export interface Report {
 
 export interface Review {
   author: string;
+  /** The reviewer's user id, for linking to their profile. */
+  author_id: string;
+  author_avatar: string | null;
   score: number;
   review_md: string;
   created_at: string;
@@ -203,6 +210,33 @@ export interface User {
   avatar_url: string | null;
   role: "user" | "moderator" | "admin";
   created_at: string;
+}
+
+/**
+ * What one account has done here, as a public profile reports it.
+ *
+ * The `_received` figures are what their published work drew; the rest is
+ * what they did. `mods_downloaded` only counts downloads made while signed
+ * in, and only since attribution shipped, so it reads low by design.
+ */
+export interface UserStats {
+  mods_published: number;
+  downloads_received: number;
+  views_received: number;
+  ratings_received: number;
+  /** Rating-count-weighted mean across their published mods. */
+  rating_mean: number | null;
+  mods_downloaded: number;
+  ratings_given: number;
+  comments_posted: number;
+  media_contributed: number;
+}
+
+export interface UserProfile {
+  user: User & { trust_level: number };
+  stats: UserStats;
+  /** Their published mods, newest first. */
+  mods: Mod[];
 }
 
 /** An account as the admin user directory lists it. Admin-only. */

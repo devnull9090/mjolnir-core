@@ -19,6 +19,8 @@ import type { Comment, User } from "../types";
 import { useHub } from "./context";
 import { timeAgo } from "./format";
 import { MessageIcon, ReplyIcon, TrashIcon } from "./icons";
+import { Avatar } from "./Avatar";
+import { UserLink } from "./UserLink";
 import { ActionButton, ErrorNote } from "./primitives";
 
 function Composer({
@@ -82,18 +84,15 @@ function CommentItem({
   return (
     <div className={depth > 0 ? "ml-8 mt-3" : "mt-4"}>
       <div className="flex items-start gap-3">
-        {comment.author_avatar ? (
-          // Plain <img>, not next/image: these components also render inside
-          // the launcher's Vite build, where next/image does not exist.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={comment.author_avatar} alt="" className="w-7 h-7 rounded-full mt-0.5" />
-        ) : (
-          <div className="w-7 h-7 rounded-full bg-[var(--mj-surface-raised)] mt-0.5" />
-        )}
+        <Avatar url={comment.author_avatar} className="mt-0.5" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs">
             <span className="font-semibold text-[var(--mj-text)]">
-              {comment.deleted ? "[deleted]" : comment.author}
+              {comment.deleted ? (
+                "[deleted]"
+              ) : (
+                <UserLink userId={comment.author_id} name={comment.author ?? "unknown"} />
+              )}
             </span>
             <span className="text-[var(--mj-text-dim)]">{timeAgo(comment.created_at)}</span>
           </div>

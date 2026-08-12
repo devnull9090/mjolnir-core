@@ -33,6 +33,7 @@ import {
   MediaSchema,
   RatingPutSchema,
   RatingSummarySchema,
+  avatarUrl,
 } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
@@ -696,8 +697,8 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
               .first<{ score: number }>()
           : Promise.resolve(null),
         c.env.DB.prepare(
-          `SELECT COALESCE(u.display_name, u.discord_username) AS author, r.score,
-                  r.review_md, r.created_at
+          `SELECT COALESCE(u.display_name, u.discord_username) AS author, u.id AS author_id,
+                  u.discord_id, u.discord_avatar, r.score, r.review_md, r.created_at
            FROM ratings r JOIN users u ON u.id = r.user_id
            WHERE r.mod_id = ?1 AND r.review_md IS NOT NULL AND length(r.review_md) > 0
            ORDER BY r.updated_at DESC LIMIT 20`,
@@ -717,6 +718,8 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
           mine: mine?.score ?? null,
           reviews: reviews.results.map((r) => ({
             author: r.author as string,
+            author_id: r.author_id as string,
+            author_avatar: avatarUrl(r.discord_id as string, r.discord_avatar as string | null),
             score: r.score as number,
             review_md: r.review_md as string,
             created_at: r.created_at as string,
@@ -762,10 +765,9 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
             parent_id: (r.parent_id as string) ?? null,
             author: r.deleted_at ? null : (r.author as string),
             author_id: r.deleted_at ? null : (r.author_id as string),
-            author_avatar:
-              !r.deleted_at && r.discord_avatar
-                ? `https://cdn.discordapp.com/avatars/${r.discord_id}/${r.discord_avatar}.png`
-                : null,
+            author_avatar: r.deleted_at
+              ? null
+              : avatarUrl(r.discord_id as string, r.discord_avatar as string | null),
             body_md: r.deleted_at ? null : (r.body_md as string),
             deleted: !!r.deleted_at,
             created_at: r.created_at as string,

@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import {
   ActionButton,
+  Avatar,
   Badge,
   CommentThread,
   ErrorNote,
@@ -20,6 +21,7 @@ import {
   ReportButton,
   Spinner,
   TypeBadge,
+  UserLink,
   formatCount,
   timeAgo,
   useHub,
@@ -105,10 +107,14 @@ export function ModDetail({
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-text-secondary mt-1">
-                by {mod.author}
-                {mod.license ? ` · ${mod.license}` : ""} ·{" "}
-                {formatCount(mod.download_count)} downloads · updated {timeAgo(mod.updated_at)}
+              <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-text-secondary mt-1">
+                <span>by</span>
+                <Avatar url={mod.author_avatar} size="xs" />
+                <UserLink userId={mod.owner_id} name={mod.author} className="text-text-primary" />
+                <span>
+                  {mod.license ? `· ${mod.license} ` : ""}· {formatCount(mod.download_count)}{" "}
+                  downloads · updated {timeAgo(mod.updated_at)}
+                </span>
               </p>
             </div>
 

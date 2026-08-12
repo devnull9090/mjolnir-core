@@ -38,6 +38,17 @@ export const CursorQuerySchema = z.object({
 
 // ── Users ─────────────────────────────────────────────────────────────
 
+/**
+ * Discord's CDN URL for an account's avatar, or null when it has none.
+ *
+ * `users` stores the hash Discord hands back at login; the URL is derived
+ * rather than stored so a re-uploaded avatar needs no write of ours. Every
+ * payload that carries an avatar builds it here, so the shape lives once.
+ */
+export function avatarUrl(discordId: string, hash: string | null | undefined): string | null {
+  return hash ? `https://cdn.discordapp.com/avatars/${discordId}/${hash}.png` : null;
+}
+
 export const UserSchema = z
   .object({
     id: z.string().openapi({ example: "0198c2f4-6c1e-7c33-a1b0-9a1c2d3e4f56" }),
@@ -50,6 +61,43 @@ export const UserSchema = z
     created_at: z.string(),
   })
   .openapi("User");
+
+/**
+ * What one account has done here, as a public profile reports it.
+ *
+ * Two directions, deliberately kept apart: the `_received` figures are what
+ * this account's published work drew, and `mods_downloaded` is what it
+ * consumed. The second is only countable from the day download attribution
+ * shipped (migration 0011) and only when the download carried a credential,
+ * so it undercounts by design rather than by accident.
+ */
+export const UserStatsSchema = z
+  .object({
+    mods_published: z.number().int(),
+    downloads_received: z.number().int().openapi({
+      description: "Downloads across every published mod this account owns.",
+    }),
+    views_received: z.number().int(),
+    ratings_received: z.number().int(),
+    rating_mean: z.number().nullable().openapi({
+      description: "Rating-count-weighted mean across their published mods; null when unrated.",
+    }),
+    mods_downloaded: z.number().int().openapi({
+      description:
+        "Distinct mods this account has downloaded while signed in. Anonymous " +
+        "downloads are never attributed, and nothing before 2026-08-12 was recorded.",
+    }),
+    ratings_given: z.number().int(),
+    comments_posted: z.number().int(),
+    media_contributed: z.number().int().openapi({
+      description: "Approved gallery items this account submitted.",
+    }),
+  })
+  .openapi("UserStats");
+
+export const ProfileUserSchema = UserSchema.extend({
+  trust_level: z.number().int(),
+}).openapi("ProfileUser");
 
 // ── Mods ──────────────────────────────────────────────────────────────
 
@@ -77,6 +125,12 @@ export const ModSchema = z
     author: z.string().openapi({
       description: "Owner's display name (or Discord username).",
     }),
+    owner_id: z.string().openapi({
+      description: "The owner's user id, for linking to their profile.",
+    }),
+    author_avatar: z.string().nullable().openapi({
+      description: "Discord CDN avatar of the owner, when they have one.",
+    }),
     created_at: z.string(),
     updated_at: z.string(),
   })
@@ -96,6 +150,16 @@ export const ModListSchema = z
     }),
   })
   .openapi("ModList");
+
+export const UserProfileSchema = z
+  .object({
+    user: ProfileUserSchema,
+    stats: UserStatsSchema,
+    mods: z.array(ModSchema).openapi({
+      description: "Their published mods, newest first.",
+    }),
+  })
+  .openapi("UserProfile");
 
 export const ModListQuerySchema = CursorQuerySchema.extend({
   q: z.string().optional().openapi({ description: "Search in name and summary." }),
@@ -341,6 +405,10 @@ export const RatingSummarySchema = z
     reviews: z.array(
       z.object({
         author: z.string(),
+        author_id: z.string().openapi({
+          description: "The reviewer's user id, for linking to their profile.",
+        }),
+        author_avatar: z.string().nullable(),
         score: z.number().int(),
         review_md: z.string(),
         created_at: z.string(),
@@ -384,6 +452,18 @@ export const CommentListSchema = z
 
 // ── Row mappers (D1 → API shapes) ─────────────────────────────────────
 
+/**
+ * The owner columns a `Mod` payload needs beyond the `mods` row itself: the
+ * byline, and what `modFromRow` builds the profile link and avatar from.
+ * Every query feeding `modFromRow` selects this against a `users u` join.
+ *
+ * `owner_id` duplicates `mods.owner_id` on purpose, so the fragment serves
+ * queries that name their columns as well as those taking `m.*`.
+ */
+export const OWNER_COLUMNS = `COALESCE(u.display_name, u.discord_username) AS author,
+       u.id AS owner_id, u.discord_id AS author_discord_id,
+       u.discord_avatar AS author_discord_avatar`;
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export function modFromRow(r: any): z.infer<typeof ModSchema> {
@@ -401,6 +481,10 @@ export function modFromRow(r: any): z.infer<typeof ModSchema> {
     rating_count: r.rating_count ?? 0,
     rating_mean: r.rating_mean ?? null,
     author: r.author ?? "unknown",
+    owner_id: r.owner_id,
+    // Joined in by the queries that select against `users`; a row that did
+    // not join reports no avatar rather than inventing one.
+    author_avatar: avatarUrl(r.author_discord_id, r.author_discord_avatar),
     created_at: r.created_at,
     updated_at: r.updated_at,
   };

@@ -94,7 +94,19 @@ export default async function ModDetailPage({
               </span>
             </div>
             <p className="text-text-muted">
-              by <span className="text-foreground">{mod.author}</span>
+              by{" "}
+              <Link
+                href={`/users/${mod.owner_id}`}
+                className="inline-flex items-center gap-1.5 align-middle text-foreground hover:text-gold transition-colors"
+              >
+                {mod.author_avatar ? (
+                  // Plain <img>: Discord's CDN is not a configured next/image
+                  // host, and the avatar is served at the size it renders.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={mod.author_avatar} alt="" className="w-5 h-5 rounded-full" />
+                ) : null}
+                {mod.author}
+              </Link>
               {mod.license ? <span className="text-text-dim"> · {mod.license}</span> : null}
               <span className="text-text-dim"> · {mod.download_count} downloads</span>
               <span className="text-text-dim"> · {mod.view_count} views</span>

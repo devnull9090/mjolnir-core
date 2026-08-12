@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import type { Mod } from "../types";
 import { formatCount } from "./format";
 import { DownloadIcon } from "./icons";
+import { Avatar } from "./Avatar";
 import { Badge, Stars, TypeBadge } from "./primitives";
 
 export function ModCard({
@@ -42,7 +43,13 @@ export function ModCard({
           {mod.summary ?? "No summary."}
         </p>
         <div className="flex items-center gap-3 mt-2 text-xs text-[var(--mj-text-dim)]">
-          <span className="truncate">by {mod.author}</span>
+          {/* The author is shown, not linked: the card as a whole is already
+              an anchor to the mod, and an anchor cannot nest another. Their
+              name is clickable on the mod page itself. */}
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <Avatar url={mod.author_avatar} size="xs" />
+            <span className="truncate">{mod.author}</span>
+          </span>
           <span className="inline-flex items-center gap-1">
             <DownloadIcon className="w-3 h-3" />
             {formatCount(mod.download_count)}

@@ -286,6 +286,7 @@ were aiming at:
 | `collections` / `collection_items` | Shareable profiles | references, not bytes |
 | `release_scans` | Automated verdicts | findings JSON, for appeals |
 | `audit_log` | Moderator actions | append-only |
+| `mod_downloads` | Attributed downloads | `(user_id, release_id)`, first pull only — see below |
 
 Two details worth fixing now rather than later:
 
@@ -293,6 +294,21 @@ Two details worth fixing now rather than later:
   ratings. Store the raw scores, compute the bound in a rollup.
 - **Download counts belong in Analytics Engine, not D1.** A counter row per download will
   contend badly. Write events to Analytics Engine, roll up into D1 hourly.
+
+### Two kinds of download count
+
+`mods.download_count` and `mod_releases.download_count` are anonymous rollups: every download
+bumps them, signed in or not. `mod_downloads` answers a different question — *which account
+pulled which release* — and gains a row only when the download request carried a credential
+(session cookie, or a paired client's key, which the launcher now attaches on install). It is
+what a profile's "mods downloaded" counts.
+
+Three properties are deliberate. Anonymous downloads are **counted but never attributed**;
+nothing backfills the ones that happened before migration 0011, so the figure starts at zero and
+undercounts by design. Re-downloading a release is **not new activity** — the primary key is
+`(user_id, release_id)` and `created_at` records the first pull. And the number is published
+while the list behind it is not: no route serves *which* mods an account downloaded, because
+signing in is not a decision to publish your library.
 
 ---
 
@@ -325,7 +341,8 @@ means an API key or a session cookie; everything else is public and CORS-open.
 | `GET` | `/v1/mods/{slug}` | |
 | `GET` | `/v1/mods/{slug}/releases` | newest first |
 | `GET` | `/v1/releases/{id}` | status and scan findings |
-| `GET` | `/v1/releases/{id}/download` | 302 to R2, counts the download |
+| `GET` | `/v1/releases/{id}/download` | 302 to R2, counts the download; attributes it when the caller has an identity |
+| `GET` | `/v1/users/{id}` | public profile: identity, activity totals, published mods |
 | `GET` | `/v1/releases/{id}/conflicts` | ← the chunk-ID join |
 | `POST` | `/v1/conflicts/check` | body: `[release_ids]` → conflict matrix + suggested order |
 | `GET` | `/v1/mods/{slug}/media` · `/comments` · `/ratings` | |
@@ -411,15 +428,30 @@ Revocation is ordinary: the pairing shows up under *Account → API keys* like a
 
 ### One implementation of the community UI
 
-Ratings, reviews, comments, galleries, mod cards and release lists exist once, in
-`hub/src/kit`, and both the website and the launcher render them. The package is consumed as
-**source** through a bundler alias rather than as a published package, because the two apps have
-separate lockfiles and separate CI jobs; see `hub/src/kit/README.md`.
+Ratings, reviews, comments, galleries, mod cards, release lists and profile summaries exist
+once, in `hub/src/kit`, and both the website and the launcher render them. The package is
+consumed as **source** through a bundler alias rather than as a published package, because the
+two apps have separate lockfiles and separate CI jobs; see `hub/src/kit/README.md`.
 
 Shared components style against a `--mj-*` variable contract that each app maps onto its own
 palette, and the API client takes an injectable transport. That transport is the interesting
 part: in the browser it is same-origin `fetch` with the session cookie, and in the launcher it is
 a Tauri command that attaches the paired key **in Rust**. The webview never holds a credential.
+
+#### Navigating to a profile
+
+An author's name is clickable wherever it appears — a mod byline, a comment, a review — and
+both apps show the profile without leaving. They cannot agree on *how*, though, so `<UserLink>`
+takes both routes from the provider and uses whichever is set: the website supplies
+`profileHref` and gets a real `<a href="/users/{id}">`, with middle-click and open-in-new-tab
+intact; the launcher supplies `openProfile` and gets a button, because its views are component
+state and an anchor would navigate the whole webview off the app. A host that sets neither
+renders plain text rather than something that looks clickable and is not.
+
+`<ProfileSummary>` — the head and the eight figures — is shared and hook-free, so the website
+renders it in a Server Component straight from D1 while the launcher hands it one API response.
+The mods grid below it is each app's own, because a card means different things in the two
+places: a link on the website, an install pane in the launcher.
 
 ---
 

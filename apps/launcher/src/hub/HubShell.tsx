@@ -20,7 +20,14 @@ interface Pairing {
   expires_in: number;
 }
 
-export function HubShell({ children }: { children: ReactNode }) {
+export function HubShell({
+  children,
+  onOpenProfile,
+}: {
+  children: ReactNode;
+  /** Shows a user's profile in-app; the kit links author names through it. */
+  onOpenProfile: (userId: string) => void;
+}) {
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -32,6 +39,9 @@ export function HubShell({ children }: { children: ReactNode }) {
       onOpenUrl={(url) => {
         void openUrl(url);
       }}
+      // Not `profileHref`: the launcher's views are component state, and an
+      // anchor would navigate the whole webview off the app.
+      openProfile={onOpenProfile}
     >
       {children}
       {open && (

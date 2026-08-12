@@ -3,7 +3,13 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
 import { getTagGroups } from "@/lib/tags";
-import { listModsForSitemap, listToolImages, type MediaRow, type SitemapMod } from "@/lib/api/queries";
+import {
+  listModsForSitemap,
+  listProfilesForSitemap,
+  listToolImages,
+  type MediaRow,
+  type SitemapMod,
+} from "@/lib/api/queries";
 import { TOOLS } from "@/lib/tools";
 
 /**
@@ -42,6 +48,26 @@ async function modEntries(): Promise<MetadataRoute.Sitemap> {
   }));
 }
 
+/**
+ * Profiles worth crawling: the accounts that have published something. An
+ * account with nothing on it is a page of zeroes, so it is left out rather
+ * than offered up.
+ */
+async function profileEntries(): Promise<MetadataRoute.Sitemap> {
+  try {
+    const { env } = getCloudflareContext();
+    const profiles = await listProfilesForSitemap(env.DB as never);
+    return profiles.map((p) => ({
+      url: `${baseUrl}/users/${p.id}`,
+      lastModified: utcDate(p.updated_at),
+      changeFrequency: "weekly" as const,
+      priority: 0.4,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Tool previews, so the screenshots are indexable rather than merely present. */
 async function toolImages(): Promise<Map<string, MediaRow[]>> {
   try {
@@ -57,7 +83,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const tagGroups = getTagGroups();
   const releases = getReleases();
   const changelogUpdated = getLastModified();
-  const [mods, previews] = await Promise.all([modEntries(), toolImages()]);
+  const [mods, profiles, previews] = await Promise.all([
+    modEntries(),
+    profileEntries(),
+    toolImages(),
+  ]);
 
   return [
     {
@@ -85,6 +115,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.9,
     },
     ...mods,
+    ...profiles,
     {
       url: `${baseUrl}/tools`,
       lastModified: new Date(),
