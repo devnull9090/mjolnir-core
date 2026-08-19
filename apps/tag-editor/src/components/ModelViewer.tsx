@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { api, type ModelGeometry } from "../lib/api";
+import { api, type ModelGeometry, type RenderMeshRef } from "../lib/api";
 import { FLAG_INVISIBLE, IDENTITY, hueOf, nodeWorlds, quat } from "../lib/three-model";
+import { loadRenderGroup, type MeshCache, type TextureCache } from "../lib/render-mesh";
 import { useEditor } from "../stores/editor-store";
 
 /**
- * The Model view: the object's simulation geometry in 3D.
+ * The Model view: the object's geometry in 3D.
  *
- * What it draws is the collision shell posed by the skeleton — the game ships
- * no render meshes in its tag data (visuals are Unreal packages), and the
- * collision model is the shape the simulation actually plays.
+ * The tag data carries only the simulation half — the collision shell posed
+ * by the skeleton. The visuals live in Unreal packages, reached through the
+ * object's actor Blueprint: when that chase lands, the real textured render
+ * mesh draws on top of (or instead of) the shell.
  */
 export function ModelViewer() {
   const index = useEditor((s) => s.selectedTag);
   const [geometry, setGeometry] = useState<ModelGeometry | null>(null);
+  const [renderRefs, setRenderRefs] = useState<RenderMeshRef[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [wireframe, setWireframe] = useState(false);
+  const [showRender, setShowRender] = useState(true);
+  const [showCollision, setShowCollision] = useState(true);
+  const [hasRender, setHasRender] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(true);
   const [showMarkers, setShowMarkers] = useState(false);
   const [showInvisible, setShowInvisible] = useState(false);
@@ -30,7 +36,18 @@ export function ModelViewer() {
     setLoading(true);
     setError(null);
     setGeometry(null);
+    setRenderRefs([]);
+    setHasRender(false);
+    setShowCollision(true);
     setHiddenParts(new Set());
+    void api
+      .objectRenderModel(index)
+      .then((refs) => {
+        if (!stale) setRenderRefs(refs);
+      })
+      .catch(() => {
+        // No render meshes reachable; the collision shell stands alone.
+      });
     api
       .readModelGeometry(index)
       .then((g) => {
@@ -94,6 +111,21 @@ export function ModelViewer() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-2">
         <Toggle on={wireframe} onClick={() => setWireframe(!wireframe)} label="wireframe" />
+        {renderRefs.length > 0 && (
+          <Toggle
+            on={showRender}
+            onClick={() => setShowRender(!showRender)}
+            label={`render · ${renderRefs.length}`}
+            title="The textured Unreal mesh the object's actor Blueprint binds"
+            disabled={!hasRender}
+          />
+        )}
+        <Toggle
+          on={showCollision}
+          onClick={() => setShowCollision(!showCollision)}
+          label="collision"
+          disabled={geometry.meshes.length === 0}
+        />
         <Toggle
           on={showSkeleton}
           onClick={() => setShowSkeleton(!showSkeleton)}
@@ -125,13 +157,26 @@ export function ModelViewer() {
       )}
       <Scene
         geometry={geometry}
+        renderRefs={renderRefs}
         wireframe={wireframe}
+        showRender={showRender}
+        showCollision={showCollision}
         showSkeleton={showSkeleton}
         showMarkers={showMarkers}
         showInvisible={showInvisible}
         hiddenParts={hiddenParts}
+        onRenderLoaded={(ok) => {
+          setHasRender(ok);
+          if (ok) setShowCollision(false);
+        }}
       />
       <div className="border-t border-border-subtle px-4 py-1.5 font-mono text-[10px] text-text-dim">
+        {renderRefs.length > 0 && (
+          <>
+            render {renderRefs.map((r) => r.label).join(", ")}
+            {" · "}
+          </>
+        )}
         {geometry.collision ? (
           <>collision {geometry.collision}</>
         ) : (
@@ -189,25 +234,33 @@ type DrawnMesh = {
 
 function Scene(props: {
   geometry: ModelGeometry;
+  renderRefs: RenderMeshRef[];
   wireframe: boolean;
+  showRender: boolean;
+  showCollision: boolean;
   showSkeleton: boolean;
   showMarkers: boolean;
   showInvisible: boolean;
   hiddenParts: Set<string>;
+  onRenderLoaded: (ok: boolean) => void;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const drawnRef = useRef<DrawnMesh[]>([]);
   const skeletonRef = useRef<THREE.Group | null>(null);
   const markersRef = useRef<THREE.Group | null>(null);
+  const renderGroupRef = useRef<THREE.Group | null>(null);
+  const renderMaterialsRef = useRef<THREE.MeshStandardMaterial[]>([]);
 
   // Renderer, camera and scene live for the mount; the model group is rebuilt
-  // when the geometry changes.
+  // when the geometry changes. The render model hangs off its own root so a
+  // collision rebuild does not tear it down.
   const threeRef = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     model: THREE.Group;
+    renderRoot: THREE.Group;
   } | null>(null);
 
   useEffect(() => {
@@ -237,8 +290,11 @@ function Scene(props: {
     // (x, z, -y) three.js expects, so everything inside stays in tag space.
     model.rotation.x = -Math.PI / 2;
     scene.add(model);
+    const renderRoot = new THREE.Group();
+    renderRoot.rotation.x = -Math.PI / 2;
+    scene.add(renderRoot);
 
-    threeRef.current = { renderer, scene, camera, controls, model };
+    threeRef.current = { renderer, scene, camera, controls, model, renderRoot };
 
     let frame = 0;
     const draw = () => {
@@ -398,17 +454,76 @@ function Scene(props: {
     }
   }, [props.geometry]);
 
+  // The render model: loaded once per tag, kept outside the collision group.
+  useEffect(() => {
+    const three = threeRef.current;
+    if (!three) return;
+    const { renderRoot, camera, controls } = three;
+    if (props.renderRefs.length === 0) return;
+    let alive = true;
+    const meshes: MeshCache = new Map();
+    const textures: TextureCache = new Map();
+    void loadRenderGroup(props.renderRefs, meshes, textures, () => alive).then((group) => {
+      if (!alive || !group) {
+        props.onRenderLoaded(false);
+        return;
+      }
+      renderRoot.add(group);
+      renderGroupRef.current = group;
+      const materials: THREE.MeshStandardMaterial[] = [];
+      group.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+            materials.push(m as THREE.MeshStandardMaterial);
+          }
+        }
+      });
+      renderMaterialsRef.current = materials;
+      props.onRenderLoaded(true);
+      // The collision framing stands when there is a shell; frame the render
+      // model only when it is all there is.
+      if (props.geometry.meshes.length === 0) {
+        const bounds = new THREE.Box3().setFromObject(renderRoot);
+        if (!bounds.isEmpty()) {
+          const center = bounds.getCenter(new THREE.Vector3());
+          const size = bounds.getSize(new THREE.Vector3()).length() || 1;
+          camera.position
+            .copy(center)
+            .add(new THREE.Vector3(0.9, 0.55, 0.9).multiplyScalar(size));
+          camera.near = size / 500;
+          camera.far = size * 50;
+          camera.updateProjectionMatrix();
+          controls.target.copy(center);
+          controls.update();
+        }
+      }
+    });
+    return () => {
+      alive = false;
+      const group = renderGroupRef.current;
+      if (group) {
+        disposeChildren(group);
+        group.removeFromParent();
+        renderGroupRef.current = null;
+      }
+      renderMaterialsRef.current = [];
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.renderRefs]);
+
   // Cheap toggles: no rebuild, just visibility and material flips.
   useEffect(() => {
     for (const d of drawnRef.current) {
-      const shown = !props.hiddenParts.has(d.key);
+      const shown = props.showCollision && !props.hiddenParts.has(d.key);
       d.visible.visible = shown;
       if (d.invisible) d.invisible.visible = shown && props.showInvisible;
       for (const m of d.materials) m.wireframe = props.wireframe;
     }
+    if (renderGroupRef.current) renderGroupRef.current.visible = props.showRender;
+    for (const m of renderMaterialsRef.current) m.wireframe = props.wireframe;
     if (skeletonRef.current) skeletonRef.current.visible = props.showSkeleton;
     if (markersRef.current) markersRef.current.visible = props.showMarkers;
-  }, [props.wireframe, props.showSkeleton, props.showMarkers, props.showInvisible, props.hiddenParts, props.geometry]);
+  }, [props.wireframe, props.showRender, props.showCollision, props.showSkeleton, props.showMarkers, props.showInvisible, props.hiddenParts, props.geometry, props.renderRefs]);
 
   return <div ref={mountRef} className="min-h-0 flex-1" />;
 }
@@ -421,7 +536,10 @@ function disposeChildren(group: THREE.Group) {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof THREE.Points) {
         o.geometry.dispose();
         const m = o.material;
-        for (const mat of Array.isArray(m) ? m : [m]) mat.dispose();
+        for (const mat of Array.isArray(m) ? m : [m]) {
+          if (mat instanceof THREE.MeshStandardMaterial) mat.map?.dispose();
+          mat.dispose();
+        }
       }
     });
     group.remove(child);
