@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hub",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "hub", "dev"],
+      "port": 3000
+    }
+  ]
+}

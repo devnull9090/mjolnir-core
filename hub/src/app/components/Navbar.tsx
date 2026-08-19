@@ -65,6 +65,9 @@ export function Navbar() {
           <Link href="/changelog" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Changelog
           </Link>
+          <Link href="/blog" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Blog
+          </Link>
           {/* Both held back until lg: with Tools in the row there is no space
               for them at md, and both are still one tap away in the footer. */}
           <Link href="https://discord.gg/9gxYZsByW9" target="_blank" className="hidden lg:flex text-sm text-text-muted hover:text-foreground transition-colors items-center gap-1.5">

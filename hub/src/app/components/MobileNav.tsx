@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Menu, X, Download, ScrollText, Wrench } from "lucide-react";
+import { Menu, X, Download, Newspaper, ScrollText, Wrench } from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
 
 const navLinks = [
@@ -10,6 +10,7 @@ const navLinks = [
   { href: "/mods", label: "Mods" },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
+  { href: "/blog", label: "Blog", icon: Newspaper },
   { href: "/download", label: "Download", icon: Download },
 ];
 
