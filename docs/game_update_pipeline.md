@@ -112,13 +112,29 @@ build-to-manifest mapping above is confirmed only when the downloaded exe says s
 
 ## Known issues
 
-- Two chunks defeat the built-in Oodle decoder (`OozError`):
-  `D40/_Generated_/BSP_Split` and `E20/_Generated_/BSP_Settlement`, both
-  `scenario_structure_bsp`. This is a long-standing decoder gap, not an update regression —
-  the same two chunks fail identically on CU2, CU3 and CU4 (verified against the recovered
-  depots, 2026-08-19). Every other tag decodes. No loose `oo2core_*_win64.dll` exists to fall
-  back on — UE 5.5 links Oodle statically — so until the decoder grows whatever variant these
-  use, `tagdiff` counts them as unreadable rather than diffing them.
+- ~~Two chunks defeat the built-in Oodle decoder (`OozError`)~~ — **fixed 2026-08-19.**
+  `D40/_Generated_/BSP_Split` and `E20/_Generated_/BSP_Settlement` (both
+  `scenario_structure_bsp`) failed identically on CU2, CU3 and CU4, so it was never an
+  update regression. It was also not a missing codec variant: `oozextract` mishandles two
+  unaligned tail reads that ooz itself performs. Both readers fetch a 32-bit word that ooz
+  lets run past the end of the compressed region, relying on the surplus bits being masked
+  off before they reach a value.
+
+  - `decode_multi_array`'s forward varbits reader clamped the read to the bytes remaining
+    and right-aligned the short result, which shifts the whole word down 8 bits per missing
+    byte. On `BSP_Split` that turned an interval length of 65238 into 32894, leaving 32344
+    bytes of an entropy array unconsumed.
+  - `TansDecoder::tans_forward_bits` did not clamp at all and failed the decode outright as
+    out of bounds.
+
+  Both now pad the tail with zeroes, keeping the surviving bits in position. Verified by
+  decoding every Oodle block of every container on CU2, CU3 and CU4 with the stock and
+  patched decoders side by side: 5 blocks per build newly decode, and every block that
+  already decoded is byte-for-byte unchanged. The fix lives in a fork wired up through
+  `[patch.crates-io]` in the workspace `Cargo.toml`; drop it once it lands in a published
+  `oozextract` release — [upstream PR](https://github.com/lvlvllvlvllvlvl/oozextract/pull/3).
+  There is still no loose `oo2core_*_win64.dll` to fall back on — UE 5.5 links Oodle
+  statically — but the pure decoder no longer needs one.
 
 ## What CU4's run measured
 
