@@ -67,9 +67,12 @@ In rough order of how often updates break things:
    schema change (not just tag counts) is the headline finding if it happens, and means the tag
    editor and docs need review.
 4. **Live game**: launch via the mjolnir-game MCP tools (or `node tools/mcp/game/cli.mjs`),
-   check `game_log` for Lua errors, confirm the bridge answers. Resume a mission (click the
-   menu item — see `tools/mcp/game/input.ps1`; keyboard Enter does not activate this menu), then
-   `mjolnir poke --locate-only` on a loaded tag to prove `blam-live` still finds payloads.
+   check `game_log` for Lua errors, confirm the bridge answers. Resume a mission with a
+   `{"click":[x,y]}` input step on the menu item (window-client pixels; screenshot first and
+   scale — the frontend menu ignores keyboard Enter, and relative mouse moves are warped by
+   pointer acceleration), then `mjolnir poke --locate-only` on a loaded tag to prove
+   `blam-live` still finds payloads. In-mission tags only: nothing is locatable at the
+   frontend, not even `globals`.
 
 ## 5. Update the record
 
