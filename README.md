@@ -46,6 +46,7 @@ mjolnir-core/
 ├── keys/                        # Public release-signing keys
 ├── defs/                        # Exported tag definition corpus (schema only)
 ├── changelog/                   # Public release notes, one file per tagged release
+├── blog/                        # Posts for mjolnircore.com/blog, one file per post
 ├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)

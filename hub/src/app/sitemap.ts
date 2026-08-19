@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
+import { getBlogLastModified, getPosts } from "@/lib/blog";
 import { getTagGroups } from "@/lib/tags";
 import {
   listModsForSitemap,
@@ -149,6 +150,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       url: `${baseUrl}/changelog/${product.id}`,
       lastModified: changelogUpdated,
       changeFrequency: "weekly" as const,
+      priority: 0.6,
+    })),
+    {
+      url: `${baseUrl}/blog`,
+      lastModified: getBlogLastModified(),
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    },
+    // A post, like a release, never changes after it is published.
+    ...getPosts().map((post) => ({
+      url: `${baseUrl}/blog/${post.slug}`,
+      lastModified: new Date(`${post.date}T00:00:00Z`),
+      changeFrequency: "yearly" as const,
       priority: 0.6,
     })),
     // A release entry never changes after it is published, so it is dated by

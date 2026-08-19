@@ -18,7 +18,14 @@
         {"key":"Shift","up":true}    release
         {"mouse":"left","hold":60}   click
         {"move":[120,-40]}           move the cursor, relative, for looking
+        {"click":[400,300]}          left-click at window-client coordinates
         {"wait":500}                 do nothing for 500 ms
+
+    Use click, not move-then-mouse, to hit a menu item: relative moves go
+    through pointer acceleration, so a computed delta does not land where the
+    arithmetic says. click positions the cursor absolutely (SetCursorPos, in
+    the window's client space) and is what the frontend menu needs -- its items
+    do not respond to Enter, only to the mouse.
 
 .EXAMPLE
     .\input.ps1 -Steps '[{"key":"Escape"},{"wait":400},{"key":"Enter"}]'
@@ -56,6 +63,29 @@ public class MjolnirInput {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    // The process's render window: top-level, class UnrealWindow, owned by
+    // this pid. FindWindowEx cannot be trusted to see it, so enumerate.
+    public static IntPtr GameWindow(uint pid) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner != pid) { return true; }
+            var cls = new System.Text.StringBuilder(256);
+            GetClassName(hWnd, cls, 256);
+            if (cls.ToString() != "UnrealWindow") { return true; }
+            found = hWnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 
@@ -130,7 +160,13 @@ if (-not $process) {
     ConvertTo-Json -Compress @{ ok = $false; error = "no window found for process '$ProcessName'" }
     exit 1
 }
-$hwnd = $process.MainWindowHandle
+# With the UE4SS GUI console open the process has two top-level windows, and
+# MainWindowHandle picks the console -- so keys would land in the log view and
+# the game would sit untouched at the menu. The render window is the one of
+# class UnrealWindow (the console is ConsoleWindowClass), so pick by class and
+# pid. Titles are not trustworthy here: the game's own carries trailing spaces.
+$hwnd = [MjolnirInput]::GameWindow($process.Id)
+if ($hwnd -eq [IntPtr]::Zero) { $hwnd = $process.MainWindowHandle }
 
 # Windows refuses SetForegroundWindow from a process that does not already own
 # the foreground -- which is exactly our situation, and a bare call silently
@@ -186,6 +222,21 @@ foreach ($step in $parsed) {
         continue
     }
 
+    if ($step.click) {
+        $point = New-Object MjolnirInput+POINT
+        $point.X = [int]$step.click[0]
+        $point.Y = [int]$step.click[1]
+        [MjolnirInput]::ClientToScreen($hwnd, [ref]$point) | Out-Null
+        [MjolnirInput]::SetCursorPos($point.X, $point.Y) | Out-Null
+        Start-Sleep -Milliseconds 60   # let the UI notice the hover before the press
+        [MjolnirInput]::Mouse($MOUSE_FLAGS["left"].down, 0, 0)
+        Start-Sleep -Milliseconds $DefaultHoldMs
+        [MjolnirInput]::Mouse($MOUSE_FLAGS["left"].up, 0, 0)
+        $done += "click $($step.click[0]),$($step.click[1])"
+        Start-Sleep -Milliseconds $GapMs
+        continue
+    }
+
     if ($step.mouse) {
         $button = ("" + $step.mouse).ToLower()
         if (-not $MOUSE_FLAGS.ContainsKey($button)) { throw "unknown mouse button '$button'" }
@@ -219,7 +270,7 @@ foreach ($step in $parsed) {
         continue
     }
 
-    throw "step has none of key/mouse/move/wait: $($step | ConvertTo-Json -Compress)"
+    throw "step has none of key/mouse/move/click/wait: $($step | ConvertTo-Json -Compress)"
 }
 
 ConvertTo-Json -Compress @{ ok = $true; focused = $focused; steps = $done }

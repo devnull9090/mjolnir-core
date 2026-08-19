@@ -15,6 +15,7 @@ mod container;
 mod defs;
 mod hsc;
 mod index;
+mod tagdiff;
 mod texture;
 
 /// Find a data file that ships alongside the binary.
@@ -147,6 +148,8 @@ enum Command {
     /// Inspect, export and swap cooked textures.
     #[command(subcommand_help_heading = "Texture")]
     Texture(texture::TextureArgs),
+    /// Diff the shipped tags of two builds, field by field.
+    Tagdiff(tagdiff::TagDiffArgs),
 }
 
 #[derive(Args)]
@@ -501,6 +504,7 @@ fn main() -> Result<()> {
         Command::Scripting(a) => scripting(a),
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
+        Command::Tagdiff(a) => tagdiff::run(a),
     }
 }
 
@@ -3041,9 +3045,15 @@ fn validate(a: ValidateArgs) -> Result<()> {
     let mut c = Checks::default();
     for entry in targets {
         c.tags += 1;
-        let Ok(buf) = idx.read(entry, None, &oodle) else {
-            c.header_failed += 1;
-            continue;
+        let buf = match idx.read(entry, None, &oodle) {
+            Ok(buf) => buf,
+            Err(e) => {
+                c.header_failed += 1;
+                if a.verbose {
+                    eprintln!("{}: {e:#}", entry.path);
+                }
+                continue;
+            }
         };
         let tag = match TagFile::parse(&buf, Some(entry.chunk.length as usize)) {
             Ok(t) => t,

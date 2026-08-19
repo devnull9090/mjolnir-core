@@ -1,6 +1,6 @@
 {
   "generator": "mjolnir 0.1.0",
-  "build": "2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2",
+  "build": "2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4",
   "derivation": "Recovered from 13 shipped scenario tags by reading the name node of every compiled call. Signatures are inferred from observed call sites, not read from the engine: a function the campaign never calls is absent, and an argument type seen once may be one caller's habit rather than the signature.",
   "value_types": [
     "unparsed",
@@ -100,7 +100,7 @@
     },
     "ai_command_script": {
       "quoted": 0,
-      "bare": 293
+      "bare": 294
     },
     "ai_line": {
       "quoted": 0,
@@ -111,8 +111,8 @@
       "bare": 4
     },
     "boolean": {
-      "quoted": 9,
-      "bare": 55
+      "quoted": 8,
+      "bare": 47
     },
     "cinematic_definition": {
       "quoted": 0,
@@ -188,19 +188,19 @@
     },
     "point_reference": {
       "quoted": 0,
-      "bare": 1936
+      "bare": 1938
     },
     "real": {
       "quoted": 3,
-      "bare": 58
+      "bare": 46
     },
     "script": {
       "quoted": 0,
       "bare": 2622
     },
     "short": {
-      "quoted": 9,
-      "bare": 88
+      "quoted": 11,
+      "bare": 76
     },
     "skull": {
       "quoted": 1,
@@ -228,7 +228,7 @@
     },
     "trigger_volume": {
       "quoted": 0,
-      "bare": 3345
+      "bare": 3346
     },
     "unit": {
       "quoted": 0,
@@ -268,7 +268,7 @@
         "real": 16,
         "short": 40,
         "unit": 52,
-        "void": 8276
+        "void": 8277
       },
       "min_args": 1,
       "max_args": 78,
@@ -283,7 +283,7 @@
             "real": 16,
             "short": 40,
             "unit": 52,
-            "void": 8856
+            "void": 8857
           },
           "always_present": true,
           "quoted": false,
@@ -295,28 +295,28 @@
         {
           "types": {
             "boolean": 194,
-            "void": 6521
+            "void": 6522
           },
           "always_present": false
         },
         {
           "types": {
             "boolean": 252,
-            "void": 3926
+            "void": 3927
           },
           "always_present": false
         },
         {
           "types": {
             "boolean": 87,
-            "void": 2825
+            "void": 2827
           },
           "always_present": false
         },
         {
           "types": {
             "boolean": 22,
-            "void": 2157
+            "void": 2159
           },
           "always_present": false,
           "quoting": {
@@ -328,7 +328,7 @@
           "types": {
             "ai": 1,
             "boolean": 3,
-            "void": 1699
+            "void": 1698
           },
           "always_present": false
         },
@@ -342,12 +342,12 @@
         {
           "types": {
             "boolean": 4,
-            "void": 982
+            "void": 981
           },
           "always_present": false
         }
       ],
-      "call_sites": 10519,
+      "call_sites": 10520,
       "scenarios": 13
     },
     "1": {
@@ -507,14 +507,14 @@
         "cutscene_flag": 2,
         "real": 34,
         "short": 13,
-        "void": 3371
+        "void": 3372
       },
       "min_args": 2,
       "max_args": 3,
       "parameters": [
         {
           "types": {
-            "boolean": 3600
+            "boolean": 3601
           },
           "always_present": true,
           "quoted": false,
@@ -529,7 +529,7 @@
             "cutscene_flag": 2,
             "real": 34,
             "short": 13,
-            "void": 3371
+            "void": 3372
           },
           "always_present": true
         },
@@ -549,7 +549,7 @@
           }
         }
       ],
-      "call_sites": 3600,
+      "call_sites": 3601,
       "scenarios": 13
     },
     "6": {
@@ -599,7 +599,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 1,
-            "bare": 75
+            "bare": 71
           }
         }
       ],
@@ -739,11 +739,7 @@
           "types": {
             "real": 557
           },
-          "always_present": true,
-          "quoting": {
-            "quoted": 0,
-            "bare": 1
-          }
+          "always_present": true
         },
         {
           "types": {
@@ -981,7 +977,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 183,
-            "bare": 314
+            "bare": 313
           }
         }
       ],
@@ -1036,7 +1032,7 @@
     "18": {
       "name": ">",
       "returns": {
-        "boolean": 1148
+        "boolean": 1149
       },
       "min_args": 2,
       "max_args": 2,
@@ -1046,7 +1042,7 @@
             "actor_combat_status": 10,
             "game_difficulty": 1,
             "long": 78,
-            "real": 369,
+            "real": 370,
             "short": 690
           },
           "always_present": true
@@ -1056,18 +1052,18 @@
             "actor_combat_status": 10,
             "game_difficulty": 1,
             "long": 78,
-            "real": 369,
+            "real": 370,
             "short": 690
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 1,
-            "bare": 13
+            "bare": 11
           }
         }
       ],
-      "call_sites": 1148,
+      "call_sites": 1149,
       "scenarios": 13
     },
     "19": {
@@ -1098,7 +1094,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 1,
-            "bare": 6
+            "bare": 3
           }
         }
       ],
@@ -1176,7 +1172,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 14
+            "bare": 13
           }
         }
       ],
@@ -1186,14 +1182,14 @@
     "22": {
       "name": "sleep",
       "returns": {
-        "void": 2505
+        "void": 2506
       },
       "min_args": 1,
       "max_args": 2,
       "parameters": [
         {
           "types": {
-            "short": 2505
+            "short": 2506
           },
           "always_present": true,
           "quoted": false,
@@ -1213,7 +1209,7 @@
           }
         }
       ],
-      "call_sites": 2505,
+      "call_sites": 2506,
       "scenarios": 13
     },
     "23": {
@@ -1243,14 +1239,14 @@
       "name": "sleep_until",
       "returns": {
         "boolean": 145,
-        "void": 4898
+        "void": 4899
       },
       "min_args": 1,
       "max_args": 3,
       "parameters": [
         {
           "types": {
-            "boolean": 5043
+            "boolean": 5044
           },
           "always_present": true,
           "quoting": {
@@ -1260,13 +1256,13 @@
         },
         {
           "types": {
-            "short": 4600
+            "short": 4601
           },
           "always_present": false,
           "quoted": false,
           "quoting": {
-            "quoted": 4,
-            "bare": 55
+            "quoted": 5,
+            "bare": 45
           }
         },
         {
@@ -1276,7 +1272,7 @@
           "always_present": false
         }
       ],
-      "call_sites": 5043,
+      "call_sites": 5044,
       "scenarios": 13
     },
     "26": {
@@ -1391,19 +1387,19 @@
     "36": {
       "name": "not",
       "returns": {
-        "boolean": 823
+        "boolean": 824
       },
       "min_args": 1,
       "max_args": 1,
       "parameters": [
         {
           "types": {
-            "boolean": 823
+            "boolean": 824
           },
           "always_present": true
         }
       ],
-      "call_sites": 823,
+      "call_sites": 824,
       "scenarios": 13
     },
     "39": {
@@ -1715,25 +1711,25 @@
     "78": {
       "name": "volume_test_object",
       "returns": {
-        "boolean": 294
+        "boolean": 295
       },
       "min_args": 2,
       "max_args": 2,
       "parameters": [
         {
           "types": {
-            "trigger_volume": 294
+            "trigger_volume": 295
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 242
+            "bare": 243
           }
         },
         {
           "types": {
-            "object": 294
+            "object": 295
           },
           "always_present": true,
           "quoted": false,
@@ -1743,7 +1739,7 @@
           }
         }
       ],
-      "call_sites": 294,
+      "call_sites": 295,
       "scenarios": 13
     },
     "79": {
@@ -2535,14 +2531,14 @@
     "134": {
       "name": "object_get_health",
       "returns": {
-        "real": 373
+        "real": 374
       },
       "min_args": 1,
       "max_args": 1,
       "parameters": [
         {
           "types": {
-            "object": 373
+            "object": 374
           },
           "always_present": true,
           "quoted": false,
@@ -2552,7 +2548,7 @@
           }
         }
       ],
-      "call_sites": 373,
+      "call_sites": 374,
       "scenarios": 13
     },
     "135": {
@@ -3273,10 +3269,9 @@
             "real": 139
           },
           "always_present": true,
-          "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 2
+            "bare": 1
           }
         }
       ],
@@ -3312,11 +3307,7 @@
           "types": {
             "real": 24
           },
-          "always_present": true,
-          "quoting": {
-            "quoted": 0,
-            "bare": 1
-          }
+          "always_present": true
         }
       ],
       "call_sites": 24,
@@ -3538,19 +3529,19 @@
     "236": {
       "name": "unit_stop_custom_animation",
       "returns": {
-        "void": 9
+        "void": 10
       },
       "min_args": 1,
       "max_args": 1,
       "parameters": [
         {
           "types": {
-            "unit": 9
+            "unit": 10
           },
           "always_present": true
         }
       ],
-      "call_sites": 9,
+      "call_sites": 10,
       "scenarios": 2
     },
     "237": {
@@ -3599,9 +3590,10 @@
             "boolean": 43
           },
           "always_present": true,
+          "quoted": false,
           "quoting": {
             "quoted": 1,
-            "bare": 0
+            "bare": 1
           }
         }
       ],
@@ -4796,7 +4788,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 6
+            "bare": 5
           }
         }
       ],
@@ -5613,14 +5605,14 @@
     "376": {
       "name": "ai_cannot_die",
       "returns": {
-        "void": 150
+        "void": 146
       },
       "min_args": 2,
       "max_args": 2,
       "parameters": [
         {
           "types": {
-            "ai": 150
+            "ai": 146
           },
           "always_present": true,
           "quoted": false,
@@ -5631,17 +5623,12 @@
         },
         {
           "types": {
-            "boolean": 150
+            "boolean": 146
           },
-          "always_present": true,
-          "quoted": false,
-          "quoting": {
-            "quoted": 1,
-            "bare": 2
-          }
+          "always_present": true
         }
       ],
-      "call_sites": 150,
+      "call_sites": 146,
       "scenarios": 13
     },
     "382": {
@@ -6743,14 +6730,14 @@
       "name": "object_get_ai",
       "returns": {
         "ai": 110,
-        "object": 84
+        "object": 85
       },
       "min_args": 1,
       "max_args": 1,
       "parameters": [
         {
           "types": {
-            "object": 194
+            "object": 195
           },
           "always_present": true,
           "quoted": false,
@@ -6760,7 +6747,7 @@
           }
         }
       ],
-      "call_sites": 194,
+      "call_sites": 195,
       "scenarios": 13
     },
     "453": {
@@ -7940,14 +7927,14 @@
     "580": {
       "name": "cs_run_command_script",
       "returns": {
-        "void": 224
+        "void": 225
       },
       "min_args": 2,
       "max_args": 2,
       "parameters": [
         {
           "types": {
-            "ai": 224
+            "ai": 225
           },
           "always_present": true,
           "quoted": false,
@@ -7958,17 +7945,17 @@
         },
         {
           "types": {
-            "ai_command_script": 224
+            "ai_command_script": 225
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 217
+            "bare": 218
           }
         }
       ],
-      "call_sites": 224,
+      "call_sites": 225,
       "scenarios": 12
     },
     "581": {
@@ -9381,11 +9368,7 @@
           "types": {
             "boolean": 15
           },
-          "always_present": true,
-          "quoting": {
-            "quoted": 0,
-            "bare": 1
-          }
+          "always_present": true
         }
       ],
       "call_sites": 15,
@@ -9836,10 +9819,9 @@
             "real": 155
           },
           "always_present": true,
-          "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 2
+            "bare": 1
           }
         }
       ],
@@ -9931,7 +9913,7 @@
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 3
+            "bare": 2
           }
         }
       ],
@@ -10053,35 +10035,35 @@
     "778": {
       "name": "cs_teleport",
       "returns": {
-        "void": 54
+        "void": 55
       },
       "min_args": 2,
       "max_args": 2,
       "parameters": [
         {
           "types": {
-            "point_reference": 54
+            "point_reference": 55
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 54
+            "bare": 55
           }
         },
         {
           "types": {
-            "point_reference": 54
+            "point_reference": 55
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 0,
-            "bare": 54
+            "bare": 55
           }
         }
       ],
-      "call_sites": 54,
+      "call_sites": 55,
       "scenarios": 6
     },
     "780": {
@@ -12313,24 +12295,24 @@
         "boolean": 2,
         "long": 139,
         "real": 3,
-        "short": 1225
+        "short": 1226
       },
       "min_args": 1,
       "max_args": 1,
       "parameters": [
         {
           "types": {
-            "real": 1369
+            "real": 1370
           },
           "always_present": true,
           "quoted": false,
           "quoting": {
             "quoted": 2,
-            "bare": 16
+            "bare": 14
           }
         }
       ],
-      "call_sites": 1369,
+      "call_sites": 1370,
       "scenarios": 13
     },
     "1474": {
