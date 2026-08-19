@@ -56,6 +56,26 @@ public class MjolnirInput {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    // The process's render window: top-level, class UnrealWindow, owned by
+    // this pid. FindWindowEx cannot be trusted to see it, so enumerate.
+    public static IntPtr GameWindow(uint pid) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner != pid) { return true; }
+            var cls = new System.Text.StringBuilder(256);
+            GetClassName(hWnd, cls, 256);
+            if (cls.ToString() != "UnrealWindow") { return true; }
+            found = hWnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 
@@ -130,7 +150,13 @@ if (-not $process) {
     ConvertTo-Json -Compress @{ ok = $false; error = "no window found for process '$ProcessName'" }
     exit 1
 }
-$hwnd = $process.MainWindowHandle
+# With the UE4SS GUI console open the process has two top-level windows, and
+# MainWindowHandle picks the console -- so keys would land in the log view and
+# the game would sit untouched at the menu. The render window is the one of
+# class UnrealWindow (the console is ConsoleWindowClass), so pick by class and
+# pid. Titles are not trustworthy here: the game's own carries trailing spaces.
+$hwnd = [MjolnirInput]::GameWindow($process.Id)
+if ($hwnd -eq [IntPtr]::Zero) { $hwnd = $process.MainWindowHandle }
 
 # Windows refuses SetForegroundWindow from a process that does not already own
 # the foreground -- which is exactly our situation, and a bare call silently

@@ -60,6 +60,26 @@ public class MjolnirWin {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    // The process's render window: top-level, class UnrealWindow, owned by
+    // this pid. FindWindowEx cannot be trusted to see it, so enumerate.
+    public static IntPtr GameWindow(uint pid) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner != pid) { return true; }
+            var cls = new System.Text.StringBuilder(256);
+            GetClassName(hWnd, cls, 256);
+            if (cls.ToString() != "UnrealWindow") { return true; }
+            found = hWnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 }
@@ -87,7 +107,13 @@ $process = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
     Select-Object -First 1
 if (-not $process) { Fail "no window found for process '$ProcessName'" }
 
-$hwnd = $process.MainWindowHandle
+# With the UE4SS GUI console open the process has two top-level windows, and
+# MainWindowHandle picks the console -- a screenshot of the log view, not the
+# game. The render window is the one of class UnrealWindow (the console is
+# ConsoleWindowClass), so pick by class and pid. Titles are not trustworthy
+# here: the game's own carries trailing spaces.
+$hwnd = [MjolnirWin]::GameWindow($process.Id)
+if ($hwnd -eq [IntPtr]::Zero) { $hwnd = $process.MainWindowHandle }
 
 $clientRect = New-Object MjolnirWin+RECT
 if (-not [MjolnirWin]::GetClientRect($hwnd, [ref]$clientRect)) { Fail "GetClientRect failed" }
