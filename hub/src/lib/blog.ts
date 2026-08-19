@@ -42,6 +42,27 @@ export function getAdjacentPosts(post: BlogPost): {
   };
 }
 
+/** The `date` field as it is rendered everywhere a post is dated. */
+export function formatPostDate(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Every tag in use, alphabetical. Tags are slug-safe by construction —
+ * `sync-blog.mjs` rejects anything that couldn't live in a URL. */
+export function getAllTags(): string[] {
+  return [...new Set(feed.posts.flatMap((p) => p.tags))].sort();
+}
+
+/** Posts carrying this tag, newest first (feed order). */
+export function getPostsByTag(tag: string): BlogPost[] {
+  return feed.posts.filter((p) => p.tags.includes(tag));
+}
+
 /** The most recent date any post carries, for sitemap and feed timestamps. */
 export function getBlogLastModified(): Date {
   const newest = feed.posts[0];

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
-import { getBlogLastModified, getPosts } from "@/lib/blog";
+import { getAllTags, getBlogLastModified, getPosts } from "@/lib/blog";
 import { getTagGroups } from "@/lib/tags";
 import {
   listModsForSitemap,
@@ -158,6 +158,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly" as const,
       priority: 0.8,
     },
+    // A tag page changes whenever a post carrying the tag is published, so it
+    // is dated by the newest post rather than by today.
+    ...getAllTags().map((tag) => ({
+      url: `${baseUrl}/blog/tag/${tag}`,
+      lastModified: getBlogLastModified(),
+      changeFrequency: "weekly" as const,
+      priority: 0.5,
+    })),
     // A post, like a release, never changes after it is published.
     ...getPosts().map((post) => ({
       url: `${baseUrl}/blog/${post.slug}`,

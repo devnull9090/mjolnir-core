@@ -82,15 +82,24 @@ async function parsePost(fileName) {
   const body = lines.slice(index).join("\n").trim();
   if (!body) fail(`${fileName}: post has no body`);
 
+  const tags = meta.tags
+    ? meta.tags.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+  for (const tag of tags) {
+    // A tag is a URL segment (/blog/tag/<tag>), so it is held to the same
+    // grammar as the slug.
+    if (!/^[a-z0-9-]+$/.test(tag)) {
+      fail(`${fileName}: tag "${tag}" must be lowercase letters, digits and hyphens`);
+    }
+  }
+
   return {
     slug,
     date,
     title: toPlainText(title[1]),
     author: meta.author ? toPlainText(meta.author) : "MJOLNIR Core",
     summary,
-    tags: meta.tags
-      ? meta.tags.split(",").map((t) => t.trim()).filter(Boolean)
-      : [],
+    tags,
     body,
     sourceUrl: `${GITHUB_BLOB}/${fileName}`,
   };

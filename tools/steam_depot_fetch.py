@@ -40,13 +40,14 @@ DLC_DEPOT = "4192200"
 # every historical build pairs with it unchanged.
 DLC_MANIFEST = "7241924470348670959"
 
-# Depot 2806051 manifests SteamDB had seen as of 2026-08-18. The build each one
-# is remains a guess until the exe is downloaded and its version stamp read —
-# label directories by that stamp, not by this table.
+# Every depot 2806051 manifest SteamDB has seen as of 2026-08-19 — all three
+# are downloaded, snapshotted and confirmed by their exe version stamps. The
+# CU numbering predates the Steam release: the launch/preload build is stamped
+# CU2, and no older manifest exists, so there is no Steam "CU1".
 KNOWN_MANIFESTS = [
-    ("5851394981381786761", "seen 2026-08-17", "CU4 (the build snapshotted live)"),
-    ("457322918737678760", "seen 2026-07-29", "CU3, most likely"),
-    ("8153709523381701809", "seen 2026-07-23", "CU2, most likely (launch-era)"),
+    ("5851394981381786761", "shipped 2026-08-17", "CU4 (2026.08.11.1121610.2)"),
+    ("457322918737678760", "shipped 2026-07-29", "CU3 (2026.07.25.1112544.4)"),
+    ("8153709523381701809", "launch/preload 2026-07-23", "CU2 (2026.06.26.1097863.1)"),
 ]
 
 DEFAULT_TOOL = Path("D:/hce-depots/DepotDownloader/DepotDownloader.exe")
