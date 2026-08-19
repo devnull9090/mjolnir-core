@@ -2849,9 +2849,8 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "oozextract"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0296c8b223f00ed2bc0556de95d20a20a536fd5b79a1b0b59ff579972a5577"
+version = "0.5.5"
+source = "git+https://github.com/devnull9090/oozextract?rev=75fbb3812cc8273f8738eb72623035f0510e3359#75fbb3812cc8273f8738eb72623035f0510e3359"
 dependencies = [
  "bytemuck",
  "bytes",

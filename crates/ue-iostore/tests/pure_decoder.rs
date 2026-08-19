@@ -74,3 +74,46 @@ fn garbage_input_is_an_error_not_a_panic() {
     let result = ue_iostore::oodle::decompress(&junk, 48 * 1024, &[]);
     assert!(result.is_err(), "expected an error, got {result:?}");
 }
+
+/// Decode every compression block of every shipped container.
+///
+/// The fixture above pins one Kraken stream; this pins the whole shipped
+/// payload, which is what caught the two tail over-reads the patched
+/// `oozextract` fixes (see `[patch.crates-io]` in the workspace `Cargo.toml`).
+/// Five of 1,739,473 blocks decoded wrongly or not at all before that patch,
+/// and none of them are reachable from the fixture — two sit inside
+/// `scenario_structure_bsp` tags, the rest inside ordinary assets.
+///
+/// Blocks decode independently, so a failure here names one block to dump
+/// rather than one unreadable tag. Ignored by default because it needs an
+/// installed game; point `MJOLNIR_PAKS` at the `Paks` directory and run with
+/// `--ignored`. Expect it to take minutes and read the whole install.
+#[test]
+#[ignore = "needs an installed game; set MJOLNIR_PAKS"]
+fn every_shipped_block_decodes() {
+    let paks = std::env::var("MJOLNIR_PAKS").expect("set MJOLNIR_PAKS");
+    let containers = ue_iostore::load_all(&paks).expect("readable Paks dir");
+    assert!(!containers.is_empty(), "no .utoc files under {paks}");
+
+    let mut decoded = 0usize;
+    let mut failures = Vec::new();
+    for container in &containers {
+        for index in 0..container.blocks.len() {
+            match ue_iostore::read_block(container, index, &[]) {
+                Ok(_) => decoded += 1,
+                Err(e) => failures.push(format!(
+                    "{} block {index}: {e}",
+                    container.utoc_path.display()
+                )),
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} blocks failed to decode:\n  {}",
+        failures.len(),
+        decoded + failures.len(),
+        failures.join("\n  ")
+    );
+    eprintln!("decoded {decoded} blocks across {} containers", containers.len());
+}
