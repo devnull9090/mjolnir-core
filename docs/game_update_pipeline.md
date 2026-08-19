@@ -132,8 +132,9 @@ build-to-manifest mapping above is confirmed only when the downloaded exe says s
   patched decoders side by side: 5 blocks per build newly decode, and every block that
   already decoded is byte-for-byte unchanged. The fix lives in a fork wired up through
   `[patch.crates-io]` in the workspace `Cargo.toml`; drop it once it lands in a published
-  `oozextract` release. There is still no loose `oo2core_*_win64.dll` to fall back on — UE
-  5.5 links Oodle statically — but the pure decoder no longer needs one.
+  `oozextract` release — [upstream PR](https://github.com/lvlvllvlvllvlvl/oozextract/pull/3).
+  There is still no loose `oo2core_*_win64.dll` to fall back on — UE 5.5 links Oodle
+  statically — but the pure decoder no longer needs one.
 
 ## What CU4's run measured
 

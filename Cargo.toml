@@ -54,6 +54,7 @@ lto = "thin"
 # tags that would not decode at all. The fork pads those reads on the right instead.
 #
 # Drop this once the fix lands in a published oozextract release.
+# Upstream PR: https://github.com/lvlvllvlvllvlvl/oozextract/pull/3
 # Fork branch: https://github.com/devnull9090/oozextract/tree/fix/tail-overread-in-varbits-and-tans
 [patch.crates-io]
 oozextract = { git = "https://github.com/devnull9090/oozextract", rev = "75fbb3812cc8273f8738eb72623035f0510e3359" }
