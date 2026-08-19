@@ -3,10 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, ExternalLink } from "lucide-react";
 
-import { getAdjacentPosts, getPost, getPosts } from "@/lib/blog";
+import { formatPostDate, getAdjacentPosts, getPost, getPosts } from "@/lib/blog";
 import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
 import { Markdown } from "../../docs/_components/Markdown";
+import { TagChip } from "../_components/TagChip";
 
 /**
  * Do not set `dynamicParams = false` here — same OpenNext incremental-cache
@@ -39,15 +40,6 @@ export async function generateMetadata({
       authors: [post.author],
     },
   };
-}
-
-function formatDate(date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 export default async function BlogPostPage({
@@ -91,16 +83,11 @@ export default async function BlogPostPage({
           <h1 className="break-words text-3xl font-black sm:text-4xl">{post.title}</h1>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-text-muted">
             <time dateTime={post.date} className="font-mono text-xs">
-              {formatDate(post.date)}
+              {formatPostDate(post.date)}
             </time>
             <span>{post.author}</span>
             {post.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-md bg-gold/10 px-2 py-0.5 font-mono text-xs text-gold"
-              >
-                {tag}
-              </span>
+              <TagChip key={tag} tag={tag} />
             ))}
           </div>
         </header>

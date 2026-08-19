@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Newspaper, Rss } from "lucide-react";
 
-import { getPosts } from "@/lib/blog";
+import { getAllTags, getPosts } from "@/lib/blog";
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { PostCard } from "./_components/PostCard";
+import { TagChip } from "./_components/TagChip";
 
 export const metadata: Metadata = {
   title: "Blog | MJOLNIR Core",
@@ -24,17 +25,9 @@ export const metadata: Metadata = {
   },
 };
 
-function formatDate(date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 export default function BlogIndexPage() {
   const posts = getPosts();
+  const tags = getAllTags();
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -70,6 +63,14 @@ export default function BlogIndexPage() {
             What each game update changed under the hood, and what we learn taking Halo
             Campaign Evolved apart. Newest first.
           </p>
+          {tags.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-sm text-text-dim">Filter by tag:</span>
+              {tags.map((tag) => (
+                <TagChip key={tag} tag={tag} />
+              ))}
+            </div>
+          )}
           <a
             href="/blog/rss.xml"
             className="mt-4 inline-flex items-center gap-2 text-sm text-text-dim hover:text-gold"
@@ -81,31 +82,7 @@ export default function BlogIndexPage() {
 
         <div className="space-y-3">
           {posts.map((post) => (
-            <Link
-              key={post.slug}
-              href={`/blog/${post.slug}`}
-              className="block rounded-xl border border-border bg-surface-raised p-5 transition-colors hover:border-gold/40"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <span className="text-lg font-bold text-foreground">{post.title}</span>
-                <time dateTime={post.date} className="font-mono text-xs text-text-dim">
-                  {formatDate(post.date)}
-                </time>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-text-muted">{post.summary}</p>
-              {post.tags.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {post.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-md bg-gold/10 px-2 py-0.5 font-mono text-xs text-gold"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </Link>
+            <PostCard key={post.slug} post={post} />
           ))}
           {posts.length === 0 && (
             <p className="text-text-muted">Nothing published yet.</p>
