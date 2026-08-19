@@ -51,9 +51,13 @@ export function ChangeList({
     );
   }
 
+  // A couple of tags reads fine expanded; dozens is a wall of text, so big
+  // change lists start collapsed and each row carries enough to scan by.
+  const openByDefault = changes.tags.length <= 3;
+
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-[var(--mj-text-muted)]">
+    <div className="space-y-2">
+      <p className="text-sm text-[var(--mj-text-muted)] mb-3">
         {changesSummary(changes)}
         <span className="text-[var(--mj-text-dim)]">
           {" "}
@@ -62,23 +66,45 @@ export function ChangeList({
       </p>
 
       {changes.tags.map((t) => (
-        <div key={`${t.group}/${t.tag}`} className="rounded-lg border border-[var(--mj-border)] p-3">
-          <div className="flex items-center gap-2 mb-2 min-w-0">
+        <details
+          key={`${t.group}/${t.tag}`}
+          open={openByDefault}
+          className="group rounded-lg border border-[var(--mj-border)]"
+        >
+          <summary className="flex items-center gap-2 min-w-0 px-3 py-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
             <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-[var(--mj-surface-hover)] text-[var(--mj-text-dim)]">
               {t.group}
             </span>
+            {/* The path's tail is the tag's identity; the full path lives in
+                the expanded body, where it has room to wrap. */}
             <span className="font-mono text-xs text-[var(--mj-text)] truncate" title={t.tag}>
-              {t.tag}
+              {t.tag.split("/").pop()}
             </span>
-          </div>
-          <table className="w-full text-xs">
-            <tbody>
+            <span className="ml-auto shrink-0 text-[11px] text-[var(--mj-text-dim)]">
+              {plural(t.fields.length, "edit")}
+            </span>
+            <svg
+              viewBox="0 0 16 16"
+              aria-hidden
+              className="shrink-0 w-3 h-3 text-[var(--mj-text-dim)] transition-transform group-open:rotate-90"
+            >
+              <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </summary>
+          <div className="px-3 pb-3">
+            <p className="font-mono text-[11px] text-[var(--mj-text-dim)] break-all mb-2">
+              {t.tag}
+            </p>
+            <ul className="space-y-1 text-xs">
               {t.fields.map((f, i) => (
-                <tr key={i} className="align-top">
-                  <td className="py-0.5 pr-3 font-mono text-[var(--mj-text-muted)] break-all">
+                <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                  <span className="font-mono text-[var(--mj-text-muted)] break-all min-w-0">
                     {f.field}
-                  </td>
-                  <td className="py-0.5 text-right whitespace-nowrap">
+                  </span>
+                  {/* flex-wrap + ml-auto: short values sit right of the field
+                      name; long ones (flag lists) drop to their own wrapped
+                      line instead of forcing the page wide. */}
+                  <span className="ml-auto min-w-0 max-w-full text-right break-words">
                     {f.before != null && (
                       <>
                         <span className="text-[var(--mj-text-dim)] line-through">{f.before}</span>
@@ -86,12 +112,12 @@ export function ChangeList({
                       </>
                     )}
                     <span className="font-semibold text-[var(--mj-text)]">{f.value}</span>
-                  </td>
-                </tr>
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </ul>
+          </div>
+        </details>
       ))}
 
       {changes.textures.length > 0 && (
