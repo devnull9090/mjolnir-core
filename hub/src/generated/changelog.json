@@ -39,6 +39,40 @@
   ],
   "releases": [
     {
+      "product": "runtime",
+      "productName": "MJOLNIR Runtime",
+      "version": "2.0.1",
+      "tag": "runtime-v2.0.1",
+      "title": "The signature fix that never shipped",
+      "date": "2026-08-19",
+      "summary": "Ships the corrected GUObjectHashTables signature. 2.0.0 carried a pattern that resolved to the wrong function, so UE4SS started cleanly and then failed somewhere unrelated.",
+      "body": "### Fixed\n\n- **`GUObjectHashTables` now resolves to the function it names.**\n\n  2.0.0 was tagged on 1 August. The fix landed on 5 August and was never\n  released, so every install since has carried the older pattern — this release\n  exists to deliver it.\n\n  Once that pattern's RIP-relative displacements were wildcarded, what remained\n  described the thread-safe accessor MSVC emits for every function-local static.\n  It matched **195 functions**, and UE4SS took one of them. Confirmed in game,\n  that was RVA `0x353a140` — a different function `0x5f270` bytes from the real\n  `FUObjectHashTables::Get()` at `0x35993b0`.\n\n  Ambiguity is the worse failure. UE4SS does not complain: it logs an address\n  and starts normally, so nothing looks wrong until something dies somewhere\n  unrelated. The signature now anchors on a call site and decodes the `E8`\n  rel32 to reach the callee, which matches once.\n\n### Verified\n\n- All four signatures resolve, and resolve **exactly once**, against the current\n  game build `2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`.\n- All 13 bundled Lua mods load with no errors on that build, and the in-game\n  bridge answers both at the menu and in a mission.\n\n### Notes\n\n- Nothing else in the bundle changed. If you installed the runtime on or after\n  1 August it is worth reinstalling even though nothing appeared broken — the\n  symptom of the old signature is a crash with no obvious cause, not a visible\n  failure at startup.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "GUObjectHashTables now resolves to the function it names."
+          ]
+        },
+        {
+          "heading": "Verified",
+          "items": [
+            "All four signatures resolve, and resolve exactly once, against the current game build 2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4.",
+            "All 13 bundled Lua mods load with no errors on that build, and the in-game bridge answers both at the menu and in a mission."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Nothing else in the bundle changed. If you installed the runtime on or after 1 August it is worth reinstalling even though nothing appeared broken — the symptom of the old signature is a crash with no obvious cause, not a visible failure at startup."
+          ]
+        }
+      ],
+      "path": "/changelog/runtime/2.0.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/runtime/2.0.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/runtime-v2.0.1"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.8.0",
