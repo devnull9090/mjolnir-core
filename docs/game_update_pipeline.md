@@ -112,12 +112,13 @@ build-to-manifest mapping above is confirmed only when the downloaded exe says s
 
 ## Known issues
 
-- Two CU4 chunks defeat the built-in Oodle decoder (`OozError`):
+- Two chunks defeat the built-in Oodle decoder (`OozError`):
   `D40/_Generated_/BSP_Split` and `E20/_Generated_/BSP_Settlement`, both
-  `scenario_structure_bsp`. Every other tag (12,290 of 12,292) decodes. No loose
-  `oo2core_*_win64.dll` exists to fall back on — UE 5.5 links Oodle statically — so until the
-  decoder grows whatever variant these use, `tagdiff` counts them as unreadable rather than
-  diffing them.
+  `scenario_structure_bsp`. This is a long-standing decoder gap, not an update regression —
+  the same two chunks fail identically on CU2, CU3 and CU4 (verified against the recovered
+  depots, 2026-08-19). Every other tag decodes. No loose `oo2core_*_win64.dll` exists to fall
+  back on — UE 5.5 links Oodle statically — so until the decoder grows whatever variant these
+  use, `tagdiff` counts them as unreadable rather than diffing them.
 
 ## What CU4's run measured
 

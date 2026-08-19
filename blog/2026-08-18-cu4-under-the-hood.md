@@ -64,8 +64,9 @@ signatures resolve uniquely; all 13 MJOLNIR mods load with zero Lua errors and t
 bridge answers; the tag reader parses the CU4 containers clean and round-trips them
 byte-for-byte; live tag patching still locates payloads in the running game. The tag *schema*
 is untouched — 101 groups, 1,779 structs, 13,250 fields, byte-identical definitions — so
-every MJOLNIR tool carries over. Two new BSP chunks defeat our built-in Oodle decoder
-(a known issue we're chasing); everything else decodes.
+every MJOLNIR tool carries over. Two of the game's level-geometry chunks defeat our built-in
+Oodle decoder on every build we've checked (a long-standing gap we're chasing, not a CU4
+regression); everything else decodes.
 
 ## How this post was made
 

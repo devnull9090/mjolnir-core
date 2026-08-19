@@ -110,8 +110,9 @@ CU2-label caveat the previous revision of this note carried.
 
 New tag content in CU4, per the CU3 → CU4 `tagdiff`: exactly one tag, the
 `a10/unsc_cryo_capsule` animation graph. The oddly named
-`Cinematics/020la_sword/.../jorge_turret` graph is already present in vanilla CU3 — it
-predates CU4. The two tags the full validation cannot parse are CU4 re-cooks of existing BSPs
+`Cinematics/020la_sword/.../jorge_turret` graph is present all the way back in vanilla CU2 —
+it is launch-era content, not update content. The two tags the full validation cannot parse
+fail identically on CU2, CU3 and CU4 — a long-standing decoder gap, not an update regression
 (see the pipeline note's known issues).
 
 ## What is still CU3-or-earlier-measured
