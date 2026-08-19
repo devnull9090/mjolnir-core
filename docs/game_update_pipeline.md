@@ -76,6 +76,40 @@ trustworthy: *every claim traces to a measurement the pipeline took this run*.
 
 ---
 
+## Recovering an older build
+
+A build that was never snapshotted is not necessarily lost: Steam's CDN keeps old depot
+manifests around, and `tools/steam_depot_fetch.py` wraps
+[DepotDownloader](https://github.com/SteamRE/DepotDownloader) to pull one into an
+install-shaped directory and ingest it straight into the store:
+
+```bash
+python tools/steam_depot_fetch.py --list
+python tools/steam_depot_fetch.py 457322918737678760 --name cu3 --qr --store D:/hce-snapshots
+```
+
+Login is interactive and stays between the user and Steam — `--qr` is a Steam Mobile scan, or
+`--username` makes DepotDownloader prompt for the password itself; nothing is typed into or
+stored by our tooling. The game is app `2806050`; the content lives in depot `2806051` and the
+never-changed DigitalExtras in depot `4192200`. Manifests SteamDB had seen as of 2026-08-18:
+
+| Depot 2806051 manifest | Seen | Almost certainly |
+|:--|:--|:--|
+| `5851394981381786761` | 2026-08-17 | CU4 — the build already snapshotted live |
+| `457322918737678760` | 2026-07-29 | CU3 |
+| `8153709523381701809` | 2026-07-23 | CU2 (launch-era) |
+
+The build is whatever version stamp the downloaded exe carries — the snapshot reads it from
+there, so a wrong guess in `--name` mislabels the scratch directory, never the store. The
+`.DepotDownloader` state directory is excluded from hashing (see `build_lock.py`), so a
+recovered build hashes identically to the same build caught live.
+
+Two caveats. Steam grants manifest *request codes* per manifest, and codes for old manifests
+are not guaranteed forever — if DepotDownloader reports the code was denied, that build is
+gone through official channels, which is the whole argument for snapshotting on the day an
+update lands. And SteamDB's "seen" dates are its crawler's, not the release's, so the
+build-to-manifest mapping above is confirmed only when the downloaded exe says so.
+
 ## Known issues
 
 - Two CU4 chunks defeat the built-in Oodle decoder (`OozError`):

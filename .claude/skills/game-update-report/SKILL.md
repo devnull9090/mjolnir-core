@@ -52,6 +52,11 @@ mjolnir tagdiff --paks-a D:/hce-prev/Meteorite/Content/Paks --paks-b "<root>/Met
 The JSON is the post's raw material: added/removed tags, and per-changed-tag field diffs.
 Delete `D:/hce-prev` afterwards (hardlinks — costs nothing to recreate).
 
+If the previous build was never snapshotted, it may still be recoverable from Steam's depot
+history — `python tools/steam_depot_fetch.py --list`, then fetch with `--store` to ingest
+(interactive Steam login: the user runs it). See "Recovering an older build" in
+`docs/game_update_pipeline.md`.
+
 ## 4. Re-verify the MJOLNIR stack
 
 In rough order of how often updates break things:
