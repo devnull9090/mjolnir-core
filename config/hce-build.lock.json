@@ -4,8 +4,8 @@
   "engine": "5.5.4",
   "host_sha256": "EB1DACA659207F2B5C8A6FD922917195AE9C8AE19E771E396E08906282A4B152",
   "simulation_sha256": "C8C144404ADF61A9DE821C996682A7E66ABADD7E530397D3BBDE31C123203BF7",
-  "file_count": 255,
-  "total_bytes": 79550110231,
+  "file_count": 252,
+  "total_bytes": 79550108673,
   "scope": "full",
   "generated": "2026-08-18",
   "files": [
@@ -1258,21 +1258,6 @@
       "path": "Meteorite/Content/Paks/pakchunk9-Windows.utoc",
       "size": 240,
       "sha256": "F0757B7DF7C4368CF3007CB1CD93ED533CFD24C8925D6AD8BEE7772535FCDE63"
-    },
-    {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.pak",
-      "size": 339,
-      "sha256": "7DDE1328A9650EAD4F300FFCAE4425D1AB3B32153A99D398262141CCFAB3A51B"
-    },
-    {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.ucas",
-      "size": 816,
-      "sha256": "13D4FB782685F3D26CF809F213E5656E8914B60904FFD11B503F97B15EC20E7C"
-    },
-    {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.utoc",
-      "size": 403,
-      "sha256": "EE71B52D0DFDC3AD20F7755BAB57BDB68FBEE4882935AAAC8929E21BE5E022DC"
     },
     {
       "path": "Meteorite/Content/Splash/Splash.bmp",

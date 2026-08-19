@@ -93,11 +93,11 @@ Login is interactive and stays between the user and Steam — `--qr` is a Steam 
 stored by our tooling. The game is app `2806050`; the content lives in depot `2806051` and the
 never-changed DigitalExtras in depot `4192200`. Manifests SteamDB had seen as of 2026-08-18:
 
-| Depot 2806051 manifest | Seen | Almost certainly |
+| Depot 2806051 manifest | Seen | Build |
 |:--|:--|:--|
-| `5851394981381786761` | 2026-08-17 | CU4 — the build already snapshotted live |
-| `457322918737678760` | 2026-07-29 | CU3 |
-| `8153709523381701809` | 2026-07-23 | CU2 (launch-era) |
+| `5851394981381786761` | 2026-08-17 | CU4 — snapshotted live |
+| `457322918737678760` | 2026-07-29 | **CU3, confirmed** — recovered 2026-08-18, hashed identical to the CU3 lock |
+| `8153709523381701809` | 2026-07-23 | CU2 (launch-era), unconfirmed until fetched |
 
 The build is whatever version stamp the downloaded exe carries — the snapshot reads it from
 there, so a wrong guess in `--name` mislabels the scratch directory, never the store. The
@@ -121,14 +121,26 @@ build-to-manifest mapping above is confirmed only when the downloaded exe says s
 
 ## What CU4's run measured
 
-The pipeline's first run had no older snapshot to diff against, so the CU4 post leans on the
-CU3 lock (file level) and the corpus comparison (schema level):
+The pipeline's first run started with no older snapshot — and then recovered one:
+`steam_depot_fetch.py` pulled the CU3 depot manifest and it hashed **bit-for-bit identical**
+to the CU3 lock on all 252 shipped files, which both rescued the CU3→CU4 diff and validated
+the whole recovery path. The full `tagdiff` (labels CU3 → CU4) reported:
 
-- 49 of 255 files changed; nothing added or removed.
-- Tag definitions byte-identical to the CU2 corpus: 101 groups, 1,779 structs, 13,250 fields.
-- 12,292 tags (up from 12,290); `model_animation_graph` 176 → 178, including the anomalous
-  `Cinematics/020la_sword/.../jorge_turret` path.
+- **1 added** (`a10/unsc_cryo_capsule` animation graph), **0 removed**, **358 changed**,
+  11,931 byte-identical, 2 unreadable (the Oodle pair below).
+- Substantive: `ai/generic-character` (+2 firing patterns, 199 field diffs) and
+  `floodcombat_base-character` retuned; `jackal-model` hitbox targets reworked (elbows →
+  hands, a headshot flag); `globals` camo `biped speed reference` 3.25 → 3.7;
+  `game_engine_settings` encounter-remix seeds changed; scenario script edits in E10 (a new
+  script), e30 (unit seat definitions) and C45 (one squad template).
+- Cook noise, correctly ignored in the write-up: 176 animation graphs with byte changes but
+  zero visible field diffs (uniform stamp at offset ~56), 120 BSPs whose diffs are runtime
+  pointers/vtables/mopp bookkeeping, 31 lighting-info checksums, seam-ID renumbering.
+- The CU4 re-cook changed directory *casing* inside containers (`Cinematics/A10/` →
+  `Cinematics/a10/`), which is why `tagdiff` matches paths case-insensitively.
+- File level: 49 of 252 shipped files changed; nothing added or removed. Tag definitions
+  byte-identical to the CU2 corpus (101 groups, 1,779 structs, 13,250 fields).
+- Timeline note: the oddly named `Cinematics/020la_sword/.../jorge_turret` animation graph is
+  already present in vanilla CU3 — it predates CU4, whatever it is.
 - All four AOB signatures unique; 13 mods clean; bridge answers; `blam-live` locates and reads
   a live payload correctly.
-
-CU4's snapshot is the baseline. The CU5 post gets real field-level diffs.

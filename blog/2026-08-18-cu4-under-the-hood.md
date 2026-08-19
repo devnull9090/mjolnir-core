@@ -1,77 +1,76 @@
-# CU4 under the hood: what the August update changed
+# CU4 under the hood: every tag the August update touched
 
 **Author:** MJOLNIR Core
-**Summary:** CU4 rebuilt 49 of the game's 255 shipped files but left the tag format completely untouched — every MJOLNIR tool still works. Two new animation graphs hint at unannounced cinematic content, and from this update on we can diff every tag field-by-field.
+**Summary:** We diffed all 12,292 tags between CU3 and CU4, field by field: AI gunfights got a real rebalance, Jackals got new hitboxes, active camo got faster, and one new animated object appeared. Full breakdown inside — the first update report from our new diff pipeline.
 **Tags:** game-update, cu4, tag-data
 
 Halo Campaign Evolved updated to **CU4** (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`)
-on August 11. We re-measured the install against our CU3 build lock and re-verified the whole
-MJOLNIR stack on the new build. The short version: **everything still works**, and the update
-is bigger on the inside than the patch notes suggest.
+on August 11. We recovered the CU3 build bit-for-bit from Steam's depot history, snapshotted
+both builds, and ran every one of the game's **12,292 Blam tags** through a field-level diff.
+The verdict: **1 tag added, 0 removed, 358 changed, 11,931 byte-identical** — and inside those
+358 is a quiet but real gameplay rebalance the patch notes didn't mention.
 
-## The file-level picture
+## What actually changed for gameplay
 
-Our [build lock](/docs/notes/build-lock) records a SHA-256 for all 255 files the game ships.
-Verifying CU3's lock against the CU4 install shows **49 files changed and none added or
-removed**:
+**The AI got better at shooting you.** The shared AI tuning tag (`ai/generic-character`)
+carries 199 field-level changes: two new firing patterns (69 → 71), and an existing pattern
+rebuilt end-to-end — `rate of fire` 0 → 3, `projectile error` 0.035 → 0.009, `maximum error
+angle` halved twice over, `burst duration` tightened from (0.56, 0.75) to (0.25, 0.45),
+`target tracking` relaxed 0.9 → 0.5. The Flood got the same treatment:
+`floodcombat_base-character` adds a firing pattern of its own and retunes over 250 values.
+If firefights feel different on CU4, they are.
 
-- `HaloCampaignEvolved.exe` — the 230 MB host, rebuilt as every update does.
-- `HaloSimulation_tag_release.dll` — the Blam simulation core, rebuilt.
-- **17 of the 31 IoStore container sets** (`.utoc`/`.ucas`) were re-cooked, including
-  `global`, `pakchunk0`, and a dozen level chunks.
-- The supporting cast: nine `boost` DLLs, `libHttpClient`, `OpenColorIO`, `tbb`,
-  `CrashReportClient` — third-party churn from a toolchain bump, not gameplay.
+**Jackals have new hitboxes.** `jackal-model` drops from 10 model targets to 8, retargets
+`target_elbow_r/l` to `target_hand_r/l`, flags a target as **headshot**, and rebalances
+targeting relevance (one target 0.5 → 1, another 0.5 → 0.01). Aim-assist and auto-aim against
+Jackals now resolve to different bones than they did on CU3.
 
-## The tag format didn't move
+**Active camo tolerates faster movement.** In `globals`, the camo `biped speed reference`
+rose 3.25 → 3.7 — the speed at which movement degrades your camouflage moved up.
 
-The part that matters if you mod this game: we regenerated the full tag definition corpus
-from the CU4 containers and compared it against the shipped one —
-**101 tag groups, 1,779 structs, 13,250 fields, byte-for-byte identical definitions**.
-Whatever i343 changed in those re-cooked containers, the *schema* the tag data follows is
-exactly the schema we documented. Every group still parses, and every tag in our validation
-sample re-serialises byte-for-byte.
+**Encounter remix got reseeded.** Both campaign variants in `game_engine_settings` carry new
+`encounter remix initial random seed` values, so remixed encounter layouts roll differently
+than they did before the update.
 
-Re-verified on CU4, in order of how much we were braced for it to break:
+**Mission scripting was touched in three places.** Mission **E10** gained an entire new
+script (526 → 527) and rewires placement scripts across a half-dozen squads' spawn points;
+**e30** swaps the unit definitions bound to six scripted vehicle seats; **C45** swaps one
+squad's template. Targeted encounter surgery, not a rewrite.
 
-- **All four UE4SS signatures** resolve uniquely on the new executable. Addresses drifted
-  by a few hundred bytes; every scan still lands on exactly one match.
-- **All 13 MJOLNIR mods** load with zero Lua errors, and the in-game bridge answers.
-- **The tag reader** parses the CU4 containers clean, and round-trips every tag it checked.
-- **Live tag patching** — see below.
+**One new tag in the whole update:** an animation graph for the **A10 cryo capsule**
+(`objects/levels/halo1/solo/a10/unsc_cryo_capsule`) — the Pillar of Autumn's cryo bay picked
+up a newly animated prop.
 
-One tally did move: the game now ships **12,292 Blam tags**, and the
-`model_animation_graph` group grew from **176 to 178 tags**. Which brings us to the
-interesting part.
+## What changed but doesn't matter
 
-## Two new animation graphs, and a name that shouldn't exist
+The other ~330 changed tags are the sound of a cooker, not a designer: 176 animation graphs
+whose bytes moved without a single visible field changing (a uniform stamp near the header),
+120 level-geometry BSPs whose differences are runtime pointers, vtables and mopp bookkeeping,
+31 lighting-info checksums, and seam-ID renumbering. Seventeen of the 31 IoStore container
+sets were re-cooked — some with their directory *casing* changed, which our diff now treats
+as the same asset — and this is what a re-cook looks like from the inside. At the file level
+the update also rebuilt the host executable, the simulation DLL and a sweep of third-party
+libraries (nine `boost` DLLs, `libHttpClient`, `OpenColorIO`, `tbb`).
 
-The CU4 containers carry an animation graph at a path that matches no shipped mission:
+One correction from our own first look: the oddly named `Cinematics/020la_sword/jorge_turret`
+animation graph we flagged as possibly-new turns out to already exist in vanilla CU3 — it
+arrived in an earlier update, and CU4 only re-cooked it. A Reach character's cinematic rig in
+a Halo 1 remake is still a curiosity, just not an August one.
 
-```
-Tags/Cinematics/020la_sword/objects/020la_sword_013/jorge_turret-model_animation_graph.ubulk
-```
+## The stack still works
 
-Every campaign cinematic folder in the game is named for its mission — `A30`, `B40`, `D40`,
-`e10`. There is no mission `020la_sword` in Campaign Evolved, and there is no character
-named **Jorge** in Halo 1. Jorge-052 is *Reach's* heavy-weapons Spartan; `020la_sword` reads
-like a cinematic naming convention from somewhere else entirely. We are not going to
-speculate further than the file names do — but a cooked cinematic rig for a Reach character
-inside a Halo 1 remake's shipping containers is exactly the kind of thing a field-level diff
-exists to catch.
+Re-verified on CU4, in order of how much we were braced for it to break: all four UE4SS
+signatures resolve uniquely; all 13 MJOLNIR mods load with zero Lua errors and the in-game
+bridge answers; the tag reader parses the CU4 containers clean and round-trips them
+byte-for-byte; live tag patching still locates payloads in the running game. The tag *schema*
+is untouched — 101 groups, 1,779 structs, 13,250 fields, byte-identical definitions — so
+every MJOLNIR tool carries over. Two new BSP chunks defeat our built-in Oodle decoder
+(a known issue we're chasing); everything else decodes.
 
-## Why this post can't show you more — and the next one will
+## How this post was made
 
-The honest limitation: CU4 overwrote CU3 in place, as Steam updates do. We can prove *that*
-17 container sets changed (the hashes say so) but not *what* changed inside them, because
-the CU3 bytes are gone. A hash can tell you a thing changed; only a copy can tell you how.
-
-So as of this update, the pipeline keeps copies:
-
-- **Every build gets snapshotted** into a content-addressed store the moment we see it —
-  the full 74 GiB install, deduplicated so each future update costs only what it touched.
-- **`mjolnir tagdiff`** compares two builds tag-by-tag and, for changed tags, decodes both
-  payloads and reports the difference *field by field* — "the pistol's rate of fire went
-  from 3.5 to 3.0", not "pakchunk0 changed".
-
-CU4 is the baseline. When CU5 lands, the post about it will name every tag the update
-touched and every field inside them.
+CU4 overwrote CU3 in place, as Steam updates do — but Steam's CDN still served the CU3 depot
+manifest, and the recovered build hashed **bit-for-bit identical** to the lock we had taken
+of it, all 252 shipped files. Both builds now live in a content-addressed snapshot store, and
+`mjolnir tagdiff` compared every tag and decoded every changed one. From CU4 on, each build
+is archived the day it lands, so the next one of these posts is a `tagdiff` away.

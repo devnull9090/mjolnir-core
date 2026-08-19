@@ -41,6 +41,13 @@ BINARY_SUFFIXES = {".exe", ".dll"}
 # answer "is this the same build as the docs describe", which is its whole job.
 SKIP_NAMES = {"dwmapi.dll"}
 
+# `_P` override containers are installed mods by the pak loader's own naming
+# convention — `mjolnir pack` builds them, the game ships none. One leaked into
+# the CU3 lock (`pakchunk990-MJOLNIRWORLD-Windows_P.*`), which surfaced when the
+# vanilla depot download hashed identical on all 252 shipped files and "missed"
+# exactly the three we had installed ourselves.
+OVERRIDE_SUFFIXES = ("_p.pak", "_p.ucas", "_p.utoc")
+
 # The host stamps its own version; recovering it keeps the lock self-describing
 # even if whoever reads it has no install to compare against. The stamp is UTF-16LE
 # in the shipping image, so the pattern is applied to a decoded copy rather than to
@@ -60,6 +67,8 @@ def iter_files(root: Path, binaries_only: bool):
         if path.suffix.lower() in SKIP_SUFFIXES:
             continue
         if path.name.lower() in SKIP_NAMES:
+            continue
+        if path.name.lower().endswith(OVERRIDE_SUFFIXES):
             continue
         if binaries_only and path.suffix.lower() not in BINARY_SUFFIXES:
             continue

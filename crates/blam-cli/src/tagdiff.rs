@@ -76,10 +76,20 @@ pub fn run(a: TagDiffArgs) -> Result<()> {
     let idx_a = index::build(&a.paks_a).context("older build")?;
     let idx_b = index::build(&a.paks_b).context("newer build")?;
 
-    let by_path_a: BTreeMap<&str, &index::TagEntry> =
-        idx_a.tags.iter().map(|t| (t.path.as_str(), t)).collect();
-    let by_path_b: BTreeMap<&str, &index::TagEntry> =
-        idx_b.tags.iter().map(|t| (t.path.as_str(), t)).collect();
+    // Keyed case-insensitively: the CU4 re-cook changed the *casing* of whole
+    // cinematic directories (`Cinematics/A10/` became `Cinematics/a10/`), and
+    // an exact match reports every tag in a re-cased folder as removed plus
+    // added. Windows resolves these to the same asset; so does this diff.
+    let by_path_a: BTreeMap<String, &index::TagEntry> = idx_a
+        .tags
+        .iter()
+        .map(|t| (t.path.to_ascii_lowercase(), t))
+        .collect();
+    let by_path_b: BTreeMap<String, &index::TagEntry> = idx_b
+        .tags
+        .iter()
+        .map(|t| (t.path.to_ascii_lowercase(), t))
+        .collect();
 
     let added: Vec<&index::TagEntry> = by_path_b
         .iter()

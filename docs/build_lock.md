@@ -21,12 +21,16 @@ notes describe".
 | `PlayFabMultiplayerWin.dll` | 1,845,280 | `8991E3B9ED098FCF4430C790CC3ABEDC9080F7E567E907F258326B52DAF1A756` |
 | `libHttpClient.Win32.dll` | 258,320 | `E9BD94CFC493EF97E5473D47BFA2DE67C2310CF401F9C7C4C6CD0206742E9E1C` |
 
-The lock file carries all 255 shipped files — every binary, all 31 IoStore container sets
+The lock file carries all 252 shipped files — every binary, all 31 IoStore container sets
 (`.utoc`/`.ucas`/`.pak`) and the bundled video, 74 GiB in total.
 
 **Not locked, on purpose:**
 
 - `Binaries/Win64/ue4ss/` and `Content/Paks/LogicMods/` — what we installed, not what shipped.
+- `*_P.pak`/`.ucas`/`.utoc` override containers — installed mods by the pak loader's own
+  naming convention. One (`pakchunk990-MJOLNIRWORLD-Windows_P`) had leaked into the CU3 lock,
+  which surfaced when the vanilla CU3 depot download matched all 252 shipped files and
+  "missed" exactly the three we had installed ourselves.
 - `Binaries/Win64/dwmapi.dll` — the UE4SS proxy. It sits next to the executable rather than inside
   `ue4ss/`, so it looks shipped and is not. A lock that differs between a modded and a vanilla
   install cannot answer the question it exists to answer.
@@ -41,10 +45,11 @@ none added or removed: the host executable, the simulation DLL, 17 of the 31 con
 (`global`, `pakchunk0`, and most level chunks), and a third-party sweep (nine `boost` DLLs,
 `libHttpClient`, `OpenColorIO`, `tbb`, `CrashReportClient`).
 
-Because CU3 was overwritten in place, that file list is all the CU3 comparison can ever say —
-which is why every build from CU4 on is also snapshotted whole. See
-[`game_update_pipeline.md`](game_update_pipeline.md) for the snapshot store and the tag-level
-diff that runs against it.
+CU3 was overwritten in place, but its depot manifest was still on Steam's CDN:
+`tools/steam_depot_fetch.py` recovered it bit-for-bit (all 252 shipped files matched this
+lock), both builds are snapshotted, and the CU3 → CU4 tag diff ran for real. See
+[`game_update_pipeline.md`](game_update_pipeline.md) for the pipeline and what that diff
+found.
 
 ---
 
@@ -87,7 +92,8 @@ identical locks.
 | The tag corpus grew to 12,292 tags; 12,290 parse and pass every structural check | `mjolnir validate --all` |
 | The 101-group sample re-serialises byte for byte | `mjolnir roundtrip` |
 | The tag *definitions* are unchanged from CU2 — 101 groups, 1,779 structs, 13,250 fields, identical | `mjolnir defs`, corpus diff |
-| The lock round-trips: 255 files hashed, snapshot verifies 255/255 | `game_snapshot.py verify` |
+| The lock round-trips: 252 files hashed, snapshot verifies 252/252 | `game_snapshot.py verify` |
+| CU3 recovered from the depot history hashes identical to its lock, 252/252 | `steam_depot_fetch.py`, manifest `457322918737678760` |
 
 **Verified in the running game** (CU4, 2026-08-18):
 
@@ -102,10 +108,11 @@ identical locks.
 containers and stamped CU4 — the first corpus regeneration since CU2, which also retires the
 CU2-label caveat the previous revision of this note carried.
 
-New tag content in CU4: `model_animation_graph` grew from 176 to 178 tags, including
-`Tags/Cinematics/020la_sword/objects/020la_sword_013/jorge_turret-model_animation_graph.ubulk`
-— a cinematic folder that matches no shipped mission's naming. The two tags the full validation
-cannot parse are also new to CU4 (see the pipeline note for the current list).
+New tag content in CU4, per the CU3 → CU4 `tagdiff`: exactly one tag, the
+`a10/unsc_cryo_capsule` animation graph. The oddly named
+`Cinematics/020la_sword/.../jorge_turret` graph is already present in vanilla CU3 — it
+predates CU4. The two tags the full validation cannot parse are CU4 re-cooks of existing BSPs
+(see the pipeline note's known issues).
 
 ## What is still CU3-or-earlier-measured
 
