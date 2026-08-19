@@ -908,6 +908,9 @@ struct ScenarioWorldView {
     bsp_indices: Vec<Option<usize>>,
     /// Catalog index of the hlmt per palette entry, per category.
     palette_models: Vec<Vec<Option<usize>>>,
+    /// Unreal render meshes per palette entry, per category — empty where the
+    /// chase found none (the collision proxy stays the fallback).
+    palette_render: Vec<Vec<Vec<RenderMeshRef>>>,
 }
 
 #[tauri::command]
@@ -945,11 +948,267 @@ fn read_scenario_layout(
                     .collect()
             })
             .collect();
+        let palette_render = layout
+            .categories
+            .iter()
+            .map(|cat| {
+                cat.palette
+                    .iter()
+                    .map(|path| {
+                        tag_by_ref(c, cat.group, path)
+                            .map(|oi| render_mesh_refs(c, oi))
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            })
+            .collect();
         Ok(ScenarioWorldView {
             layout,
             bsp_indices,
             palette_models,
+            palette_render,
         })
+    })
+}
+
+/// One Unreal mesh an object's actor Blueprint binds, with the component
+/// transform that places it in actor space.
+///
+/// The tags themselves carry no visuals: an object tag names a `BP_*` actor,
+/// whose mesh components name the cooked `SK_`/`SM_` packages. This is that
+/// chase, resolved to mesh catalog indices `read_mesh` can serve.
+#[derive(Serialize, Clone)]
+pub struct RenderMeshRef {
+    /// Mesh catalog index.
+    pub mesh: usize,
+    pub skeletal: bool,
+    /// Mesh package tail, for display.
+    pub label: String,
+    /// Component translation in actor space (Unreal centimetres).
+    pub location: [f64; 3],
+    /// Component rotation as an Unreal Rotator: pitch, yaw, roll in degrees.
+    pub rotation: [f64; 3],
+    pub scale: [f64; 3],
+    /// A stand-in found through the MeshSynchronization data asset rather
+    /// than the Blueprint. Drawn only when no non-fallback mesh is readable —
+    /// characters bind Nanite placeholders in the Blueprint and pick their
+    /// real body mesh at runtime, which this approximates.
+    pub fallback: bool,
+}
+
+/// Object groups whose tags bind an actor Blueprint worth chasing.
+const OBJECT_GROUPS: &[&str] = &[
+    "biped",
+    "vehicle",
+    "weapon",
+    "equipment",
+    "projectile",
+    "scenery",
+    "device_machine",
+    "device_control",
+    "device_light_fixture",
+    "sound_scenery",
+    "crate",
+    "creature",
+];
+
+fn vec3_of(v: Option<&ue_asset::unversioned::Value>, default: f64) -> [f64; 3] {
+    match v {
+        Some(ue_asset::unversioned::Value::Array(items)) if items.len() >= 3 => {
+            let f = |i: usize| match items[i] {
+                ue_asset::unversioned::Value::Float(x) => x,
+                _ => default,
+            };
+            [f(0), f(1), f(2)]
+        }
+        _ => [default; 3],
+    }
+}
+
+/// The render meshes reachable from one object tag: its imported `BP_*` actor
+/// packages, each mesh component template's mesh reference resolved through
+/// the import map (or a soft object path), hidden components skipped.
+pub fn render_mesh_refs(c: &Catalog, tag_index: usize) -> Vec<RenderMeshRef> {
+    let mut out: Vec<RenderMeshRef> = Vec::new();
+    let Ok(uasset) = c.read_tag_uasset(tag_index) else {
+        return out;
+    };
+    let Ok(usmap) = usmap() else { return out };
+    let Some(scripts) = c.script_objects() else {
+        return out;
+    };
+    for bp in zen::imported_package_names(&uasset) {
+        let tail = bp.rsplit('/').next().unwrap_or(&bp);
+        // FluidFlux and BPC_* are shared helper components, never the body.
+        if !tail.starts_with("BP_") || bp.contains("/FluidFlux/") {
+            continue;
+        }
+        let Some(bytes) = c.read_package(&bp) else { continue };
+        let Ok(package) = ue_asset::zen::Package::parse(&bytes) else {
+            continue;
+        };
+        for (ei, export) in package.exports.iter().enumerate() {
+            let class = scripts.leaf(export.class);
+            if !matches!(class, Some("SkeletalMeshComponent" | "StaticMeshComponent")) {
+                continue;
+            }
+            let Ok(data) = package.export_data(&bytes, ei) else { continue };
+            let ctx = ue_asset::unversioned::Ctx {
+                usmap,
+                names: &package.names,
+            };
+            let mut w = ue_asset::unversioned::Walker::new(&ctx, data);
+            let Ok(props) = w.read_object(
+                class.unwrap_or_default(),
+                ue_asset::unversioned::Keep::Names(&[
+                    "SkeletalMesh",
+                    "SkinnedAsset",
+                    "SkeletalMeshAsset",
+                    "StaticMesh",
+                    "RelativeLocation",
+                    "RelativeRotation",
+                    "RelativeScale3D",
+                    "bHiddenInGame",
+                    "bRenderInMainPass",
+                ]),
+            ) else {
+                continue;
+            };
+            let hidden = |name: &str, when: bool| {
+                matches!(
+                    props.get(name),
+                    Some(ue_asset::unversioned::Value::Bool(b)) if *b == when
+                )
+            };
+            if hidden("bHiddenInGame", true) || hidden("bRenderInMainPass", false) {
+                continue;
+            }
+            let mesh_package = ["SkinnedAsset", "SkeletalMesh", "SkeletalMeshAsset", "StaticMesh"]
+                .iter()
+                .find_map(|key| {
+                    let v = props.get(*key)?;
+                    if let Some(object) = v.as_object() {
+                        return ue_asset::material::import_package_name(&package, object);
+                    }
+                    // A soft path serializes as "/Game/Pkg.Asset".
+                    let s = v.as_str()?;
+                    Some(s.split('.').next().unwrap_or(s).to_string())
+                });
+            let Some(mesh_package) = mesh_package else { continue };
+            let Some(mesh) = c.mesh_by_package(&mesh_package) else {
+                continue;
+            };
+            if out.iter().any(|r| r.mesh == mesh) {
+                continue;
+            }
+            out.push(RenderMeshRef {
+                mesh,
+                skeletal: c.meshes[mesh].skeletal,
+                label: mesh_package
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&mesh_package)
+                    .to_string(),
+                location: vec3_of(props.get("RelativeLocation"), 0.0),
+                rotation: vec3_of(props.get("RelativeRotation"), 0.0),
+                scale: vec3_of(props.get("RelativeScale3D"), 1.0),
+                fallback: false,
+            });
+        }
+    }
+    for mesh in meshsync_fallback(c, tag_index) {
+        if out.iter().any(|r| r.mesh == mesh) {
+            continue;
+        }
+        out.push(RenderMeshRef {
+            mesh,
+            skeletal: c.meshes[mesh].skeletal,
+            label: c.meshes[mesh]
+                .short
+                .rsplit('/')
+                .next()
+                .unwrap_or(&c.meshes[mesh].short)
+                .to_string(),
+            location: [0.0; 3],
+            rotation: [0.0; 3],
+            scale: [1.0; 3],
+            fallback: true,
+        });
+    }
+    out
+}
+
+/// Stand-in meshes for an object whose Blueprint binds only placeholders:
+/// its hlmt's MeshSynchronization data asset names the asset folder, and the
+/// best skeletal-mesh directory under that folder's root stands in for the
+/// runtime's own pick. `Common` directories outrank `Default`, which outrank
+/// the rest; ties go to the shallowest.
+fn meshsync_fallback(c: &Catalog, tag_index: usize) -> Vec<usize> {
+    let Some(hlmt) = c
+        .read_tag(tag_index)
+        .ok()
+        .and_then(|object| geometry::object_model_ref(&object))
+    else {
+        return Vec::new();
+    };
+    let Some(folder) = c.meshsync_folder(&hlmt) else {
+        return Vec::new();
+    };
+    let root = folder.strip_suffix("/Common").unwrap_or(folder);
+    let root_prefix = format!(
+        "{}/",
+        root.trim_start_matches("/Game/").to_ascii_lowercase()
+    );
+    // Group candidate meshes by directory and keep the best-ranked directory.
+    let mut best: Option<(u32, String, Vec<usize>)> = None;
+    let mut dirs: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    for (i, m) in c.meshes.iter().enumerate() {
+        if !m.skeletal {
+            continue;
+        }
+        let lower = m.short.to_ascii_lowercase();
+        if !lower.starts_with(&root_prefix) {
+            continue;
+        }
+        let dir = lower.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+        dirs.entry(dir).or_default().push(i);
+    }
+    for (dir, meshes) in dirs {
+        let rank = if dir.contains("/common") || dir.ends_with("common") {
+            0
+        } else if dir.contains("/default") || dir.ends_with("default") {
+            1
+        } else {
+            2
+        };
+        let score = rank * 1000 + dir.matches('/').count() as u32;
+        if best.as_ref().map_or(true, |(s, _, _)| score < *s) {
+            best = Some((score, dir, meshes));
+        }
+    }
+    best.map(|(_, _, meshes)| meshes).unwrap_or_default()
+}
+
+/// The render meshes for a tag opened in the Model view.
+///
+/// An object tag chases its own Blueprint. A `model`, `collision_model` or
+/// `skeleton_model` tag finds the object tag that names it — by convention
+/// they share the same path.
+#[tauri::command]
+fn object_render_model(index: usize, state: State<'_, AppState>) -> Result<Vec<RenderMeshRef>, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        if OBJECT_GROUPS.contains(&entry.group.as_str()) {
+            return Ok(render_mesh_refs(c, index));
+        }
+        if !matches!(entry.group.as_str(), "model" | "collision_model" | "skeleton_model") {
+            return Ok(Vec::new());
+        }
+        let short = entry.short.clone();
+        let object = c.tags.iter().position(|t| {
+            OBJECT_GROUPS.contains(&t.group.as_str()) && t.short.eq_ignore_ascii_case(&short)
+        });
+        Ok(object.map(|oi| render_mesh_refs(c, oi)).unwrap_or_default())
     })
 }
 
@@ -2375,6 +2634,7 @@ pub fn run() {
             read_tag,
             read_tag_bytes,
             read_model_geometry,
+            object_render_model,
             read_sbsp_world,
             read_scenario_layout,
             read_mesh,

@@ -373,7 +373,8 @@ impl<'a> Walker<'a> {
             let raw = self.bytes(n)?;
             return Ok(if keep {
                 match name {
-                    "Vector" => Value::Array(
+                    // Rotator is (Pitch, Yaw, Roll) in degrees, same layout.
+                    "Vector" | "Rotator" => Value::Array(
                         raw.chunks_exact(8)
                             .map(|c| Value::Float(f64::from_le_bytes(c.try_into().unwrap())))
                             .collect(),

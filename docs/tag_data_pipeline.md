@@ -226,6 +226,36 @@ running game via UE4SS `DumpUSMAP`, `defs/ue/Meteorite-2607-CU3.usmap`), zen pac
 unversioned properties, StaticMesh buffers, and MaterialInstance texture parameters — a 1,200
 package soak parses 99.25%.
 
+**Verified 2026-08-19 — an object tag reaches its render mesh through its actor Blueprint.**
+The tag's `.uasset` imports name `BP_*` actor packages; each Blueprint's mesh component
+templates (SCS `SkeletalMeshComponent` / `StaticMeshComponent` exports) carry the `SK_`/`SM_`
+package as an object property, plus `RelativeLocation`/`RelativeRotation`/`RelativeScale3D` in
+actor space. The warthog resolves to `SK_Warthog_01` + antenna + chaingun this way; the tag
+editor's Model and World views draw the chase's results (`render_mesh_refs` in
+`apps/tag-editor/src-tauri/src/lib.rs`). Three caveats, all verified against the install:
+
+- **Characters bind placeholders.** A biped's Blueprint binds an anim-dynamics helper
+  (`SK_Sacristan_AnimDynamics_PLY`, 2 triangles) and picks the body at runtime. The route to
+  the real body is the `Blam*MeshSynchronizationDataAsset` packages: 62 ship, each importing
+  exactly one hlmt (`ModelTag`), anchoring the model tag to its asset folder —
+  `DA_Elite_MeshSynchronization` → `/Game/characters/Elite/Common` → `Mesh/SK_Elite_Common_Body`
+  (236 cm tall) + head. The editor uses these as fallbacks when no Blueprint-bound mesh is
+  readable.
+- **The unit constant is 1 wu = 304.8 cm** (the classic 10-foot world unit): the elite body's
+  236 cm over its 0.79 wu collision shell, and the Blam skeleton overlaying the SK bind pose
+  exactly at that scale in the Model view. The engine negates Y between Blam and Unreal space,
+  so a mesh drawn among tag data mirrors Y back.
+- **Some meshes stay unreadable classically.** Skeletal-Nanite meshes (weapons, most Covenant
+  vehicles) hold placeholder triangles; and vehicles like the warthog keep only the suspension
+  in their SK — the hull ships as ~40 per-region rig statics (`Mesh/Static/SM_Warthog_*`,
+  bone-local frames, matching Blam region names) attached at runtime. Assembling those rigs is
+  open work; affected objects fall back to their collision shells.
+
+**Verified 2026-08-19 — `object_model_ref` regressed on CU4-era layouts.** The `model` tag
+reference is nested (`vehicle` → `unit` → `object`), so the flat root-field lookup found
+nothing and the World view's collision proxies all drew as boxes; the walk now descends
+struct values (`find_model_ref` in `geometry.rs`).
+
 **Verified 2026-08-07 — scenario placements drive the runtime spawn.** An override built with
 `mjolnir pack --group scenario --tag a30 --set "weapons[1].object data.position=(8.0, 47.0, 65.5)"`
 moved the shipped assault-rifle placement (shipped `(4.671514, 50.428234, 63.94416)`). On a fresh
@@ -321,3 +351,9 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
    actually defines.
 6. Determine whether the tag-to-Blueprint binding in `BlamBipedTagDataAsset` is a hard reference or
    a soft object path, which decides whether new objects can be added without a cook.
+7. Assemble the per-region rig statics (`Mesh/Static/SM_Warthog_Hood`, …) onto the SK reference
+   skeleton by bone name, so vehicles draw whole in the Model and World views instead of falling
+   back to collision shells. The pieces are bone-local; the SK ships the rest pose.
+8. Fix the static-mesh reader on the packages that fail with `mesh data ends early` (the
+   `Nanite/SM_LifePod_Body_*` family, the Seraph hull fragments — ~50 crates), which read as
+   misaligned property walks rather than missing data.

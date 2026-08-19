@@ -108,6 +108,14 @@ pub struct Catalog {
     package_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
     /// The global container's script-object table, parsed on first use.
     script_objects: std::sync::OnceLock<Option<ue_asset::zen::ScriptObjects>>,
+    /// Lowercased mesh short path to mesh index, built on first use; how a
+    /// Blueprint component's mesh reference becomes a viewable mesh.
+    mesh_index: std::sync::OnceLock<BTreeMap<String, usize>>,
+    /// Normalized hlmt tag path to the `/Game/...` folder of the
+    /// `Blam*MeshSynchronization` data asset that anchors it, built on first
+    /// use. The fallback route to a body mesh when the actor Blueprint's own
+    /// meshes are Nanite placeholders.
+    meshsync_index: std::sync::OnceLock<BTreeMap<String, String>>,
     /// Every asset by virtual path, sorted, so a listing is a contiguous range.
     files: Vec<VirtualFile>,
     /// Where to look for the optional Oodle DLL; empty means use the built-in
@@ -407,6 +415,8 @@ impl Catalog {
             meshes,
             package_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
+            mesh_index: std::sync::OnceLock::new(),
+            meshsync_index: std::sync::OnceLock::new(),
             files,
             // Empty means the caller has no DLL, which is fine: the reader
             // falls back to its own decoder.
@@ -628,6 +638,20 @@ impl Catalog {
             .position(|t| t.short.eq_ignore_ascii_case(rest))
     }
 
+    /// Resolve an imported package name like `/Game/Vehicles/.../SK_Warthog_01`
+    /// to a mesh index.
+    pub fn mesh_by_package(&self, package: &str) -> Option<usize> {
+        let index = self.mesh_index.get_or_init(|| {
+            self.meshes
+                .iter()
+                .enumerate()
+                .map(|(i, m)| (m.short.to_ascii_lowercase(), i))
+                .collect()
+        });
+        let rest = package.strip_prefix("/Game/")?;
+        index.get(&rest.to_ascii_lowercase()).copied()
+    }
+
     /// Read a mesh's `.uasset` package.
     pub fn read_mesh_uasset(&self, index: usize) -> Result<Vec<u8>, String> {
         let m = self.meshes.get(index).ok_or("mesh index out of range")?;
@@ -644,6 +668,64 @@ impl Catalog {
         ue_iostore::read_chunk(&self.containers[ci], &chunk, None, &self.oodle)
             .map(Some)
             .map_err(|e| format!("{}: {e}", m.short))
+    }
+
+    /// The asset folder a model tag's MeshSynchronization data asset lives
+    /// in, by normalized hlmt short path (`objects/characters/elite/elite_ai`
+    /// lowercased, forward slashes).
+    pub fn meshsync_folder(&self, hlmt_short: &str) -> Option<&str> {
+        let index = self.meshsync_index.get_or_init(|| {
+            let mut map = BTreeMap::new();
+            for da in self.packages_matching("meshsynchronization") {
+                let Some(bytes) = self.read_package(&da) else { continue };
+                let folder = match da.rsplit_once('/') {
+                    Some((d, _)) => d.to_string(),
+                    None => continue,
+                };
+                for import in crate::zen::imported_package_names(&bytes) {
+                    let Some(rest) = import.strip_prefix("/Game/Tags/") else {
+                        continue;
+                    };
+                    let Some((short, "model")) = rest.rsplit_once('-') else {
+                        continue;
+                    };
+                    let key = short.to_ascii_lowercase();
+                    // The AI variant of a character (`elite_ai`) shares the
+                    // rig and meshes of its base (`elite`); alias the key so
+                    // both models find the folder.
+                    let alias = key.replace("_ai/", "/").trim_end_matches("_ai").to_string();
+                    if alias != key {
+                        map.entry(alias).or_insert_with(|| folder.clone());
+                    }
+                    map.insert(key, folder.clone());
+                }
+            }
+            map
+        });
+        index
+            .get(&hlmt_short.replace('\\', "/").to_ascii_lowercase())
+            .map(String::as_str)
+    }
+
+    /// Package names (as `/Game/...`) whose path contains `substr`, matched
+    /// case-insensitively — how the biped body chase finds the
+    /// `Blam*MeshSynchronization` data assets.
+    pub fn packages_matching(&self, substr: &str) -> Vec<String> {
+        let want = substr.to_ascii_lowercase();
+        let mut out = Vec::new();
+        for c in &self.containers {
+            for (rel, _) in &c.files {
+                if let Some(stem) = rel.strip_suffix(".uasset") {
+                    let stem = stem.trim_start_matches("Meteorite/Content/");
+                    if stem.to_ascii_lowercase().contains(&want) {
+                        out.push(format!("/Game/{stem}"));
+                    }
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Read any cooked package by its `/Game/...` name — how a mesh's
@@ -1055,6 +1137,8 @@ mod tests {
             meshes: Vec::new(),
             package_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
+            mesh_index: std::sync::OnceLock::new(),
+            meshsync_index: std::sync::OnceLock::new(),
             files,
             oodle: Vec::new(),
             paks: PathBuf::new(),

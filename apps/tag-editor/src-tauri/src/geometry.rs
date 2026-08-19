@@ -844,16 +844,54 @@ pub fn scenario_layout(file: &[u8]) -> Result<ScenarioLayout, String> {
 
 /// The `model` (hlmt) reference of an object-definition tag — how a palette
 /// entry becomes drawable geometry.
+///
+/// The field is not at the root: every object group nests it inside `struct`
+/// fields (`vehicle` → `unit` → `object`, `scenery` → `object`), so the walk
+/// descends struct values wherever they appear. Blocks are not descended —
+/// "model" inside a block element would be someone else's model.
 pub fn object_model_ref(file: &[u8]) -> Option<String> {
     let (_tag, layout, block) = root(file).ok()?;
-    let root = Elem::of(&layout, &block, 0)?;
-    match root.value("model") {
-        Some(Value::TagRef(content)) => match blam_tag::value::reference(content) {
-            blam_tag::Scalar::Reference { path, .. } if !path.is_empty() => Some(path),
-            _ => None,
-        },
-        _ => None,
+    let run = layout.struct_run(block.struct_index)?;
+    let values = block.children.first()?;
+    find_model_ref(&layout, run, values)
+}
+
+fn find_model_ref(layout: &Layout<'_>, run: usize, values: &[Value<'_>]) -> Option<String> {
+    let range = layout.struct_ranges().get(run)?.clone();
+    let mut next = 0usize;
+    for i in range {
+        let field = layout.fields[i];
+        if !blam_tag::data::field_writes(layout, &field) {
+            continue;
+        }
+        while matches!(values.get(next), Some(Value::Phantom)) {
+            next += 1;
+        }
+        let value = values.get(next);
+        next += 1;
+        match value {
+            Some(Value::TagRef(content))
+                if layout.string_at(field.name_offset) == Some("model") =>
+            {
+                if let blam_tag::Scalar::Reference { path, .. } =
+                    blam_tag::value::reference(content)
+                {
+                    if !path.is_empty() {
+                        return Some(path);
+                    }
+                }
+            }
+            Some(Value::Struct { children }) => {
+                if let Some(target) = layout.struct_run(field.aux as usize) {
+                    if let Some(found) = find_model_ref(layout, target, children) {
+                        return Some(found);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
+    None
 }
 
 // ---------------------------------------------------------------------------

@@ -300,6 +300,25 @@ export type ScenarioLayoutData = {
   player_starts: { position: [number, number, number]; facing: [number, number] }[];
 };
 
+/** One Unreal mesh an object's actor Blueprint binds, with the component
+ *  transform that places it in actor space (Unreal centimetres, Rotator
+ *  degrees). The tags ship no visuals; this is the chase through the BP. */
+export type RenderMeshRef = {
+  /** Mesh catalog index, for readMesh. */
+  mesh: number;
+  skeletal: boolean;
+  /** Mesh package tail, for display. */
+  label: string;
+  location: [number, number, number];
+  /** Unreal Rotator: pitch, yaw, roll in degrees. */
+  rotation: [number, number, number];
+  scale: [number, number, number];
+  /** A stand-in from the MeshSynchronization data asset, drawn only when no
+   *  non-fallback mesh is readable (characters bind Nanite placeholders in
+   *  the Blueprint and pick their real body at runtime). */
+  fallback: boolean;
+};
+
 /** A scenario resolved for drawing: layout plus catalog indices. */
 export type ScenarioWorldView = {
   layout: ScenarioLayoutData;
@@ -307,6 +326,9 @@ export type ScenarioWorldView = {
   bsp_indices: (number | null)[];
   /** hlmt catalog index per palette entry, per category. */
   palette_models: (number | null)[][];
+  /** Unreal render meshes per palette entry, per category; empty where the
+   *  chase found none and the collision proxy stays. */
+  palette_render: RenderMeshRef[][][];
 };
 
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
@@ -505,6 +527,8 @@ const tauriApi = {
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
+  objectRenderModel: (index: number) =>
+    invoke<RenderMeshRef[]>("object_render_model", { index }),
   readScenarioLayout: (index: number) =>
     invoke<ScenarioWorldView>("read_scenario_layout", { index }),
   readSbspWorld: (index: number) =>

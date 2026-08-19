@@ -429,7 +429,9 @@ export const mockApi = {
     },
     bsp_indices: [0],
     palette_models: [[2]],
+    palette_render: [[[]]],
   }),
+  objectRenderModel: async () => [],
   readSbspWorld: async () => {
     // A 20×20 ground slab def instanced twice, so the world path renders in a
     // browser. Format mirrors geometry.rs `sbsp_world`.
