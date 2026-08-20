@@ -34,6 +34,7 @@ const ORDER = [
   "mod_authoring_design.md",
   "mod_signing_design.md",
   "contributing_code_mods.md",
+  "security_advisory_arrayref.md",
 ];
 
 /**
