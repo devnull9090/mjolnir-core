@@ -140,6 +140,90 @@ Bandana).
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.
 
+**Direct-exe launch fails platform login and can never leave the title screen.** Verified 2026-08-04
+on CU3. `Start-Process` on `HaloCampaignEvolved.exe` reaches the frontend and the bridge answers
+normally, but pressing start raises
+
+> **LOGIN FAILED** — We couldn't sign you in. Make sure you're logged into your platform account and
+> try again. Error code: Alpha
+
+and confirming it drops back to the title screen, indefinitely. Steam being already running does not
+help; the game has to be started *by* Steam.
+
+Earlier the same day this looked like a hang — not responding, one core spinning, ~6.5 GB resident —
+because input could not be delivered at the time, so the modal was never seen or dismissed and the
+attempts piled up against it. Two direct-exe runs behaved identically, one with extra command-line
+arguments and one without (2124s vs 2139s CPU, 6496 MB vs 6505 MB), which ruled out the arguments
+but wrongly implicated the launch route itself. The login dialog is the actual cause.
+
+This is why `game_launch` defaults to `via: "steam"`. The `exe` route is only for work that never
+leaves the frontend.
+
+**To launch with command-line switches, use the Steam URL.** `game_launch` has no passthrough, and
+direct-exe cannot get past login, so:
+
+```powershell
+Start-Process ("steam://run/2806050//" + [uri]::EscapeDataString("-YourSwitch=Value"))
+```
+
+Verified to deliver the argument intact. Confirm it arrived from inside the game rather than assuming
+— otherwise "the switch did nothing" is indistinguishable from "the switch never arrived":
+
+```lua
+local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+print(ksl:GetCommandLine():ToString())
+```
+
+**Two reads of the same UObject property are not `==` to each other.** Reflection returns a fresh
+wrapper per read, so identity comparison silently answers "different object" for the same object:
+
+```lua
+local a, b = comp.CurrentExperience, comp.CurrentExperience
+a == b            --> false
+```
+
+Compare `GetFullName()` instead. A name is unique within a world, which is the only scope these
+comparisons span. This is easy to miss because the wrong answer is plausible — a mod that checks
+"did my value stick?" this way reports failure while working perfectly.
+
+**There are two PlayerControllers in a loaded mission.** A pawnless `BP_FrontendPlayerController_C`
+survives alongside the real `BP_MeteoritePlayerController_C`, **and it sorts first**. Taking
+`FindAllOf("PlayerController")[1]` gets the frontend one, finds no pawn, and concludes there is no
+player. Pick the controller that actually possesses something:
+
+```lua
+for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+    if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then return pc end
+end
+```
+
+**`mj.props()` on a Blueprint CDO with authored array data can kill the game.** The native
+`Default__BlamExperienceDefinition` dumps fine. `Default__BP_BlamExperienceDefault_C` — the same
+class with real content behind it — took the process down. Read named fields individually with
+`pcall`, and prefer `GetArrayNum()` over stringifying an array whole.
+
+**`StaticFindObject` returns a non-null garbage pointer for paths that do not exist, and reading
+properties off one kills the process.** Verified 2026-08-04 on CU3. A loop that looked up
+`/Script/<module>.<name>` for five module names and four class names printed `FOUND` for all
+twenty combinations — including modules that plainly do not own those classes. The return value
+is not a valid object; it is not null either. Calling `mj.props()` on one took the game down with
+no Lua error, only a silent process exit and a `UECC-Windows-*` crash dump.
+
+Always validate before touching the result:
+
+```lua
+local o = StaticFindObject(path)
+local ok, full = pcall(function() return o and o:GetFullName() end)
+if not (ok and full) then return end   -- not a real object, do not go further
+```
+
+A real hit prints a real full name (`Class /Script/BlamExperience.BlamExperienceDefinition`). A
+phantom prints nothing, which is the tell — the crash above was preceded in the log by
+`/Script/BlamExperience.Default__BlamExperienceSettings -> [no name]`.
+
+Treat any conclusion drawn from an unvalidated `StaticFindObject` as worthless, including "class X
+exists in module Y". Module membership in particular cannot be established this way.
+
 **Long work on the game thread freezes the game.** Walking every property of all 37,000 loaded
 objects ran past three minutes and the game was unresponsive throughout. It recovers, and the
 heartbeat keeps ticking because the poll thread is separate, but scans should be narrowed to
