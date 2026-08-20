@@ -223,3 +223,81 @@ mod tests {
         assert!(!same_file(&a, &b));
     }
 }
+
+#[derive(Args)]
+pub struct PackageIdArgs {
+    /// Derive the id for one package name, e.g. /Game/Levels/Halo1/Solo/B40/B40.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Derive the id of every indexed package in the shipped containers and
+    /// require each to match its chunk id — the correctness gate for the
+    /// CityHash64 port and the path-to-name mapping.
+    #[arg(long)]
+    pub check: bool,
+    #[command(flatten)]
+    pub src: Source,
+}
+
+/// Container file path to UE package name, for the mounts this game uses.
+fn package_name_of(full: &str) -> Option<String> {
+    let stem = full.strip_suffix(".uasset")?;
+    if let Some(rest) = stem.strip_prefix("../../../Meteorite/Content/") {
+        return Some(format!("/Game/{rest}"));
+    }
+    if let Some(rest) = stem.strip_prefix("../../../Engine/Content/") {
+        return Some(format!("/Engine/{rest}"));
+    }
+    // Plugin content mounts under a root that is not derivable from the path
+    // alone (the .uplugin declares it), so plugin packages are out of scope —
+    // new MJOLNIR packages only ever live under /Game/.
+    None
+}
+
+pub fn run_packageid(a: PackageIdArgs) -> Result<()> {
+    if let Some(name) = &a.name {
+        println!("{name}");
+        println!("  id {:#018x}", ue_iostore::city::package_id(name));
+        if !a.check {
+            return Ok(());
+        }
+    }
+    if !a.check {
+        anyhow::bail!("pass --name and/or --check");
+    }
+
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let mut matched = 0usize;
+    let mut mismatched = 0usize;
+    let mut unmapped = 0usize;
+    for c in &containers {
+        for (rel, chunk_index) in &c.files {
+            let full = c.full_path(rel);
+            if !full.ends_with(".uasset") && !full.ends_with(".umap") {
+                continue;
+            }
+            let full = full.replace(".umap", ".uasset");
+            let Some(name) = package_name_of(&full) else {
+                unmapped += 1;
+                continue;
+            };
+            let chunk = c.chunks[*chunk_index];
+            let derived = ue_iostore::city::package_id(&name);
+            if derived == chunk.chunk_id {
+                matched += 1;
+            } else {
+                mismatched += 1;
+                if mismatched <= 10 {
+                    println!(
+                        "  MISMATCH {name}\n    chunk   {:#018x}\n    derived {derived:#018x}",
+                        chunk.chunk_id
+                    );
+                }
+            }
+        }
+    }
+    println!("{matched} matched, {mismatched} mismatched, {unmapped} unmapped");
+    if mismatched > 0 {
+        anyhow::bail!("package-id derivation does not reproduce the shipped ids");
+    }
+    Ok(())
+}

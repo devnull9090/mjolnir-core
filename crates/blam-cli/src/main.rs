@@ -156,6 +156,8 @@ enum Command {
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
+    /// Derive FPackageId values and check them against the shipped TOCs.
+    Packageid(container::PackageIdArgs),
     /// Diff the shipped tags of two builds, field by field.
     Tagdiff(tagdiff::TagDiffArgs),
 }
@@ -514,6 +516,7 @@ fn main() -> Result<()> {
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
         Command::Mesh(a) => mesh::run(a),
+        Command::Packageid(a) => container::run_packageid(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
 }
