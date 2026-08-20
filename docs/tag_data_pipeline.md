@@ -378,6 +378,11 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
 7. ~~Assemble the per-region rig statics onto the SK reference skeleton by bone name.~~
    **Done 2026-08-19** — see "a vehicle's hull is rig statics" above; the warthog assembles
    whole (60/60 pieces placed, 613×325×243 cm, matching its 1.92 wu collision shell).
-8. Fix the static-mesh reader on the packages that fail with `mesh data ends early` (the
+8. ~~Fix the static-mesh reader on the packages that fail with `mesh data ends early` (the
    `Nanite/SM_LifePod_Body_*` family, the Seraph hull fragments — ~50 crates), which read as
-   misaligned property walks rather than missing data.
+   misaligned property walks rather than missing data.~~
+   **Done 2026-08-19** — the reader stopped each LOD at the main index buffer, so any mesh
+   with a second real LOD misparsed. The block continues with reversed/depth-only index
+   buffers, a ray-tracing blob and per-section triangle samplers (strip-flag gated), and
+   closes with `FStaticMeshBuffersSize`; with those consumed, all 11,920 shipped `SM_`
+   packages with a StaticMesh export parse (`dump_mesh --soak 1`).
