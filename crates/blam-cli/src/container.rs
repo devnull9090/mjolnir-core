@@ -234,6 +234,10 @@ pub struct PackageIdArgs {
     /// CityHash64 port and the path-to-name mapping.
     #[arg(long)]
     pub check: bool,
+    /// Parse and re-serialise every shipped ContainerHeader chunk, requiring
+    /// byte-exact output — the correctness gate for the header writer.
+    #[arg(long)]
+    pub headers: bool,
     #[command(flatten)]
     pub src: Source,
 }
@@ -261,11 +265,48 @@ pub fn run_packageid(a: PackageIdArgs) -> Result<()> {
             return Ok(());
         }
     }
-    if !a.check {
-        anyhow::bail!("pass --name and/or --check");
+    if !a.check && !a.headers {
+        anyhow::bail!("pass --name, --check or --headers");
     }
 
     let containers = ue_iostore::load_all(&a.src.paks)?;
+    if a.headers {
+        let mut ok = 0usize;
+        for c in &containers {
+            for chunk in &c.chunks {
+                if chunk.chunk_type != 6 {
+                    continue;
+                }
+                let bytes = ue_iostore::read_chunk(c, chunk, None, &a.src.oodle_roots())?;
+                let parsed = ue_iostore::container_header::ContainerHeader::parse(&bytes)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", c.utoc_path.display()))?;
+                anyhow::ensure!(
+                    parsed.write() == bytes,
+                    "{}: header does not round-trip ({} packages)",
+                    c.utoc_path.display(),
+                    parsed.package_ids.len()
+                );
+                anyhow::ensure!(
+                    parsed.container_id == chunk.chunk_id,
+                    "{}: header container id differs from its chunk id",
+                    c.utoc_path.display()
+                );
+                println!(
+                    "  ok  {:44} version {} — {} package(s), {} entry bytes, tail {}",
+                    c.utoc_path.file_name().unwrap_or_default().to_string_lossy(),
+                    parsed.version,
+                    parsed.package_ids.len(),
+                    parsed.store_entries.len(),
+                    parsed.tail.len()
+                );
+                ok += 1;
+            }
+        }
+        println!("{ok} container header(s), all byte-exact");
+        if !a.check {
+            return Ok(());
+        }
+    }
     let mut matched = 0usize;
     let mut mismatched = 0usize;
     let mut unmapped = 0usize;
