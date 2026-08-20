@@ -111,6 +111,8 @@ pub struct Catalog {
     /// Lowercased mesh short path to mesh index, built on first use; how a
     /// Blueprint component's mesh reference becomes a viewable mesh.
     mesh_index: std::sync::OnceLock<BTreeMap<String, usize>>,
+    /// Mount-qualified texture key to texture index, built on first use.
+    texture_index: std::sync::OnceLock<BTreeMap<String, usize>>,
     /// Normalized hlmt tag path to the `/Game/...` folder of the
     /// `Blam*MeshSynchronization` data asset that anchors it, built on first
     /// use. The fallback route to a body mesh when the actor Blueprint's own
@@ -160,6 +162,33 @@ pub struct TagSummary {
     pub path: String,
     pub short: String,
     pub size: u64,
+}
+
+/// A cooked file path as its mount-qualified lookup key: lowercased
+/// `game/<rest>` for main content, `<plugin>/<rest>` for plugin content —
+/// matching how `/Game/...` and `/<Plugin>/...` package names resolve.
+/// Handles paths with or without their `../../../Meteorite/` prefix, and
+/// paths some indices have already stripped down to the content-relative
+/// part (those are main content by construction).
+fn mount_key(stem: &str) -> Option<String> {
+    let lower = stem.to_ascii_lowercase().replace('\\', "/");
+    let mut s = lower.as_str();
+    while let Some(rest) = s.strip_prefix("../") {
+        s = rest;
+    }
+    let s = s.strip_prefix("meteorite/").unwrap_or(s);
+    if let Some(rest) = s.strip_prefix("content/") {
+        return Some(format!("game/{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix("plugins/") {
+        let at = rest.find("/content/")?;
+        let mount = rest[..at].rsplit('/').next().unwrap_or(&rest[..at]);
+        return Some(format!("{mount}/{}", &rest[at + "/content/".len()..]));
+    }
+    if s.starts_with("engine/") {
+        return None;
+    }
+    Some(format!("game/{s}"))
 }
 
 /// Strip the group suffix and extension from a package path.
@@ -416,6 +445,7 @@ impl Catalog {
             package_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
+            texture_index: std::sync::OnceLock::new(),
             meshsync_index: std::sync::OnceLock::new(),
             files,
             // Empty means the caller has no DLL, which is fine: the reader
@@ -629,13 +659,19 @@ impl Catalog {
             .position(|t| t.group == group && t.short.eq_ignore_ascii_case(short))
     }
 
-    /// Resolve an imported package name like `/Game/characters/.../T_x`
-    /// to a texture index.
+    /// Resolve an imported package name like `/Game/characters/.../T_x` or a
+    /// plugin-mounted `/HaloMaterialLibrary/.../T_y` to a texture index.
     pub fn texture_by_package(&self, package: &str) -> Option<usize> {
-        let rest = package.strip_prefix("/Game/")?;
-        self.textures
-            .iter()
-            .position(|t| t.short.eq_ignore_ascii_case(rest))
+        let index = self.texture_index.get_or_init(|| {
+            self.textures
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| mount_key(&t.short).map(|k| (k, i)))
+                .collect()
+        });
+        index
+            .get(&package.strip_prefix('/')?.to_ascii_lowercase())
+            .copied()
     }
 
     /// Resolve an imported package name like `/Game/Vehicles/.../SK_Warthog_01`
@@ -728,24 +764,25 @@ impl Catalog {
         out
     }
 
-    /// Read any cooked package by its `/Game/...` name — how a mesh's
-    /// material-instance reference becomes bytes.
+    /// Read any cooked package by its mounted name — `/Game/...` for the main
+    /// content, `/<Plugin>/...` for plugin mounts (the material library lives
+    /// under `/HaloMaterialLibrary/`) — how a mesh's material-instance
+    /// reference becomes bytes.
     pub fn read_package(&self, package: &str) -> Option<Vec<u8>> {
         let index = self.package_index.get_or_init(|| {
             let mut map = BTreeMap::new();
             for (ci, c) in self.containers.iter().enumerate() {
                 for (rel, &chunk_index) in &c.files {
                     if let Some(stem) = rel.strip_suffix(".uasset") {
-                        let key = stem
-                            .trim_start_matches("Meteorite/Content/")
-                            .to_ascii_lowercase();
-                        map.insert(key, (ci, c.chunks[chunk_index]));
+                        if let Some(key) = mount_key(stem) {
+                            map.insert(key, (ci, c.chunks[chunk_index]));
+                        }
                     }
                 }
             }
             map
         });
-        let key = package.strip_prefix("/Game/")?.to_ascii_lowercase();
+        let key = package.strip_prefix('/')?.to_ascii_lowercase();
         let (ci, chunk) = index.get(&key)?;
         ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
     }
@@ -1138,6 +1175,7 @@ mod tests {
             package_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
+            texture_index: std::sync::OnceLock::new(),
             meshsync_index: std::sync::OnceLock::new(),
             files,
             oodle: Vec::new(),

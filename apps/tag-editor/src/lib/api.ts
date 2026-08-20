@@ -313,6 +313,9 @@ export type RenderMeshRef = {
   /** Unreal Rotator: pitch, yaw, roll in degrees. */
   rotation: [number, number, number];
   scale: [number, number, number];
+  /** Rotation as a quaternion (i j k w, Unreal space); wins over `rotation`
+   *  when present — rig pieces sit at bone rest poses. */
+  quat: [number, number, number, number] | null;
   /** A stand-in from the MeshSynchronization data asset, drawn only when no
    *  non-fallback mesh is readable (characters bind Nanite placeholders in
    *  the Blueprint and pick their real body at runtime). */
@@ -356,6 +359,9 @@ export type MeshMaterial = {
   texture: number | null;
   texture_path: string | null;
   material_path: string | null;
+  /** Flat base colour (linear RGBA) from the material's vector parameters;
+   *  the stand-in when no albedo texture resolves. */
+  tint: [number, number, number, number] | null;
 };
 
 /** The JSON header of a `read_mesh` payload. */
