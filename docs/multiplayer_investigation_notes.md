@@ -990,6 +990,29 @@ sim's own movement); the earlier "slab above the pawn" collision test built on U
 void for exactly this reason. The walk-into-geometry test (sim's own movement vs a runtime-spawned
 `StaticMeshActor` with `QueryAndPhysics` collision) is the valid form of the experiment.
 
+### ANSWERED: the Blam pawn does NOT collide with Unreal geometry
+
+The walk test settled it (2026-08-19, human at the controls, mission launched through the real
+menu): a runtime-spawned `StaticMeshActor` wall — cube mesh applied and read back, scaled 0.5×6×3 m,
+`SetCollisionEnabled(2)`, four metres in front of the player — **does not block the player. They
+walk straight through.** The Blam simulation collides only with its own collision world: BSP
+(`scenario_structure_bsp`) plus Blam objects' collision models. Unreal geometry is visuals-only to
+the sim, runtime-spawned and cooked alike.
+
+Consequences, in order of weight:
+
+1. **A cooked custom world can never be *playable* geometry by itself.** The 2026-08-03 "renders
+   and is walkable" result was the pawn walking on A15's *inherited Blam BSP* under our floor
+   slab's visuals. The tagged-property cook experiment is therefore demoted: at best it upgrades
+   how visuals are authored, it cannot produce a floor. True new geometry needs generated
+   `sbsp` collision (winged-edge + Havok mopp) — the same wall as before, now confirmed load-bearing.
+2. **Blam objects are the building blocks that work.** Scenery/crate/machine placements in the
+   `scenario` tag spawn sim-owned objects with real collision — the classic Forge approach.
+   Structures assembled from placed objects are solid to pawns, vehicles, and projectiles.
+3. **Custom levels v1 = map variants**: keep a shipped scenario's world and BSP as the canvas;
+   edit the `scnr` (spawns, vehicles, weapons, object-built structures) and dress with
+   non-collidable UE meshes at runtime. No Unreal cook required anywhere in that loop.
+
 ## 2026-07-26 Follow-Up: Tag Data Pipeline
 
 The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside
