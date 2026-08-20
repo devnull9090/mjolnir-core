@@ -58,12 +58,6 @@ local function firstValid(objects)
     return nil
 end
 
---- First real parameter of a console command (UE4SS arg shape varies).
-local function commandArg(args, index)
-    local offset = (type(args[1]) == "string" and args[1]:lower():find("^mjolnir_")) and 1 or 0
-    return args[index + offset]
-end
-
 local function revealDebugPanel()
     local menu = firstValid(FindAllOf("WBP_MainMenu_C"))
     if not menu then
@@ -210,7 +204,9 @@ local function initialize()
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_menu_add", function(_, args)
-        addEntry(commandArg(args, 1), commandArg(args, 2))
+        -- Parameters hold only the words after the command name, so the
+        -- scenario is args[1]. Measured on CU3; see MJOLNIRMultiplayer.
+        addEntry(args and args[1], args and args[2])
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_menu_list", function()
