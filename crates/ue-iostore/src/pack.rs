@@ -60,6 +60,49 @@ fn empty_directory_index() -> Vec<u8> {
     out
 }
 
+/// A single-directory index naming this container's files.
+///
+/// Shape copied from the UE 5.5-staged `pakchunk990-MJOLNIRWORLD` container:
+/// the mount point is the directory itself, one nameless root entry points at
+/// the file chain, and each file carries its chunk index as user data. Enough
+/// for a container whose files all live in one directory, which a new tag
+/// package's `.uasset`/`.ubulk` pair does.
+///
+/// `mount` is the full directory with trailing slash, e.g.
+/// `../../../Meteorite/Content/Tags/.../_Generated_/`.
+pub fn directory_index(mount: &str, files: &[(String, u32)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let put_string = |out: &mut Vec<u8>, s: &str| {
+        out.extend_from_slice(&((s.len() + 1) as i32).to_le_bytes());
+        out.extend_from_slice(s.as_bytes());
+        out.push(0);
+    };
+    put_string(&mut out, mount);
+    // One root directory: no name, no children, its files start at 0.
+    out.extend_from_slice(&1i32.to_le_bytes());
+    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // name
+    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // first child
+    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // next sibling
+    out.extend_from_slice(&(if files.is_empty() { u32::MAX } else { 0 }).to_le_bytes());
+    // The file chain.
+    out.extend_from_slice(&(files.len() as i32).to_le_bytes());
+    for (i, (_, chunk_index)) in files.iter().enumerate() {
+        out.extend_from_slice(&(i as u32).to_le_bytes()); // name = string i
+        let next = if i + 1 < files.len() {
+            (i + 1) as u32
+        } else {
+            u32::MAX
+        };
+        out.extend_from_slice(&next.to_le_bytes());
+        out.extend_from_slice(&chunk_index.to_le_bytes());
+    }
+    out.extend_from_slice(&(files.len() as i32).to_le_bytes());
+    for (name, _) in files {
+        put_string(&mut out, name);
+    }
+    out
+}
+
 /// The perfect-hash tables for a set of chunk IDs, plus the entry order they
 /// imply.
 ///
@@ -220,6 +263,19 @@ impl PerfectHash {
 /// size, partitioning — so the result matches the containers it sits beside
 /// rather than inventing values. Its chunks are not used.
 pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container {
+    build_indexed(template, container_id, entries, None)
+}
+
+/// [`build`], optionally naming files in a real directory index.
+///
+/// `index` is a mount directory plus (file name, input entry index) pairs; the
+/// entry indices are remapped to final hash-slot order automatically.
+pub fn build_indexed(
+    template: &Toc,
+    container_id: u64,
+    entries: &[Entry],
+    index: Option<(&str, &[(String, usize)])>,
+) -> Container {
     let block_size = template.compression_block_size as usize;
 
     let mut ucas: Vec<u8> = Vec::new();
@@ -235,8 +291,15 @@ pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container 
 
     for entry in entries {
         chunk_ids.push(entry.id);
-        let mut meta = entry.meta.clone();
-        meta.resize(crate::toc::CHUNK_META, 0);
+        // The meta record is BLAKE3-160 of the uncompressed chunk data plus a
+        // flags byte (1 = compressed; our blocks never are). The game verifies
+        // it at least when it reads a ContainerHeader chunk at mount — a
+        // copied-from-donor hash was exactly why a mod container's own header
+        // was ignored. The caller's meta is disregarded on purpose.
+        let _ = &entry.meta;
+        let mut meta = [0u8; crate::toc::CHUNK_META];
+        let hash = blake3::hash(&entry.data);
+        meta[..20].copy_from_slice(&hash.as_bytes()[..20]);
         chunk_meta.extend_from_slice(&meta);
         chunk_offsets.push(ChunkOffset {
             offset: uncompressed_cursor,
@@ -266,6 +329,11 @@ pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container 
     // match: the entry index *is* the hash slot, so the arrays cannot stay in
     // input order once more than one chunk is present.
     let hash = PerfectHash::generate(&chunk_ids);
+    // Where each input entry landed, for the directory index's chunk refs.
+    let mut slot_of_entry = vec![0u32; entries.len()];
+    for (slot, &e) in hash.entry_at_slot.iter().enumerate() {
+        slot_of_entry[e] = slot as u32;
+    }
     let chunk_ids: Vec<ChunkId> = hash.entry_at_slot.iter().map(|&e| chunk_ids[e]).collect();
     let chunk_offsets: Vec<ChunkOffset> = hash
         .entry_at_slot
@@ -311,7 +379,16 @@ pub fn build(template: &Toc, container_id: u64, entries: &[Entry]) -> Container 
         // No compression methods: every block is stored as-is.
         methods: Vec::new(),
         signature: Vec::new(),
-        directory_index: empty_directory_index(),
+        directory_index: match index {
+            Some((mount, files)) => {
+                let mapped: Vec<(String, u32)> = files
+                    .iter()
+                    .map(|(name, entry)| (name.clone(), slot_of_entry[*entry]))
+                    .collect();
+                directory_index(mount, &mapped)
+            }
+            None => empty_directory_index(),
+        },
         chunk_meta,
         trailing: Vec::new(),
     };
@@ -587,21 +664,25 @@ mod tests {
 
     #[test]
     fn metadata_records_follow_their_chunks_through_the_permutation() {
+        // Meta is computed from each chunk's data (BLAKE3-160 + flags), so
+        // distinct data makes each record recognisable.
         let entries: Vec<Entry> = (0..8u8)
             .map(|i| Entry {
                 id: id(100 + i as u64),
                 data: vec![i; 4],
-                meta: vec![i; 24], // distinct per chunk, recognisable
+                meta: Vec::new(),
             })
             .collect();
         let built = build(&template(), 0, &entries);
         let toc = Toc::parse(&built.utoc).unwrap();
         for e in &entries {
             let slot = toc.find_chunk(&e.id).expect("resolves");
+            let mut want = [0u8; crate::toc::CHUNK_META];
+            want[..20].copy_from_slice(&blake3::hash(&e.data).as_bytes()[..20]);
             assert_eq!(
                 toc.meta(slot).unwrap(),
-                &e.meta[..],
-                "meta must move with its chunk"
+                &want[..],
+                "meta must be the chunk's own hash, at the chunk's slot"
             );
         }
     }

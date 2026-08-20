@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "loader_smoke",
+  "title": "Loader smoke test",
+  "canvas": {
+    "scenario": "A30",
+    "origin": [11049, 29606, 18137]
+  },
+  "decor": [
+    { "id": "cube_red",    "mesh": "/Engine/BasicShapes/Cube.Cube",         "pos": [400, 0, 100],  "rot": [0, 30, 0], "scale": [2, 2, 2],   "tint": [0.9, 0.1, 0.1, 1.0] },
+    { "id": "sphere_blue", "mesh": "/Engine/BasicShapes/Sphere.Sphere",     "pos": [400, 300, 150], "scale": [3, 3, 3], "tint": [0.1, 0.2, 0.9, 1.0] },
+    { "id": "pillar",      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder", "pos": [400, -300, 200], "scale": [1, 1, 4], "tint": [0.1, 0.8, 0.2, 1.0] }
+  ]
+}

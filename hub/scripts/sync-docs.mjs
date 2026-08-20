@@ -32,6 +32,7 @@ const ORDER = [
   "mjolnir_format.md",
   "hub_architecture.md",
   "mod_authoring_design.md",
+  "level_format.md",
   "mod_signing_design.md",
   "contributing_code_mods.md",
   "security_advisory_arrayref.md",
@@ -46,6 +47,7 @@ const GUIDES = [
   "making_your_first_mod.md",
   "tag_editing_guide.md",
   "texture_swapping.md",
+  "level_authoring.md",
   "game_automation.md",
 ];
 
