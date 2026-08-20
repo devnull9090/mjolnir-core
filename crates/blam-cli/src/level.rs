@@ -341,6 +341,50 @@ fn read_value(file: &[u8], path: &str) -> Result<Scalar> {
     Ok(blam_tag::patch::resolve(&l, file, &block, path)?.current)
 }
 
+/// Read many fields from one parse (resolving re-walks nothing between paths).
+fn read_many(file: &[u8], paths: &[String]) -> Result<Vec<Option<Scalar>>> {
+    let tag = TagFile::parse(file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let block = tag.read_data(&l)?;
+    Ok(paths
+        .iter()
+        .map(|p| {
+            blam_tag::patch::resolve(&l, file, &block, p)
+                .ok()
+                .map(|t| t.current)
+        })
+        .collect())
+}
+
+/// The placement element closest to the level origin, to clone from.
+///
+/// Placements spawn only while their `origin bsp index` is in the active zone
+/// set (verified on B40: donors from BSPs outside the play area never spawn).
+/// Cloning the *nearest* shipped placement inherits the BSP the level actually
+/// sits in, along with every other locality-sensitive field.
+fn nearest_donor(file: &[u8], block: &str, count: usize, origin_wu: (f64, f64, f64)) -> Result<usize> {
+    let paths: Vec<String> = (0..count)
+        .map(|i| format!("{block}[{i}].object data.position"))
+        .collect();
+    let values = read_many(file, &paths)?;
+    let mut best = 0usize;
+    let mut best_d = f64::MAX;
+    for (i, v) in values.iter().enumerate() {
+        if let Some(Scalar::Reals(p)) = v {
+            if p.len() >= 3 {
+                let d = (p[0] as f64 - origin_wu.0).powi(2)
+                    + (p[1] as f64 - origin_wu.1).powi(2)
+                    + (p[2] as f64 - origin_wu.2).powi(2);
+                if d < best_d {
+                    best_d = d;
+                    best = i;
+                }
+            }
+        }
+    }
+    Ok(best)
+}
+
 /// Indexes of a palette's entries by tag path (case-insensitive).
 fn palette_index(file: &[u8], palette_block: &str, tag_path: &str) -> Result<Option<usize>> {
     let want = tag_path.to_ascii_lowercase();
@@ -502,10 +546,12 @@ impl Baker {
                 })?;
             indices.push(idx);
         }
+        let donor = nearest_donor(&self.file, block, before, ue_to_blam(self.origin))?;
+        println!("  {block:9} donor [{donor}] (nearest to the level origin)");
         let (out, _) = blockedit::resize(
             &self.file,
             block,
-            &[Op::CloneAppend { donor: 0, copies: items.len() }],
+            &[Op::CloneAppend { donor, copies: items.len() }],
         )?;
         self.file = out;
         for (j, (item, palette_idx)) in items.iter().zip(&indices).enumerate() {
@@ -576,10 +622,12 @@ impl Baker {
                     }
                 }
             }
+            let donor = nearest_donor(&self.file, block, before, ue_to_blam(self.origin))?;
+            println!("  {block:9} donor [{donor}] (nearest to the level origin)");
             let (out, _) = blockedit::resize(
                 &self.file,
                 block,
-                &[Op::CloneAppend { donor: 0, copies: of_group.len() }],
+                &[Op::CloneAppend { donor, copies: of_group.len() }],
             )?;
             self.file = out;
             for (j, (o, palette_idx)) in of_group.iter().zip(&indices).enumerate() {
@@ -705,8 +753,21 @@ fn bake(a: BakeArgs) -> Result<()> {
     std::fs::create_dir_all(&out_dir)?;
     let utoc = out_dir.join(format!("{name}.utoc"));
     let ucas = out_dir.join(format!("{name}.ucas"));
-    std::fs::write(&utoc, &built.utoc)?;
-    std::fs::write(&ucas, &built.ucas)?;
+    // Write to temp names and rename into place: a running game keeps the
+    // mounted .ucas locked, and a direct write leaves a mismatched pair the
+    // verifier then rejects. The rename either fully lands or fully fails.
+    let stage = |target: &Path, bytes: &[u8]| -> Result<()> {
+        let tmp = target.with_extension("mjolnir-tmp");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, target).with_context(|| {
+            format!(
+                "installing {} — if the game is running, quit it first",
+                target.display()
+            )
+        })
+    };
+    stage(&utoc, &built.utoc)?;
+    stage(&ucas, &built.ucas)?;
     blam_pack::verify_written(&utoc, &a.src.oodle_roots(), &built.expect)
         .map_err(|e| anyhow::anyhow!(e))?;
     println!("  wrote    {} ({} bytes)", utoc.display(), built.utoc.len());
