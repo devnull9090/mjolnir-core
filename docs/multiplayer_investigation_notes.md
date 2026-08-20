@@ -935,6 +935,61 @@ already standing on, so it was never tested as a floor.
 4. Decode the 308 `game_variant_settings` tags to learn what a competitive variant payload
    looks like before trying to activate one.
 
+## 2026-08-19 Follow-Up: CU4+ — `mjolnir_mission` no longer starts the simulation
+
+Attempting the Blam-pawn-vs-UE-geometry collision experiment (the level-authoring gate) exposed
+a regression and produced one hard new fact about simulation authority.
+
+### `SetAndBeginCampaign` from the frontend loads the world but the mission never starts
+
+On the current build, `mjolnir_mission A30` from the frontend is *accepted*, the A30 world loads,
+a `BP_MeteoritePawn_C` is possessed — and then nothing. Zero Blam actors ever spawn, the screen
+holds black behind a `WBP_NonBlockingLoadingScreen_C`, and the world sits like that indefinitely
+(observed >20 minutes). The chain, read via reflection:
+
+- `BlamNetworkGameStateComponent.bSessionRunning = false` — the Blam network session is never
+  brought up.
+- The player has no Blam identity: `BlamPlayerStateComponent:GetBlamAbsolutePlayerIndex() = -1`,
+  `BlamNetworkPlayerStateComponent.BlamNetworkOutOfBandEndpointId/InChannelEndpointId = 0`.
+- `MeteoriteLoadingScreenSubsystem.CachedPredictedTagCount = 0` — the Blam tag load never begins.
+- `BlamExperienceManagerComponent` (Lyra-style, on the game state) holds at
+  `bWaitingForAllInitialPlayersToBeReadyForGameplay = true`, then `bWaitingForBlamGameplayStart`.
+
+Per-player readiness lives on `BlamExperiencePlayerStateComponent` as three replicated flags with
+server RPCs — `ServerMarkHasFinishedProcessingPsoCache`, `ServerMarkHasFinishedHaloActorPooling`,
+`ServerMarkFinishedBlamMapLoad`. All three are callable via reflection and flip their flags, but
+the experience manager still waits: readiness evidently also requires the Blam player identity
+that only the real session bring-up assigns. `BlamCampaignFlowGameSubsystem:GetLastBlamErrorName()`
+returns `None` throughout — the sim is waiting, not failing. The session start itself is native:
+`BlamNetworkSessionGameInstanceSubsystem` and `BlamOnlineSessionSubsystem` expose no start function
+(`IsReadyToPlay` only).
+
+**Launching the same mission through the real menu (CAMPAIGN → NEW GAME) works normally** — the
+session starts, tags load, the sim runs. So the campaign-start UI performs a session bring-up step
+that a bare `SetAndBeginCampaign` no longer triggers on this build. The 2026-08-02 verification of
+`mjolnir_mission` predates CU4; treat the command as **unverified for cold mission starts** until
+the missing step is found. (`mjolnir_debug_ui` → Debug Level Select presumably still works, since
+it drives the same UI flow — untested this pass.)
+
+Two more hazards from the same session:
+
+- Re-running `mjolnir_mission A30` *from inside the stuck A30* ("variant reused") crashed the game
+  to desktop during the reload.
+- Over an RDP session, injected RawInput does not reach the game at all (Esc/E confirmed no-ops via
+  reflection) and both screenshot paths fail (`PrintWindow` blank, `CopyFromScreen` throws
+  "handle is invalid"). Reflection through the bridge is the only reliable channel.
+
+### The Blam sim reverts UE-side transform writes on its actors — measured
+
+`K2_SetActorLocation` on the player's `BP_SpartansBipedActor_C` (teleport = true) moves the UE
+actor, and the sim restores the original transform **to the decimal** within one sync pass
+(< 0.5 s observed; a 30 m upward teleport came back at the exact prior Z, far too fast for
+gravity — a 30 m fall takes ~2.3 s). UE-side writes to Blam-owned actors are cosmetic. Any
+teleport-the-player experiment must go through a Blam channel (HSC, scenario placement, or the
+sim's own movement); the earlier "slab above the pawn" collision test built on UE teleports was
+void for exactly this reason. The walk-into-geometry test (sim's own movement vs a runtime-spawned
+`StaticMeshActor` with `QueryAndPhysics` collision) is the valid form of the experiment.
+
 ## 2026-07-26 Follow-Up: Tag Data Pipeline
 
 The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside
