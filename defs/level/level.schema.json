@@ -23,6 +23,28 @@
         "origin": { "$ref": "#/$defs/vec3" }
       }
     },
+    "environment": {
+      "description": "Sky and lighting the loader spawns into a bare canvas world.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sun": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pitch": { "$ref": "#/$defs/degrees" },
+            "yaw": { "$ref": "#/$defs/degrees" },
+            "intensity": { "type": "number", "minimum": 0 }
+          }
+        },
+        "skylight": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "intensity": { "type": "number", "minimum": 0 } }
+        },
+        "atmosphere": { "type": "boolean" }
+      }
+    },
     "blam": {
       "type": "object",
       "additionalProperties": false,

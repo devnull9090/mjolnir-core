@@ -107,6 +107,9 @@ pub struct LevelFile {
     #[serde(default)]
     pub description: Option<String>,
     pub canvas: Canvas,
+    /// Sky and lighting, consumed by the runtime loader; opaque to the bake.
+    #[serde(default)]
+    pub environment: Option<serde_json::Value>,
     #[serde(default)]
     pub blam: BlamSection,
     #[serde(default)]
@@ -465,6 +468,8 @@ struct Baker {
     file: Vec<u8>,
     origin: [f64; 3],
     next_unique: i64,
+    /// Elements this bake appended per block, so a clear keeps them.
+    added: std::collections::BTreeMap<&'static str, usize>,
 }
 
 impl Baker {
@@ -561,6 +566,11 @@ impl Baker {
             &[Op::CloneAppend { donor, copies: items.len() }],
         )?;
         self.file = out;
+        *self.added.entry(match block {
+            "vehicles" => "vehicles",
+            "weapons" => "weapons",
+            _ => "equipment",
+        }).or_default() += items.len();
         for (j, (item, palette_idx)) in items.iter().zip(&indices).enumerate() {
             let i = before + j;
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, item.pos));
@@ -655,12 +665,16 @@ impl Baker {
         Ok(())
     }
 
-    /// Truncate the host mission's own placements away.
+    /// Drop the host mission's own placements, keeping this bake's appends.
+    /// Runs AFTER the placement passes so their donors still existed.
     fn clears(&mut self, clear: &Clear) -> Result<()> {
+        let added = self.added.clone();
         let mut wipe = |name: &str| -> Result<()> {
-            let (out, r) = blockedit::resize(&self.file, name, &[Op::Truncate { keep: 0 }])?;
+            let keep = added.get(name).copied().unwrap_or(0);
+            let op = if keep > 0 { Op::KeepLast { keep } } else { Op::Truncate { keep: 0 } };
+            let (out, r) = blockedit::resize(&self.file, name, &[op])?;
             self.file = out;
-            println!("  clear   {name}: {} -> 0 element(s)", r.before);
+            println!("  clear   {name}: {} -> {} element(s)", r.before, r.after);
             Ok(())
         };
         if clear.vehicles {
@@ -711,16 +725,18 @@ fn bake(a: BakeArgs) -> Result<()> {
         file: original.clone(),
         origin: level.canvas.origin,
         next_unique: UNIQUE_ID_BASE,
+        added: Default::default(),
     };
 
-    // Order: clears first (so nothing edited below is truncated away), then
-    // placements. Clears never touch player starts.
-    baker.clears(&level.blam.clear)?;
+    // Placements first — their donors are cloned from the shipped blocks —
+    // then the clears, which keep only what this bake appended. Clears never
+    // touch player starts or the structure blocks.
     baker.player_starts(&level.blam.player_starts)?;
     baker.typed("vehicles", "vehicle palette", &level.blam.vehicles, &map.vehicles)?;
     baker.typed("weapons", "weapon palette", &level.blam.weapons, &map.weapons)?;
     baker.typed("equipment", "equipment palette", &level.blam.equipment, &map.equipment)?;
     baker.objects(&level.blam.objects)?;
+    baker.clears(&level.blam.clear)?;
 
     let file = baker.file;
 

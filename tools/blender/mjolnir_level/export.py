@@ -60,7 +60,21 @@ def build_level(scene):
             "scenario": s.scenario,
             "origin": [round(v, 3) for v in s.origin],
         },
+        # The level file owns the whole world: the loader spawns this sky and
+        # lighting, and the bake empties the canvas mission's own placements
+        # so only the scene's content remains.
+        "environment": {
+            "sun": {"pitch": -50, "yaw": 30, "intensity": 8.0},
+            "skylight": {"intensity": 3.0},
+            "atmosphere": True,
+        },
         "blam": {
+            "clear": {
+                "vehicles": True,
+                "weapons": True,
+                "equipment": True,
+                "bipeds": True,
+            },
             "player_starts": [],
             "vehicles": [],
             "weapons": [],
@@ -114,6 +128,8 @@ def build_level(scene):
 
     # Drop empty sections so small levels stay small.
     level["blam"] = {k: v for k, v in level["blam"].items() if v}
+    if not any(k != "clear" for k in level["blam"]):
+        del level["blam"]
     for key in ("decor", "markers"):
         if not level[key]:
             del level[key]

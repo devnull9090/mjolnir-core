@@ -50,6 +50,12 @@ map). Author around your own origin in Blender; move the whole level by editing 
     "origin": [76200, -30480, 1800]  // UE cm, absolute; all positions below are relative to it
   },
 
+  "environment": {                   // spawned by the loader; the bake ignores it
+    "sun":       { "pitch": -50, "yaw": 30, "intensity": 8.0 },
+    "skylight":  { "intensity": 3.0 },
+    "atmosphere": true
+  },
+
   "blam": {                          // consumed by `mjolnir level bake`, ignored by the Lua loader
     "clear": {                       // neutralize the host mission
       "squads": true,                // zero AI squads
@@ -104,6 +110,22 @@ canvas for the pipeline is **B40** (fullest vehicle palette, large flat canyon f
 `origin` should sit on walkable BSP: the level's playable area must lie on the canvas map's
 Blam collision, because that is the only floor the sim knows.
 
+### `environment`
+
+Sun, skylight and atmosphere, spawned by `MJOLNIRLevelLoader` when the world
+arrives. It exists because `blam.clear` is now the default for an exported
+level: once the host mission's own placements are gone, so is anything that was
+lighting them, and an unlit canvas reads as a black void rather than a level.
+
+All three keys are optional and each falls back to the shown default. `sun`
+becomes a `DirectionalLight`, `skylight` a real-time-capture `SkyLight`, and
+`atmosphere: false` suppresses the `SkyAtmosphere`. The bake never reads this
+section, so lighting changes are a `mjolnir_level_reload` away — no re-bake, no
+restart.
+
+`MJOLNIRWorldBuilder` stands down for any world that has a level file, so its
+auto-built sun and floor pad cannot land on top of an authored environment.
+
 ### `blam.vehicles` / `blam.weapons` / `blam.equipment` — `type` values
 
 Friendly names resolve through [`defs/level/palette-map.json`](../defs/level/palette-map.json)
@@ -125,7 +147,10 @@ tag set (`mjolnir list --paks ... --group scenery_object`).
 ### `blam.clear`
 
 The host mission keeps running under the variant — its AI, objectives, and scripting are noise
-for an arena level. `clear` empties the relevant placement blocks (counts set to zero or
+for an arena level. The bake runs its placement passes **first** and the clears afterwards, so each
+clone still has a shipped donor to copy from; the clear then keeps only the
+elements this bake appended (`Op::KeepLast`) and drops the mission's prefix.
+`clear` empties the relevant placement blocks (counts set to zero or
 elements disabled) and `scripts: true` swaps the scenario's HSC source for a neutral stub
 (mechanism proven — script sections already resize through `blam-tag::write::Edits`). Expect
 per-mission iteration on how much clearing a mission tolerates before something native asserts.

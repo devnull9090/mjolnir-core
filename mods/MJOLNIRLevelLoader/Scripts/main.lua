@@ -274,8 +274,52 @@ local function spawnDecorItem(world, origin, item)
     return actor
 end
 
+--- Spawn the level's sky and lighting (an empty canvas world has none, and a
+--- black void reads as a failure). Patterns from MJOLNIRWorldBuilder.
+local function spawnEnvironment(world)
+    local env = Current.level and Current.level.environment
+    if type(env) ~= "table" then return end
+    local origin = Current.level.canvas.origin
+    local high = { X = origin[1], Y = origin[2], Z = origin[3] + 5000.0 }
+
+    local function place(key, classPath, rotation, setup)
+        if Current.actors[key] and Current.actors[key]:IsValid() then return end
+        local class = findObject(classPath)
+        if not class then return end
+        local ok, actor = pcall(function()
+            return world:SpawnActor(class, high, rotation or { Pitch = 0, Yaw = 0, Roll = 0 })
+        end)
+        if ok and actor and actor:IsValid() then
+            Current.actors[key] = actor
+            if setup then pcall(setup, actor) end
+        end
+    end
+
+    local sun = env.sun or {}
+    place("__sun", "/Script/Engine.DirectionalLight",
+        { Pitch = sun.pitch or -50.0, Yaw = sun.yaw or 30.0, Roll = 0 },
+        function(actor)
+            local c = actor.LightComponent
+            c.Mobility = MOBILITY_MOVABLE
+            c:SetIntensity(sun.intensity or 8.0)
+        end)
+    if env.atmosphere ~= false then
+        place("__atmosphere", "/Script/Engine.SkyAtmosphere", nil, nil)
+    end
+    local skylight = env.skylight or {}
+    place("__sky", "/Script/Engine.SkyLight", nil, function(actor)
+        local c = actor.LightComponent
+        c.Mobility = MOBILITY_MOVABLE
+        c.bRealTimeCapture = true
+        c:SetIntensity(skylight.intensity or 3.0)
+        c:RecaptureSky()
+    end)
+    Log("environment spawned (sun/atmosphere/skylight)")
+end
+
 local function spawnDecor(world)
     local level = Current.level
+    spawnEnvironment(world)
     local decor = level and level.decor
     if type(decor) ~= "table" or #decor == 0 then
         Log("level '" .. tostring(level and level.name) .. "': no decor to spawn")

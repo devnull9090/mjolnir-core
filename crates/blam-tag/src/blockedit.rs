@@ -31,6 +31,9 @@ pub enum Op {
     CloneAppend { donor: usize, copies: usize },
     /// Keep only the first `keep` elements.
     Truncate { keep: usize },
+    /// Keep only the last `keep` elements — how a cleared block retains the
+    /// placements appended to it while dropping the shipped prefix.
+    KeepLast { keep: usize },
 }
 
 /// What a resize did, for reporting.
@@ -124,6 +127,10 @@ fn element_order(count: usize, ops: &[Op]) -> Result<Vec<usize>, Error> {
                 }
             }
             Op::Truncate { keep } => order.truncate(keep),
+            Op::KeepLast { keep } => {
+                let drop = order.len().saturating_sub(keep);
+                order.drain(..drop);
+            }
         }
     }
     Ok(order)
@@ -218,6 +225,19 @@ mod tests {
     #[test]
     fn a_bad_donor_is_an_error() {
         assert!(element_order(2, &[Op::CloneAppend { donor: 5, copies: 1 }]).is_err());
+    }
+
+    #[test]
+    fn keep_last_retains_the_tail() {
+        let order = element_order(
+            3,
+            &[
+                Op::CloneAppend { donor: 1, copies: 2 },
+                Op::KeepLast { keep: 2 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(order, vec![1, 1]);
     }
 
     #[test]
