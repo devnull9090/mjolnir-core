@@ -89,6 +89,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // several fields exist so files carrying them deserialize
 pub struct LevelFile {
     pub schema_version: u32,
     pub name: String,
@@ -168,6 +169,7 @@ pub struct TypedPlacement {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 pub struct ObjectPlacement {
     pub tag: String,
     pub group: String,

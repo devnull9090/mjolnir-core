@@ -102,7 +102,9 @@ dependencies = [
  "blam-pack",
  "blam-tag",
  "clap",
+ "serde",
  "serde_json",
+ "ue-asset",
  "ue-iostore",
  "ue-texture",
 ]

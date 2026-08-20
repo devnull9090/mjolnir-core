@@ -20,6 +20,7 @@ blam-tag = { path = "../blam-tag" }
 blam-hsc = { path = "../blam-hsc" }
 blam-pack = { path = "../blam-pack" }
 blam-live = { path = "../blam-live" }
+ue-asset = { path = "../ue-asset" }
 ue-iostore = { path = "../ue-iostore" }
 ue-texture = { path = "../ue-texture" }
 anyhow.workspace = true

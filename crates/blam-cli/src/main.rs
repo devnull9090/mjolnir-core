@@ -16,6 +16,7 @@ mod defs;
 mod hsc;
 mod index;
 mod level;
+mod mesh;
 mod tagdiff;
 mod texture;
 
@@ -152,6 +153,9 @@ enum Command {
     /// Validate, self-test, and bake .level.json custom levels.
     #[command(subcommand_help_heading = "Level")]
     Level(level::LevelArgs),
+    /// Catalog shipped meshes for the level exporter's asset library.
+    #[command(subcommand_help_heading = "Mesh")]
+    Mesh(mesh::MeshArgs),
     /// Diff the shipped tags of two builds, field by field.
     Tagdiff(tagdiff::TagDiffArgs),
 }
@@ -509,6 +513,7 @@ fn main() -> Result<()> {
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
+        Command::Mesh(a) => mesh::run(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
 }
