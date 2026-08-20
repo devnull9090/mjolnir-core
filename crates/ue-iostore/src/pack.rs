@@ -664,21 +664,25 @@ mod tests {
 
     #[test]
     fn metadata_records_follow_their_chunks_through_the_permutation() {
+        // Meta is computed from each chunk's data (BLAKE3-160 + flags), so
+        // distinct data makes each record recognisable.
         let entries: Vec<Entry> = (0..8u8)
             .map(|i| Entry {
                 id: id(100 + i as u64),
                 data: vec![i; 4],
-                meta: vec![i; 24], // distinct per chunk, recognisable
+                meta: Vec::new(),
             })
             .collect();
         let built = build(&template(), 0, &entries);
         let toc = Toc::parse(&built.utoc).unwrap();
         for e in &entries {
             let slot = toc.find_chunk(&e.id).expect("resolves");
+            let mut want = [0u8; crate::toc::CHUNK_META];
+            want[..20].copy_from_slice(&blake3::hash(&e.data).as_bytes()[..20]);
             assert_eq!(
                 toc.meta(slot).unwrap(),
-                &e.meta[..],
-                "meta must move with its chunk"
+                &want[..],
+                "meta must be the chunk's own hash, at the chunk's slot"
             );
         }
     }
