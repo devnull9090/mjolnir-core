@@ -2,32 +2,321 @@
   "schema_version": 1,
   "name": "proving_ground",
   "title": "Proving Ground",
-  "description": "Pipeline smoke-test level: two starts, a warthog, weapons and a shield wall on B40's opening snowfield.",
   "canvas": {
     "scenario": "B40",
-    "origin": [9609, -10200, 14780]
+    "origin": [
+      9609.0,
+      -10200.0,
+      14780.0
+    ]
   },
   "blam": {
     "player_starts": [
-      { "pos": [0, 0, 20], "yaw": 0 },
-      { "pos": [300, 0, 20], "yaw": 180 }
+      {
+        "pos": [
+          -2000.0,
+          200.0,
+          100.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "pos": [
+          -2000.0,
+          -200.0,
+          100.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "pos": [
+          2000.0,
+          200.0,
+          100.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "pos": [
+          2000.0,
+          -200.0,
+          100.0
+        ],
+        "yaw": 0.0
+      }
     ],
     "vehicles": [
-      { "type": "warthog", "pos": [800, 400, 30], "yaw": 90 }
+      {
+        "type": "warthog",
+        "pos": [
+          -2000.0,
+          -600.0,
+          30.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "ghost",
+        "pos": [
+          2000.0,
+          -600.0,
+          30.0
+        ],
+        "yaw": 0.0
+      }
     ],
     "weapons": [
-      { "type": "sniper_rifle", "pos": [200, -300, 20], "yaw": 0 },
-      { "type": "rocket_launcher", "pos": [200, 300, 20], "yaw": 0 }
+      {
+        "type": "sniper_rifle",
+        "pos": [
+          -2300.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "assault_rifle",
+        "pos": [
+          -1400.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "sniper_rifle",
+        "pos": [
+          2300.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "assault_rifle",
+        "pos": [
+          1400.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "rocket_launcher",
+        "pos": [
+          0.0,
+          0.0,
+          15.0
+        ],
+        "yaw": -90.0
+      }
     ],
     "equipment": [
-      { "type": "overshield", "pos": [500, 0, 20] }
+      {
+        "type": "overshield",
+        "pos": [
+          0.0,
+          -800.0,
+          20.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "active_camouflage",
+        "pos": [
+          0.0,
+          800.0,
+          20.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "frag_grenade",
+        "pos": [
+          250.0,
+          150.0,
+          15.0
+        ],
+        "yaw": 0.0
+      }
     ],
     "objects": [
-      { "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield", "group": "scenery", "pos": [400, -150, 0], "rot": [0, 45, 0] },
-      { "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f", "group": "crates", "pos": [400, 150, 0] }
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          -1600.0,
+          400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          160.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          -1600.0,
+          -400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -160.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          1600.0,
+          400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -20.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          1600.0,
+          -400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          20.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          -150.0,
+          -100.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -10.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          150.0,
+          -100.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          15.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          0.0,
+          150.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -40.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          0.0,
+          -20.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -25.0,
+          0.0
+        ]
+      }
     ]
   },
   "decor": [
-    { "id": "beacon", "mesh": "/Engine/BasicShapes/Cylinder.Cylinder", "pos": [0, 0, 300], "scale": [0.5, 0.5, 6], "tint": [0.9, 0.5, 0.1, 1.0] }
+    {
+      "id": "beacon_red",
+      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder",
+      "pos": [
+        -2000.0,
+        0.0,
+        600.0
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        12.0
+      ],
+      "tint": [
+        0.8,
+        0.1,
+        0.1,
+        1.0
+      ]
+    },
+    {
+      "id": "beacon_blue",
+      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder",
+      "pos": [
+        2000.0,
+        0.0,
+        600.0
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        12.0
+      ],
+      "tint": [
+        0.1,
+        0.2,
+        0.8,
+        1.0
+      ]
+    }
+  ],
+  "markers": [
+    {
+      "name": "hill_1",
+      "pos": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "yaw": 0.0
+    }
   ]
 }
