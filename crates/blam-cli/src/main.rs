@@ -17,6 +17,7 @@ mod hsc;
 mod index;
 mod level;
 mod mesh;
+mod rename;
 mod tagdiff;
 mod texture;
 

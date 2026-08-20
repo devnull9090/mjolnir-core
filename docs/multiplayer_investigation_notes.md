@@ -1013,6 +1013,56 @@ Consequences, in order of weight:
    edit the `scnr` (spawns, vehicles, weapons, object-built structures) and dress with
    non-collidable UE meshes at runtime. No Unreal cook required anywhere in that loop.
 
+## 2026-08-20 Follow-Up: standalone map packages — machinery proven, mount-time registration still closed
+
+Goal: a custom level with its OWN scenario name ("PG1") instead of squatting a campaign
+scenario — a new `scnr` tag package the game has never shipped. Everything needed to *build*
+such a package now exists and is validated offline; what remains closed is getting the game to
+*register* a mod container's packages at mount. Findings, all verified:
+
+- **`FPackageId` derivation**: CityHash64 over the lower-cased UTF-16LE package name.
+  `mjolnir packageid --check` reproduces the id of all 101,755 shipped `/Game` + `/Engine`
+  packages exactly. (`crates/ue-iostore/src/city.rs`)
+- **`ContainerHeader` (type-6 chunk) format**: magic `nCoI`, version 4, container id, package-id
+  array, 16-byte `FFilePackageStoreEntry` per package (imported-packages carray at +0, shader
+  hashes at +8; carray offsets relative to the member's own position), 24-zero-byte tail.
+  All 28 shipped headers round-trip byte-exact (`mjolnir packageid --headers`).
+- **TOC chunk meta = BLAKE3-160 of the uncompressed chunk data + flags byte** (1 = compressed).
+  Confirmed against the UE-staged MJOLNIRWORLD container. Every container the packer built
+  before 2026-08-20 shipped *copied* (wrong) hashes — tolerated on the tag-read path, so
+  overrides always worked anyway; the packer now computes real hashes.
+- **Name-batch hashes** in zen packages: CityHash64 of the lower-cased UTF-8 string.
+  **Export `PublicExportHash`**: CityHash64 of the lower-cased UTF-16LE leaf object name.
+  Both verified against `b40-scenario`. Same-length rename surgery
+  (`crates/blam-cli/src/rename.rs`) clones a tag package under a new name without moving any
+  offset — which is why standalone codenames are exactly three characters, like every shipped
+  scenario's.
+- **A real directory index** (mount point + file chain + string table, reversed from the
+  UE-staged container) is now written for addition containers.
+- `mjolnir level bake --standalone <CODE>` assembles all of it: baked scnr payload as the ubulk,
+  renamed uasset, container header with the donor's 100 imported-package ids, directory index,
+  correct metas.
+
+**The closed door**: the game never registers the new package. `LoadAsset` on the new package
+path returns an invalid object while the shipped control loads fine, across all variants tried:
+own container header (with wrong metas, then with correct metas, with and without directory
+index), and overriding the *source* container's header chunk with an appended copy (which also
+proved harmless — the shipped packages keep loading, so per-container header reads do not go
+through the cross-container override path). The shipping build logs nothing and its strings are
+stripped, so the mount path is opaque from the outside. Note the MapKit README's "the container
+carries its own ContainerHeader, so the new package is registered" was an assumption — its world
+package *overrode an already-registered id*, which needs no registration.
+
+Next moves, in order of leverage:
+1. **Hook the mount path natively** (the `native/` + `signatures/` AOB infrastructure exists for
+   exactly this): find `FFilePackageStoreBackend::Mount` or its caller, log what happens with a
+   mod container's header, and if the loader skips it, call it ourselves at runtime.
+2. Merge the map-variant chunks into the addition container and have a human confirm the variant
+   still works from it — pins that the container mounts and serves chunks while registration
+   alone fails.
+3. Meanwhile the **map-variant lane is the shipping mechanism**: one custom level per canvas
+   scenario, launched through the canvas mission. A menu row can present it under its own name.
+
 ## 2026-07-26 Follow-Up: Tag Data Pipeline
 
 The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside

@@ -113,6 +113,80 @@ impl ContainerHeader {
             tail: EMPTY_TAIL.to_vec(),
         }
     }
+
+    /// Append one package (with its import list) to this header.
+    ///
+    /// Growing the fixed entry array moves the carray heap 16 bytes further
+    /// out, and every offset is relative to its entry's own member position —
+    /// so each existing non-empty carray offset is bumped to keep pointing at
+    /// the same heap bytes. The new package's imports go at the heap's end.
+    pub fn append_package(&mut self, package_id: u64, imports: &[u64]) {
+        let n = self.package_ids.len();
+        let fixed = n * 16;
+        let (old_fixed, heap) = self.store_entries.split_at(fixed);
+        let mut new_fixed = old_fixed.to_vec();
+        for i in 0..n {
+            for member in [0usize, 8] {
+                let count_at = i * 16 + member;
+                let off_at = count_at + 4;
+                let count = u32::from_le_bytes(new_fixed[count_at..count_at + 4].try_into().unwrap());
+                if count > 0 {
+                    let off = u32::from_le_bytes(new_fixed[off_at..off_at + 4].try_into().unwrap());
+                    new_fixed[off_at..off_at + 4].copy_from_slice(&(off + 16).to_le_bytes());
+                }
+            }
+        }
+        // The new entry: import view member sits at n*16; its data lands at
+        // the end of the grown block.
+        let mut entry = [0u8; 16];
+        if !imports.is_empty() {
+            let data_at = (n + 1) * 16 + heap.len();
+            let rel = (data_at - n * 16) as u32;
+            entry[0..4].copy_from_slice(&(imports.len() as u32).to_le_bytes());
+            entry[4..8].copy_from_slice(&rel.to_le_bytes());
+        }
+        let mut out = Vec::with_capacity((n + 1) * 16 + heap.len() + imports.len() * 8);
+        out.extend_from_slice(&new_fixed);
+        out.extend_from_slice(&entry);
+        out.extend_from_slice(heap);
+        for id in imports {
+            out.extend_from_slice(&id.to_le_bytes());
+        }
+        self.store_entries = out;
+        self.package_ids.push(package_id);
+    }
+
+    /// A header registering packages together with their imported-package
+    /// lists. Import carray offsets are relative to the carray view member's
+    /// own position (the import view is the first member of its 16-byte
+    /// entry), verified against `b40-scenario`'s shipped entry.
+    pub fn with_import_lists(container_id: u64, packages: &[(u64, Vec<u64>)]) -> ContainerHeader {
+        let fixed = packages.len() * 16;
+        let mut entries = vec![0u8; fixed];
+        let mut heap: Vec<u8> = Vec::new();
+        for (i, (_, imports)) in packages.iter().enumerate() {
+            if imports.is_empty() {
+                continue;
+            }
+            let member_at = i * 16; // the import view is the entry's first member
+            let data_at = fixed + heap.len();
+            let rel = (data_at - member_at) as u32;
+            entries[member_at..member_at + 4]
+                .copy_from_slice(&(imports.len() as u32).to_le_bytes());
+            entries[member_at + 4..member_at + 8].copy_from_slice(&rel.to_le_bytes());
+            for id in imports {
+                heap.extend_from_slice(&id.to_le_bytes());
+            }
+        }
+        entries.extend_from_slice(&heap);
+        ContainerHeader {
+            version: 4,
+            container_id,
+            package_ids: packages.iter().map(|(id, _)| *id).collect(),
+            store_entries: entries,
+            tail: EMPTY_TAIL.to_vec(),
+        }
+    }
 }
 
 #[cfg(test)]

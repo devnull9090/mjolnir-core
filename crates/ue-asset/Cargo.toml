@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 thiserror = "1"
+
+[dev-dependencies]
+ue-iostore = { path = "../ue-iostore" }

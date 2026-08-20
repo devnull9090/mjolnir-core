@@ -73,6 +73,13 @@ pub struct BakeArgs {
     /// directory so decor arrives too.
     #[arg(long)]
     pub install_test: bool,
+    /// Bake a STANDALONE map: instead of overriding the canvas scenario, ship
+    /// the baked scenario as a brand-new tag package under this codename —
+    /// exactly three characters (every shipped scenario's is three, and the
+    /// package rename is same-length surgery). The canvas world and collision
+    /// still host the level; the codename is a new launchable scenario name.
+    #[arg(long, value_name = "CODE")]
+    pub standalone: Option<String>,
 }
 
 pub fn run(a: LevelArgs) -> Result<()> {
@@ -732,19 +739,94 @@ fn bake(a: BakeArgs) -> Result<()> {
     );
 
     let source = &idx.containers[entry.container];
-    let built = blam_pack::build_override(
-        source,
-        &a.src.oodle_roots(),
-        &[blam_pack::ChunkEdit {
-            label: entry.path.clone(),
-            chunk: entry.chunk,
-            original_len: original.len(),
-            patched: file.clone(),
-        }],
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+    let (built, name) = if let Some(code) = &a.standalone {
+        let code = code.to_uppercase();
+        if code.len() != 3 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+            bail!("--standalone takes exactly three [A-Z0-9] characters, got {code:?}");
+        }
+        // The donor package: the canvas scenario's own .uasset, renamed.
+        let toc = ue_iostore::toc::Toc::read(&source.utoc_path)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", source.utoc_path.display()))?;
+        let uasset_chunk = source
+            .chunks
+            .iter()
+            .find(|c| c.chunk_id == entry.chunk.chunk_id && c.chunk_type == 1)
+            .context("the scenario has no package chunk beside its payload")?;
+        let donor_uasset =
+            ue_iostore::read_chunk(source, uasset_chunk, None, &a.src.oodle_roots())?;
+        let meta_of = |kind: u8| -> Vec<u8> {
+            toc.chunk_ids
+                .iter()
+                .position(|c| c.id == entry.chunk.chunk_id && c.kind == kind)
+                .and_then(|slot| toc.meta(slot))
+                .map(<[u8]>::to_vec)
+                .unwrap_or_default()
+        };
 
-    let name = format!("pakchunk998-MJOLNIRLEVEL-{}_P", level.name);
+        let donor = ue_asset::zen::Package::parse(&donor_uasset)
+            .map_err(|e| anyhow::anyhow!("donor package: {e}"))?;
+        let old_pkg = donor.name.clone(); // "/Game/Tags/.../B40-scenario"
+        let old_leaf = old_pkg
+            .rsplit('/')
+            .next()
+            .context("donor package name has no leaf")?
+            .to_string();
+        let new_leaf = format!("{code}-scenario");
+        ensure_same_len(&old_leaf, &new_leaf)?;
+        let new_pkg = format!(
+            "{}/{new_leaf}",
+            old_pkg.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+        );
+        let imported: Vec<u64> = donor
+            .imported_package_names
+            .iter()
+            .map(|n| ue_iostore::city::package_id(n))
+            .collect();
+        println!(
+            "  package  {old_pkg}\n        -> {new_pkg}\n  imports  {} package(s)",
+            imported.len()
+        );
+
+        let uasset = crate::rename::clone_tag_uasset(
+            &donor_uasset,
+            &[
+                (old_leaf.clone(), new_leaf.clone()),
+                (old_pkg.clone(), new_pkg.clone()),
+            ],
+            original.len(),
+            file.len(),
+        )?;
+
+        let container_name = format!("pakchunk997-MJOLNIRMAP-{code}");
+        let built = blam_pack::build_addition(
+            source,
+            &a.src.oodle_roots(),
+            &container_name,
+            &[blam_pack::NewPackage {
+                package_name: new_pkg,
+                uasset,
+                ubulk: file.clone(),
+                imported_package_ids: imported,
+                uasset_meta: meta_of(1),
+                ubulk_meta: meta_of(2),
+            }],
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+        (built, format!("{container_name}_P"))
+    } else {
+        let built = blam_pack::build_override(
+            source,
+            &a.src.oodle_roots(),
+            &[blam_pack::ChunkEdit {
+                label: entry.path.clone(),
+                chunk: entry.chunk,
+                original_len: original.len(),
+                patched: file.clone(),
+            }],
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+        (built, format!("pakchunk998-MJOLNIRLEVEL-{}_P", level.name))
+    };
     let out_dir = if a.install_test {
         a.src.paks.clone()
     } else {
@@ -796,6 +878,14 @@ fn bake(a: BakeArgs) -> Result<()> {
         println!("\n  Install: copy both files plus a stub .pak sibling into the game's");
         println!("  Paks folder, or re-run with --install-test.");
     }
+    Ok(())
+}
+
+fn ensure_same_len(old: &str, new: &str) -> Result<()> {
+    anyhow::ensure!(
+        old.len() == new.len(),
+        "codename length mismatch: {old:?} vs {new:?}"
+    );
     Ok(())
 }
 
