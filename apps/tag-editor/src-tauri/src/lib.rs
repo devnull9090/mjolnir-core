@@ -728,6 +728,10 @@ struct MeshMaterial {
     texture: Option<usize>,
     texture_path: Option<String>,
     material_path: Option<String>,
+    /// Flat base colour (linear RGBA) from the instance's vector parameters —
+    /// what the material library's layered materials use instead of an albedo
+    /// texture. The viewer's stand-in when `texture` is absent.
+    tint: Option<[f64; 4]>,
 }
 
 #[derive(Serialize)]
@@ -785,6 +789,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             .map(|(slot, object)| {
                 let material_path = ue_asset::material::import_package_name(&package, *object);
                 let mut texture_path = None;
+                let mut tint = None;
                 let mut query = material_path.clone();
                 for _ in 0..4 {
                     let Some(pkg_name) = query.take() else { break };
@@ -805,6 +810,9 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                     else {
                         break;
                     };
+                    if tint.is_none() {
+                        tint = ue_asset::material::base_color_tint(&info.colors);
+                    }
                     if let Some(base) = ue_asset::material::base_color(&info.textures) {
                         texture_path = Some(base.package.clone());
                         break;
@@ -817,6 +825,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                     texture,
                     texture_path,
                     material_path,
+                    tint,
                 }
             })
             .collect();
@@ -989,11 +998,48 @@ pub struct RenderMeshRef {
     /// Component rotation as an Unreal Rotator: pitch, yaw, roll in degrees.
     pub rotation: [f64; 3],
     pub scale: [f64; 3],
+    /// Rotation as a quaternion (i j k w, Unreal space), which wins over
+    /// `rotation` when present — rig pieces sit at bone rest poses, which a
+    /// Rotator cannot carry exactly.
+    pub quat: Option<[f64; 4]>,
     /// A stand-in found through the MeshSynchronization data asset rather
     /// than the Blueprint. Drawn only when no non-fallback mesh is readable —
     /// characters bind Nanite placeholders in the Blueprint and pick their
     /// real body mesh at runtime, which this approximates.
     pub fallback: bool,
+}
+
+// Quaternion arithmetic for composing bone rest poses (i j k w).
+
+fn quat_mul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
+fn quat_rotate(q: [f64; 4], v: [f64; 3]) -> [f64; 3] {
+    let p = [v[0], v[1], v[2], 0.0];
+    let qc = [-q[0], -q[1], -q[2], q[3]];
+    let r = quat_mul(quat_mul(q, p), qc);
+    [r[0], r[1], r[2]]
+}
+
+/// An Unreal Rotator (pitch, yaw, roll in degrees) as a quaternion — UE's own
+/// FRotator::Quaternion.
+fn rotator_to_quat(r: [f64; 3]) -> [f64; 4] {
+    let h = std::f64::consts::PI / 360.0;
+    let (sp, cp) = (r[0] * h).sin_cos();
+    let (sy, cy) = (r[1] * h).sin_cos();
+    let (sr, cr) = (r[2] * h).sin_cos();
+    [
+        cr * sp * sy - sr * cp * cy,
+        -cr * sp * cy - sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    ]
 }
 
 /// Object groups whose tags bind an actor Blueprint worth chasing.
@@ -1112,6 +1158,7 @@ pub fn render_mesh_refs(c: &Catalog, tag_index: usize) -> Vec<RenderMeshRef> {
                 location: vec3_of(props.get("RelativeLocation"), 0.0),
                 rotation: vec3_of(props.get("RelativeRotation"), 0.0),
                 scale: vec3_of(props.get("RelativeScale3D"), 1.0),
+                quat: None,
                 fallback: false,
             });
         }
@@ -1132,7 +1179,214 @@ pub fn render_mesh_refs(c: &Catalog, tag_index: usize) -> Vec<RenderMeshRef> {
             location: [0.0; 3],
             rotation: [0.0; 3],
             scale: [1.0; 3],
+            quat: None,
             fallback: true,
+        });
+    }
+    // Rig statics: a skeletal mesh's per-region pieces (hull, panels, wheels)
+    // live beside it in a `Static/` folder, in bone-local frames, attached at
+    // runtime. Attach each to its bone's rest pose so vehicles draw whole.
+    let skeletal: Vec<RenderMeshRef> = out.iter().filter(|r| r.skeletal).cloned().collect();
+    for sk_ref in &skeletal {
+        for piece in rig_static_refs(c, sk_ref) {
+            if out.iter().any(|r| r.mesh == piece.mesh) {
+                continue;
+            }
+            out.push(piece);
+        }
+    }
+    out
+}
+
+/// Loose name tokens: split on underscores and camel-case, lowercased, with
+/// the rig's synonyms mapped (`Tire` vs `Wheel`, `Upper` vs `Up`), sorted.
+fn rig_tokens(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in s.chars() {
+        let boundary = c == '_'
+            || (c.is_ascii_uppercase()
+                && !cur.is_empty()
+                && !cur.ends_with(|p: char| p.is_ascii_uppercase()));
+        if boundary && !cur.is_empty() {
+            out.push(std::mem::take(&mut cur).to_lowercase());
+        }
+        if c != '_' {
+            cur.push(c);
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur.to_lowercase());
+    }
+    let mut mapped = Vec::new();
+    for t in out {
+        match t.as_str() {
+            "tire" => mapped.push("wheel".to_string()),
+            "upper" => mapped.push("up".to_string()),
+            "lower" => mapped.push("down".to_string()),
+            "ebrake" => {
+                mapped.push("emergency".to_string());
+                mapped.push("brake".to_string());
+            }
+            _ => mapped.push(t),
+        }
+    }
+    mapped.sort();
+    mapped
+}
+
+/// The rig statics belonging to one skeletal mesh, each placed at its bone's
+/// rest-pose transform (composed with the owning component's transform).
+///
+/// Matching is by name, loosely: the piece is `SM_<Thing>_<BoneName>` with
+/// word-order swaps (`Base_Axle` vs `Axle_Base`), missing underscores
+/// (`SteeringArm`) and synonyms — so suffixes are compared as token sets,
+/// then as a subset when exactly one bone qualifies. What the rig does not
+/// name sits in the chassis frame: the Blam collision hangs panels and
+/// accessories off the hull node, whose bone is `Body` (or `Chassis`).
+fn rig_static_refs(c: &Catalog, sk_ref: &RenderMeshRef) -> Vec<RenderMeshRef> {
+    let Some(entry) = c.meshes.get(sk_ref.mesh) else {
+        return Vec::new();
+    };
+    let sk_dir = entry.short.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let static_dir = format!("{}/static/", sk_dir.to_ascii_lowercase());
+
+    // The candidate pieces, before any parsing: most skeletal meshes have no
+    // Static sibling, and the SK parse below is not free.
+    let pieces: Vec<usize> = c
+        .meshes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| {
+            if m.skeletal {
+                return false;
+            }
+            let lower = m.short.to_ascii_lowercase();
+            lower.starts_with(&static_dir)
+                && !lower[static_dir.len()..].contains('/')
+                && !lower.contains("damaged")
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if pieces.is_empty() {
+        return Vec::new();
+    }
+
+    // The SK's reference skeleton, posed to rest in component space.
+    let Ok(usmap) = usmap() else { return Vec::new() };
+    let Some(scripts) = c.script_objects() else {
+        return Vec::new();
+    };
+    let Ok(data) = c.read_mesh_uasset(sk_ref.mesh) else {
+        return Vec::new();
+    };
+    let Ok(ubulk) = c.read_mesh_ubulk(sk_ref.mesh) else {
+        return Vec::new();
+    };
+    let Ok(package) = ue_asset::zen::Package::parse(&data) else {
+        return Vec::new();
+    };
+    let Some(export) = package
+        .exports
+        .iter()
+        .position(|e| scripts.leaf(e.class) == Some("SkeletalMesh"))
+    else {
+        return Vec::new();
+    };
+    let Ok(bytes) = package.export_data(&data, export) else {
+        return Vec::new();
+    };
+    let ctx = ue_asset::unversioned::Ctx {
+        usmap,
+        names: &package.names,
+    };
+    let Ok(sk) = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref()) else {
+        return Vec::new();
+    };
+
+    let mut world: Vec<([f64; 3], [f64; 4])> = Vec::new();
+    for (i, b) in sk.bones.iter().enumerate() {
+        let t = [
+            b.translation[0] as f64,
+            b.translation[1] as f64,
+            b.translation[2] as f64,
+        ];
+        let q = [
+            b.rotation[0] as f64,
+            b.rotation[1] as f64,
+            b.rotation[2] as f64,
+            b.rotation[3] as f64,
+        ];
+        let w = match b.parent {
+            p if p >= 0 && (p as usize) < i => {
+                let (pt, pq) = world[p as usize];
+                let rt = quat_rotate(pq, t);
+                ([pt[0] + rt[0], pt[1] + rt[1], pt[2] + rt[2]], quat_mul(pq, q))
+            }
+            _ => (t, q),
+        };
+        world.push(w);
+    }
+
+    let bone_sets: Vec<Vec<String>> = sk.bones.iter().map(|b| rig_tokens(&b.name)).collect();
+    let bone_keys: Vec<String> = bone_sets.iter().map(|t| t.concat()).collect();
+    let body = sk
+        .bones
+        .iter()
+        .position(|b| b.name == "Body")
+        .or_else(|| sk.bones.iter().position(|b| b.name == "Chassis"));
+
+    // The owning component's transform, to compose the pieces into.
+    let comp_q = rotator_to_quat(sk_ref.rotation);
+    let comp_t = sk_ref.location;
+
+    let mut out = Vec::new();
+    for mi in pieces {
+        let tail = c.meshes[mi]
+            .short
+            .rsplit('/')
+            .next()
+            .unwrap_or(&c.meshes[mi].short)
+            .to_string();
+        let parts: Vec<&str> = tail.split('_').collect();
+        let mut bone_hit: Option<usize> = None;
+        'outer: for start in 1..parts.len() {
+            let cand = rig_tokens(&parts[start..].join("_"));
+            if cand.is_empty() {
+                continue;
+            }
+            if let Some(bi) = bone_keys.iter().position(|k| *k == cand.concat()) {
+                bone_hit = Some(bi);
+                break 'outer;
+            }
+            let subs: Vec<usize> = bone_sets
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| cand.iter().all(|t| b.contains(t)))
+                .map(|(i, _)| i)
+                .collect();
+            if subs.len() == 1 {
+                bone_hit = Some(subs[0]);
+                break 'outer;
+            }
+        }
+        let Some(bi) = bone_hit.or(body) else { continue };
+        let (bt, bq) = world[bi];
+        let scaled = [
+            bt[0] * sk_ref.scale[0],
+            bt[1] * sk_ref.scale[1],
+            bt[2] * sk_ref.scale[2],
+        ];
+        let rt = quat_rotate(comp_q, scaled);
+        out.push(RenderMeshRef {
+            mesh: mi,
+            skeletal: false,
+            label: tail,
+            location: [comp_t[0] + rt[0], comp_t[1] + rt[1], comp_t[2] + rt[2]],
+            rotation: [0.0; 3],
+            scale: sk_ref.scale,
+            quat: Some(quat_mul(comp_q, bq)),
+            fallback: sk_ref.fallback,
         });
     }
     out

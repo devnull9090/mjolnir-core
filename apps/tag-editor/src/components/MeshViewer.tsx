@@ -175,11 +175,15 @@ function MeshScene(props: {
     geometry.setAttribute("uv", new THREE.BufferAttribute(uvs.slice(), 2));
     geometry.setIndex(new THREE.BufferAttribute(indices.slice(), 1));
 
-    // One material per section's material index; textures stream in after.
+    // One material per section's material index: the material's own flat
+    // colour when it carries one, a placeholder otherwise; textures stream
+    // in after.
     const materials: THREE.MeshStandardMaterial[] = props.header.materials.map(
-      (_, i) =>
+      (m, i) =>
         new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setHSL((i * 0.31) % 1, 0.2, 0.6),
+          color: m.tint
+            ? new THREE.Color().setRGB(m.tint[0], m.tint[1], m.tint[2], THREE.LinearSRGBColorSpace)
+            : new THREE.Color().setHSL((i * 0.31) % 1, 0.2, 0.6),
           metalness: 0.05,
           roughness: 0.85,
           side: THREE.DoubleSide,

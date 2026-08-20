@@ -251,6 +251,30 @@ editor's Model and World views draw the chase's results (`render_mesh_refs` in
   bone-local frames, matching Blam region names) attached at runtime. Assembling those rigs is
   open work; affected objects fall back to their collision shells.
 
+**Verified 2026-08-19 — a vehicle's hull is rig statics on the SK's skeleton.** The warthog's
+`SK_Warthog_01` carries only the suspension geometry (one `InteriorWheelsShocks` material); the
+hull, panels, wheels and accessories ship as ~60 statics under the SK's sibling
+`Mesh/Static/` folder, in bone-local frames, attached at runtime. No shipped data records the
+piece-to-bone binding (the `SkeletalMeshSocket` exports on `SKEL_Warthog_01` are character-IK
+and VFX attach points, and the MeshSynchronization data assets hold only `ModelTag`), so the
+binding is by name convention, loosely spelled: `SM_Warthog_Tire_Back_Left` ↔ bone
+`Wheel_Back_Left`, `SM_Warthog_Base_Axle_*` ↔ `Axle_Base_*`, `SM_Warthog_Hood` ↔ `Hood_Base`.
+Token-set matching with a handful of synonyms places every named piece; what the rig does not
+name (side panels, windshield, accessories) sits in the chassis frame — attaching those to the
+`Body` bone lands them exactly inside the vehicle envelope. The assembled warthog spans
+613×325×243 cm, matching its 1.92 wu posed collision shell. Implemented as `rig_static_refs`
+in `apps/tag-editor/src-tauri/src/lib.rs`; `probe_rig_match` reproduces the match table.
+
+**Verified 2026-08-19 — the material library's colour is in vector parameters, not textures.**
+Vehicle materials (`MI_Warthog_GreenHull`, …) are layered: their `CO`/`COH` texture maps are
+channel-packed masks (decoding one as albedo paints the mesh purple), and the visible colour
+lives in `VectorParameterValues` — `Color Top/Mid/Bottom` is the paint gradient (the warthog's
+olive is `Color Top` = 0.397, 0.397, 0.216), `BaseColor` per layer index is near-black primer,
+`Color Tint` is a multiplier. The mesh viewers now carry that flat colour per material slot as
+the stand-in when no albedo texture resolves. Also fixed on the way: package and texture
+lookups are mount-aware (`/HaloMaterialLibrary/...` plugin content resolves, not just
+`/Game/...`), which the parent chain of every vehicle material needs.
+
 **Verified 2026-08-19 — `object_model_ref` regressed on CU4-era layouts.** The `model` tag
 reference is nested (`vehicle` → `unit` → `object`), so the flat root-field lookup found
 nothing and the World view's collision proxies all drew as boxes; the walk now descends
@@ -351,9 +375,9 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
    actually defines.
 6. Determine whether the tag-to-Blueprint binding in `BlamBipedTagDataAsset` is a hard reference or
    a soft object path, which decides whether new objects can be added without a cook.
-7. Assemble the per-region rig statics (`Mesh/Static/SM_Warthog_Hood`, …) onto the SK reference
-   skeleton by bone name, so vehicles draw whole in the Model and World views instead of falling
-   back to collision shells. The pieces are bone-local; the SK ships the rest pose.
+7. ~~Assemble the per-region rig statics onto the SK reference skeleton by bone name.~~
+   **Done 2026-08-19** — see "a vehicle's hull is rig statics" above; the warthog assembles
+   whole (60/60 pieces placed, 613×325×243 cm, matching its 1.92 wu collision shell).
 8. Fix the static-mesh reader on the packages that fail with `mesh data ends early` (the
    `Nanite/SM_LifePod_Body_*` family, the Seraph hull fragments — ~50 crates), which read as
    misaligned property walks rather than missing data.

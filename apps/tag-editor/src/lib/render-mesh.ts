@@ -67,12 +67,15 @@ export function parseMeshPayload(buffer: ArrayBuffer): RenderMeshData {
   return { header, geometry };
 }
 
-/** One placeholder material per slot; textures stream in over them. */
+/** One material per slot: the material's own flat colour when it carries
+ *  one, a placeholder tint otherwise; textures stream in over them. */
 export function buildMeshMaterials(header: MeshHeader): THREE.MeshStandardMaterial[] {
   const materials = header.materials.map(
-    (_, i) =>
+    (m, i) =>
       new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL((i * 0.31) % 1, 0.12, 0.55),
+        color: m.tint
+          ? new THREE.Color().setRGB(m.tint[0], m.tint[1], m.tint[2], THREE.LinearSRGBColorSpace)
+          : new THREE.Color().setHSL((i * 0.31) % 1, 0.12, 0.55),
         metalness: 0.05,
         roughness: 0.85,
         side: THREE.DoubleSide,
@@ -146,13 +149,18 @@ function rotatorToTagQuat(r: [number, number, number]): THREE.Quaternion {
 
 /** The component transform placing one mesh in tag space. */
 export function componentMatrix(ref: RenderMeshRef): THREE.Matrix4 {
+  // Mirroring Y flips the handedness: quaternion components in the mirror
+  // plane negate, the one along the mirror normal stays.
+  const rotation = ref.quat
+    ? new THREE.Quaternion(-ref.quat[0], ref.quat[1], -ref.quat[2], ref.quat[3])
+    : rotatorToTagQuat(ref.rotation);
   return new THREE.Matrix4().compose(
     new THREE.Vector3(
       ref.location[0] / CM_PER_WU,
       -ref.location[1] / CM_PER_WU,
       ref.location[2] / CM_PER_WU,
     ),
-    rotatorToTagQuat(ref.rotation),
+    rotation,
     new THREE.Vector3(...ref.scale),
   );
 }
