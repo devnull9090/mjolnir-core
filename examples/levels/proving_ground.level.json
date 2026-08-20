@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "name": "proving_ground",
+  "title": "Proving Ground",
+  "description": "Pipeline smoke-test level: two starts, a warthog, weapons and a shield wall on B40's opening snowfield.",
+  "canvas": {
+    "scenario": "B40",
+    "origin": [9609, -10200, 14780]
+  },
+  "blam": {
+    "player_starts": [
+      { "pos": [0, 0, 20], "yaw": 0 },
+      { "pos": [300, 0, 20], "yaw": 180 }
+    ],
+    "vehicles": [
+      { "type": "warthog", "pos": [800, 400, 30], "yaw": 90 }
+    ],
+    "weapons": [
+      { "type": "sniper_rifle", "pos": [200, -300, 20], "yaw": 0 },
+      { "type": "rocket_launcher", "pos": [200, 300, 20], "yaw": 0 }
+    ],
+    "equipment": [
+      { "type": "overshield", "pos": [500, 0, 20] }
+    ],
+    "objects": [
+      { "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield", "group": "scenery", "pos": [400, -150, 0], "rot": [0, 45, 0] },
+      { "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f", "group": "crates", "pos": [400, 150, 0] }
+    ]
+  },
+  "decor": [
+    { "id": "beacon", "mesh": "/Engine/BasicShapes/Cylinder.Cylinder", "pos": [0, 0, 300], "scale": [0.5, 0.5, 6], "tint": [0.9, 0.5, 0.1, 1.0] }
+  ]
+}

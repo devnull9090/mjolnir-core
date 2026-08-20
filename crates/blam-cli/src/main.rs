@@ -15,6 +15,7 @@ mod container;
 mod defs;
 mod hsc;
 mod index;
+mod level;
 mod tagdiff;
 mod texture;
 
@@ -148,6 +149,9 @@ enum Command {
     /// Inspect, export and swap cooked textures.
     #[command(subcommand_help_heading = "Texture")]
     Texture(texture::TextureArgs),
+    /// Validate, self-test, and bake .level.json custom levels.
+    #[command(subcommand_help_heading = "Level")]
+    Level(level::LevelArgs),
     /// Diff the shipped tags of two builds, field by field.
     Tagdiff(tagdiff::TagDiffArgs),
 }
@@ -504,6 +508,7 @@ fn main() -> Result<()> {
         Command::Scripting(a) => scripting(a),
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
+        Command::Level(a) => level::run(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
 }
@@ -1287,7 +1292,7 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
 /// Parse `group:path` or `none` into a tag reference.
-fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
+pub(crate) fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
     let t = text.trim();
     if t.is_empty() || t.eq_ignore_ascii_case("none") {
         return Ok(blam_tag::Scalar::Reference {

@@ -24,4 +24,5 @@ ue-iostore = { path = "../ue-iostore" }
 ue-texture = { path = "../ue-texture" }
 anyhow.workspace = true
 clap.workspace = true
+serde.workspace = true
 serde_json.workspace = true
