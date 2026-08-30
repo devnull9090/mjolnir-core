@@ -28,6 +28,35 @@ export type Reference = {
   path: string;
 };
 
+/** One reference to resolve: the group as four-CC or name, and the path. */
+export type RefQuery = {
+  group: string;
+  path: string;
+};
+
+/** Where a resolved reference lands; null rows in the batch answer mean the
+ *  reference does not exist in this installation. */
+export type RefHit = {
+  index: number;
+  group: string;
+  short: string;
+  size: number;
+};
+
+/** What a reference points at, in enough detail to draw a preview card. */
+export type TagPeek = {
+  group: string;
+  four_cc: string;
+  short: string;
+  chunk_size: number;
+  /** Which card to draw. */
+  preview: "model" | "texture" | "sound" | "summary";
+  /** Texture catalog index, when `preview` is `texture`. */
+  texture: number | null;
+  /** Sound catalog index, when `preview` is `sound`. */
+  sound: number | null;
+};
+
 export type NodeView = {
   kind: NodeKind;
   name: string;
@@ -542,6 +571,11 @@ const tauriApi = {
   readMesh: (index: number) => invoke<ArrayBuffer>("read_mesh", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
+  resolveRefs: (refs: RefQuery[]) =>
+    invoke<(RefHit | null)[]>("resolve_refs", { refs }),
+  peekTag: (index: number) => invoke<TagPeek>("peek_tag", { index }),
+  referencingTags: (index: number) =>
+    invoke<TagSummary[]>("referencing_tags", { index }),
   setField: (index: number, path: string, value: string) =>
     invoke<EditResult>("set_field", { index, path, value }),
   addElement: (index: number, path: string) =>
@@ -562,6 +596,8 @@ const tauriApi = {
   listTextures: (query: string) =>
     invoke<TextureSummary[]>("list_textures", { query }),
   readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
+  readTextureThumb: (index: number, maxDim = 256) =>
+    invoke<TextureView>("read_texture_thumb", { index, maxDim }),
   readScripts: (index: number) => invoke<ScriptView>("read_scripts", { index }),
   decompileScript: (index: number, name: string) =>
     invoke<string>("decompile_script", { index, name }),
