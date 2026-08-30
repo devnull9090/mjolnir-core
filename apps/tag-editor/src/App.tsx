@@ -15,6 +15,8 @@ import { ScenarioViewer } from "./components/ScenarioViewer";
 import { ModelViewer } from "./components/ModelViewer";
 import { MeshViewer } from "./components/MeshViewer";
 import { TabBar } from "./components/TabBar";
+import { Shortcuts } from "./components/Shortcuts";
+import { QuickOpen } from "./components/QuickOpen";
 import { MODEL_GROUPS } from "./stores/editor-store";
 
 export default function App() {
@@ -66,6 +68,8 @@ function Editor() {
 
   return (
     <div className="flex h-full min-h-0">
+      <Shortcuts />
+      <QuickOpen />
       <TagTree />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar />
