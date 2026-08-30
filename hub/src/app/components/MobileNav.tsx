@@ -2,8 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Menu, X, Download, Newspaper, ScrollText, Wrench } from "lucide-react";
+import {
+  Menu,
+  X,
+  Download,
+  KeyRound,
+  LogOut,
+  Newspaper,
+  ScrollText,
+  ShieldCheck,
+  Wrench,
+} from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
+import { useHub } from "./HubKit";
 
 const navLinks = [
   { href: "/docs", label: "Docs" },
@@ -21,6 +32,7 @@ const externalLinks = [
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
+  const { user, ready, signIn, signOut } = useHub();
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -69,7 +81,7 @@ export function MobileNav() {
 
       {/* Drawer panel */}
       <div
-        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-all duration-300 ease-out md:hidden ${
+        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-all duration-300 ease-out md:hidden flex flex-col ${
           open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 invisible pointer-events-none"
         }`}
         role="dialog"
@@ -77,7 +89,7 @@ export function MobileNav() {
         aria-label="Navigation menu"
       >
         {/* Close button */}
-        <div className="flex items-center justify-between px-5 h-16 border-b border-border">
+        <div className="flex items-center justify-between px-5 h-16 border-b border-border shrink-0">
           <span className="text-sm font-bold text-gold uppercase tracking-wider">Menu</span>
           <button
             onClick={close}
@@ -89,7 +101,71 @@ export function MobileNav() {
         </div>
 
         {/* Links */}
-        <nav className="px-5 py-6 space-y-1">
+        <nav className="px-5 py-6 space-y-1 flex-1 overflow-y-auto">
+          {/* Account — same shared session the desktop chip reads. */}
+          {ready && !user && (
+            <button
+              onClick={signIn}
+              className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-base font-medium border border-[#5865F2]/60 text-[#8b95f6] hover:bg-[#5865F2]/10 transition-colors cursor-pointer"
+            >
+              <DiscordIcon className="w-5 h-5" />
+              Sign in with Discord
+            </button>
+          )}
+          {user && (
+            <>
+              <Link
+                href={`/users/${user.id}`}
+                onClick={close}
+                className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-surface-raised transition-colors"
+              >
+                {user.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-surface-raised" />
+                )}
+                <span className="flex-1 min-w-0 text-base font-medium text-foreground truncate">
+                  {user.display_name ?? user.username}
+                </span>
+                {user.role !== "user" && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gold/15 text-gold">
+                    {user.role}
+                  </span>
+                )}
+              </Link>
+              {user.role !== "user" && (
+                <Link
+                  href="/moderation"
+                  onClick={close}
+                  className="flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium text-gold hover:brightness-110 hover:bg-surface-raised transition-colors"
+                >
+                  <ShieldCheck className="w-5 h-5" />
+                  Moderation
+                </Link>
+              )}
+              <Link
+                href="/account/keys"
+                onClick={close}
+                className="flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium text-text-muted hover:text-foreground hover:bg-surface-raised transition-colors"
+              >
+                <KeyRound className="w-5 h-5" />
+                API keys
+              </Link>
+              <button
+                onClick={() => {
+                  signOut();
+                  close();
+                }}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-base font-medium text-text-muted hover:text-foreground hover:bg-surface-raised transition-colors cursor-pointer"
+              >
+                <LogOut className="w-5 h-5" />
+                Sign out
+              </button>
+            </>
+          )}
+          {ready && <div className="border-t border-border my-4" />}
+
           {navLinks.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -119,7 +195,7 @@ export function MobileNav() {
         </nav>
 
         {/* Download CTA at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-5 border-t border-border bg-surface">
+        <div className="p-5 border-t border-border bg-surface shrink-0">
           <Link
             href="/download"
             onClick={close}
