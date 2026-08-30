@@ -122,10 +122,10 @@ struct AppState {
 }
 
 #[derive(Clone, Serialize)]
-struct PendingEdit {
-    path: String,
+pub struct PendingEdit {
+    pub path: String,
     /// The text the user typed, re-parsed against the layout on each read.
-    value: String,
+    pub value: String,
 }
 
 #[derive(Serialize)]
@@ -329,16 +329,16 @@ fn parse_op(value: &str) -> Option<blam_tag::patch::ElementOp> {
 }
 
 /// One pending edit as the replay applied it — or did not.
-struct Outcome {
-    path: String,
-    value: String,
-    type_name: String,
+pub struct Outcome {
+    pub path: String,
+    pub value: String,
+    pub type_name: String,
     /// The value the field held just before this edit applied, displayed.
-    before: Option<String>,
+    pub before: Option<String>,
     /// False when the edit no longer resolves against these bytes, which
     /// usually means a game update moved the field. Skipped, not fatal:
     /// the command that cares makes it loud.
-    applied: bool,
+    pub applied: bool,
 }
 
 /// What one pending edit asks of the replay, decided by what its path
@@ -386,7 +386,7 @@ fn classify(
 /// An edit that no longer resolves is skipped and reported in its outcome; a
 /// mod must keep applying in the editor even when a game update broke one
 /// field, and export is where staleness turns into a hard error.
-fn apply_pending(
+pub fn apply_pending(
     bytes: Vec<u8>,
     pending: &[PendingEdit],
 ) -> Result<(Vec<u8>, Vec<Outcome>), String> {

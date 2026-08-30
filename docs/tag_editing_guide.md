@@ -331,6 +331,15 @@ they reach the game through a test install or export, never through live mode. T
 the bar reverts the section's element changes along with every edit inside its elements — an
 edit inside an element that no longer exists could never be re-applied.
 
+![A sniper rifle at the a30 crash site that the shipped scenario does not place](images/block-element-sniper-in-game.jpg)
+
+The screenshot is this feature in game: the a30 scenario's `weapons` block grew from 22 to 23
+elements — the last placement duplicated, the copy retyped to the sniper rifle and moved beside
+the mission start — and the game spawns it, pickup prompt and all. The field edits that shaped
+the copy target `weapons[22]`, an element the shipped tag does not have; edits are re-applied
+in the order they were made, so an edit inside an element an earlier add created lands exactly
+as it did in the editor.
+
 ### Saving — mod projects
 
 The game's containers are read-only, so edits are never written back into the
