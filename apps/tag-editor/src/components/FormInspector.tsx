@@ -242,18 +242,43 @@ function FField({ node, path }: { node: NodeView; path: string }) {
  * toggle, and for blocks and arrays an element dropdown on the bar itself.
  * The fields below always belong to the one element the dropdown picks.
  */
+const BAR_BUTTON =
+  "shrink-0 border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] " +
+  "text-text-secondary hover:bg-surface-hover hover:text-mjolnir-gold disabled:opacity-40";
+
 function FSection({ node, path, depth }: { node: NodeView; path: string; depth: number }) {
   const [open, setOpen] = useState(depth < 1 || node.kind === "struct");
   const [element, setElement] = useState(0);
+  const editElements = useEditor((s) => s.editElements);
+  const revertField = useEditor((s) => s.revertField);
+  const edited = useEditor((s) => s.tag?.edited ?? []);
 
   const isStruct = node.kind === "struct";
+  // Only a block can gain or lose elements; an array's count is fixed by the
+  // definition.
+  const isBlock = node.kind === "block";
   const elements = isStruct ? [] : node.children;
   const total = node.count ?? elements.length;
   const index = Math.min(element, Math.max(elements.length - 1, 0));
   const current = elements[index];
+  const hasOps = isBlock && edited.includes(path);
+  const atMax = node.max_count !== null && total >= node.max_count;
 
   const inner = isStruct ? node.children : (current?.children ?? []);
   const innerBase = isStruct ? path : `${path}[${index}]`;
+
+  const add = async () => {
+    if (await editElements(path, "add")) {
+      setElement(total);
+      setOpen(true);
+    }
+  };
+  const duplicate = async () => {
+    if (await editElements(path, "duplicate", index)) {
+      setElement(index + 1);
+      setOpen(true);
+    }
+  };
 
   return (
     <div className="mt-3">
@@ -267,6 +292,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
           {open ? "▾" : "▸"}
         </button>
         <span className="truncate text-xs font-semibold uppercase tracking-wider text-text-primary">
+          {hasOps && <span className="mr-1 text-mjolnir-gold">●</span>}
           {node.name || node.block || "block"}
         </span>
         {!isStruct && (
@@ -294,6 +320,51 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                 <option disabled>… {total - elements.length} more not loaded</option>
               )}
             </select>
+            {isBlock && (
+              <>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
+                  disabled={atMax}
+                  title={
+                    atMax
+                      ? `This block allows at most ${node.max_count} elements`
+                      : "Add a new element"
+                  }
+                  onClick={() => void add()}
+                >
+                  add
+                </button>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
+                  disabled={elements.length === 0 || atMax}
+                  title="Duplicate the selected element"
+                  onClick={() => void duplicate()}
+                >
+                  dup
+                </button>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
+                  disabled={elements.length === 0}
+                  title="Delete the selected element"
+                  onClick={() => void editElements(path, "remove", index)}
+                >
+                  del
+                </button>
+                {hasOps && (
+                  <button
+                    type="button"
+                    className="shrink-0 font-mono text-[10px] text-text-dim hover:text-text-primary"
+                    title="Revert this section's element changes, and every edit inside its elements"
+                    onClick={() => void revertField(path)}
+                  >
+                    undo
+                  </button>
+                )}
+              </>
+            )}
           </>
         )}
       </div>

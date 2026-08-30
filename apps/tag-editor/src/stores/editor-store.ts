@@ -223,6 +223,12 @@ type EditorState = {
   selectGroup: (group: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   setField: (path: string, value: string) => Promise<boolean>;
+  /** Add, duplicate or remove one element of the block at `path`. */
+  editElements: (
+    path: string,
+    op: "add" | "remove" | "duplicate",
+    element?: number,
+  ) => Promise<boolean>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
@@ -841,6 +847,33 @@ export const useEditor = create<EditorState>((set, get) => {
         // visible now. So it happens after the edit is safely recorded, and a
         // failure to reach the game never fails the edit.
         if (get().liveOn && index !== null) void get().pokeLive(index, path, value);
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async editElements(path, op, element) {
+      const index = get().selectedTag;
+      if (index === null) return false;
+      try {
+        const lastEdit =
+          op === "add"
+            ? await api.addElement(index, path)
+            : op === "remove"
+              ? await api.removeElement(index, path, element ?? 0)
+              : await api.duplicateElement(index, path, element ?? 0);
+        const tag = await api.readTag(index);
+        set((s) => ({
+          lastEdit,
+          editError: null,
+          tag,
+          dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+        }));
+        if (get().project) void get().refreshProject();
+        // No live poke: an element change resizes the tag, which cannot land
+        // in a running game's heap. It reaches the game via a test install.
         return true;
       } catch (e) {
         set({ editError: String(e), lastEdit: null });

@@ -544,6 +544,12 @@ const tauriApi = {
     invoke<number[]>("read_tag_bytes", { index, limit }),
   setField: (index: number, path: string, value: string) =>
     invoke<EditResult>("set_field", { index, path, value }),
+  addElement: (index: number, path: string) =>
+    invoke<EditResult>("add_element", { index, path }),
+  removeElement: (index: number, path: string, element: number) =>
+    invoke<EditResult>("remove_element", { index, path, element }),
+  duplicateElement: (index: number, path: string, element: number) =>
+    invoke<EditResult>("duplicate_element", { index, path, element }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>
