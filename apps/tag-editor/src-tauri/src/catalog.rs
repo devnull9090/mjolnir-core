@@ -1028,9 +1028,10 @@ impl Catalog {
     ///
     /// The first call builds the reverse index: every tag's payload is read
     /// and its data section scanned for `tgrf` reference sections (see
-    /// [`crate::refscan`]). That is seconds of work over tens of thousands of
-    /// chunks — the same deal as [`Catalog::names`] — so callers should run it
-    /// off the UI thread and say why they are waiting. Later calls are lookups.
+    /// [`crate::refscan`]). That is tens of seconds of work over tens of
+    /// thousands of chunks (~48s measured on the shipped build) — so callers
+    /// must run it off the UI thread and say why they are waiting. Later
+    /// calls are microsecond lookups.
     pub fn referencing(&self, index: usize, limit: usize) -> Result<Vec<TagSummary>, String> {
         let target = self.tags.get(index).ok_or("tag index out of range")?;
         let reverse = self.reverse_refs.get_or_init(|| {

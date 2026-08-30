@@ -1004,7 +1004,8 @@ struct TagPeek {
 
 /// The first texture a tag's imports bind, if any — the same resolution
 /// `tag_links` uses, bounded so a hover never walks a huge import table.
-fn texture_import(c: &Catalog, index: usize) -> Option<usize> {
+/// Public for the references e2e test, which proves it against real data.
+pub fn texture_import(c: &Catalog, index: usize) -> Option<usize> {
     let uasset = c.read_tag_uasset(index).ok()?;
     zen::imported_package_names(&uasset)
         .iter()
@@ -1014,32 +1015,61 @@ fn texture_import(c: &Catalog, index: usize) -> Option<usize> {
 
 /// A playable Wwise media file for a sound tag.
 ///
-/// The tag's `.uasset` imports its event packages; an event package's name
-/// map lists the `Media/<bucket>/<id>.wem` files it plays. That is the whole
-/// chain — no bank graph, and none of the seconds-long name-index build that
-/// [`Catalog::names`] pays, so it is cheap enough for a hover.
-fn wwise_media_for_tag(c: &Catalog, index: usize) -> Option<usize> {
+/// A sound tag's `.uasset` imports audio assets, which import variants, which
+/// import the `Wwise/Play_*` event package whose name map finally lists the
+/// `Media/<bucket>/<id>.wem` it plays (verified on the shipped build — the
+/// door switch above resolves at hop two). So this is a bounded breadth-first
+/// walk of the import graph: at most three hops and two dozen package reads,
+/// packages on a `/wwise/` path first. No bank graph, and none of the
+/// seconds-long name-index build [`Catalog::names`] pays — cheap enough for a
+/// hover. Public for the references e2e test, which proves it on real data.
+pub fn wwise_media_for_tag(c: &Catalog, index: usize) -> Option<usize> {
+    const MAX_DEPTH: u8 = 3;
+    const MAX_READS: usize = 24;
+
     let uasset = c.read_tag_uasset(index).ok()?;
-    for package in zen::imported_package_names(&uasset) {
-        if !package.to_ascii_lowercase().contains("wwiseevents/") {
+    let mut queue: std::collections::VecDeque<(String, u8)> = std::collections::VecDeque::new();
+    let enqueue = |queue: &mut std::collections::VecDeque<(String, u8)>,
+                       names: Vec<String>,
+                       depth: u8| {
+        // Event packages live under a Wwise folder; look there first.
+        let (wwise, rest): (Vec<_>, Vec<_>) = names
+            .into_iter()
+            .partition(|p| p.to_ascii_lowercase().contains("/wwise/"));
+        for p in wwise {
+            queue.push_front((p, depth));
+        }
+        for p in rest {
+            queue.push_back((p, depth));
+        }
+    };
+    enqueue(&mut queue, zen::imported_package_names(&uasset), 0);
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut reads = 0usize;
+    while let Some((package, depth)) = queue.pop_front() {
+        if reads >= MAX_READS || !seen.insert(package.clone()) {
             continue;
         }
         let Some(buf) = c.read_package(&package) else {
             continue;
         };
+        reads += 1;
         // 52: where a cooked package's summary name map begins — the same
         // offset the Wwise name index reads (see `Catalog::names`).
-        let Some(names) = zen::load_name_batch(&buf, 52) else {
-            continue;
-        };
-        for name in &names {
-            if !name.starts_with("Media/") {
-                continue;
+        if let Some(names) = zen::load_name_batch(&buf, 52) {
+            for name in &names {
+                if !name.starts_with("Media/") {
+                    continue;
+                }
+                let hit = wwise::media_id_of_path(name).and_then(|id| c.sound_by_media_id(id));
+                if hit.is_some() {
+                    return hit;
+                }
             }
-            let hit = wwise::media_id_of_path(name).and_then(|id| c.sound_by_media_id(id));
-            if hit.is_some() {
-                return hit;
-            }
+        }
+        if depth + 1 < MAX_DEPTH {
+            enqueue(&mut queue, zen::imported_package_names(&buf), depth + 1);
         }
     }
     None
@@ -2300,7 +2330,7 @@ fn read_texture_thumb(
 /// Every tag whose body references this one.
 ///
 /// The first call per session builds the reverse index — reading and scanning
-/// every tag chunk, seconds of work — so this runs on a blocking thread,
+/// every tag chunk, tens of seconds of work — so this runs on a blocking thread,
 /// reached through the app handle because `State` cannot cross into
 /// `spawn_blocking`. The catalog mutex is held for the build and every other
 /// command waits it out; the caller is watching the one spinner that explains

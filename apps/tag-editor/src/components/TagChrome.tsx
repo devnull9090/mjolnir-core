@@ -107,7 +107,7 @@ function ReferencedBy() {
         <div className="mt-1 flex max-h-28 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
           {loading && (
             <span className="font-mono text-[10px] text-text-dim">
-              scanning every tag for references — a few seconds, first time only…
+              scanning every tag for references — up to a minute, first time only…
             </span>
           )}
           {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
