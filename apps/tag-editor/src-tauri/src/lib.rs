@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub mod bnk;
 pub mod catalog;
@@ -23,6 +23,7 @@ pub mod keystore;
 pub mod live;
 pub mod modpack;
 pub mod project;
+pub mod refscan;
 pub mod scripts;
 pub mod secret;
 pub mod sounds;
@@ -931,19 +932,182 @@ fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
 }
 
-/// Find a tag by group and reference path. Reference paths come out of tag
-/// bodies backslash-separated and in authored case; catalog shorts are
-/// slash-separated container paths. The cooker also inserts a `_Generated_`
-/// directory the authored paths never mention (a scenario references
-/// `levels\halo1\solo\a30\holdouts`, the container holds
-/// `Levels/Halo1/Solo/A30/_Generated_/holdouts`), so that segment is ignored
-/// on both sides.
+/// Find a tag by group and reference path — an exact, indexed lookup; the
+/// path normalization it depends on lives with the index, at
+/// [`catalog::normalize_ref_path`].
 fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
-    let normalize = |p: &str| p.replace('\\', "/").to_ascii_lowercase().replace("/_generated_/", "/");
-    let want = normalize(path);
-    c.tags
+    c.resolve_ref(group, path)
+}
+
+/// One reference to resolve, as a tag body or a recipe holds it: the group as
+/// a four-CC or directory name, and the authored path.
+#[derive(serde::Deserialize)]
+struct RefQuery {
+    group: String,
+    path: String,
+}
+
+/// Where a resolved reference lands.
+#[derive(Serialize)]
+struct RefHit {
+    index: usize,
+    group: String,
+    short: String,
+    size: u64,
+}
+
+/// Resolve a batch of tag references exactly.
+///
+/// Batched because the caller is a just-loaded tag validating every reference
+/// field at once; one round trip beats one per field. An empty path is an
+/// unset reference and resolves to nothing without being wrong.
+#[tauri::command]
+fn resolve_refs(
+    refs: Vec<RefQuery>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Option<RefHit>>, String> {
+    with_catalog(&state, |c| {
+        Ok(refs
+            .iter()
+            .map(|r| {
+                if r.path.is_empty() {
+                    return None;
+                }
+                let i = c.resolve_ref(&r.group, &r.path)?;
+                let t = c.entry(i)?;
+                Some(RefHit {
+                    index: i,
+                    group: t.group.clone(),
+                    short: t.short.clone(),
+                    size: t.chunk.length,
+                })
+            })
+            .collect())
+    })
+}
+
+/// What a reference points at, in enough detail to draw a preview card
+/// without loading the tag itself.
+#[derive(Serialize)]
+struct TagPeek {
+    group: String,
+    four_cc: String,
+    short: String,
+    chunk_size: u64,
+    /// Which card to draw: `model`, `texture`, `sound` or `summary`.
+    preview: &'static str,
+    /// Texture catalog index, when `preview` is `texture`.
+    texture: Option<usize>,
+    /// Sound catalog index, when `preview` is `sound`.
+    sound: Option<usize>,
+}
+
+/// The first texture a tag's imports bind, if any — the same resolution
+/// `tag_links` uses, bounded so a hover never walks a huge import table.
+/// Public for the references e2e test, which proves it against real data.
+pub fn texture_import(c: &Catalog, index: usize) -> Option<usize> {
+    let uasset = c.read_tag_uasset(index).ok()?;
+    zen::imported_package_names(&uasset)
         .iter()
-        .position(|t| t.group == group && normalize(&t.short) == want)
+        .take(16)
+        .find_map(|p| c.texture_by_package(p))
+}
+
+/// A playable Wwise media file for a sound tag.
+///
+/// A sound tag's `.uasset` imports audio assets, which import variants, which
+/// import the `Wwise/Play_*` event package whose name map finally lists the
+/// `Media/<bucket>/<id>.wem` it plays (verified on the shipped build — the
+/// door switch above resolves at hop two). So this is a bounded breadth-first
+/// walk of the import graph: at most three hops and two dozen package reads,
+/// packages on a `/wwise/` path first. No bank graph, and none of the
+/// seconds-long name-index build [`Catalog::names`] pays — cheap enough for a
+/// hover. Public for the references e2e test, which proves it on real data.
+pub fn wwise_media_for_tag(c: &Catalog, index: usize) -> Option<usize> {
+    const MAX_DEPTH: u8 = 3;
+    const MAX_READS: usize = 24;
+
+    let uasset = c.read_tag_uasset(index).ok()?;
+    let mut queue: std::collections::VecDeque<(String, u8)> = std::collections::VecDeque::new();
+    let enqueue = |queue: &mut std::collections::VecDeque<(String, u8)>,
+                       names: Vec<String>,
+                       depth: u8| {
+        // Event packages live under a Wwise folder; look there first.
+        let (wwise, rest): (Vec<_>, Vec<_>) = names
+            .into_iter()
+            .partition(|p| p.to_ascii_lowercase().contains("/wwise/"));
+        for p in wwise {
+            queue.push_front((p, depth));
+        }
+        for p in rest {
+            queue.push_back((p, depth));
+        }
+    };
+    enqueue(&mut queue, zen::imported_package_names(&uasset), 0);
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut reads = 0usize;
+    while let Some((package, depth)) = queue.pop_front() {
+        if reads >= MAX_READS || !seen.insert(package.clone()) {
+            continue;
+        }
+        let Some(buf) = c.read_package(&package) else {
+            continue;
+        };
+        reads += 1;
+        // 52: where a cooked package's summary name map begins — the same
+        // offset the Wwise name index reads (see `Catalog::names`).
+        if let Some(names) = zen::load_name_batch(&buf, 52) {
+            for name in &names {
+                if !name.starts_with("Media/") {
+                    continue;
+                }
+                let hit = wwise::media_id_of_path(name).and_then(|id| c.sound_by_media_id(id));
+                if hit.is_some() {
+                    return hit;
+                }
+            }
+        }
+        if depth + 1 < MAX_DEPTH {
+            enqueue(&mut queue, zen::imported_package_names(&buf), depth + 1);
+        }
+    }
+    None
+}
+
+/// Classify what a preview card can show for one tag, cheaply: catalog entry
+/// data plus at most a package-header read. Never a full tag parse.
+#[tauri::command]
+fn peek_tag(index: usize, state: State<'_, AppState>) -> Result<TagPeek, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let group = entry.group.clone();
+        let short = entry.short.clone();
+        let chunk_size = entry.chunk.length;
+        let four_cc = c.four_cc_of_group(&group).unwrap_or_default().to_string();
+
+        let (preview, texture, sound) = match group.as_str() {
+            "model" | "collision_model" | "skeleton_model" => ("model", None, None),
+            g if g.starts_with("sound") => match wwise_media_for_tag(c, index) {
+                Some(si) => ("sound", None, Some(si)),
+                None => ("summary", None, None),
+            },
+            _ => match texture_import(c, index) {
+                Some(xi) => ("texture", Some(xi), None),
+                None => ("summary", None, None),
+            },
+        };
+
+        Ok(TagPeek {
+            group,
+            four_cc,
+            short,
+            chunk_size,
+            preview,
+            texture,
+            sound,
+        })
+    })
 }
 
 /// The reflection schema for this game build, dumped by UE4SS and shipped
@@ -2127,6 +2291,65 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
     })
 }
 
+/// A small render of one texture for a preview card.
+///
+/// Unlike `read_texture` this never consults the mod project — the card shows
+/// shipped pixels — and never populates the swap-related fields, so it takes
+/// only the catalog lock. `max_dim` is clamped: below 16 the card is noise,
+/// above 512 it is a viewer's job.
+#[tauri::command]
+fn read_texture_thumb(
+    index: usize,
+    max_dim: u32,
+    state: State<'_, AppState>,
+) -> Result<TextureView, String> {
+    with_catalog(&state, |c| {
+        let path = c
+            .textures
+            .get(index)
+            .ok_or("texture index out of range")?
+            .short
+            .clone();
+        let (tex, img) = decode_texture(c, index, max_dim.clamp(16, 512))?;
+        let png = textures::to_png(&img)?;
+        Ok(TextureView {
+            path,
+            width: tex.width,
+            height: tex.height,
+            format: img.format.clone(),
+            mip: img.mip,
+            num_mips: tex.num_mips,
+            png: data_uri(&png),
+            // The card offers no replace, so encodability is nobody's business.
+            unsupported: None,
+            replaced: false,
+        })
+    })
+}
+
+/// Every tag whose body references this one.
+///
+/// The first call per session builds the reverse index — reading and scanning
+/// every tag chunk, tens of seconds of work — so this runs on a blocking thread,
+/// reached through the app handle because `State` cannot cross into
+/// `spawn_blocking`. The catalog mutex is held for the build and every other
+/// command waits it out; the caller is watching the one spinner that explains
+/// why. Every later call is an index lookup.
+#[tauri::command]
+async fn referencing_tags(
+    index: usize,
+    app: tauri::AppHandle,
+) -> Result<Vec<TagSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let c = guard.as_ref().ok_or("no installation is open")?;
+        c.referencing(index, MAX_ROWS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Replace a texture's pixels with a PNG on disk.
 ///
 /// The swap is proven here — re-encoded, packed-length checked and decoded
@@ -3120,6 +3343,9 @@ pub fn run() {
             search_tags,
             read_tag,
             read_tag_bytes,
+            resolve_refs,
+            peek_tag,
+            referencing_tags,
             read_model_geometry,
             object_render_model,
             read_sbsp_world,
@@ -3154,6 +3380,7 @@ pub fn run() {
             signing_status,
             list_textures,
             read_texture,
+            read_texture_thumb,
             read_scripts,
             decompile_script,
             export_script,

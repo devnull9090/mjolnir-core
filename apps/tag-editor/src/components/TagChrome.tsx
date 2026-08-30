@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { MODEL_GROUPS, useEditor, type ViewMode } from "../stores/editor-store";
+import { MODEL_GROUPS, tagLabel, useEditor, type ViewMode } from "../stores/editor-store";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -67,6 +67,66 @@ function LinkedAssets() {
               {showAll ? "hide unreal" : `+${rest.length} unreal`}
             </button>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "What references this tag?" — collapsed until asked, because the answer
+ * costs a one-time scan of every shipped tag (see `referencing_tags`). The
+ * chips share the linked-assets grammar; each opens the referencing tag.
+ */
+function ReferencedBy() {
+  const selectedTag = useEditor((s) => s.selectedTag);
+  const rows = useEditor((s) => s.reverseRefs);
+  const loading = useEditor((s) => s.reverseRefsLoading);
+  const error = useEditor((s) => s.reverseRefsError);
+  const load = useEditor((s) => s.loadReverseRefs);
+  const openTab = useEditor((s) => s.openTab);
+  const [open, setOpen] = useState(false);
+
+  // Collapse again when another tag takes the pane.
+  useEffect(() => setOpen(false), [selectedTag]);
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          if (!open && rows === null && !loading) void load();
+        }}
+        className="font-mono text-[10px] uppercase tracking-wider text-text-dim hover:text-text-secondary"
+        title="Every tag whose fields reference this one"
+      >
+        {open ? "▾" : "▸"} referenced by{rows ? ` · ${rows.length}` : ""}
+      </button>
+      {open && (
+        <div className="mt-1 flex max-h-28 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
+          {loading && (
+            <span className="font-mono text-[10px] text-text-dim">
+              scanning every tag for references — up to a minute, first time only…
+            </span>
+          )}
+          {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
+          {rows?.length === 0 && (
+            <span className="font-mono text-[10px] text-text-dim">
+              nothing references this tag
+            </span>
+          )}
+          {rows?.map((t) => (
+            <button
+              key={t.index}
+              type="button"
+              title={t.short}
+              onClick={() => void openTab("tag", t.index, tagLabel(t))}
+              className="border border-mjolnir-gold/40 px-1.5 py-0.5 font-mono text-[10px] text-mjolnir-gold hover:bg-mjolnir-gold/10"
+            >
+              {tagLabel(t)}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -229,6 +289,7 @@ export function TagHeader() {
         {tag.node_count.toLocaleString()} fields
       </p>
       <LinkedAssets />
+      <ReferencedBy />
       <LiveToggle />
     </header>
   );

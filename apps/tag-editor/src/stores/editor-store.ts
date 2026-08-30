@@ -9,8 +9,11 @@ import {
   type LinkStart,
   type LinkedAsset,
   type LiveStatus,
+  type NodeView,
   type ProjectView,
   type PublishView,
+  type RefHit,
+  type RefQuery,
   type SigningStatus,
   type SoundSummary,
   type SoundView,
@@ -45,6 +48,50 @@ const VIEW_KEY = "tag-editor-view";
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
 }
+
+/** A tag identity that survives game updates, unlike a catalog index. */
+export type RecentTag = { group: string; short: string; label: string };
+
+const RECENTS_KEY = "tag-editor-recents";
+const RECENTS_MAX = 20;
+
+function storedRecents(): RecentTag[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((r) => r && typeof r.group === "string" && typeof r.short === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The key `refStatus` files a reference under. NUL never appears in either
+ *  half, so the pair round-trips without escaping. */
+export function refKey(group: string, path: string): string {
+  return group + "\u0000" + path;
+}
+
+/** Every distinct non-empty reference in a tag's field tree. */
+function collectRefs(nodes: NodeView[], out: Map<string, RefQuery>) {
+  for (const n of nodes) {
+    if (n.reference && n.reference.path !== "" && !out.has(refKey(n.reference.group, n.reference.path))) {
+      out.set(refKey(n.reference.group, n.reference.path), {
+        group: n.reference.group,
+        path: n.reference.path,
+      });
+    }
+    collectRefs(n.children, out);
+  }
+}
+
+/** How far back the Alt+Left trail reaches. */
+const HISTORY_MAX = 100;
+
+/** Set while goBack/goForward drive openTab, so re-activating a visited tab
+ *  does not also record a new visit. Module state, not store state: it spans
+ *  one openTab call and nothing renders it. */
+let navigatingHistory = false;
 
 /** Decoded textures kept per tab; bounded because the PNGs are large. */
 const TEXTURE_CACHE_MAX = 8;
@@ -231,6 +278,31 @@ type EditorState = {
   ) => Promise<boolean>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
+  /** Where each of the open tag's references lands, keyed by [refKey]. A null
+   *  value is a resolved answer of "nowhere": the reference is broken. A
+   *  missing key means the batch has not answered yet. */
+  refStatus: Record<string, RefHit | null>;
+
+  /** The visited-document trail behind Alt+Left / Alt+Right. */
+  history: { kind: Tab["kind"]; index: number; label: string }[];
+  /** Cursor into `history`: where the user currently stands. */
+  historyAt: number;
+  goBack: () => void;
+  goForward: () => void;
+
+  /** Whether the Ctrl+P quick-open palette is up. */
+  quickOpen: boolean;
+  setQuickOpen: (open: boolean) => void;
+  /** Recently opened tags, newest first, persisted across launches. */
+  recents: RecentTag[];
+  /** Open a recent by identity; quietly drops it if a game update removed it. */
+  openRecent: (r: RecentTag) => Promise<void>;
+
+  /** Tags whose bodies reference the open tag; null until asked for. */
+  reverseRefs: TagSummary[] | null;
+  reverseRefsLoading: boolean;
+  reverseRefsError: string | null;
+  loadReverseRefs: () => Promise<void>;
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
@@ -274,13 +346,18 @@ export const useEditor = create<EditorState>((set, get) => {
       tagLoading: true,
       tag: null,
       tagLinks: [],
+      refStatus: {},
+      reverseRefs: null,
+      reverseRefsLoading: false,
+      reverseRefsError: null,
       lastEdit: null,
       // The note belongs to the tag that was open; the toggle does not.
       liveNote: null,
       editError: null,
     });
+    let tag: TagView;
     try {
-      const tag = await api.readTag(index);
+      tag = await api.readTag(index);
       set((s) => ({
         tag,
         tagLoading: false,
@@ -290,12 +367,37 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ error: String(e), tagLoading: false });
       return;
     }
-    // The import links arrive after the tag; they never block it.
+    // Reference validation and import links arrive after the tag; neither
+    // blocks it.
+    await resolveTagRefs(index, tag);
     try {
       const links = await api.tagLinks(index);
       if (get().selectedTag === index) set({ tagLinks: links });
     } catch {
       // A tag without a readable package header simply shows no links.
+    }
+  }
+
+  /**
+   * Validate every reference field of a just-read tag in one batched call,
+   * filing the answers under [refKey]. Guarded on the selection so a slow
+   * answer for a tag the user already left changes nothing.
+   */
+  async function resolveTagRefs(index: number, tag: TagView) {
+    const wanted = new Map<string, RefQuery>();
+    collectRefs(tag.fields, wanted);
+    if (wanted.size === 0) return;
+    try {
+      const hits = await api.resolveRefs([...wanted.values()]);
+      if (get().selectedTag === index) {
+        const refStatus: Record<string, RefHit | null> = {};
+        [...wanted.keys()].forEach((k, i) => {
+          refStatus[k] = hits[i] ?? null;
+        });
+        set({ refStatus });
+      }
+    } catch {
+      // With no answer the fields simply carry no badge either way.
     }
   }
 
@@ -389,6 +491,87 @@ export const useEditor = create<EditorState>((set, get) => {
     tabs: [],
     activeTab: null,
     dirtyTags: {},
+    refStatus: {},
+    history: [],
+    historyAt: -1,
+    quickOpen: false,
+    recents: storedRecents(),
+    reverseRefs: null,
+    reverseRefsLoading: false,
+    reverseRefsError: null,
+
+    goBack() {
+      const { history, historyAt } = get();
+      if (historyAt <= 0) return;
+      const entry = history[historyAt - 1];
+      set({ historyAt: historyAt - 1 });
+      navigatingHistory = true;
+      // openTab's dedupe-or-reopen means a closed tab transparently comes
+      // back, so history needs no bookkeeping about closures.
+      void get()
+        .openTab(entry.kind, entry.index, entry.label)
+        .finally(() => {
+          navigatingHistory = false;
+        });
+    },
+
+    goForward() {
+      const { history, historyAt } = get();
+      if (historyAt >= history.length - 1) return;
+      const entry = history[historyAt + 1];
+      set({ historyAt: historyAt + 1 });
+      navigatingHistory = true;
+      void get()
+        .openTab(entry.kind, entry.index, entry.label)
+        .finally(() => {
+          navigatingHistory = false;
+        });
+    },
+
+    setQuickOpen(open) {
+      set({ quickOpen: open });
+    },
+
+    async openRecent(r) {
+      try {
+        const hits = await api.resolveRefs([{ group: r.group, path: r.short }]);
+        const hit = hits[0];
+        if (!hit) {
+          // A game update took it; the row quietly leaves the list.
+          set((s) => {
+            const recents = s.recents.filter(
+              (x) => !(x.group === r.group && x.short === r.short),
+            );
+            try {
+              localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+            } catch {
+              // Nothing to do; it will be filtered again next time.
+            }
+            return { recents };
+          });
+          return;
+        }
+        await get().openTab("tag", hit.index, r.label);
+      } catch {
+        // Leave the list as it is; opening simply did not happen.
+      }
+    },
+
+    async loadReverseRefs() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ reverseRefsLoading: true, reverseRefsError: null });
+      try {
+        const rows = await api.referencingTags(index);
+        if (get().selectedTag === index) {
+          set({ reverseRefs: rows, reverseRefsLoading: false });
+        }
+      } catch (e) {
+        if (get().selectedTag === index) {
+          set({ reverseRefsError: String(e), reverseRefsLoading: false });
+        }
+      }
+    },
 
     async openTab(kind, index, label) {
       const existing = get().tabs.find((t) => t.kind === kind && t.index === index);
@@ -405,6 +588,43 @@ export const useEditor = create<EditorState>((set, get) => {
       const tab = get().tabs.find((t) => t.id === id);
       if (!tab) return;
       set({ activeTab: id });
+      // Every activation is a visit — opening, clicking a tab, following a
+      // reference — so this one choke point maintains the whole trail. Going
+      // back is re-activation too, hence the flag.
+      if (!navigatingHistory) {
+        set((s) => {
+          const cur = s.history[s.historyAt];
+          if (cur && cur.kind === tab.kind && cur.index === tab.index) return {};
+          const history = [
+            ...s.history.slice(0, s.historyAt + 1),
+            { kind: tab.kind, index: tab.index, label: tab.label },
+          ].slice(-HISTORY_MAX);
+          return { history, historyAt: history.length - 1 };
+        });
+      }
+      if (tab.kind === "tag") {
+        // The recents list keys on identity, not index, so it survives game
+        // updates; peek is the cheap way from an index to an identity.
+        void api
+          .peekTag(tab.index)
+          .then((p) => {
+            if (!p.short) return;
+            set((s) => {
+              const entry = { group: p.group, short: p.short, label: tab.label };
+              const rest = s.recents.filter(
+                (r) => !(r.group === entry.group && r.short === entry.short),
+              );
+              const recents = [entry, ...rest].slice(0, RECENTS_MAX);
+              try {
+                localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+              } catch {
+                // Not persisting recents loses nothing but convenience.
+              }
+              return { recents };
+            });
+          })
+          .catch(() => {});
+      }
       if (tab.kind === "tag") {
         await loadTag(tab.index);
       } else if (tab.kind === "sound") {
@@ -438,6 +658,10 @@ export const useEditor = create<EditorState>((set, get) => {
           selectedTag: null,
           tag: null,
           tagLinks: [],
+          refStatus: {},
+          reverseRefs: null,
+          reverseRefsLoading: false,
+          reverseRefsError: null,
           selectedTexture: null,
           texture: null,
           textureError: null,
@@ -842,6 +1066,8 @@ export const useEditor = create<EditorState>((set, get) => {
           tag,
           dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
         }));
+        // A retyped reference gets its badge re-judged with everything else.
+        void resolveTagRefs(index, tag);
         if (get().project) void get().refreshProject();
         // The project is the record of what the edit is; the poke only makes it
         // visible now. So it happens after the edit is safely recorded, and a
@@ -898,27 +1124,20 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     async followReference(fourCc, path) {
-      // The reference stores a four-CC and a Blam path with backslashes; the
-      // catalog stores group directory names and forward slashes.
-      const group = get()
-        .groups.find((g) => g.four_cc.trim() === fourCc.trim())
-        ?.group;
-      const want = path.replace(/\\/g, "/").toLowerCase();
-      const tail = want.split("/").pop() ?? want;
+      // The backend resolves exactly — four-CC or group name, backslashes,
+      // authored case, the cooker's _Generated_ segment. A miss is a real
+      // answer and gets said out loud, where the old fuzzy search shrugged.
       try {
-        const results = await api.searchTags(tail);
-        const hit =
-          results.find(
-            (t) => t.short.toLowerCase() === want && (!group || t.group === group),
-          ) ??
-          results.find(
-            (t) =>
-              t.short.toLowerCase().endsWith(want) && (!group || t.group === group),
-          );
-        if (!hit) return false;
+        const hits = await api.resolveRefs([{ group: fourCc, path }]);
+        const hit = hits[0];
+        if (!hit) {
+          set({ editError: `reference not found: ${fourCc.trim()} ${path}` });
+          return false;
+        }
         await get().openTab("tag", hit.index, tagLabel(hit));
         return true;
-      } catch {
+      } catch (e) {
+        set({ editError: String(e) });
         return false;
       }
     },

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useEditor } from "../stores/editor-store";
+import { refKey, useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
+import { RefPreview } from "./RefPreview";
 import { TagHeader, EditBar } from "./TagChrome";
 import {
   COMPONENT_LABELS,
@@ -19,18 +20,22 @@ const INPUT =
   "text-text-primary outline-none focus:border-mjolnir-gold " +
   "disabled:text-text-dim disabled:bg-surface-secondary";
 const EDITED = "border-mjolnir-gold/50 bg-mjolnir-gold/10";
+const INVALID = "border-accent-red/60 bg-accent-red/5";
 
 /** One text box that commits on Enter or blur and reverts on Escape. */
 function FText({
   value,
   disabled,
   edited,
+  invalid,
   wide,
   onCommit,
 }: {
   value: string;
   disabled?: boolean;
   edited?: boolean;
+  /** Red tint for a value that is well-formed but points at nothing. */
+  invalid?: boolean;
   wide?: boolean;
   onCommit: (text: string) => void;
 }) {
@@ -40,7 +45,7 @@ function FText({
 
   return (
     <input
-      className={`${INPUT} ${edited ? EDITED : ""} ${wide ? "w-80" : "w-32"}`}
+      className={`${INPUT} ${edited ? EDITED : ""} ${invalid ? INVALID : ""} ${wide ? "w-80" : "w-32"}`}
       value={draft}
       disabled={disabled}
       onChange={(e) => setDraft(e.target.value)}
@@ -63,6 +68,11 @@ function FField({ node, path }: { node: NodeView; path: string }) {
   const revertField = useEditor((s) => s.revertField);
   const followReference = useEditor((s) => s.followReference);
   const edited = useEditor((s) => s.tag?.edited ?? []);
+  const refHit = useEditor((s) =>
+    node.reference && node.reference.path !== ""
+      ? s.refStatus[refKey(node.reference.group, node.reference.path)]
+      : undefined,
+  );
 
   const isEdited = edited.includes(path);
   const editable = canEdit(node);
@@ -123,11 +133,15 @@ function FField({ node, path }: { node: NodeView; path: string }) {
     );
   } else if (node.type === "tag reference") {
     const has = node.reference !== null && node.reference.path !== "";
+    // null is a resolved answer of "nowhere"; undefined means the batched
+    // resolve has not landed yet, and casts no aspersions either way.
+    const broken = has && refHit === null;
     control = (
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <FText
           value={editableText(node)}
           edited={isEdited}
+          invalid={broken}
           wide
           disabled={!editable}
           onCommit={commit}
@@ -135,8 +149,14 @@ function FField({ node, path }: { node: NodeView; path: string }) {
         <button
           type="button"
           className="border border-border-subtle px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover hover:text-mjolnir-gold disabled:opacity-40"
-          disabled={!has}
-          title={has ? "Open the referenced tag" : "No tag referenced"}
+          disabled={!has || broken}
+          title={
+            broken
+              ? "This reference does not exist in this installation"
+              : has
+                ? "Open the referenced tag"
+                : "No tag referenced"
+          }
           onClick={() => {
             if (node.reference) {
               void followReference(node.reference.group, node.reference.path);
@@ -145,11 +165,7 @@ function FField({ node, path }: { node: NodeView; path: string }) {
         >
           Open
         </button>
-        {has && (
-          <span className="font-mono text-[10px] text-text-dim">
-            {node.reference?.group}
-          </span>
-        )}
+        {has && node.reference && <RefPreview reference={node.reference} />}
       </span>
     );
   } else if (COMPONENT_LABELS[node.type] && node.value.includes(",")) {

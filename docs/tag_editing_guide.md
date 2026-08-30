@@ -281,6 +281,18 @@ Opening something from any of those tabs gives it a **tab of its own** across th
 right pane, badged `tag`, `tex` or `snd`, so several documents stay open at once. A gold dot on a
 tag tab means it has edits. Middle-click or the `×` closes one; closing does not discard edits.
 
+**Ctrl+P** is often faster than any of the five tabs: a quick-open palette over every tag,
+ranked so a name match beats a path match. With nothing typed it lists the tags you opened most
+recently — remembered across launches by name, so the list survives a game update.
+
+The editor also keeps a trail of where you have been:
+
+| Keys | What they do |
+|---|---|
+| **Ctrl+P** | Quick-open: type a tag name, Enter opens it. Empty shows recent tags. |
+| **Alt+←** / **Alt+→** | Back / forward through the documents you visited. Going back to a tab you closed reopens it. |
+| **Ctrl+PageDown** / **Ctrl+PageUp** | Next / previous tab. |
+
 The **right pane** shows the selected document. For a tag that is its fields and values, and the
 header tells you whether they are trustworthy:
 
@@ -302,6 +314,20 @@ Under the header, **linked assets** lists the packages this tag imports — the 
 references, and the Unreal presentation assets (Blueprints, and for some tags textures) it binds
 to. Anything the editor can open is listed first and is one click away; the rest are named but
 inert. A scenario imports hundreds, so the list starts collapsed when it is long.
+
+Next to it, **referenced by** answers the opposite question: every tag whose fields point at
+this one. The first time you expand it the editor scans every shipped tag — up to a minute, once
+per session — and after that the answer is instant. Each result is a click away. (The CLI grep
+this replaces still works, but you should not need it.)
+
+**Tag reference fields carry their own conveniences.** The little group code at the end of a
+reference row is a preview: rest the pointer on it — or click to pin — and a card shows what is
+on the other end. A sound tag shows an inline player, a model tag its collision shell slowly
+turning, anything else its identity; **open** in the card, or the row's **Open** button, jumps
+to it. A reference that points at nothing in this installation —
+a typo, or a tag a game update removed — turns red, says `missing`, and its Open is disabled;
+the editor resolves every reference exactly (four-CC or group name, authored backslash paths,
+the cooker's `_Generated_` folder included), so red means broken, not "spelled differently".
 
 ### Editing
 
@@ -372,8 +398,10 @@ never cooked into the paks. A texture that cannot be decoded says so and why, ra
 you something wrong. The two cook paths behind that — virtual textures with Morton-addressed
 tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_format.md).
 
-**Editing textures is not supported.** You can look and export; replacement is designed but not
-built.
+**Replace…** swaps a texture's pixels for a PNG of yours. The swap is re-encoded in the shipped
+format, proven by decoding it back, and recorded in the mod project like any other edit — see
+[`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
+The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
 
 ### Audio
 
@@ -505,7 +533,7 @@ Being explicit, so you do not go hunting:
   word is not reconstructable, so a default element cannot be built for those blocks. Every
   other block adds, duplicates and removes elements from the editor's section bars.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
-- **Replacing textures or audio.** Both can be browsed, viewed or played, and exported. Writing
-  either back is not built.
+- **Replacing audio.** Sounds can be browsed, played and exported, but writing audio back is
+  not built. (Textures *can* be replaced — since 0.8.0, in every format but BC7/BC6H.)
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See
   [`tag_body_format.md`](tag_body_format.md) for the detail.
