@@ -311,22 +311,190 @@ fn search_tags(query: String, state: State<'_, AppState>) -> Result<Vec<TagSumma
     with_catalog(&state, |c| Ok(c.search(&query, MAX_ROWS)))
 }
 
-/// Parse each pending edit against the layout, dropping any that no longer
-/// resolve. A stale edit is reported by the command that made it, not here.
-fn parse_edits(
+/// The value a pending edit's op string names, when its path resolves to a
+/// block: `add`, `remove <i>` or `duplicate <i>`.
+fn parse_op(value: &str) -> Option<blam_tag::patch::ElementOp> {
+    use blam_tag::patch::ElementOp;
+    let v = value.trim();
+    if v == "add" {
+        return Some(ElementOp::Add);
+    }
+    if let Some(n) = v.strip_prefix("remove ") {
+        return n.trim().parse().ok().map(ElementOp::Remove);
+    }
+    if let Some(n) = v.strip_prefix("duplicate ") {
+        return n.trim().parse().ok().map(ElementOp::Duplicate);
+    }
+    None
+}
+
+/// One pending edit as the replay applied it — or did not.
+struct Outcome {
+    path: String,
+    value: String,
+    type_name: String,
+    /// The value the field held just before this edit applied, displayed.
+    before: Option<String>,
+    /// False when the edit no longer resolves against these bytes, which
+    /// usually means a game update moved the field. Skipped, not fatal:
+    /// the command that cares makes it loud.
+    applied: bool,
+}
+
+/// What one pending edit asks of the replay, decided by what its path
+/// resolves to.
+enum Step {
+    /// A fixed-width value, overwritten in place; batchable.
+    InPlace(blam_tag::Scalar),
+    /// A section-backed value; rebuilds the tag around the new content.
+    Text(blam_tag::Scalar),
+    /// An element added, duplicated or removed; rebuilds the tag.
+    Elements(blam_tag::patch::ElementOp),
+}
+
+fn classify(
     layout: &blam_tag::Layout<'_>,
-    file: &[u8],
-    block: &blam_tag::data::Block<'_>,
+    target: &blam_tag::patch::Target,
+    value: &str,
+) -> Option<Step> {
+    if target.type_name == "block" {
+        return parse_op(value).map(Step::Elements);
+    }
+    if target.section.is_some() {
+        return match target.type_name.as_str() {
+            "string id" => Some(Step::Text(blam_tag::Scalar::Text(
+                value.trim_matches('"').to_string(),
+            ))),
+            "tag reference" => parse_reference(value).ok().map(Step::Text),
+            _ => None,
+        };
+    }
+    blam_tag::value::parse(layout, &target.field, value)
+        .ok()
+        .map(Step::InPlace)
+}
+
+/// Apply every pending edit to `bytes`, in the order they were recorded,
+/// reporting per edit what happened.
+///
+/// Runs of in-place edits are applied as one batch, so a recipe of plain field
+/// edits costs what it always did. An edit that resizes the tag — a section-
+/// backed value, or an element count change — is applied on its own and the
+/// tag re-read behind it, because everything after it may have moved, and an
+/// edit recorded later may only resolve inside an element an earlier op added.
+///
+/// An edit that no longer resolves is skipped and reported in its outcome; a
+/// mod must keep applying in the editor even when a game update broke one
+/// field, and export is where staleness turns into a hard error.
+fn apply_pending(
+    bytes: Vec<u8>,
     pending: &[PendingEdit],
-) -> Vec<(String, blam_tag::Scalar)> {
-    pending
-        .iter()
-        .filter_map(|e| {
-            let target = blam_tag::patch::resolve(layout, file, block, &e.path).ok()?;
-            let value = blam_tag::value::parse(layout, &target.field, &e.value).ok()?;
-            Some((e.path.clone(), value))
-        })
-        .collect()
+) -> Result<(Vec<u8>, Vec<Outcome>), String> {
+    let mut out = bytes;
+    let mut outcomes: Vec<Outcome> = Vec::with_capacity(pending.len());
+    let mut i = 0usize;
+    while i < pending.len() {
+        let next = {
+            let tag =
+                blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+            let layout = tag.layout().map_err(|e| e.to_string())?;
+            let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+
+            let mut batch: Vec<(String, blam_tag::Scalar)> = Vec::new();
+            let mut resize: Option<(usize, Step, blam_tag::patch::Target)> = None;
+            while i < pending.len() {
+                let e = &pending[i];
+                let Ok(target) = blam_tag::patch::resolve(&layout, &out, &block, &e.path)
+                else {
+                    outcomes.push(Outcome {
+                        path: e.path.clone(),
+                        value: e.value.clone(),
+                        type_name: String::new(),
+                        before: None,
+                        applied: false,
+                    });
+                    i += 1;
+                    continue;
+                };
+                match classify(&layout, &target, &e.value) {
+                    None => {
+                        outcomes.push(Outcome {
+                            path: e.path.clone(),
+                            value: e.value.clone(),
+                            type_name: target.type_name.clone(),
+                            before: None,
+                            applied: false,
+                        });
+                        i += 1;
+                    }
+                    Some(Step::InPlace(v)) => {
+                        outcomes.push(Outcome {
+                            path: e.path.clone(),
+                            value: e.value.clone(),
+                            type_name: target.type_name.clone(),
+                            before: Some(target.current.display()),
+                            applied: true,
+                        });
+                        batch.push((e.path.clone(), v));
+                        i += 1;
+                    }
+                    Some(step) => {
+                        // A resizer ends the batch; it applies against these
+                        // bytes only when nothing in-place is queued ahead of
+                        // it, else the next pass picks it up.
+                        if batch.is_empty() {
+                            resize = Some((i, step, target));
+                            i += 1;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if !batch.is_empty() {
+                let (applied, _) = blam_tag::patch::set_many(&layout, &out, &block, &batch)
+                    .map_err(|e| e.to_string())?;
+                Some(applied)
+            } else if let Some((at, step, target)) = resize {
+                let e = &pending[at];
+                // A block field's inline bytes open with its element count.
+                let before = match &target.current {
+                    blam_tag::Scalar::Raw(b) if b.len() >= 4 => {
+                        let n = u32::from_le_bytes(b[0..4].try_into().unwrap());
+                        Some(format!("{n} element(s)"))
+                    }
+                    other => Some(other.display()),
+                };
+                let applied = match step {
+                    Step::Text(v) => {
+                        blam_tag::patch::set_text(&layout, &out, &block, &e.path, &v)
+                            .map(|(bytes, _)| bytes)
+                            .ok()
+                    }
+                    Step::Elements(op) => {
+                        blam_tag::patch::edit_elements(&layout, &out, &block, &e.path, op)
+                            .map(|(bytes, _)| bytes)
+                            .ok()
+                    }
+                    Step::InPlace(_) => unreachable!("in-place edits join the batch"),
+                };
+                outcomes.push(Outcome {
+                    path: e.path.clone(),
+                    value: e.value.clone(),
+                    type_name: target.type_name.clone(),
+                    before,
+                    applied: applied.is_some(),
+                });
+                applied
+            } else {
+                None
+            }
+        };
+        if let Some(n) = next {
+            out = n;
+        }
+    }
+    Ok((out, outcomes))
 }
 
 /// The tag as the user currently sees it: the shipped bytes with any pending
@@ -352,12 +520,7 @@ fn patched_with_script(
 
     let mut out = file;
     if !pending.is_empty() {
-        let tag = blam_tag::TagFile::parse(&out, Some(chunk_len)).map_err(|e| e.to_string())?;
-        let layout = tag.layout().map_err(|e| e.to_string())?;
-        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-        let edits = parse_edits(&layout, &out, &block, pending);
-        let (patched, _) = blam_tag::patch::set_many(&layout, &out, &block, &edits)
-            .map_err(|e| e.to_string())?;
+        let (patched, _) = apply_pending(out, pending)?;
         out = patched;
     }
 
@@ -433,8 +596,9 @@ fn set_field(
 
     let result = with_catalog(&state, |c| {
         let file = patched_bytes(c, index, &pending)?;
-        let entry = c.entry(index).ok_or("tag index out of range")?;
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        // The pending edits may already have resized the tag, so the shipped
+        // chunk length no longer describes `file`; its own length does.
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| e.to_string())?;
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
@@ -487,6 +651,87 @@ fn set_field(
     Ok(result)
 }
 
+/// Apply one element op to the tag as it currently stands, and record it once
+/// it is known to work.
+///
+/// Recorded like any field edit — path and value — so the project file format
+/// does not change; the value is the op (`add`, `remove 2`, `duplicate 0`) and
+/// the replay recognises it by the path resolving to a block.
+fn record_element_op(
+    index: usize,
+    path: String,
+    value: String,
+    state: &State<'_, AppState>,
+) -> Result<EditResult, String> {
+    let op = parse_op(&value).ok_or("unrecognised element operation")?;
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+
+    let result = with_catalog(state, |c| {
+        let file = patched_bytes(c, index, &pending)?;
+        let tag =
+            blam_tag::TagFile::parse(&file, Some(file.len())).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+
+        let (out, applied) = blam_tag::patch::edit_elements(&layout, &file, &block, &path, op)
+            .map_err(|e| e.to_string())?;
+
+        // Refuse the edit unless the result is still a tag that reads back.
+        let after =
+            blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+        let after_layout = after.layout().map_err(|e| e.to_string())?;
+        let after_block = after.read_data(&after_layout).map_err(|e| e.to_string())?;
+        let payload = after.data().ok_or("patched tag has no data section")?;
+        if after_block.consumed != payload.size as usize {
+            return Err("the edit left the tag unreadable and was discarded".to_string());
+        }
+
+        Ok(EditResult {
+            path: applied.path.clone(),
+            type_name: applied.type_name.clone(),
+            before: format!("{} element(s)", applied.before.display()),
+            after: format!("{} element(s)", applied.after.display()),
+            changed_bytes: applied.changed.len(),
+        })
+    })?;
+
+    // Element ops stack rather than replace: two adds are two elements, so
+    // the same-path dedupe a value edit gets would lose the first one.
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.edits
+        .entry(key)
+        .or_default()
+        .push(PendingEdit { path, value });
+    work.autosave()?;
+    Ok(result)
+}
+
+#[tauri::command]
+fn add_element(index: usize, path: String, state: State<'_, AppState>) -> Result<EditResult, String> {
+    record_element_op(index, path, "add".to_string(), &state)
+}
+
+#[tauri::command]
+fn remove_element(
+    index: usize,
+    path: String,
+    element: usize,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    record_element_op(index, path, format!("remove {element}"), &state)
+}
+
+#[tauri::command]
+fn duplicate_element(
+    index: usize,
+    path: String,
+    element: usize,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    record_element_op(index, path, format!("duplicate {element}"), &state)
+}
+
 /// Work out everything a live poke needs, while the catalog lock is held.
 ///
 /// Kept separate from the poke itself so the slow part — which may scan the
@@ -502,12 +747,11 @@ fn build_live_job(
     let pending = pending_for(state, &key)?;
     with_catalog(state, |c| {
         let file = patched_bytes(c, index, &pending)?;
-        let entry = c.entry(index).ok_or("tag index out of range")?;
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
         let (region, span, bytes) = {
-            let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+            let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
             let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
@@ -587,7 +831,12 @@ fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Resul
     let key = tag_key(&state, index)?;
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
     let list = work.edits.entry(key.clone()).or_default();
-    list.retain(|e| e.path != path);
+    // Reverting a block's element ops also drops every edit inside its
+    // elements: an edit recorded inside an added element would otherwise
+    // outlive the element and block the export as stale. For a plain field
+    // the prefix matches nothing and this is the same edit it always was.
+    let inside = format!("{path}[");
+    list.retain(|e| e.path != path && !e.path.starts_with(&inside));
     let left = list.len();
     if left == 0 {
         work.edits.remove(&key);
@@ -634,7 +883,7 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
         let chunk_size = entry.chunk.length;
         let file = patched_bytes(c, index, &pending)?;
 
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| format!("{path}: {e}"))?;
         let layout = tag.layout().map_err(|e| format!("{path}: {e}"))?;
         let tag = &tag;
@@ -1701,7 +1950,7 @@ fn read_scripts(index: usize, state: State<'_, AppState>) -> Result<scripts::Scr
             return Err(format!("{} tags carry no script", entry.group));
         }
         let path = entry.short.clone();
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| e.to_string())?;
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
@@ -2185,30 +2434,20 @@ fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<T
         .iter()
         .map(|((group, tag), pending)| {
             let index = c.tag_index(group, tag);
+            // Replayed rather than merely resolved: an edit inside an element
+            // that an earlier op added only resolves once the op has applied.
             let resolved = index.and_then(|i| {
                 let file = c.read_tag(i).ok()?;
-                let parsed = blam_tag::TagFile::parse(&file, Some(file.len())).ok()?;
-                let layout = parsed.layout().ok()?;
-                let block = parsed.read_data(&layout).ok()?;
+                let (_, outcomes) = apply_pending(file, pending).ok()?;
                 Some(
-                    pending
-                        .iter()
-                        .map(
-                            |e| match blam_tag::patch::resolve(&layout, &file, &block, &e.path) {
-                                Ok(t) => FieldChange {
-                                    field: e.path.clone(),
-                                    value: e.value.clone(),
-                                    before: Some(t.current.display()),
-                                    stale: false,
-                                },
-                                Err(_) => FieldChange {
-                                    field: e.path.clone(),
-                                    value: e.value.clone(),
-                                    before: None,
-                                    stale: true,
-                                },
-                            },
-                        )
+                    outcomes
+                        .into_iter()
+                        .map(|o| FieldChange {
+                            field: o.path,
+                            value: o.value,
+                            before: o.before,
+                            stale: !o.applied,
+                        })
                         .collect::<Vec<_>>(),
                 )
             });
@@ -2452,31 +2691,15 @@ fn resolved_edits(
         let entry = c.entry(index).ok_or("tag index out of range")?;
         let original = c.read_tag(index)?;
 
-        // Every edit in the recipe must land; one failing to resolve means
-        // the game updated underneath it.
+        // Every edit in the recipe must land; one failing to apply means
+        // the game updated underneath it. The replay is the authority — an
+        // edit inside an element the recipe itself adds resolves only once
+        // the add has applied, so resolving against the shipped bytes alone
+        // would call it stale.
         {
-            let parsed = blam_tag::TagFile::parse(&original, Some(original.len()))
+            let (_, outcomes) = apply_pending(original.clone(), pending)
                 .map_err(|e| format!("{label}: {e}"))?;
-            let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
-            let block = parsed
-                .read_data(&layout)
-                .map_err(|e| format!("{label}: {e}"))?;
-            let mut missing = 0usize;
-            for e in pending {
-                match blam_tag::patch::resolve(&layout, &original, &block, &e.path) {
-                    Ok(target) => {
-                        if target.type_name == "string id" && target.current.display() != e.value {
-                            warnings.push(format!(
-                                "{label}: \"{}\" sets a string id. A string the game does not \
-                                 already know makes it reject the whole tag (the weapon simply \
-                                 vanishes in game) — test before sharing.",
-                                e.path
-                            ));
-                        }
-                    }
-                    Err(_) => missing += 1,
-                }
-            }
+            let missing = outcomes.iter().filter(|o| !o.applied).count();
             if missing != 0 {
                 return Err(format!(
                     "{label}: {missing} of {} edits no longer resolve — the game may have \
@@ -2484,9 +2707,19 @@ fn resolved_edits(
                     pending.len()
                 ));
             }
+            for o in &outcomes {
+                if o.type_name == "string id" && o.before.as_deref() != Some(o.value.as_str()) {
+                    warnings.push(format!(
+                        "{label}: \"{}\" sets a string id. A string the game does not \
+                         already know makes it reject the whole tag (the weapon simply \
+                         vanishes in game) — test before sharing.",
+                        o.path
+                    ));
+                }
+            }
         }
 
-        let patched = patched_bytes(c, index, pending)?;
+        let patched = patched_with_script(c, index, pending, script)?;
         if patched == original {
             continue;
         }
@@ -2893,6 +3126,9 @@ pub fn run() {
             read_scenario_layout,
             read_mesh,
             set_field,
+            add_element,
+            remove_element,
+            duplicate_element,
             live_status,
             live_forget,
             live_poke,

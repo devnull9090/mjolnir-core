@@ -321,6 +321,16 @@ An edit is applied to a copy, the result re-parsed from scratch and re-walked, a
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
 
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
+**del**: add appends a new element, dup inserts a copy of the selected element after it, del
+removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
+block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
+else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
+— whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so
+they reach the game through a test install or export, never through live mode. The **undo** on
+the bar reverts the section's element changes along with every edit inside its elements — an
+edit inside an element that no longer exists could never be re-applied.
+
 ### Saving — mod projects
 
 The game's containers are read-only, so edits are never written back into the
@@ -481,7 +491,10 @@ Being explicit, so you do not go hunting:
   text the game's string table does not already contain makes the game reject the whole tag
   (the weapon simply vanishes and the player falls back to the pistol). The editor warns when
   a mod edits a string id. See [`iostore_packaging.md`](iostore_packaging.md).
-- **Adding or removing block elements.** You can change values, not counts.
+- **Adding elements to a block whose elements hold a `pageable resource`.** Only three groups
+  declare the type (`model_animation_graph`, `scenario_structure_bsp`, `shader`); its version
+  word is not reconstructable, so a default element cannot be built for those blocks. Every
+  other block adds, duplicates and removes elements from the editor's section bars.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
 - **Replacing textures or audio.** Both can be browsed, viewed or played, and exported. Writing
   either back is not built.

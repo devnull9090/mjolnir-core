@@ -524,6 +524,18 @@ export const mockApi = {
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };
   },
+  addElement: async (_index: number, path: string): Promise<EditResult> => {
+    edits.set(path, "add");
+    return { path, type: "block", before: "0 element(s)", after: "1 element(s)", changed_bytes: 32 };
+  },
+  removeElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    edits.set(path, `remove ${element}`);
+    return { path, type: "block", before: "1 element(s)", after: "0 element(s)", changed_bytes: 32 };
+  },
+  duplicateElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    edits.set(path, `duplicate ${element}`);
+    return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
+  },
   revertField: async (_index: number, path: string) => {
     edits.delete(path);
     return edits.size;
