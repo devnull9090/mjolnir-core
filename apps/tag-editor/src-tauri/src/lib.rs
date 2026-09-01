@@ -23,6 +23,7 @@ pub mod keystore;
 pub mod live;
 pub mod modpack;
 pub mod project;
+pub mod refcache;
 pub mod refscan;
 pub mod scripts;
 pub mod secret;
@@ -1073,6 +1074,196 @@ pub fn wwise_media_for_tag(c: &Catalog, index: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// One playable media file a sound tag's events reach.
+#[derive(Serialize)]
+pub struct TagMediaHit {
+    /// Wwise media short ID.
+    pub id: u32,
+    /// Sound catalog index, when the media ships as a loose `.wem`.
+    pub sound: Option<usize>,
+    /// Sound catalog index of the bank carrying it, when embedded.
+    pub bank: Option<usize>,
+    /// Payload size in bytes, however it ships.
+    pub size: Option<u64>,
+    /// The event that reaches it, e.g. `Play_WEP_SniperRifle_Ammo_Pickup`.
+    pub event: String,
+}
+
+#[derive(Serialize)]
+pub struct TagAudioView {
+    /// Every `Play_*` event the tag's import graph names.
+    pub events: Vec<String>,
+    pub media: Vec<TagMediaHit>,
+}
+
+/// Everything a sound tag can play, exhaustively.
+///
+/// [`wwise_media_for_tag`] answers "is there *a* sound?" with the first loose
+/// media a package name map lists, which is right for a hover card and wrong
+/// for a tag view: most events list no media in any package and reach theirs
+/// only through the bank graph, and 546 tags of the shipped build play media
+/// that exists *only inside* a bank's `DATA` section. So this walks the same
+/// import graph but keeps every event stem and bank reference it sees, then
+/// parses the referenced banks — the event package's own name map says which
+/// (see `wwise::bank_names` for why that pairing is trustworthy) — and
+/// resolves each media ID to a loose catalog sound or back into the bank it
+/// is embedded in. A few package reads plus a bank read or two: fine for a
+/// click, too heavy for a hover.
+///
+/// The per-media `event` label is the closest thing to a permutation name the
+/// shipped build has: Wwise hashes the designers' names away, so individual
+/// variations cannot be told apart beyond their media ID.
+pub fn wwise_audio_for_tag(c: &Catalog, index: usize) -> Result<TagAudioView, String> {
+    const MAX_DEPTH: u8 = 3;
+    const MAX_READS: usize = 32;
+
+    let uasset = c.read_tag_uasset(index)?;
+    let mut queue: std::collections::VecDeque<(String, u8)> = std::collections::VecDeque::new();
+    for p in zen::imported_package_names(&uasset) {
+        queue.push_back((p, 0));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut stems: Vec<String> = Vec::new();
+    let mut bank_shorts: Vec<String> = Vec::new();
+    // Media named directly by package name maps, with the event package (or
+    // "") it surfaced in.
+    let mut walk_media: Vec<(u32, String)> = Vec::new();
+    let mut reads = 0usize;
+    while let Some((package, depth)) = queue.pop_front() {
+        if reads >= MAX_READS || !seen.insert(package.clone()) {
+            continue;
+        }
+        let Some(buf) = c.read_package(&package) else {
+            continue;
+        };
+        reads += 1;
+        let stem = package.rsplit('/').next().unwrap_or("").to_string();
+        let is_event = stem.starts_with("Play_");
+        if is_event && !stems.contains(&stem) {
+            stems.push(stem.clone());
+        }
+        if let Some(names) = zen::load_name_batch(&buf, 52) {
+            for name in &names {
+                if name.ends_with(".bnk") && !bank_shorts.contains(name) {
+                    bank_shorts.push(name.clone());
+                } else if let Some(id) = name
+                    .starts_with("Media/")
+                    .then(|| wwise::media_id_of_path(name))
+                    .flatten()
+                {
+                    if !walk_media.iter().any(|(m, _)| *m == id) {
+                        let via = if is_event { stem.clone() } else { String::new() };
+                        walk_media.push((id, via));
+                    }
+                }
+            }
+        }
+        if depth + 1 < MAX_DEPTH {
+            for p in zen::imported_package_names(&buf) {
+                queue.push_back((p, depth + 1));
+            }
+        }
+    }
+
+    // The bank graph knows media the packages never name. Parse only the
+    // banks the walk itself referenced, keeping each bank's bytes long enough
+    // to know what it embeds.
+    let wanted: std::collections::BTreeMap<u32, &str> =
+        stems.iter().map(|s| (bnk::event_id(s), s.as_str())).collect();
+    // Ordered media: bank-graph order first — Wwise container order is the
+    // nearest thing to the authored variation order — then walk leftovers.
+    let mut media: Vec<(u32, String)> = Vec::new();
+    // Media id -> (bank catalog index, embedded size).
+    let mut embedded: std::collections::BTreeMap<u32, (usize, u32)> =
+        std::collections::BTreeMap::new();
+    for short in &bank_shorts {
+        let Some(bi) = (0..c.sounds.len()).find(|&i| {
+            let s = &c.sounds[i].short;
+            s == short || s.ends_with(&format!("/{short}"))
+        }) else {
+            continue;
+        };
+        let Ok(buf) = c.read_sound(bi, None) else {
+            continue;
+        };
+        for (event, ids) in bnk::parse(&buf).events {
+            let Some(&stem) = wanted.get(&event) else {
+                continue;
+            };
+            for id in ids {
+                if !media.iter().any(|(m, _)| *m == id) {
+                    media.push((id, stem.to_string()));
+                }
+            }
+        }
+        for (id, size) in bnk::embedded_index(&buf) {
+            embedded.entry(id).or_insert((bi, size));
+        }
+    }
+    for (id, via) in walk_media {
+        if !media.iter().any(|(m, _)| *m == id) {
+            media.push((id, via));
+        }
+    }
+
+    let media = media
+        .into_iter()
+        .filter_map(|(id, event)| {
+            // Loose beats embedded: the pak copy is the one every player
+            // hears, and it can be exported.
+            if let Some(si) = c.sound_by_media_id(id) {
+                return Some(TagMediaHit {
+                    id,
+                    sound: Some(si),
+                    bank: None,
+                    size: c.sound(si).map(|s| s.entry.uncompressed_size),
+                    event,
+                });
+            }
+            let (bi, size) = embedded.get(&id)?;
+            Some(TagMediaHit {
+                id,
+                sound: None,
+                bank: Some(*bi),
+                size: Some(u64::from(*size)),
+                event,
+            })
+        })
+        .collect();
+    Ok(TagAudioView { events: stems, media })
+}
+
+/// Everything a sound tag can play. See [`wwise_audio_for_tag`]; a few
+/// package reads and a bank parse, so a command rather than part of the peek.
+#[tauri::command]
+fn sound_tag_media(index: usize, state: State<'_, AppState>) -> Result<TagAudioView, String> {
+    with_catalog(&state, |c| wwise_audio_for_tag(c, index))
+}
+
+/// Build a playable stream for a media file that ships inside a bank.
+///
+/// The embedded payload is a complete RIFF `.wem`, so past the extraction it
+/// is [`play_sound`] again.
+#[tauri::command]
+fn play_bank_media(bank: usize, media: u32, state: State<'_, AppState>) -> Result<SoundAudio, String> {
+    use base64::Engine;
+    with_catalog(&state, |c| {
+        let data = c.read_sound(bank, None)?;
+        let wem = bnk::embedded(&data, media)
+            .ok_or_else(|| format!("media {media} is not embedded in this bank"))?;
+        let out = decode::to_playable(wem)?;
+        Ok(SoundAudio {
+            src: format!(
+                "data:{};base64,{}",
+                out.mime,
+                base64::engine::general_purpose::STANDARD.encode(&out.bytes)
+            ),
+            via: out.via,
+            bytes: out.bytes.len(),
+        })
+    })
 }
 
 /// Classify what a preview card can show for one tag, cheaply: catalog entry
@@ -3392,6 +3583,8 @@ pub fn run() {
             revert_texture,
             list_sounds,
             read_sound,
+            sound_tag_media,
+            play_bank_media,
             export_sound,
             play_sound,
             tag_links,

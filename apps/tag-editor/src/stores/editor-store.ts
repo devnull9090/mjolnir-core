@@ -17,6 +17,7 @@ import {
   type SigningStatus,
   type SoundSummary,
   type SoundView,
+  type TagAudio,
   type TagSummary,
   type TagView,
   type TestView,
@@ -323,6 +324,12 @@ type EditorState = {
   reverseRefsLoading: boolean;
   reverseRefsError: string | null;
   loadReverseRefs: () => Promise<void>;
+
+  /** What the open sound tag can play; null until asked for. */
+  tagAudio: TagAudio | null;
+  tagAudioLoading: boolean;
+  tagAudioError: string | null;
+  loadTagAudio: () => Promise<void>;
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
@@ -370,6 +377,9 @@ export const useEditor = create<EditorState>((set, get) => {
       reverseRefs: null,
       reverseRefsLoading: false,
       reverseRefsError: null,
+      tagAudio: null,
+      tagAudioLoading: false,
+      tagAudioError: null,
       lastEdit: null,
       // The note belongs to the tag that was open; the toggle does not.
       liveNote: null,
@@ -602,6 +612,9 @@ export const useEditor = create<EditorState>((set, get) => {
     reverseRefs: null,
     reverseRefsLoading: false,
     reverseRefsError: null,
+    tagAudio: null,
+    tagAudioLoading: false,
+    tagAudioError: null,
 
     goBack() {
       const { history, historyAt } = get();
@@ -672,6 +685,22 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         if (get().selectedTag === index) {
           set({ reverseRefsError: String(e), reverseRefsLoading: false });
+        }
+      }
+    },
+
+    async loadTagAudio() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ tagAudioLoading: true, tagAudioError: null });
+      try {
+        const audio = await api.soundTagMedia(index);
+        if (get().selectedTag === index) {
+          set({ tagAudio: audio, tagAudioLoading: false });
+        }
+      } catch (e) {
+        if (get().selectedTag === index) {
+          set({ tagAudioError: String(e), tagAudioLoading: false });
         }
       }
     },
@@ -808,6 +837,9 @@ export const useEditor = create<EditorState>((set, get) => {
           reverseRefs: null,
           reverseRefsLoading: false,
           reverseRefsError: null,
+          tagAudio: null,
+          tagAudioLoading: false,
+          tagAudioError: null,
           selectedTexture: null,
           texture: null,
           textureError: null,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { MODEL_GROUPS, tagLabel, useEditor, type ViewMode } from "../stores/editor-store";
+import { SoundPlayer } from "./SoundPlayer";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -107,7 +108,7 @@ function ReferencedBy() {
         <div className="mt-1 flex max-h-28 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
           {loading && (
             <span className="font-mono text-[10px] text-text-dim">
-              scanning every tag for references — up to a minute, first time only…
+              scanning every tag for references — up to a minute, once per game version…
             </span>
           )}
           {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
@@ -129,6 +130,116 @@ function ReferencedBy() {
               {tagLabel(t)}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A byte count as the short label a chip has room for. */
+function shortBytes(n: number | null): string {
+  if (n === null) return "";
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${n} B`;
+}
+
+/**
+ * What the open sound tag actually plays.
+ *
+ * The Blam permutations in the form are legacy metadata; the audio itself is
+ * on the Wwise side, reached through the tag's event packages and the bank
+ * graph (see `wwise_audio_for_tag`). Wwise ships variation names as hashes,
+ * so the chips are numbered rather than named — but every one is playable,
+ * including media that exists only inside a bank. Collapsed until asked,
+ * because answering costs package reads and a bank parse.
+ */
+function TagAudioSection() {
+  const tag = useEditor((s) => s.tag);
+  const selectedTag = useEditor((s) => s.selectedTag);
+  const audio = useEditor((s) => s.tagAudio);
+  const loading = useEditor((s) => s.tagAudioLoading);
+  const error = useEditor((s) => s.tagAudioError);
+  const load = useEditor((s) => s.loadTagAudio);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(0);
+
+  // Collapse and forget the pick when another tag takes the pane.
+  useEffect(() => {
+    setOpen(false);
+    setPicked(0);
+  }, [selectedTag]);
+
+  if (!tag || !tag.group.startsWith("sound")) return null;
+
+  const media = audio?.media ?? [];
+  const hit = media[Math.min(picked, Math.max(media.length - 1, 0))] ?? null;
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          if (!open && audio === null && !loading) void load();
+        }}
+        className="font-mono text-[10px] uppercase tracking-wider text-text-dim hover:text-text-secondary"
+        title="The Wwise audio this tag's events play, every variation playable — including media embedded in sound banks"
+      >
+        {open ? "▾" : "▸"} audio
+        {audio
+          ? ` · ${media.length} variation${media.length === 1 ? "" : "s"}`
+          : ""}
+      </button>
+      {open && (
+        <div className="mt-1">
+          {loading && (
+            <span className="font-mono text-[10px] text-text-dim">
+              walking the event packages and their banks…
+            </span>
+          )}
+          {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
+          {audio && media.length === 0 && (
+            <span className="font-mono text-[10px] text-text-dim">
+              {audio.events.length > 0
+                ? `${audio.events.join(", ")} reaches no media in this installation`
+                : "no Wwise events are linked to this tag"}
+            </span>
+          )}
+          {audio && audio.events.length > 0 && media.length > 0 && (
+            <p className="mb-1 font-mono text-[10px] text-text-dim">
+              {audio.events.join(" · ")}
+            </p>
+          )}
+          {media.length > 1 && (
+            <div className="mb-1 flex max-h-20 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
+              {media.map((m, i) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setPicked(i)}
+                  title={`${m.event || "media"} · ${m.id}${
+                    m.bank !== null ? " · embedded in a sound bank" : ""
+                  }${m.size !== null ? ` · ${m.size.toLocaleString()} bytes` : ""}`}
+                  aria-pressed={i === picked}
+                  className={`border px-1.5 py-0.5 font-mono text-[10px] ${
+                    i === picked
+                      ? "border-mjolnir-gold bg-mjolnir-gold/10 text-mjolnir-gold"
+                      : "border-border-subtle text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  {i + 1}
+                  {m.bank !== null ? "·bnk" : ""}
+                  {m.size !== null ? ` ${shortBytes(m.size)}` : ""}
+                </button>
+              ))}
+            </div>
+          )}
+          {hit &&
+            (hit.sound !== null ? (
+              <SoundPlayer index={hit.sound} />
+            ) : hit.bank !== null ? (
+              <SoundPlayer bank={hit.bank} media={hit.id} />
+            ) : null)}
         </div>
       )}
     </div>
@@ -292,6 +403,7 @@ export function TagHeader() {
       </p>
       <LinkedAssets />
       <ReferencedBy />
+      <TagAudioSection />
       <LiveToggle />
     </header>
   );

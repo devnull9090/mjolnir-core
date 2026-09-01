@@ -185,6 +185,48 @@ fn reaches(mut node: u32, targets: &[u32], parent: &HashMap<u32, u32>) -> bool {
     false
 }
 
+/// The media a bank carries in its own body, as `(media id, size in bytes)`.
+///
+/// A `DIDX` section is a run of `(id, offset, size)` triples; the offsets
+/// point into the `DATA` section that follows. Banks without one stream all
+/// their media from loose `.wem` files and return nothing here.
+pub fn embedded_index(bnk: &[u8]) -> Vec<(u32, u32)> {
+    didx(bnk)
+        .map(|d| d.chunks_exact(12).filter_map(|e| Some((u32at(e, 0)?, u32at(e, 8)?))).collect())
+        .unwrap_or_default()
+}
+
+/// The bytes of one embedded media file: a complete RIFF `.wem`, exactly what
+/// a loose file would hold.
+pub fn embedded(bnk: &[u8], media: u32) -> Option<&[u8]> {
+    let d = didx(bnk)?;
+    let entry = d.chunks_exact(12).find(|e| u32at(e, 0) == Some(media))?;
+    let offset = u32at(entry, 4)? as usize;
+    let size = u32at(entry, 8)? as usize;
+    let data = section(bnk, b"DATA")?;
+    data.get(offset..offset + size)
+}
+
+fn didx(bnk: &[u8]) -> Option<&[u8]> {
+    section(bnk, b"DIDX")
+}
+
+/// The body of the first section with the given magic.
+fn section<'a>(bnk: &'a [u8], magic: &[u8; 4]) -> Option<&'a [u8]> {
+    let mut at = 0;
+    while at + 8 <= bnk.len() {
+        let size = u32at(bnk, at + 4)? as usize;
+        if size == 0 || at + 8 + size > bnk.len() {
+            return None;
+        }
+        if &bnk[at..at + 4] == magic {
+            return Some(&bnk[at + 8..at + 8 + size]);
+        }
+        at += 8 + size;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,5 +399,34 @@ mod tests {
             object(EVENT, event(500, &[400])),
         ]);
         assert_eq!(parse(&bank_bytes).events, vec![(500, vec![4001])]);
+    }
+
+    /// A section as it sits in a bank file: magic, size, body.
+    fn chunk(magic: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut v = magic.to_vec();
+        v.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        v.extend_from_slice(body);
+        v
+    }
+
+    #[test]
+    fn embedded_media_extracts_from_didx_and_data() {
+        // Two media files: 7001 at offset 0, 7002 at offset 4.
+        let mut didx = Vec::new();
+        for (id, offset, size) in [(7001u32, 0u32, 4u32), (7002, 4, 3)] {
+            didx.extend_from_slice(&id.to_le_bytes());
+            didx.extend_from_slice(&offset.to_le_bytes());
+            didx.extend_from_slice(&size.to_le_bytes());
+        }
+        let mut b = chunk(b"BKHD", &[0; 8]);
+        b.extend(chunk(b"DIDX", &didx));
+        b.extend(chunk(b"DATA", b"AAAABBB"));
+
+        assert_eq!(embedded_index(&b), vec![(7001, 4), (7002, 3)]);
+        assert_eq!(embedded(&b, 7001), Some(&b"AAAA"[..]));
+        assert_eq!(embedded(&b, 7002), Some(&b"BBB"[..]));
+        assert_eq!(embedded(&b, 7003), None);
+        // A bank without a DIDX has nothing embedded.
+        assert_eq!(embedded_index(&chunk(b"BKHD", &[0; 8])), Vec::new());
     }
 }

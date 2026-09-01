@@ -1035,6 +1035,20 @@ impl Catalog {
     pub fn referencing(&self, index: usize, limit: usize) -> Result<Vec<TagSummary>, String> {
         let target = self.tags.get(index).ok_or("tag index out of range")?;
         let reverse = self.reverse_refs.get_or_init(|| {
+            // The scan is a pure function of the tag chunks, so a cached
+            // result from a previous session is as good as a fresh one for as
+            // long as the installation fingerprint holds (see `refcache`).
+            let mut fp = crate::refcache::Fingerprint::new();
+            for c in &self.containers {
+                fp.container(&c.utoc_path, c.container_id, c.chunks.len());
+            }
+            for t in &self.tags {
+                fp.tag(&t.group, &t.short);
+            }
+            let fingerprint = fp.finish();
+            if let Some(map) = crate::refcache::load(&self.paks, fingerprint) {
+                return map;
+            }
             let known = &self.ref_index().group_of_cc;
             let mut map: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
             for (i, t) in self.tags.iter().enumerate() {
@@ -1058,6 +1072,7 @@ impl Catalog {
                     }
                 }
             }
+            crate::refcache::store(&self.paks, fingerprint, &map);
             map
         });
         let cc = self

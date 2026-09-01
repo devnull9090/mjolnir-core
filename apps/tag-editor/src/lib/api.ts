@@ -194,6 +194,26 @@ export type SoundSummary = {
   event: string | null;
 };
 
+/** One playable media file a sound tag's events reach. */
+export type TagMediaHit = {
+  /** Wwise media short ID. */
+  id: number;
+  /** Sound catalog index, when the media ships as a loose .wem. */
+  sound: number | null;
+  /** Sound catalog index of the bank carrying it, when embedded. */
+  bank: number | null;
+  /** Payload size in bytes, however it ships. */
+  size: number | null;
+  /** The event that reaches it, e.g. Play_WEP_SniperRifle_Ammo_Pickup. */
+  event: string;
+};
+
+/** Everything a sound tag can play. */
+export type TagAudio = {
+  events: string[];
+  media: TagMediaHit[];
+};
+
 /** A playable stream built from one .wem. */
 export type SoundAudio = {
   /** Data URI, ready for an audio element. */
@@ -615,6 +635,9 @@ const tauriApi = {
   revertTexture: (index: number) => invoke<void>("revert_texture", { index }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),
   playSound: (index: number) => invoke<SoundAudio>("play_sound", { index }),
+  playBankMedia: (bank: number, media: number) =>
+    invoke<SoundAudio>("play_bank_media", { bank, media }),
+  soundTagMedia: (index: number) => invoke<TagAudio>("sound_tag_media", { index }),
   readSound: (index: number) => invoke<SoundView>("read_sound", { index }),
   exportSound: (index: number, dest: string) =>
     invoke<number>("export_sound", { index, dest }),
