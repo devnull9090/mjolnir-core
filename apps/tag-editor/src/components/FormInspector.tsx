@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { refKey, useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
+import { useTabUi } from "../lib/tab-ui";
+import { scheduleSaveSession } from "../lib/session";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu, type MenuItem } from "./ContextMenu";
 import { RefPreview } from "./RefPreview";
 import { TagHeader, EditBar } from "./TagChrome";
 import {
@@ -228,7 +232,21 @@ function FField({ node, path }: { node: NodeView; path: string }) {
   }
 
   return (
-    <div className="flex items-start gap-3 py-1">
+    <div
+      className="flex items-start gap-3 py-1"
+      onContextMenu={(e) => {
+        // Text controls keep the native cut/copy/paste menu.
+        if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+        showContextMenu(e, [
+          {
+            label: "Revert Field",
+            action: () => void revertField(path),
+            disabled: !isEdited,
+          },
+          { label: "Copy Field Path", action: () => void copyText(path) },
+        ]);
+      }}
+    >
       <span
         className={`w-44 shrink-0 truncate pt-1 text-sm ${
           editable ? "text-text-secondary" : "text-text-dim"
@@ -263,8 +281,26 @@ const BAR_BUTTON =
   "text-text-secondary hover:bg-surface-hover hover:text-mjolnir-gold disabled:opacity-40";
 
 function FSection({ node, path, depth }: { node: NodeView; path: string; depth: number }) {
-  const [open, setOpen] = useState(depth < 1 || node.kind === "struct");
-  const [element, setElement] = useState(0);
+  // Expansion and the element pick initialise from the tab's remembered state
+  // and write through to it, so leaving and returning to the tab lands on the
+  // same view. The component itself remounts per activation.
+  const ui = useTabUi();
+  const [open, setOpenState] = useState(() => ui?.open[path] ?? (depth < 1 || node.kind === "struct"));
+  const [element, setElementState] = useState(() => ui?.element[path] ?? 0);
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    if (ui) {
+      ui.open[path] = v;
+      scheduleSaveSession();
+    }
+  };
+  const setElement = (i: number) => {
+    setElementState(i);
+    if (ui) {
+      ui.element[path] = i;
+      scheduleSaveSession();
+    }
+  };
   const editElements = useEditor((s) => s.editElements);
   const revertField = useEditor((s) => s.revertField);
   const edited = useEditor((s) => s.tag?.edited ?? []);
@@ -296,13 +332,52 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
     }
   };
 
+  const barMenu = (e: React.MouseEvent) => {
+    // A right-click on the element dropdown keeps the control's own behavior.
+    if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+    const items: MenuItem[] = [];
+    if (isBlock) {
+      items.push(
+        {
+          label: "Add Element",
+          action: () => void add(),
+          disabled: atMax,
+          title: atMax ? `This block allows at most ${node.max_count} elements` : undefined,
+        },
+        {
+          label: "Duplicate Element",
+          action: () => void duplicate(),
+          disabled: elements.length === 0 || atMax,
+        },
+        {
+          label: "Delete Element",
+          action: () => void editElements(path, "remove", index),
+          disabled: elements.length === 0,
+          danger: true,
+        },
+        "separator",
+        {
+          label: "Revert Block",
+          action: () => void revertField(path),
+          disabled: !hasOps,
+          title: "Revert this section's element changes, and every edit inside its elements",
+        },
+      );
+    }
+    items.push({ label: "Copy Field Path", action: () => void copyText(path) });
+    showContextMenu(e, items);
+  };
+
   return (
     <div className="mt-3">
-      <div className="flex h-8 items-center gap-2 border border-border-subtle bg-surface-secondary pl-1 pr-2">
+      <div
+        className="flex h-8 items-center gap-2 border border-border-subtle bg-surface-secondary pl-1 pr-2"
+        onContextMenu={barMenu}
+      >
         <button
           type="button"
           className="w-5 shrink-0 font-mono text-xs text-text-dim hover:text-text-primary"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setOpen(!open)}
           title={open ? "Collapse" : "Expand"}
         >
           {open ? "▾" : "▸"}
@@ -418,6 +493,20 @@ function FNode({ node, path, depth }: { node: NodeView; path: string; depth: num
 /** The Guerilla-format inspector: section bars and typed controls. */
 export function FormInspector() {
   const { tag, tagLoading, selectedTag } = useEditor();
+  const ui = useTabUi();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const restored = useRef(false);
+
+  // The container exists only once the tag has loaded, so restoration waits
+  // for its first appearance rather than for mount; by then the sections have
+  // initialised from the same remembered state, so heights are final.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!restored.current && el && ui) {
+      restored.current = true;
+      el.scrollTop = ui.scroll.form ?? 0;
+    }
+  });
 
   if (tagLoading) {
     return <Centered>Reading tag…</Centered>;
@@ -431,7 +520,16 @@ export function FormInspector() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-y-auto"
+      onScroll={(e) => {
+        if (ui) {
+          ui.scroll.form = e.currentTarget.scrollTop;
+          scheduleSaveSession();
+        }
+      }}
+    >
       <TagHeader />
       <EditBar />
 

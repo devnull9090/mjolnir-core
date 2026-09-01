@@ -17,6 +17,7 @@ import { MeshViewer } from "./components/MeshViewer";
 import { TabBar } from "./components/TabBar";
 import { Shortcuts } from "./components/Shortcuts";
 import { QuickOpen } from "./components/QuickOpen";
+import { ContextMenuHost } from "./components/ContextMenu";
 import { MODEL_GROUPS } from "./stores/editor-store";
 
 export default function App() {
@@ -70,6 +71,7 @@ function Editor() {
     <div className="flex h-full min-h-0">
       <Shortcuts />
       <QuickOpen />
+      <ContextMenuHost />
       <TagTree />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar />
@@ -90,9 +92,11 @@ function Editor() {
         ) : viewMode === "model" && modelable ? (
           <ModelViewer />
         ) : viewMode === "tree" ? (
-          <Inspector />
+          // Keyed per tab so per-tab UI state can never leak between two tags
+          // of the same group, whose child keys would otherwise line up.
+          <Inspector key={active.id} />
         ) : (
-          <FormInspector />
+          <FormInspector key={active.id} />
         )}
       </div>
     </div>

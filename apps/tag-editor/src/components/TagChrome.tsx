@@ -121,7 +121,9 @@ function ReferencedBy() {
               key={t.index}
               type="button"
               title={t.short}
-              onClick={() => void openTab("tag", t.index, tagLabel(t))}
+              onClick={() =>
+                void openTab("tag", t.index, tagLabel(t), { group: t.group, path: t.short })
+              }
               className="border border-mjolnir-gold/40 px-1.5 py-0.5 font-mono text-[10px] text-mjolnir-gold hover:bg-mjolnir-gold/10"
             >
               {tagLabel(t)}

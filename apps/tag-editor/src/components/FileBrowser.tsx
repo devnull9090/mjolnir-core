@@ -1,4 +1,6 @@
 import { useEditor } from "../stores/editor-store";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu } from "./ContextMenu";
 import { Spinner } from "./LoadingPanel";
 import type { DirEntry } from "../lib/api";
 
@@ -68,7 +70,7 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
   const kind = entry.kind === "dir" ? "tag" : entry.kind;
   const open = isDir
     ? () => void openDir(entry.path)
-    : () => void openTab(kind, entry.index ?? 0, entry.name);
+    : () => void openTab(kind, entry.index ?? 0, entry.name, { path: entry.path });
 
   const isOpen = !isDir && tabs.some((t) => t.kind === kind && t.index === entry.index);
 
@@ -81,6 +83,12 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
         type="button"
         onDoubleClick={open}
         onClick={open}
+        onContextMenu={(e) =>
+          showContextMenu(e, [
+            { label: "Open", action: open },
+            { label: "Copy Path", action: () => void copyText(entry.path) },
+          ])
+        }
         title={entry.path}
         className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-hover ${
           isOpen ? "text-mjolnir-gold" : "text-text-secondary"

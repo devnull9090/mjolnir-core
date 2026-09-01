@@ -26,6 +26,13 @@ import {
   type ScriptView,
   type CompileReport,
 } from "../lib/api";
+import {
+  loadStoredSession,
+  markSessionRestored,
+  scheduleSaveSession,
+  type PersistedTab,
+} from "../lib/session";
+import { dropTabUi, seedTabUi, type TabUiState } from "../lib/tab-ui";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
@@ -41,6 +48,12 @@ export type Tab = {
   /** Catalog index within its kind. */
   index: number;
   label: string;
+  /** Blam group, for tags — half of the identity that survives game updates. */
+  group?: string;
+  /** A tag's short path, or an asset's virtual path; stamped at open where the
+   *  caller has it, else by the activation peek. Session persistence keys on
+   *  it, so a tab without one simply does not survive a relaunch. */
+  path?: string;
 };
 
 const VIEW_KEY = "tag-editor-view";
@@ -116,9 +129,16 @@ type EditorState = {
   /** Open documents and the one currently shown. */
   tabs: Tab[];
   activeTab: number | null;
-  openTab: (kind: Tab["kind"], index: number, label: string) => Promise<void>;
+  openTab: (
+    kind: Tab["kind"],
+    index: number,
+    label: string,
+    ident?: { group?: string; path: string },
+  ) => Promise<void>;
   activateTab: (id: number) => Promise<void>;
   closeTab: (id: number) => void;
+  closeOtherTabs: (id: number) => void;
+  closeTabsRight: (id: number) => void;
   /** Tag indices with unexported edits, for the tab dirty markers. */
   dirtyTags: Record<number, boolean>;
 
@@ -457,6 +477,89 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
+  /**
+   * Bring back the last session's tabs, resolved from identity to today's
+   * catalog. A tab a game update removed drops silently, the way a stale
+   * recent does. Only the tab that ends up active loads anything; the rest
+   * sit as labels until clicked, exactly like background tabs in a session.
+   */
+  async function restoreSession() {
+    try {
+      // First open only. Switching installations mid-session keeps whatever
+      // tabs are up rather than resurrecting last week's.
+      if (get().tabs.length > 0) return;
+      const stored = loadStoredSession();
+      if (!stored || stored.tabs.length === 0) return;
+
+      // Tags resolve in one batched call; assets by exact kind-and-path
+      // match in the virtual filesystem.
+      const tagRows = stored.tabs.filter((r) => r.kind === "tag");
+      const tagHits =
+        tagRows.length > 0
+          ? await api.resolveRefs(tagRows.map((r) => ({ group: r.group ?? "", path: r.path })))
+          : [];
+      const tagIndex = new Map<PersistedTab, number>();
+      tagRows.forEach((r, i) => {
+        const hit = tagHits[i];
+        if (hit) tagIndex.set(r, hit.index);
+      });
+      const assetIndex = new Map<PersistedTab, number>();
+      await Promise.all(
+        stored.tabs
+          .filter((r) => r.kind !== "tag")
+          .map(async (r) => {
+            try {
+              const entries = await api.searchFiles(r.path);
+              const entry = entries.find((e) => e.kind === r.kind && e.path === r.path);
+              if (entry && entry.index !== null) assetIndex.set(r, entry.index);
+            } catch {
+              // Unresolvable is the same as removed: the tab drops.
+            }
+          }),
+      );
+
+      const tabs: Tab[] = [];
+      const seeds: [number, TabUiState][] = [];
+      let activeId: number | null = null;
+      stored.tabs.forEach((row, at) => {
+        const index = row.kind === "tag" ? tagIndex.get(row) : assetIndex.get(row);
+        if (index === undefined) return;
+        const tab: Tab = {
+          id: nextTabId++,
+          kind: row.kind,
+          index,
+          label: row.label,
+          group: row.group ?? undefined,
+          path: row.path,
+        };
+        tabs.push(tab);
+        if (row.ui) seeds.push([tab.id, row.ui]);
+        if (at === stored.active) activeId = tab.id;
+      });
+      if (tabs.length === 0) return;
+      for (const [id, ui] of seeds) seedTabUi(id, ui);
+      set({ tabs });
+
+      // Dirty dots for tabs that will not load yet: the open project already
+      // knows which tags carry edits.
+      const changes = get().project?.changes ?? [];
+      const dirtyTags: Record<number, boolean> = {};
+      for (const c of changes) {
+        if (c.index !== null && c.edits.length > 0) dirtyTags[c.index] = true;
+      }
+      if (Object.keys(dirtyTags).length > 0) {
+        set((s) => ({ dirtyTags: { ...s.dirtyTags, ...dirtyTags } }));
+      }
+
+      await get().activateTab(activeId ?? tabs[tabs.length - 1].id);
+    } catch {
+      // A failed restore leaves a blank slate and the stored session intact
+      // for the next launch.
+    } finally {
+      markSessionRestored();
+    }
+  }
+
   /** Re-read the active tag after project-level changes touch its edits. */
   async function refreshActiveTag() {
     const { tabs, activeTab } = get();
@@ -551,7 +654,7 @@ export const useEditor = create<EditorState>((set, get) => {
           });
           return;
         }
-        await get().openTab("tag", hit.index, r.label);
+        await get().openTab("tag", hit.index, r.label, { group: hit.group, path: hit.short });
       } catch {
         // Leave the list as it is; opening simply did not happen.
       }
@@ -573,13 +676,20 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
-    async openTab(kind, index, label) {
+    async openTab(kind, index, label, ident) {
       const existing = get().tabs.find((t) => t.kind === kind && t.index === index);
       if (existing) {
         await get().activateTab(existing.id);
         return;
       }
-      const tab: Tab = { id: nextTabId++, kind, index, label };
+      const tab: Tab = {
+        id: nextTabId++,
+        kind,
+        index,
+        label,
+        group: ident?.group,
+        path: ident?.path,
+      };
       set((s) => ({ tabs: [...s.tabs, tab] }));
       await get().activateTab(tab.id);
     },
@@ -602,6 +712,7 @@ export const useEditor = create<EditorState>((set, get) => {
           return { history, historyAt: history.length - 1 };
         });
       }
+      scheduleSaveSession();
       if (tab.kind === "tag") {
         // The recents list keys on identity, not index, so it survives game
         // updates; peek is the cheap way from an index to an identity.
@@ -609,6 +720,17 @@ export const useEditor = create<EditorState>((set, get) => {
           .peekTag(tab.index)
           .then((p) => {
             if (!p.short) return;
+            // The same identity is what lets the tab itself survive a
+            // relaunch; a caller that only knew a path gets the group filled
+            // in and the path canonicalised.
+            if (!tab.path || !tab.group) {
+              set((s) => ({
+                tabs: s.tabs.map((t) =>
+                  t.id === id ? { ...t, group: p.group, path: p.short } : t,
+                ),
+              }));
+              scheduleSaveSession();
+            }
             set((s) => {
               const entry = { group: p.group, short: p.short, label: tab.label };
               const rest = s.recents.filter(
@@ -642,12 +764,36 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
+    closeOtherTabs(id) {
+      const { tabs, activeTab } = get();
+      const keep = tabs.find((t) => t.id === id);
+      if (!keep) return;
+      for (const t of tabs) if (t.id !== id) dropTabUi(t.id);
+      set({ tabs: [keep] });
+      if (activeTab !== id) void get().activateTab(id);
+      scheduleSaveSession();
+    },
+
+    closeTabsRight(id) {
+      const { tabs, activeTab } = get();
+      const at = tabs.findIndex((t) => t.id === id);
+      if (at < 0) return;
+      const closed = tabs.slice(at + 1);
+      if (closed.length === 0) return;
+      for (const t of closed) dropTabUi(t.id);
+      set({ tabs: tabs.slice(0, at + 1) });
+      if (closed.some((t) => t.id === activeTab)) void get().activateTab(id);
+      scheduleSaveSession();
+    },
+
     closeTab(id) {
       const { tabs, activeTab } = get();
       const at = tabs.findIndex((t) => t.id === id);
       if (at < 0) return;
       const next = tabs.filter((t) => t.id !== id);
       set({ tabs: next });
+      dropTabUi(id);
+      scheduleSaveSession();
       if (activeTab !== id) return;
       const neighbor = next[Math.min(at, next.length - 1)];
       if (neighbor) {
@@ -1011,6 +1157,9 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ projectError: String(e) });
       }
+      // After the project, so the restored tab reads with edits applied and
+      // the dirty markers can be seeded from the recipe.
+      await restoreSession();
       void get().loadHub();
     },
 
@@ -1134,7 +1283,10 @@ export const useEditor = create<EditorState>((set, get) => {
           set({ editError: `reference not found: ${fourCc.trim()} ${path}` });
           return false;
         }
-        await get().openTab("tag", hit.index, tagLabel(hit));
+        await get().openTab("tag", hit.index, tagLabel(hit), {
+          group: hit.group,
+          path: hit.short,
+        });
         return true;
       } catch (e) {
         set({ editError: String(e) });
