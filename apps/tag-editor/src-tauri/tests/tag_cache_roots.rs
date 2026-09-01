@@ -51,11 +51,37 @@ fn writable_sections(exe: &[u8]) -> Vec<(u64, u64)> {
         .collect()
 }
 
-/// Is `addr` a `T`: three consecutive records carrying the tag word?
-fn is_root(p: &blam_live::Process, addr: u64) -> bool {
-    let Ok(w) = p.read(addr + RECORDS_AT, RECORD as usize * 3) else { return false };
-    w.len() == RECORD as usize * 3
-        && (0..3).all(|i| u64_at(&w, (i * RECORD + 8) as usize) == REC_TAG)
+/// Is `addr` a `T`? Not every record carries the tag word (the first
+/// signature missed even the known roots), but every record of every known
+/// root holds the same pointer at `+0x30` — a shared allocator or type
+/// object. `shared` is read from a known root at runtime; a `T` has it in at
+/// least three of its first eight records.
+const PROBE_RECORDS: usize = 24;
+
+fn is_root(p: &blam_live::Process, addr: u64, shared: u64) -> bool {
+    let Ok(w) = p.read(addr + RECORDS_AT, RECORD as usize * PROBE_RECORDS) else { return false };
+    if w.len() < RECORD as usize * PROBE_RECORDS {
+        return false;
+    }
+    (0..PROBE_RECORDS)
+        .filter(|i| u64_at(&w, i * RECORD as usize + 0x30) == shared)
+        .count()
+        >= 3
+}
+
+/// The shared `+0x30` word of a known root: the most common heap value over
+/// its first records. Record 0 is not always a plain record (root 1's array
+/// effectively starts at +0x90), so the mode is taken rather than one slot.
+fn shared_word(p: &blam_live::Process, root: u64) -> u64 {
+    let w = p.read(root + RECORDS_AT, RECORD as usize * PROBE_RECORDS).expect("records");
+    let mut hist: HashMap<u64, usize> = HashMap::new();
+    for i in 0..PROBE_RECORDS {
+        let v = u64_at(&w, i * RECORD as usize + 0x30);
+        if heapish(v) {
+            *hist.entry(v).or_default() += 1;
+        }
+    }
+    hist.into_iter().max_by_key(|(_, n)| *n).map(|(v, _)| v).unwrap_or(0)
 }
 
 fn descriptor_base(p: &blam_live::Process, desc: u64) -> Option<u64> {
@@ -128,6 +154,12 @@ fn tag_cache_roots() {
     let t = targets(&p);
     let known_desc: HashSet<u64> = t.descriptors.iter().map(|(a, _)| *a).collect();
 
+    // The shared word, from the first known root (exe+0xd3ec3a0 on CU3).
+    let known = u64_at(&p.read(mbase + 0xd3ec3a0, 8).expect("known root"), 0);
+    let shared = shared_word(&p, known);
+    eprintln!("shared record word from known root {known:#x}: {shared:#x}");
+    assert!(is_root(&p, known, shared), "signature must accept the known root");
+
     // ---- Every static pointer whose target is a T.
     let t0 = std::time::Instant::now();
     let mut roots: Vec<(u64, u64)> = Vec::new(); // (static addr, T)
@@ -140,7 +172,7 @@ fn tag_cache_roots() {
             if let Ok(w) = p.read(start + at, take) {
                 for off in (0..w.len().saturating_sub(7)).step_by(8) {
                     let v = u64_at(&w, off);
-                    if heapish(v) && seen_t.insert(v) && is_root(&p, v) {
+                    if heapish(v) && seen_t.insert(v) && is_root(&p, v, shared) {
                         roots.push((start + at + off as u64, v));
                     }
                 }

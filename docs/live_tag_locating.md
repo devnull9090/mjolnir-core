@@ -379,3 +379,22 @@ one ~44k-node component (244 holder nodes), and the other resident tags'
 buffers live under other `T` instances. `T` carries a strong signature
 (`0x0000000400000000` at `+0x48`, `+0x98`, `+0xe8`), so `tag_cache_roots.rs`
 enumerates every instance from `.data` and unions their coverage.
+
+### All roots enumerated: the map is a loader-side cache, ~10 % of resident buffers
+
+`tag_cache_roots.rs`: the root signature that works is the shared pointer
+every record carries at `+0x30` (the mode over a known root's first 24
+records; record 0 is not always a plain record). 22 `.data` pointers pass
+it — four distinct `T` instances plus the 80-byte artifact — and the largest
+(`exe+0xd3eb080`) reaches a **1.28M-node** component: the global asset
+cache. Union over all roots: 3,450 holder nodes, 220 catalog tags with a
+live descriptor, **37 of 362 resident tags resolved exactly, 0 wrong**.
+
+So the static-rooted map is real and its lookup is exact, but it holds a
+buffer only while the loader references it; in a settled mission most
+buffers have been handed to the Blam simulation and dropped from the map.
+The remaining ~90 % of resident buffers are referenced from consumer
+structures. `tag_cache_table.rs` asks whether *those* holders — the slots
+storing a base that are not descriptors (~95 of the 262 found by the
+level-0 scan) — sit at a fixed stride by tag index: a Blam tag-instance
+table, the classic `table[index] → data`.
