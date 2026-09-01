@@ -109,12 +109,20 @@ Combining them was the prize, with one hypothesis eliminated along the way:
 - **Pokeable: still the sweep.** `UObject` presence is necessary but not
   sufficient (9,147 present vs 369 resident), and the buffer is not reachable
   from the object.
-- **Untested lead:** a *residency flag* — some field that differs between the
-  369 resident and the 9,147 merely-present objects. It would not give the
-  buffer address, but it would let the sweep carry only the ~369 resident
-  fingerprints instead of ~1,926, shrinking the matcher table and the sweep
-  with it, and let the UI mark "live-editable" instantly. Both sets are now
-  cheap to obtain, so this is a contained experiment.
+- **Residency flag — tested, and there is none.** `tests/residency_flag.rs`
+  read 4 KB of every tag `UObject` (9,139 of them, 366 census-resident) and,
+  per class so layout differences cannot masquerade as signal, looked for any
+  u32 field or single bit whose value distribution separates resident from
+  merely-present. Across the 18 classes holding both kinds, **no field
+  separated in more than 1 class** (mean separation ~0.2, i.e. noise), and
+  `ObjectFlags` is identically distributed in both sets (`0x0028000b`
+  dominant in each). Predicting residency from the best candidate scored
+  4–5 % precision — the 4 % base rate, i.e. chance. The `UObject` carries no
+  load-state for its bulk data at all; that state lives entirely in the
+  Blam-side per-tag records. So "present" can never be narrowed toward
+  "pokeable" from the object graph, and the sweep's fingerprint set stays as
+  it is. What would shrink it is the Blam tag-cache root (see
+  `live_tag_locating.md`), which is a different and larger hunt.
 
 The reader ships as `#[ignore]`d live tests documenting each layer
 (`objects::tests::walk_live_object_table`, `names::tests::discover_name_pool`);
