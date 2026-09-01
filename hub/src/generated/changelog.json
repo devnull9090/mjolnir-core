@@ -72,6 +72,35 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.14.0",
+      "tag": "tag-editor-v0.14.0",
+      "title": "The editor remembers your place",
+      "date": "2026-08-31",
+      "summary": "Tabs keep their scroll, open sections and element picks across switches and restarts — plus right-click menus everywhere, and sound tags that play their audio.",
+      "body": "Requested by a modder copying a big edit between two characters: every time\nthey switched tabs, the editor forgot where they were — scroll reset, sections\ncollapsed, every element dropdown back to 0. Not any more.\n\n### Added\n\n- **Tabs remember your place.** Each tab keeps its scroll position (form and\n  tree view separately), which sections you expanded or collapsed, and which\n  element every block's dropdown was showing. Switch away and back, or close\n  the editor and reopen it — everything is where you left it. Your open tabs\n  come back on launch too, remembered by name so a game update never brings\n  back the wrong tag; only the tab you were on loads, the rest wait until\n  clicked.\n- **Right-click menus.** On a tab: Close, Close Others, Close All to the\n  Right, Copy Path. On any tag, texture, sound or file in the left panel:\n  Open, Copy Path. On a block's section bar: add, duplicate or delete an\n  element, revert the block, copy the field path. On a field row: revert the\n  field, copy the field path — handy for noting exactly which fields an edit\n  touched. Text boxes keep the normal cut/copy/paste menu.\n- **Sound tags play their audio.** Sound tags get an \"audio\" section in the\n  tag header that plays every variation their Wwise events reach — including\n  the 546 tags whose audio exists only inside a sound bank, which the editor\n  now digs out of the bank itself. Variations are numbered rather than named,\n  because the game ships Wwise names as hashes.\n\n### Changed\n\n- **\"Referenced by\" is now instant after the first scan per game version.**\n  The scan of every shipped tag (up to a minute) used to run once per\n  session; its result is now saved to disk and loads back in well under a\n  second. A game update or newly installed mod triggers a fresh scan, so the\n  answer is never stale.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Tabs remember your place. Each tab keeps its scroll position (form and tree view separately), which sections you expanded or collapsed, and which element every block's dropdown was showing. Switch away and back, or close the editor and reopen it — everything is where you left it. Your open tabs come back on launch too, remembered by name so a game update never brings back the wrong tag; only the tab you were on loads, the rest wait until clicked.",
+            "Right-click menus. On a tab: Close, Close Others, Close All to the Right, Copy Path. On any tag, texture, sound or file in the left panel: Open, Copy Path. On a block's section bar: add, duplicate or delete an element, revert the block, copy the field path. On a field row: revert the field, copy the field path — handy for noting exactly which fields an edit touched. Text boxes keep the normal cut/copy/paste menu.",
+            "Sound tags play their audio. Sound tags get an \"audio\" section in the tag header that plays every variation their Wwise events reach — including the 546 tags whose audio exists only inside a sound bank, which the editor now digs out of the bank itself. Variations are numbered rather than named, because the game ships Wwise names as hashes."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "\"Referenced by\" is now instant after the first scan per game version. The scan of every shipped tag (up to a minute) used to run once per session; its result is now saved to disk and loads back in well under a second. A game update or newly installed mod triggers a fresh scan, so the answer is never stale."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.14.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.13.0",
       "tag": "tag-editor-v0.13.0",
       "title": "References you can see through",
