@@ -89,7 +89,7 @@ export function QuickOpen() {
         if (r) void openRecent(r);
       } else {
         const t = rows[at];
-        if (t) void openTab("tag", t.index, tagLabel(t));
+        if (t) void openTab("tag", t.index, tagLabel(t), { group: t.group, path: t.short });
       }
     },
     [showingRecents, recents, rows, openRecent, openTab, setOpen],

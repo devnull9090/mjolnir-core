@@ -212,7 +212,9 @@ function TextureRow({ change }: { change: TextureChange }) {
         disabled={stale}
         title={change.path}
         onClick={() => {
-          if (change.index !== null) void openTab("texture", change.index, label);
+          if (change.index !== null) {
+            void openTab("texture", change.index, label, { path: change.path });
+          }
         }}
         className={`min-w-0 truncate font-mono text-xs ${
           stale ? "cursor-default text-text-dim" : "text-mjolnir-gold hover:underline"
@@ -249,7 +251,12 @@ function ChangeRow({ change }: { change: TagChange }) {
           disabled={stale}
           title={`${change.tag}.${change.group}`}
           onClick={() => {
-            if (change.index !== null) void openTab("tag", change.index, label);
+            if (change.index !== null) {
+              void openTab("tag", change.index, label, {
+                group: change.group,
+                path: change.tag,
+              });
+            }
           }}
           className={`min-w-0 truncate font-mono text-xs ${
             stale ? "cursor-default text-text-dim" : "text-mjolnir-gold hover:underline"
