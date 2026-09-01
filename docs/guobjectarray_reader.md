@@ -56,15 +56,54 @@ live-edit right now." What it does give, instantly and exactly:
   path `tag_by_package` already parses). Useful for browse/"present in this
   build's session," distinct from "data-resident."
 
+## Settled: the buffer is not reachable from the `UObject`
+
+`tests/residency_probe.rs` answers this properly, and the answer is no.
+
+Method matters here, because two earlier attempts produced convincing-looking
+false positives:
+
+- Comparing a fixed 512-byte window scored `ClassPrivate` at **74%** — tag data
+  sections are zero-dominated, so any mostly-zero memory "matches."
+- Whole-section `blam_live::verify` scored a *deliberately wrong* address at
+  **72%**. It works inside the census only because candidates arrive there
+  already established by high-entropy run agreement; as a standalone
+  discriminator it is worthless.
+
+The metric that works is the census's own: several **unique high-entropy
+48-byte runs** reproduced at exactly the file's relative spacing. With it:
+
+| measure | result |
+| --- | --- |
+| census-resident tags that also have a `UObject` | **366 / 369** |
+| ground truth — probed tags verified at the census base | **252 / 288** |
+| control — runs agreeing at a deliberately wrong address | **0** |
+| **resident tags whose buffer is reachable from their `UObject`** | **0 / 288** |
+
+The ground-truth row proves the probe detects a real buffer when one is there,
+and the control proves it does not fire on noise. So the negative is real: for
+tags known to be resident, the data buffer is **not** in the `UObject`'s first
+1 KB, nor one pointer hop from any pointer-shaped field in it. The tag-asset
+`UObject` is a name-and-class shell; the parsed buffer belongs to a separate
+Blam-side structure, as `docs/live_tag_locating.md` found from the other
+direction (scattered per-tag records, no dense table).
+
 ## Where this meets the census
 
-The prize is combining them: `GUObjectArray` for identity and level (instant),
-the residency signal for "pokeable." The likely residency signal is a
-load-state flag or a bulk-data descriptor on the tag-asset `UObject` — now that
-names resolve, a known-resident tag's `UObject` can be diffed against a
-known-unloaded one to find the field that distinguishes the 369 from the 9,147
-(and, ideally, the buffer pointer itself, making poke a pointer chase too).
-That is the next step; see `live_tag_locating.md` for the buffer-side findings.
+Combining them is still the prize, with one hypothesis now eliminated:
+
+- **Identity and level: use the reader.** 366 of 369 resident tags have a
+  `UObject`, so coverage is effectively complete, and exactly one scenario
+  object is loaded — instant, exact level detection.
+- **Pokeable: still the sweep.** `UObject` presence is necessary but not
+  sufficient (9,147 present vs 369 resident), and the buffer is not reachable
+  from the object.
+- **Untested lead:** a *residency flag* — some field that differs between the
+  369 resident and the 9,147 merely-present objects. It would not give the
+  buffer address, but it would let the sweep carry only the ~369 resident
+  fingerprints instead of ~1,926, shrinking the matcher table and the sweep
+  with it, and let the UI mark "live-editable" instantly. Both sets are now
+  cheap to obtain, so this is a contained experiment.
 
 The reader ships as `#[ignore]`d live tests documenting each layer
 (`objects::tests::walk_live_object_table`, `names::tests::discover_name_pool`);
