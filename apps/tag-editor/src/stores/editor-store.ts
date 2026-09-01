@@ -1344,6 +1344,8 @@ export const useEditor = create<EditorState>((set, get) => {
               liveNote:
                 p.phase === "objects"
                   ? "live: reading the engine's object table…"
+                  : p.phase === "cache"
+                  ? "live: reading the engine's loader cache…"
                   : p.phase === "prints"
                   ? "live: preparing tag fingerprints…"
                   : `live: scanning game memory · ${Math.round(
@@ -1359,6 +1361,7 @@ export const useEditor = create<EditorState>((set, get) => {
           liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
           liveNote:
             `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s` +
+            (report.cached ? ` · ${report.cached} straight from the engine's cache` : "") +
             (report.level ? ` · in ${report.level}` : ""),
         });
         void get().refreshLive();

@@ -591,6 +591,10 @@ export type CensusReport = {
   /** Tags with a live object per the object table; null when the engine
    *  globals could not be resolved (the sweep still ran). */
   present: number | null;
+  /** Tags whose buffer the engine's loader cache handed over directly —
+   *  exact, found without the sweep. Null when the cache roots could not be
+   *  found in this build. */
+  cached: number | null;
 };
 
 /** What the engine's object table says, without a memory sweep. */
@@ -603,7 +607,7 @@ export type ProbeReport = {
 
 /** Progress of a running census, as `live-census` events report it. */
 export type CensusProgress = {
-  phase: "objects" | "prints" | "scan";
+  phase: "objects" | "cache" | "prints" | "scan";
   done_mb: number;
   total_mb: number;
 };

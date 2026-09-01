@@ -6,15 +6,17 @@
 //!
 //! ```text
 //! .data global  ->  root struct T  ->  80-byte map records from T+0x40
-//!   -> record head node (+0x48)  ->  nodes linked at node+0x00 / node+0x10
-//!   -> node key hash at node+0x20 == FPackageId(package)
-//!   -> node flag at node+0x78 == 1 marks the chunk holding the live buffer
-//!   -> descriptor at node+0x70: { ptr = payload base; u32; u32 = 1; u64 = 0; 00 01 }
+//!   -> record head (+0x48) targets a node; window W = target - 0x10
+//!   -> links at W+0x00 / W+0x10 target further nodes
+//!   -> key hash at W+0x20 == FPackageId(package)
+//!   -> flag at W+0x78 == 1 marks the chunk holding the live buffer
+//!   -> descriptor at W+0x70: { ptr = payload base; u32; u32 = 1; u64 = 0; 00 01 }
 //! ```
 //!
-//! Node offsets here are from the **node start** (the address a link
-//! targets); the descriptor slot the older probes were addressed by is
-//! `node + 0x60`.
+//! A link targets an address 0x10 *into* the node struct (the embedded
+//! link field, as intrusive lists do), so the node's window is read from
+//! `link_target - 0x10`; the offsets above are within that window. The
+//! descriptor slot the older probes were addressed by is `link_target + 0x60`.
 //!
 //! What it is and is not: the lookup is exact (every hit it returned agreed
 //! with the byte-fingerprint census, none disagreed), but the map belongs to
@@ -40,6 +42,9 @@ const NODE_HASH: usize = 0x20;
 const NODE_DESC: usize = 0x70;
 const NODE_FLAG: usize = 0x78;
 const NODE_SIZE: usize = 0x80;
+/// A link (and a record head) targets the node's embedded link field; the
+/// window the offsets above describe starts this far before it.
+const NODE_WINDOW_BEFORE: u64 = 0x10;
 
 fn u64_at(b: &[u8], o: usize) -> u64 {
     u64::from_le_bytes(b[o..o + 8].try_into().unwrap())
@@ -51,28 +56,45 @@ fn heapish(v: u64) -> bool {
     (0x1_0000_0000..0x8000_0000_0000).contains(&v) && v % 8 == 0
 }
 
-/// Does a run of records look like a root's? Every record of a real root
-/// carries the same heap pointer at `+0x30` (a shared allocator or type
-/// object), so at least three of the first records must agree on one, and
-/// at least one must have a heap head. Self-referential: no value from a
-/// previous session is needed.
+/// The word real records carry at `+8` (`{Num = 0, Max = 4}` of an inline
+/// array, by the look of it); not every record has it, but every root has
+/// records that do.
+const REC_TAG: u64 = 0x0000_0004_0000_0000;
+
+/// Does a run of records look like a root's? Three structural checks —
+/// the weakest alone (records sharing a heap pointer at `+0x30`) matches a
+/// generic object-array pattern 21,000 times over in a live process:
+///
+/// 1. at least three of the first records agree on one heap pointer at
+///    `+0x30` (a shared allocator or type object);
+/// 2. at least one record carries the tag word at `+8`;
+/// 3. at least one record has a heap pointer as its head at `+0x48`.
+///
+/// Deliberately nothing about the *nodes*: their links and heads change
+/// as the loader works, and a signature that read them flapped between one
+/// call and the next. A false positive here only costs a walk that finds
+/// no valid nodes.
 pub fn records_signature(records: &[u8]) -> bool {
     if records.len() < RECORD as usize * PROBE_RECORDS {
         return false;
     }
     let mut shared: HashMap<u64, usize> = HashMap::new();
-    let mut heads = 0usize;
+    let mut tagged = false;
+    let mut head = false;
     for i in 0..PROBE_RECORDS {
         let rec = i * RECORD as usize;
         let s = u64_at(records, rec + REC_SHARED);
         if heapish(s) {
             *shared.entry(s).or_default() += 1;
         }
+        if u64_at(records, rec + 8) == REC_TAG {
+            tagged = true;
+        }
         if heapish(u64_at(records, rec + REC_HEAD)) {
-            heads += 1;
+            head = true;
         }
     }
-    heads >= 1 && shared.values().copied().max().unwrap_or(0) >= 3
+    tagged && head && shared.values().copied().max().unwrap_or(0) >= 3
 }
 
 /// One node, decoded from its `NODE_SIZE` bytes.
@@ -193,7 +215,19 @@ pub fn find_roots(p: &Process, exe: &[u8], module_base: u64) -> Result<Vec<Root>
             at += take as u64;
         }
     }
-    Ok(roots)
+    // A static pointer into the *middle* of a root's record array passes
+    // the signature too (it sees the same records). Keep the lowest address
+    // of each such run: the struct start.
+    roots.sort_by_key(|r| r.addr);
+    let span = RECORDS_AT + RECORD * PROBE_RECORDS as u64;
+    let mut kept: Vec<Root> = Vec::new();
+    for r in roots {
+        if kept.last().is_some_and(|k| r.addr < k.addr + span) {
+            continue;
+        }
+        kept.push(r);
+    }
+    Ok(kept)
 }
 
 /// Reattach to cached root RVAs, keeping only those whose target still
@@ -233,7 +267,7 @@ pub fn walk(p: &Process, roots: &[Root]) -> Cache {
             }
             let mut q: VecDeque<u64> = VecDeque::from([head]);
             while let Some(node) = q.pop_front() {
-                let Ok(w) = p.read(node, NODE_SIZE) else {
+                let Ok(w) = p.read(node.wrapping_sub(NODE_WINDOW_BEFORE), NODE_SIZE) else {
                     continue;
                 };
                 let Some(n) = parse_node(&w) else {
@@ -277,14 +311,15 @@ mod tests {
     }
 
     #[test]
-    fn records_signature_needs_a_shared_pointer_and_a_head() {
+    fn records_signature_needs_shared_pointer_tag_word_and_head() {
         let mut recs = vec![0u8; RECORD as usize * PROBE_RECORDS];
         assert!(!records_signature(&recs), "all zeros is not a root");
         for i in [0usize, 5, 9] {
             put64(&mut recs, i * RECORD as usize + REC_SHARED, 0x1a5b34c6700);
         }
-        assert!(!records_signature(&recs), "no head yet");
         put64(&mut recs, 5 * RECORD as usize + REC_HEAD, 0x1aaec93cde0);
+        assert!(!records_signature(&recs), "shared pointer and head alone are not enough");
+        put64(&mut recs, 7 * RECORD as usize + 8, REC_TAG);
         assert!(records_signature(&recs));
         put64(&mut recs, 9 * RECORD as usize + REC_SHARED, 0);
         assert!(!records_signature(&recs), "two agreeing records are not enough");

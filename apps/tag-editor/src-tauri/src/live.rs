@@ -73,6 +73,9 @@ struct Inner {
     /// process change — and is re-validated on every reattach, so a game
     /// update cannot make it lie.
     rvas: Mutex<Option<(u64, u64)>>,
+    /// Where the engine's loader-cache roots sit in the image, as RVAs. Per
+    /// build like `rvas`, and revalidated by signature on every use.
+    cache_rvas: Mutex<Vec<u64>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -142,6 +145,15 @@ impl Live {
 
     pub fn set_rvas(&self, rvas: (u64, u64)) {
         *self.0.rvas.lock().expect("live rvas lock") = Some(rvas);
+    }
+
+    /// Cached loader-cache root RVAs from a previous census, if any.
+    pub fn cache_rvas(&self) -> Vec<u64> {
+        self.0.cache_rvas.lock().expect("live cache rvas lock").clone()
+    }
+
+    pub fn set_cache_rvas(&self, rvas: Vec<u64>) {
+        *self.0.cache_rvas.lock().expect("live cache rvas lock") = rvas;
     }
 
     /// Take on what the object table said: the level and how many tags have

@@ -398,3 +398,30 @@ structures. `tag_cache_table.rs` asks whether *those* holders — the slots
 storing a base that are not descriptors (~95 of the 262 found by the
 level-0 scan) — sit at a fixed stride by tag index: a Blam tag-instance
 table, the classic `table[index] → data`.
+
+### Settled: there is no tag-instance table — the loader's map is the only index
+
+`tag_cache_table.rs`: of 259 slots holding a resident buffer base, 92 are
+not descriptors. None is in static data; they fit **no stride** by runtime
+tag index (37 points, best agreement 1 pair) and none by catalog index (92
+points, best 3 of 91 pairs — noise). Their contexts are assorted consumer
+structures — one holds its tag's buffer as a plain `TArray<u8>` field
+(`{Data = base, Num, Max}`), others sit among per-object pointer tables.
+
+So the engine keeps **no central, index-addressable table of live tag
+data**. Buffers are owned by whatever consumes them; the loader's
+`FPackageId`-keyed map is the only index, exact for what it references and
+partial once loading settles. That is the end of what memory archaeology
+can deliver, and it is enough: the map makes every buffer it references
+instantly and exactly pokeable — likely most of them during and just after
+a level load — and the byte-fingerprint sweep remains for the rest.
+
+### Wired: `blam_live::cache` behind the census
+
+`crates/blam-live/src/cache.rs` carries the production primitives (root
+discovery by a self-referential signature, revalidation of cached root
+RVAs, the bounded node walk, and the `FPackageId` lookup;
+`package_id.rs` is the hash). The tag editor's census runs a `cache` phase
+after the object table: every catalog tag is looked up by id and each hit
+is verified against the tag's own bytes like a sweep hit, then adopted as
+an instant poke base. Root RVAs are cached per build in live state.

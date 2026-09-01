@@ -29,6 +29,7 @@ pub mod refcache;
 pub mod refscan;
 pub mod scripts;
 pub mod secret;
+pub mod tagcache;
 pub mod sounds;
 /// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
 pub use ue_texture as textures;
@@ -856,6 +857,10 @@ struct CensusReport {
     /// Tags with a live object per the object table — a superset of `loaded`.
     /// `None` when the engine globals could not be resolved.
     present: Option<usize>,
+    /// Tags whose buffer the engine's loader cache handed over directly —
+    /// exact, no sweep needed for them. `None` when the cache roots could
+    /// not be found in this build.
+    cached: Option<usize>,
 }
 
 /// Find every loaded tag in one sweep of the game's memory.
@@ -897,6 +902,29 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     if let Some(p) = &present {
         live.adopt_present(process.pid, p.level.clone(), p.tags.len());
     }
+
+    // The loader's own cache next: every tag it still references is a buffer
+    // at an exact address, no sweep needed. Partial by nature (the loader
+    // lets go after loading), so the sweep still runs for the rest; and if
+    // the roots cannot be found in this build, the sweep is all there is.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "cache",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    let cache_hits = {
+        let paks = with_catalog(&state, |c| Ok(c.paks().to_path_buf()))?;
+        match tagcache::roots(&process, &paks, &live.cache_rvas()) {
+            Ok((roots, rvas)) => {
+                live.set_cache_rvas(rvas);
+                Some(with_catalog(&state, |c| Ok(tagcache::resolve(&process, c, &roots)))?)
+            }
+            Err(_) => None,
+        }
+    };
 
     let _ = app.emit(
         "live-census",
@@ -950,9 +978,38 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     let by_id: std::collections::HashMap<u32, &census::TagPrint> =
         prints.iter().map(|p| (p.index, p)).collect();
     let mut found = Vec::new();
+    let mut cached_verified = 0usize;
     {
         let guard = state.catalog.lock().map_err(|e| e.to_string())?;
         let catalog = guard.as_ref().ok_or("no installation is open")?;
+        // Cache hits first. They are exact by construction, but they go
+        // through the same verification as a sweep hit so `loaded` carries a
+        // fraction for them and a stale root cannot slip a wrong base in.
+        if let Some(hits) = &cache_hits {
+            for (index, base) in &hits.bases {
+                let (Some(print), Some(entry), Ok(payload)) = (
+                    by_id.get(&(*index as u32)),
+                    catalog.entry(*index),
+                    catalog.read_tag(*index),
+                ) else {
+                    continue;
+                };
+                let fraction = blam_live::verify(&process, &payload, &print.region, *base);
+                if fraction > 0.10 {
+                    cached_verified += 1;
+                    found.push((
+                        (entry.group.clone(), entry.short.clone()),
+                        *base,
+                        live::LoadedTag {
+                            index: *index,
+                            group: entry.group.clone(),
+                            short: entry.short.clone(),
+                            fraction,
+                        },
+                    ));
+                }
+            }
+        }
         for hit in &outcome.hits {
             let Some(print) = by_id.get(&hit.id) else {
                 continue;
@@ -1077,6 +1134,7 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         secs: started.elapsed().as_secs_f32(),
         loaded,
         present: present.as_ref().map(|p| p.tags.len()),
+        cached: cache_hits.as_ref().map(|_| cached_verified),
     })
 }
 

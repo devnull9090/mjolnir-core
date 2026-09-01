@@ -54,7 +54,8 @@ fn tag_cache_table() {
         if desc_set.contains(h) {
             continue;
         }
-        others.push((*h, resident[v].0, *v));
+        let Some((i, _, _)) = resident.get(v) else { continue };
+        others.push((*h, *i, *v));
     }
     eprintln!(
         "{} holders of a resident base; {} are not descriptors",
@@ -71,16 +72,9 @@ fn tag_cache_table() {
 
     // ---- Fit slot address against runtime tag index and catalog index,
     // per region.
-    for (label, key): (&str, &dyn Fn(usize) -> Option<usize>) in [
-        ("runtime tag index", &|i| pos_of.get(&i).copied()),
-        ("catalog index", &|i| Some(i)),
-    ] {
-        let pts: Vec<(u64, usize)> = others
-            .iter()
-            .filter_map(|(h, i, _)| key(*i).map(|k| (*h, k)))
-            .collect();
+    fn fit(label: &str, pts: &[(u64, usize)]) {
         let mut by_page: BTreeMap<u64, Vec<(u64, usize)>> = BTreeMap::new();
-        for pt in &pts {
+        for pt in pts {
             by_page.entry(pt.0 >> 20).or_default().push(*pt);
         }
         eprintln!("fit vs {label}: {} points in {} regions", pts.len(), by_page.len());
@@ -121,6 +115,13 @@ fn tag_cache_table() {
             }
         }
     }
+    let by_runtime: Vec<(u64, usize)> = others
+        .iter()
+        .filter_map(|(h, i, _)| pos_of.get(i).map(|k| (*h, *k)))
+        .collect();
+    let by_catalog: Vec<(u64, usize)> = others.iter().map(|(h, i, _)| (*h, *i)).collect();
+    fit("runtime tag index", &by_runtime);
+    fit("catalog index", &by_catalog);
 
     // ---- Context of a few non-descriptor holders: what structure are they in?
     for (h, i, base) in others.iter().take(5) {

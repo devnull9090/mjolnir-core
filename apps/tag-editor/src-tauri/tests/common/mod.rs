@@ -47,8 +47,11 @@ pub fn range_scan(p: &blam_live::Process, ranges: &[(u64, u64)]) -> Vec<(u64, u6
     out
 }
 
+/// One-value ranges, so a scan matches exactly these addresses. (An earlier
+/// `[a, a+8)` form let a value 1-7 bytes above a target match, which broke
+/// exact-key lookups on the hits.)
 pub fn exact_ranges(addrs: &[u64]) -> Vec<(u64, u64)> {
-    let mut v: Vec<(u64, u64)> = addrs.iter().map(|a| (*a, *a + 8)).collect();
+    let mut v: Vec<(u64, u64)> = addrs.iter().map(|a| (*a, *a + 1)).collect();
     v.sort_unstable();
     v.dedup();
     v

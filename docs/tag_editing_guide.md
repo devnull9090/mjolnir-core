@@ -451,6 +451,13 @@ straight to the sweep. After a census:
 - the file browser gains an **● in game** view listing exactly the tags the game is holding
   right now, each row badged with a green dot wherever it appears.
 
+The census also asks the engine's **loader cache** first — the map the loader keeps of every
+package it currently references, read straight from the game's memory by package id. Every
+buffer it hands over is adopted at its exact address without the sweep. It is the loader's
+map, so it forgets a buffer once loading is done: in a settled mission it covers a fraction
+of what the sweep finds, and most of it during and just after a level load. The census note
+says how many came straight from it.
+
 The census is a statement about *now*: load a different level and the set is stale — scan
 again. Tags the census could not pin down (a payload too small to fingerprint, or two
 identical copies in memory) simply fall back to the old single-tag scan on their first edit.
