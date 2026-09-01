@@ -88,9 +88,20 @@ tags known to be resident, the data buffer is **not** in the `UObject`'s first
 Blam-side structure, as `docs/live_tag_locating.md` found from the other
 direction (scattered per-tag records, no dense table).
 
-## Where this meets the census
+## Where this meets the census — now wired (tag editor 0.16.0)
 
-Combining them is still the prize, with one hypothesis now eliminated:
+`apps/tag-editor/src-tauri/src/present.rs` puts the reader in front of the
+census. Arming live mode calls `live_probe` (reader only): the level and the
+present count land in about a second with no sweep. The census runs the reader
+as its first phase, so its level is the object table's exact answer; the
+scenario fingerprint and reference-graph guess survive only as the fallback
+for a build whose globals do not resolve. The two globals' RVAs are cached per
+build and re-validated on every reattach by `ObjectTable::validate` — each
+object carries its own slot index in `InternalIndex`, which a stale offset
+cannot fake (a plain element-count range check *was* fooled in testing).
+Measured: cold attach ~0.4 s, walk ~1.0 s, warm reattach ~2 ms.
+
+Combining them was the prize, with one hypothesis eliminated along the way:
 
 - **Identity and level: use the reader.** 366 of 369 resident tags have a
   `UObject`, so coverage is effectively complete, and exactly one scenario

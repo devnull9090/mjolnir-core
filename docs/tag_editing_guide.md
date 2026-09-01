@@ -432,6 +432,13 @@ running game as well as the project, and takes effect immediately.
 In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
 accepted edit is also written into the game.
 
+Switch it on and, within about a second, the status line names the **level you are in** —
+read from the engine's own object table (exactly one scenario object is ever loaded), with
+no memory scan at all — and how many tags are *present* (have a live object). Present is
+not the same as pokeable: an object exists for nearly every tag whether or not its data is
+resident, so it is the identity index, not the editable set. Finding the editable set is
+what the scan is for.
+
 Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
 the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
 a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15

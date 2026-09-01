@@ -64,6 +64,15 @@ struct Inner {
     loaded: Mutex<Vec<LoadedTag>>,
     /// The loaded scenario's short path — which level the player is in.
     level: Mutex<Option<String>>,
+    /// Tags with a live object in the game, from the object table. A
+    /// superset of `loaded`: an object exists for nearly every tag whether or
+    /// not its data is resident (see `crate::present`).
+    present: Mutex<usize>,
+    /// Where the engine's object table and name pool sit in the game image,
+    /// as RVAs. A property of the build, not the launch, so it survives a
+    /// process change — and is re-validated on every reattach, so a game
+    /// update cannot make it lie.
+    rvas: Mutex<Option<(u64, u64)>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -78,9 +87,12 @@ pub struct Status {
     /// How many tags have a known address, so the UI can say which edits will
     /// be instant and which will pay for a scan.
     pub located: usize,
-    /// The loaded scenario's short path, from the last census — which level
-    /// the player is in. `None` before a census, or when none was found.
+    /// The loaded scenario's short path — which level the player is in. From
+    /// the object table (exact) or, failing that, the census. `None` before
+    /// either has run.
     pub level: Option<String>,
+    /// Tags with a live object, from the object table. Not the pokeable set.
+    pub present: usize,
 }
 
 #[derive(Serialize, Clone)]
@@ -110,6 +122,7 @@ impl Live {
             pid,
             located: self.0.bases.lock().expect("live base lock").len(),
             level: self.0.level.lock().expect("live level lock").clone(),
+            present: *self.0.present.lock().expect("live present lock"),
         }
     }
 
@@ -117,6 +130,31 @@ impl Live {
         self.0.bases.lock().expect("live base lock").clear();
         self.0.loaded.lock().expect("live loaded lock").clear();
         *self.0.level.lock().expect("live level lock") = None;
+        *self.0.present.lock().expect("live present lock") = 0;
+        // `rvas` deliberately survives: it belongs to the build, not the
+        // process, and reattach validates it anyway.
+    }
+
+    /// Cached engine-global RVAs from a previous reader attach, if any.
+    pub fn rvas(&self) -> Option<(u64, u64)> {
+        *self.0.rvas.lock().expect("live rvas lock")
+    }
+
+    pub fn set_rvas(&self, rvas: (u64, u64)) {
+        *self.0.rvas.lock().expect("live rvas lock") = Some(rvas);
+    }
+
+    /// Take on what the object table said: the level and how many tags have
+    /// a live object. Does not touch `bases` or `loaded` — those are the
+    /// census's, and they mean something different.
+    pub fn adopt_present(&self, pid: u32, level: Option<String>, present: usize) {
+        let mut held = self.0.pid.lock().expect("live pid lock");
+        if *held != Some(pid) {
+            self.forget();
+            *held = Some(pid);
+        }
+        *self.0.level.lock().expect("live level lock") = level;
+        *self.0.present.lock().expect("live present lock") = present;
     }
 
     /// What the last census found, for the UI.

@@ -560,9 +560,14 @@ export type LiveStatus = {
   pid: number | null;
   /** Tags whose address is already known, so an edit to them is instant. */
   located: number;
-  /** The loaded scenario's short path — which level the player is in. Known
-   *  only after a census. */
+  /** The loaded scenario's short path — which level the player is in. Read
+   *  from the engine's object table (exact) the moment live mode is armed, or
+   *  from the census. */
   level: string | null;
+  /** Tags with a live object per the engine's object table. A superset of
+   *  the pokeable set — an object exists for nearly every tag whether or not
+   *  its data is resident. */
+  present: number;
 };
 
 /** One tag a census found loaded in the running game. */
@@ -583,11 +588,22 @@ export type CensusReport = {
   scanned_mb: number;
   secs: number;
   loaded: LoadedTag[];
+  /** Tags with a live object per the object table; null when the engine
+   *  globals could not be resolved (the sweep still ran). */
+  present: number | null;
+};
+
+/** What the engine's object table says, without a memory sweep. */
+export type ProbeReport = {
+  level: string | null;
+  present: number;
+  objects: number;
+  secs: number;
 };
 
 /** Progress of a running census, as `live-census` events report it. */
 export type CensusProgress = {
-  phase: "prints" | "scan";
+  phase: "objects" | "prints" | "scan";
   done_mb: number;
   total_mb: number;
 };
@@ -640,6 +656,7 @@ const tauriApi = {
     invoke<Poked>("live_poke", { index, path, value }),
   liveCensus: () => invoke<CensusReport>("live_census"),
   liveLoaded: () => invoke<LoadedTag[]>("live_loaded"),
+  liveProbe: () => invoke<ProbeReport>("live_probe"),
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
