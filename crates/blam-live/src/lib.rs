@@ -49,6 +49,9 @@ use std::ops::Range;
 
 mod sys;
 
+pub mod names;
+pub mod objects;
+
 pub use sys::{Process, ProcessInfo};
 
 /// The executable the game runs as.
