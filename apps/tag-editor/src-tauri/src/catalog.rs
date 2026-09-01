@@ -1024,6 +1024,22 @@ impl Catalog {
         index.get(&id).copied()
     }
 
+    /// A fingerprint over everything the per-installation caches depend on:
+    /// each container's identity and every tag's `(group, short)` in catalog
+    /// order. A game update, an installed mod or a reordered catalog all
+    /// change it. Used by both the reverse-reference cache and the census
+    /// fingerprint cache; a stale hit requires a wrong-but-matching clock.
+    pub fn install_fingerprint(&self) -> u64 {
+        let mut fp = crate::refcache::Fingerprint::new();
+        for c in &self.containers {
+            fp.container(&c.utoc_path, c.container_id, c.chunks.len());
+        }
+        for t in &self.tags {
+            fp.tag(&t.group, &t.short);
+        }
+        fp.finish()
+    }
+
     /// Every tag whose body references the tag at `index`, as summaries.
     ///
     /// The first call builds the reverse index: every tag's payload is read
@@ -1038,14 +1054,7 @@ impl Catalog {
             // The scan is a pure function of the tag chunks, so a cached
             // result from a previous session is as good as a fresh one for as
             // long as the installation fingerprint holds (see `refcache`).
-            let mut fp = crate::refcache::Fingerprint::new();
-            for c in &self.containers {
-                fp.container(&c.utoc_path, c.container_id, c.chunks.len());
-            }
-            for t in &self.tags {
-                fp.tag(&t.group, &t.short);
-            }
-            let fingerprint = fp.finish();
+            let fingerprint = self.install_fingerprint();
             if let Some(map) = crate::refcache::load(&self.paks, fingerprint) {
                 return map;
             }

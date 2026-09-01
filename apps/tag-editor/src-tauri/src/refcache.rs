@@ -60,17 +60,23 @@ impl Fingerprint {
     }
 }
 
-/// Where the index for one Paks directory lives. The file is named by a hash
-/// of the directory path, so two installations do not evict each other.
-fn cache_path(paks: &Path) -> Option<PathBuf> {
+/// Where a per-installation cache file lives. The file is named by `stem` and
+/// a hash of the Paks directory path, so two installations do not evict each
+/// other. Shared with the census fingerprint cache (see `crate::census`).
+pub(crate) fn cache_file(paks: &Path, stem: &str) -> Option<PathBuf> {
     let mut h = std::hash::DefaultHasher::new();
     h.write(paks.to_string_lossy().to_ascii_lowercase().as_bytes());
     Some(
         dirs::cache_dir()?
             .join("MJOLNIR")
             .join("tag-editor")
-            .join(format!("refs-{:016x}.json", h.finish())),
+            .join(format!("{stem}-{:016x}.json", h.finish())),
     )
+}
+
+/// Where the reverse-reference index for one Paks directory lives.
+fn cache_path(paks: &Path) -> Option<PathBuf> {
+    cache_file(paks, "refs")
 }
 
 /// The cached index, if one exists and was built from this exact catalog.

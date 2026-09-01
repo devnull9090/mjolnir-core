@@ -121,6 +121,19 @@ const RUN: usize = 48;
 /// point is that enough survive for two to agree.
 const RUNS: usize = 32;
 
+/// How many runs a census fingerprint carries per tag.
+///
+/// A census searches for thousands of tags in one pass, so each tag gets fewer
+/// runs than a single-tag [`locate`] — the search table has to stay small
+/// enough that the prefilter still rejects almost every position. With ~45% of
+/// a data section surviving the engine's fix-ups, the chance that fewer than
+/// two of twelve spread-out runs survive is small; a tag that loses anyway is
+/// simply not censused and still has the full 32-run [`locate`] behind it.
+/// Callers can ask for more per tag via [`print_n`] — the scenario tag is worth
+/// it, because it is both the most heavily fixed-up tag and the one that names
+/// the level.
+const CENSUS_RUNS: usize = 12;
+
 /// How many runs must agree on the same base before it is believed.
 ///
 /// One run matching somewhere across 20 GB of heap does happen. Two independent
@@ -149,6 +162,31 @@ pub struct Located {
     pub scanned: u64,
 }
 
+/// Whether a run's first eight bytes make a usable search anchor.
+///
+/// The first eight bytes are the pattern's key: every scan position is tested
+/// against them, so they must be bytes that do *not* blanket the heap. Measured
+/// on the real fingerprint table, runs anchored at window starts kept landing on
+/// section-header magics (`tsgt`, `frgt`...) and zero/constant stretches —
+/// hundreds of fingerprints sharing one prefix that also appears at millions of
+/// heap positions, which turned the sweep's rare path into its hot path. Both
+/// offender classes fail these two rules.
+fn anchor_quality(run: &[u8]) -> bool {
+    let head = &run[..8];
+    if head.iter().any(|b| *b == 0) {
+        return false;
+    }
+    let mut seen = [false; 256];
+    let mut n = 0;
+    for b in head {
+        if !seen[*b as usize] {
+            seen[*b as usize] = true;
+            n += 1;
+        }
+    }
+    n >= 6
+}
+
 /// Pick byte runs suitable for finding this payload again in memory.
 ///
 /// A run has to be unique within the tag — otherwise a hit says nothing about
@@ -160,17 +198,19 @@ fn pick_runs<'a>(
     payload: &'a [u8],
     region: &Range<usize>,
     avoid: &[Range<usize>],
+    count: usize,
 ) -> Vec<(usize, &'a [u8])> {
     let mut out: Vec<(usize, &[u8])> = Vec::new();
-    if region.len() < RUN * 4 || region.end > payload.len() {
+    if region.len() < RUN * 4 || region.end > payload.len() || count == 0 {
         return out;
     }
-    // Walk the region in RUNS windows and take the first usable run from each,
-    // so the chosen set is spread out rather than clustered wherever the entropy
-    // happens to be highest. Spread matters twice over: against a mod
-    // concentrated in one part of the tag, and against the engine's fix-ups.
-    let span = region.len() / RUNS;
-    for w in 0..RUNS {
+    // Walk the region in `count` windows and take the first candidate from each
+    // that passes the local filters, so the chosen set is spread out rather than
+    // clustered wherever the entropy happens to be highest. Spread matters twice
+    // over: against a mod concentrated in one part of the tag, and against the
+    // engine's fix-ups.
+    let span = region.len() / count;
+    for w in 0..count {
         let from = region.start + w * span;
         let to = (from + span).min(region.end.saturating_sub(RUN));
         let mut off = from;
@@ -191,16 +231,52 @@ fn pick_runs<'a>(
                 }
                 n
             };
-            if !overlaps && zeros <= RUN / 3 && distinct >= 20 && count_of(payload, run) == 1 {
+            if !overlaps && zeros <= RUN / 3 && distinct >= 20 && anchor_quality(run) {
                 out.push((off, run));
                 break;
             }
             off += 4;
         }
     }
-    out
+    if out.is_empty() {
+        return out;
+    }
+
+    // Uniqueness, batched: a run that repeats within the tag cannot say where
+    // the payload starts, so it is dropped. This used to be a whole-payload
+    // scan *per candidate*, which made building a census table over every tag
+    // quadratic — tens of minutes, measured. One pass counting each
+    // candidate's 8-byte prefix does the same job: a prefix that appears once
+    // means the run appears once. A duplicated candidate is dropped rather
+    // than retried, which at worst loses one window's run — agreement needs
+    // only two of them.
+    let mut first = [false; 256];
+    let prefixes: Vec<u64> = out
+        .iter()
+        .map(|(_, run)| u64::from_le_bytes(run[..8].try_into().unwrap()))
+        .collect();
+    for p in &prefixes {
+        first[(*p & 0xFF) as usize] = true;
+    }
+    let mut seen = vec![0u32; prefixes.len()];
+    for i in 0..payload.len().saturating_sub(7) {
+        if !first[payload[i] as usize] {
+            continue;
+        }
+        let v = u64::from_le_bytes(payload[i..i + 8].try_into().unwrap());
+        for (j, p) in prefixes.iter().enumerate() {
+            if v == *p {
+                seen[j] += 1;
+            }
+        }
+    }
+    out.into_iter()
+        .zip(seen)
+        .filter_map(|(c, n)| (n == 1).then_some(c))
+        .collect()
 }
 
+#[cfg(test)]
 fn count_of(haystack: &[u8], needle: &[u8]) -> usize {
     let mut n = 0;
     let mut i = 0;
@@ -224,7 +300,7 @@ pub fn locate(
     region: &Range<usize>,
     avoid: &[Range<usize>],
 ) -> Result<Located> {
-    let runs = pick_runs(payload, region, avoid);
+    let runs = pick_runs(payload, region, avoid, RUNS);
     if runs.is_empty() {
         return Err(Error::TooSmall(region.len()));
     }
@@ -403,6 +479,294 @@ pub fn diff_span(before: &[u8], after: &[u8]) -> Option<Range<usize>> {
     Some(first..last + 1)
 }
 
+// ---------------------------------------------------------------------------
+// Census: every loaded tag in one sweep
+// ---------------------------------------------------------------------------
+//
+// [`locate`] pays for one full pass over the process's writable memory — tens
+// of gigabytes — to find one tag. But the pass itself does not care how many
+// byte runs it is looking for: the cost is reading the memory and testing each
+// position against a prefilter. So the same sweep can carry a few runs from
+// *every* tag in the catalog and answer a different question — "which tags are
+// loaded right now, and where?" — for the price of finding one.
+//
+// That inverts the live-mode experience. Instead of each first edit paying a
+// scan, one census up front locates everything at once; every poke afterwards
+// is a verify-and-write. And because the loaded `scnr` tag is among the hits,
+// the census also answers "which level is the player in?" without asking the
+// game anything.
+
+/// A census fingerprint: a few locator runs for one tag, identified by the
+/// caller's id (the tag editor uses its catalog index).
+pub struct Print {
+    pub id: u32,
+    /// `(file offset, RUN bytes)`, picked by [`print`].
+    pub runs: Vec<(usize, Vec<u8>)>,
+}
+
+/// Build a census fingerprint for one tag, or `None` when the tag's data
+/// section is too small to carry enough independent runs to ever pass the
+/// agreement bar.
+pub fn print(id: u32, payload: &[u8], region: &Range<usize>) -> Option<Print> {
+    print_n(id, payload, region, CENSUS_RUNS)
+}
+
+/// [`print`] with a caller-chosen run count, for tags worth more of the search
+/// table — a scenario is rewritten harder than anything else at load, and it
+/// is the tag that names the level, so it gets [`locate`]'s full spread.
+pub fn print_n(id: u32, payload: &[u8], region: &Range<usize>, count: usize) -> Option<Print> {
+    let runs = pick_runs(payload, region, &[], count);
+    if runs.len() < MIN_AGREEMENT {
+        return None;
+    }
+    Some(Print {
+        id,
+        runs: runs
+            .into_iter()
+            .map(|(off, run)| (off, run.to_vec()))
+            .collect(),
+    })
+}
+
+/// One tag the census found, pending the caller's verification read.
+///
+/// Agreement of independent runs is strong evidence, but tags share structure —
+/// two copies of a weapon differ in a handful of fields — so the caller should
+/// [`verify`] each hit against its own payload before trusting the base.
+#[derive(Debug, Clone)]
+pub struct CensusHit {
+    pub id: u32,
+    /// Address payload byte 0 maps to, as in [`Located`].
+    pub base: u64,
+    pub agreeing_runs: usize,
+}
+
+/// What one sweep of the process found.
+pub struct Census {
+    pub hits: Vec<CensusHit>,
+    /// Tags whose best two candidate bases tied — two identical copies in
+    /// memory, say — and were dropped rather than guessed at.
+    pub ambiguous: usize,
+    /// Bytes of process memory read.
+    pub scanned: u64,
+}
+
+/// The multi-pattern search tables, separated from the process walk so the hot
+/// loop can be tested against an ordinary buffer.
+///
+/// With tens of thousands of runs in play, the single-tag prefilter (256 first
+/// bytes, 2^16 two-byte prefixes) would saturate and reject nothing. This one
+/// keys on the first *eight* bytes: a bloom filter over a hash of the key
+/// rejects almost every position with one multiply and a bit test, and a key
+/// map takes the survivors to the run bodies they might begin. Identical run
+/// bodies — near-copies of a tag share bytes, so their windows pick the same
+/// runs — are stored once and fan out into votes for every owner, so one heap
+/// position never pays the same compare twice.
+struct Matcher<'a> {
+    prints: &'a [Print],
+    /// 2^24 bits over a hash of the eight-byte key.
+    bloom: Vec<u64>,
+    /// Eight-byte key -> indices into `bodies`.
+    by_key: HashMap<u64, Vec<u32>>,
+    /// One entry per distinct run body: the bytes (borrowed from the first
+    /// owner) and every `(print index, run index)` that carries them.
+    bodies: Vec<(&'a [u8], Vec<(u32, u32)>)>,
+}
+
+/// Votes: `(print index, candidate base)` -> distinct run indices that agreed.
+type Votes = HashMap<(u32, u64), Vec<u32>>;
+
+const BLOOM_BITS: u32 = 24;
+
+fn bloom_slot(key: u64) -> (usize, u64) {
+    let h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - BLOOM_BITS);
+    ((h as usize) >> 6, 1u64 << (h & 63))
+}
+
+impl<'a> Matcher<'a> {
+    fn new(prints: &'a [Print]) -> Self {
+        let mut bloom = vec![0u64; 1 << (BLOOM_BITS - 6)];
+        let mut by_key: HashMap<u64, Vec<u32>> = HashMap::new();
+        let mut bodies: Vec<(&[u8], Vec<(u32, u32)>)> = Vec::new();
+        let mut by_body: HashMap<&[u8], u32> = HashMap::new();
+        for (p, print) in prints.iter().enumerate() {
+            for (r, (_, run)) in print.runs.iter().enumerate() {
+                let owner = (p as u32, r as u32);
+                match by_body.entry(run.as_slice()) {
+                    std::collections::hash_map::Entry::Occupied(e) => {
+                        bodies[*e.get() as usize].1.push(owner);
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let key = u64::from_le_bytes(run[..8].try_into().unwrap());
+                        let (slot, bit) = bloom_slot(key);
+                        bloom[slot] |= bit;
+                        e.insert(bodies.len() as u32);
+                        by_key.entry(key).or_default().push(bodies.len() as u32);
+                        bodies.push((run.as_slice(), vec![owner]));
+                    }
+                }
+            }
+        }
+        Matcher {
+            prints,
+            bloom,
+            by_key,
+            bodies,
+        }
+    }
+
+    /// Scan one buffer of process memory that starts at `addr`, adding votes.
+    fn scan(&self, buf: &[u8], addr: u64, votes: &mut Votes) {
+        if buf.len() < RUN {
+            return;
+        }
+        let last = buf.len() - RUN;
+        for i in 0..=last {
+            let key = u64::from_le_bytes(buf[i..i + 8].try_into().unwrap());
+            let (slot, bit) = bloom_slot(key);
+            if self.bloom[slot] & bit == 0 {
+                continue;
+            }
+            let Some(list) = self.by_key.get(&key) else {
+                continue;
+            };
+            for &bi in list {
+                let (body, owners) = &self.bodies[bi as usize];
+                if &buf[i..i + RUN] == *body {
+                    for &(p, r) in owners {
+                        let off = self.prints[p as usize].runs[r as usize].0;
+                        let base = (addr + i as u64).wrapping_sub(off as u64);
+                        votes.entry((p, base)).or_default().push(r);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Turn merged votes into at most one hit per print.
+fn tally(prints: &[Print], votes: Votes) -> (Vec<CensusHit>, usize) {
+    // Per print: candidate bases ranked by how many *distinct* runs agree.
+    let mut per_print: HashMap<u32, Vec<(u64, usize)>> = HashMap::new();
+    for ((p, base), mut runs) in votes {
+        runs.sort_unstable();
+        runs.dedup();
+        per_print.entry(p).or_default().push((base, runs.len()));
+    }
+    let mut hits = Vec::new();
+    let mut ambiguous = 0;
+    for (p, mut ranked) in per_print {
+        ranked.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+        let (base, agreeing) = ranked[0];
+        if agreeing < MIN_AGREEMENT {
+            continue;
+        }
+        if ranked.len() > 1 && ranked[1].1 == agreeing {
+            // Two bases equally believable: identical copies in memory. A
+            // write to the wrong copy is worse than no write, so drop it.
+            ambiguous += 1;
+            continue;
+        }
+        hits.push(CensusHit {
+            id: prints[p as usize].id,
+            base,
+            agreeing_runs: agreeing,
+        });
+    }
+    hits.sort_by_key(|h| h.id);
+    (hits, ambiguous)
+}
+
+/// Sweep the process once and report a candidate base for every print found.
+///
+/// `progress` is called with `(bytes scanned, bytes total)` as regions
+/// complete; it must be cheap and thread-safe, because the sweep runs on
+/// several threads. The thread count is deliberately about half the machine:
+/// the process being scanned is a *game the player may be looking at*, and
+/// taking every core turns the census into a hitch they can feel.
+pub fn census(
+    process: &Process,
+    prints: &[Print],
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<Census> {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    if prints.is_empty() {
+        return Ok(Census {
+            hits: Vec::new(),
+            ambiguous: 0,
+            scanned: 0,
+        });
+    }
+    let matcher = Matcher::new(prints);
+
+    // Windows over every region, sized so a thread's buffer stays modest and
+    // work splits evenly; overlapped by a run length so no seam hides a match.
+    const WINDOW: u64 = 16 * 1024 * 1024;
+    let mut jobs: Vec<(u64, usize)> = Vec::new();
+    let mut total: u64 = 0;
+    for region in process.writable_regions()? {
+        total += region.size;
+        let mut at = 0u64;
+        while at < region.size {
+            let want = (WINDOW + RUN as u64 - 1).min(region.size - at) as usize;
+            jobs.push((region.base + at, want));
+            at += WINDOW;
+        }
+    }
+
+    let next = AtomicUsize::new(0);
+    let scanned = AtomicU64::new(0);
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .div_ceil(2)
+        .clamp(1, 8);
+
+    let votes: Votes = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let matcher = &matcher;
+                let jobs = &jobs;
+                let next = &next;
+                let scanned = &scanned;
+                s.spawn(move || {
+                    let mut local: Votes = HashMap::new();
+                    let mut window = vec![0u8; (WINDOW as usize) + RUN];
+                    loop {
+                        let j = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(&(addr, want)) = jobs.get(j) else {
+                            break;
+                        };
+                        // A region can decommit mid-sweep; whatever cannot be
+                        // read is simply not scanned.
+                        if let Ok(got) = process.read_into(addr, &mut window[..want]) {
+                            matcher.scan(&window[..got], addr, &mut local);
+                            let done = scanned.fetch_add(got as u64, Ordering::Relaxed);
+                            progress(done + got as u64, total);
+                        }
+                    }
+                    local
+                })
+            })
+            .collect();
+        let mut merged: Votes = HashMap::new();
+        for w in workers {
+            for (key, mut runs) in w.join().expect("census worker panicked") {
+                merged.entry(key).or_default().append(&mut runs);
+            }
+        }
+        merged
+    });
+
+    let (hits, ambiguous) = tally(prints, votes);
+    Ok(Census {
+        hits,
+        ambiguous,
+        scanned: scanned.into_inner(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,7 +787,7 @@ mod tests {
     fn runs_are_unique_and_spread_across_the_region() {
         let p = payload(51_023);
         let region = 0x4800..p.len();
-        let runs = pick_runs(&p, &region, &[]);
+        let runs = pick_runs(&p, &region, &[], RUNS);
         assert!(
             runs.len() >= 8,
             "expected a spread of runs, got {}",
@@ -450,7 +814,7 @@ mod tests {
         // from them can never match and would only waste a prefilter slot.
         let p = payload(51_023);
         let region = 0x4800..p.len();
-        for (off, _) in pick_runs(&p, &region, &[]) {
+        for (off, _) in pick_runs(&p, &region, &[], RUNS) {
             assert!(
                 off >= region.start && off + RUN <= region.end,
                 "run at {off:#x} escapes the resident region {region:#x?}"
@@ -463,7 +827,7 @@ mod tests {
         let p = payload(51_023);
         // Stand in for a mod that changed two fields.
         let avoid = vec![0x8896..0x889A, 0x88C2..0x88C6];
-        for (off, _) in pick_runs(&p, &(0x4800..p.len()), &avoid) {
+        for (off, _) in pick_runs(&p, &(0x4800..p.len()), &avoid, RUNS) {
             for a in &avoid {
                 let overlaps = off < a.end && a.start < off + RUN;
                 assert!(!overlaps, "run at {off:#x} overlaps modded field {a:#x?}");
@@ -474,9 +838,9 @@ mod tests {
     #[test]
     fn a_region_too_small_to_fingerprint_is_rejected_not_guessed() {
         let p = payload(4096);
-        assert!(pick_runs(&p, &(0..RUN * 2), &[]).is_empty());
+        assert!(pick_runs(&p, &(0..RUN * 2), &[], RUNS).is_empty());
         // A region running off the end of the payload must not panic either.
-        assert!(pick_runs(&p, &(0..p.len() + 999), &[]).is_empty());
+        assert!(pick_runs(&p, &(0..p.len() + 999), &[], RUNS).is_empty());
     }
 
     #[test]
@@ -494,5 +858,126 @@ mod tests {
     fn identical_payloads_have_no_diff_span() {
         let p = payload(512);
         assert_eq!(diff_span(&p, &p), None);
+    }
+
+    /// A distinct deterministic payload per seed, so census tests can hold
+    /// several "tags" that share no bytes. SplitMix64 over `(seed, index)`
+    /// rather than an LCG walked from a seed: every LCG orbit is one shared
+    /// cycle, so two "different" payloads would be shifted copies of the same
+    /// stream and could collide by construction.
+    fn seeded_payload(len: usize, seed: u64) -> Vec<u8> {
+        (0..len as u64)
+            .map(|n| {
+                let mut z = n.wrapping_add(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                (z >> 33) as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn census_matcher_finds_each_planted_tag_at_its_base() {
+        // Three tags, two of them planted into a heap-like buffer at known
+        // offsets, the third absent. The matcher must report exactly the two
+        // planted bases, each with more runs agreeing than the bar asks.
+        let tags: Vec<Vec<u8>> = (0..3).map(|i| seeded_payload(24_000, 77 + i)).collect();
+        let prints: Vec<Print> = tags
+            .iter()
+            .enumerate()
+            .map(|(i, t)| print(i as u32, t, &(0x400..t.len())).expect("printable"))
+            .collect();
+
+        let mut heap = seeded_payload(1_500_000, 999);
+        let addr = 0x7ff6_0000_0000u64;
+        // Only the "data section" is resident, as in the real heap.
+        heap[300_000..300_000 + 24_000 - 0x400].copy_from_slice(&tags[0][0x400..]);
+        heap[900_000..900_000 + 24_000 - 0x400].copy_from_slice(&tags[2][0x400..]);
+
+        let matcher = Matcher::new(&prints);
+        let mut votes = Votes::new();
+        matcher.scan(&heap, addr, &mut votes);
+        let (hits, ambiguous) = tally(&prints, votes);
+
+        assert_eq!(ambiguous, 0);
+        assert_eq!(
+            hits.iter().map(|h| h.id).collect::<Vec<_>>(),
+            vec![0, 2],
+            "exactly the planted tags are found"
+        );
+        for hit in &hits {
+            let planted = if hit.id == 0 { 300_000 } else { 900_000 };
+            assert_eq!(hit.base, addr + planted - 0x400, "base maps payload byte 0");
+            assert!(hit.agreeing_runs >= MIN_AGREEMENT);
+        }
+    }
+
+    #[test]
+    fn census_survives_a_partly_rewritten_tag() {
+        // The engine rewrites much of a data section in place. Zero half of
+        // the planted copy in alternating stripes; enough spread-out runs must
+        // still land for the tag to be found.
+        let tag = seeded_payload(32_000, 4242);
+        let prints = vec![print(7, &tag, &(0x400..tag.len())).expect("printable")];
+
+        let mut heap = seeded_payload(600_000, 31337);
+        let resident = 32_000 - 0x400;
+        heap[100_000..100_000 + resident].copy_from_slice(&tag[0x400..]);
+        // Zero the first half of every other run-picking window, so the runs
+        // chosen there are destroyed and only the odd windows' runs survive.
+        let span = resident / CENSUS_RUNS;
+        for w in (0..CENSUS_RUNS).step_by(2) {
+            let from = 100_000 + w * span;
+            heap[from..from + span / 2].fill(0);
+        }
+
+        let matcher = Matcher::new(&prints);
+        let mut votes = Votes::new();
+        matcher.scan(&heap, 0x1000, &mut votes);
+        let (hits, _) = tally(&prints, votes);
+        assert_eq!(hits.len(), 1, "half-rewritten tag is still censused");
+        assert_eq!(hits[0].base, 0x1000 + 100_000 - 0x400);
+    }
+
+    #[test]
+    fn census_matches_across_a_window_seam() {
+        // Feed the same heap in two overlapping windows, as the sweep does,
+        // and check a tag straddling the cut is still found once.
+        let tag = seeded_payload(24_000, 555);
+        let prints = vec![print(1, &tag, &(0x400..tag.len())).expect("printable")];
+        let mut heap = seeded_payload(400_000, 777);
+        heap[190_000..190_000 + 24_000 - 0x400].copy_from_slice(&tag[0x400..]);
+
+        let matcher = Matcher::new(&prints);
+        let mut votes = Votes::new();
+        let cut = 200_000;
+        matcher.scan(&heap[..cut + RUN - 1], 0, &mut votes);
+        matcher.scan(&heap[cut..], cut as u64, &mut votes);
+        let (hits, _) = tally(&prints, votes);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].base, 190_000 - 0x400);
+    }
+
+    #[test]
+    fn two_identical_copies_are_ambiguous_not_guessed() {
+        let tag = seeded_payload(24_000, 888);
+        let prints = vec![print(3, &tag, &(0x400..tag.len())).expect("printable")];
+        let mut heap = seeded_payload(700_000, 222);
+        heap[50_000..50_000 + 24_000 - 0x400].copy_from_slice(&tag[0x400..]);
+        heap[400_000..400_000 + 24_000 - 0x400].copy_from_slice(&tag[0x400..]);
+
+        let matcher = Matcher::new(&prints);
+        let mut votes = Votes::new();
+        matcher.scan(&heap, 0, &mut votes);
+        let (hits, ambiguous) = tally(&prints, votes);
+        assert!(hits.is_empty(), "no base wins when two copies tie");
+        assert_eq!(ambiguous, 1);
+    }
+
+    #[test]
+    fn a_tag_too_small_to_print_is_refused() {
+        // Below the same RUN * 4 floor `locate` applies; no runs, no print.
+        let tiny = seeded_payload(RUN * 4 - 1, 9);
+        assert!(print(0, &tiny, &(0..tiny.len())).is_none());
     }
 }

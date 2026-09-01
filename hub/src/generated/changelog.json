@@ -41,6 +41,37 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.15.0",
+      "tag": "tag-editor-v0.15.0",
+      "title": "Live mode learns what the game is holding",
+      "date": "2026-08-31",
+      "summary": "One scan finds every loaded tag at once — no more minutes-long search per edit — makes them instant to poke, and names the level you are in.",
+      "body": "Live mode could push an edit into the running game, but finding where a tag\nlived cost a full sweep of the game's memory — minutes — and it paid that\nprice again for every tag you touched. The sweep itself never cared how many\ntags it was looking for. Now it looks for all of them.\n\n### Added\n\n- **Scan game (the census).** Next to the live toggle: one sweep of the\n  game's memory carries a small fingerprint for *every* tag in the catalog\n  and reports everything that is loaded, at its address. Every found tag\n  then edits instantly. Measured against a mission in the shipped build:\n  12.6 GB swept in ~15 seconds, 324 loaded tags verified. The sweep runs on\n  several cores (about half the machine, so the game does not hitch) and\n  streams progress as it goes.\n- **Live mode knows your level.** The loaded scenario tag falls out of the\n  census like any other — the scenario gets an extra-thorough fingerprint,\n  because the engine rewrites it harder than any other tag — so the status\n  line can say which level you are in without asking the game anything.\n- **● in game.** After a census the file browser grows a green **in game**\n  view — exactly the tags the game is holding right now, openable like any\n  search result — and badges those rows wherever they appear.\n- **Fingerprint cache.** Building the census fingerprints reads every tag\n  payload once (tens of seconds, like the \"referenced by\" index) and is then\n  cached on disk per installation, so later sessions skip straight to the\n  sweep.\n\n### Changed\n\n- **Every census hit is verified before it is believed.** Tags share\n  structure — two variants of a weapon differ in a handful of fields — so\n  each candidate address is re-scored against its own tag's bytes at the\n  same bar a cached address must clear before a poke. Two identical copies\n  in memory score as ambiguous and are left for the single-tag scan rather\n  than guessed at.\n- The single-tag scan is unchanged and remains the fallback for anything\n  the census could not pin down.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Scan game (the census). Next to the live toggle: one sweep of the game's memory carries a small fingerprint for every tag in the catalog and reports everything that is loaded, at its address. Every found tag then edits instantly. Measured against a mission in the shipped build: 12.6 GB swept in ~15 seconds, 324 loaded tags verified. The sweep runs on several cores (about half the machine, so the game does not hitch) and streams progress as it goes.",
+            "Live mode knows your level. The loaded scenario tag falls out of the census like any other — the scenario gets an extra-thorough fingerprint, because the engine rewrites it harder than any other tag — so the status line can say which level you are in without asking the game anything.",
+            "● in game. After a census the file browser grows a green in game view — exactly the tags the game is holding right now, openable like any search result — and badges those rows wherever they appear.",
+            "Fingerprint cache. Building the census fingerprints reads every tag payload once (tens of seconds, like the \"referenced by\" index) and is then cached on disk per installation, so later sessions skip straight to the sweep."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Every census hit is verified before it is believed. Tags share structure — two variants of a weapon differ in a handful of fields — so each candidate address is re-scored against its own tag's bytes at the same bar a cached address must clear before a poke. Two identical copies in memory score as ambiguous and are left for the single-tag scan rather than guessed at.",
+            "The single-tag scan is unchanged and remains the fallback for anything the census could not pin down."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.15.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.15.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.15.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.14.0",
       "tag": "tag-editor-v0.14.0",
       "title": "The editor remembers your place",
