@@ -258,9 +258,11 @@ function LiveToggle() {
   const live = useEditor((s) => s.live);
   const liveOn = useEditor((s) => s.liveOn);
   const poking = useEditor((s) => s.livePoking);
+  const scanning = useEditor((s) => s.liveScanning);
   const note = useEditor((s) => s.liveNote);
   const setLiveOn = useEditor((s) => s.setLiveOn);
   const refreshLive = useEditor((s) => s.refreshLive);
+  const censusLive = useEditor((s) => s.censusLive);
 
   // Poll only while armed: the check attaches to the process, and doing that
   // every few seconds for a feature nobody switched on is rude.
@@ -279,9 +281,10 @@ function LiveToggle() {
         onClick={() => setLiveOn(!liveOn)}
         title={
           "Push each edit into the running game as well as the project.\n\n" +
-          "The first edit to a tag has to find it in memory, which takes a few " +
-          "minutes; after that it is instant. Fixed-width fields only — anything " +
-          "that resizes the tag still needs a rebuild.\n\n" +
+          "Scan the game once and every loaded tag is found at the same time, " +
+          "so edits to them are instant; without a scan the first edit to a tag " +
+          "pays for its own search. Fixed-width fields only — anything that " +
+          "resizes the tag still needs a rebuild.\n\n" +
           "Nothing is written to disk, so a live change is gone at the next launch."
         }
         className={`border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
@@ -292,12 +295,29 @@ function LiveToggle() {
       >
         live {liveOn ? "on" : "off"}
       </button>
+      {liveOn && running && (
+        <button
+          type="button"
+          disabled={scanning}
+          onClick={() => void censusLive()}
+          title={
+            "Sweep the game's memory once and find every loaded tag at its " +
+            "address — including which level is loaded. Takes tens of seconds; " +
+            "afterwards every found tag edits instantly."
+          }
+          className="border border-border-subtle px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-text-dim enabled:hover:bg-surface-hover disabled:opacity-50"
+        >
+          {scanning ? "scanning…" : "scan game"}
+        </button>
+      )}
       {liveOn && (
         <span className="font-mono text-[10px] text-text-dim">
           {poking
-            ? "writing… (first edit to a tag scans for it, this takes minutes)"
+            ? "writing…"
             : running
-              ? `game running · pid ${live?.pid} · ${live?.located ?? 0} tag${
+              ? `game running · pid ${live?.pid}` +
+                (live?.level ? ` · in ${live.level}` : "") +
+                ` · ${live?.located ?? 0} tag${
                   (live?.located ?? 0) === 1 ? "" : "s"
                 } located`
               : "no game running — edits are recorded but not pushed"}

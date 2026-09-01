@@ -560,6 +560,36 @@ export type LiveStatus = {
   pid: number | null;
   /** Tags whose address is already known, so an edit to them is instant. */
   located: number;
+  /** The loaded scenario's short path — which level the player is in. Known
+   *  only after a census. */
+  level: string | null;
+};
+
+/** One tag a census found loaded in the running game. */
+export type LoadedTag = {
+  index: number;
+  group: string;
+  short: string;
+  /** Fraction of the data section verified byte-for-byte; well under 1.0 is
+   *  normal, the engine rewrites much of a tag at load. */
+  fraction: number;
+};
+
+/** What one census of the game's memory established. */
+export type CensusReport = {
+  located: number;
+  level: string | null;
+  ambiguous: number;
+  scanned_mb: number;
+  secs: number;
+  loaded: LoadedTag[];
+};
+
+/** Progress of a running census, as `live-census` events report it. */
+export type CensusProgress = {
+  phase: "prints" | "scan";
+  done_mb: number;
+  total_mb: number;
 };
 
 /** The result of pushing one field into the running game. */
@@ -608,6 +638,8 @@ const tauriApi = {
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>
     invoke<Poked>("live_poke", { index, path, value }),
+  liveCensus: () => invoke<CensusReport>("live_census"),
+  liveLoaded: () => invoke<LoadedTag[]>("live_loaded"),
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),

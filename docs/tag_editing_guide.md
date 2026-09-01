@@ -430,7 +430,25 @@ were testing. The restart is nearly all of it. **Live mode** skips it: the edit 
 running game as well as the project, and takes effect immediately.
 
 In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
-accepted edit is also written into the game. From the command line:
+accepted edit is also written into the game.
+
+Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
+the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
+a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15
+seconds, 324 loaded tags verified. The first census on an installation also spends about a
+minute fingerprinting every tag; that table is cached on disk, so later sessions skip
+straight to the sweep. After a census:
+
+- every found tag pokes **instantly** — no per-tag first-edit scan;
+- the status line names **the level you are in**, read from the loaded scenario tag;
+- the file browser gains an **● in game** view listing exactly the tags the game is holding
+  right now, each row badged with a green dot wherever it appears.
+
+The census is a statement about *now*: load a different level and the set is stale — scan
+again. Tags the census could not pin down (a payload too small to fingerprint, or two
+identical copies in memory) simply fall back to the old single-tag scan on their first edit.
+
+From the command line:
 
 ```powershell
 mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25
@@ -468,10 +486,11 @@ jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it back.
 - **Fixed-width fields only.** A `string id` or `tag reference` resizes the payload, and a
   heap buffer has nowhere to put the extra bytes. Those still need a rebuild; both the CLI and
   the editor refuse them with that explanation rather than writing something wrong.
-- **The first edit to a tag is slow.** There is no pointer to follow — the tag asset keeps its
-  payload as *unloaded* bulk data — so the buffer is found by scanning ~17 GB for byte runs
-  taken from the tag itself. That is minutes. The address is then cached per tag for the rest
-  of the session, so every later edit is instant.
+- **Finding tags costs one sweep.** There is no pointer to follow — the tag asset keeps its
+  payload as *unloaded* bulk data — so buffers are found by scanning ~17 GB of process memory
+  for byte runs taken from the tags themselves. The **scan game** census pays that sweep once
+  and finds everything; without it, the first edit to each tag pays for its own sweep. Found
+  addresses are cached for the rest of the session, so edits after the sweep are instant.
 - **The tag has to be loaded.** Tags load on demand; be in a mission with the object in play.
 - **Not every field will respond.** Anything the engine consumes once at spawn is already
   baked into whatever it built. Numbers read per use — jump velocity, damage, speeds — are the

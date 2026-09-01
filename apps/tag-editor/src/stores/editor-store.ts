@@ -9,6 +9,8 @@ import {
   type LinkStart,
   type LinkedAsset,
   type LiveStatus,
+  type LoadedTag,
+  type CensusProgress,
   type NodeView,
   type ProjectView,
   type PublishView,
@@ -27,6 +29,8 @@ import {
   type ScriptView,
   type CompileReport,
 } from "../lib/api";
+import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "../lib/mock";
 import {
   loadStoredSession,
   markSessionRestored,
@@ -168,8 +172,19 @@ type EditorState = {
   livePoking: boolean;
   /** What the last poke did, or why it could not. */
   liveNote: string | null;
+  /**
+   * The last census: every tag found loaded in the running game, in one sweep
+   * of its memory. Locating them all at once costs what locating one used to,
+   * makes every found tag poke-instant, and names the level the player is in.
+   */
+  liveLoaded: LoadedTag[];
+  /** The same tags as a catalog-index set, for badging browser rows. */
+  liveLoadedSet: Set<number>;
+  /** Set while a census sweep is running. */
+  liveScanning: boolean;
   refreshLive: () => Promise<void>;
   setLiveOn: (on: boolean) => void;
+  censusLive: () => Promise<void>;
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
@@ -866,6 +881,9 @@ export const useEditor = create<EditorState>((set, get) => {
     liveOn: false,
     livePoking: false,
     liveNote: null,
+    liveLoaded: [],
+    liveLoadedSet: new Set<number>(),
+    liveScanning: false,
 
     viewMode: storedViewMode(),
     setViewMode(mode) {
@@ -1285,6 +1303,43 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ editError: String(e), lastEdit: null });
         return false;
+      }
+    },
+
+    async censusLive() {
+      if (get().liveScanning) return;
+      set({ liveScanning: true, liveNote: "live: preparing tag fingerprints…" });
+      // Progress arrives as events because the sweep runs for tens of seconds;
+      // outside Tauri there is no event bridge and nothing to listen to.
+      let unlisten: (() => void) | null = null;
+      try {
+        if (isTauri) {
+          unlisten = await listen<CensusProgress>("live-census", (e) => {
+            const p = e.payload;
+            set({
+              liveNote:
+                p.phase === "prints"
+                  ? "live: preparing tag fingerprints…"
+                  : `live: scanning game memory · ${Math.round(
+                      (p.done_mb / Math.max(1, p.total_mb)) * 100,
+                    )}% of ${(p.total_mb / 1024).toFixed(1)} GB`,
+            });
+          });
+        }
+        const report = await api.liveCensus();
+        set({
+          liveScanning: false,
+          liveLoaded: report.loaded,
+          liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
+          liveNote:
+            `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s` +
+            (report.level ? ` · in ${report.level}` : ""),
+        });
+        void get().refreshLive();
+      } catch (e) {
+        set({ liveScanning: false, liveNote: `live: ${String(e)}` });
+      } finally {
+        if (unlisten) unlisten();
       }
     },
 

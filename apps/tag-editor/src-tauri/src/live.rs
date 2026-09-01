@@ -40,12 +40,30 @@ pub struct Job {
     pub bytes: Vec<u8>,
 }
 
+/// One tag a census found loaded in the running game.
+#[derive(Serialize, Clone)]
+pub struct LoadedTag {
+    /// Catalog index, for opening the tag in the editor.
+    pub index: usize,
+    pub group: String,
+    pub short: String,
+    /// Fraction of the data section verified byte-for-byte. Well under 1.0 is
+    /// normal — the engine rewrites much of a tag at load.
+    pub fraction: f32,
+}
+
 #[derive(Default)]
 struct Inner {
     /// Bases found this session, per tag. Emptied when the process changes.
+    /// Fed by both single-tag scans and the census, so a censused tag pokes
+    /// instantly.
     bases: Mutex<HashMap<(String, String), u64>>,
     /// Which process the cached bases belong to.
     pid: Mutex<Option<u32>>,
+    /// What the last census found, for the UI. Emptied with `bases`.
+    loaded: Mutex<Vec<LoadedTag>>,
+    /// The loaded scenario's short path — which level the player is in.
+    level: Mutex<Option<String>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -60,6 +78,9 @@ pub struct Status {
     /// How many tags have a known address, so the UI can say which edits will
     /// be instant and which will pay for a scan.
     pub located: usize,
+    /// The loaded scenario's short path, from the last census — which level
+    /// the player is in. `None` before a census, or when none was found.
+    pub level: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -81,18 +102,54 @@ impl Live {
         // no longer exists. Drop them rather than let a stale one be written to.
         let mut held = self.0.pid.lock().expect("live pid lock");
         if *held != pid {
-            self.0.bases.lock().expect("live base lock").clear();
+            self.forget();
             *held = pid;
         }
         Status {
             running: pid.is_some(),
             pid,
             located: self.0.bases.lock().expect("live base lock").len(),
+            level: self.0.level.lock().expect("live level lock").clone(),
         }
     }
 
     pub fn forget(&self) {
         self.0.bases.lock().expect("live base lock").clear();
+        self.0.loaded.lock().expect("live loaded lock").clear();
+        *self.0.level.lock().expect("live level lock") = None;
+    }
+
+    /// What the last census found, for the UI.
+    pub fn loaded(&self) -> Vec<LoadedTag> {
+        self.0.loaded.lock().expect("live loaded lock").clone()
+    }
+
+    /// Take on a census's verified results: every base becomes poke-instant.
+    ///
+    /// Replaces the loaded list rather than merging it — the census is a
+    /// statement about *now*, and a tag found an hour ago may be long gone.
+    /// Bases merge, though: a base a single-tag scan found stays valid, and
+    /// every poke re-verifies before writing anyway.
+    pub fn adopt_census(
+        &self,
+        pid: u32,
+        found: Vec<((String, String), u64, LoadedTag)>,
+        level: Option<String>,
+    ) {
+        let mut held = self.0.pid.lock().expect("live pid lock");
+        let mut bases = self.0.bases.lock().expect("live base lock");
+        if *held != Some(pid) {
+            bases.clear();
+            *held = Some(pid);
+        }
+        let mut loaded: Vec<LoadedTag> = Vec::with_capacity(found.len());
+        for (key, base, tag) in found {
+            bases.insert(key, base);
+            loaded.push(tag);
+        }
+        loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        *self.0.loaded.lock().expect("live loaded lock") = loaded;
+        *self.0.level.lock().expect("live level lock") = level;
     }
 
     /// Write one field into the running game, finding the tag first if needed.

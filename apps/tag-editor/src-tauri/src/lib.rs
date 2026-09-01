@@ -14,6 +14,7 @@ use tauri::{Manager, State};
 
 pub mod bnk;
 pub mod catalog;
+pub mod census;
 pub mod changelog;
 pub mod decode;
 pub mod geometry;
@@ -826,6 +827,232 @@ async fn live_poke(
     tauri::async_runtime::spawn_blocking(move || live.poke(&job))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Progress of a running census, emitted as `live-census` events.
+#[derive(Serialize, Clone)]
+struct CensusProgress {
+    /// `prints` while the fingerprint table is built or loaded, `scan` while
+    /// process memory is swept.
+    phase: &'static str,
+    done_mb: u64,
+    total_mb: u64,
+}
+
+/// What one census established.
+#[derive(Serialize)]
+struct CensusReport {
+    /// Tags found and verified in the game's memory right now.
+    located: usize,
+    /// The loaded scenario's short path — which level the player is in.
+    level: Option<String>,
+    /// Tags whose census evidence was ambiguous and were left for a
+    /// single-tag scan instead.
+    ambiguous: usize,
+    scanned_mb: u64,
+    secs: f32,
+    loaded: Vec<live::LoadedTag>,
+}
+
+/// Find every loaded tag in one sweep of the game's memory.
+///
+/// One census makes every found tag poke-instant and names the level the
+/// player is in. The sweep costs what a single tag's first poke used to cost;
+/// progress goes out as `live-census` events so the UI can show it.
+#[tauri::command]
+async fn live_census(app: tauri::AppHandle) -> Result<CensusReport, String> {
+    tauri::async_runtime::spawn_blocking(move || run_census(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
+    use tauri::Emitter;
+
+    let started = std::time::Instant::now();
+    let state = app.state::<AppState>();
+    let live = app.state::<live::Live>().inner().clone();
+
+    // Attach before the expensive parts, so "the game is not running" is said
+    // in one second rather than after a table build.
+    let process = blam_live::Process::attach().map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "prints",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+
+    // The fingerprint table: cached on disk after the first build, so this is
+    // tens of seconds once per installation and sub-second afterwards. The
+    // catalog lock is held only here, never across the sweep.
+    let prints: Vec<census::TagPrint> = {
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let catalog = guard.as_ref().ok_or("no installation is open")?;
+        census::table(catalog)
+    };
+
+    let table: Vec<blam_live::Print> = prints
+        .iter()
+        .map(|p| blam_live::Print {
+            id: p.index,
+            runs: p.runs.clone(),
+        })
+        .collect();
+
+    // Progress events are throttled to every 256 MB; at 16 MB windows the raw
+    // callback rate would be noise.
+    let emitted = std::sync::atomic::AtomicU64::new(0);
+    let app_events = app.clone();
+    let outcome = blam_live::census(&process, &table, &move |done, total| {
+        let step = done >> 28;
+        if emitted.swap(step, std::sync::atomic::Ordering::Relaxed) != step {
+            let _ = app_events.emit(
+                "live-census",
+                CensusProgress {
+                    phase: "scan",
+                    done_mb: done >> 20,
+                    total_mb: total >> 20,
+                },
+            );
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    // Census agreement is strong evidence but tags share structure — two
+    // variants of a weapon differ in a handful of fields — so every hit is
+    // re-scored against its own payload before being believed, at the same
+    // bar a cached base must clear before a poke.
+    let by_id: std::collections::HashMap<u32, &census::TagPrint> =
+        prints.iter().map(|p| (p.index, p)).collect();
+    let mut found = Vec::new();
+    {
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let catalog = guard.as_ref().ok_or("no installation is open")?;
+        for hit in &outcome.hits {
+            let Some(print) = by_id.get(&hit.id) else {
+                continue;
+            };
+            let index = hit.id as usize;
+            let (Some(entry), Ok(payload)) = (catalog.entry(index), catalog.read_tag(index))
+            else {
+                continue;
+            };
+            let fraction = blam_live::verify(&process, &payload, &print.region, hit.base);
+            if fraction > 0.10 {
+                found.push((
+                    (entry.group.clone(), entry.short.clone()),
+                    hit.base,
+                    live::LoadedTag {
+                        index,
+                        group: entry.group.clone(),
+                        short: entry.short.clone(),
+                        fraction,
+                    },
+                ));
+            }
+        }
+    }
+
+    // A run is unique within its tag but not across the catalog, so two
+    // near-identical tags can both claim one buffer and both clear the verify
+    // bar. Distinct allocations never overlap: where verified data ranges do,
+    // it is rival claims on one buffer, and the claim that matches its bytes
+    // best is the tag actually loaded there. Best-first, keep non-overlapping.
+    let mut order: Vec<usize> = (0..found.len()).collect();
+    order.sort_by(|&a, &b| found[b].2.fraction.total_cmp(&found[a].2.fraction));
+    let mut taken: Vec<(u64, u64)> = Vec::new();
+    let mut keep = vec![false; found.len()];
+    for i in order {
+        let (_, base, ref tag) = found[i];
+        let region = &by_id[&(tag.index as u32)].region;
+        let (lo, hi) = (base + region.start as u64, base + region.end as u64);
+        if taken.iter().all(|&(a, b)| hi <= a || b <= lo) {
+            taken.push((lo, hi));
+            keep[i] = true;
+        }
+    }
+    let dropped_rivals = keep.iter().filter(|k| !**k).count();
+    let found: Vec<_> = found
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(f, k)| k.then_some(f))
+        .collect();
+
+    // The loaded scenario names the level. If more than one is resident,
+    // prefer a mission scenario over the UI shell, then the best-verified.
+    let mut scenarios: Vec<&live::LoadedTag> = found
+        .iter()
+        .map(|(_, _, t)| t)
+        .filter(|t| t.group == "scenario")
+        .collect();
+    scenarios.sort_by(|a, b| {
+        let ui = |t: &live::LoadedTag| t.short.contains("ui");
+        ui(a)
+            .cmp(&ui(b))
+            .then(b.fraction.total_cmp(&a.fraction))
+    });
+    let level = scenarios.first().map(|t| t.short.clone());
+    drop(scenarios);
+
+    // The scenario is the hardest tag to catch — the engine rewrites it more
+    // than anything else — so the census can miss it while plainly holding a
+    // level's contents. Fall back to the reference graph: the scenario whose
+    // references cover the most loaded tags. Most loaded tags are shared
+    // across levels, so this signal is noisy — measured on a real mission it
+    // ranked a *wrong* level first by two votes. It therefore only speaks
+    // when one scenario wins decisively: at least 8 covering tags and twice
+    // the runner-up. A census with no level beats one with the wrong level.
+    let level = match level {
+        Some(level) => Some(level),
+        None if !found.is_empty() => {
+            let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+            let catalog = guard.as_ref().ok_or("no installation is open")?;
+            let mut score: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
+            for (_, _, tag) in &found {
+                for s in catalog.referencing(tag.index, 64).unwrap_or_default() {
+                    if s.group == "scenario" {
+                        *score.entry(s.index).or_default() += 1;
+                    }
+                }
+            }
+            let mut ranked: Vec<(usize, usize)> = score.into_iter().collect();
+            ranked.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            match ranked.as_slice() {
+                [(i, best), rest @ ..]
+                    if *best >= 8 && rest.first().is_none_or(|(_, next)| *best >= next * 2) =>
+                {
+                    catalog.entry(*i).map(|e| e.short.clone())
+                }
+                _ => None,
+            }
+        }
+        None => None,
+    };
+
+    let located = found.len();
+    let mut loaded: Vec<live::LoadedTag> = found.iter().map(|(_, _, t)| t.clone()).collect();
+    loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+    live.adopt_census(process.pid, found, level.clone());
+
+    Ok(CensusReport {
+        located,
+        level,
+        ambiguous: outcome.ambiguous + dropped_rivals,
+        scanned_mb: outcome.scanned >> 20,
+        secs: started.elapsed().as_secs_f32(),
+        loaded,
+    })
+}
+
+/// The tags the last census found loaded, for the UI's "in game" view.
+#[tauri::command]
+fn live_loaded(live: State<'_, live::Live>) -> Vec<live::LoadedTag> {
+    live.loaded()
 }
 
 #[tauri::command]
@@ -3549,6 +3776,8 @@ pub fn run() {
             live_status,
             live_forget,
             live_poke,
+            live_census,
+            live_loaded,
             revert_field,
             revert_tag,
             export_tag,
