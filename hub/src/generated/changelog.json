@@ -41,6 +41,38 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.17.0",
+      "tag": "tag-editor-v0.17.0",
+      "title": "Live edits reach weapons, and fields inside blocks",
+      "date": "2026-09-02",
+      "summary": "A live edit of a weapon — or any field inside a block element — now changes the running game. Before, it reported success and changed nothing.",
+      "body": "Editing the magnum's zoom magnification with live mode on said \"found the\ntag at 0x1B627BA0020 and set zoom levels[0].magnification\", and the game\nwent on zooming to 2x. The address was wrong, and the field would not have\nbeen there even at the right one. Two things the engine does at load, both\nmeasured and both now followed:\n\n- **It rewrites every reference in the tag's resident copy** — string ids,\n  tag references, block headers — and keeps only the numbers. A weapon's\n  resident copy has no 48 contiguous bytes in common with the file, so the\n  old locator could not see it and settled for a stray copy of the tag's\n  section tables that every weapon shares. The user's edits were written\n  into an index table there.\n- **It moves every block's elements out of the tag** and turns the block\n  field into a header saying where they went: an offset from a\n  process-wide arena, in 4-byte units. A field inside `zoom levels[0]` or\n  `barrels[0]` is not at its file offset in memory at all.\n\n### Changed\n\n- **Tags are found by their scalar fields.** The locator fingerprints the\n  root element's numbers — reals, angles, integers, flags, enums — and\n  ignores the references between them. A weapon that took a minute to\n  mislocate is found in twelve seconds, on half the machine's cores, and\n  verified on those same bytes: the magnum and assault rifle both match\n  100% where the false positive matched 10%.\n- **Only the engine's working copy is accepted.** The loader keeps\n  byte-perfect images of tags around (a census found nineteen weapons at\n  100%), and writing into one changes nothing. The working copy is told\n  apart by its rewritten block headers, and a tie between an image and the\n  working copy is now resolved instead of dropped.\n- **Fields inside block elements are written where the engine put them.**\n  The block header is read, the arena is worked out once per launch from\n  the first tag with a data-rich block, and the field is written inside the\n  relocated element. Proof: assault rifle zoom written to 8 put 8.00x on\n  the HUD and the camera at 85/8 degrees; written back to 1.4, back it went.\n- **The census finds what it missed.** In a30, weapons went from 32 hits\n  (mostly images and false positives) to 22 working copies including the\n  magnum and assault rifle, and bipeds from 1 to 24. The `in game` list is\n  the pokeable set. The fingerprint table is rebuilt once for this release\n  (about a minute, now on several cores) and cached as before.\n- `mjolnir poke` follows the same path and prints the address it wrote.\n\n### Known limits\n\n- Near-identical tags — marine and keyes_marine, say — have identical\n  root scalars and claim the same buffer; one is kept, and an edit on the\n  twin lands on the shared buffer.\n- A field inside a block of a tag whose own blocks are all empty or\n  reference-only needs the arena from another tag first; the editor says so.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Tags are found by their scalar fields. The locator fingerprints the root element's numbers — reals, angles, integers, flags, enums — and ignores the references between them. A weapon that took a minute to mislocate is found in twelve seconds, on half the machine's cores, and verified on those same bytes: the magnum and assault rifle both match 100% where the false positive matched 10%.",
+            "Only the engine's working copy is accepted. The loader keeps byte-perfect images of tags around (a census found nineteen weapons at 100%), and writing into one changes nothing. The working copy is told apart by its rewritten block headers, and a tie between an image and the working copy is now resolved instead of dropped.",
+            "Fields inside block elements are written where the engine put them. The block header is read, the arena is worked out once per launch from the first tag with a data-rich block, and the field is written inside the relocated element. Proof: assault rifle zoom written to 8 put 8.00x on the HUD and the camera at 85/8 degrees; written back to 1.4, back it went.",
+            "The census finds what it missed. In a30, weapons went from 32 hits (mostly images and false positives) to 22 working copies including the magnum and assault rifle, and bipeds from 1 to 24. The in game list is the pokeable set. The fingerprint table is rebuilt once for this release (about a minute, now on several cores) and cached as before.",
+            "mjolnir poke follows the same path and prints the address it wrote."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "Near-identical tags — marine and keyesmarine, say — have identical root scalars and claim the same buffer; one is kept, and an edit on the twin lands on the shared buffer.",
+            "A field inside a block of a tag whose own blocks are all empty or reference-only needs the arena from another tag first; the editor says so."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.17.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.17.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.17.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.16.0",
       "tag": "tag-editor-v0.16.0",
       "title": "Live mode reads the engine's own object table",
