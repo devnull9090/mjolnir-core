@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
+mod console;
 mod container;
 mod defs;
 mod hsc;
@@ -145,6 +146,9 @@ enum Command {
     Scripting(ScriptingArgs),
     /// Compile `.hsc` files and report what the compiler makes of them.
     Compile(CompileArgs),
+    /// Lift the engine's console vocabulary — every function and global the
+    /// simulation DLL knows, not just the opcodes the campaign calls.
+    Console(console::ConsoleArgs),
     /// Inspect, export and swap cooked textures.
     #[command(subcommand_help_heading = "Texture")]
     Texture(texture::TextureArgs),
@@ -502,6 +506,7 @@ fn main() -> Result<()> {
         Command::Poke(a) => poke(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
+        Command::Console(a) => console::run(a),
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
         Command::Tagdiff(a) => tagdiff::run(a),
