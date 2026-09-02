@@ -70,7 +70,15 @@ The native half is built from source and never committed:
 ```
 
 The DLL is loaded by the Lua mod through `package.loadlib`, so it needs
-nothing from the UE4SS SDK. Definitions come from the simulation DLL itself:
+nothing from the UE4SS SDK. CI builds it the same way: every pull request
+compiles it on `windows-latest` (the `build-native` job in `ci.yml`, whose
+artifact is what a reviewer installs), and the `mods-v*` release workflow
+builds it again from the tag and drops it into the mod's zip before the
+manifest is hashed and signed. The link uses `/Brepro`, so rebuilding the
+same source with the same toolset gives the same bytes as the hash the job
+prints.
+
+Definitions come from the simulation DLL itself:
 
 ```
 mjolnir console --dll "<install>\Meteorite\Binaries\Win64\HaloSimulation_tag_release.dll" \
