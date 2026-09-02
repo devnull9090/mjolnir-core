@@ -100,6 +100,7 @@ local function signature(name, f)
     if f.returns ~= "void" and f.returns ~= "passthrough" then
         s = s .. " -> " .. f.returns
     end
+    if f.overloads then s = s .. string.format("   (+%d overloads by argument count)", f.overloads - 1) end
     if f.stub then s = s .. "   [compiled out]" end
     return s
 end
