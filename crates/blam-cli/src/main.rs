@@ -1349,7 +1349,8 @@ fn poke(a: PokeArgs) -> Result<()> {
     let tag = TagFile::parse(&file, Some(entry.chunk.length as usize))?;
     let layout = tag.layout()?;
     let block = tag.read_data(&layout)?;
-    let target = blam_tag::patch::resolve(&layout, &file, &block, &a.field)?;
+    let route = blam_tag::patch::route(&layout, &file, &block, &a.field)?;
+    let target = &route.target;
 
     // A section-backed value lives in a trailing section, so changing it moves
     // every byte after it. In a file that is fine — the tag is rebuilt. In a
@@ -1390,8 +1391,34 @@ fn poke(a: PokeArgs) -> Result<()> {
         .context("this tag has no bdat section to locate")?;
     let data_start = data.content.as_ptr() as usize - file.as_ptr() as usize;
     let region = data_start..data_start + data.content.len();
+    // Within it, only the root element keeps its file offsets: the engine
+    // resolves every reference in place and moves block elements out, so the
+    // tag is found by the root element's scalar fields and a field inside a
+    // block is reached through the block's rewritten header.
+    let root_off = block.elements.as_ptr() as usize - file.as_ptr() as usize;
+    let root = root_off..root_off + block.element_size as usize;
+    let stable = blam_tag::view::scalar_mask(&layout, &block, &file);
+    let hop = |h: &blam_tag::patch::Hop| blam_live::Hop {
+        header: h.header,
+        index: h.index,
+        element: h.element,
+        element_size: h.element_size,
+    };
+    let blocks: Vec<(blam_live::Hop, u32)> = blam_tag::patch::root_blocks(&layout, &file, &block)
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(h, n)| (hop(h), *n))
+        .collect();
+    let headers: Vec<usize> = blocks.iter().map(|(h, _)| h.header).collect();
+    let hops: Vec<blam_live::Hop> = route.hops.iter().map(hop).collect();
+    let shape = blam_live::Shape {
+        region,
+        root,
+        stable: &stable,
+        headers: &headers,
+    };
 
-    let at = blam_live::locate(&process, &file, &region, std::slice::from_ref(&span))?;
+    let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
     println!(
         "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
          {:.1} GB scanned)",
@@ -1400,17 +1427,32 @@ fn poke(a: PokeArgs) -> Result<()> {
         at.candidates,
         at.scanned as f64 / 1e9
     );
-    // Stated so it is not mistaken for a problem. Most of the data section is
-    // rewritten by the engine after load — offsets resolved, values computed —
-    // so a low figure here is normal. Agreement between runs is the evidence
-    // that this is the right address; this number is only colour.
     println!(
-        "           {:.0}% of the data section is byte-identical to disk; the rest is the \
-         engine's own fix-ups",
+        "           {:.0}% of the root element's scalar bytes match the file; the engine \
+         rewrites the references around them",
         at.match_fraction * 100.0
     );
 
-    let live_before = blam_live::peek(&process, &at, span.start, target.size)?;
+    let address = if hops.is_empty() {
+        at.base + span.start as u64
+    } else {
+        let arena = blam_live::derive_arena(&process, at.base, &file, &stable, &blocks)
+            .context(
+                "the field sits inside a block element, which the engine keeps outside the \
+                 tag, and the arena those live in could not be worked out from this tag",
+            )?;
+        blam_live::field_address(&process, at.base, arena, &hops, span.start)?
+    };
+    println!(
+        "  address  0x{address:X}{}",
+        if hops.is_empty() {
+            String::new()
+        } else {
+            format!("  (inside a block element, {} hop(s) from the root)", hops.len())
+        }
+    );
+
+    let live_before = process.read(address, target.size)?;
     let shown = decode_live(&file, &span, &live_before, &a.field);
     println!(
         "  live     {}   (shipped {})",
@@ -1423,7 +1465,8 @@ fn poke(a: PokeArgs) -> Result<()> {
         return Ok(());
     }
 
-    let read_back = blam_live::poke(&process, &at, span.start, &bytes)?;
+    process.write(address, &bytes)?;
+    let read_back = process.read(address, bytes.len())?;
     let after = decode_live(&file, &span, &read_back, &a.field);
     println!("  wrote    {}", applied.after.display());
     println!(

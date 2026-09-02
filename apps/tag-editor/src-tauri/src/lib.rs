@@ -755,13 +755,14 @@ fn build_live_job(
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
-        let (region, span, bytes) = {
+        let (region, root, stable, headers, blocks, hops, span, bytes) = {
             let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
             let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-            let target = blam_tag::patch::resolve(&layout, &file, &block, path)
+            let route = blam_tag::patch::route(&layout, &file, &block, path)
                 .map_err(|e| e.to_string())?;
+            let target = &route.target;
 
             // A section-backed value lives in a trailing section, so changing it
             // moves every byte after it. In a file that is fine — the tag is
@@ -780,21 +781,48 @@ fn build_live_job(
                 .map_err(|e| e.to_string())?;
 
             // Only the data section is resident per tag; the header and layout
-            // tables are not, so searching anywhere else is wasted effort.
+            // tables are not, so searching anywhere else is wasted effort. And
+            // within it only the root element keeps its file offsets — block
+            // elements are relocated, and reached through their headers.
             let data = tag.data().ok_or("this tag has no data section")?;
             let start = data.content.as_ptr() as usize - file.as_ptr() as usize;
+            let root_off = block.elements.as_ptr() as usize - file.as_ptr() as usize;
+            let root = root_off..root_off + block.element_size as usize;
+            let stable = blam_tag::view::scalar_mask(&layout, &block, &file);
+            let blocks: Vec<(blam_live::Hop, u32)> =
+                blam_tag::patch::root_blocks(&layout, &file, &block)
+                    .iter()
+                    .filter(|(_, n)| *n > 0)
+                    .map(|(h, n)| (live::hop(h), *n))
+                    .collect();
+            let headers: Vec<usize> = blocks.iter().map(|(h, _)| h.header).collect();
+            let hops: Vec<blam_live::Hop> = route.hops.iter().map(live::hop).collect();
             let span = target.file_offset..target.file_offset + target.size;
             let bytes = patched
                 .get(span.clone())
                 .ok_or("the field lies outside the tag payload")?
                 .to_vec();
-            (start..start + data.content.len(), span, bytes)
+            (
+                start..start + data.content.len(),
+                root,
+                stable,
+                headers,
+                blocks,
+                hops,
+                span,
+                bytes,
+            )
         };
 
         Ok(live::Job {
             key: key.clone(),
             payload: file,
             region,
+            root,
+            stable,
+            headers,
+            blocks,
+            hops,
             span,
             bytes,
         })
@@ -949,6 +977,7 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         .map(|p| blam_live::Print {
             id: p.index,
             runs: p.runs.clone(),
+            masks: p.masks.clone(),
         })
         .collect();
 
@@ -979,51 +1008,23 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         prints.iter().map(|p| (p.index, p)).collect();
     let mut found = Vec::new();
     let mut cached_verified = 0usize;
+    let mut unresolved = 0usize;
     {
         let guard = state.catalog.lock().map_err(|e| e.to_string())?;
         let catalog = guard.as_ref().ok_or("no installation is open")?;
-        // Cache hits first. They are exact by construction, but they go
-        // through the same verification as a sweep hit so `loaded` carries a
-        // fraction for them and a stale root cannot slip a wrong base in.
-        if let Some(hits) = &cache_hits {
-            for (index, base) in &hits.bases {
-                let (Some(print), Some(entry), Ok(payload)) = (
-                    by_id.get(&(*index as u32)),
-                    catalog.entry(*index),
-                    catalog.read_tag(*index),
-                ) else {
-                    continue;
-                };
-                let fraction = blam_live::verify(&process, &payload, &print.region, *base);
-                if fraction > 0.10 {
-                    cached_verified += 1;
-                    found.push((
-                        (entry.group.clone(), entry.short.clone()),
-                        *base,
-                        live::LoadedTag {
-                            index: *index,
-                            group: entry.group.clone(),
-                            short: entry.short.clone(),
-                            fraction,
-                        },
-                    ));
-                }
-            }
-        }
-        for hit in &outcome.hits {
-            let Some(print) = by_id.get(&hit.id) else {
-                continue;
-            };
-            let index = hit.id as usize;
-            let (Some(entry), Ok(payload)) = (catalog.entry(index), catalog.read_tag(index))
-            else {
-                continue;
-            };
-            let fraction = blam_live::verify(&process, &payload, &print.region, hit.base);
-            if fraction > 0.10 {
+
+        // Which of several candidate bases is the tag's working copy, and how
+        // well it scores — `census::judge`, from what the print table carries,
+        // so no hit sends the census back to the containers.
+        let judge = |index: usize, bases: &[u64]| -> Option<(u64, f32)> {
+            let print = by_id.get(&(index as u32))?;
+            census::judge(&process, print, bases, || catalog.read_tag(index).ok())
+        };
+        let mut adopt = |index: usize, base: u64, fraction: f32| {
+            if let Some(entry) = catalog.entry(index) {
                 found.push((
                     (entry.group.clone(), entry.short.clone()),
-                    hit.base,
+                    base,
                     live::LoadedTag {
                         index,
                         group: entry.group.clone(),
@@ -1031,6 +1032,29 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
                         fraction,
                     },
                 ));
+            }
+        };
+
+        // Cache hits first. They are exact by construction, but they go
+        // through the same judgement as a sweep hit: the loader's buffer may
+        // be its own image of the file rather than the working copy, and a
+        // stale root cannot slip a wrong base in.
+        if let Some(hits) = &cache_hits {
+            for (index, base) in &hits.bases {
+                if let Some((base, fraction)) = judge(*index, &[*base]) {
+                    cached_verified += 1;
+                    adopt(*index, base, fraction);
+                }
+            }
+        }
+        for hit in &outcome.hits {
+            let index = hit.id as usize;
+            let mut bases = vec![hit.base];
+            bases.extend(&hit.rivals);
+            match judge(index, &bases) {
+                Some((base, fraction)) => adopt(index, base, fraction),
+                None if !hit.rivals.is_empty() => unresolved += 1,
+                None => {}
             }
         }
     }
@@ -1046,7 +1070,9 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     let mut keep = vec![false; found.len()];
     for i in order {
         let (_, base, ref tag) = found[i];
-        let region = &by_id[&(tag.index as u32)].region;
+        // The root element is what is verified at the base; the rest of the
+        // data section is relocated block elements, not resident here.
+        let region = &by_id[&(tag.index as u32)].root;
         let (lo, hi) = (base + region.start as u64, base + region.end as u64);
         if taken.iter().all(|&(a, b)| hi <= a || b <= lo) {
             taken.push((lo, hi));
@@ -1129,7 +1155,7 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     Ok(CensusReport {
         located,
         level,
-        ambiguous: outcome.ambiguous + dropped_rivals,
+        ambiguous: unresolved + dropped_rivals,
         scanned_mb: outcome.scanned >> 20,
         secs: started.elapsed().as_secs_f32(),
         loaded,

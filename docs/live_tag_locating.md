@@ -460,3 +460,85 @@ bytes where the rivals' files differ — instead of dropping ties; (2) the
 Blam object table (every spawned object → its tag definition), the classic
 exact route, still unlocated; (3) a hook in the UE4SS bridge that reports
 tag definition pointers from inside the process.
+
+## 2026-09-02 — why a weapon poke did nothing, and the two facts that fix it
+
+A live edit of the magnum's `zoom levels[0].magnification` reported success —
+"found the tag at 0x1B627BA0020" — and changed nothing in the game. Neither
+did anything else edited on that weapon. Measured in a30 with the magnum and
+assault rifle in play (probes: `tests/weapon_*.rs`, `tests/live_poke_e2e.rs`,
+`tests/census_e2e.rs`).
+
+### The address was a false positive
+
+Every candidate the 32-run locator can produce for the magnum is one buffer,
+and only its last 2.6 KB match the file: the section-table tail (`frgt`,
+`isgt`, `lbgt`, the `weapon_thigh` strings) that every weapon tag shares. The
+rest of that 64 KB region is a u32 index table. Three runs "agreed" because
+all three sat in that one identical stretch — agreement between runs from one
+contiguous stretch is not independent evidence. The plain fraction was 56%,
+comfortably over the 10% verify bar, because a data section is mostly zeros
+and zeros match zeros. The user's writes landed in that index table.
+
+### Fact 1: the working copy keeps only the scalars
+
+Per-field-type survival on the tags the census does find, and a dump of the
+magnum's real resident copy once found: **every scalar field of the root
+element is byte-identical at its file offset (81/81 non-zero bytes), and every
+reference is rewritten in place** — string ids, tag references, block
+indices, and block headers. A weapon's root element has no 48 contiguous
+bytes left for the plain locator; the scalars sit in clumps between rewritten
+references. `blam_tag::view::scalar_mask` classifies the bytes, and
+`blam_live::pick_stable_runs` builds masked 48-byte runs whose 8-byte key is
+entirely scalar and whose body compares only the scalar bytes. That finds the
+magnum's root at `0x1b426af56e1` and the assault rifle's at `0x1b42b6a8331`
+in one 12-second sweep, root-element scalar match 100% on both.
+
+Byte-perfect copies of weapon tags also exist — a census found nineteen at
+100% — and they are not what the simulation reads (writing into them changes
+nothing). The working copy is told apart by its block headers, below:
+`blam_live::runtime_form`. Both the single-tag poke (`blam_live::find`) and
+the census (`census::judge`) apply that test, and the census now carries ties
+(`CensusHit::rivals`) instead of dropping them, so a working copy beside a
+loader image is resolved rather than lost. Effect on a30: weapons found went
+from 32 (mostly images and false positives) to 22 working copies including
+the magnum and assault rifle; bipeds from 1 to 24.
+
+### Fact 2: block elements are relocated, and the header says where
+
+In the file a block field is twelve bytes — count, then eight zeros — and its
+elements are packed later in the data section. In the resident copy those
+eight bytes are filled in:
+
+```
++0  u32  count
++4  u32  offset of element 0 from a process-wide arena, in 4-BYTE UNITS
++8  u32  struct id (e4930e44 for `weapon_zoom_levels_block` in both weapons)
+```
+
+The arena base is `0x1b3de0a0000` on this launch: both `melee damage
+parameters` and `barrels` give exactly that when their elements (found by
+their own scalar bytes within 512 KB of the root) have `4 * word` subtracted.
+It is one gigabyte below the committed heap region holding the tags, is in
+no writable region itself, and no slot in the game image holds it — so it is
+derived once per launch from the first tag with a data-rich block
+(`blam_live::derive_arena`) and cached. `blam_live::field_address` chases the
+headers along `blam_tag::patch::route`'s hops.
+
+Proof: the assault rifle's `zoom levels[0].magnification` (1.4) read back at
+`arena + 4 * 0x13588e58 + 4 = 0x1b42b6c3964`; writing 8.0 there put **8.00x**
+on the HUD and the camera FOV at 85/8 = 10.6°; writing 1.4 put it back. The
+same through the editor's own `live::Live::poke` and through `mjolnir poke`.
+
+### Gotchas met on the way
+
+- Root-level fields still poke at `base + file offset`; only nested ones need
+  the arena. A tag whose root has no data-rich block cannot derive the arena
+  by itself; the editor keeps the arena from whichever tag derived it first.
+- Near-identical tags (marine / keyes_marine / crewman) have identical root
+  scalars and claim the same buffer; the overlap rule keeps one. A poke on
+  the twin lands on the shared buffer.
+- The UE console's keys are Tilde **and Tab**; a Tab sent by the input tool
+  opened it and it ate every click afterwards. Replacing the viewport's
+  `UConsole` with a freshly constructed one (what the ConsoleEnabler mod does
+  at startup) closed it.
