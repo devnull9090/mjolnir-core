@@ -425,3 +425,38 @@ RVAs, the bounded node walk, and the `FPackageId` lookup;
 after the object table: every catalog tag is looked up by id and each hit
 is verified against the tag's own bytes like a sweep hit, then adopted as
 an instant poke base. Root RVAs are cached per build in live state.
+
+## Addendum (2026-09-01): in-play bipeds defeat the fingerprint, not the poke
+
+An end-to-end run in a30 (arm live → census → edit `jump velocity` in the
+spartans biped) failed at the locate step: the census had 362 tags but not
+the biped, and the single-tag fallback reported "12 candidates, best had 1
+agreeing run". Diagnosis, measured:
+
+- The biped's data section yields only **12 census runs** (the anchor rule
+  needs a zero-free 8-byte key; unit/biped data is float-dense). Relaxing the
+  rule to allow zero bytes gave 21 runs — and only 6 of 41 matched anywhere.
+  The resident biped is rewritten so thoroughly that no 48-byte stretch
+  survives except two adjacent runs at `0x8afe`/`0x8b14` that **every biped
+  shares**. So all biped prints vote for all biped buffers, tie, and are
+  dropped as ambiguous. That is why a mission census finds one biped
+  (floodcarrier) out of a dozen resident.
+- Byte agreement cannot break the tie safely: against the eleven buffers
+  the shared run found, the right tag leads by 0.725 vs 0.668 for spartans
+  but marine vs keyes_marine tie at 0.762 vs 0.761 (first 2 KB).
+- The buffer that best matched the spartans file **is the player's biped**:
+  writing 25.0 into its `jump velocity` slot (`base + 0x8896`, stock 2.3)
+  took the measured jump from 205 cm to 12,065 cm; restoring put it back.
+  Layout is intact at file spacing; only the bytes are rewritten.
+- The pawn does not reach the buffer in two pointer hops from its UObject
+  (0x3000 / 0x1000 / 0x400 windows), and `BlamPawn` exposes no reflected
+  unit pointer — the Blam unit is behind a handle, as the census research
+  already found for tag records.
+
+Consequences: the poke path is proven end to end; the gap is claiming
+in-play unit-like tags. Options, in order of promise: (1) per-buffer
+assignment by *discriminating* offsets — score each rival tag only on the
+bytes where the rivals' files differ — instead of dropping ties; (2) the
+Blam object table (every spawned object → its tag definition), the classic
+exact route, still unlocated; (3) a hook in the UE4SS bridge that reports
+tag definition pointers from inside the process.
