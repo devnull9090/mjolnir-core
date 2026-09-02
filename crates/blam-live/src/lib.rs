@@ -49,7 +49,9 @@ use std::ops::Range;
 
 mod sys;
 
+pub mod cache;
 pub mod names;
+pub mod package_id;
 pub mod objects;
 
 pub use sys::{Process, ProcessInfo};

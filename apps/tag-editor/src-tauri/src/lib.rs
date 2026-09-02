@@ -23,11 +23,13 @@ pub mod install;
 pub mod keystore;
 pub mod live;
 pub mod modpack;
+pub mod present;
 pub mod project;
 pub mod refcache;
 pub mod refscan;
 pub mod scripts;
 pub mod secret;
+pub mod tagcache;
 pub mod sounds;
 /// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
 pub use ue_texture as textures;
@@ -852,6 +854,13 @@ struct CensusReport {
     scanned_mb: u64,
     secs: f32,
     loaded: Vec<live::LoadedTag>,
+    /// Tags with a live object per the object table — a superset of `loaded`.
+    /// `None` when the engine globals could not be resolved.
+    present: Option<usize>,
+    /// Tags whose buffer the engine's loader cache handed over directly —
+    /// exact, no sweep needed for them. `None` when the cache roots could
+    /// not be found in this build.
+    cached: Option<usize>,
 }
 
 /// Find every loaded tag in one sweep of the game's memory.
@@ -876,6 +885,46 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     // Attach before the expensive parts, so "the game is not running" is said
     // in one second rather than after a table build.
     let process = blam_live::Process::attach().map_err(|e| e.to_string())?;
+
+    // The object table first: about a second, and it settles the level
+    // exactly before the sweep even starts. If the engine globals cannot be
+    // resolved (a game update moved them), the sweep still runs and the
+    // level falls back to the census's own fingerprint — so this never blocks.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "objects",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    let present = probe_present(&state, &live, &process).ok();
+    if let Some(p) = &present {
+        live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+    }
+
+    // The loader's own cache next: every tag it still references is a buffer
+    // at an exact address, no sweep needed. Partial by nature (the loader
+    // lets go after loading), so the sweep still runs for the rest; and if
+    // the roots cannot be found in this build, the sweep is all there is.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "cache",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    let cache_hits = {
+        let paks = with_catalog(&state, |c| Ok(c.paks().to_path_buf()))?;
+        match tagcache::roots(&process, &paks, &live.cache_rvas()) {
+            Ok((roots, rvas)) => {
+                live.set_cache_rvas(rvas);
+                Some(with_catalog(&state, |c| Ok(tagcache::resolve(&process, c, &roots)))?)
+            }
+            Err(_) => None,
+        }
+    };
 
     let _ = app.emit(
         "live-census",
@@ -929,9 +978,38 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     let by_id: std::collections::HashMap<u32, &census::TagPrint> =
         prints.iter().map(|p| (p.index, p)).collect();
     let mut found = Vec::new();
+    let mut cached_verified = 0usize;
     {
         let guard = state.catalog.lock().map_err(|e| e.to_string())?;
         let catalog = guard.as_ref().ok_or("no installation is open")?;
+        // Cache hits first. They are exact by construction, but they go
+        // through the same verification as a sweep hit so `loaded` carries a
+        // fraction for them and a stale root cannot slip a wrong base in.
+        if let Some(hits) = &cache_hits {
+            for (index, base) in &hits.bases {
+                let (Some(print), Some(entry), Ok(payload)) = (
+                    by_id.get(&(*index as u32)),
+                    catalog.entry(*index),
+                    catalog.read_tag(*index),
+                ) else {
+                    continue;
+                };
+                let fraction = blam_live::verify(&process, &payload, &print.region, *base);
+                if fraction > 0.10 {
+                    cached_verified += 1;
+                    found.push((
+                        (entry.group.clone(), entry.short.clone()),
+                        *base,
+                        live::LoadedTag {
+                            index: *index,
+                            group: entry.group.clone(),
+                            short: entry.short.clone(),
+                            fraction,
+                        },
+                    ));
+                }
+            }
+        }
         for hit in &outcome.hits {
             let Some(print) = by_id.get(&hit.id) else {
                 continue;
@@ -995,8 +1073,17 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
             .cmp(&ui(b))
             .then(b.fraction.total_cmp(&a.fraction))
     });
-    let level = scenarios.first().map(|t| t.short.clone());
+    let fingerprint_level = scenarios.first().map(|t| t.short.clone());
     drop(scenarios);
+
+    // The object table names the level exactly — exactly one scenario object
+    // is loaded — so it wins whenever it was readable. The census's own
+    // fingerprint of the scenario is the fallback for a build whose engine
+    // globals could not be resolved.
+    let level = present
+        .as_ref()
+        .and_then(|p| p.level.clone())
+        .or(fingerprint_level);
 
     // The scenario is the hardest tag to catch — the engine rewrites it more
     // than anything else — so the census can miss it while plainly holding a
@@ -1046,7 +1133,54 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         scanned_mb: outcome.scanned >> 20,
         secs: started.elapsed().as_secs_f32(),
         loaded,
+        present: present.as_ref().map(|p| p.tags.len()),
+        cached: cache_hits.as_ref().map(|_| cached_verified),
     })
+}
+
+/// Read the object table: attach the reader (from cached RVAs when they still
+/// validate), walk it, and map tag assets to the catalog. Holds the catalog
+/// lock only for the mapping.
+fn probe_present(
+    state: &State<'_, AppState>,
+    live: &live::Live,
+    process: &blam_live::Process,
+) -> Result<present::Present, String> {
+    let paks = with_catalog(state, |c| Ok(c.paks().to_path_buf()))?;
+    let (reader, rvas) = present::attach(process, &paks, live.rvas())?;
+    live.set_rvas(rvas);
+    with_catalog(state, |c| present::read(process, &reader, c))
+}
+
+/// What the object table says the game holds — the level and how many tags
+/// have a live object — without a memory sweep. About a second; the thing to
+/// call the moment live mode is armed.
+#[derive(Serialize)]
+struct ProbeReport {
+    level: Option<String>,
+    present: usize,
+    objects: usize,
+    secs: f32,
+}
+
+#[tauri::command]
+async fn live_probe(app: tauri::AppHandle) -> Result<ProbeReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        let state = app.state::<AppState>();
+        let live = app.state::<live::Live>().inner().clone();
+        let process = blam_live::Process::attach().map_err(|e| e.to_string())?;
+        let p = probe_present(&state, &live, &process)?;
+        live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+        Ok(ProbeReport {
+            level: p.level,
+            present: p.tags.len(),
+            objects: p.objects,
+            secs: started.elapsed().as_secs_f32(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The tags the last census found loaded, for the UI's "in game" view.
@@ -3778,6 +3912,7 @@ pub fn run() {
             live_poke,
             live_census,
             live_loaded,
+            live_probe,
             revert_field,
             revert_tag,
             export_tag,

@@ -185,6 +185,9 @@ type EditorState = {
   refreshLive: () => Promise<void>;
   setLiveOn: (on: boolean) => void;
   censusLive: () => Promise<void>;
+  /** Read the engine's object table: the level and what is present, in about
+   *  a second and with no sweep. Runs when live mode is armed. */
+  probeLive: () => Promise<void>;
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
@@ -1248,7 +1251,28 @@ export const useEditor = create<EditorState>((set, get) => {
 
     setLiveOn(on) {
       set({ liveOn: on, liveNote: null });
-      if (on) void get().refreshLive();
+      if (on) {
+        void get().refreshLive();
+        // The level is one object-table read away; say it now rather than
+        // after a scan the user may never run.
+        void get().probeLive();
+      }
+    },
+
+    async probeLive() {
+      try {
+        const r = await api.liveProbe();
+        set({
+          liveNote:
+            (r.level ? `live: in ${r.level}` : "live: no level loaded") +
+            ` · ${r.present} tags present (${r.secs.toFixed(1)}s, no scan)`,
+        });
+        void get().refreshLive();
+      } catch {
+        // No game, or a build whose engine globals did not resolve. Either
+        // way the status line already says what is known, and the scan still
+        // works without this.
+      }
     },
 
     async setField(path, value) {
@@ -1318,7 +1342,11 @@ export const useEditor = create<EditorState>((set, get) => {
             const p = e.payload;
             set({
               liveNote:
-                p.phase === "prints"
+                p.phase === "objects"
+                  ? "live: reading the engine's object table…"
+                  : p.phase === "cache"
+                  ? "live: reading the engine's loader cache…"
+                  : p.phase === "prints"
                   ? "live: preparing tag fingerprints…"
                   : `live: scanning game memory · ${Math.round(
                       (p.done_mb / Math.max(1, p.total_mb)) * 100,
@@ -1333,6 +1361,7 @@ export const useEditor = create<EditorState>((set, get) => {
           liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
           liveNote:
             `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s` +
+            (report.cached ? ` · ${report.cached} straight from the engine's cache` : "") +
             (report.level ? ` · in ${report.level}` : ""),
         });
         void get().refreshLive();

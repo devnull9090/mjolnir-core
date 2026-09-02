@@ -432,6 +432,13 @@ running game as well as the project, and takes effect immediately.
 In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
 accepted edit is also written into the game.
 
+Switch it on and, within about a second, the status line names the **level you are in** —
+read from the engine's own object table (exactly one scenario object is ever loaded), with
+no memory scan at all — and how many tags are *present* (have a live object). Present is
+not the same as pokeable: an object exists for nearly every tag whether or not its data is
+resident, so it is the identity index, not the editable set. Finding the editable set is
+what the scan is for.
+
 Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
 the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
 a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15
@@ -443,6 +450,13 @@ straight to the sweep. After a census:
 - the status line names **the level you are in**, read from the loaded scenario tag;
 - the file browser gains an **● in game** view listing exactly the tags the game is holding
   right now, each row badged with a green dot wherever it appears.
+
+The census also asks the engine's **loader cache** first — the map the loader keeps of every
+package it currently references, read straight from the game's memory by package id. Every
+buffer it hands over is adopted at its exact address without the sweep. It is the loader's
+map, so it forgets a buffer once loading is done: in a settled mission it covers a fraction
+of what the sweep finds, and most of it during and just after a level load. The census note
+says how many came straight from it.
 
 The census is a statement about *now*: load a different level and the set is stale — scan
 again. Tags the census could not pin down (a payload too small to fingerprint, or two

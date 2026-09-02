@@ -38,6 +38,10 @@ const ELEMENTS_PER_CHUNK: u64 = 64 * 1024;
 /// `sizeof(FUObjectItem)` — `{ UObject* Object; int32 Flags, ClusterRootIndex,
 /// SerialNumber; }`, padded to 24.
 const ITEM_SIZE: u64 = 0x18;
+/// `UObjectBase::InternalIndex` — the object's own slot in `GUObjectArray`.
+/// Every real object knows where it sits, which makes it the one check a
+/// wrong table address cannot pass by luck.
+const INTERNAL_INDEX: u64 = 0x0C;
 /// `UObjectBase::ClassPrivate`.
 const CLASS: u64 = 0x10;
 /// `UObjectBase::NamePrivate` (an `FName`: two int32s, comparison index then
@@ -118,6 +122,39 @@ impl ObjectTable {
         })
     }
 
+    /// Is this really the object table? A sane element count is not proof —
+    /// a stale offset can land on a plausible integer — but the first live
+    /// objects each carrying their *own* index at `InternalIndex` is: nothing
+    /// else in memory has that shape.
+    pub fn validate(&self, p: &Process) -> bool {
+        if !(10_000..5_000_000).contains(&self.num_elements) {
+            return false;
+        }
+        let Ok(chunk0) = read_u64(p, self.chunks) else {
+            return false;
+        };
+        if chunk0 == 0 {
+            return false;
+        }
+        let mut checked = 0;
+        for i in 0..64u64 {
+            let Ok(object) = read_u64(p, chunk0 + i * ITEM_SIZE) else {
+                return false;
+            };
+            if object == 0 {
+                continue;
+            }
+            match read_u32(p, object + INTERNAL_INDEX) {
+                Ok(idx) if idx as u64 == i => checked += 1,
+                _ => return false,
+            }
+            if checked >= 8 {
+                return true;
+            }
+        }
+        checked > 0
+    }
+
     /// Walk every live object, reading its class, outer and name `FName`.
     ///
     /// Reads chunk by chunk — one `read` per 64K-item chunk rather than per
@@ -176,6 +213,8 @@ impl ObjectTable {
 #[derive(Debug, Clone, Copy)]
 pub struct Reader {
     pub module_base: u64,
+    /// Runtime address of `GUObjectArray`.
+    pub guobjectarray: u64,
     pub table: ObjectTable,
     pub pool: crate::names::NamePool,
 }
@@ -191,10 +230,54 @@ impl Reader {
         let (module_base, _) = p.module(crate::GAME_EXE)?;
         let guobj = resolve(exe, module_base)?;
         let table = ObjectTable::open(p, guobj)?;
+        if !table.validate(p) {
+            // The signature resolved, but the ABI offsets do not describe what
+            // sits there — an engine upgrade, not an ASLR problem.
+            return Err(crate::Error::NotFound);
+        }
         let ctor = match_va(exe, module_base, crate::names::FNAME_CONSTRUCTOR_SIG)?;
         let pool = crate::names::find_pool(p, ctor, 0, "None")?;
         Ok(Reader {
             module_base,
+            guobjectarray: guobj,
+            table,
+            pool,
+        })
+    }
+
+    /// The two globals as RVAs — what is worth caching between attaches.
+    /// They are a property of the *build*; only the module base changes per
+    /// launch, and that is one syscall away. Resolving from the image costs a
+    /// 225 MB read plus two AOB scans, so a caller keeps these instead.
+    pub fn rvas(&self) -> (u64, u64) {
+        (
+            self.guobjectarray - self.module_base,
+            self.pool.base - self.module_base,
+        )
+    }
+
+    /// Reattach from cached RVAs without touching the image on disk.
+    ///
+    /// Validated before it is trusted: after a game update the RVAs are stale
+    /// and would point at whatever now sits at those offsets, so the pool must
+    /// still decode id 0 as `"None"` and the table must have a sane element
+    /// count. Either failing means "re-resolve from the exe", not "guess".
+    pub fn from_rvas(p: &Process, guobj_rva: u64, pool_rva: u64) -> Result<Reader> {
+        let (module_base, _) = p.module(crate::GAME_EXE)?;
+        let guobjectarray = module_base + guobj_rva;
+        let table = ObjectTable::open(p, guobjectarray)?;
+        if !table.validate(p) {
+            return Err(crate::Error::NotFound);
+        }
+        let pool = crate::names::NamePool {
+            base: module_base + pool_rva,
+        };
+        if !matches!(pool.text(p, 0).as_deref(), Ok("None")) {
+            return Err(crate::Error::NotFound);
+        }
+        Ok(Reader {
+            module_base,
+            guobjectarray,
             table,
             pool,
         })

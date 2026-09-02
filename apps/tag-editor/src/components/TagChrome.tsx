@@ -317,9 +317,8 @@ function LiveToggle() {
             : running
               ? `game running · pid ${live?.pid}` +
                 (live?.level ? ` · in ${live.level}` : "") +
-                ` · ${live?.located ?? 0} tag${
-                  (live?.located ?? 0) === 1 ? "" : "s"
-                } located`
+                ` · ${live?.located ?? 0} located` +
+                ((live?.present ?? 0) > 0 ? ` · ${live?.present} present` : "")
               : "no game running — edits are recorded but not pushed"}
         </span>
       )}
