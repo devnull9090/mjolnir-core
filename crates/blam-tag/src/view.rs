@@ -499,3 +499,69 @@ mod tests {
         assert_eq!(parent.len(), 3);
     }
 }
+
+/// Which bytes of `file` hold fixed-width scalar values — numbers, angles,
+/// flags, enums: everything that is a *value* rather than a reference.
+///
+/// A runtime that resolves a tag in place rewrites its references — string
+/// ids become handles, tag references become pointers, block indices are
+/// re-based — and leaves the numbers where the file put them. So the scalar
+/// bytes are what survives to be matched against memory. One flag per byte
+/// of `file`; everything outside a scalar field — block headers, section
+/// wrappers, the header and layout sections — is `false`.
+pub fn scalar_mask(layout: &Layout<'_>, block: &Block<'_>, file: &[u8]) -> Vec<bool> {
+    let mut mask = vec![false; file.len()];
+    let lo = file.as_ptr() as usize;
+    visit_fields(layout, block, &mut |field, bytes| {
+        if bytes.is_empty() || !scalar(layout.type_name_of(field)) {
+            return;
+        }
+        let at = bytes.as_ptr() as usize;
+        if at < lo || at + bytes.len() > lo + file.len() {
+            return;
+        }
+        let off = at - lo;
+        mask[off..off + bytes.len()].iter_mut().for_each(|b| *b = true);
+    });
+    mask
+}
+
+/// Types whose bytes are a value, not a reference the runtime resolves.
+fn scalar(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "real"
+            | "real fraction"
+            | "angle"
+            | "real bounds"
+            | "angle bounds"
+            | "fraction bounds"
+            | "real point 2d"
+            | "real vector 2d"
+            | "real euler angles 2d"
+            | "real point 3d"
+            | "real vector 3d"
+            | "real euler angles 3d"
+            | "real rgb color"
+            | "real plane 2d"
+            | "real argb color"
+            | "real plane 3d"
+            | "real quaternion"
+            | "char integer"
+            | "byte integer"
+            | "short integer"
+            | "word integer"
+            | "long integer"
+            | "int64 integer"
+            | "short integer bounds"
+            | "rectangle 2d"
+            | "byte flags"
+            | "word flags"
+            | "long flags"
+            | "char enum"
+            | "short enum"
+            | "long enum"
+            | "rgb color"
+            | "argb color"
+    )
+}

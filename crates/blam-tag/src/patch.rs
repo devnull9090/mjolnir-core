@@ -104,19 +104,58 @@ pub fn resolve(
     block: &Block<'_>,
     path: &str,
 ) -> Result<Target, Error> {
-    locate(layout, file, block, path).map(|(target, _)| target)
+    locate(layout, file, block, path).map(|(target, _, _)| target)
+}
+
+/// One block boundary a path crosses on its way to a field.
+///
+/// In the file this is nothing — an element's bytes are at a fixed offset
+/// like any other — but a runtime that moves block elements out of the tag
+/// needs to know where each boundary was crossed: which block field, which
+/// element, and where that element's bytes began. See `blam_live`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hop {
+    /// File offset of the block field in the parent element — the twelve
+    /// bytes the file holds for it.
+    pub header: usize,
+    /// The element the path enters.
+    pub index: usize,
+    /// File offset of that element's packed bytes.
+    pub element: usize,
+    /// Packed size of one element.
+    pub element_size: usize,
+}
+
+/// Where a field sits, with the block boundaries crossed to reach it.
+#[derive(Debug, Clone)]
+pub struct Route {
+    pub target: Target,
+    /// Outermost first. Empty for a field of the root element, including one
+    /// inside an inlined struct or a fixed array.
+    pub hops: Vec<Hop>,
+}
+
+/// [`resolve`], keeping the block boundaries crossed along the way.
+pub fn route(
+    layout: &Layout<'_>,
+    file: &[u8],
+    block: &Block<'_>,
+    path: &str,
+) -> Result<Route, Error> {
+    locate(layout, file, block, path).map(|(target, _, hops)| Route { target, hops })
 }
 
 /// [`resolve`], also returning the decoded value paired with the field, when
-/// the field writes one. This is what element editing needs: the `Value::Block`
-/// behind a `block` field carries the packed elements and per-element wrappers
-/// that a count change has to rebuild.
+/// the field writes one, and the block boundaries crossed. The value is what
+/// element editing needs: the `Value::Block` behind a `block` field carries
+/// the packed elements and per-element wrappers that a count change has to
+/// rebuild.
 fn locate<'v, 'a>(
     layout: &Layout<'_>,
     file: &[u8],
     block: &'v Block<'a>,
     path: &str,
-) -> Result<(Target, Option<&'v crate::data::Value<'a>>), Error> {
+) -> Result<(Target, Option<&'v crate::data::Value<'a>>, Vec<Hop>), Error> {
     let mut run = layout
         .struct_run(block.struct_index)
         .ok_or(Error::NoData)?;
@@ -124,6 +163,7 @@ fn locate<'v, 'a>(
     let mut values: &'v [crate::data::Value<'a>] =
         block.children.first().map(Vec::as_slice).unwrap_or(&[]);
     let mut walked = String::new();
+    let mut hops: Vec<Hop> = Vec::new();
 
     let parts = segments(path);
     for (depth, (name, index)) in parts.iter().enumerate() {
@@ -212,6 +252,7 @@ fn locate<'v, 'a>(
                     section,
                 },
                 value,
+                hops,
             ));
         }
 
@@ -241,6 +282,12 @@ fn locate<'v, 'a>(
                     .ok_or(Error::NoData)?;
                 bytes = inner.element(*k).unwrap_or(&[]);
                 values = inner.children.get(*k).map(Vec::as_slice).unwrap_or(&[]);
+                hops.push(Hop {
+                    header: offset_within(file, slice),
+                    index: *k,
+                    element: offset_within(file, bytes),
+                    element_size: inner.element_size as usize,
+                });
                 walked = format!("{walked}[{k}]");
             }
             ("array", Some(k)) => {
@@ -605,7 +652,7 @@ pub fn edit_elements(
     path: &str,
     op: ElementOp,
 ) -> Result<(Vec<u8>, Applied), Error> {
-    let (target, value) = locate(layout, file, block, path)?;
+    let (target, value, _) = locate(layout, file, block, path)?;
     let Some(crate::data::Value::Block(inner)) = value else {
         return Err(Error::NotABlock {
             at: path.to_string(),
@@ -949,6 +996,22 @@ mod tests {
         // header, and `meta` is the first field.
         assert_eq!(t.file_offset, 8);
         assert_eq!(t.current, Scalar::Int(0));
+    }
+
+    #[test]
+    fn a_route_to_a_root_field_crosses_no_block() {
+        let (body, payload) = synth();
+        let layout = Layout::parse(&body).unwrap();
+        let block = crate::data::read_block(&layout, &payload, 0).unwrap();
+
+        // Through an inlined struct is still the root element: no hop.
+        let r = route(&layout, &payload, &block, "meta.n").unwrap();
+        assert!(r.hops.is_empty());
+        let t = resolve(&layout, &payload, &block, "meta.n").unwrap();
+        assert_eq!(r.target.file_offset, t.file_offset);
+        assert_eq!(r.target.size, t.size);
+        // The synthetic root has no block with elements.
+        assert!(root_blocks(&layout, &payload, &block).is_empty());
     }
 
     #[test]
@@ -1422,4 +1485,59 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, Error::Write(_)), "{err}");
     }
+}
+
+/// The root element's block fields that have elements, as [`Hop`]s into
+/// element 0, each with the block's element count.
+///
+/// What a runtime that relocates block elements needs in order to work out
+/// where it put them: the header to read, and the file's own bytes for the
+/// elements to look for. Only root-level blocks; a block inside an element
+/// is reached through its parent.
+pub fn root_blocks(layout: &Layout<'_>, file: &[u8], block: &Block<'_>) -> Vec<(Hop, u32)> {
+    let mut out = Vec::new();
+    let Some(run) = layout.struct_run(block.struct_index) else {
+        return out;
+    };
+    let Some(range) = layout.struct_ranges().get(run).cloned() else {
+        return out;
+    };
+    let bytes = block.element(0).unwrap_or(&[]);
+    let values = block.children.first().map(Vec::as_slice).unwrap_or(&[]);
+    let mut offset = 0u32;
+    let mut next_value = 0usize;
+    for i in range {
+        let field = layout.fields[i];
+        let size = layout.field_size(&field).unwrap_or(0);
+        let value = if crate::data::field_writes(layout, &field) {
+            while matches!(values.get(next_value), Some(crate::data::Value::Phantom)) {
+                next_value += 1;
+            }
+            let v = values.get(next_value);
+            next_value += 1;
+            v
+        } else {
+            None
+        };
+        if layout.type_name_of(&field) == "block" {
+            if let (Some(crate::data::Value::Block(inner)), Some(slice)) = (
+                value,
+                bytes.get(offset as usize..(offset + size) as usize),
+            ) {
+                if let Some(first) = inner.element(0) {
+                    out.push((
+                        Hop {
+                            header: offset_within(file, slice),
+                            index: 0,
+                            element: offset_within(file, first),
+                            element_size: inner.element_size as usize,
+                        },
+                        inner.count,
+                    ));
+                }
+            }
+        }
+        offset += size;
+    }
+    out
 }
