@@ -366,6 +366,7 @@ performs. Start missions through the menus.
 - [`iostore_packaging.md`](iostore_packaging.md) — how the container work was proven, including
   what is still unsolved
 - [`game_automation.md`](game_automation.md) — driving the game from a script
+- [`blam_console.md`](blam_console.md) — the classic Blam console, wired to the Unreal console
 
 A closing caution. The evidence in this project comes from measuring the running game, not from
 documentation, because there is none. Several conclusions here replaced earlier ones that were

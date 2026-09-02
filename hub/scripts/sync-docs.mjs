@@ -28,6 +28,7 @@ const ORDER = [
   "ue_texture_format.md",
   "wwise_audio_format.md",
   "halosimulation_tag_release.md",
+  "blam_console.md",
   "multiplayer_investigation_notes.md",
   "mjolnir_format.md",
   "hub_architecture.md",
