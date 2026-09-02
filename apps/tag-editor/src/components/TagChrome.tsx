@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { MODEL_GROUPS, useEditor, type ViewMode } from "../stores/editor-store";
+import { MODEL_GROUPS, tagLabel, useEditor, type ViewMode } from "../stores/editor-store";
+import { SoundPlayer } from "./SoundPlayer";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
  *  imports do not take over the inspector. */
@@ -73,6 +74,178 @@ function LinkedAssets() {
   );
 }
 
+/**
+ * "What references this tag?" — collapsed until asked, because the answer
+ * costs a one-time scan of every shipped tag (see `referencing_tags`). The
+ * chips share the linked-assets grammar; each opens the referencing tag.
+ */
+function ReferencedBy() {
+  const selectedTag = useEditor((s) => s.selectedTag);
+  const rows = useEditor((s) => s.reverseRefs);
+  const loading = useEditor((s) => s.reverseRefsLoading);
+  const error = useEditor((s) => s.reverseRefsError);
+  const load = useEditor((s) => s.loadReverseRefs);
+  const openTab = useEditor((s) => s.openTab);
+  const [open, setOpen] = useState(false);
+
+  // Collapse again when another tag takes the pane.
+  useEffect(() => setOpen(false), [selectedTag]);
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          if (!open && rows === null && !loading) void load();
+        }}
+        className="font-mono text-[10px] uppercase tracking-wider text-text-dim hover:text-text-secondary"
+        title="Every tag whose fields reference this one"
+      >
+        {open ? "▾" : "▸"} referenced by{rows ? ` · ${rows.length}` : ""}
+      </button>
+      {open && (
+        <div className="mt-1 flex max-h-28 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
+          {loading && (
+            <span className="font-mono text-[10px] text-text-dim">
+              scanning every tag for references — up to a minute, once per game version…
+            </span>
+          )}
+          {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
+          {rows?.length === 0 && (
+            <span className="font-mono text-[10px] text-text-dim">
+              nothing references this tag
+            </span>
+          )}
+          {rows?.map((t) => (
+            <button
+              key={t.index}
+              type="button"
+              title={t.short}
+              onClick={() =>
+                void openTab("tag", t.index, tagLabel(t), { group: t.group, path: t.short })
+              }
+              className="border border-mjolnir-gold/40 px-1.5 py-0.5 font-mono text-[10px] text-mjolnir-gold hover:bg-mjolnir-gold/10"
+            >
+              {tagLabel(t)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A byte count as the short label a chip has room for. */
+function shortBytes(n: number | null): string {
+  if (n === null) return "";
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${n} B`;
+}
+
+/**
+ * What the open sound tag actually plays.
+ *
+ * The Blam permutations in the form are legacy metadata; the audio itself is
+ * on the Wwise side, reached through the tag's event packages and the bank
+ * graph (see `wwise_audio_for_tag`). Wwise ships variation names as hashes,
+ * so the chips are numbered rather than named — but every one is playable,
+ * including media that exists only inside a bank. Collapsed until asked,
+ * because answering costs package reads and a bank parse.
+ */
+function TagAudioSection() {
+  const tag = useEditor((s) => s.tag);
+  const selectedTag = useEditor((s) => s.selectedTag);
+  const audio = useEditor((s) => s.tagAudio);
+  const loading = useEditor((s) => s.tagAudioLoading);
+  const error = useEditor((s) => s.tagAudioError);
+  const load = useEditor((s) => s.loadTagAudio);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(0);
+
+  // Collapse and forget the pick when another tag takes the pane.
+  useEffect(() => {
+    setOpen(false);
+    setPicked(0);
+  }, [selectedTag]);
+
+  if (!tag || !tag.group.startsWith("sound")) return null;
+
+  const media = audio?.media ?? [];
+  const hit = media[Math.min(picked, Math.max(media.length - 1, 0))] ?? null;
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          if (!open && audio === null && !loading) void load();
+        }}
+        className="font-mono text-[10px] uppercase tracking-wider text-text-dim hover:text-text-secondary"
+        title="The Wwise audio this tag's events play, every variation playable — including media embedded in sound banks"
+      >
+        {open ? "▾" : "▸"} audio
+        {audio
+          ? ` · ${media.length} variation${media.length === 1 ? "" : "s"}`
+          : ""}
+      </button>
+      {open && (
+        <div className="mt-1">
+          {loading && (
+            <span className="font-mono text-[10px] text-text-dim">
+              walking the event packages and their banks…
+            </span>
+          )}
+          {error && <span className="font-mono text-[10px] text-accent-red">{error}</span>}
+          {audio && media.length === 0 && (
+            <span className="font-mono text-[10px] text-text-dim">
+              {audio.events.length > 0
+                ? `${audio.events.join(", ")} reaches no media in this installation`
+                : "no Wwise events are linked to this tag"}
+            </span>
+          )}
+          {audio && audio.events.length > 0 && media.length > 0 && (
+            <p className="mb-1 font-mono text-[10px] text-text-dim">
+              {audio.events.join(" · ")}
+            </p>
+          )}
+          {media.length > 1 && (
+            <div className="mb-1 flex max-h-20 flex-wrap content-start items-center gap-1.5 overflow-y-auto pr-1">
+              {media.map((m, i) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setPicked(i)}
+                  title={`${m.event || "media"} · ${m.id}${
+                    m.bank !== null ? " · embedded in a sound bank" : ""
+                  }${m.size !== null ? ` · ${m.size.toLocaleString()} bytes` : ""}`}
+                  aria-pressed={i === picked}
+                  className={`border px-1.5 py-0.5 font-mono text-[10px] ${
+                    i === picked
+                      ? "border-mjolnir-gold bg-mjolnir-gold/10 text-mjolnir-gold"
+                      : "border-border-subtle text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  {i + 1}
+                  {m.bank !== null ? "·bnk" : ""}
+                  {m.size !== null ? ` ${shortBytes(m.size)}` : ""}
+                </button>
+              ))}
+            </div>
+          )}
+          {hit &&
+            (hit.sound !== null ? (
+              <SoundPlayer index={hit.sound} />
+            ) : hit.bank !== null ? (
+              <SoundPlayer bank={hit.bank} media={hit.id} />
+            ) : null)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Header shared by both inspector views: identity, vitals, view toggle. */
 /**
  * Live mode: mirror each accepted edit into the running game.
@@ -85,9 +258,11 @@ function LiveToggle() {
   const live = useEditor((s) => s.live);
   const liveOn = useEditor((s) => s.liveOn);
   const poking = useEditor((s) => s.livePoking);
+  const scanning = useEditor((s) => s.liveScanning);
   const note = useEditor((s) => s.liveNote);
   const setLiveOn = useEditor((s) => s.setLiveOn);
   const refreshLive = useEditor((s) => s.refreshLive);
+  const censusLive = useEditor((s) => s.censusLive);
 
   // Poll only while armed: the check attaches to the process, and doing that
   // every few seconds for a feature nobody switched on is rude.
@@ -106,9 +281,10 @@ function LiveToggle() {
         onClick={() => setLiveOn(!liveOn)}
         title={
           "Push each edit into the running game as well as the project.\n\n" +
-          "The first edit to a tag has to find it in memory, which takes a few " +
-          "minutes; after that it is instant. Fixed-width fields only — anything " +
-          "that resizes the tag still needs a rebuild.\n\n" +
+          "Scan the game once and every loaded tag is found at the same time, " +
+          "so edits to them are instant; without a scan the first edit to a tag " +
+          "pays for its own search. Fixed-width fields only — anything that " +
+          "resizes the tag still needs a rebuild.\n\n" +
           "Nothing is written to disk, so a live change is gone at the next launch."
         }
         className={`border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
@@ -119,14 +295,30 @@ function LiveToggle() {
       >
         live {liveOn ? "on" : "off"}
       </button>
+      {liveOn && running && (
+        <button
+          type="button"
+          disabled={scanning}
+          onClick={() => void censusLive()}
+          title={
+            "Sweep the game's memory once and find every loaded tag at its " +
+            "address — including which level is loaded. Takes tens of seconds; " +
+            "afterwards every found tag edits instantly."
+          }
+          className="border border-border-subtle px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-text-dim enabled:hover:bg-surface-hover disabled:opacity-50"
+        >
+          {scanning ? "scanning…" : "scan game"}
+        </button>
+      )}
       {liveOn && (
         <span className="font-mono text-[10px] text-text-dim">
           {poking
-            ? "writing… (first edit to a tag scans for it, this takes minutes)"
+            ? "writing…"
             : running
-              ? `game running · pid ${live?.pid} · ${live?.located ?? 0} tag${
-                  (live?.located ?? 0) === 1 ? "" : "s"
-                } located`
+              ? `game running · pid ${live?.pid}` +
+                (live?.level ? ` · in ${live.level}` : "") +
+                ` · ${live?.located ?? 0} located` +
+                ((live?.present ?? 0) > 0 ? ` · ${live?.present} present` : "")
               : "no game running — edits are recorded but not pushed"}
         </span>
       )}
@@ -229,6 +421,8 @@ export function TagHeader() {
         {tag.node_count.toLocaleString()} fields
       </p>
       <LinkedAssets />
+      <ReferencedBy />
+      <TagAudioSection />
       <LiveToggle />
     </header>
   );

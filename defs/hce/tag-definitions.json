@@ -1,6 +1,6 @@
 {
   "generator": "mjolnir 0.1.0",
-  "build": "2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2",
+  "build": "2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4",
   "groups": {
     "achievements": {
       "group": "achi",
@@ -59271,7 +59271,7 @@
       "group": "jmad",
       "name": "model_animation_graph",
       "version": 1,
-      "tag_count": 176,
+      "tag_count": 178,
       "structs": [
         {
           "name": "model_animation_graph_block_struct",

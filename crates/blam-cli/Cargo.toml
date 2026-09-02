@@ -1,7 +1,11 @@
 [package]
 name = "blam-cli"
 description = "mjolnir command-line tool for inspecting Halo Campaign Evolved tag data"
-version.workspace = true
+# The only crate here that ships to people rather than to other crates, so it
+# carries its own version rather than the workspace one: `cli-v0.2.0` should be
+# taggable without renumbering seven libraries nobody installs. `clap(version)`
+# prints this, and release-cli.yml refuses to build a tag that disagrees with it.
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

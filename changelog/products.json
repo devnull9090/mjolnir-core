@@ -31,6 +31,13 @@
       "docsUrl": "/docs/notes/hub-architecture"
     },
     {
+      "id": "cli",
+      "name": "MJOLNIR CLI",
+      "tagPrefix": "cli-v",
+      "blurb": "The `mjolnir` command line: list, inspect, edit and repack the tags in your installed game.",
+      "docsUrl": "/docs/guides/getting-started"
+    },
+    {
       "id": "mods",
       "name": "MJOLNIR Code Mods",
       "tagPrefix": "mods-v",

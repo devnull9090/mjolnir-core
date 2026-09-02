@@ -11,10 +11,12 @@
  * written once, here.
  */
 import type {
+  AdminUserList,
   Comment,
   ConflictPair,
   DevicePoll,
   DeviceStart,
+  HiddenMod,
   Media,
   MediaOwner,
   MediaStatus,
@@ -24,11 +26,13 @@ import type {
   QueuedMedia,
   RatingSummary,
   Release,
+  ReleaseChanges,
   ReleaseStatusDetail,
   Report,
   ReportReason,
   ReportSubject,
   User,
+  UserProfile,
 } from "./types";
 
 export interface HubRequest {
@@ -219,6 +223,11 @@ export class HubClient {
     return r.releases;
   }
 
+  /** What a release declares it changes, plus the measured chunk count. */
+  getReleaseChanges(id: string): Promise<ReleaseChanges> {
+    return this.call({ method: "GET", path: `/releases/${encodeURIComponent(id)}/changes` });
+  }
+
   getRelease(id: string): Promise<ReleaseStatusDetail> {
     return this.call({ method: "GET", path: `/releases/${encodeURIComponent(id)}` });
   }
@@ -369,7 +378,43 @@ export class HubClient {
     });
   }
 
+  /** Mods pulled from public view, awaiting a decision. Moderators only. */
+  async listHiddenMods(): Promise<HiddenMod[]> {
+    const r = await this.call<{ mods: HiddenMod[] }>({
+      method: "GET",
+      path: "/moderation/mods",
+    });
+    return r.mods;
+  }
+
+  decideMod(slug: string, action: "restore" | "hide" | "remove"): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/mods/${encodeURIComponent(slug)}`,
+      body: { action },
+    });
+  }
+
+  // ── Admin ───────────────────────────────────────────────────────────
+
+  /**
+   * Registered accounts with their Discord IDs. Admins only. `q` matches
+   * a Discord ID exactly or a name as a substring; empty lists the newest
+   * signups.
+   */
+  listUsers(q?: string, limit?: number): Promise<AdminUserList> {
+    return this.call({ method: "GET", path: "/admin/users", query: { q, limit } });
+  }
+
   // ── Identity ────────────────────────────────────────────────────────
+
+  /**
+   * Someone's public profile: identity, activity totals, published mods.
+   * Counts only — the API publishes no download or viewing history.
+   */
+  getUserProfile(id: string): Promise<UserProfile> {
+    return this.call({ method: "GET", path: `/users/${encodeURIComponent(id)}` });
+  }
 
   /** The signed-in user, or null when the caller is anonymous. */
   async me(): Promise<User | null> {

@@ -17,7 +17,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
-import { requireScoped } from "./auth";
+import { authenticate, requireScoped } from "./auth";
 import {
   ConflictCheckRequestSchema,
   ConflictCheckResponseSchema,
@@ -25,6 +25,7 @@ import {
   ErrorSchema,
   ModCreateSchema,
   ModDetailSchema,
+  ReleaseChangesSchema,
   ReleaseCreateSchema,
   ReleaseSchema,
   ReleaseStatusSchema,
@@ -383,8 +384,13 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         ),
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
         c.env.DB.prepare(
-          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3 WHERE id = ?1`,
-        ).bind(id, scan.verdict === "pass" ? "published" : "rejected", signingKeyId),
+          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3, changes_json = ?4 WHERE id = ?1`,
+        ).bind(
+          id,
+          scan.verdict === "pass" ? "published" : "rejected",
+          signingKeyId,
+          scan.changes ? JSON.stringify(scan.changes) : null,
+        ),
       ];
       if (signingKeyId) {
         statements.push(
@@ -510,6 +516,53 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
+  // ── Declared changes ────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/releases/{id}/changes",
+      tags: ["releases"],
+      summary: "What a release declares it changes",
+      description:
+        "The change list the archive carried (changes.json): tag edits as " +
+        "shipped → modded values, replaced textures and scripts. An author " +
+        "declaration rendered for transparency — compare `chunk_count`, " +
+        "which is measured from the uploaded containers, to spot a release " +
+        "claiming less than it touches. `changes` is null for archives " +
+        "predating the format.",
+      request: { params: z.object({ id: z.string() }) },
+      responses: {
+        200: {
+          description: "The declared changes.",
+          content: { "application/json": { schema: ReleaseChangesSchema } },
+        },
+        404: { description: "Not published.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const row = await c.env.DB.prepare(
+        `SELECT r.version, r.changes_json,
+                (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count
+         FROM mod_releases r JOIN mods m ON m.id = r.mod_id
+         WHERE r.id = ?1 AND r.status = 'published' AND m.status = 'published'`,
+      )
+        .bind(id)
+        .first<{ version: string; changes_json: string | null; chunk_count: number }>();
+      if (!row) return c.json({ error: "not_found" }, 404);
+      return c.json(
+        {
+          release_id: id,
+          version: row.version,
+          chunk_count: row.chunk_count,
+          changes: row.changes_json ? JSON.parse(row.changes_json) : null,
+        },
+        200,
+      );
+    },
+  );
+
   // ── Download ────────────────────────────────────────────────────────
 
   app.openapi(
@@ -518,6 +571,12 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       path: "/releases/{id}/download",
       tags: ["releases"],
       summary: "Download the release archive",
+      description:
+        "Public. A caller that happens to carry a credential — a session " +
+        "cookie, or a paired client's API key — also has the download " +
+        "attributed to its account, which is what a profile's " +
+        "`mods_downloaded` counts. No credential, no attribution; the " +
+        "anonymous rollups are counted either way.",
       request: { params: z.object({ id: z.string() }) },
       responses: {
         200: { description: "The .mjolnir archive (zip)." },
@@ -530,7 +589,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       const release = await c.env.DB.prepare(
         `SELECT r.r2_key, r.download_url, r.mod_id, m.slug, r.version FROM mod_releases r
          JOIN mods m ON m.id = r.mod_id
-         WHERE r.id = ?1 AND r.status = 'published'`,
+         WHERE r.id = ?1 AND r.status = 'published' AND m.status = 'published'`,
       )
         .bind(id)
         .first<{
@@ -544,18 +603,36 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         return c.json({ error: "not_found" }, 404);
       }
 
+      // Who is asking, if anyone. Resolved on the request path rather than
+      // inside the waitUntil below because `authenticate` schedules work of
+      // its own, and scheduling from an already-detached task is not
+      // something to rely on. An anonymous caller costs nothing here: with
+      // neither header nor cookie there is nothing to look up.
+      const auth = await authenticate(c).catch(() => null);
+
       // Counter rollups; good enough until download volume argues for
-      // Analytics Engine (docs/hub_architecture.md §6).
-      c.executionCtx.waitUntil(
-        c.env.DB.batch([
+      // Analytics Engine (docs/hub_architecture.md §6). Attribution rides
+      // along in the same batch, so a download never waits on bookkeeping
+      // and never fails because of it.
+      const writes = [
+        c.env.DB.prepare(
+          `UPDATE mod_releases SET download_count = download_count + 1 WHERE id = ?1`,
+        ).bind(id),
+        c.env.DB.prepare(`UPDATE mods SET download_count = download_count + 1 WHERE id = ?1`).bind(
+          release.mod_id,
+        ),
+      ];
+      if (auth) {
+        // First pull only: re-downloading a release one already has is not
+        // new activity, so the row's date stays the first one.
+        writes.push(
           c.env.DB.prepare(
-            `UPDATE mod_releases SET download_count = download_count + 1 WHERE id = ?1`,
-          ).bind(id),
-          c.env.DB.prepare(
-            `UPDATE mods SET download_count = download_count + 1 WHERE id = ?1`,
-          ).bind(release.mod_id),
-        ]) as unknown as Promise<unknown>,
-      );
+            `INSERT OR IGNORE INTO mod_downloads (user_id, mod_id, release_id)
+             VALUES (?1, ?2, ?3)`,
+          ).bind(auth.user.id, release.mod_id, id),
+        );
+      }
+      c.executionCtx.waitUntil(c.env.DB.batch(writes) as unknown as Promise<unknown>);
 
       // Signed code-mod artifacts live in the releases bucket; redirect to
       // the exact URL the signed manifest named.

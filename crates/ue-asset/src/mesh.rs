@@ -1,12 +1,18 @@
 //! Cooked `UStaticMesh` render data: LODs, sections, vertex and index
 //! buffers — the visual geometry the Blam tags deliberately do not carry.
 //!
-//! Layout verified byte-by-byte against this game's cook (UE 5.5, no Nanite
-//! in the serialized stream): after the unversioned properties and the object
-//! guard come strip flags, `bCooked`, BodySetup and NavCollision references
-//! and the lighting guid, a socket count, then `FStaticMeshRenderData` as a
-//! plain LOD array. A LOD is either inlined (buffers follow directly) or
-//! streamed, with a bulk-data header pointing into the package's `.ubulk`.
+//! Layout verified byte-by-byte against this game's cook (UE 5.5; meshes
+//! cooked under `Nanite/` folders serialize the same stream): after the
+//! unversioned properties and the object guard come strip flags, `bCooked`,
+//! BodySetup and NavCollision references and the lighting guid, a socket
+//! count, then `FStaticMeshRenderData` as a plain LOD array. A LOD is either
+//! inlined (buffers follow directly) or streamed, with a bulk-data header
+//! pointing into the package's `.ubulk`. The buffer block does not stop at
+//! the main index buffer: reversed, depth-only and wireframe index buffers,
+//! a ray-tracing blob and area-weighted triangle samplers follow, gated by
+//! the block's strip flags, and every LOD closes with the three
+//! `FStaticMeshBuffersSize` words — a multi-LOD mesh misparses without them.
+//! Cross-checked against CUE4Parse's `FStaticMeshLODResources`.
 
 use crate::unversioned::{Ctx, Error as PropError, Keep, Walker};
 
@@ -162,13 +168,14 @@ pub fn parse_static_mesh(
                 );
             }
             let _ = count;
-            // Tail metadata after the bulk header: depth-only triangles and
-            // packed buffer-availability info.
+            // Availability metadata after the bulk header: depth-only
+            // triangle count, packed flags, then per-buffer metadata the
+            // engine needs before streaming (fixed 72 bytes in this layout:
+            // 4 index-buffer entries, position, color, and five vertex-buffer
+            // words, each two u32s wide).
             let _depth_only_triangles = w.u32()?;
             let _packed = w.u32()?;
-            // Buffer availability metadata the engine uses before streaming;
-            // sizes verified against this cook in read_streamed_metadata.
-            read_streamed_metadata(&mut w)?;
+            w.skip(4 * 4 + 2 * 4 + 2 * 4 + 5 * 2 * 4)?;
 
             if let Some(bulk) = ubulk {
                 let slice = bulk
@@ -178,15 +185,20 @@ pub fn parse_static_mesh(
                 read_buffers(&mut bw, &mut lod, trace)?;
             }
         }
+        // FStaticMeshBuffersSize: serialized size, depth-only size, reversed
+        // size — trails both the inlined and the streamed form.
+        let (_serialized, _depth_only, _reversed) = (w.u32()?, w.u32()?, w.u32()?);
         out.lods.push(lod);
     }
     Ok(out)
 }
 
-/// `FStaticMeshLODResources::SerializeBuffers`.
+/// `FStaticMeshLODResources::SerializeBuffers` — the whole block, whether it
+/// sits inline in the export or fills a streamed LOD's `.ubulk` payload.
 fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Error> {
-    // The buffer block opens with its own strip flags.
-    let _strip = w.u16()?;
+    // The buffer block opens with its own strip flags: global byte first,
+    // class byte second. The class flags gate the optional blocks at the end.
+    let strip = w.u16()?;
     // FPositionVertexBuffer: stride, count, then bulk-serialized data.
     let stride = w.u32()?;
     let vertices = w.u32()?;
@@ -283,7 +295,8 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
     }
     let _ = color_stride;
 
-    // FRawStaticIndexBuffer: wide flag, then bulk-serialized bytes.
+    // FRawStaticIndexBuffer: wide flag, bulk-serialized bytes, and one
+    // trailing bool (bShouldExpandTo32Bit).
     let b32 = w.u32()? != 0;
     let (i_elem, i_num) = (w.u32()?, w.u32()?);
     let index_bytes = w.bytes(i_elem as usize * i_num as usize)?;
@@ -301,14 +314,77 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
             .map(|c| u16::from_le_bytes([c[0], c[1]]) as u32)
             .collect()
     };
+    let expand = w.u32()?;
+    if expand > 1 {
+        return Err(Error::Format(format!("index-buffer tail bool is {expand}")));
+    }
+
+    // The optional index buffers, gated by the strip flags. Editor data
+    // (wireframe) carries global bit 1; the class byte strips the reversed
+    // buffers (0x4) and the ray-tracing geometry (0x8).
+    let editor_stripped = strip & 0x01 != 0;
+    let reversed_stripped = strip & 0x0400 != 0;
+    let raytracing_stripped = strip & 0x0800 != 0;
+    if !reversed_stripped {
+        skip_raw_index_buffer(w, "reversed", trace)?;
+    }
+    skip_raw_index_buffer(w, "depth-only", trace)?;
+    if !reversed_stripped {
+        skip_raw_index_buffer(w, "reversed depth-only", trace)?;
+    }
+    if !editor_stripped {
+        skip_raw_index_buffer(w, "wireframe", trace)?;
+    }
+    if !raytracing_stripped {
+        // Ray-tracing geometry, a bulk-serialized byte array.
+        let (elem, num) = (w.u32()?, w.u32()?);
+        if elem != 1 {
+            return Err(Error::Format(format!(
+                "unexpected ray-tracing blob: bulk {elem}x{num}"
+            )));
+        }
+        w.skip(num as usize)?;
+        if trace && num > 0 {
+            eprintln!("  ray-tracing blob: {num} bytes, at {:#x}", w.pos);
+        }
+    }
+
+    // One area-weighted triangle sampler per section, then one for the whole
+    // mesh: probability floats, alias table, total weight.
+    for _ in 0..=lod.sections.len() {
+        let prob = w.u32()? as usize;
+        if prob > 4_000_000 {
+            return Err(Error::Format(format!("{prob} sampler probabilities is implausible")));
+        }
+        w.skip(prob * 4)?;
+        let alias = w.u32()? as usize;
+        if alias != prob {
+            return Err(Error::Format(format!("sampler has {prob} probs but {alias} aliases")));
+        }
+        w.skip(alias * 4)?;
+        let _total_weight = w.f32()?;
+    }
     Ok(())
 }
 
-/// The buffer-availability metadata a streamed LOD keeps inline. Sizes only;
-/// consumed and discarded.
-fn read_streamed_metadata(_w: &mut Walker<'_>) -> Result<(), Error> {
-    // Verified against this cook while parsing: see dump_mesh output.
-    // Placeholder — refined empirically.
+/// One `FRawStaticIndexBuffer` whose contents the viewer does not need:
+/// wide flag, bulk bytes, trailing bool.
+fn skip_raw_index_buffer(w: &mut Walker<'_>, which: &str, trace: bool) -> Result<(), Error> {
+    let b32 = w.u32()?;
+    let (elem, num) = (w.u32()?, w.u32()?);
+    if b32 > 1 || elem != 1 {
+        return Err(Error::Format(format!(
+            "unexpected {which} index buffer: b32 {b32}, bulk {elem}x{num}"
+        )));
+    }
+    w.skip(num as usize)?;
+    let expand = w.u32()?;
+    if expand > 1 {
+        return Err(Error::Format(format!("{which} index-buffer tail bool is {expand}")));
+    }
+    if trace && num > 0 {
+        eprintln!("  {which} indices: {num} bytes, at {:#x}", w.pos);
+    }
     Ok(())
 }
 

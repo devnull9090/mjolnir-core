@@ -10,15 +10,18 @@
 import { useEffect, useState } from "react";
 import {
   ActionButton,
+  Avatar,
   Badge,
   CommentThread,
   ErrorNote,
   ModGallery,
   RatingPanel,
+  ReleaseChangesPanel,
   ReleaseList,
   ReportButton,
   Spinner,
   TypeBadge,
+  UserLink,
   formatCount,
   timeAgo,
   useHub,
@@ -104,10 +107,14 @@ export function ModDetail({
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-text-secondary mt-1">
-                by {mod.author}
-                {mod.license ? ` · ${mod.license}` : ""} ·{" "}
-                {formatCount(mod.download_count)} downloads · updated {timeAgo(mod.updated_at)}
+              <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-text-secondary mt-1">
+                <span>by</span>
+                <Avatar url={mod.author_avatar} size="xs" />
+                <UserLink userId={mod.owner_id} name={mod.author} className="text-text-primary" />
+                <span>
+                  {mod.license ? `· ${mod.license} ` : ""}· {formatCount(mod.download_count)}{" "}
+                  downloads · updated {timeAgo(mod.updated_at)}
+                </span>
               </p>
             </div>
 
@@ -187,6 +194,18 @@ export function ModDetail({
               ) : (
                 <p className="text-sm text-text-secondary">No description yet.</p>
               )}
+
+              {/* What the latest release actually edits — the declared
+                  change list, shown before anyone decides to install. */}
+              {mod.type === "content" && releases[0] && (
+                <div>
+                  <h3 className="text-sm font-bold uppercase text-text-secondary mb-3">
+                    What this mod does
+                  </h3>
+                  <ReleaseChangesPanel releaseId={releases[0].id} />
+                </div>
+              )}
+
               <CommentThread slug={slug} />
             </div>
 

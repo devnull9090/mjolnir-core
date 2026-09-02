@@ -23,6 +23,13 @@
       "docsUrl": "/docs/notes/hub-architecture"
     },
     {
+      "id": "cli",
+      "name": "MJOLNIR CLI",
+      "tagPrefix": "cli-v",
+      "blurb": "The `mjolnir` command line: list, inspect, edit and repack the tags in your installed game.",
+      "docsUrl": "/docs/guides/getting-started"
+    },
+    {
       "id": "mods",
       "name": "MJOLNIR Code Mods",
       "tagPrefix": "mods-v",
@@ -31,6 +38,356 @@
     }
   ],
   "releases": [
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.17.0",
+      "tag": "tag-editor-v0.17.0",
+      "title": "Live edits reach weapons, and fields inside blocks",
+      "date": "2026-09-02",
+      "summary": "A live edit of a weapon — or any field inside a block element — now changes the running game. Before, it reported success and changed nothing.",
+      "body": "Editing the magnum's zoom magnification with live mode on said \"found the\ntag at 0x1B627BA0020 and set zoom levels[0].magnification\", and the game\nwent on zooming to 2x. The address was wrong, and the field would not have\nbeen there even at the right one. Two things the engine does at load, both\nmeasured and both now followed:\n\n- **It rewrites every reference in the tag's resident copy** — string ids,\n  tag references, block headers — and keeps only the numbers. A weapon's\n  resident copy has no 48 contiguous bytes in common with the file, so the\n  old locator could not see it and settled for a stray copy of the tag's\n  section tables that every weapon shares. The user's edits were written\n  into an index table there.\n- **It moves every block's elements out of the tag** and turns the block\n  field into a header saying where they went: an offset from a\n  process-wide arena, in 4-byte units. A field inside `zoom levels[0]` or\n  `barrels[0]` is not at its file offset in memory at all.\n\n### Changed\n\n- **Tags are found by their scalar fields.** The locator fingerprints the\n  root element's numbers — reals, angles, integers, flags, enums — and\n  ignores the references between them. A weapon that took a minute to\n  mislocate is found in twelve seconds, on half the machine's cores, and\n  verified on those same bytes: the magnum and assault rifle both match\n  100% where the false positive matched 10%.\n- **Only the engine's working copy is accepted.** The loader keeps\n  byte-perfect images of tags around (a census found nineteen weapons at\n  100%), and writing into one changes nothing. The working copy is told\n  apart by its rewritten block headers, and a tie between an image and the\n  working copy is now resolved instead of dropped.\n- **Fields inside block elements are written where the engine put them.**\n  The block header is read, the arena is worked out once per launch from\n  the first tag with a data-rich block, and the field is written inside the\n  relocated element. Proof: assault rifle zoom written to 8 put 8.00x on\n  the HUD and the camera at 85/8 degrees; written back to 1.4, back it went.\n- **The census finds what it missed.** In a30, weapons went from 32 hits\n  (mostly images and false positives) to 22 working copies including the\n  magnum and assault rifle, and bipeds from 1 to 24. The `in game` list is\n  the pokeable set. The fingerprint table is rebuilt once for this release\n  (about a minute, now on several cores) and cached as before.\n- `mjolnir poke` follows the same path and prints the address it wrote.\n\n### Known limits\n\n- Near-identical tags — marine and keyes_marine, say — have identical\n  root scalars and claim the same buffer; one is kept, and an edit on the\n  twin lands on the shared buffer.\n- A field inside a block of a tag whose own blocks are all empty or\n  reference-only needs the arena from another tag first; the editor says so.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Tags are found by their scalar fields. The locator fingerprints the root element's numbers — reals, angles, integers, flags, enums — and ignores the references between them. A weapon that took a minute to mislocate is found in twelve seconds, on half the machine's cores, and verified on those same bytes: the magnum and assault rifle both match 100% where the false positive matched 10%.",
+            "Only the engine's working copy is accepted. The loader keeps byte-perfect images of tags around (a census found nineteen weapons at 100%), and writing into one changes nothing. The working copy is told apart by its rewritten block headers, and a tie between an image and the working copy is now resolved instead of dropped.",
+            "Fields inside block elements are written where the engine put them. The block header is read, the arena is worked out once per launch from the first tag with a data-rich block, and the field is written inside the relocated element. Proof: assault rifle zoom written to 8 put 8.00x on the HUD and the camera at 85/8 degrees; written back to 1.4, back it went.",
+            "The census finds what it missed. In a30, weapons went from 32 hits (mostly images and false positives) to 22 working copies including the magnum and assault rifle, and bipeds from 1 to 24. The in game list is the pokeable set. The fingerprint table is rebuilt once for this release (about a minute, now on several cores) and cached as before.",
+            "mjolnir poke follows the same path and prints the address it wrote."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "Near-identical tags — marine and keyesmarine, say — have identical root scalars and claim the same buffer; one is kept, and an edit on the twin lands on the shared buffer.",
+            "A field inside a block of a tag whose own blocks are all empty or reference-only needs the arena from another tag first; the editor says so."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.17.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.17.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.17.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.16.0",
+      "tag": "tag-editor-v0.16.0",
+      "title": "Live mode reads the engine's own object table",
+      "date": "2026-09-01",
+      "summary": "Arm live mode and the level appears in about a second, read straight from the engine — no memory scan. The scan now only finds what is actually pokeable.",
+      "body": "Live mode's census found everything by sweeping the game's memory — the\nlevel included, by fingerprinting the scenario tag, which the engine rewrites\nharder than anything else. Now the editor reads UE's own object table\ninstead, the way the engine finds its objects: two signature-resolved\nglobals and a pointer chase, about a second, no sweep.\n\n### Added\n\n- **The level, the moment live mode is armed.** Exactly one scenario object\n  is ever loaded, so its name *is* the level — exact, not inferred. The\n  status line says `in Levels/.../a30` before any scan runs.\n- **What is present.** The status line and census report count tags with a\n  live object in the game. This is deliberately separate from *located*:\n  an object exists for nearly every tag whether or not its data is resident\n  (9,147 present against 369 pokeable in a mission), so it is the identity\n  index, not the editable set.\n- **Resolved once per build, not per launch.** The engine globals' offsets\n  are cached; reattaching after a relaunch takes a couple of milliseconds. A\n  cached offset is re-validated against the table's own self-describing\n  layout before it is trusted, so a game update that moves the globals is\n  detected and re-resolved rather than believed.\n\n- **The engine's own loader cache, as a poke source.** The census now reads\n  the map the loader keeps of every package it currently references —\n  found from the game image's static data, walked in a bounded pass, and\n  looked up by package id — and adopts each buffer it hands over at its\n  exact address, no sweep needed for those. It is the loader's map, so it\n  lets go of a buffer once loading is done: in a settled mission it covers\n  a fraction of what the sweep finds, and likely most of it during and just\n  after a level load. The census note says how many came straight from it.\n\n### Changed\n\n- **The census's level is now authoritative from the object table.** Its\n  scenario fingerprint and the reference-graph guess remain only as the\n  fallback for a build whose engine globals cannot be resolved — in which\n  case the memory scan still runs and still finds the pokeable set, exactly\n  as before.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "The level, the moment live mode is armed. Exactly one scenario object is ever loaded, so its name is the level — exact, not inferred. The status line says in Levels/.../a30 before any scan runs.",
+            "What is present. The status line and census report count tags with a live object in the game. This is deliberately separate from located: an object exists for nearly every tag whether or not its data is resident (9,147 present against 369 pokeable in a mission), so it is the identity index, not the editable set.",
+            "Resolved once per build, not per launch. The engine globals' offsets are cached; reattaching after a relaunch takes a couple of milliseconds. A cached offset is re-validated against the table's own self-describing layout before it is trusted, so a game update that moves the globals is detected and re-resolved rather than believed.",
+            "The engine's own loader cache, as a poke source. The census now reads the map the loader keeps of every package it currently references — found from the game image's static data, walked in a bounded pass, and looked up by package id — and adopts each buffer it hands over at its exact address, no sweep needed for those. It is the loader's map, so it lets go of a buffer once loading is done: in a settled mission it covers a fraction of what the sweep finds, and likely most of it during and just after a level load. The census note says how many came straight from it."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The census's level is now authoritative from the object table. Its scenario fingerprint and the reference-graph guess remain only as the fallback for a build whose engine globals cannot be resolved — in which case the memory scan still runs and still finds the pokeable set, exactly as before."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.16.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.16.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.16.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.15.0",
+      "tag": "tag-editor-v0.15.0",
+      "title": "Live mode learns what the game is holding",
+      "date": "2026-08-31",
+      "summary": "One scan finds every loaded tag at once — no more minutes-long search per edit — makes them instant to poke, and names the level you are in.",
+      "body": "Live mode could push an edit into the running game, but finding where a tag\nlived cost a full sweep of the game's memory — minutes — and it paid that\nprice again for every tag you touched. The sweep itself never cared how many\ntags it was looking for. Now it looks for all of them.\n\n### Added\n\n- **Scan game (the census).** Next to the live toggle: one sweep of the\n  game's memory carries a small fingerprint for *every* tag in the catalog\n  and reports everything that is loaded, at its address. Every found tag\n  then edits instantly. Measured against a mission in the shipped build:\n  12.6 GB swept in ~15 seconds, 324 loaded tags verified. The sweep runs on\n  several cores (about half the machine, so the game does not hitch) and\n  streams progress as it goes.\n- **Live mode knows your level.** The loaded scenario tag falls out of the\n  census like any other — the scenario gets an extra-thorough fingerprint,\n  because the engine rewrites it harder than any other tag — so the status\n  line can say which level you are in without asking the game anything.\n- **● in game.** After a census the file browser grows a green **in game**\n  view — exactly the tags the game is holding right now, openable like any\n  search result — and badges those rows wherever they appear.\n- **Fingerprint cache.** Building the census fingerprints reads every tag\n  payload once (tens of seconds, like the \"referenced by\" index) and is then\n  cached on disk per installation, so later sessions skip straight to the\n  sweep.\n\n### Changed\n\n- **Every census hit is verified before it is believed.** Tags share\n  structure — two variants of a weapon differ in a handful of fields — so\n  each candidate address is re-scored against its own tag's bytes at the\n  same bar a cached address must clear before a poke. Two identical copies\n  in memory score as ambiguous and are left for the single-tag scan rather\n  than guessed at.\n- The single-tag scan is unchanged and remains the fallback for anything\n  the census could not pin down.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Scan game (the census). Next to the live toggle: one sweep of the game's memory carries a small fingerprint for every tag in the catalog and reports everything that is loaded, at its address. Every found tag then edits instantly. Measured against a mission in the shipped build: 12.6 GB swept in ~15 seconds, 324 loaded tags verified. The sweep runs on several cores (about half the machine, so the game does not hitch) and streams progress as it goes.",
+            "Live mode knows your level. The loaded scenario tag falls out of the census like any other — the scenario gets an extra-thorough fingerprint, because the engine rewrites it harder than any other tag — so the status line can say which level you are in without asking the game anything.",
+            "● in game. After a census the file browser grows a green in game view — exactly the tags the game is holding right now, openable like any search result — and badges those rows wherever they appear.",
+            "Fingerprint cache. Building the census fingerprints reads every tag payload once (tens of seconds, like the \"referenced by\" index) and is then cached on disk per installation, so later sessions skip straight to the sweep."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Every census hit is verified before it is believed. Tags share structure — two variants of a weapon differ in a handful of fields — so each candidate address is re-scored against its own tag's bytes at the same bar a cached address must clear before a poke. Two identical copies in memory score as ambiguous and are left for the single-tag scan rather than guessed at.",
+            "The single-tag scan is unchanged and remains the fallback for anything the census could not pin down."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.15.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.15.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.15.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.14.0",
+      "tag": "tag-editor-v0.14.0",
+      "title": "The editor remembers your place",
+      "date": "2026-08-31",
+      "summary": "Tabs keep their scroll, open sections and element picks across switches and restarts — plus right-click menus everywhere, and sound tags that play their audio.",
+      "body": "Requested by a modder copying a big edit between two characters: every time\nthey switched tabs, the editor forgot where they were — scroll reset, sections\ncollapsed, every element dropdown back to 0. Not any more.\n\n### Added\n\n- **Tabs remember your place.** Each tab keeps its scroll position (form and\n  tree view separately), which sections you expanded or collapsed, and which\n  element every block's dropdown was showing. Switch away and back, or close\n  the editor and reopen it — everything is where you left it. Your open tabs\n  come back on launch too, remembered by name so a game update never brings\n  back the wrong tag; only the tab you were on loads, the rest wait until\n  clicked.\n- **Right-click menus.** On a tab: Close, Close Others, Close All to the\n  Right, Copy Path. On any tag, texture, sound or file in the left panel:\n  Open, Copy Path. On a block's section bar: add, duplicate or delete an\n  element, revert the block, copy the field path. On a field row: revert the\n  field, copy the field path — handy for noting exactly which fields an edit\n  touched. Text boxes keep the normal cut/copy/paste menu.\n- **Sound tags play their audio.** Sound tags get an \"audio\" section in the\n  tag header that plays every variation their Wwise events reach — including\n  the 546 tags whose audio exists only inside a sound bank, which the editor\n  now digs out of the bank itself. Variations are numbered rather than named,\n  because the game ships Wwise names as hashes.\n\n### Changed\n\n- **\"Referenced by\" is now instant after the first scan per game version.**\n  The scan of every shipped tag (up to a minute) used to run once per\n  session; its result is now saved to disk and loads back in well under a\n  second. A game update or newly installed mod triggers a fresh scan, so the\n  answer is never stale.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Tabs remember your place. Each tab keeps its scroll position (form and tree view separately), which sections you expanded or collapsed, and which element every block's dropdown was showing. Switch away and back, or close the editor and reopen it — everything is where you left it. Your open tabs come back on launch too, remembered by name so a game update never brings back the wrong tag; only the tab you were on loads, the rest wait until clicked.",
+            "Right-click menus. On a tab: Close, Close Others, Close All to the Right, Copy Path. On any tag, texture, sound or file in the left panel: Open, Copy Path. On a block's section bar: add, duplicate or delete an element, revert the block, copy the field path. On a field row: revert the field, copy the field path — handy for noting exactly which fields an edit touched. Text boxes keep the normal cut/copy/paste menu.",
+            "Sound tags play their audio. Sound tags get an \"audio\" section in the tag header that plays every variation their Wwise events reach — including the 546 tags whose audio exists only inside a sound bank, which the editor now digs out of the bank itself. Variations are numbered rather than named, because the game ships Wwise names as hashes."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "\"Referenced by\" is now instant after the first scan per game version. The scan of every shipped tag (up to a minute) used to run once per session; its result is now saved to disk and loads back in well under a second. A game update or newly installed mod triggers a fresh scan, so the answer is never stale."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.14.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.13.0",
+      "tag": "tag-editor-v0.13.0",
+      "title": "References you can see through",
+      "date": "2026-08-30",
+      "summary": "Hover a tag reference to preview what it points at — a playable sound, a spinning model, or its identity. Broken references show red. Plus back/forward history, Ctrl+P quick-open, and \"referenced by\".",
+      "body": "A tag is mostly references to other tags, and until now each one was a line\nof text and an Open button that silently did nothing when the path did not\nresolve. This release is about making those edges visible and fast to walk —\nin both directions.\n\n### Added\n\n- **Reference previews.** The group code at the end of every reference row is\n  now a preview chip: rest the pointer on it (or click to pin) and a card\n  shows what is on the other end — an inline sound player, a model tag's\n  collision shell slowly turning, or the tag's identity — with an **open**\n  link. Nothing is decoded until you dwell on a chip, so sweeping through a\n  form costs nothing. (A thumbnail card exists for texture-binding tags too,\n  but no CU4 tag binds one; it is there for the build that does.)\n- **Broken references show themselves.** Every reference field is checked\n  when a tag opens. One that points at nothing in this installation turns\n  red, says `missing`, and its Open is disabled — where before the button\n  just did nothing.\n- **Referenced by.** Under the tag header, next to linked assets: every tag\n  whose fields point at the open one. The first expand scans every shipped\n  tag (up to a minute, once per session); after that it is instant. This\n  replaces the CLI grep the guide used to suggest.\n- **Back and forward.** Alt+Left / Alt+Right walk the documents you visited,\n  reference-follows included. Going back to a tab you closed reopens it.\n- **Ctrl+P quick-open.** Type a tag name, Enter opens it; name matches rank\n  above path matches. With nothing typed it lists your 20 most recent tags,\n  remembered by name across launches — so the list survives game updates.\n- **Ctrl+PageDown / Ctrl+PageUp** switch tabs.\n\n### Changed\n\n- **Open on a reference row resolves exactly.** Four-CC or group name,\n  authored backslash paths, the cooker's `_Generated_` folder — all handled\n  by an indexed exact lookup instead of the old fuzzy search, which capped at\n  500 rows and could open a lookalike or fail without a word. A miss now says\n  `reference not found` in the edit bar.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Reference previews. The group code at the end of every reference row is now a preview chip: rest the pointer on it (or click to pin) and a card shows what is on the other end — an inline sound player, a model tag's collision shell slowly turning, or the tag's identity — with an open link. Nothing is decoded until you dwell on a chip, so sweeping through a form costs nothing. (A thumbnail card exists for texture-binding tags too, but no CU4 tag binds one; it is there for the build that does.)",
+            "Broken references show themselves. Every reference field is checked when a tag opens. One that points at nothing in this installation turns red, says missing, and its Open is disabled — where before the button just did nothing.",
+            "Referenced by. Under the tag header, next to linked assets: every tag whose fields point at the open one. The first expand scans every shipped tag (up to a minute, once per session); after that it is instant. This replaces the CLI grep the guide used to suggest.",
+            "Back and forward. Alt+Left / Alt+Right walk the documents you visited, reference-follows included. Going back to a tab you closed reopens it.",
+            "Ctrl+P quick-open. Type a tag name, Enter opens it; name matches rank above path matches. With nothing typed it lists your 20 most recent tags, remembered by name across launches — so the list survives game updates.",
+            "Ctrl+PageDown / Ctrl+PageUp switch tabs."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Open on a reference row resolves exactly. Four-CC or group name, authored backslash paths, the cooker's Generated folder — all handled by an indexed exact lookup instead of the old fuzzy search, which capped at 500 rows and could open a lookalike or fail without a word. A miss now says reference not found in the edit bar."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.13.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.13.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.13.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.12.0",
+      "tag": "tag-editor-v0.12.0",
+      "title": "Blocks grow and shrink now",
+      "date": "2026-08-30",
+      "summary": "Add, duplicate and remove block elements — constraints a tag never shipped with. Also fixes string id, tag reference and script edits dropping out of exports.",
+      "body": "Until now the editor changed values but never counts: a block that shipped\nwith `0 of 64` elements stayed empty, which is exactly what stopped a\nphysics_model from gaining a limited hinge constraint (issue #80). Now the\ncount is yours too.\n\n### Added\n\n- **add**, **dup** and **del** on every block's section bar: append a fresh\n  element, duplicate the selected one, or remove it. Guerilla's per-block caps\n  are enforced, and arrays — whose counts the definition fixes — are left\n  alone.\n- New elements start the way the shipped data writes \"nothing here\": tag\n  references unset, block indices at `none`, everything else zeroed — and\n  every field inside them is editable immediately, including fields the add\n  itself created. Edits re-apply in the order you made them, so an edit\n  inside an element you added lands exactly as you saw it.\n- The section bar's **undo** reverts the block's element changes along with\n  every edit inside its elements.\n- Proven in game: a duplicated weapon placement, retyped and moved, spawns as\n  a real pickable weapon — see the worked example in the\n  [tag editing guide](https://mjolnircore.com/docs/guides/tag-editing-guide).\n\n### Fixed\n\n- **String id and tag reference edits no longer vanish.** They applied when\n  typed, then silently dropped out when the tag was re-read, saved into a\n  project, or exported. If a mod you exported earlier was missing one of\n  these edits, re-export it with this version.\n- **Script edits now actually ship.** A scenario changed only by its compiled\n  Blam script baked to unchanged bytes, so the script never reached a test\n  install or an exported `.mjolnir`. It does now.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "add, dup and del on every block's section bar: append a fresh element, duplicate the selected one, or remove it. Guerilla's per-block caps are enforced, and arrays — whose counts the definition fixes — are left alone.",
+            "New elements start the way the shipped data writes \"nothing here\": tag references unset, block indices at none, everything else zeroed — and every field inside them is editable immediately, including fields the add itself created. Edits re-apply in the order you made them, so an edit inside an element you added lands exactly as you saw it.",
+            "The section bar's undo reverts the block's element changes along with every edit inside its elements.",
+            "Proven in game: a duplicated weapon placement, retyped and moved, spawns as a real pickable weapon — see the worked example in the tag editing guide."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "String id and tag reference edits no longer vanish. They applied when typed, then silently dropped out when the tag was re-read, saved into a project, or exported. If a mod you exported earlier was missing one of these edits, re-export it with this version.",
+            "Script edits now actually ship. A scenario changed only by its compiled Blam script baked to unchanged bytes, so the script never reached a test install or an exported .mjolnir. It does now."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.12.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.12.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.12.0"
+    },
+    {
+      "product": "runtime",
+      "productName": "MJOLNIR Runtime",
+      "version": "2.0.1",
+      "tag": "runtime-v2.0.1",
+      "title": "The signature fix that never shipped",
+      "date": "2026-08-19",
+      "summary": "Ships the corrected GUObjectHashTables signature. 2.0.0 carried a pattern that resolved to the wrong function, so UE4SS started cleanly and then failed somewhere unrelated.",
+      "body": "### Fixed\n\n- **`GUObjectHashTables` now resolves to the function it names.**\n\n  2.0.0 was tagged on 1 August. The fix landed on 5 August and was never\n  released, so every install since has carried the older pattern — this release\n  exists to deliver it.\n\n  Once that pattern's RIP-relative displacements were wildcarded, what remained\n  described the thread-safe accessor MSVC emits for every function-local static.\n  It matched **195 functions**, and UE4SS took one of them. Confirmed in game,\n  that was RVA `0x353a140` — a different function `0x5f270` bytes from the real\n  `FUObjectHashTables::Get()` at `0x35993b0`.\n\n  Ambiguity is the worse failure. UE4SS does not complain: it logs an address\n  and starts normally, so nothing looks wrong until something dies somewhere\n  unrelated. The signature now anchors on a call site and decodes the `E8`\n  rel32 to reach the callee, which matches once.\n\n### Verified\n\n- All four signatures resolve, and resolve **exactly once**, against the current\n  game build `2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`.\n- All 13 bundled Lua mods load with no errors on that build, and the in-game\n  bridge answers both at the menu and in a mission.\n\n### Notes\n\n- Nothing else in the bundle changed. If you installed the runtime on or after\n  1 August it is worth reinstalling even though nothing appeared broken — the\n  symptom of the old signature is a crash with no obvious cause, not a visible\n  failure at startup.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "GUObjectHashTables now resolves to the function it names."
+          ]
+        },
+        {
+          "heading": "Verified",
+          "items": [
+            "All four signatures resolve, and resolve exactly once, against the current game build 2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4.",
+            "All 13 bundled Lua mods load with no errors on that build, and the in-game bridge answers both at the menu and in a mission."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Nothing else in the bundle changed. If you installed the runtime on or after 1 August it is worth reinstalling even though nothing appeared broken — the symptom of the old signature is a crash with no obvious cause, not a visible failure at startup."
+          ]
+        }
+      ],
+      "path": "/changelog/runtime/2.0.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/runtime/2.0.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/runtime-v2.0.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.8.0",
+      "tag": "launcher-v0.8.0",
+      "title": "See who made it",
+      "date": "2026-08-12",
+      "summary": "Click an author's name anywhere and their profile opens in the launcher: their avatar, everything they have published, and what that work has drawn.",
+      "body": "Every mod said who made it, and that was as far as it went. If a texture pack\nwas good there was no way to ask \"what else have they done?\" without going to\nthe website and searching by hand.\n\n### Added\n\n- **Profiles.** Click an author's name anywhere — a mod byline, a comment, a\n  review — and their page opens in the launcher, without sending you to a\n  browser. Their Discord avatar, when they joined, and every mod they have\n  published, each one installable from where it sits.\n- Two sets of figures, kept apart because they say different things: what their\n  published work drew — mods published, downloads, page views, and an average\n  rating weighted by how many people voted, so one five-star rating cannot\n  outweigh a hundred four-star ones — and what they have done around the\n  hub: mods downloaded, ratings given, comments, screenshots contributed.\n- Discord avatars beside every author name, on mod cards and mod pages alike.\n- **Open on mjolnircore.com** from a profile, the same escape hatch mod pages\n  already had.\n\n### Changed\n\n- Installing a mod now tells the hub it was you, so your own \"mods downloaded\"\n  count reflects what you install from here. It counts distinct mods, not\n  installs — reinstalling something is not a new mod. Nothing records *which*\n  mods anyone downloaded, and no page shows anyone's library; the number is a\n  number.\n\n### Notes\n\n- The count starts at zero for everyone. Downloads before this release were\n  never attributed to an account, and nothing invents a history that was not\n  recorded.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Profiles. Click an author's name anywhere — a mod byline, a comment, a review — and their page opens in the launcher, without sending you to a browser. Their Discord avatar, when they joined, and every mod they have published, each one installable from where it sits.",
+            "Two sets of figures, kept apart because they say different things: what their published work drew — mods published, downloads, page views, and an average rating weighted by how many people voted, so one five-star rating cannot outweigh a hundred four-star ones — and what they have done around the hub: mods downloaded, ratings given, comments, screenshots contributed.",
+            "Discord avatars beside every author name, on mod cards and mod pages alike.",
+            "Open on mjolnircore.com from a profile, the same escape hatch mod pages already had."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Installing a mod now tells the hub it was you, so your own \"mods downloaded\" count reflects what you install from here. It counts distinct mods, not installs — reinstalling something is not a new mod. Nothing records which mods anyone downloaded, and no page shows anyone's library; the number is a number."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "The count starts at zero for everyone. Downloads before this release were never attributed to an account, and nothing invents a history that was not recorded."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.8.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.8.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.8.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.7.0",
+      "tag": "launcher-v0.7.0",
+      "title": "See what a mod does before you install it",
+      "date": "2026-08-11",
+      "summary": "Mod pages now show \"What this mod does\" — the declared list of every tag edit, texture, and script in the latest release — and mods the community reports are hidden automatically.",
+      "body": "A mod page used to be whatever the author wrote about it, which for the first\ncommunity-published mod was nothing at all. You installed it to find out.\n\n### Added\n\n- A **What this mod does** section on every content mod's page: the change\n  list the release declared at export — each tag field edit with the original\n  value beside the new one, each replaced texture, each script.\n\n### Changed\n\n- Mods reported by three different accounts are hidden everywhere — delisted,\n  page gone, downloads stopped — until a moderator looks. Before, a bad upload\n  stayed up until a moderator happened to notice on their own.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A What this mod does section on every content mod's page: the change list the release declared at export — each tag field edit with the original value beside the new one, each replaced texture, each script."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Mods reported by three different accounts are hidden everywhere — delisted, page gone, downloads stopped — until a moderator looks. Before, a bad upload stayed up until a moderator happened to notice on their own."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.7.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.7.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.7.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.11.0",
+      "tag": "tag-editor-v0.11.0",
+      "title": "Your exports now say what they change",
+      "date": "2026-08-11",
+      "summary": "Exported mods now carry a declared change list — every tag edit, texture, and script — shown on the mod's hub page and in the launcher before anyone installs.",
+      "body": "Until now a published mod was a sealed archive. The page for it could say\nwhatever the author wrote, or nothing at all, and the only way to know what a\nmod actually touched was to install it and look.\n\n### Added\n\n- Exports write a change list into the archive: each tag field edit with the\n  shipped value beside the new one, each replaced texture, each script. It is\n  built from the same resolved view as the editor's Changes panel, so what the\n  mod page says is exactly what you saw at export.\n- The change list is part of the signed archive, so it cannot be altered\n  without breaking the signature.\n- A warning at export when the project has no summary and no README, since a\n  mod page with nothing on it is the thing this release exists to end.\n\n### Changed\n\n- The hub shows the declared list beside the measured size of the archive, so\n  a mod that declares less than it ships is visible at a glance.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Exports write a change list into the archive: each tag field edit with the shipped value beside the new one, each replaced texture, each script. It is built from the same resolved view as the editor's Changes panel, so what the mod page says is exactly what you saw at export.",
+            "The change list is part of the signed archive, so it cannot be altered without breaking the signature.",
+            "A warning at export when the project has no summary and no README, since a mod page with nothing on it is the thing this release exists to end."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The hub shows the declared list beside the measured size of the archive, so a mod that declares less than it ships is visible at a glance."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.11.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.11.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.11.0"
+    },
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.1.0",
+      "tag": "cli-v0.1.0",
+      "title": "Edit the game's tags from Windows, Linux or macOS",
+      "date": "2026-08-09",
+      "summary": "The first published build of mjolnir, the command line that reads and edits the tags in your installed game — now for three operating systems, where before it had to be compiled from source.",
+      "body": "`mjolnir` is the tool the guides use to find a tag, print its fields, change a\nvalue and bake the result into a container the game will load. It has always\nbeen in the repository; it has never been something you could just download.\n\nNow it is, and not only on Windows. The game is a Windows title — it runs on\nLinux under Proton and not at all on macOS — but its containers are just files,\nand reading and editing them turns out to need no Windows anywhere.\n\n```powershell\nscoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core\nscoop install mjolnir\n```\n\n```bash\nbrew tap devnull9090/core https://github.com/devnull9090/mjolnir-core\nbrew install mjolnir\n```\n\n### Added\n\n- **Prebuilt binaries for Windows, Linux and macOS**, attached to the release\n  and mirrored on releases.mjolnircore.com. Unpack, put it on your `PATH`, done —\n  no Rust toolchain, no twenty-minute first compile.\n- **Install with a package manager**: Scoop on Windows, Homebrew on macOS and\n  Linux, or the `.deb` and `.rpm` packages for Debian, Ubuntu, Fedora, RHEL and\n  openSUSE.\n- **One macOS download for both Intel and Apple Silicon.** No wrong choice to\n  make, and no Intel build quietly running under emulation.\n- **A Linux build that runs on any distribution.** It is statically linked, so\n  there is nothing to install alongside it and no minimum system version — it\n  works the same on a current Ubuntu and on a decade-old CentOS.\n- Every build is checksummed, and the checksums are published in the release\n  notes as well as next to the download.\n\n### Changed\n\n- The getting-started and tag-editing guides now open with the download, and say\n  where the game's files are on Linux as well as on Windows. Building from source\n  is still supported and still documented — it is just no longer the only door.\n\n### Known issues\n\n- `mjolnir poke`, which changes a value in the running game, is Windows-only. It\n  attaches to the game process, so it needs the machine the game is on.\n- macOS can read, edit and build containers, but the game has no macOS version,\n  so there is no local install to point at and nothing to test a mod in. It is a\n  machine for authoring, not for playing.\n- Only 64-bit builds are published. The game is 64-bit; ARM Linux is one line of\n  CI away if anyone wants it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Prebuilt binaries for Windows, Linux and macOS, attached to the release and mirrored on releases.mjolnircore.com. Unpack, put it on your PATH, done — no Rust toolchain, no twenty-minute first compile.",
+            "Install with a package manager: Scoop on Windows, Homebrew on macOS and Linux, or the .deb and .rpm packages for Debian, Ubuntu, Fedora, RHEL and openSUSE.",
+            "One macOS download for both Intel and Apple Silicon. No wrong choice to make, and no Intel build quietly running under emulation.",
+            "A Linux build that runs on any distribution. It is statically linked, so there is nothing to install alongside it and no minimum system version — it works the same on a current Ubuntu and on a decade-old CentOS.",
+            "Every build is checksummed, and the checksums are published in the release notes as well as next to the download."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The getting-started and tag-editing guides now open with the download, and say where the game's files are on Linux as well as on Windows. Building from source is still supported and still documented — it is just no longer the only door."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "mjolnir poke, which changes a value in the running game, is Windows-only. It attaches to the game process, so it needs the machine the game is on.",
+            "macOS can read, edit and build containers, but the game has no macOS version, so there is no local install to point at and nothing to test a mod in. It is a machine for authoring, not for playing.",
+            "Only 64-bit builds are published. The game is 64-bit; ARM Linux is one line of CI away if anyone wants it."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.1.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.1.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.1.0"
+    },
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",

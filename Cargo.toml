@@ -35,6 +35,8 @@ libloading = "0.8"
 # Pure-Rust Kraken/Mermaid/Selkie/Leviathan decoder, so reading a container
 # needs no proprietary DLL. Verified byte-identical to oo2core_9 over 56k of
 # the game's own blocks; the DLL stays supported as a faster override.
+#
+# Patched below to a fork: see [patch.crates-io].
 oozextract = { version = "0.5", default-features = false }
 memmap2 = "0.9"
 clap = { version = "4", features = ["derive", "env"] }
@@ -42,3 +44,17 @@ clap = { version = "4", features = ["derive", "env"] }
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+# Two of the decoder's bit readers fetch an unaligned 32-bit word that ooz lets
+# run past the end of the compressed region; the surplus bits are masked off
+# again, so their value is irrelevant but their position is not. Upstream 0.5.5
+# clamps one read and right-aligns the short result, which shifts the word down
+# by 8 bits per byte missing, and lets the other fail outright as out of bounds.
+# Five blocks in the shipped game hit this, including the two scenario_structure_bsp
+# tags that would not decode at all. The fork pads those reads on the right instead.
+#
+# Drop this once the fix lands in a published oozextract release.
+# Upstream PR: https://github.com/lvlvllvlvllvlvl/oozextract/pull/3
+# Fork branch: https://github.com/devnull9090/oozextract/tree/fix/tail-overread-in-varbits-and-tans
+[patch.crates-io]
+oozextract = { git = "https://github.com/devnull9090/oozextract", rev = "75fbb3812cc8273f8738eb72623035f0510e3359" }

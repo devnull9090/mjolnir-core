@@ -434,6 +434,77 @@ pub(crate) fn decompress(
     }
 }
 
+/// Which partition a block lives in, and where in that partition's `.ucas`.
+///
+/// A container is one logical byte range that may be split across
+/// `name.ucas`, `name_s1.ucas` and so on; block offsets are stated against the
+/// unsplit range, so they have to be divided back down.
+fn block_location(container: &Container, index: usize) -> (u64, u64) {
+    let block = &container.blocks[index];
+    if container.partition_size > 0 {
+        (
+            block.offset / container.partition_size,
+            block.offset % container.partition_size,
+        )
+    } else {
+        (0, block.offset)
+    }
+}
+
+/// The `.ucas` file holding a given partition. Partition 0 is the container's
+/// own name; the rest carry an `_s<n>` suffix.
+fn partition_path(container: &Container, partition: u64) -> String {
+    let base = container.utoc_path.with_extension("");
+    if partition == 0 {
+        format!("{}.ucas", base.display())
+    } else {
+        format!("{}_s{}.ucas", base.display(), partition)
+    }
+}
+
+/// Read one block's compressed bytes from an already-positioned handle.
+///
+/// Blocks are stored 16-byte aligned, so this reads the padded size and trims.
+fn read_block_raw(fh: &mut File, block: &CompressedBlock) -> Result<Vec<u8>, Error> {
+    let aligned = ((block.compressed_size + 15) & !15) as usize;
+    let mut raw = vec![0u8; aligned];
+    fh.read_exact(&mut raw)?;
+    raw.truncate(block.compressed_size as usize);
+    Ok(raw)
+}
+
+/// Decompress one block's raw bytes by whichever method its entry names.
+fn decode_block(
+    container: &Container,
+    index: usize,
+    raw: &[u8],
+    oodle_roots: &[PathBuf],
+) -> Result<Vec<u8>, Error> {
+    let block = &container.blocks[index];
+    let method = &container.compression_methods[block.method_index as usize];
+    decompress(method, raw, block.uncompressed_size as usize, oodle_roots)
+}
+
+/// Read and decompress one compression block, named by its index in
+/// [`Container::blocks`].
+///
+/// Blocks decode independently of each other, which makes this the unit to
+/// reach for when checking the codec itself rather than any one chunk: a
+/// failure names an exact block, and the block table covers payload no tag
+/// walk reaches. Opens the partition file per call, so prefer
+/// [`read_chunk`] when reading a run of them.
+pub fn read_block(
+    container: &Container,
+    index: usize,
+    oodle_roots: &[PathBuf],
+) -> Result<Vec<u8>, Error> {
+    let (partition, local_offset) = block_location(container, index);
+    let mut fh = File::open(partition_path(container, partition))?;
+    fh.seek(SeekFrom::Start(local_offset))?;
+    let raw = read_block_raw(&mut fh, &container.blocks[index])?;
+    decode_block(container, index, &raw, oodle_roots)
+}
+
 /// Read one chunk back into memory, decompressing only the blocks needed.
 ///
 /// `max_bytes` caps the read so header inspection does not pay for a full
@@ -455,45 +526,20 @@ pub fn read_chunk(
     }
     let last = ((chunk.offset + wanted as u64 - 1) / block_size) as usize;
 
-    let base = container.utoc_path.with_extension("");
     let mut handles: HashMap<u64, File> = HashMap::new();
     let mut out: Vec<u8> = Vec::with_capacity(wanted + block_size as usize);
 
     for i in first..=last {
-        let block = &container.blocks[i];
-        let (partition, local_offset) = if container.partition_size > 0 {
-            (
-                block.offset / container.partition_size,
-                block.offset % container.partition_size,
-            )
-        } else {
-            (0, block.offset)
-        };
+        let (partition, local_offset) = block_location(container, i);
 
         if !handles.contains_key(&partition) {
-            let name = if partition == 0 {
-                format!("{}.ucas", base.display())
-            } else {
-                format!("{}_s{}.ucas", base.display(), partition)
-            };
-            handles.insert(partition, File::open(name)?);
+            handles.insert(partition, File::open(partition_path(container, partition))?);
         }
         let fh = handles.get_mut(&partition).unwrap();
         fh.seek(SeekFrom::Start(local_offset))?;
 
-        // Blocks are stored 16-byte aligned; read the padded size then trim.
-        let aligned = ((block.compressed_size + 15) & !15) as usize;
-        let mut raw = vec![0u8; aligned];
-        fh.read_exact(&mut raw)?;
-        raw.truncate(block.compressed_size as usize);
-
-        let method = &container.compression_methods[block.method_index as usize];
-        out.extend_from_slice(&decompress(
-            method,
-            &raw,
-            block.uncompressed_size as usize,
-            oodle_roots,
-        )?);
+        let raw = read_block_raw(fh, &container.blocks[i])?;
+        out.extend_from_slice(&decode_block(container, i, &raw, oodle_roots)?);
     }
 
     let start = (chunk.offset - first as u64 * block_size) as usize;

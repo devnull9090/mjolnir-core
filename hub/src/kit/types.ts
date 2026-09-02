@@ -26,6 +26,10 @@ export interface Mod {
   rating_count: number;
   rating_mean: number | null;
   author: string;
+  /** The owner's user id, for linking to their profile. */
+  owner_id: string;
+  /** Discord CDN avatar of the owner, when they have one. */
+  author_avatar: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +151,17 @@ export interface QueuedMedia {
   created_at: string;
 }
 
+/** A hidden mod as the moderation queue lists it. */
+export interface HiddenMod {
+  id: string;
+  slug: string;
+  name: string;
+  owner: string;
+  /** Distinct accounts currently holding open reports against it. */
+  open_reporters: number;
+  hidden_at: string;
+}
+
 export interface Report {
   id: string;
   reporter: string;
@@ -160,6 +175,9 @@ export interface Report {
 
 export interface Review {
   author: string;
+  /** The reviewer's user id, for linking to their profile. */
+  author_id: string;
+  author_avatar: string | null;
   score: number;
   review_md: string;
   created_at: string;
@@ -192,6 +210,93 @@ export interface User {
   avatar_url: string | null;
   role: "user" | "moderator" | "admin";
   created_at: string;
+}
+
+/**
+ * What one account has done here, as a public profile reports it.
+ *
+ * The `_received` figures are what their published work drew; the rest is
+ * what they did. `mods_downloaded` only counts downloads made while signed
+ * in, and only since attribution shipped, so it reads low by design.
+ */
+export interface UserStats {
+  mods_published: number;
+  downloads_received: number;
+  views_received: number;
+  ratings_received: number;
+  /** Rating-count-weighted mean across their published mods. */
+  rating_mean: number | null;
+  mods_downloaded: number;
+  ratings_given: number;
+  comments_posted: number;
+  media_contributed: number;
+}
+
+export interface UserProfile {
+  user: User & { trust_level: number };
+  stats: UserStats;
+  /** Their published mods, newest first. */
+  mods: Mod[];
+}
+
+/** An account as the admin user directory lists it. Admin-only. */
+export interface AdminUser {
+  id: string;
+  discord_id: string;
+  discord_username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: "user" | "moderator" | "admin";
+  trust_level: number;
+  created_at: string;
+  banned_at: string | null;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  /** How many accounts match, beyond the page returned. */
+  total: number;
+}
+
+/** One field edit as a release's changes.json declares it. */
+export interface DeclaredField {
+  field: string;
+  /** The shipped value at export time, when it resolved. */
+  before?: string | null;
+  value: string;
+}
+
+export interface DeclaredTag {
+  group: string;
+  tag: string;
+  fields: DeclaredField[];
+}
+
+export interface DeclaredTexture {
+  path: string;
+  bytes?: number;
+}
+
+export interface DeclaredScript {
+  group: string;
+  tag: string;
+}
+
+/** The declared change list a release archive carried. */
+export interface DeclaredChanges {
+  schema_version: 1;
+  tags: DeclaredTag[];
+  textures: DeclaredTexture[];
+  scripts: DeclaredScript[];
+}
+
+export interface ReleaseChanges {
+  release_id: string;
+  version: string;
+  /** Chunks the uploaded containers actually claim — measured, not declared. */
+  chunk_count: number;
+  /** Null when the archive predates the transparency format. */
+  changes: DeclaredChanges | null;
 }
 
 export interface ConflictPair {

@@ -26,6 +26,7 @@ const OUTPUTS = [
   "src/generated/tag-defs.json",
   "src/generated/tag-index.json",
   "src/generated/changelog.json",
+  "src/generated/blog.json",
   "public/tag-search.json",
   "public/docs-images",
 ];

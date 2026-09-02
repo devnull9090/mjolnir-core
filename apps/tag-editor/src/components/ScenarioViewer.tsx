@@ -8,6 +8,11 @@ import {
   type ScenarioWorldView,
 } from "../lib/api";
 import { buildModelGroup, hueOf, parseSbspWorld } from "../lib/three-model";
+import {
+  loadRenderGroup,
+  type MeshCache,
+  type TextureCache,
+} from "../lib/render-mesh";
 import { useEditor } from "../stores/editor-store";
 
 /**
@@ -209,6 +214,11 @@ function World(props: {
     const fallback = new THREE.BoxGeometry(0.3, 0.3, 0.3);
     const modelCache = new Map<number, Promise<ModelGeometry | null>>();
     const proxyCache = new Map<string, THREE.Group>();
+    // Render models: mesh geometry and texture caches span the whole level,
+    // template groups are keyed by the set of meshes an object binds.
+    const meshCache: MeshCache = new Map();
+    const textureCache: TextureCache = new Map();
+    const renderCache = new Map<string, Promise<THREE.Group | null>>();
     let alive = true;
 
     layout.categories.forEach((cat, ci) => {
@@ -224,24 +234,18 @@ function World(props: {
         roughness: 0.8,
       });
 
-      for (const p of cat.placements) {
-        const holder = new THREE.Group();
-        holder.position.set(...p.position);
-        holder.quaternion.copy(haloEuler(p.rotation));
-        if (p.scale > 0 && p.scale !== 1) holder.scale.setScalar(p.scale);
-        holder.userData.placement = { category: ci, element: p.element };
-        group.add(holder);
-
-        const hlmt = props.view.palette_models[ci]?.[p.palette] ?? null;
+      // The collision shell (or a box), for objects with no reachable or no
+      // readable render mesh.
+      const attachProxy = (holder: THREE.Group, hlmt: number | null) => {
         if (hlmt === null) {
           holder.add(new THREE.Mesh(fallback, material));
-          continue;
+          return;
         }
         const key = `${hlmt}`;
         const cached = proxyCache.get(key);
         if (cached) {
           holder.add(cached.clone());
-          continue;
+          return;
         }
         if (!modelCache.has(hlmt)) {
           modelCache.set(
@@ -261,6 +265,40 @@ function World(props: {
             proxyCache.set(key, template);
           }
           holder.add(template.clone());
+        });
+      };
+
+      for (const p of cat.placements) {
+        const holder = new THREE.Group();
+        holder.position.set(...p.position);
+        holder.quaternion.copy(haloEuler(p.rotation));
+        if (p.scale > 0 && p.scale !== 1) holder.scale.setScalar(p.scale);
+        holder.userData.placement = { category: ci, element: p.element };
+        group.add(holder);
+
+        const hlmt = props.view.palette_models[ci]?.[p.palette] ?? null;
+        const refs = props.view.palette_render[ci]?.[p.palette] ?? [];
+        if (refs.length === 0) {
+          attachProxy(holder, hlmt);
+          continue;
+        }
+        // The real textured mesh; instances of one object share a template
+        // (clones share geometries and materials).
+        const key = refs.map((r) => r.mesh).join(",");
+        if (!renderCache.has(key)) {
+          renderCache.set(
+            key,
+            loadRenderGroup(refs, meshCache, textureCache, () => alive),
+          );
+        }
+        void renderCache.get(key)!.then((template) => {
+          if (!alive) return;
+          if (!template) {
+            // Skeletal-Nanite placeholders and unreadable meshes land here.
+            attachProxy(holder, hlmt);
+            return;
+          }
+          holder.add(template.children.length > 0 ? template.clone() : template);
         });
       }
     });
@@ -490,6 +528,11 @@ function World(props: {
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
           o.geometry.dispose();
+          const m = o.material;
+          for (const mat of Array.isArray(m) ? m : [m]) {
+            if (mat instanceof THREE.MeshStandardMaterial) mat.map?.dispose();
+            mat.dispose();
+          }
         }
       });
       renderer.dispose();

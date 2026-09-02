@@ -46,6 +46,7 @@ mjolnir-core/
 ├── keys/                        # Public release-signing keys
 ├── defs/                        # Exported tag definition corpus (schema only)
 ├── changelog/                   # Public release notes, one file per tagged release
+├── blog/                        # Posts for mjolnircore.com/blog, one file per post
 ├── docs/                        # Format findings and guides
 ├── tools/ghidra/                # Ghidra reverse-engineering scripts
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
@@ -163,6 +164,35 @@ Core framework initialization and `UEHelpers` utility library.
 UE4SS reads `mods.txt` and loads Lua scripts during process startup in the tested configuration.
 Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not currently install a
 `CTRL+R` reload binding.
+
+---
+
+## The `mjolnir` Command Line
+
+Reads and edits the Blam tags inside your installed game — list the groups, print a tag's
+decoded fields, change one, and bake the result into an override container the game loads.
+It needs nothing but the game; it writes nothing into your install.
+
+**Runs on Windows, Linux and macOS.** The game itself is a Windows title — it runs on Linux
+under Proton, and not at all on macOS — but its containers are just files, and reading and
+editing them needs no Windows anywhere.
+
+```powershell
+scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
+scoop install mjolnir
+```
+
+```bash
+brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core
+brew install mjolnir
+```
+
+Every [`cli-v` release](https://github.com/devnull9090/mjolnir-core/releases?q=cli-v) also
+carries `.deb` and `.rpm` packages and a checksummed archive per platform — the Linux binary
+is statically linked, so it runs on any distribution. Building it yourself is
+`cargo build --release -p blam-cli`, and is only needed to change the tool.
+[`packaging/README.md`](packaging/README.md) covers every install channel;
+[`docs/getting_started.md`](docs/getting_started.md) is the walkthrough.
 
 ---
 

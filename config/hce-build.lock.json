@@ -1,12 +1,13 @@
 {
   "generator": "tools/build_lock.py",
-  "version": "2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3",
+  "version": "2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4",
   "engine": "5.5.4",
-  "host_sha256": "4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753",
-  "simulation_sha256": "82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC",
-  "file_count": 255,
-  "total_bytes": 79523871405,
+  "host_sha256": "EB1DACA659207F2B5C8A6FD922917195AE9C8AE19E771E396E08906282A4B152",
+  "simulation_sha256": "C8C144404ADF61A9DE821C996682A7E66ABADD7E530397D3BBDE31C123203BF7",
+  "file_count": 252,
+  "total_bytes": 79550108673,
   "scope": "full",
+  "generated": "2026-08-18",
   "files": [
     {
       "path": "DigitalExtras/Engine/Binaries/ThirdParty/DbgHelp/dbghelp.dll",
@@ -191,7 +192,7 @@
     {
       "path": "Engine/Binaries/Win64/CrashReportClient.exe",
       "size": 26539008,
-      "sha256": "53133EF07C119AC43EA76CEB817EA59D9608D437855B544EB6FE58E8DCA940A1"
+      "sha256": "7217C9025E41CBF5214E73BA1CF1773C6EAD5FEA4D78D7A5B3AB5FCF6E941B91"
     },
     {
       "path": "Engine/Binaries/Win64/EOSSDK-Win64-Shipping.dll",
@@ -501,47 +502,47 @@
     {
       "path": "Meteorite/Binaries/Win64/boost_atomic-mt-x64.dll",
       "size": 33040,
-      "sha256": "58A89812C2A0453D596C39203796ED034D1B8F41568AA9A3D7ED43B24EF12B0B"
+      "sha256": "9E37D108BE8E196C5EB240BD1E342E6828A690678DAC150D21AFFED1051FD580"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_chrono-mt-x64.dll",
       "size": 50960,
-      "sha256": "DFAEB8CDF61232814C7EDE429C042910281A7F86E4F5BF17031713C4A9265600"
+      "sha256": "4193BD6517038F1BC56F9330FA7816685D181A27905D16E09AF666CE806020AF"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_filesystem-mt-x64.dll",
       "size": 155920,
-      "sha256": "DC5EDE14ABF19755908CB31D56DD405347F01BBC41D0680405101C6E457026BE"
+      "sha256": "EF3546476B97DEA5FB1C7E29780DFB0DDC735558C950CA7D5D04B8B69C425472"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_iostreams-mt-x64.dll",
       "size": 64272,
-      "sha256": "E1F49BD63AC0A33EFC3B0F9403EA497B39BFC52C37B1C4B600B8861C274CE19E"
+      "sha256": "47E29B8ADDF38D7D75F971F059CC365EF2A7868544CC016022EE52517352FE1F"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_program_options-mt-x64.dll",
       "size": 366864,
-      "sha256": "BEA4AA40BBD62CBA417D87A51FF432F37AFD98C1B712FF7A000227531702DC8C"
+      "sha256": "3F50B06A53FB6309F6C43FC3D0CC0E5F5BAEFB8F2447FDBB5B802DF8950DECB6"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_python311-mt-x64.dll",
       "size": 208144,
-      "sha256": "EF14898A3BB4FDF7E5F102D048E4DF8FA8430554D02FDCB575B12EE58892BA2A"
+      "sha256": "B276B5EF25F82DCE0501FB7A1374C1863D0742AFCE87B241C36D51A8BBE2F484"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_regex-mt-x64.dll",
       "size": 250128,
-      "sha256": "65637937DD29DE9794C4DEF113ED1760EC69BBBC1D606ED4EB9B9A342802427A"
+      "sha256": "6ADC96CB622891A6F3E01D9B9EEBFCAE01BFAE2502DDAB460F23FA8194C1E726"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_system-mt-x64.dll",
       "size": 25360,
-      "sha256": "A4F7810690ABF6E34641EA547E477DDE12D4B35A0122A9FDF06B217C4A7C0A56"
+      "sha256": "09991D9569F8C1E20EB76DC56217E23BCFB8C7446747A9EC351216A619ABD7A4"
     },
     {
       "path": "Meteorite/Binaries/Win64/boost_thread-mt-x64.dll",
       "size": 89872,
-      "sha256": "470EA2453EA5474D818125AC5F7C75DF55604E82E90B39E82D6E1961BE169111"
+      "sha256": "A4AA16C7F436E4F87DAF15F08B901A782ED8600658A15B300A600B9BA60A94CF"
     },
     {
       "path": "Meteorite/Binaries/Win64/D3D12/x64/D3D12Core.dll",
@@ -560,23 +561,23 @@
     },
     {
       "path": "Meteorite/Binaries/Win64/HaloCampaignEvolved.exe",
-      "size": 230823184,
-      "sha256": "4D20DC56611B29CD710D591C86CF5DE55B914EB986838C42E719B82CCD367753"
+      "size": 230866704,
+      "sha256": "EB1DACA659207F2B5C8A6FD922917195AE9C8AE19E771E396E08906282A4B152"
     },
     {
       "path": "Meteorite/Binaries/Win64/HaloSimulation_tag_release.dll",
       "size": 14668560,
-      "sha256": "82B8A3A006BA3F981D6857DC7F4E4E929AE5282587F31F92F77A3FA78F4B2DAC"
+      "sha256": "C8C144404ADF61A9DE821C996682A7E66ABADD7E530397D3BBDE31C123203BF7"
     },
     {
       "path": "Meteorite/Binaries/Win64/libHttpClient.Win32.dll",
       "size": 258320,
-      "sha256": "6488416D788FAA0CABA39F3CDB8442D827933B72A411E2051F71A7A6DFB02691"
+      "sha256": "E9BD94CFC493EF97E5473D47BFA2DE67C2310CF401F9C7C4C6CD0206742E9E1C"
     },
     {
       "path": "Meteorite/Binaries/Win64/OpenColorIO_2_3.dll",
       "size": 4290320,
-      "sha256": "00FAB4B4D862410759E37C93169252B718F0EB0A84CA06E401E9B4CEC754E532"
+      "sha256": "C4841391A88E227D55187E9F5858E334E5248B921B3B67A351D7824DF3531B21"
     },
     {
       "path": "Meteorite/Binaries/Win64/PartyWin.dll",
@@ -591,12 +592,12 @@
     {
       "path": "Meteorite/Binaries/Win64/tbb.dll",
       "size": 229136,
-      "sha256": "5C3F7A0EED3E1C99D3FEB46D20B9EB4BEF6884DF1CEBE8BA718FC88062211AE6"
+      "sha256": "E85821C0924D7C4EDDE08B176A0553E95D250960A6A9BE27E50960E7C49DFB34"
     },
     {
       "path": "Meteorite/Binaries/Win64/tbbmalloc.dll",
       "size": 70928,
-      "sha256": "7E0D404518610A39E249D0E3F362267F62673B11079081A23DA0A57772C7A6A9"
+      "sha256": "8EB773FF0F80FBA86215035C252735B3D9AEE907150C8E071C0EEBE656DD84C4"
     },
     {
       "path": "Meteorite/Content/Config/Achievements/Achievements.json",
@@ -845,28 +846,28 @@
     },
     {
       "path": "Meteorite/Content/Paks/global.ucas",
-      "size": 3606432,
-      "sha256": "3D4BE22FB1475FC697AA8F499546F71356AB5A48B12F57B1374DF871F519742D"
+      "size": 3606768,
+      "sha256": "5F9C4D8C7DBBFCB93446734E7B003E8D507E0E15B0FE85234C28F57305A72AF0"
     },
     {
       "path": "Meteorite/Content/Paks/global.utoc",
       "size": 866,
-      "sha256": "257AED0DC54F7FEE840006039D49DE38B204F7B133FBED417477CDB75CFF1FAB"
+      "sha256": "E1B0864A3A0D22E30839AADD5D11D8C44768411B2261D880BE6AE16DC1B4D9D4"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk0-Windows.pak",
-      "size": 2588322305,
-      "sha256": "79691E5A07D5BC1142EC8B9EC1BB9302C2391DEE4F066B654124CE555F5D4744"
+      "size": 2598808757,
+      "sha256": "DE1D016DA38B92688012AF00C6A907540E1CA4E824EB5C7225337BC9F5F9AE43"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk0-Windows.ucas",
-      "size": 40226157456,
-      "sha256": "E4721DC4336A537BC42595D2C49F71296532AEA4DEC9C0AE8D3B8CC95823B9EA"
+      "size": 40238731952,
+      "sha256": "A366631328FEFB97F9F3E71E1AA0D94396D85AE026F094B8E46BA5D6E49A78BC"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk0-Windows.utoc",
-      "size": 26604610,
-      "sha256": "6B33C64BBCED6C4A04EE8CF899E1436126EFCA0D3701A79622760DB8256A920F"
+      "size": 26599723,
+      "sha256": "5FF20FFB7F0AEEE1238DED38D8221A2BEAF338FC7B5FFD5123D338B7A58BEA98"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk1-Windows.pak",
@@ -905,18 +906,18 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk115-Windows.ucas",
-      "size": 352217552,
-      "sha256": "599E9CC54F04880852884ED3BA15E9F11371B00346142C7C8BC9FB6E5F56F7D9"
+      "size": 352217760,
+      "sha256": "E19D47D2502D186A2506A36BDF5A4E4D3D456EC281117B1972249CC4ED384AE6"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk115-Windows.utoc",
       "size": 327717,
-      "sha256": "D37BE5FA89C3148EDC929710B08B1D490DCB43EAB651D364FA42E5A4008F7D37"
+      "sha256": "9D9150D81C55AED5D95B7113E3E1246035404C0136667A10DE178FA063F34B7C"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk12-Windows.pak",
       "size": 337858322,
-      "sha256": "61ACB02DD48F98BD12EF085F076D0D33CFD481619460753298C2B788B6AD0889"
+      "sha256": "1225762CB5814D9918B8C71DFC51A84243AA006BB68628DE998050851CCEFEA6"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk12-Windows.ucas",
@@ -950,13 +951,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk130-Windows.ucas",
-      "size": 1158284608,
-      "sha256": "643215052BB8955811D067BCD75173FFD0624FC4ADEE6019E6387076C82929D1"
+      "size": 1160381760,
+      "sha256": "6C60D90877C866F0E563E3A102F5A4FB2E19D9BD6038D29AC39F645B91DD5BF3"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk130-Windows.utoc",
-      "size": 636339,
-      "sha256": "9ACF2032F4CF1ABFD0A374CEE44AFE37F19B637C89765BD60BE264FF21223855"
+      "size": 636447,
+      "sha256": "B8213AB8A2BB1634289FD7C9CBA3D6227C8CADD1D9396AA0A7151E669069AECB"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk150-Windows.pak",
@@ -965,13 +966,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk150-Windows.ucas",
-      "size": 1633902992,
-      "sha256": "C588A2A862C2F53E8827275D2597C5A23B2B30A9DC2BC86C3CD5A72EF1278C89"
+      "size": 1633902912,
+      "sha256": "97BCC2ED6EFF50E4CE55C6E89DC686261D986CBCFAAA116BBF76D0362F3AD995"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk150-Windows.utoc",
-      "size": 878523,
-      "sha256": "509383261B2D30AD0B4D3290E3116C411A04EE96D746432B9B6AF30B0E47878C"
+      "size": 878547,
+      "sha256": "FDC1C1504BD529B75A97391D4570B85CB6E478F41321B0505EC4BF8DC535D3C9"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk2-Windows.pak",
@@ -995,13 +996,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk230-Windows.ucas",
-      "size": 911994032,
-      "sha256": "54C82D451543F37B2D82E80E419656D05A2A2B15DCD7DE114006502AF59E7ADB"
+      "size": 911994016,
+      "sha256": "F083A1D10DEB3642F3252DB17D0105E9DEF4BAA5B605E4F8DA49999283B3E0B4"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk230-Windows.utoc",
       "size": 569707,
-      "sha256": "0237E3978CAC6484C3EB72B1593B9B2CACF6E3B2B475E9D5745CFFA2BAE775DE"
+      "sha256": "593C8364605E41D380220B0AF15660A5DB0BB440506B024AB6251865730333FB"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk240-Windows.pak",
@@ -1011,12 +1012,12 @@
     {
       "path": "Meteorite/Content/Paks/pakchunk240-Windows.ucas",
       "size": 2858735200,
-      "sha256": "0348B7F5344705C8CA2EDF3D2BB58A2E02DCD235BB9FB7273865F637A8CC1419"
+      "sha256": "4103A6701993431926B4B0EE1E04D80D39A70B4C9CDD3F001E1F57710396E800"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk240-Windows.utoc",
       "size": 1927792,
-      "sha256": "FC7E71992A6AE641EECCC2FE63C2BA19E79E5FB96B7BCBB261585E019D128D53"
+      "sha256": "5BA0A4F68FBB711BB461F66818A3895FC2684447DE29FD232090D90CED9A0D73"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk3-Windows.pak",
@@ -1041,12 +1042,12 @@
     {
       "path": "Meteorite/Content/Paks/pakchunk310-Windows.ucas",
       "size": 1325698608,
-      "sha256": "A522E1C9F1BBA6069B8390DB16AF23D1E3011E973968DFB5838AA801A731F867"
+      "sha256": "8A903E474F6C92CCEB103C2EB03EE1812701A81351A5408277BB437DBB7493FD"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk310-Windows.utoc",
-      "size": 833186,
-      "sha256": "895D3272EC783BCF92E90EC806B26437AA66E30E9406F0E1076543138E00EF73"
+      "size": 833222,
+      "sha256": "2F667DDAEC3121F708BDC40B757F680312EE091C8BA4BC360AFDFE42148C5CA7"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk320-Windows.pak",
@@ -1055,13 +1056,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk320-Windows.ucas",
-      "size": 605939440,
-      "sha256": "AC0D857A36405E98CD7FF6ED31A59DBA9E46222D53C4C0D5AB389AD90ECA90B0"
+      "size": 598592560,
+      "sha256": "D9F6123C35385063D76259C1EC9A338B97E9D3E1080A9D6C1D16978C8F7784A7"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk320-Windows.utoc",
-      "size": 427735,
-      "sha256": "96513A71C633877672CCFD0A971F2E348FDDD76A2097F5C73A44DAE9B127393D"
+      "size": 414852,
+      "sha256": "557C5DCE74B83E98557FD727BFFC000D5D1427E7C28F63BF937A322A810ACAD0"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk340-Windows.pak",
@@ -1085,13 +1086,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk345-Windows.ucas",
-      "size": 1606012304,
-      "sha256": "8CC3D3043AFF4F9244E72AC7BA547D33367DEC4A34425F69D07EE275643C1C14"
+      "size": 1606012272,
+      "sha256": "2949FCD5DA19962A7B37B87C31FFA0FCD8652D1B7CE6C869974B8128A4E5FC0D"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk345-Windows.utoc",
-      "size": 944937,
-      "sha256": "007A63040727B636340DD92E04F491BBC03E72FB81BC2702553F5356DBDF480C"
+      "size": 944913,
+      "sha256": "FB4EE4DC60EC976FF9E49616001C00A9239C37DB37168FA96DCB297D0582CED0"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk4-Windows.pak",
@@ -1115,13 +1116,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk420-Windows.ucas",
-      "size": 1485388832,
-      "sha256": "92A0FBC537E2F70ECC3A3A80591113887DB1262D8AD4A715F1ACE271DC02475F"
+      "size": 1485389904,
+      "sha256": "8BBE435FB3781860A03C7838437272A79C17730FDF8CAC274BD3429C761B66E5"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk420-Windows.utoc",
       "size": 725307,
-      "sha256": "F24D764AEF3E16159FCC9DEEBAFD0DA063158DA4EC7954C900231DE189A68495"
+      "sha256": "846C0889C03F12B0B699076E8EF2CEECDF281AEAE2162AEE2B04135E1793B895"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk440-Windows.pak",
@@ -1130,13 +1131,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk440-Windows.ucas",
-      "size": 1625909520,
-      "sha256": "2E36B155102520233EA1FF45EE6AC23EEEACFCB42D6D03129BB06BB33F7FBF44"
+      "size": 1625909936,
+      "sha256": "3E839F41C65C329E79312E08CC563A7B787A69B9934DD870862E02224591727C"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk440-Windows.utoc",
-      "size": 878666,
-      "sha256": "A9D0494FB638B44A46B7DD806524E093C358E53CCEF973C628533CB2893CF753"
+      "size": 878630,
+      "sha256": "B043889A2C01A14F9AF23288857195A08050F1D91C1AE9122AE0346E998D0EA3"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk5-Windows.pak",
@@ -1160,13 +1161,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk510-Windows.ucas",
-      "size": 262927232,
-      "sha256": "8B8082D23207CBE7FEBB8349B892C9E653608B83631BC45F1DD4C714B930D8F1"
+      "size": 262927216,
+      "sha256": "C27B762F26AFCA65E2CA423EB5CF3F8CEA12581BBEA17FE246ED263C65AE0FD0"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk510-Windows.utoc",
       "size": 210370,
-      "sha256": "D184579C53029E641CCFB9CA537D7920FAB8442A48772B21F57EBB9D20BE9ABC"
+      "sha256": "2EC75442134CF7DC9489CB7E8D87B01E94B50E3437F3F8077EC9C2575413C834"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk520-Windows.pak",
@@ -1175,13 +1176,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk520-Windows.ucas",
-      "size": 2659295632,
-      "sha256": "48B2442BCEDFDC32287BE3F88B8060B6D029FC40800F5F993915329124845FF3"
+      "size": 2667684240,
+      "sha256": "DCE8FF87EC7527CCCD110152EEE4DD90B1C4FD1414B8543E28D3AEAA425EFDEB"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk520-Windows.utoc",
-      "size": 1465365,
-      "sha256": "E957AB28888FCFC35D28E59ACFF4BE32E609D693A8D65E0B0077CD15CDF0AB21"
+      "size": 1476825,
+      "sha256": "AAA3114FB37896F515A1629CC2697A304B723403F84ABB0FA7EA922A15BFE098"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk530-Windows.pak",
@@ -1190,13 +1191,13 @@
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk530-Windows.ucas",
-      "size": 398298912,
-      "sha256": "306F00DD0BEE3523827F7040853C5C0A824C3A2F7CE884DD05D4BBA7D6B73F17"
+      "size": 398298704,
+      "sha256": "59E83754B55F3B72C343D2F944ABFAB29338BAAC6FBD9B203A8875C4A9FD8E24"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk530-Windows.utoc",
       "size": 249378,
-      "sha256": "0EF079ECF369230434E8A5AF1B3BBC50BBEB06811BE366DC3DF6FC70829FE91E"
+      "sha256": "BC66CA8F6A0C87E8F09B24C183389A06ABDD225087A3EF242C2457D3ECF7126B"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk6-Windows.pak",
@@ -1246,7 +1247,7 @@
     {
       "path": "Meteorite/Content/Paks/pakchunk9-Windows.pak",
       "size": 342441492,
-      "sha256": "8A46D109FA7943CE5DCD1AB1EB913877962F19BD0E0BF1EBF9C291F253A8589D"
+      "sha256": "4AA365A966855BB12830D6A79FD91B0BEB8D28A280D64E9D705F9FA5138065C2"
     },
     {
       "path": "Meteorite/Content/Paks/pakchunk9-Windows.ucas",
@@ -1259,21 +1260,6 @@
       "sha256": "F0757B7DF7C4368CF3007CB1CD93ED533CFD24C8925D6AD8BEE7772535FCDE63"
     },
     {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.pak",
-      "size": 339,
-      "sha256": "7DDE1328A9650EAD4F300FFCAE4425D1AB3B32153A99D398262141CCFAB3A51B"
-    },
-    {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.ucas",
-      "size": 816,
-      "sha256": "13D4FB782685F3D26CF809F213E5656E8914B60904FFD11B503F97B15EC20E7C"
-    },
-    {
-      "path": "Meteorite/Content/Paks/pakchunk990-MJOLNIRWORLD-Windows_P.utoc",
-      "size": 403,
-      "sha256": "EE71B52D0DFDC3AD20F7755BAB57BDB68FBEE4882935AAAC8929E21BE5E022DC"
-    },
-    {
       "path": "Meteorite/Content/Splash/Splash.bmp",
       "size": 1555254,
       "sha256": "A130E4BD72A01D1C2FC6B7CD9EDA9DBE7CB0DE4102785228328583B9FB208B9F"
@@ -1283,6 +1269,5 @@
       "size": 8969576,
       "sha256": "DD1136004772B3422549FC4A2AB75017CE2C9C8815EE5D71A17FBDFDB0D3CB73"
     }
-  ],
-  "generated": "2026-08-05"
+  ]
 }

@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hub",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "hub", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "tag-editor",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "apps/tag-editor", "dev"],
+      "port": 1430
+    }
+  ]
+}

@@ -1,4 +1,6 @@
 import { tagLabel, useEditor } from "../stores/editor-store";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu } from "./ContextMenu";
 import { FileBrowser } from "./FileBrowser";
 import { ModPanel } from "./ModPanel";
 
@@ -150,7 +152,22 @@ function TagList() {
               <li key={t.index}>
                 <button
                   type="button"
-                  onClick={() => void openTab("tag", t.index, tagLabel(t))}
+                  onClick={() =>
+                    void openTab("tag", t.index, tagLabel(t), { group: t.group, path: t.short })
+                  }
+                  onContextMenu={(e) =>
+                    showContextMenu(e, [
+                      {
+                        label: "Open",
+                        action: () =>
+                          void openTab("tag", t.index, tagLabel(t), {
+                            group: t.group,
+                            path: t.short,
+                          }),
+                      },
+                      { label: "Copy Path", action: () => void copyText(t.short) },
+                    ])
+                  }
                   className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                     selectedTag === t.index
                       ? "bg-surface-card text-mjolnir-gold"
@@ -214,7 +231,21 @@ function TextureList() {
               <button
                 type="button"
                 onClick={() =>
-                  void openTab("texture", t.index, t.path.split("/").pop() ?? t.path)
+                  void openTab("texture", t.index, t.path.split("/").pop() ?? t.path, {
+                    path: t.path,
+                  })
+                }
+                onContextMenu={(e) =>
+                  showContextMenu(e, [
+                    {
+                      label: "Open",
+                      action: () =>
+                        void openTab("texture", t.index, t.path.split("/").pop() ?? t.path, {
+                          path: t.path,
+                        }),
+                    },
+                    { label: "Copy Path", action: () => void copyText(t.path) },
+                  ])
                 }
                 className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                   selectedTexture === t.index
@@ -274,7 +305,17 @@ function SoundList() {
             <li key={s.index}>
               <button
                 type="button"
-                onClick={() => void openTab("sound", s.index, s.event ?? id)}
+                onClick={() => void openTab("sound", s.index, s.event ?? id, { path: s.path })}
+                onContextMenu={(e) =>
+                  showContextMenu(e, [
+                    {
+                      label: "Open",
+                      action: () =>
+                        void openTab("sound", s.index, s.event ?? id, { path: s.path }),
+                    },
+                    { label: "Copy Path", action: () => void copyText(s.path) },
+                  ])
+                }
                 className={`flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${
                   selectedSound === s.index
                     ? "bg-surface-card text-mjolnir-gold"

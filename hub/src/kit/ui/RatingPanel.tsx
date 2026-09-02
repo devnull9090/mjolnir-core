@@ -14,6 +14,8 @@ import type { RatingSummary } from "../types";
 import { useHub } from "./context";
 import { timeAgo } from "./format";
 import { StarIcon } from "./icons";
+import { Avatar } from "./Avatar";
+import { UserLink } from "./UserLink";
 import { ActionButton, ErrorNote, Spinner, StarPicker } from "./primitives";
 
 export function RatingPanel({ slug, compact = false }: { slug: string; compact?: boolean }) {
@@ -156,9 +158,12 @@ export function RatingPanel({ slug, compact = false }: { slug: string; compact?:
       {summary.reviews.length > 0 && (
         <div className="pt-2 border-t border-[var(--mj-border)] space-y-3">
           {summary.reviews.slice(0, compact ? 3 : 20).map((r, i) => (
-            <div key={`${r.author}-${i}`} className="text-xs">
+            <div key={`${r.author_id}-${i}`} className="text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-[var(--mj-text)] font-medium">{r.author}</span>
+                <Avatar url={r.author_avatar} size="xs" />
+                <span className="text-[var(--mj-text)] font-medium">
+                  <UserLink userId={r.author_id} name={r.author} />
+                </span>
                 <span className="inline-flex text-[var(--mj-gold)]" aria-label={`${r.score} of 5`}>
                   {[1, 2, 3, 4, 5].map((s) => (
                     <StarIcon key={s} filled={s <= r.score} className="w-3 h-3" />

@@ -7,6 +7,7 @@ override containers under `content/`:
 
 ```
 mjolnir.json          the manifest (schema below)
+changes.json          the declared change list (schema below)
 signature.json        optional; the author's signature (see below)
 content/
   MyMod_P.utoc        override container index
@@ -40,6 +41,39 @@ signed CI releases instead (`docs/hub_architecture.md` §2).
   are per-build, so a container built against one build may point at moved
   or vanished chunks after a game patch.
 
+## changes.json
+
+The transparency file: what the mod does, declared as data, so the hub and
+the launcher can show players the actual edits instead of asking them to
+trust a description. The tag editor writes it at export from the same
+resolved view its Changes panel shows — the recipe's `(group, tag, field)`
+keys with the shipped value beside the modded one:
+
+```json
+{
+  "schema_version": 1,
+  "tags": [
+    {
+      "group": "weapon",
+      "tag": "objects/weapons/pistol/pistol",
+      "fields": [
+        { "field": "magazines[0].rounds loaded maximum", "before": "12", "value": "24" }
+      ]
+    }
+  ],
+  "textures": [{ "path": "characters/weapons/assaultrifle/T_ar_default_D", "bytes": 481203 }],
+  "scripts": [{ "group": "scenario", "tag": "levels/a10/a10" }]
+}
+```
+
+It is a **declaration, not a proof**: the containers remain the bytes that
+ship. The hub stores the list at scan time and renders it beside the
+*measured* chunk count from the containers themselves, so a release
+declaring one tweak while overriding hundreds of chunks is visibly odd.
+Absent is a warning (`no_changes` — older editors predate the format);
+present-and-invalid is an error (`bad_changes`), because the file is
+machine-written and a broken one means tampering or a bug.
+
 ## signature.json
 
 An archive may carry an author signature: an envelope whose base64 `payload`
@@ -69,6 +103,7 @@ and wrong. Full design, threat model and rollout:
 | Only allowed file kinds (`utoc ucas json md txt png jpg jpeg webp`) | `forbidden_file` |
 | Every `.utoc` parses, unencrypted, paired with its `.ucas` | `bad_container`, `encrypted_container`, `orphan_utoc`, `orphan_ucas` |
 | At least one container under `content/` | `no_content` |
+| `changes.json`, when present, valid and ≤ 512 KiB | `bad_changes` (absent is the `no_changes` warning) |
 
 On a passing scan the hub records every chunk ID the containers claim into
 the **conflict index** (`release_chunks`), and the release — plus its mod, if

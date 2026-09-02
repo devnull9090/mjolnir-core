@@ -28,6 +28,35 @@ export type Reference = {
   path: string;
 };
 
+/** One reference to resolve: the group as four-CC or name, and the path. */
+export type RefQuery = {
+  group: string;
+  path: string;
+};
+
+/** Where a resolved reference lands; null rows in the batch answer mean the
+ *  reference does not exist in this installation. */
+export type RefHit = {
+  index: number;
+  group: string;
+  short: string;
+  size: number;
+};
+
+/** What a reference points at, in enough detail to draw a preview card. */
+export type TagPeek = {
+  group: string;
+  four_cc: string;
+  short: string;
+  chunk_size: number;
+  /** Which card to draw. */
+  preview: "model" | "texture" | "sound" | "summary";
+  /** Texture catalog index, when `preview` is `texture`. */
+  texture: number | null;
+  /** Sound catalog index, when `preview` is `sound`. */
+  sound: number | null;
+};
+
 export type NodeView = {
   kind: NodeKind;
   name: string;
@@ -165,6 +194,26 @@ export type SoundSummary = {
   event: string | null;
 };
 
+/** One playable media file a sound tag's events reach. */
+export type TagMediaHit = {
+  /** Wwise media short ID. */
+  id: number;
+  /** Sound catalog index, when the media ships as a loose .wem. */
+  sound: number | null;
+  /** Sound catalog index of the bank carrying it, when embedded. */
+  bank: number | null;
+  /** Payload size in bytes, however it ships. */
+  size: number | null;
+  /** The event that reaches it, e.g. Play_WEP_SniperRifle_Ammo_Pickup. */
+  event: string;
+};
+
+/** Everything a sound tag can play. */
+export type TagAudio = {
+  events: string[];
+  media: TagMediaHit[];
+};
+
 /** A playable stream built from one .wem. */
 export type SoundAudio = {
   /** Data URI, ready for an audio element. */
@@ -300,6 +349,28 @@ export type ScenarioLayoutData = {
   player_starts: { position: [number, number, number]; facing: [number, number] }[];
 };
 
+/** One Unreal mesh an object's actor Blueprint binds, with the component
+ *  transform that places it in actor space (Unreal centimetres, Rotator
+ *  degrees). The tags ship no visuals; this is the chase through the BP. */
+export type RenderMeshRef = {
+  /** Mesh catalog index, for readMesh. */
+  mesh: number;
+  skeletal: boolean;
+  /** Mesh package tail, for display. */
+  label: string;
+  location: [number, number, number];
+  /** Unreal Rotator: pitch, yaw, roll in degrees. */
+  rotation: [number, number, number];
+  scale: [number, number, number];
+  /** Rotation as a quaternion (i j k w, Unreal space); wins over `rotation`
+   *  when present — rig pieces sit at bone rest poses. */
+  quat: [number, number, number, number] | null;
+  /** A stand-in from the MeshSynchronization data asset, drawn only when no
+   *  non-fallback mesh is readable (characters bind Nanite placeholders in
+   *  the Blueprint and pick their real body at runtime). */
+  fallback: boolean;
+};
+
 /** A scenario resolved for drawing: layout plus catalog indices. */
 export type ScenarioWorldView = {
   layout: ScenarioLayoutData;
@@ -307,6 +378,9 @@ export type ScenarioWorldView = {
   bsp_indices: (number | null)[];
   /** hlmt catalog index per palette entry, per category. */
   palette_models: (number | null)[][];
+  /** Unreal render meshes per palette entry, per category; empty where the
+   *  chase found none and the collision proxy stays. */
+  palette_render: RenderMeshRef[][][];
 };
 
 /** One row of the virtual asset filesystem: a folder or an openable asset. */
@@ -334,6 +408,9 @@ export type MeshMaterial = {
   texture: number | null;
   texture_path: string | null;
   material_path: string | null;
+  /** Flat base colour (linear RGBA) from the material's vector parameters;
+   *  the stand-in when no albedo texture resolves. */
+  tint: [number, number, number, number] | null;
 };
 
 /** The JSON header of a `read_mesh` payload. */
@@ -483,6 +560,56 @@ export type LiveStatus = {
   pid: number | null;
   /** Tags whose address is already known, so an edit to them is instant. */
   located: number;
+  /** The loaded scenario's short path — which level the player is in. Read
+   *  from the engine's object table (exact) the moment live mode is armed, or
+   *  from the census. */
+  level: string | null;
+  /** Tags with a live object per the engine's object table. A superset of
+   *  the pokeable set — an object exists for nearly every tag whether or not
+   *  its data is resident. */
+  present: number;
+};
+
+/** One tag a census found loaded in the running game. */
+export type LoadedTag = {
+  index: number;
+  group: string;
+  short: string;
+  /** Fraction of the data section verified byte-for-byte; well under 1.0 is
+   *  normal, the engine rewrites much of a tag at load. */
+  fraction: number;
+};
+
+/** What one census of the game's memory established. */
+export type CensusReport = {
+  located: number;
+  level: string | null;
+  ambiguous: number;
+  scanned_mb: number;
+  secs: number;
+  loaded: LoadedTag[];
+  /** Tags with a live object per the object table; null when the engine
+   *  globals could not be resolved (the sweep still ran). */
+  present: number | null;
+  /** Tags whose buffer the engine's loader cache handed over directly —
+   *  exact, found without the sweep. Null when the cache roots could not be
+   *  found in this build. */
+  cached: number | null;
+};
+
+/** What the engine's object table says, without a memory sweep. */
+export type ProbeReport = {
+  level: string | null;
+  present: number;
+  objects: number;
+  secs: number;
+};
+
+/** Progress of a running census, as `live-census` events report it. */
+export type CensusProgress = {
+  phase: "objects" | "cache" | "prints" | "scan";
+  done_mb: number;
+  total_mb: number;
 };
 
 /** The result of pushing one field into the running game. */
@@ -505,6 +632,8 @@ const tauriApi = {
   readTag: (index: number) => invoke<TagView>("read_tag", { index }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
+  objectRenderModel: (index: number) =>
+    invoke<RenderMeshRef[]>("object_render_model", { index }),
   readScenarioLayout: (index: number) =>
     invoke<ScenarioWorldView>("read_scenario_layout", { index }),
   readSbspWorld: (index: number) =>
@@ -512,12 +641,26 @@ const tauriApi = {
   readMesh: (index: number) => invoke<ArrayBuffer>("read_mesh", { index }),
   readTagBytes: (index: number, limit = 4096) =>
     invoke<number[]>("read_tag_bytes", { index, limit }),
+  resolveRefs: (refs: RefQuery[]) =>
+    invoke<(RefHit | null)[]>("resolve_refs", { refs }),
+  peekTag: (index: number) => invoke<TagPeek>("peek_tag", { index }),
+  referencingTags: (index: number) =>
+    invoke<TagSummary[]>("referencing_tags", { index }),
   setField: (index: number, path: string, value: string) =>
     invoke<EditResult>("set_field", { index, path, value }),
+  addElement: (index: number, path: string) =>
+    invoke<EditResult>("add_element", { index, path }),
+  removeElement: (index: number, path: string, element: number) =>
+    invoke<EditResult>("remove_element", { index, path, element }),
+  duplicateElement: (index: number, path: string, element: number) =>
+    invoke<EditResult>("duplicate_element", { index, path, element }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>
     invoke<Poked>("live_poke", { index, path, value }),
+  liveCensus: () => invoke<CensusReport>("live_census"),
+  liveLoaded: () => invoke<LoadedTag[]>("live_loaded"),
+  liveProbe: () => invoke<ProbeReport>("live_probe"),
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
@@ -526,6 +669,8 @@ const tauriApi = {
   listTextures: (query: string) =>
     invoke<TextureSummary[]>("list_textures", { query }),
   readTexture: (index: number) => invoke<TextureView>("read_texture", { index }),
+  readTextureThumb: (index: number, maxDim = 256) =>
+    invoke<TextureView>("read_texture_thumb", { index, maxDim }),
   readScripts: (index: number) => invoke<ScriptView>("read_scripts", { index }),
   decompileScript: (index: number, name: string) =>
     invoke<string>("decompile_script", { index, name }),
@@ -543,6 +688,9 @@ const tauriApi = {
   revertTexture: (index: number) => invoke<void>("revert_texture", { index }),
   listSounds: (query: string) => invoke<SoundSummary[]>("list_sounds", { query }),
   playSound: (index: number) => invoke<SoundAudio>("play_sound", { index }),
+  playBankMedia: (bank: number, media: number) =>
+    invoke<SoundAudio>("play_bank_media", { bank, media }),
+  soundTagMedia: (index: number) => invoke<TagAudio>("sound_tag_media", { index }),
   readSound: (index: number) => invoke<SoundView>("read_sound", { index }),
   exportSound: (index: number, dest: string) =>
     invoke<number>("export_sound", { index, dest }),

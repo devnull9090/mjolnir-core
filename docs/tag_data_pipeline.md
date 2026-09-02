@@ -226,6 +226,60 @@ running game via UE4SS `DumpUSMAP`, `defs/ue/Meteorite-2607-CU3.usmap`), zen pac
 unversioned properties, StaticMesh buffers, and MaterialInstance texture parameters — a 1,200
 package soak parses 99.25%.
 
+**Verified 2026-08-19 — an object tag reaches its render mesh through its actor Blueprint.**
+The tag's `.uasset` imports name `BP_*` actor packages; each Blueprint's mesh component
+templates (SCS `SkeletalMeshComponent` / `StaticMeshComponent` exports) carry the `SK_`/`SM_`
+package as an object property, plus `RelativeLocation`/`RelativeRotation`/`RelativeScale3D` in
+actor space. The warthog resolves to `SK_Warthog_01` + antenna + chaingun this way; the tag
+editor's Model and World views draw the chase's results (`render_mesh_refs` in
+`apps/tag-editor/src-tauri/src/lib.rs`). Three caveats, all verified against the install:
+
+- **Characters bind placeholders.** A biped's Blueprint binds an anim-dynamics helper
+  (`SK_Sacristan_AnimDynamics_PLY`, 2 triangles) and picks the body at runtime. The route to
+  the real body is the `Blam*MeshSynchronizationDataAsset` packages: 62 ship, each importing
+  exactly one hlmt (`ModelTag`), anchoring the model tag to its asset folder —
+  `DA_Elite_MeshSynchronization` → `/Game/characters/Elite/Common` → `Mesh/SK_Elite_Common_Body`
+  (236 cm tall) + head. The editor uses these as fallbacks when no Blueprint-bound mesh is
+  readable.
+- **The unit constant is 1 wu = 304.8 cm** (the classic 10-foot world unit): the elite body's
+  236 cm over its 0.79 wu collision shell, and the Blam skeleton overlaying the SK bind pose
+  exactly at that scale in the Model view. The engine negates Y between Blam and Unreal space,
+  so a mesh drawn among tag data mirrors Y back.
+- **Some meshes stay unreadable classically.** Skeletal-Nanite meshes (weapons, most Covenant
+  vehicles) hold placeholder triangles; and vehicles like the warthog keep only the suspension
+  in their SK — the hull ships as ~40 per-region rig statics (`Mesh/Static/SM_Warthog_*`,
+  bone-local frames, matching Blam region names) attached at runtime. Assembling those rigs is
+  open work; affected objects fall back to their collision shells.
+
+**Verified 2026-08-19 — a vehicle's hull is rig statics on the SK's skeleton.** The warthog's
+`SK_Warthog_01` carries only the suspension geometry (one `InteriorWheelsShocks` material); the
+hull, panels, wheels and accessories ship as ~60 statics under the SK's sibling
+`Mesh/Static/` folder, in bone-local frames, attached at runtime. No shipped data records the
+piece-to-bone binding (the `SkeletalMeshSocket` exports on `SKEL_Warthog_01` are character-IK
+and VFX attach points, and the MeshSynchronization data assets hold only `ModelTag`), so the
+binding is by name convention, loosely spelled: `SM_Warthog_Tire_Back_Left` ↔ bone
+`Wheel_Back_Left`, `SM_Warthog_Base_Axle_*` ↔ `Axle_Base_*`, `SM_Warthog_Hood` ↔ `Hood_Base`.
+Token-set matching with a handful of synonyms places every named piece; what the rig does not
+name (side panels, windshield, accessories) sits in the chassis frame — attaching those to the
+`Body` bone lands them exactly inside the vehicle envelope. The assembled warthog spans
+613×325×243 cm, matching its 1.92 wu posed collision shell. Implemented as `rig_static_refs`
+in `apps/tag-editor/src-tauri/src/lib.rs`; `probe_rig_match` reproduces the match table.
+
+**Verified 2026-08-19 — the material library's colour is in vector parameters, not textures.**
+Vehicle materials (`MI_Warthog_GreenHull`, …) are layered: their `CO`/`COH` texture maps are
+channel-packed masks (decoding one as albedo paints the mesh purple), and the visible colour
+lives in `VectorParameterValues` — `Color Top/Mid/Bottom` is the paint gradient (the warthog's
+olive is `Color Top` = 0.397, 0.397, 0.216), `BaseColor` per layer index is near-black primer,
+`Color Tint` is a multiplier. The mesh viewers now carry that flat colour per material slot as
+the stand-in when no albedo texture resolves. Also fixed on the way: package and texture
+lookups are mount-aware (`/HaloMaterialLibrary/...` plugin content resolves, not just
+`/Game/...`), which the parent chain of every vehicle material needs.
+
+**Verified 2026-08-19 — `object_model_ref` regressed on CU4-era layouts.** The `model` tag
+reference is nested (`vehicle` → `unit` → `object`), so the flat root-field lookup found
+nothing and the World view's collision proxies all drew as boxes; the walk now descends
+struct values (`find_model_ref` in `geometry.rs`).
+
 **Verified 2026-08-07 — scenario placements drive the runtime spawn.** An override built with
 `mjolnir pack --group scenario --tag a30 --set "weapons[1].object data.position=(8.0, 47.0, 65.5)"`
 moved the shipped assault-rifle placement (shipped `(4.671514, 50.428234, 63.94416)`). On a fresh
@@ -321,3 +375,14 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
    actually defines.
 6. Determine whether the tag-to-Blueprint binding in `BlamBipedTagDataAsset` is a hard reference or
    a soft object path, which decides whether new objects can be added without a cook.
+7. ~~Assemble the per-region rig statics onto the SK reference skeleton by bone name.~~
+   **Done 2026-08-19** — see "a vehicle's hull is rig statics" above; the warthog assembles
+   whole (60/60 pieces placed, 613×325×243 cm, matching its 1.92 wu collision shell).
+8. ~~Fix the static-mesh reader on the packages that fail with `mesh data ends early` (the
+   `Nanite/SM_LifePod_Body_*` family, the Seraph hull fragments — ~50 crates), which read as
+   misaligned property walks rather than missing data.~~
+   **Done 2026-08-19** — the reader stopped each LOD at the main index buffer, so any mesh
+   with a second real LOD misparsed. The block continues with reversed/depth-only index
+   buffers, a ray-tracing blob and per-section triangle samplers (strip-flag gated), and
+   closes with `FStaticMeshBuffersSize`; with those consumed, all 11,920 shipped `SM_`
+   packages with a StaticMesh export parse (`dump_mesh --soak 1`).

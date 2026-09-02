@@ -6,7 +6,16 @@
  * API remains the contract for everyone else.
  */
 import type { D1Database } from "@cloudflare/workers-types";
-import type { Media, Mod, Release } from "@mjolnir/hub-kit";
+import type { Media, Mod, Release, ReleaseChanges, UserProfile } from "@mjolnir/hub-kit";
+
+import { OWNER_COLUMNS, avatarUrl, modFromRow } from "./schemas";
+
+// Every mod row here goes through `modFromRow`, the same mapper the API
+// uses, rather than being spread wholesale. That is not tidiness: a D1 row
+// selected against OWNER_COLUMNS carries the owner's Discord snowflake, and
+// a mod handed to <ModCard> is serialised into the payload the browser
+// receives. Naming the fields is what keeps that snowflake behind
+// /admin/users, where it is meant to stay.
 
 /**
  * Listing rows are the API's `Mod` shape so pages can hand them straight to
@@ -39,16 +48,14 @@ export async function listPublishedMods(
     .prepare(
       `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
               m.download_count, m.view_count, m.rating_count, m.rating_mean,
-              m.created_at, m.updated_at,
-              COALESCE(u.display_name, u.discord_username) AS author
+              m.created_at, m.updated_at, ${OWNER_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
        ORDER BY ${order}, m.id DESC LIMIT ?${binds.length + 1}`,
     )
     .bind(...binds, opts.limit ?? 60)
     .all();
-  // D1 has no booleans; everything else is already the API shape.
-  return rows.results.map((r) => ({ ...r, nsfw: !!r.nsfw })) as unknown as ModListRow[];
+  return rows.results.map(modFromRow);
 }
 
 /**
@@ -180,16 +187,25 @@ export type MediaRow = Media;
 export type ReleaseRow = Release;
 
 export async function getModPage(db: D1Database, slug: string) {
-  const mod = (await db
+  const row = await db
     .prepare(
-      `SELECT m.*, COALESCE(u.display_name, u.discord_username) AS author
+      `SELECT m.*, ${OWNER_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id WHERE m.slug = ?1`,
     )
     .bind(slug)
-    .first()) as unknown as ModPage | null;
-  if (!mod) return null;
+    .first();
+  if (!row) return null;
+  const mod: ModPage = {
+    ...modFromRow(row),
+    description_md: (row.description_md as string) ?? null,
+    // The page needs the raw integer for its own checks; the API's boolean
+    // is what `modFromRow` already produced and is discarded here.
+    nsfw: row.nsfw as number,
+    owner_id: row.owner_id as string,
+    status: row.status as string,
+  };
 
-  const [media, releases] = await Promise.all([
+  const [media, releases, latest] = await Promise.all([
     // Approved only: the page is public, and a caller's own pending items
     // arrive through the API refetch that knows who is asking.
     db
@@ -213,6 +229,17 @@ export async function getModPage(db: D1Database, slug: string) {
       )
       .bind(mod.id)
       .all(),
+    // The latest release's declared change list, for the transparency
+    // section — same shape the /releases/{id}/changes endpoint serves.
+    db
+      .prepare(
+        `SELECT r.id, r.version, r.changes_json,
+                (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count
+         FROM mod_releases r WHERE r.mod_id = ?1 AND r.status = 'published'
+         ORDER BY r.created_at DESC LIMIT 1`,
+      )
+      .bind(mod.id)
+      .first<{ id: string; version: string; changes_json: string | null; chunk_count: number }>(),
   ]);
   return {
     mod,
@@ -222,5 +249,130 @@ export async function getModPage(db: D1Database, slug: string) {
       url: `/api/v1/media/${r.id}`,
     })) as unknown as MediaRow[],
     releases: releases.results as unknown as ReleaseRow[],
+    latestChanges: latest
+      ? ({
+          release_id: latest.id,
+          version: latest.version,
+          chunk_count: latest.chunk_count,
+          changes: latest.changes_json ? JSON.parse(latest.changes_json) : null,
+        } satisfies ReleaseChanges)
+      : null,
   };
+}
+
+// ── Profiles ──────────────────────────────────────────────────────────
+
+/**
+ * Every activity total a profile reports, as one round trip.
+ *
+ * Two directions kept apart: the `_received` figures are what this account's
+ * published work drew, and the rest is what it did. All of it is counts —
+ * the queries deliberately never assemble a list of what someone downloaded
+ * or viewed, because no route publishes one.
+ */
+const PROFILE_STATS_SQL = `
+  SELECT
+    (SELECT COUNT(*) FROM mods
+      WHERE owner_id = ?1 AND status = 'published') AS mods_published,
+    (SELECT COALESCE(SUM(download_count), 0) FROM mods
+      WHERE owner_id = ?1 AND status = 'published') AS downloads_received,
+    (SELECT COALESCE(SUM(view_count), 0) FROM mods
+      WHERE owner_id = ?1 AND status = 'published') AS views_received,
+    (SELECT COALESCE(SUM(rating_count), 0) FROM mods
+      WHERE owner_id = ?1 AND status = 'published') AS ratings_received,
+    -- Weighted by rating_count, so a single-vote 5★ mod cannot outweigh a
+    -- hundred-vote 4★ one in the author's headline average.
+    (SELECT SUM(rating_mean * rating_count) / NULLIF(SUM(rating_count), 0) FROM mods
+      WHERE owner_id = ?1 AND status = 'published' AND rating_mean IS NOT NULL) AS rating_mean,
+    (SELECT COUNT(DISTINCT mod_id) FROM mod_downloads WHERE user_id = ?1) AS mods_downloaded,
+    (SELECT COUNT(*) FROM ratings WHERE user_id = ?1) AS ratings_given,
+    (SELECT COUNT(*) FROM comments
+      WHERE user_id = ?1 AND deleted_at IS NULL) AS comments_posted,
+    (SELECT COUNT(*) FROM media
+      WHERE uploader_id = ?1 AND status = 'approved') AS media_contributed
+`;
+
+interface ProfileUserRow {
+  id: string;
+  discord_id: string;
+  discord_username: string;
+  discord_avatar: string | null;
+  display_name: string | null;
+  role: "user" | "moderator" | "admin";
+  trust_level: number;
+  created_at: string;
+}
+
+/**
+ * One public profile: identity, activity totals, and published mods.
+ *
+ * Shared by the page and by `GET /api/v1/users/{id}` so the two cannot
+ * disagree about what a profile says. A banned account reads as absent —
+ * the route turns that into a 404 and the page into `notFound()`.
+ */
+export async function getUserProfile(db: D1Database, id: string): Promise<UserProfile | null> {
+  const user = await db
+    .prepare(
+      `SELECT id, discord_id, discord_username, discord_avatar, display_name,
+              role, trust_level, created_at
+       FROM users WHERE id = ?1 AND banned_at IS NULL`,
+    )
+    .bind(id)
+    .first<ProfileUserRow>();
+  if (!user) return null;
+
+  const [stats, mods] = await Promise.all([
+    db.prepare(PROFILE_STATS_SQL).bind(user.id).first<UserProfile["stats"]>(),
+    db
+      .prepare(
+        `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
+                m.download_count, m.view_count, m.rating_count, m.rating_mean,
+                m.created_at, m.updated_at, ${OWNER_COLUMNS}
+         FROM mods m JOIN users u ON u.id = m.owner_id
+         WHERE m.owner_id = ?1 AND m.status = 'published'
+         ORDER BY m.created_at DESC, m.id DESC LIMIT 100`,
+      )
+      .bind(user.id)
+      .all(),
+  ]);
+
+  return {
+    user: {
+      id: user.id,
+      username: user.discord_username,
+      display_name: user.display_name,
+      avatar_url: avatarUrl(user.discord_id, user.discord_avatar),
+      role: user.role,
+      trust_level: user.trust_level,
+      created_at: user.created_at,
+    },
+    // A fresh account has no rows behind any of these; D1 still answers the
+    // aggregate query, so the fallback is only for a read that failed.
+    stats: stats ?? {
+      mods_published: 0,
+      downloads_received: 0,
+      views_received: 0,
+      ratings_received: 0,
+      rating_mean: null,
+      mods_downloaded: 0,
+      ratings_given: 0,
+      comments_posted: 0,
+      media_contributed: 0,
+    },
+    mods: mods.results.map(modFromRow),
+  };
+}
+
+/** Accounts with something published, for the sitemap's profile entries. */
+export async function listProfilesForSitemap(
+  db: D1Database,
+): Promise<{ id: string; updated_at: string }[]> {
+  const rows = await db
+    .prepare(
+      `SELECT m.owner_id AS id, MAX(m.updated_at) AS updated_at
+       FROM mods m WHERE m.status = 'published'
+       GROUP BY m.owner_id`,
+    )
+    .all();
+  return rows.results as unknown as { id: string; updated_at: string }[];
 }

@@ -17,6 +17,8 @@ import { registerCommunityRoutes } from "./community";
 import { registerAccountRoutes } from "./account";
 import { registerDeviceRoutes } from "./device";
 import { registerModerationRoutes } from "./moderation";
+import { registerAdminRoutes } from "./admin";
+import { registerProfileRoutes } from "./profiles";
 import { registerCodeSyncRoutes } from "./codesync";
 import {
   ErrorSchema,
@@ -24,11 +26,14 @@ import {
   ModDetailSchema,
   ModListQuerySchema,
   ModListSchema,
+  OWNER_COLUMNS,
   ReleaseListSchema,
   UserSchema,
+  avatarUrl,
   modFromRow,
   releaseFromRow,
 } from "./schemas";
+
 
 export const openApiInfo = {
   openapi: "3.1.0" as const,
@@ -206,9 +211,7 @@ app.openapi(
         id: user.id,
         username: user.discord_username,
         display_name: user.display_name,
-        avatar_url: user.discord_avatar
-          ? `https://cdn.discordapp.com/avatars/${user.discord_id}/${user.discord_avatar}.png`
-          : null,
+        avatar_url: avatarUrl(user.discord_id, user.discord_avatar),
         role: user.role,
         created_at: user.created_at,
       },
@@ -290,7 +293,7 @@ app.openapi(
     }
 
     const rows = await c.env.DB.prepare(
-      `SELECT m.*, COALESCE(u.display_name, u.discord_username) AS author
+      `SELECT m.*, ${OWNER_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
        ORDER BY ${s.expr} DESC, m.id DESC
@@ -339,7 +342,7 @@ app.openapi(
   async (c) => {
     const { slug } = c.req.valid("param");
     const row = await c.env.DB.prepare(
-      `SELECT m.*, COALESCE(u.display_name, u.discord_username) AS author
+      `SELECT m.*, ${OWNER_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE m.slug = ?1`,
     )
@@ -416,6 +419,11 @@ registerCommunityRoutes(app);
 
 registerAccountRoutes(app);
 registerModerationRoutes(app);
+registerAdminRoutes(app);
+
+// ── Public profiles ───────────────────────────────────────────────────
+
+registerProfileRoutes(app);
 
 // ── Signed code-mod mirror ────────────────────────────────────────────
 

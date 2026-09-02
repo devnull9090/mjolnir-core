@@ -195,6 +195,13 @@ const mockTag: TagView = {
     }),
     block("child scenarios", "scenario_child_scenario_block", 16, []),
     field({ name: "local north", type: "angle", value: "180" }),
+    field({
+      name: "music",
+      type: "tag reference",
+      value: "sound\\music\\demo\\mus_01 (lsnd)",
+      reference: { group: "lsnd", path: "sound\\music\\demo\\mus_01" },
+      size: 16,
+    }),
     block("comments", "editor_comment_block", 1024, [
       element("dark", 0, [
         field({ name: "comment", type: "data", value: "34 bytes", size: 0 }),
@@ -245,6 +252,10 @@ const mockTags: TagSummary[] = [
   { index: 0, group: "scenario", path: mockTag.path, short: "levels/b30/b30", size: 481_204 },
   { index: 1, group: "scenario", path: "", short: "levels/a30/a30", size: 371_020 },
   { index: 2, group: "model", path: "", short: "objects/sample/sample", size: 21_325 },
+  // Preview-card targets: one per card kind, so hovering the sample model's
+  // references in a browser exercises every branch.
+  { index: 3, group: "scenery", path: "", short: "scenery/tree_leafy/tree_leafy", size: 8_420 },
+  { index: 4, group: "sound", path: "", short: "sound/music/demo/mus_01", size: 1_204 },
 ];
 
 /** A minimal hlmt view, so the Model segment is reachable in a browser. */
@@ -331,6 +342,38 @@ export const mockApi = {
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
   readTag: async (index: number) => withEdits(index),
   readTagBytes: async () => [] as number[],
+  // Resolution in the mock is by normalized path alone — enough to light up
+  // both the resolved and the broken badge: the sample model's references and
+  // the scenario's scenery/music match a mock tag, the sky does not.
+  resolveRefs: async (refs: { group: string; path: string }[]) =>
+    refs.map((r) => {
+      if (r.path === "") return null;
+      const want = r.path.replace(/\\/g, "/").toLowerCase();
+      const hit = mockTags.find((t) => t.short === want);
+      return hit
+        ? { index: hit.index, group: hit.group, short: hit.short, size: hit.size }
+        : null;
+    }),
+  peekTag: async (index: number) => {
+    const t = mockTags.find((m) => m.index === index);
+    const base = {
+      group: t?.group ?? "scenario",
+      four_cc: mockGroups.find((g) => g.group === t?.group)?.four_cc ?? "scnr",
+      short: t?.short ?? "levels/b30/b30",
+      chunk_size: t?.size ?? 0,
+      texture: null as number | null,
+      sound: null as number | null,
+    };
+    if (index === 2) return { ...base, preview: "model" as const };
+    if (index === 3) return { ...base, preview: "texture" as const, texture: 0 };
+    if (index === 4) return { ...base, preview: "sound" as const, sound: 1 };
+    return { ...base, preview: "summary" as const };
+  },
+  referencingTags: async (index: number) => {
+    // Slow enough that the first-scan spinner is reviewable in a browser.
+    await new Promise((r) => setTimeout(r, 600));
+    return mockTags.filter((t) => t.index !== index).slice(0, 2);
+  },
   readMesh: async () => {
     // A textured-slot cube so the mesh viewer runs in a browser.
     const header = new TextEncoder().encode(
@@ -429,7 +472,9 @@ export const mockApi = {
     },
     bsp_indices: [0],
     palette_models: [[2]],
+    palette_render: [[[]]],
   }),
+  objectRenderModel: async () => [],
   readSbspWorld: async () => {
     // A 20×20 ground slab def instanced twice, so the world path renders in a
     // browser. Format mirrors geometry.rs `sbsp_world`.
@@ -522,6 +567,18 @@ export const mockApi = {
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };
   },
+  addElement: async (_index: number, path: string): Promise<EditResult> => {
+    edits.set(path, "add");
+    return { path, type: "block", before: "0 element(s)", after: "1 element(s)", changed_bytes: 32 };
+  },
+  removeElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    edits.set(path, `remove ${element}`);
+    return { path, type: "block", before: "1 element(s)", after: "0 element(s)", changed_bytes: 32 };
+  },
+  duplicateElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    edits.set(path, `duplicate ${element}`);
+    return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
+  },
   revertField: async (_index: number, path: string) => {
     edits.delete(path);
     return edits.size;
@@ -558,6 +615,7 @@ export const mockApi = {
       replaced: swappedTextures.has(path),
     };
   },
+  readTextureThumb: async (index: number) => mockApi.readTexture(index),
   exportTexture: async () => 0,
   swapTexture: async (index: number) => {
     const path =
