@@ -38,9 +38,10 @@ mjolnir-core/
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
 │   ├── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
-│   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
+│   ├── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
+│   └── MJOLNIRBlamConsole/      # The classic Blam console at the Unreal console, with help
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
-├── native/                      # C source for FName trampoline DLL
+├── native/                      # C sources: the Blam console DLL, the FName trampoline
 ├── config/                      # Reference UE4SS-settings.ini + CU3 build lock
 ├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
 ├── keys/                        # Public release-signing keys
@@ -123,6 +124,15 @@ commands or arbitrary Lua on the game thread, answering back. Paired with `tools
 gives launch, level load, live state reads, input and screenshots without a person at the keyboard.
 Install with `scripts/install-bridge.ps1`; see
 [`docs/game_automation.md`](docs/game_automation.md).
+
+### MJOLNIRBlamConsole
+The simulation DLL still carries the classic Blam console — the HS compiler and all 1,695 engine
+functions — but nothing feeds it text, so every Blam command at the Unreal console is "Command not
+recognized". This mod wires it: type `ai_enabled`, `player_teleport player0 ...` or
+`blam (unit_get_health (player0))` and the result value, or the compiler's error, comes back on the
+UE4SS console. `help <prefix>` lists names with signatures, marking the 425 functions and 217
+globals the release build compiled out. The native half is built from `native/blam_console`; see
+[`docs/blam_console.md`](docs/blam_console.md).
 
 > **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
 > C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and

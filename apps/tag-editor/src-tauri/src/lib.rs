@@ -10,10 +10,11 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub mod bnk;
 pub mod catalog;
+pub mod census;
 pub mod changelog;
 pub mod decode;
 pub mod geometry;
@@ -22,9 +23,13 @@ pub mod install;
 pub mod keystore;
 pub mod live;
 pub mod modpack;
+pub mod present;
 pub mod project;
+pub mod refcache;
+pub mod refscan;
 pub mod scripts;
 pub mod secret;
+pub mod tagcache;
 pub mod sounds;
 /// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
 pub use ue_texture as textures;
@@ -122,10 +127,10 @@ struct AppState {
 }
 
 #[derive(Clone, Serialize)]
-struct PendingEdit {
-    path: String,
+pub struct PendingEdit {
+    pub path: String,
     /// The text the user typed, re-parsed against the layout on each read.
-    value: String,
+    pub value: String,
 }
 
 #[derive(Serialize)]
@@ -311,22 +316,190 @@ fn search_tags(query: String, state: State<'_, AppState>) -> Result<Vec<TagSumma
     with_catalog(&state, |c| Ok(c.search(&query, MAX_ROWS)))
 }
 
-/// Parse each pending edit against the layout, dropping any that no longer
-/// resolve. A stale edit is reported by the command that made it, not here.
-fn parse_edits(
+/// The value a pending edit's op string names, when its path resolves to a
+/// block: `add`, `remove <i>` or `duplicate <i>`.
+fn parse_op(value: &str) -> Option<blam_tag::patch::ElementOp> {
+    use blam_tag::patch::ElementOp;
+    let v = value.trim();
+    if v == "add" {
+        return Some(ElementOp::Add);
+    }
+    if let Some(n) = v.strip_prefix("remove ") {
+        return n.trim().parse().ok().map(ElementOp::Remove);
+    }
+    if let Some(n) = v.strip_prefix("duplicate ") {
+        return n.trim().parse().ok().map(ElementOp::Duplicate);
+    }
+    None
+}
+
+/// One pending edit as the replay applied it — or did not.
+pub struct Outcome {
+    pub path: String,
+    pub value: String,
+    pub type_name: String,
+    /// The value the field held just before this edit applied, displayed.
+    pub before: Option<String>,
+    /// False when the edit no longer resolves against these bytes, which
+    /// usually means a game update moved the field. Skipped, not fatal:
+    /// the command that cares makes it loud.
+    pub applied: bool,
+}
+
+/// What one pending edit asks of the replay, decided by what its path
+/// resolves to.
+enum Step {
+    /// A fixed-width value, overwritten in place; batchable.
+    InPlace(blam_tag::Scalar),
+    /// A section-backed value; rebuilds the tag around the new content.
+    Text(blam_tag::Scalar),
+    /// An element added, duplicated or removed; rebuilds the tag.
+    Elements(blam_tag::patch::ElementOp),
+}
+
+fn classify(
     layout: &blam_tag::Layout<'_>,
-    file: &[u8],
-    block: &blam_tag::data::Block<'_>,
+    target: &blam_tag::patch::Target,
+    value: &str,
+) -> Option<Step> {
+    if target.type_name == "block" {
+        return parse_op(value).map(Step::Elements);
+    }
+    if target.section.is_some() {
+        return match target.type_name.as_str() {
+            "string id" => Some(Step::Text(blam_tag::Scalar::Text(
+                value.trim_matches('"').to_string(),
+            ))),
+            "tag reference" => parse_reference(value).ok().map(Step::Text),
+            _ => None,
+        };
+    }
+    blam_tag::value::parse(layout, &target.field, value)
+        .ok()
+        .map(Step::InPlace)
+}
+
+/// Apply every pending edit to `bytes`, in the order they were recorded,
+/// reporting per edit what happened.
+///
+/// Runs of in-place edits are applied as one batch, so a recipe of plain field
+/// edits costs what it always did. An edit that resizes the tag — a section-
+/// backed value, or an element count change — is applied on its own and the
+/// tag re-read behind it, because everything after it may have moved, and an
+/// edit recorded later may only resolve inside an element an earlier op added.
+///
+/// An edit that no longer resolves is skipped and reported in its outcome; a
+/// mod must keep applying in the editor even when a game update broke one
+/// field, and export is where staleness turns into a hard error.
+pub fn apply_pending(
+    bytes: Vec<u8>,
     pending: &[PendingEdit],
-) -> Vec<(String, blam_tag::Scalar)> {
-    pending
-        .iter()
-        .filter_map(|e| {
-            let target = blam_tag::patch::resolve(layout, file, block, &e.path).ok()?;
-            let value = blam_tag::value::parse(layout, &target.field, &e.value).ok()?;
-            Some((e.path.clone(), value))
-        })
-        .collect()
+) -> Result<(Vec<u8>, Vec<Outcome>), String> {
+    let mut out = bytes;
+    let mut outcomes: Vec<Outcome> = Vec::with_capacity(pending.len());
+    let mut i = 0usize;
+    while i < pending.len() {
+        let next = {
+            let tag =
+                blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+            let layout = tag.layout().map_err(|e| e.to_string())?;
+            let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+
+            let mut batch: Vec<(String, blam_tag::Scalar)> = Vec::new();
+            let mut resize: Option<(usize, Step, blam_tag::patch::Target)> = None;
+            while i < pending.len() {
+                let e = &pending[i];
+                let Ok(target) = blam_tag::patch::resolve(&layout, &out, &block, &e.path)
+                else {
+                    outcomes.push(Outcome {
+                        path: e.path.clone(),
+                        value: e.value.clone(),
+                        type_name: String::new(),
+                        before: None,
+                        applied: false,
+                    });
+                    i += 1;
+                    continue;
+                };
+                match classify(&layout, &target, &e.value) {
+                    None => {
+                        outcomes.push(Outcome {
+                            path: e.path.clone(),
+                            value: e.value.clone(),
+                            type_name: target.type_name.clone(),
+                            before: None,
+                            applied: false,
+                        });
+                        i += 1;
+                    }
+                    Some(Step::InPlace(v)) => {
+                        outcomes.push(Outcome {
+                            path: e.path.clone(),
+                            value: e.value.clone(),
+                            type_name: target.type_name.clone(),
+                            before: Some(target.current.display()),
+                            applied: true,
+                        });
+                        batch.push((e.path.clone(), v));
+                        i += 1;
+                    }
+                    Some(step) => {
+                        // A resizer ends the batch; it applies against these
+                        // bytes only when nothing in-place is queued ahead of
+                        // it, else the next pass picks it up.
+                        if batch.is_empty() {
+                            resize = Some((i, step, target));
+                            i += 1;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if !batch.is_empty() {
+                let (applied, _) = blam_tag::patch::set_many(&layout, &out, &block, &batch)
+                    .map_err(|e| e.to_string())?;
+                Some(applied)
+            } else if let Some((at, step, target)) = resize {
+                let e = &pending[at];
+                // A block field's inline bytes open with its element count.
+                let before = match &target.current {
+                    blam_tag::Scalar::Raw(b) if b.len() >= 4 => {
+                        let n = u32::from_le_bytes(b[0..4].try_into().unwrap());
+                        Some(format!("{n} element(s)"))
+                    }
+                    other => Some(other.display()),
+                };
+                let applied = match step {
+                    Step::Text(v) => {
+                        blam_tag::patch::set_text(&layout, &out, &block, &e.path, &v)
+                            .map(|(bytes, _)| bytes)
+                            .ok()
+                    }
+                    Step::Elements(op) => {
+                        blam_tag::patch::edit_elements(&layout, &out, &block, &e.path, op)
+                            .map(|(bytes, _)| bytes)
+                            .ok()
+                    }
+                    Step::InPlace(_) => unreachable!("in-place edits join the batch"),
+                };
+                outcomes.push(Outcome {
+                    path: e.path.clone(),
+                    value: e.value.clone(),
+                    type_name: target.type_name.clone(),
+                    before,
+                    applied: applied.is_some(),
+                });
+                applied
+            } else {
+                None
+            }
+        };
+        if let Some(n) = next {
+            out = n;
+        }
+    }
+    Ok((out, outcomes))
 }
 
 /// The tag as the user currently sees it: the shipped bytes with any pending
@@ -352,12 +525,7 @@ fn patched_with_script(
 
     let mut out = file;
     if !pending.is_empty() {
-        let tag = blam_tag::TagFile::parse(&out, Some(chunk_len)).map_err(|e| e.to_string())?;
-        let layout = tag.layout().map_err(|e| e.to_string())?;
-        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-        let edits = parse_edits(&layout, &out, &block, pending);
-        let (patched, _) = blam_tag::patch::set_many(&layout, &out, &block, &edits)
-            .map_err(|e| e.to_string())?;
+        let (patched, _) = apply_pending(out, pending)?;
         out = patched;
     }
 
@@ -433,8 +601,9 @@ fn set_field(
 
     let result = with_catalog(&state, |c| {
         let file = patched_bytes(c, index, &pending)?;
-        let entry = c.entry(index).ok_or("tag index out of range")?;
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        // The pending edits may already have resized the tag, so the shipped
+        // chunk length no longer describes `file`; its own length does.
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| e.to_string())?;
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
@@ -487,6 +656,87 @@ fn set_field(
     Ok(result)
 }
 
+/// Apply one element op to the tag as it currently stands, and record it once
+/// it is known to work.
+///
+/// Recorded like any field edit — path and value — so the project file format
+/// does not change; the value is the op (`add`, `remove 2`, `duplicate 0`) and
+/// the replay recognises it by the path resolving to a block.
+fn record_element_op(
+    index: usize,
+    path: String,
+    value: String,
+    state: &State<'_, AppState>,
+) -> Result<EditResult, String> {
+    let op = parse_op(&value).ok_or("unrecognised element operation")?;
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+
+    let result = with_catalog(state, |c| {
+        let file = patched_bytes(c, index, &pending)?;
+        let tag =
+            blam_tag::TagFile::parse(&file, Some(file.len())).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+
+        let (out, applied) = blam_tag::patch::edit_elements(&layout, &file, &block, &path, op)
+            .map_err(|e| e.to_string())?;
+
+        // Refuse the edit unless the result is still a tag that reads back.
+        let after =
+            blam_tag::TagFile::parse(&out, Some(out.len())).map_err(|e| e.to_string())?;
+        let after_layout = after.layout().map_err(|e| e.to_string())?;
+        let after_block = after.read_data(&after_layout).map_err(|e| e.to_string())?;
+        let payload = after.data().ok_or("patched tag has no data section")?;
+        if after_block.consumed != payload.size as usize {
+            return Err("the edit left the tag unreadable and was discarded".to_string());
+        }
+
+        Ok(EditResult {
+            path: applied.path.clone(),
+            type_name: applied.type_name.clone(),
+            before: format!("{} element(s)", applied.before.display()),
+            after: format!("{} element(s)", applied.after.display()),
+            changed_bytes: applied.changed.len(),
+        })
+    })?;
+
+    // Element ops stack rather than replace: two adds are two elements, so
+    // the same-path dedupe a value edit gets would lose the first one.
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.edits
+        .entry(key)
+        .or_default()
+        .push(PendingEdit { path, value });
+    work.autosave()?;
+    Ok(result)
+}
+
+#[tauri::command]
+fn add_element(index: usize, path: String, state: State<'_, AppState>) -> Result<EditResult, String> {
+    record_element_op(index, path, "add".to_string(), &state)
+}
+
+#[tauri::command]
+fn remove_element(
+    index: usize,
+    path: String,
+    element: usize,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    record_element_op(index, path, format!("remove {element}"), &state)
+}
+
+#[tauri::command]
+fn duplicate_element(
+    index: usize,
+    path: String,
+    element: usize,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    record_element_op(index, path, format!("duplicate {element}"), &state)
+}
+
 /// Work out everything a live poke needs, while the catalog lock is held.
 ///
 /// Kept separate from the poke itself so the slow part — which may scan the
@@ -502,17 +752,17 @@ fn build_live_job(
     let pending = pending_for(state, &key)?;
     with_catalog(state, |c| {
         let file = patched_bytes(c, index, &pending)?;
-        let entry = c.entry(index).ok_or("tag index out of range")?;
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
-        let (region, span, bytes) = {
-            let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        let (region, root, stable, headers, blocks, hops, span, bytes) = {
+            let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
             let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-            let target = blam_tag::patch::resolve(&layout, &file, &block, path)
+            let route = blam_tag::patch::route(&layout, &file, &block, path)
                 .map_err(|e| e.to_string())?;
+            let target = &route.target;
 
             // A section-backed value lives in a trailing section, so changing it
             // moves every byte after it. In a file that is fine — the tag is
@@ -531,21 +781,48 @@ fn build_live_job(
                 .map_err(|e| e.to_string())?;
 
             // Only the data section is resident per tag; the header and layout
-            // tables are not, so searching anywhere else is wasted effort.
+            // tables are not, so searching anywhere else is wasted effort. And
+            // within it only the root element keeps its file offsets — block
+            // elements are relocated, and reached through their headers.
             let data = tag.data().ok_or("this tag has no data section")?;
             let start = data.content.as_ptr() as usize - file.as_ptr() as usize;
+            let root_off = block.elements.as_ptr() as usize - file.as_ptr() as usize;
+            let root = root_off..root_off + block.element_size as usize;
+            let stable = blam_tag::view::scalar_mask(&layout, &block, &file);
+            let blocks: Vec<(blam_live::Hop, u32)> =
+                blam_tag::patch::root_blocks(&layout, &file, &block)
+                    .iter()
+                    .filter(|(_, n)| *n > 0)
+                    .map(|(h, n)| (live::hop(h), *n))
+                    .collect();
+            let headers: Vec<usize> = blocks.iter().map(|(h, _)| h.header).collect();
+            let hops: Vec<blam_live::Hop> = route.hops.iter().map(live::hop).collect();
             let span = target.file_offset..target.file_offset + target.size;
             let bytes = patched
                 .get(span.clone())
                 .ok_or("the field lies outside the tag payload")?
                 .to_vec();
-            (start..start + data.content.len(), span, bytes)
+            (
+                start..start + data.content.len(),
+                root,
+                stable,
+                headers,
+                blocks,
+                hops,
+                span,
+                bytes,
+            )
         };
 
         Ok(live::Job {
             key: key.clone(),
             payload: file,
             region,
+            root,
+            stable,
+            headers,
+            blocks,
+            hops,
             span,
             bytes,
         })
@@ -582,12 +859,373 @@ async fn live_poke(
         .map_err(|e| e.to_string())?
 }
 
+/// Progress of a running census, emitted as `live-census` events.
+#[derive(Serialize, Clone)]
+struct CensusProgress {
+    /// `prints` while the fingerprint table is built or loaded, `scan` while
+    /// process memory is swept.
+    phase: &'static str,
+    done_mb: u64,
+    total_mb: u64,
+}
+
+/// What one census established.
+#[derive(Serialize)]
+struct CensusReport {
+    /// Tags found and verified in the game's memory right now.
+    located: usize,
+    /// The loaded scenario's short path — which level the player is in.
+    level: Option<String>,
+    /// Tags whose census evidence was ambiguous and were left for a
+    /// single-tag scan instead.
+    ambiguous: usize,
+    scanned_mb: u64,
+    secs: f32,
+    loaded: Vec<live::LoadedTag>,
+    /// Tags with a live object per the object table — a superset of `loaded`.
+    /// `None` when the engine globals could not be resolved.
+    present: Option<usize>,
+    /// Tags whose buffer the engine's loader cache handed over directly —
+    /// exact, no sweep needed for them. `None` when the cache roots could
+    /// not be found in this build.
+    cached: Option<usize>,
+}
+
+/// Find every loaded tag in one sweep of the game's memory.
+///
+/// One census makes every found tag poke-instant and names the level the
+/// player is in. The sweep costs what a single tag's first poke used to cost;
+/// progress goes out as `live-census` events so the UI can show it.
+#[tauri::command]
+async fn live_census(app: tauri::AppHandle) -> Result<CensusReport, String> {
+    tauri::async_runtime::spawn_blocking(move || run_census(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
+    use tauri::Emitter;
+
+    let started = std::time::Instant::now();
+    let state = app.state::<AppState>();
+    let live = app.state::<live::Live>().inner().clone();
+
+    // Attach before the expensive parts, so "the game is not running" is said
+    // in one second rather than after a table build.
+    let process = blam_live::Process::attach().map_err(|e| e.to_string())?;
+
+    // The object table first: about a second, and it settles the level
+    // exactly before the sweep even starts. If the engine globals cannot be
+    // resolved (a game update moved them), the sweep still runs and the
+    // level falls back to the census's own fingerprint — so this never blocks.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "objects",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    let present = probe_present(&state, &live, &process).ok();
+    if let Some(p) = &present {
+        live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+    }
+
+    // The loader's own cache next: every tag it still references is a buffer
+    // at an exact address, no sweep needed. Partial by nature (the loader
+    // lets go after loading), so the sweep still runs for the rest; and if
+    // the roots cannot be found in this build, the sweep is all there is.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "cache",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    let cache_hits = {
+        let paks = with_catalog(&state, |c| Ok(c.paks().to_path_buf()))?;
+        match tagcache::roots(&process, &paks, &live.cache_rvas()) {
+            Ok((roots, rvas)) => {
+                live.set_cache_rvas(rvas);
+                Some(with_catalog(&state, |c| Ok(tagcache::resolve(&process, c, &roots)))?)
+            }
+            Err(_) => None,
+        }
+    };
+
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "prints",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+
+    // The fingerprint table: cached on disk after the first build, so this is
+    // tens of seconds once per installation and sub-second afterwards. The
+    // catalog lock is held only here, never across the sweep.
+    let prints: Vec<census::TagPrint> = {
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let catalog = guard.as_ref().ok_or("no installation is open")?;
+        census::table(catalog)
+    };
+
+    let table: Vec<blam_live::Print> = prints
+        .iter()
+        .map(|p| blam_live::Print {
+            id: p.index,
+            runs: p.runs.clone(),
+            masks: p.masks.clone(),
+        })
+        .collect();
+
+    // Progress events are throttled to every 256 MB; at 16 MB windows the raw
+    // callback rate would be noise.
+    let emitted = std::sync::atomic::AtomicU64::new(0);
+    let app_events = app.clone();
+    let outcome = blam_live::census(&process, &table, &move |done, total| {
+        let step = done >> 28;
+        if emitted.swap(step, std::sync::atomic::Ordering::Relaxed) != step {
+            let _ = app_events.emit(
+                "live-census",
+                CensusProgress {
+                    phase: "scan",
+                    done_mb: done >> 20,
+                    total_mb: total >> 20,
+                },
+            );
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    // Census agreement is strong evidence but tags share structure — two
+    // variants of a weapon differ in a handful of fields — so every hit is
+    // re-scored against its own payload before being believed, at the same
+    // bar a cached base must clear before a poke.
+    let by_id: std::collections::HashMap<u32, &census::TagPrint> =
+        prints.iter().map(|p| (p.index, p)).collect();
+    let mut found = Vec::new();
+    let mut cached_verified = 0usize;
+    let mut unresolved = 0usize;
+    {
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let catalog = guard.as_ref().ok_or("no installation is open")?;
+
+        // Which of several candidate bases is the tag's working copy, and how
+        // well it scores — `census::judge`, from what the print table carries,
+        // so no hit sends the census back to the containers.
+        let judge = |index: usize, bases: &[u64]| -> Option<(u64, f32)> {
+            let print = by_id.get(&(index as u32))?;
+            census::judge(&process, print, bases, || catalog.read_tag(index).ok())
+        };
+        let mut adopt = |index: usize, base: u64, fraction: f32| {
+            if let Some(entry) = catalog.entry(index) {
+                found.push((
+                    (entry.group.clone(), entry.short.clone()),
+                    base,
+                    live::LoadedTag {
+                        index,
+                        group: entry.group.clone(),
+                        short: entry.short.clone(),
+                        fraction,
+                    },
+                ));
+            }
+        };
+
+        // Cache hits first. They are exact by construction, but they go
+        // through the same judgement as a sweep hit: the loader's buffer may
+        // be its own image of the file rather than the working copy, and a
+        // stale root cannot slip a wrong base in.
+        if let Some(hits) = &cache_hits {
+            for (index, base) in &hits.bases {
+                if let Some((base, fraction)) = judge(*index, &[*base]) {
+                    cached_verified += 1;
+                    adopt(*index, base, fraction);
+                }
+            }
+        }
+        for hit in &outcome.hits {
+            let index = hit.id as usize;
+            let mut bases = vec![hit.base];
+            bases.extend(&hit.rivals);
+            match judge(index, &bases) {
+                Some((base, fraction)) => adopt(index, base, fraction),
+                None if !hit.rivals.is_empty() => unresolved += 1,
+                None => {}
+            }
+        }
+    }
+
+    // A run is unique within its tag but not across the catalog, so two
+    // near-identical tags can both claim one buffer and both clear the verify
+    // bar. Distinct allocations never overlap: where verified data ranges do,
+    // it is rival claims on one buffer, and the claim that matches its bytes
+    // best is the tag actually loaded there. Best-first, keep non-overlapping.
+    let mut order: Vec<usize> = (0..found.len()).collect();
+    order.sort_by(|&a, &b| found[b].2.fraction.total_cmp(&found[a].2.fraction));
+    let mut taken: Vec<(u64, u64)> = Vec::new();
+    let mut keep = vec![false; found.len()];
+    for i in order {
+        let (_, base, ref tag) = found[i];
+        // The root element is what is verified at the base; the rest of the
+        // data section is relocated block elements, not resident here.
+        let region = &by_id[&(tag.index as u32)].root;
+        let (lo, hi) = (base + region.start as u64, base + region.end as u64);
+        if taken.iter().all(|&(a, b)| hi <= a || b <= lo) {
+            taken.push((lo, hi));
+            keep[i] = true;
+        }
+    }
+    let dropped_rivals = keep.iter().filter(|k| !**k).count();
+    let found: Vec<_> = found
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(f, k)| k.then_some(f))
+        .collect();
+
+    // The loaded scenario names the level. If more than one is resident,
+    // prefer a mission scenario over the UI shell, then the best-verified.
+    let mut scenarios: Vec<&live::LoadedTag> = found
+        .iter()
+        .map(|(_, _, t)| t)
+        .filter(|t| t.group == "scenario")
+        .collect();
+    scenarios.sort_by(|a, b| {
+        let ui = |t: &live::LoadedTag| t.short.contains("ui");
+        ui(a)
+            .cmp(&ui(b))
+            .then(b.fraction.total_cmp(&a.fraction))
+    });
+    let fingerprint_level = scenarios.first().map(|t| t.short.clone());
+    drop(scenarios);
+
+    // The object table names the level exactly — exactly one scenario object
+    // is loaded — so it wins whenever it was readable. The census's own
+    // fingerprint of the scenario is the fallback for a build whose engine
+    // globals could not be resolved.
+    let level = present
+        .as_ref()
+        .and_then(|p| p.level.clone())
+        .or(fingerprint_level);
+
+    // The scenario is the hardest tag to catch — the engine rewrites it more
+    // than anything else — so the census can miss it while plainly holding a
+    // level's contents. Fall back to the reference graph: the scenario whose
+    // references cover the most loaded tags. Most loaded tags are shared
+    // across levels, so this signal is noisy — measured on a real mission it
+    // ranked a *wrong* level first by two votes. It therefore only speaks
+    // when one scenario wins decisively: at least 8 covering tags and twice
+    // the runner-up. A census with no level beats one with the wrong level.
+    let level = match level {
+        Some(level) => Some(level),
+        None if !found.is_empty() => {
+            let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+            let catalog = guard.as_ref().ok_or("no installation is open")?;
+            let mut score: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
+            for (_, _, tag) in &found {
+                for s in catalog.referencing(tag.index, 64).unwrap_or_default() {
+                    if s.group == "scenario" {
+                        *score.entry(s.index).or_default() += 1;
+                    }
+                }
+            }
+            let mut ranked: Vec<(usize, usize)> = score.into_iter().collect();
+            ranked.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            match ranked.as_slice() {
+                [(i, best), rest @ ..]
+                    if *best >= 8 && rest.first().is_none_or(|(_, next)| *best >= next * 2) =>
+                {
+                    catalog.entry(*i).map(|e| e.short.clone())
+                }
+                _ => None,
+            }
+        }
+        None => None,
+    };
+
+    let located = found.len();
+    let mut loaded: Vec<live::LoadedTag> = found.iter().map(|(_, _, t)| t.clone()).collect();
+    loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+    live.adopt_census(process.pid, found, level.clone());
+
+    Ok(CensusReport {
+        located,
+        level,
+        ambiguous: unresolved + dropped_rivals,
+        scanned_mb: outcome.scanned >> 20,
+        secs: started.elapsed().as_secs_f32(),
+        loaded,
+        present: present.as_ref().map(|p| p.tags.len()),
+        cached: cache_hits.as_ref().map(|_| cached_verified),
+    })
+}
+
+/// Read the object table: attach the reader (from cached RVAs when they still
+/// validate), walk it, and map tag assets to the catalog. Holds the catalog
+/// lock only for the mapping.
+fn probe_present(
+    state: &State<'_, AppState>,
+    live: &live::Live,
+    process: &blam_live::Process,
+) -> Result<present::Present, String> {
+    let paks = with_catalog(state, |c| Ok(c.paks().to_path_buf()))?;
+    let (reader, rvas) = present::attach(process, &paks, live.rvas())?;
+    live.set_rvas(rvas);
+    with_catalog(state, |c| present::read(process, &reader, c))
+}
+
+/// What the object table says the game holds — the level and how many tags
+/// have a live object — without a memory sweep. About a second; the thing to
+/// call the moment live mode is armed.
+#[derive(Serialize)]
+struct ProbeReport {
+    level: Option<String>,
+    present: usize,
+    objects: usize,
+    secs: f32,
+}
+
+#[tauri::command]
+async fn live_probe(app: tauri::AppHandle) -> Result<ProbeReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        let state = app.state::<AppState>();
+        let live = app.state::<live::Live>().inner().clone();
+        let process = blam_live::Process::attach().map_err(|e| e.to_string())?;
+        let p = probe_present(&state, &live, &process)?;
+        live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+        Ok(ProbeReport {
+            level: p.level,
+            present: p.tags.len(),
+            objects: p.objects,
+            secs: started.elapsed().as_secs_f32(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The tags the last census found loaded, for the UI's "in game" view.
+#[tauri::command]
+fn live_loaded(live: State<'_, live::Live>) -> Vec<live::LoadedTag> {
+    live.loaded()
+}
+
 #[tauri::command]
 fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Result<usize, String> {
     let key = tag_key(&state, index)?;
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
     let list = work.edits.entry(key.clone()).or_default();
-    list.retain(|e| e.path != path);
+    // Reverting a block's element ops also drops every edit inside its
+    // elements: an edit recorded inside an added element would otherwise
+    // outlive the element and block the export as stale. For a plain field
+    // the prefix matches nothing and this is the same edit it always was.
+    let inside = format!("{path}[");
+    list.retain(|e| e.path != path && !e.path.starts_with(&inside));
     let left = list.len();
     if left == 0 {
         work.edits.remove(&key);
@@ -634,7 +1272,7 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
         let chunk_size = entry.chunk.length;
         let file = patched_bytes(c, index, &pending)?;
 
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| format!("{path}: {e}"))?;
         let layout = tag.layout().map_err(|e| format!("{path}: {e}"))?;
         let tag = &tag;
@@ -682,19 +1320,372 @@ fn count(nodes: &[NodeView]) -> usize {
     nodes.len() + nodes.iter().map(|n| count(&n.children)).sum::<usize>()
 }
 
-/// Find a tag by group and reference path. Reference paths come out of tag
-/// bodies backslash-separated and in authored case; catalog shorts are
-/// slash-separated container paths. The cooker also inserts a `_Generated_`
-/// directory the authored paths never mention (a scenario references
-/// `levels\halo1\solo\a30\holdouts`, the container holds
-/// `Levels/Halo1/Solo/A30/_Generated_/holdouts`), so that segment is ignored
-/// on both sides.
+/// Find a tag by group and reference path — an exact, indexed lookup; the
+/// path normalization it depends on lives with the index, at
+/// [`catalog::normalize_ref_path`].
 fn tag_by_ref(c: &Catalog, group: &str, path: &str) -> Option<usize> {
-    let normalize = |p: &str| p.replace('\\', "/").to_ascii_lowercase().replace("/_generated_/", "/");
-    let want = normalize(path);
-    c.tags
+    c.resolve_ref(group, path)
+}
+
+/// One reference to resolve, as a tag body or a recipe holds it: the group as
+/// a four-CC or directory name, and the authored path.
+#[derive(serde::Deserialize)]
+struct RefQuery {
+    group: String,
+    path: String,
+}
+
+/// Where a resolved reference lands.
+#[derive(Serialize)]
+struct RefHit {
+    index: usize,
+    group: String,
+    short: String,
+    size: u64,
+}
+
+/// Resolve a batch of tag references exactly.
+///
+/// Batched because the caller is a just-loaded tag validating every reference
+/// field at once; one round trip beats one per field. An empty path is an
+/// unset reference and resolves to nothing without being wrong.
+#[tauri::command]
+fn resolve_refs(
+    refs: Vec<RefQuery>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Option<RefHit>>, String> {
+    with_catalog(&state, |c| {
+        Ok(refs
+            .iter()
+            .map(|r| {
+                if r.path.is_empty() {
+                    return None;
+                }
+                let i = c.resolve_ref(&r.group, &r.path)?;
+                let t = c.entry(i)?;
+                Some(RefHit {
+                    index: i,
+                    group: t.group.clone(),
+                    short: t.short.clone(),
+                    size: t.chunk.length,
+                })
+            })
+            .collect())
+    })
+}
+
+/// What a reference points at, in enough detail to draw a preview card
+/// without loading the tag itself.
+#[derive(Serialize)]
+struct TagPeek {
+    group: String,
+    four_cc: String,
+    short: String,
+    chunk_size: u64,
+    /// Which card to draw: `model`, `texture`, `sound` or `summary`.
+    preview: &'static str,
+    /// Texture catalog index, when `preview` is `texture`.
+    texture: Option<usize>,
+    /// Sound catalog index, when `preview` is `sound`.
+    sound: Option<usize>,
+}
+
+/// The first texture a tag's imports bind, if any — the same resolution
+/// `tag_links` uses, bounded so a hover never walks a huge import table.
+/// Public for the references e2e test, which proves it against real data.
+pub fn texture_import(c: &Catalog, index: usize) -> Option<usize> {
+    let uasset = c.read_tag_uasset(index).ok()?;
+    zen::imported_package_names(&uasset)
         .iter()
-        .position(|t| t.group == group && normalize(&t.short) == want)
+        .take(16)
+        .find_map(|p| c.texture_by_package(p))
+}
+
+/// A playable Wwise media file for a sound tag.
+///
+/// A sound tag's `.uasset` imports audio assets, which import variants, which
+/// import the `Wwise/Play_*` event package whose name map finally lists the
+/// `Media/<bucket>/<id>.wem` it plays (verified on the shipped build — the
+/// door switch above resolves at hop two). So this is a bounded breadth-first
+/// walk of the import graph: at most three hops and two dozen package reads,
+/// packages on a `/wwise/` path first. No bank graph, and none of the
+/// seconds-long name-index build [`Catalog::names`] pays — cheap enough for a
+/// hover. Public for the references e2e test, which proves it on real data.
+pub fn wwise_media_for_tag(c: &Catalog, index: usize) -> Option<usize> {
+    const MAX_DEPTH: u8 = 3;
+    const MAX_READS: usize = 24;
+
+    let uasset = c.read_tag_uasset(index).ok()?;
+    let mut queue: std::collections::VecDeque<(String, u8)> = std::collections::VecDeque::new();
+    let enqueue = |queue: &mut std::collections::VecDeque<(String, u8)>,
+                       names: Vec<String>,
+                       depth: u8| {
+        // Event packages live under a Wwise folder; look there first.
+        let (wwise, rest): (Vec<_>, Vec<_>) = names
+            .into_iter()
+            .partition(|p| p.to_ascii_lowercase().contains("/wwise/"));
+        for p in wwise {
+            queue.push_front((p, depth));
+        }
+        for p in rest {
+            queue.push_back((p, depth));
+        }
+    };
+    enqueue(&mut queue, zen::imported_package_names(&uasset), 0);
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut reads = 0usize;
+    while let Some((package, depth)) = queue.pop_front() {
+        if reads >= MAX_READS || !seen.insert(package.clone()) {
+            continue;
+        }
+        let Some(buf) = c.read_package(&package) else {
+            continue;
+        };
+        reads += 1;
+        // 52: where a cooked package's summary name map begins — the same
+        // offset the Wwise name index reads (see `Catalog::names`).
+        if let Some(names) = zen::load_name_batch(&buf, 52) {
+            for name in &names {
+                if !name.starts_with("Media/") {
+                    continue;
+                }
+                let hit = wwise::media_id_of_path(name).and_then(|id| c.sound_by_media_id(id));
+                if hit.is_some() {
+                    return hit;
+                }
+            }
+        }
+        if depth + 1 < MAX_DEPTH {
+            enqueue(&mut queue, zen::imported_package_names(&buf), depth + 1);
+        }
+    }
+    None
+}
+
+/// One playable media file a sound tag's events reach.
+#[derive(Serialize)]
+pub struct TagMediaHit {
+    /// Wwise media short ID.
+    pub id: u32,
+    /// Sound catalog index, when the media ships as a loose `.wem`.
+    pub sound: Option<usize>,
+    /// Sound catalog index of the bank carrying it, when embedded.
+    pub bank: Option<usize>,
+    /// Payload size in bytes, however it ships.
+    pub size: Option<u64>,
+    /// The event that reaches it, e.g. `Play_WEP_SniperRifle_Ammo_Pickup`.
+    pub event: String,
+}
+
+#[derive(Serialize)]
+pub struct TagAudioView {
+    /// Every `Play_*` event the tag's import graph names.
+    pub events: Vec<String>,
+    pub media: Vec<TagMediaHit>,
+}
+
+/// Everything a sound tag can play, exhaustively.
+///
+/// [`wwise_media_for_tag`] answers "is there *a* sound?" with the first loose
+/// media a package name map lists, which is right for a hover card and wrong
+/// for a tag view: most events list no media in any package and reach theirs
+/// only through the bank graph, and 546 tags of the shipped build play media
+/// that exists *only inside* a bank's `DATA` section. So this walks the same
+/// import graph but keeps every event stem and bank reference it sees, then
+/// parses the referenced banks — the event package's own name map says which
+/// (see `wwise::bank_names` for why that pairing is trustworthy) — and
+/// resolves each media ID to a loose catalog sound or back into the bank it
+/// is embedded in. A few package reads plus a bank read or two: fine for a
+/// click, too heavy for a hover.
+///
+/// The per-media `event` label is the closest thing to a permutation name the
+/// shipped build has: Wwise hashes the designers' names away, so individual
+/// variations cannot be told apart beyond their media ID.
+pub fn wwise_audio_for_tag(c: &Catalog, index: usize) -> Result<TagAudioView, String> {
+    const MAX_DEPTH: u8 = 3;
+    const MAX_READS: usize = 32;
+
+    let uasset = c.read_tag_uasset(index)?;
+    let mut queue: std::collections::VecDeque<(String, u8)> = std::collections::VecDeque::new();
+    for p in zen::imported_package_names(&uasset) {
+        queue.push_back((p, 0));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut stems: Vec<String> = Vec::new();
+    let mut bank_shorts: Vec<String> = Vec::new();
+    // Media named directly by package name maps, with the event package (or
+    // "") it surfaced in.
+    let mut walk_media: Vec<(u32, String)> = Vec::new();
+    let mut reads = 0usize;
+    while let Some((package, depth)) = queue.pop_front() {
+        if reads >= MAX_READS || !seen.insert(package.clone()) {
+            continue;
+        }
+        let Some(buf) = c.read_package(&package) else {
+            continue;
+        };
+        reads += 1;
+        let stem = package.rsplit('/').next().unwrap_or("").to_string();
+        let is_event = stem.starts_with("Play_");
+        if is_event && !stems.contains(&stem) {
+            stems.push(stem.clone());
+        }
+        if let Some(names) = zen::load_name_batch(&buf, 52) {
+            for name in &names {
+                if name.ends_with(".bnk") && !bank_shorts.contains(name) {
+                    bank_shorts.push(name.clone());
+                } else if let Some(id) = name
+                    .starts_with("Media/")
+                    .then(|| wwise::media_id_of_path(name))
+                    .flatten()
+                {
+                    if !walk_media.iter().any(|(m, _)| *m == id) {
+                        let via = if is_event { stem.clone() } else { String::new() };
+                        walk_media.push((id, via));
+                    }
+                }
+            }
+        }
+        if depth + 1 < MAX_DEPTH {
+            for p in zen::imported_package_names(&buf) {
+                queue.push_back((p, depth + 1));
+            }
+        }
+    }
+
+    // The bank graph knows media the packages never name. Parse only the
+    // banks the walk itself referenced, keeping each bank's bytes long enough
+    // to know what it embeds.
+    let wanted: std::collections::BTreeMap<u32, &str> =
+        stems.iter().map(|s| (bnk::event_id(s), s.as_str())).collect();
+    // Ordered media: bank-graph order first — Wwise container order is the
+    // nearest thing to the authored variation order — then walk leftovers.
+    let mut media: Vec<(u32, String)> = Vec::new();
+    // Media id -> (bank catalog index, embedded size).
+    let mut embedded: std::collections::BTreeMap<u32, (usize, u32)> =
+        std::collections::BTreeMap::new();
+    for short in &bank_shorts {
+        let Some(bi) = (0..c.sounds.len()).find(|&i| {
+            let s = &c.sounds[i].short;
+            s == short || s.ends_with(&format!("/{short}"))
+        }) else {
+            continue;
+        };
+        let Ok(buf) = c.read_sound(bi, None) else {
+            continue;
+        };
+        for (event, ids) in bnk::parse(&buf).events {
+            let Some(&stem) = wanted.get(&event) else {
+                continue;
+            };
+            for id in ids {
+                if !media.iter().any(|(m, _)| *m == id) {
+                    media.push((id, stem.to_string()));
+                }
+            }
+        }
+        for (id, size) in bnk::embedded_index(&buf) {
+            embedded.entry(id).or_insert((bi, size));
+        }
+    }
+    for (id, via) in walk_media {
+        if !media.iter().any(|(m, _)| *m == id) {
+            media.push((id, via));
+        }
+    }
+
+    let media = media
+        .into_iter()
+        .filter_map(|(id, event)| {
+            // Loose beats embedded: the pak copy is the one every player
+            // hears, and it can be exported.
+            if let Some(si) = c.sound_by_media_id(id) {
+                return Some(TagMediaHit {
+                    id,
+                    sound: Some(si),
+                    bank: None,
+                    size: c.sound(si).map(|s| s.entry.uncompressed_size),
+                    event,
+                });
+            }
+            let (bi, size) = embedded.get(&id)?;
+            Some(TagMediaHit {
+                id,
+                sound: None,
+                bank: Some(*bi),
+                size: Some(u64::from(*size)),
+                event,
+            })
+        })
+        .collect();
+    Ok(TagAudioView { events: stems, media })
+}
+
+/// Everything a sound tag can play. See [`wwise_audio_for_tag`]; a few
+/// package reads and a bank parse, so a command rather than part of the peek.
+#[tauri::command]
+fn sound_tag_media(index: usize, state: State<'_, AppState>) -> Result<TagAudioView, String> {
+    with_catalog(&state, |c| wwise_audio_for_tag(c, index))
+}
+
+/// Build a playable stream for a media file that ships inside a bank.
+///
+/// The embedded payload is a complete RIFF `.wem`, so past the extraction it
+/// is [`play_sound`] again.
+#[tauri::command]
+fn play_bank_media(bank: usize, media: u32, state: State<'_, AppState>) -> Result<SoundAudio, String> {
+    use base64::Engine;
+    with_catalog(&state, |c| {
+        let data = c.read_sound(bank, None)?;
+        let wem = bnk::embedded(&data, media)
+            .ok_or_else(|| format!("media {media} is not embedded in this bank"))?;
+        let out = decode::to_playable(wem)?;
+        Ok(SoundAudio {
+            src: format!(
+                "data:{};base64,{}",
+                out.mime,
+                base64::engine::general_purpose::STANDARD.encode(&out.bytes)
+            ),
+            via: out.via,
+            bytes: out.bytes.len(),
+        })
+    })
+}
+
+/// Classify what a preview card can show for one tag, cheaply: catalog entry
+/// data plus at most a package-header read. Never a full tag parse.
+#[tauri::command]
+fn peek_tag(index: usize, state: State<'_, AppState>) -> Result<TagPeek, String> {
+    with_catalog(&state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let group = entry.group.clone();
+        let short = entry.short.clone();
+        let chunk_size = entry.chunk.length;
+        let four_cc = c.four_cc_of_group(&group).unwrap_or_default().to_string();
+
+        let (preview, texture, sound) = match group.as_str() {
+            "model" | "collision_model" | "skeleton_model" => ("model", None, None),
+            g if g.starts_with("sound") => match wwise_media_for_tag(c, index) {
+                Some(si) => ("sound", None, Some(si)),
+                None => ("summary", None, None),
+            },
+            _ => match texture_import(c, index) {
+                Some(xi) => ("texture", Some(xi), None),
+                None => ("summary", None, None),
+            },
+        };
+
+        Ok(TagPeek {
+            group,
+            four_cc,
+            short,
+            chunk_size,
+            preview,
+            texture,
+            sound,
+        })
+    })
 }
 
 /// The reflection schema for this game build, dumped by UE4SS and shipped
@@ -1701,7 +2692,7 @@ fn read_scripts(index: usize, state: State<'_, AppState>) -> Result<scripts::Scr
             return Err(format!("{} tags carry no script", entry.group));
         }
         let path = entry.short.clone();
-        let tag = blam_tag::TagFile::parse(&file, Some(entry.chunk.length as usize))
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
             .map_err(|e| e.to_string())?;
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
@@ -1876,6 +2867,65 @@ fn read_texture(index: usize, state: State<'_, AppState>) -> Result<TextureView,
             replaced: replacement.is_some(),
         })
     })
+}
+
+/// A small render of one texture for a preview card.
+///
+/// Unlike `read_texture` this never consults the mod project — the card shows
+/// shipped pixels — and never populates the swap-related fields, so it takes
+/// only the catalog lock. `max_dim` is clamped: below 16 the card is noise,
+/// above 512 it is a viewer's job.
+#[tauri::command]
+fn read_texture_thumb(
+    index: usize,
+    max_dim: u32,
+    state: State<'_, AppState>,
+) -> Result<TextureView, String> {
+    with_catalog(&state, |c| {
+        let path = c
+            .textures
+            .get(index)
+            .ok_or("texture index out of range")?
+            .short
+            .clone();
+        let (tex, img) = decode_texture(c, index, max_dim.clamp(16, 512))?;
+        let png = textures::to_png(&img)?;
+        Ok(TextureView {
+            path,
+            width: tex.width,
+            height: tex.height,
+            format: img.format.clone(),
+            mip: img.mip,
+            num_mips: tex.num_mips,
+            png: data_uri(&png),
+            // The card offers no replace, so encodability is nobody's business.
+            unsupported: None,
+            replaced: false,
+        })
+    })
+}
+
+/// Every tag whose body references this one.
+///
+/// The first call per session builds the reverse index — reading and scanning
+/// every tag chunk, tens of seconds of work — so this runs on a blocking thread,
+/// reached through the app handle because `State` cannot cross into
+/// `spawn_blocking`. The catalog mutex is held for the build and every other
+/// command waits it out; the caller is watching the one spinner that explains
+/// why. Every later call is an index lookup.
+#[tauri::command]
+async fn referencing_tags(
+    index: usize,
+    app: tauri::AppHandle,
+) -> Result<Vec<TagSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let c = guard.as_ref().ok_or("no installation is open")?;
+        c.referencing(index, MAX_ROWS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Replace a texture's pixels with a PNG on disk.
@@ -2185,30 +3235,20 @@ fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<T
         .iter()
         .map(|((group, tag), pending)| {
             let index = c.tag_index(group, tag);
+            // Replayed rather than merely resolved: an edit inside an element
+            // that an earlier op added only resolves once the op has applied.
             let resolved = index.and_then(|i| {
                 let file = c.read_tag(i).ok()?;
-                let parsed = blam_tag::TagFile::parse(&file, Some(file.len())).ok()?;
-                let layout = parsed.layout().ok()?;
-                let block = parsed.read_data(&layout).ok()?;
+                let (_, outcomes) = apply_pending(file, pending).ok()?;
                 Some(
-                    pending
-                        .iter()
-                        .map(
-                            |e| match blam_tag::patch::resolve(&layout, &file, &block, &e.path) {
-                                Ok(t) => FieldChange {
-                                    field: e.path.clone(),
-                                    value: e.value.clone(),
-                                    before: Some(t.current.display()),
-                                    stale: false,
-                                },
-                                Err(_) => FieldChange {
-                                    field: e.path.clone(),
-                                    value: e.value.clone(),
-                                    before: None,
-                                    stale: true,
-                                },
-                            },
-                        )
+                    outcomes
+                        .into_iter()
+                        .map(|o| FieldChange {
+                            field: o.path,
+                            value: o.value,
+                            before: o.before,
+                            stale: !o.applied,
+                        })
                         .collect::<Vec<_>>(),
                 )
             });
@@ -2452,31 +3492,15 @@ fn resolved_edits(
         let entry = c.entry(index).ok_or("tag index out of range")?;
         let original = c.read_tag(index)?;
 
-        // Every edit in the recipe must land; one failing to resolve means
-        // the game updated underneath it.
+        // Every edit in the recipe must land; one failing to apply means
+        // the game updated underneath it. The replay is the authority — an
+        // edit inside an element the recipe itself adds resolves only once
+        // the add has applied, so resolving against the shipped bytes alone
+        // would call it stale.
         {
-            let parsed = blam_tag::TagFile::parse(&original, Some(original.len()))
+            let (_, outcomes) = apply_pending(original.clone(), pending)
                 .map_err(|e| format!("{label}: {e}"))?;
-            let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
-            let block = parsed
-                .read_data(&layout)
-                .map_err(|e| format!("{label}: {e}"))?;
-            let mut missing = 0usize;
-            for e in pending {
-                match blam_tag::patch::resolve(&layout, &original, &block, &e.path) {
-                    Ok(target) => {
-                        if target.type_name == "string id" && target.current.display() != e.value {
-                            warnings.push(format!(
-                                "{label}: \"{}\" sets a string id. A string the game does not \
-                                 already know makes it reject the whole tag (the weapon simply \
-                                 vanishes in game) — test before sharing.",
-                                e.path
-                            ));
-                        }
-                    }
-                    Err(_) => missing += 1,
-                }
-            }
+            let missing = outcomes.iter().filter(|o| !o.applied).count();
             if missing != 0 {
                 return Err(format!(
                     "{label}: {missing} of {} edits no longer resolve — the game may have \
@@ -2484,9 +3508,19 @@ fn resolved_edits(
                     pending.len()
                 ));
             }
+            for o in &outcomes {
+                if o.type_name == "string id" && o.before.as_deref() != Some(o.value.as_str()) {
+                    warnings.push(format!(
+                        "{label}: \"{}\" sets a string id. A string the game does not \
+                         already know makes it reject the whole tag (the weapon simply \
+                         vanishes in game) — test before sharing.",
+                        o.path
+                    ));
+                }
+            }
         }
 
-        let patched = patched_bytes(c, index, pending)?;
+        let patched = patched_with_script(c, index, pending, script)?;
         if patched == original {
             continue;
         }
@@ -2887,15 +3921,24 @@ pub fn run() {
             search_tags,
             read_tag,
             read_tag_bytes,
+            resolve_refs,
+            peek_tag,
+            referencing_tags,
             read_model_geometry,
             object_render_model,
             read_sbsp_world,
             read_scenario_layout,
             read_mesh,
             set_field,
+            add_element,
+            remove_element,
+            duplicate_element,
             live_status,
             live_forget,
             live_poke,
+            live_census,
+            live_loaded,
+            live_probe,
             revert_field,
             revert_tag,
             export_tag,
@@ -2918,6 +3961,7 @@ pub fn run() {
             signing_status,
             list_textures,
             read_texture,
+            read_texture_thumb,
             read_scripts,
             decompile_script,
             export_script,
@@ -2929,6 +3973,8 @@ pub fn run() {
             revert_texture,
             list_sounds,
             read_sound,
+            sound_tag_media,
+            play_bank_media,
             export_sound,
             play_sound,
             tag_links,

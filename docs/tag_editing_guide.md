@@ -281,6 +281,18 @@ Opening something from any of those tabs gives it a **tab of its own** across th
 right pane, badged `tag`, `tex` or `snd`, so several documents stay open at once. A gold dot on a
 tag tab means it has edits. Middle-click or the `×` closes one; closing does not discard edits.
 
+**Ctrl+P** is often faster than any of the five tabs: a quick-open palette over every tag,
+ranked so a name match beats a path match. With nothing typed it lists the tags you opened most
+recently — remembered across launches by name, so the list survives a game update.
+
+The editor also keeps a trail of where you have been:
+
+| Keys | What they do |
+|---|---|
+| **Ctrl+P** | Quick-open: type a tag name, Enter opens it. Empty shows recent tags. |
+| **Alt+←** / **Alt+→** | Back / forward through the documents you visited. Going back to a tab you closed reopens it. |
+| **Ctrl+PageDown** / **Ctrl+PageUp** | Next / previous tab. |
+
 The **right pane** shows the selected document. For a tag that is its fields and values, and the
 header tells you whether they are trustworthy:
 
@@ -303,6 +315,20 @@ references, and the Unreal presentation assets (Blueprints, and for some tags te
 to. Anything the editor can open is listed first and is one click away; the rest are named but
 inert. A scenario imports hundreds, so the list starts collapsed when it is long.
 
+Next to it, **referenced by** answers the opposite question: every tag whose fields point at
+this one. The first time you expand it the editor scans every shipped tag — up to a minute, once
+per session — and after that the answer is instant. Each result is a click away. (The CLI grep
+this replaces still works, but you should not need it.)
+
+**Tag reference fields carry their own conveniences.** The little group code at the end of a
+reference row is a preview: rest the pointer on it — or click to pin — and a card shows what is
+on the other end. A sound tag shows an inline player, a model tag its collision shell slowly
+turning, anything else its identity; **open** in the card, or the row's **Open** button, jumps
+to it. A reference that points at nothing in this installation —
+a typo, or a tag a game update removed — turns red, says `missing`, and its Open is disabled;
+the editor resolves every reference exactly (four-CC or group name, authored backslash paths,
+the cooker's `_Generated_` folder included), so red means broken, not "spelled differently".
+
 ### Editing
 
 Click a value, type a new one, press **Enter**. **Escape** cancels.
@@ -320,6 +346,25 @@ written by name, tag references as `group:path`.
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
+
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
+**del**: add appends a new element, dup inserts a copy of the selected element after it, del
+removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
+block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
+else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
+— whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so
+they reach the game through a test install or export, never through live mode. The **undo** on
+the bar reverts the section's element changes along with every edit inside its elements — an
+edit inside an element that no longer exists could never be re-applied.
+
+![A sniper rifle at the a30 crash site that the shipped scenario does not place](images/block-element-sniper-in-game.jpg)
+
+The screenshot is this feature in game: the a30 scenario's `weapons` block grew from 22 to 23
+elements — the last placement duplicated, the copy retyped to the sniper rifle and moved beside
+the mission start — and the game spawns it, pickup prompt and all. The field edits that shaped
+the copy target `weapons[22]`, an element the shipped tag does not have; edits are re-applied
+in the order they were made, so an edit inside an element an earlier add created lands exactly
+as it did in the editor.
 
 ### Saving — mod projects
 
@@ -353,8 +398,10 @@ never cooked into the paks. A texture that cannot be decoded says so and why, ra
 you something wrong. The two cook paths behind that — virtual textures with Morton-addressed
 tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_format.md).
 
-**Editing textures is not supported.** You can look and export; replacement is designed but not
-built.
+**Replace…** swaps a texture's pixels for a PNG of yours. The swap is re-encoded in the shipped
+format, proven by decoding it back, and recorded in the mod project like any other edit — see
+[`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
+The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
 
 ### Audio
 
@@ -383,7 +430,39 @@ were testing. The restart is nearly all of it. **Live mode** skips it: the edit 
 running game as well as the project, and takes effect immediately.
 
 In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
-accepted edit is also written into the game. From the command line:
+accepted edit is also written into the game.
+
+Switch it on and, within about a second, the status line names the **level you are in** —
+read from the engine's own object table (exactly one scenario object is ever loaded), with
+no memory scan at all — and how many tags are *present* (have a live object). Present is
+not the same as pokeable: an object exists for nearly every tag whether or not its data is
+resident, so it is the identity index, not the editable set. Finding the editable set is
+what the scan is for.
+
+Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
+the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
+a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15
+seconds, 324 loaded tags verified. The first census on an installation also spends about a
+minute fingerprinting every tag; that table is cached on disk, so later sessions skip
+straight to the sweep. After a census:
+
+- every found tag pokes **instantly** — no per-tag first-edit scan;
+- the status line names **the level you are in**, read from the loaded scenario tag;
+- the file browser gains an **● in game** view listing exactly the tags the game is holding
+  right now, each row badged with a green dot wherever it appears.
+
+The census also asks the engine's **loader cache** first — the map the loader keeps of every
+package it currently references, read straight from the game's memory by package id. Every
+buffer it hands over is adopted at its exact address without the sweep. It is the loader's
+map, so it forgets a buffer once loading is done: in a settled mission it covers a fraction
+of what the sweep finds, and most of it during and just after a level load. The census note
+says how many came straight from it.
+
+The census is a statement about *now*: load a different level and the set is stale — scan
+again. Tags the census could not pin down (a payload too small to fingerprint, or two
+identical copies in memory) simply fall back to the old single-tag scan on their first edit.
+
+From the command line:
 
 ```powershell
 mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25
@@ -421,10 +500,11 @@ jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it back.
 - **Fixed-width fields only.** A `string id` or `tag reference` resizes the payload, and a
   heap buffer has nowhere to put the extra bytes. Those still need a rebuild; both the CLI and
   the editor refuse them with that explanation rather than writing something wrong.
-- **The first edit to a tag is slow.** There is no pointer to follow — the tag asset keeps its
-  payload as *unloaded* bulk data — so the buffer is found by scanning ~17 GB for byte runs
-  taken from the tag itself. That is minutes. The address is then cached per tag for the rest
-  of the session, so every later edit is instant.
+- **Finding tags costs one sweep.** There is no pointer to follow — the tag asset keeps its
+  payload as *unloaded* bulk data — so buffers are found by scanning ~17 GB of process memory
+  for byte runs taken from the tags themselves. The **scan game** census pays that sweep once
+  and finds everything; without it, the first edit to each tag pays for its own sweep. Found
+  addresses are cached for the rest of the session, so edits after the sweep are instant.
 - **The tag has to be loaded.** Tags load on demand; be in a mission with the object in play.
 - **Not every field will respond.** Anything the engine consumes once at spawn is already
   baked into whatever it built. Numbers read per use — jump velocity, damage, speeds — are the
@@ -481,9 +561,12 @@ Being explicit, so you do not go hunting:
   text the game's string table does not already contain makes the game reject the whole tag
   (the weapon simply vanishes and the player falls back to the pistol). The editor warns when
   a mod edits a string id. See [`iostore_packaging.md`](iostore_packaging.md).
-- **Adding or removing block elements.** You can change values, not counts.
+- **Adding elements to a block whose elements hold a `pageable resource`.** Only three groups
+  declare the type (`model_animation_graph`, `scenario_structure_bsp`, `shader`); its version
+  word is not reconstructable, so a default element cannot be built for those blocks. Every
+  other block adds, duplicates and removes elements from the editor's section bars.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
-- **Replacing textures or audio.** Both can be browsed, viewed or played, and exported. Writing
-  either back is not built.
+- **Replacing audio.** Sounds can be browsed, played and exported, but writing audio back is
+  not built. (Textures *can* be replaced — since 0.8.0, in every format but BC7/BC6H.)
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See
   [`tag_body_format.md`](tag_body_format.md) for the detail.

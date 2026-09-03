@@ -129,7 +129,7 @@ export default function ApiKeysPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Key name, e.g. my-mod-manager"
-                  className="flex-1 px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-text-dim focus:border-gold/60 focus:outline-none"
+                  className="flex-1 min-w-0 px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-text-dim focus:border-gold/60 focus:outline-none"
                 />
                 <button
                   onClick={create}

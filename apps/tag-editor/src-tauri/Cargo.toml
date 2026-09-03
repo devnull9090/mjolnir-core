@@ -1,6 +1,6 @@
 [package]
 name = "mjolnir-tag-editor"
-version = "0.11.0"
+version = "0.17.0"
 description = "MJOLNIR Tag Editor — Guerilla-style tag browser for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
@@ -24,6 +24,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # server, which is what the `app:dev` script does. Do not remove.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Dependencies do the heavy native work — Oodle decode, mesh and texture
+# reading, and the live-mode census sweep of the game's memory. Unoptimized
+# they run ~50x slower, which turns the 15-second census into tens of minutes
+# in a `tauri dev` build. The app crate itself stays unoptimized for fast
+# iteration; dependencies compile once at -O3 and are cached.
+[profile.dev.package."*"]
+opt-level = 3
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

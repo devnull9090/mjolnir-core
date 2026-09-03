@@ -14,14 +14,61 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The one native mod. Its DLL is never committed (docs/contributing_code_mods.md:
+  # no prebuilt binaries in the tree), so it is built here from the C in
+  # native/blam_console, on the same runner image every time, with a
+  # reproducible link — a reviewer can rebuild it and get the same hash the
+  # job prints. The release job below takes the artifact from this job, not
+  # from anywhere else.
+  build-native:
+    name: Build native (Blam console DLL)
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build mjolnir_blam_console.dll
+        shell: pwsh
+        run: .\native\blam_console\build.ps1
+
+      - name: Record the hash
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll -Algorithm SHA256).Hash.ToLower()
+          "mjolnir_blam_console.dll sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_blam_console
+          path: mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll
+          if-no-files-found: error
+
   release:
     name: Build, sign & publish
     if: github.ref_type == 'tag'
+    needs: build-native
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      # Into the place the Lua mod loads it from, before the zips are cut, so
+      # the mod's hash in the manifest covers the DLL.
+      - uses: actions/download-artifact@v4
+        with:
+          name: mjolnir_blam_console
+          path: mods/MJOLNIRBlamConsole/native
+
+      - name: Check the native half is in place
+        run: |
+          test -s mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
+            || { echo "::error::mjolnir_blam_console.dll did not arrive from build-native"; exit 1; }
+          sha256sum mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll
 
       # The same lint gate as CI, but blocking: nothing ships with warnings
       # suppressed.
@@ -168,9 +215,20 @@ jobs:
       # Give each mod its hub page. The endpoint re-verifies the signature
       # server-side, so this is a nudge, not a trusted write.
       - name: Sync hub pages
+        # The endpoint fetches latest/manifest.json and latest/manifest.json.sig
+        # as two reads of R2, which the step above has only just written. A
+        # read that lands between the two uploads pairs the new manifest with
+        # the previous release's signature and fails verification, which is
+        # what happened to mods-v0.6.0. Retry before calling it a failure.
         run: |
-          curl -sS -X POST https://mjolnircore.com/api/v1/code-mods/sync | tee sync.json
-          test "$(jq -r '.mods_synced // 0' sync.json)" -gt 0
+          for attempt in 1 2 3 4 5; do
+            curl -sS -X POST https://mjolnircore.com/api/v1/code-mods/sync | tee sync.json
+            echo
+            if test "$(jq -r '.mods_synced // 0' sync.json)" -gt 0; then exit 0; fi
+            echo "sync attempt $attempt did not sync anything; retrying in 10s"
+            sleep 10
+          done
+          exit 1
 
       - name: Post release notification to Discord
         env:

@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-tag-editor"
-version = "0.11.0"
+version = "0.17.0"
 dependencies = [
  "base64 0.22.1",
  "blam-defs",

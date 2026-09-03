@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
 import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
+import { useTabUi } from "../lib/tab-ui";
+import { scheduleSaveSession } from "../lib/session";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu } from "./ContextMenu";
 import { TagHeader, EditBar } from "./TagChrome";
 
 /** Blocks larger than this stay collapsed until asked for. */
@@ -44,6 +48,18 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
       className={`flex items-baseline gap-3 py-0.5 ${
         isEdited ? "bg-mjolnir-gold/10" : ""
       }`}
+      onContextMenu={(e) => {
+        // The inline editor keeps the native cut/copy/paste menu.
+        if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+        showContextMenu(e, [
+          {
+            label: "Revert Field",
+            action: () => void revertField(path),
+            disabled: !isEdited,
+          },
+          { label: "Copy Field Path", action: () => void copyText(path) },
+        ]);
+      }}
     >
       <span className="w-14 shrink-0 text-right font-mono text-[10px] text-text-dim">
         {node.offset}
@@ -173,19 +189,36 @@ function childPath(parent: string, node: NodeView): string {
 function Node({ node, depth, path }: { node: NodeView; depth: number; path: string }) {
   // Structs are part of the shape rather than a list, so they open by default.
   // Blocks and arrays open only when short enough not to bury what follows.
-  const [open, setOpen] = useState(
-    node.kind === "struct" ||
-      (node.kind === "element" && depth < 3) ||
-      node.children.length <= AUTO_EXPAND_ELEMENTS,
+  // The tab remembers explicit choices, keyed by the same field paths as the
+  // form view, so both views share one memory of what is open.
+  const ui = useTabUi();
+  const [open, setOpenState] = useState(
+    () =>
+      ui?.open[path] ??
+      (node.kind === "struct" ||
+        (node.kind === "element" && depth < 3) ||
+        node.children.length <= AUTO_EXPAND_ELEMENTS),
   );
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    if (ui) {
+      ui.open[path] = v;
+      scheduleSaveSession();
+    }
+  };
 
   if (node.kind === "field") {
     return <Leaf node={node} path={path} />;
   }
 
   return (
-    <div>
-      <Branch node={node} open={open} onToggle={() => setOpen((v) => !v)} />
+    <div
+      onContextMenu={(e) => {
+        if (e.target !== e.currentTarget && !(e.target as HTMLElement).closest("button")) return;
+        showContextMenu(e, [{ label: "Copy Field Path", action: () => void copyText(path) }]);
+      }}
+    >
+      <Branch node={node} open={open} onToggle={() => setOpen(!open)} />
       {open && node.children.length > 0 && (
         <div className="ml-4 border-l border-border-subtle/60 pl-2">
           {node.children.map((child, i) => (
@@ -205,6 +238,19 @@ function Node({ node, depth, path }: { node: NodeView; depth: number; path: stri
 /** Flat-tree value inspector for the selected tag. */
 export function Inspector() {
   const { tag, tagLoading, selectedTag } = useEditor();
+  const ui = useTabUi();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const restored = useRef(false);
+
+  // Restore on the container's first appearance — it only exists once the tag
+  // has loaded and the nodes have initialised from the remembered state.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!restored.current && el && ui) {
+      restored.current = true;
+      el.scrollTop = ui.scroll.tree ?? 0;
+    }
+  });
 
   if (tagLoading) {
     return <Centered>Reading tag…</Centered>;
@@ -218,7 +264,16 @@ export function Inspector() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-y-auto"
+      onScroll={(e) => {
+        if (ui) {
+          ui.scroll.tree = e.currentTarget.scrollTop;
+          scheduleSaveSession();
+        }
+      }}
+    >
       <TagHeader />
       <EditBar />
 
