@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mjolnir.dev/schemas/level.schema.json",
+  "title": "MJOLNIR level",
+  "description": "A custom level authored as a map variant over a shipped scenario. See docs/level_format.md.",
+  "type": "object",
+  "required": ["schema_version", "name", "canvas"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "name": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "title": { "type": "string", "maxLength": 128 },
+    "author": { "type": "string", "maxLength": 128 },
+    "description": { "type": "string", "maxLength": 1024 },
+    "canvas": {
+      "type": "object",
+      "required": ["scenario", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "scenario": {
+          "enum": ["A15", "A30", "A50", "B30", "B40", "C10", "C20", "C45", "D20", "D40", "E10", "E20", "E30"]
+        },
+        "origin": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "environment": {
+      "description": "Sky and lighting the loader spawns into a bare canvas world.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sun": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pitch": { "$ref": "#/$defs/degrees" },
+            "yaw": { "$ref": "#/$defs/degrees" },
+            "intensity": { "type": "number", "minimum": 0 }
+          }
+        },
+        "skylight": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "intensity": { "type": "number", "minimum": 0 } }
+        },
+        "atmosphere": { "type": "boolean" }
+      }
+    },
+    "blam": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clear": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "squads": { "type": "boolean", "default": false },
+            "bipeds": { "type": "boolean", "default": false },
+            "weapons": { "type": "boolean", "default": false },
+            "vehicles": { "type": "boolean", "default": false },
+            "equipment": { "type": "boolean", "default": false },
+            "scripts": { "type": "boolean", "default": false }
+          }
+        },
+        "player_starts": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["pos"],
+            "additionalProperties": false,
+            "properties": {
+              "pos": { "$ref": "#/$defs/vec3" },
+              "yaw": { "$ref": "#/$defs/degrees" }
+            }
+          }
+        },
+        "vehicles": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/typedPlacement" }
+        },
+        "weapons": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/typedPlacement" }
+        },
+        "equipment": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/typedPlacement" }
+        },
+        "objects": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "required": ["tag", "group", "pos"],
+            "additionalProperties": false,
+            "properties": {
+              "tag": { "type": "string", "pattern": "^objects\\\\", "maxLength": 256 },
+              "group": { "enum": ["scenery", "crates"] },
+              "pos": { "$ref": "#/$defs/vec3" },
+              "rot": { "$ref": "#/$defs/rot3" },
+              "name": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" }
+            }
+          }
+        }
+      }
+    },
+    "decor": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "required": ["id", "mesh", "pos"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" },
+          "mesh": { "type": "string", "pattern": "^/(Engine|Game)/", "maxLength": 256 },
+          "pos": { "$ref": "#/$defs/vec3" },
+          "rot": { "$ref": "#/$defs/rot3" },
+          "scale": { "$ref": "#/$defs/vec3" },
+          "tint": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "markers": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": ["name", "pos"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" },
+          "pos": { "$ref": "#/$defs/vec3" },
+          "yaw": { "$ref": "#/$defs/degrees" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "rot3": {
+      "description": "[pitch, yaw, roll] in degrees, UE convention",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number", "minimum": -360, "maximum": 360 }
+    },
+    "degrees": { "type": "number", "minimum": -360, "maximum": 360 },
+    "typedPlacement": {
+      "type": "object",
+      "required": ["type", "pos"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+        "pos": { "$ref": "#/$defs/vec3" },
+        "yaw": { "$ref": "#/$defs/degrees" }
+      }
+    }
+  }
+}

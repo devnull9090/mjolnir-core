@@ -25,9 +25,12 @@ const OUTPUTS = [
   "src/generated/docs.json",
   "src/generated/tag-defs.json",
   "src/generated/tag-index.json",
+  "src/generated/console-defs.json",
+  "src/generated/console-index.json",
   "src/generated/changelog.json",
   "src/generated/blog.json",
   "public/tag-search.json",
+  "public/console-search.json",
   "public/docs-images",
 ];
 

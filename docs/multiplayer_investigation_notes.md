@@ -935,6 +935,134 @@ already standing on, so it was never tested as a floor.
 4. Decode the 308 `game_variant_settings` tags to learn what a competitive variant payload
    looks like before trying to activate one.
 
+## 2026-08-19 Follow-Up: CU4+ — `mjolnir_mission` no longer starts the simulation
+
+Attempting the Blam-pawn-vs-UE-geometry collision experiment (the level-authoring gate) exposed
+a regression and produced one hard new fact about simulation authority.
+
+### `SetAndBeginCampaign` from the frontend loads the world but the mission never starts
+
+On the current build, `mjolnir_mission A30` from the frontend is *accepted*, the A30 world loads,
+a `BP_MeteoritePawn_C` is possessed — and then nothing. Zero Blam actors ever spawn, the screen
+holds black behind a `WBP_NonBlockingLoadingScreen_C`, and the world sits like that indefinitely
+(observed >20 minutes). The chain, read via reflection:
+
+- `BlamNetworkGameStateComponent.bSessionRunning = false` — the Blam network session is never
+  brought up.
+- The player has no Blam identity: `BlamPlayerStateComponent:GetBlamAbsolutePlayerIndex() = -1`,
+  `BlamNetworkPlayerStateComponent.BlamNetworkOutOfBandEndpointId/InChannelEndpointId = 0`.
+- `MeteoriteLoadingScreenSubsystem.CachedPredictedTagCount = 0` — the Blam tag load never begins.
+- `BlamExperienceManagerComponent` (Lyra-style, on the game state) holds at
+  `bWaitingForAllInitialPlayersToBeReadyForGameplay = true`, then `bWaitingForBlamGameplayStart`.
+
+Per-player readiness lives on `BlamExperiencePlayerStateComponent` as three replicated flags with
+server RPCs — `ServerMarkHasFinishedProcessingPsoCache`, `ServerMarkHasFinishedHaloActorPooling`,
+`ServerMarkFinishedBlamMapLoad`. All three are callable via reflection and flip their flags, but
+the experience manager still waits: readiness evidently also requires the Blam player identity
+that only the real session bring-up assigns. `BlamCampaignFlowGameSubsystem:GetLastBlamErrorName()`
+returns `None` throughout — the sim is waiting, not failing. The session start itself is native:
+`BlamNetworkSessionGameInstanceSubsystem` and `BlamOnlineSessionSubsystem` expose no start function
+(`IsReadyToPlay` only).
+
+**Launching the same mission through the real menu (CAMPAIGN → NEW GAME) works normally** — the
+session starts, tags load, the sim runs. So the campaign-start UI performs a session bring-up step
+that a bare `SetAndBeginCampaign` no longer triggers on this build. The 2026-08-02 verification of
+`mjolnir_mission` predates CU4; treat the command as **unverified for cold mission starts** until
+the missing step is found. (`mjolnir_debug_ui` → Debug Level Select presumably still works, since
+it drives the same UI flow — untested this pass.)
+
+Two more hazards from the same session:
+
+- Re-running `mjolnir_mission A30` *from inside the stuck A30* ("variant reused") crashed the game
+  to desktop during the reload.
+- Over an RDP session, injected RawInput does not reach the game at all (Esc/E confirmed no-ops via
+  reflection) and both screenshot paths fail (`PrintWindow` blank, `CopyFromScreen` throws
+  "handle is invalid"). Reflection through the bridge is the only reliable channel.
+
+### The Blam sim reverts UE-side transform writes on its actors — measured
+
+`K2_SetActorLocation` on the player's `BP_SpartansBipedActor_C` (teleport = true) moves the UE
+actor, and the sim restores the original transform **to the decimal** within one sync pass
+(< 0.5 s observed; a 30 m upward teleport came back at the exact prior Z, far too fast for
+gravity — a 30 m fall takes ~2.3 s). UE-side writes to Blam-owned actors are cosmetic. Any
+teleport-the-player experiment must go through a Blam channel (HSC, scenario placement, or the
+sim's own movement); the earlier "slab above the pawn" collision test built on UE teleports was
+void for exactly this reason. The walk-into-geometry test (sim's own movement vs a runtime-spawned
+`StaticMeshActor` with `QueryAndPhysics` collision) is the valid form of the experiment.
+
+### ANSWERED: the Blam pawn does NOT collide with Unreal geometry
+
+The walk test settled it (2026-08-19, human at the controls, mission launched through the real
+menu): a runtime-spawned `StaticMeshActor` wall — cube mesh applied and read back, scaled 0.5×6×3 m,
+`SetCollisionEnabled(2)`, four metres in front of the player — **does not block the player. They
+walk straight through.** The Blam simulation collides only with its own collision world: BSP
+(`scenario_structure_bsp`) plus Blam objects' collision models. Unreal geometry is visuals-only to
+the sim, runtime-spawned and cooked alike.
+
+Consequences, in order of weight:
+
+1. **A cooked custom world can never be *playable* geometry by itself.** The 2026-08-03 "renders
+   and is walkable" result was the pawn walking on A15's *inherited Blam BSP* under our floor
+   slab's visuals. The tagged-property cook experiment is therefore demoted: at best it upgrades
+   how visuals are authored, it cannot produce a floor. True new geometry needs generated
+   `sbsp` collision (winged-edge + Havok mopp) — the same wall as before, now confirmed load-bearing.
+2. **Blam objects are the building blocks that work.** Scenery/crate/machine placements in the
+   `scenario` tag spawn sim-owned objects with real collision — the classic Forge approach.
+   Structures assembled from placed objects are solid to pawns, vehicles, and projectiles.
+3. **Custom levels v1 = map variants**: keep a shipped scenario's world and BSP as the canvas;
+   edit the `scnr` (spawns, vehicles, weapons, object-built structures) and dress with
+   non-collidable UE meshes at runtime. No Unreal cook required anywhere in that loop.
+
+## 2026-08-20 Follow-Up: standalone map packages — machinery proven, mount-time registration still closed
+
+Goal: a custom level with its OWN scenario name ("PG1") instead of squatting a campaign
+scenario — a new `scnr` tag package the game has never shipped. Everything needed to *build*
+such a package now exists and is validated offline; what remains closed is getting the game to
+*register* a mod container's packages at mount. Findings, all verified:
+
+- **`FPackageId` derivation**: CityHash64 over the lower-cased UTF-16LE package name.
+  `mjolnir packageid --check` reproduces the id of all 101,755 shipped `/Game` + `/Engine`
+  packages exactly. (`crates/ue-iostore/src/city.rs`)
+- **`ContainerHeader` (type-6 chunk) format**: magic `nCoI`, version 4, container id, package-id
+  array, 16-byte `FFilePackageStoreEntry` per package (imported-packages carray at +0, shader
+  hashes at +8; carray offsets relative to the member's own position), 24-zero-byte tail.
+  All 28 shipped headers round-trip byte-exact (`mjolnir packageid --headers`).
+- **TOC chunk meta = BLAKE3-160 of the uncompressed chunk data + flags byte** (1 = compressed).
+  Confirmed against the UE-staged MJOLNIRWORLD container. Every container the packer built
+  before 2026-08-20 shipped *copied* (wrong) hashes — tolerated on the tag-read path, so
+  overrides always worked anyway; the packer now computes real hashes.
+- **Name-batch hashes** in zen packages: CityHash64 of the lower-cased UTF-8 string.
+  **Export `PublicExportHash`**: CityHash64 of the lower-cased UTF-16LE leaf object name.
+  Both verified against `b40-scenario`. Same-length rename surgery
+  (`crates/blam-cli/src/rename.rs`) clones a tag package under a new name without moving any
+  offset — which is why standalone codenames are exactly three characters, like every shipped
+  scenario's.
+- **A real directory index** (mount point + file chain + string table, reversed from the
+  UE-staged container) is now written for addition containers.
+- `mjolnir level bake --standalone <CODE>` assembles all of it: baked scnr payload as the ubulk,
+  renamed uasset, container header with the donor's 100 imported-package ids, directory index,
+  correct metas.
+
+**The closed door**: the game never registers the new package. `LoadAsset` on the new package
+path returns an invalid object while the shipped control loads fine, across all variants tried:
+own container header (with wrong metas, then with correct metas, with and without directory
+index), and overriding the *source* container's header chunk with an appended copy (which also
+proved harmless — the shipped packages keep loading, so per-container header reads do not go
+through the cross-container override path). The shipping build logs nothing and its strings are
+stripped, so the mount path is opaque from the outside. Note the MapKit README's "the container
+carries its own ContainerHeader, so the new package is registered" was an assumption — its world
+package *overrode an already-registered id*, which needs no registration.
+
+Next moves, in order of leverage:
+1. **Hook the mount path natively** (the `native/` + `signatures/` AOB infrastructure exists for
+   exactly this): find `FFilePackageStoreBackend::Mount` or its caller, log what happens with a
+   mod container's header, and if the loader skips it, call it ourselves at runtime.
+2. Merge the map-variant chunks into the addition container and have a human confirm the variant
+   still works from it — pins that the container mounts and serves chunks while registration
+   alone fails.
+3. Meanwhile the **map-variant lane is the shipping mechanism**: one custom level per canvas
+   scenario, launched through the canvas mission. A menu row can present it under its own name.
+
 ## 2026-07-26 Follow-Up: Tag Data Pipeline
 
 The game runs on real Blam tag data. `12,328` tag files across `101` classic tag groups ship inside

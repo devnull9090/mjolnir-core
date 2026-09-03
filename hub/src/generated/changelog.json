@@ -39,6 +39,64 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.6.0",
+      "tag": "mods-v0.6.0",
+      "title": "Blam console answers on screen",
+      "date": "2026-09-02",
+      "summary": "MJOLNIRBlamConsole 0.2.0 shows each answer in an on-screen panel and writes what it can to the Unreal console, so the UE4SS window is no longer required to see what a command did.",
+      "body": "### Added\n\n- **MJOLNIRBlamConsole 0.2.0** puts answers on screen. A panel in the top-left\n  corner shows the last few results for fifteen seconds after each one: the\n  line you typed, the value or the compiler's error, the stub warning. It is a\n  plain UMG text block built from engine classes, so it carries no\n  build-specific addresses. `blam_overlay on|off` turns it off and on, and\n  the setting is remembered. The UE4SS console and log still get everything,\n  including the long `help` listings the panel truncates.\n- The Unreal console now shows what the handler knows while Unreal's output\n  device is still alive: an acknowledgement that the line was sent and where\n  the answer will appear, the compiled-out and no-storage warnings, and the\n  whole of `help` and `blam_status`, which are answered synchronously.\n\n### Known limits\n\n- The answer to a Blam line itself cannot reach the Unreal console. It\n  arrives a simulation tick after the command's output device is gone, the\n  simulation does not tick while the handler waits, and the console's\n  scrollback is not reflected. The on-screen panel is the route that works;\n  the research note on the Blam console records what was tried.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "MJOLNIRBlamConsole 0.2.0 puts answers on screen. A panel in the top-left corner shows the last few results for fifteen seconds after each one: the line you typed, the value or the compiler's error, the stub warning. It is a plain UMG text block built from engine classes, so it carries no build-specific addresses. blamoverlay on|off turns it off and on, and the setting is remembered. The UE4SS console and log still get everything, including the long help listings the panel truncates.",
+            "The Unreal console now shows what the handler knows while Unreal's output device is still alive: an acknowledgement that the line was sent and where the answer will appear, the compiled-out and no-storage warnings, and the whole of help and blamstatus, which are answered synchronously."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "The answer to a Blam line itself cannot reach the Unreal console. It arrives a simulation tick after the command's output device is gone, the simulation does not tick while the handler waits, and the console's scrollback is not reflected. The on-screen panel is the route that works; the research note on the Blam console records what was tried."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.6.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.5.0",
+      "tag": "mods-v0.5.0",
+      "title": "The classic Blam console, at the Unreal console",
+      "date": "2026-09-02",
+      "summary": "MJOLNIRBlamConsole feeds the engine's own HS console from the Unreal console and answers back, with help for all 1,695 engine functions; it is the set's first native mod, built in CI.",
+      "body": "### Added\n\n- **MJOLNIRBlamConsole** — the simulation DLL still carries the classic Blam\n  console, the HS compiler and the whole engine function table, but nothing\n  fed it text: every Blam command at the Unreal console was \"Command not\n  recognized\". Now `ai_enabled`, `player_teleport player0 ...`,\n  `fade_out 0 0 0 30` or `blam (unit_get_health (player0))` run through the\n  engine's own compile-and-evaluate on the simulation thread, and the result\n  value, or the compiler's error message, comes back on the UE4SS console.\n  `help <prefix>` lists names with signatures. `blam_status` reports whether\n  the native half installed.\n- The native half, `mjolnir_blam_console.dll`, is built from\n  `native/blam_console` by the release workflow with a reproducible link and\n  ships inside the mod's zip, so the manifest's hash covers it. It checks the\n  simulation DLL's PE timestamp before installing and refuses, with a\n  message, after a game update.\n\n### Known limits\n\n- The release build compiled out 425 of the 1,695 functions, every `cheat_*`\n  among them, and 217 of the 260 engine globals have no storage. `help`\n  marks both and the mod says so before running one. The scripting API\n  proper — `object_create`, `ai_place`, `unit_get_health`, the fades — is\n  live.\n- Answers print on the UE4SS console and log, not the Unreal console: they\n  arrive a simulation tick after Unreal has discarded the command's output\n  device.\n- Parenthesised expressions need the `blam` prefix; bare names do not.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "MJOLNIRBlamConsole — the simulation DLL still carries the classic Blam console, the HS compiler and the whole engine function table, but nothing fed it text: every Blam command at the Unreal console was \"Command not recognized\". Now aienabled, playerteleport player0 ..., fadeout 0 0 0 30 or blam (unitgethealth (player0)) run through the engine's own compile-and-evaluate on the simulation thread, and the result value, or the compiler's error message, comes back on the UE4SS console. help <prefix> lists names with signatures. blamstatus reports whether the native half installed.",
+            "The native half, mjolnirblamconsole.dll, is built from native/blamconsole by the release workflow with a reproducible link and ships inside the mod's zip, so the manifest's hash covers it. It checks the simulation DLL's PE timestamp before installing and refuses, with a message, after a game update."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "The release build compiled out 425 of the 1,695 functions, every cheat among them, and 217 of the 260 engine globals have no storage. help marks both and the mod says so before running one. The scripting API proper — objectcreate, aiplace, unitgethealth, the fades — is live.",
+            "Answers print on the UE4SS console and log, not the Unreal console: they arrive a simulation tick after Unreal has discarded the command's output device.",
+            "Parenthesised expressions need the blam prefix; bare names do not."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.5.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.5.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.5.0"
+    },
+    {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
       "version": "0.17.0",

@@ -82,8 +82,29 @@ fn offset_within(whole: &[u8], part: &[u8]) -> usize {
 
 /// Split `a.b[2].c` into its segments, keeping any index with its name.
 fn segments(path: &str) -> Vec<(String, Option<usize>)> {
-    path.split('.')
-        .filter(|s| !s.is_empty())
+    // A `\.` is a literal dot inside a field name — the Havok mopp header's
+    // fields are named `v.i`..`v.w` — so the split walks characters rather
+    // than using str::split.
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'.') => {
+                current.push('.');
+                chars.next();
+            }
+            '.' => {
+                parts.push(std::mem::take(&mut current));
+            }
+            _ => current.push(c),
+        }
+    }
+    parts.push(current);
+
+    parts
+        .iter()
+        .filter(|s| !s.trim().is_empty())
         .map(|s| match s.split_once('[') {
             Some((name, rest)) => (
                 name.trim().to_string(),

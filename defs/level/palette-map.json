@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "comment": "Friendly type names for level.json -> Blam tag paths, plus what each shipped scenario's palettes already contain (surveyed 2026-08-19 on the current build). v1 bake requires the resolved tag to be present in the canvas scenario's palette; cross-map palette grafts are experimental.",
+  "vehicles": {
+    "warthog": "objects\\vehicles\\human\\warthog\\warthog",
+    "ghost": "objects\\vehicles\\covenant\\ghost\\ghost",
+    "scorpion": "objects\\vehicles\\human\\scorpion\\scorpion",
+    "banshee": "objects\\vehicles\\covenant\\banshee\\banshee",
+    "wraith": "objects\\vehicles\\covenant\\wraith\\wraith",
+    "shade": "objects\\vehicles\\covenant\\turrets\\shade\\shade",
+    "pelican": "objects\\vehicles\\human\\pelican\\pelican",
+    "space_banshee": "objects\\vehicles\\covenant\\space_banshee\\space_banshee",
+    "seraph": "objects\\vehicles\\covenant\\seraph\\seraph"
+  },
+  "weapons": {
+    "assault_rifle": "objects\\weapons\\rifle\\assault_rifle\\assault_rifle",
+    "smg": "objects\\weapons\\rifle\\assault_rifle\\smg",
+    "magnum": "objects\\weapons\\pistol\\magnum\\magnum",
+    "plasma_pistol": "objects\\weapons\\pistol\\plasma_pistol\\plasma_pistol",
+    "plasma_rifle": "objects\\weapons\\rifle\\plasma_rifle\\plasma_rifle",
+    "needler": "objects\\weapons\\pistol\\needler\\needler",
+    "sniper_rifle": "objects\\weapons\\rifle\\sniper_rifle\\sniper_rifle",
+    "rocket_launcher": "objects\\weapons\\support_high\\rocket_launcher\\rocket_launcher",
+    "energy_sword": "objects\\weapons\\melee\\energy_sword\\energy_sword",
+    "beam_rifle": "objects\\weapons\\rifle\\beam_rifle\\beam_rifle",
+    "skull": "objects\\weapons\\multiplayer\\skull\\skull"
+  },
+  "equipment": {
+    "frag_grenade": "objects\\weapons\\grenade\\frag_grenade\\frag_grenade",
+    "plasma_grenade": "objects\\weapons\\grenade\\plasma_grenade\\plasma_grenade",
+    "active_camouflage": "objects\\equipment\\active_camouflage\\active_camouflage",
+    "overshield": "objects\\equipment\\overshield\\overshield",
+    "assault_rifle_ammo": "objects\\gear\\human\\military\\assault_rifle_ammo\\assault_rifle_ammo",
+    "pistol_ammo": "objects\\gear\\human\\military\\pistol_ammo\\pistol_ammo",
+    "sniper_rifle_ammo": "objects\\gear\\human\\military\\sniper_rifle_ammo\\sniper_rifle_ammo",
+    "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo"
+  },
+  "scenario_palettes": {
+    "A15": { "vehicles": ["space_banshee", "seraph", "pelican"], "weapons": ["plasma_pistol", "magnum", "plasma_rifle", "assault_rifle", "smg", "skull"] },
+    "A30": { "vehicles": ["warthog", "pelican", "banshee"], "weapons": ["beam_rifle", "plasma_rifle", "plasma_pistol", "needler", "smg", "assault_rifle", "sniper_rifle", "magnum", "skull"] },
+    "A50": { "vehicles": ["pelican", "shade"], "weapons": ["plasma_pistol", "needler", "plasma_rifle", "assault_rifle", "energy_sword", "beam_rifle", "smg", "magnum", "skull"] },
+    "B30": { "vehicles": ["pelican", "warthog"], "weapons": ["plasma_rifle", "plasma_pistol", "assault_rifle", "needler", "magnum", "skull", "rocket_launcher", "energy_sword"] },
+    "B40": { "vehicles": ["banshee", "ghost", "shade", "pelican", "wraith", "warthog", "scorpion"], "weapons": ["plasma_pistol", "needler", "plasma_rifle", "energy_sword", "assault_rifle", "rocket_launcher", "sniper_rifle", "magnum", "skull"], "equipment": ["frag_grenade", "plasma_grenade", "active_camouflage", "overshield", "assault_rifle_ammo", "pistol_ammo", "sniper_rifle_ammo", "rocket_launcher_ammo"] },
+    "C10": { "vehicles": ["pelican", "shade"] },
+    "C20": { "vehicles": [] },
+    "C45": { "vehicles": ["wraith", "ghost", "banshee", "shade", "warthog"] },
+    "D20": { "vehicles": ["banshee", "shade", "wraith"] },
+    "D40": { "vehicles": ["shade", "warthog"] },
+    "E10": { "vehicles": ["shade", "banshee", "ghost"] },
+    "E20": { "vehicles": ["wraith", "ghost", "banshee", "shade"] },
+    "E30": { "vehicles": ["seraph", "space_banshee", "banshee", "wraith", "ghost", "shade"] }
+  }
+}

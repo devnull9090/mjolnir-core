@@ -193,6 +193,13 @@ local function resolveScenario(raw)
     if lower:find("^testing_") or lower == "d40_warthog_testkit" then
         return lower, CAMPAIGN_ASSETS.test
     end
+    -- A three-character codename is a MJOLNIR standalone map: a new scenario
+    -- tag shipped by `mjolnir level bake --standalone`, hosted on a campaign
+    -- canvas. The flow validates against the tag, so an uninstalled codename
+    -- is rejected with `false` rather than crashing.
+    if upper:len() == 3 and upper:find("^%w%w%w$") then
+        return upper, CAMPAIGN_ASSETS.first
+    end
     return nil, nil
 end
 
