@@ -211,6 +211,12 @@ directly.
 | `game_speed 0.5`, then `game_speed` | `= 0.000000 (real)` both times; no storage |
 | `cheat_deathless_player 1` | `= false (boolean)`; no storage |
 
+The stub and no-storage flags were checked against the running process the
+same day, not just the file on disk: `ReadProcessMemory` on the live globals
+array found the same 217 null storage pointers, and walking the live function
+table found the same 425 evaluators pointing at the stub. Nothing rebinds
+either at runtime.
+
 The on-screen panel and the Unreal-console echo, same day, in A30 at 1280×720
 and 2560×1440: `ai_enabled`, `blam (unit_get_health (player0))`, `help
 player_tele` and `blam_overlay` typed at the console. The panel showed each
