@@ -128,7 +128,7 @@ local function overlayWidget()
         if w:IsInViewport() then return w, t end
     end
     w, t = nil, nil
-    local ok = pcall(function()
+    local built = pcall(function()
         local UEHelpers = require("UEHelpers")
         local pc = UEHelpers.GetPlayerController()
         if not pc or not pc:IsValid() then error("no player controller") end
@@ -148,7 +148,7 @@ local function overlayWidget()
         w:AddToViewport(1000)
         w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
     end)
-    if not ok or not w or not w:IsValid() then return nil end
+    if not built or not w or not w:IsValid() then return nil end
     overlay.widget, overlay.text = w, t
     return w, t
 end
@@ -177,11 +177,11 @@ local function overlayFlush()
     end
     for _, line in ipairs(burst) do overlay.lines[#overlay.lines + 1] = line end
     while #overlay.lines > OVERLAY_KEEP do table.remove(overlay.lines, 1) end
-    local ok = pcall(function()
+    local shown = pcall(function()
         t:SetText(FText(table.concat(overlay.lines, "\n")))
         w:SetVisibility(VISIBLE_NO_HIT_TEST)
     end)
-    if not ok then return end
+    if not shown then return end
     overlay.generation = overlay.generation + 1
     local generation = overlay.generation
     ExecuteInGameThreadWithDelay(OVERLAY_SECONDS * 1000, function()
@@ -388,9 +388,9 @@ end
 --- `say`, for as long as it is: the handler's own duration.
 local function withConsole(ar, body)
     currentAr = ar
-    local ok, err = pcall(body)
+    local succeeded, err = pcall(body)
     currentAr = nil
-    if not ok then log("error: " .. tostring(err)) end
+    if not succeeded then log("error: " .. tostring(err)) end
     return true
 end
 
