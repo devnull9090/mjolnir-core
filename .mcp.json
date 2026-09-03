@@ -3,6 +3,10 @@
     "mjolnir-game": {
       "command": "node",
       "args": ["tools/mcp/game/server.mjs"]
+    },
+    "blender": {
+      "command": "uvx",
+      "args": ["blender-mcp"]
     }
   }
 }
