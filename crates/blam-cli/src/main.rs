@@ -408,6 +408,11 @@ struct PackArgs {
     /// A field to change, as `path=value`. Repeatable.
     #[arg(long = "set", value_name = "PATH=VALUE")]
     sets: Vec<String>,
+    /// Replace the tag's payload wholesale with this file (a complete tag
+    /// payload written by another tool, e.g. an sbsp transplant), before any
+    /// `--set` is applied.
+    #[arg(long)]
+    payload: Option<PathBuf>,
     /// Directory to write the container into.
     #[arg(long)]
     out_dir: PathBuf,
@@ -1107,7 +1112,14 @@ fn pack(a: PackArgs) -> Result<()> {
 
     // Apply every edit, then re-read the result from scratch so what goes into
     // the container is judged by what the bytes say, not by what we intended.
-    let mut file = original.clone();
+    let mut file = match &a.payload {
+        Some(p) => {
+            let bytes = std::fs::read(p).with_context(|| format!("read {}", p.display()))?;
+            println!("  payload  {} ({} bytes)", p.display(), bytes.len());
+            bytes
+        }
+        None => original.clone(),
+    };
     for set in &a.sets {
         let (path, value) = set
             .split_once('=')
@@ -2374,12 +2386,13 @@ fn walk_difference(
 /// Needs no game installation: the function table and both enums come from the
 /// committed corpus, so a mod author can check a script without one.
 fn compile(a: CompileArgs) -> Result<()> {
-    let corpus = blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
-        format!(
-            "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
-            a.corpus.display()
-        )
-    })?;
+    let corpus =
+        blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
+            format!(
+                "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
+                a.corpus.display()
+            )
+        })?;
 
     let mut sources = Vec::new();
     for path in &a.files {
@@ -2545,7 +2558,10 @@ fn build_cap(elements: usize) -> usize {
 /// `shown` is how many elements the printer is about to list, or `None` when it
 /// lists none because the depth limit stops here.
 fn block_summary(node: &blam_tag::view::Node, shown: Option<usize>) -> String {
-    let total = node.count.map(|c| c as usize).unwrap_or(node.children.len());
+    let total = node
+        .count
+        .map(|c| c as usize)
+        .unwrap_or(node.children.len());
     let limit = node
         .max_count
         .map(|m| format!(" of {m}"))
@@ -2584,7 +2600,9 @@ fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
         }
         Kind::Array => println!(
             "{indent}{name}  [array of {}]",
-            node.count.map(|c| c as usize).unwrap_or(node.children.len())
+            node.count
+                .map(|c| c as usize)
+                .unwrap_or(node.children.len())
         ),
         Kind::Element => println!("{indent}{name}"),
         Kind::Struct => println!("{indent}{name}  ({})", node.type_name),
@@ -2607,7 +2625,10 @@ fn print_node(node: &blam_tag::view::Node, depth: u32, a: &PrintOpts) {
     }
     // What is left unprinted is measured against the real count, so elements
     // the build cap never materialised are counted too.
-    let total = node.count.map(|c| c as usize).unwrap_or(node.children.len());
+    let total = node
+        .count
+        .map(|c| c as usize)
+        .unwrap_or(node.children.len());
     if lists_children && total > limit {
         println!("{indent}  ... {} more", total - limit);
     }

@@ -8,6 +8,7 @@ members = [
     "crates/blam-tag",
     "crates/blam-hsc",
     "crates/blam-pack",
+    "crates/blam-sbsp",
     "crates/blam-live",
     "crates/mjolnir-sign",
     "crates/blam-cli",

@@ -169,6 +169,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-sbsp"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blam-tag"
 version = "0.1.0"
 dependencies = [

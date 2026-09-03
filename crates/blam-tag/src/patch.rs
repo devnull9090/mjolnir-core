@@ -75,7 +75,7 @@ fn offset_within(whole: &[u8], part: &[u8]) -> usize {
 }
 
 /// Split `a.b[2].c` into its segments, keeping any index with its name.
-fn segments(path: &str) -> Vec<(String, Option<usize>)> {
+pub(crate) fn segments(path: &str) -> Vec<(String, Option<usize>)> {
     // A `\.` is a literal dot inside a field name — the Havok mopp header's
     // fields are named `v.i`..`v.w` — so the split walks characters rather
     // than using str::split.
@@ -119,9 +119,7 @@ pub fn resolve(
     block: &Block<'_>,
     path: &str,
 ) -> Result<Target, Error> {
-    let mut run = layout
-        .struct_run(block.struct_index)
-        .ok_or(Error::NoData)?;
+    let mut run = layout.struct_run(block.struct_index).ok_or(Error::NoData)?;
     let mut bytes = block.element(0).unwrap_or(&[]);
     let mut values: &[crate::data::Value<'_>] =
         block.children.first().map(Vec::as_slice).unwrap_or(&[]);
@@ -235,9 +233,7 @@ pub fn resolve(
                         count: inner.count,
                     });
                 }
-                run = layout
-                    .struct_run(inner.struct_index)
-                    .ok_or(Error::NoData)?;
+                run = layout.struct_run(inner.struct_index).ok_or(Error::NoData)?;
                 bytes = inner.element(*k).unwrap_or(&[]);
                 values = inner.children.get(*k).map(Vec::as_slice).unwrap_or(&[]);
                 walked = format!("{walked}[{k}]");
@@ -263,12 +259,10 @@ pub fn resolve(
                     .get(k * element_size..(k + 1) * element_size)
                     .unwrap_or(&[]);
                 values = match value {
-                    Some(crate::data::Value::Array { children }) => {
-                        match children.get(*k) {
-                            Some(crate::data::Value::Struct { children }) => children.as_slice(),
-                            _ => &[],
-                        }
-                    }
+                    Some(crate::data::Value::Array { children }) => match children.get(*k) {
+                        Some(crate::data::Value::Struct { children }) => children.as_slice(),
+                        _ => &[],
+                    },
                     _ => &[],
                 };
                 walked = format!("{walked}[{k}]");
@@ -323,7 +317,10 @@ pub fn set(
     let first = (target.file_offset..end).find(|i| out[*i] != file[*i]);
     let changed = match first {
         Some(start) => {
-            let last = (start..end).rev().find(|i| out[*i] != file[*i]).unwrap_or(start);
+            let last = (start..end)
+                .rev()
+                .find(|i| out[*i] != file[*i])
+                .unwrap_or(start);
             start..last + 1
         }
         None => 0..0,
@@ -364,11 +361,19 @@ pub fn set_many(
     let mut applied = Vec::with_capacity(edits.len());
     for (target, path, value) in targets {
         let end = target.file_offset + target.size;
-        value::write(layout, &target.field, value, &mut out[target.file_offset..end])?;
+        value::write(
+            layout,
+            &target.field,
+            value,
+            &mut out[target.file_offset..end],
+        )?;
         let first = (target.file_offset..end).find(|i| out[*i] != file[*i]);
         let changed = match first {
             Some(start) => {
-                let last = (start..end).rev().find(|i| out[*i] != file[*i]).unwrap_or(start);
+                let last = (start..end)
+                    .rev()
+                    .find(|i| out[*i] != file[*i])
+                    .unwrap_or(start);
                 start..last + 1
             }
             None => 0..0,
@@ -639,8 +644,14 @@ mod tests {
         let layout = Layout::parse(&body).unwrap();
         let block = crate::data::read_block(&layout, &payload, 0).unwrap();
 
-        let (out, applied) =
-            set(&layout, &payload, &block, "meta.n", &Scalar::Int(0x0A0B0C0D)).unwrap();
+        let (out, applied) = set(
+            &layout,
+            &payload,
+            &block,
+            "meta.n",
+            &Scalar::Int(0x0A0B0C0D),
+        )
+        .unwrap();
 
         assert_eq!(out.len(), payload.len(), "an in-place edit cannot resize");
         assert_eq!(applied.before, Scalar::Int(0));
@@ -774,14 +785,7 @@ mod tests {
 
         // `res` is a pageable resource: its payload is a section, not bytes in
         // the element.
-        let err = set(
-            &layout,
-            &payload,
-            &block,
-            "res",
-            &Scalar::Text("x".into()),
-        )
-        .unwrap_err();
+        let err = set(&layout, &payload, &block, "res", &Scalar::Text("x".into())).unwrap_err();
         assert!(matches!(err, Error::Write(_)), "{err}");
     }
 }
