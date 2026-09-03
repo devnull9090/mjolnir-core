@@ -44,13 +44,21 @@ player_teleport player0 flag_name
 blam (unit_get_health (player0))      parenthesised script needs the prefix
 blam !(+ 1 2)             run even with no game in progress
 blam_status               is the native half installed, and where
+blam_overlay on|off       the on-screen panel (default on; remembered)
 ```
 
-Answers arrive a simulation tick later and print to the **UE4SS console and
-`UE4SS.log`**, not to the Unreal console: by the time the simulation thread
-has evaluated the line, the output device Unreal gave the command is gone.
-Open the UE4SS GUI console (`Ctrl+O` by default) beside the game, or tail
-the log.
+Answers arrive a simulation tick later and go to two places: an **on-screen
+panel** in the top-left corner, which shows the last few answers for fifteen
+seconds, and the **UE4SS console and `UE4SS.log`** (`Ctrl+O` opens the GUI
+console), which get everything, including the long `help` listings the panel
+truncates. The Unreal console itself shows what the handler knows while its
+output device is still alive: the acknowledgement that a line was sent, the
+stub and no-storage warnings, and the whole of `help` and `blam_status`,
+which are answered synchronously. The answer to a Blam line cannot go there;
+see *Why the answer is not in the Unreal console* below.
+
+Every reference the hub publishes, with signatures and which names are
+compiled out, is at [mjolnircore.com/docs/console](https://mjolnircore.com/docs/console).
 
 A line without parentheses is rewritten the way the engine's own console
 does it: `name` becomes `(name)`, `name args` becomes `(name args)`, and
@@ -59,6 +67,35 @@ arguments are too.
 
 Names that shadow an Unreal command (`open`, `exit`, `quit`, `stat`,
 `pause`) are not registered; use `blam <name>` for those.
+
+## Why the answer is not in the Unreal console
+
+Two facts, both measured on 2026-09-02, rule out the obvious routes.
+
+- **The output device is gone.** Unreal hands the command handler an
+  `FOutputDevice`, and writing to it works (`Ar:Log`), but it is a stack
+  object that lives for the handler call. The answer arrives a simulation
+  tick later.
+- **Waiting for it deadlocks.** The simulation's per-tick drain, which is
+  where the line is evaluated, only runs while the game thread is free. A
+  handler that spun for 400 ms polling the mailbox got nothing; the answer
+  appeared the instant the handler returned. So the handler cannot block.
+- **The console's scrollback is not reflected.** `Engine.Console` exposes
+  four properties to reflection (`ConsoleTargetPlayer`, two default
+  textures, `HistoryBuffer`); `Scrollback`, `SBHead` and `SBPos` are plain
+  members. Writing them would mean the native half calling the exe's
+  `UConsole::OutputText`, one more exe-side signature to break on every
+  update, for a line in a console most players open with Tab by accident.
+- **`PrintString` is a no-op** in this Shipping build, and the Blueprint HUD
+  never fires `ReceiveDrawHUD`, so neither of the cheap on-screen routes
+  works either.
+
+What does work is a plain `UMG.UserWidget` holding a `UMG.TextBlock`,
+constructed from Lua with `WidgetBlueprintLibrary.Create` and added to the
+viewport. It uses engine classes only, so it carries no build-specific
+addresses. The panel is hidden (`Collapsed`) between answers rather than
+removed: `RemoveFromParent` on a widget of this shape hung the game once in
+testing, and the game had to be killed.
 
 ## Building and installing
 
@@ -173,3 +210,10 @@ directly.
 | `cheat_all_weapons` | `ok` — and nothing happened; it is a stub |
 | `game_speed 0.5`, then `game_speed` | `= 0.000000 (real)` both times; no storage |
 | `cheat_deathless_player 1` | `= false (boolean)`; no storage |
+
+The on-screen panel and the Unreal-console echo, same day, in A30 at 1280×720
+and 2560×1440: `ai_enabled`, `blam (unit_get_health (player0))`, `help
+player_tele` and `blam_overlay` typed at the console. The panel showed each
+answer below the objective text and collapsed fifteen seconds after the last;
+`help` and the acknowledgements appeared in the Unreal console's own
+scrollback.

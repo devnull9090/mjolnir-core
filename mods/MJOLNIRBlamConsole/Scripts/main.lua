@@ -23,10 +23,16 @@
 --   blam !<text>                    run even with no game in progress
 --   help [prefix]                   list functions and globals, with signatures
 --   blam_status                     is the native half installed, and where
+--   blam_overlay on|off             show answers on screen (default on)
 --
--- Output goes to the UE4SS console and log, not the Unreal console: the
--- answer arrives from the simulation thread a tick later, after Unreal's
--- output device for the command is gone.
+-- Where answers go: the UE4SS console and log always, and an on-screen
+-- panel in the top-left corner while the overlay is on. They cannot go to
+-- the Unreal console itself: the answer arrives from the simulation thread
+-- a tick later, after Unreal has discarded the command's output device, and
+-- the simulation only ticks while the game thread is free, so waiting for
+-- it inside the command handler would deadlock. What the handler can still
+-- do synchronously it does: `help`, `blam_status`, the stub warnings and an
+-- acknowledgement of each command are written to the Unreal console.
 
 local defs
 local dllOpen, dllPump
@@ -74,7 +80,131 @@ local function writeFile(path, text)
     return true
 end
 
+--------------------------------------------------------------------------------
+-- Output
+--
+-- Three places, because no single one works for everything:
+--   * the UE4SS console and log, always;
+--   * the Unreal console, for whatever is known while its output device is
+--     still alive (see the header);
+--   * an on-screen panel: a plain UMG text block created from Lua and added
+--     to the viewport. PrintString is a no-op in this Shipping build, the
+--     Blueprint HUD never fires its draw event, and none of the Unreal
+--     console's scrollback is reflected, so this is the one route to the
+--     screen that works, and it uses only engine classes, nothing from the
+--     game. The panel is hidden, never removed: removing a widget from the
+--     viewport is the one call that has hung the game in testing.
+--------------------------------------------------------------------------------
+
+local OVERLAY_SETTING = MOD .. "overlay.txt"   -- "off" turns the panel off
+local OVERLAY_KEEP = 10                        -- lines kept on screen
+local OVERLAY_BURST = 8                        -- lines one answer may add
+local OVERLAY_SECONDS = 15                     -- panel lifetime after the last answer
+local OVERLAY_X, OVERLAY_Y = 40, 420           -- top-left, below the objective text, in DPI-scaled units
+local OVERLAY_SCALE = 1.3                      -- the default text block is small at 720p
+
+local VISIBLE_NO_HIT_TEST = 3                  -- ESlateVisibility::HitTestInvisible
+local COLLAPSED = 1                            -- ESlateVisibility::Collapsed
+
+local overlay = { lines = {}, pending = {}, flushScheduled = false, widget = nil, text = nil, generation = 0 }
+local currentAr = nil                          -- the Unreal console's output device, inside a handler
+
+local function overlayEnabled()
+    local s = readFile(OVERLAY_SETTING)
+    return not (s and s:match("^%s*off"))
+end
+
+--- The panel widget, built on first use and rebuilt if the engine dropped it.
+--- Game thread only. Returns nil with no player controller (frontend).
+local function overlayWidget()
+    local w, t = overlay.widget, overlay.text
+    if w and t and w:IsValid() and t:IsValid() then
+        if not w:IsInViewport() then
+            pcall(function()
+                w:AddToViewport(1000)
+                w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
+            end)
+        end
+        if w:IsInViewport() then return w, t end
+    end
+    w, t = nil, nil
+    local ok = pcall(function()
+        local UEHelpers = require("UEHelpers")
+        local pc = UEHelpers.GetPlayerController()
+        if not pc or not pc:IsValid() then error("no player controller") end
+        local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local widgetClass = StaticFindObject("/Script/UMG.UserWidget")
+        local textClass = StaticFindObject("/Script/UMG.TextBlock")
+        w = library:Create(pc, widgetClass, pc)
+        local tree = w.WidgetTree
+        t = StaticConstructObject(textClass, tree, FName("MJOLNIRBlamConsoleText"))
+        tree.RootWidget = t
+        t:SetColorAndOpacity({ SpecifiedColor = { R = 1, G = 0.85, B = 0.2, A = 1 }, ColorUseRule = 0 })
+        t:SetShadowOffset({ X = 1.5, Y = 1.5 })
+        t:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.9 })
+        -- Scale about the top-left corner, or the text grows off the left edge.
+        t:SetRenderTransformPivot({ X = 0, Y = 0 })
+        t:SetRenderScale({ X = OVERLAY_SCALE, Y = OVERLAY_SCALE })
+        w:AddToViewport(1000)
+        w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
+    end)
+    if not ok or not w or not w:IsValid() then return nil end
+    overlay.widget, overlay.text = w, t
+    return w, t
+end
+
+local function overlayHide()
+    if overlay.widget and overlay.widget:IsValid() then
+        pcall(function() overlay.widget:SetVisibility(COLLAPSED) end)
+    end
+    overlay.lines = {}
+end
+
+--- Everything said since the last flush goes on screen as one block. Game
+--- thread only.
+local function overlayFlush()
+    overlay.flushScheduled = false
+    local burst = overlay.pending
+    overlay.pending = {}
+    if #burst == 0 or not overlayEnabled() then return end
+    local w, t = overlayWidget()
+    if not w then return end
+    if #burst > OVERLAY_BURST then
+        local cut = {}
+        for i = 1, OVERLAY_BURST - 1 do cut[i] = burst[i] end
+        cut[OVERLAY_BURST] = string.format("  ... %d more lines on the UE4SS console (Ctrl+O)", #burst - (OVERLAY_BURST - 1))
+        burst = cut
+    end
+    for _, line in ipairs(burst) do overlay.lines[#overlay.lines + 1] = line end
+    while #overlay.lines > OVERLAY_KEEP do table.remove(overlay.lines, 1) end
+    local ok = pcall(function()
+        t:SetText(FText(table.concat(overlay.lines, "\n")))
+        w:SetVisibility(VISIBLE_NO_HIT_TEST)
+    end)
+    if not ok then return end
+    overlay.generation = overlay.generation + 1
+    local generation = overlay.generation
+    ExecuteInGameThreadWithDelay(OVERLAY_SECONDS * 1000, function()
+        if overlay.generation == generation then overlayHide() end
+    end)
+end
+
+local function overlayPush(line)
+    overlay.pending[#overlay.pending + 1] = line
+    if overlay.flushScheduled then return end
+    overlay.flushScheduled = true
+    ExecuteInGameThread(overlayFlush)
+end
+
+--- One line of output, everywhere it can go.
 local function say(text)
+    print("[Blam] " .. text .. "\n")
+    if currentAr then pcall(function() currentAr:Log("[Blam] " .. text) end) end
+    overlayPush(text)
+end
+
+--- For the mod's own housekeeping: the UE4SS console only.
+local function log(text)
     print("[Blam] " .. text .. "\n")
 end
 
@@ -234,6 +364,10 @@ local function send(text, force)
         say("cannot write " .. REQUEST)
         return
     end
+    if currentAr then
+        local where = overlayEnabled() and "on screen and on the UE4SS console" or "on the UE4SS console (Ctrl+O)"
+        pcall(function() currentAr:Log("[Blam] " .. text .. "  -> sent to the simulation; the answer follows " .. where) end)
+    end
     waiting = { id = lastId, text = text, since = os.clock() }
     dllPump()
     LoopAsync(POLL_MS, function()
@@ -250,22 +384,44 @@ local function rest(full)
     return (full:match("^%S+%s*(.*)$") or "")
 end
 
-RegisterConsoleCommandHandler("blam", function(full)
-    send(rest(full))
+--- Runs a handler with the Unreal console's output device available to
+--- `say`, for as long as it is: the handler's own duration.
+local function withConsole(ar, body)
+    currentAr = ar
+    local ok, err = pcall(body)
+    currentAr = nil
+    if not ok then log("error: " .. tostring(err)) end
     return true
+end
+
+RegisterConsoleCommandHandler("blam", function(full, _, ar)
+    return withConsole(ar, function() send(rest(full)) end)
 end)
 
-RegisterConsoleCommandHandler("help", function(full)
-    help(rest(full))
-    return true
+RegisterConsoleCommandHandler("help", function(full, _, ar)
+    return withConsole(ar, function() help(rest(full)) end)
 end)
 
-RegisterConsoleCommandHandler("blam_status", function()
-    loadNative()
-    if dllOpen then dllOpen() end
-    say("dll " .. DLL)
-    say(status())
-    return true
+RegisterConsoleCommandHandler("blam_status", function(_, _, ar)
+    return withConsole(ar, function()
+        loadNative()
+        if dllOpen then dllOpen() end
+        say("dll " .. DLL)
+        say(status())
+    end)
+end)
+
+RegisterConsoleCommandHandler("blam_overlay", function(full, _, ar)
+    return withConsole(ar, function()
+        local arg = rest(full):lower():gsub("%s+$", "")
+        if arg == "on" or arg == "off" then
+            writeFile(OVERLAY_SETTING, arg .. "\n")
+            if arg == "off" then ExecuteInGameThread(overlayHide) end
+        elseif arg ~= "" then
+            say("usage: blam_overlay on|off")
+        end
+        say("on-screen overlay is " .. (overlayEnabled() and "on" or "off"))
+    end)
 end)
 
 --- Anything the engine knows by name goes to it, so `cheat_all_weapons` works
@@ -275,9 +431,8 @@ end)
 --- this mod answers itself.
 local SHADOWED = { open = true, exit = true, quit = true, stat = true, pause = true, help = true, blam = true }
 local registered = 0
-local function forward(full)
-    send(full)
-    return true
+local function forward(full, _, ar)
+    return withConsole(ar, function() send(full) end)
 end
 for name in pairs(defs.functions) do
     if name:match("^[%a_][%w_]*$") and not SHADOWED[name] then
@@ -297,8 +452,8 @@ end
 ExecuteInGameThreadWithDelay(8000, function()
     if loadNative() then
         dllOpen()
-        say(status())
+        log(status())
     end
 end)
 
-say(string.format("loaded, %d names registered. `help` lists them; `blam_status` says whether the native half is installed.", registered))
+log(string.format("loaded, %d names registered. `help` lists them; `blam_status` says whether the native half is installed.", registered))

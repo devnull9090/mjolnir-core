@@ -1,6 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Binary, BookOpen, Braces, Database, FileText, FlaskConical, Package } from "lucide-react";
+import {
+  Binary,
+  BookOpen,
+  Braces,
+  Database,
+  FileText,
+  FlaskConical,
+  Package,
+  Terminal,
+} from "lucide-react";
 import { getDocNotes, getGuides } from "@/lib/docs";
 import { Navbar } from "../components/Navbar";
 
@@ -20,6 +29,11 @@ const researchLinks = [
     href: "/docs/tags",
     label: "Tag definitions",
     icon: Database,
+  },
+  {
+    href: "/docs/console",
+    label: "Console commands",
+    icon: Terminal,
   },
   {
     href: "/docs/research/tag-data",

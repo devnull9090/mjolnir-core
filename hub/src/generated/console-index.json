@@ -1,0 +1,779 @@
+{
+  "build": "2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4",
+  "totals": {
+    "entries": 1695,
+    "names": 1551,
+    "live": 1127,
+    "stubs": 424,
+    "entryStubs": 425,
+    "globals": 260,
+    "deadGlobals": 217,
+    "families": 62,
+    "described": 78
+  },
+  "families": [
+    {
+      "slug": "ai",
+      "title": "AI",
+      "count": 172,
+      "live": 158,
+      "stubs": 14,
+      "described": 8,
+      "sample": [
+        "ai_activity_abort",
+        "ai_activity_set",
+        "ai_actor_dialogue_effect_enable",
+        "ai_actor_dialogue_enable"
+      ]
+    },
+    {
+      "slug": "unit",
+      "title": "Units",
+      "count": 94,
+      "live": 92,
+      "stubs": 2,
+      "described": 5,
+      "sample": [
+        "unit_action_test_accept",
+        "unit_action_test_action",
+        "unit_action_test_back",
+        "unit_action_test_cancel"
+      ]
+    },
+    {
+      "slug": "cs",
+      "title": "Command scripts",
+      "count": 87,
+      "live": 87,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "cs_abort_on_alert",
+        "cs_abort_on_combat_status",
+        "cs_abort_on_damage",
+        "cs_abort_on_vehicle_exit"
+      ]
+    },
+    {
+      "slug": "player",
+      "title": "Players",
+      "count": 85,
+      "live": 76,
+      "stubs": 9,
+      "described": 0,
+      "sample": [
+        "player_action_test_accept",
+        "player_action_test_action",
+        "player_action_test_back",
+        "player_action_test_cancel"
+      ]
+    },
+    {
+      "slug": "object",
+      "title": "Objects",
+      "count": 83,
+      "live": 81,
+      "stubs": 2,
+      "described": 8,
+      "sample": [
+        "object_at_marker",
+        "object_buckling_magnitude_get",
+        "object_can_take_damage",
+        "object_cannot_die"
+      ]
+    },
+    {
+      "slug": "cinematic",
+      "title": "Cinematics",
+      "count": 80,
+      "live": 77,
+      "stubs": 3,
+      "described": 2,
+      "sample": [
+        "cinematic_camera_set_easing_in",
+        "cinematic_camera_set_easing_out",
+        "cinematic_clips_destroy",
+        "cinematic_clips_initialize_for_shot"
+      ]
+    },
+    {
+      "slug": "game",
+      "title": "Game state",
+      "count": 66,
+      "live": 34,
+      "stubs": 32,
+      "described": 7,
+      "sample": [
+        "game_all_players_active",
+        "game_all_quiet",
+        "game_award_level_complete_achievements",
+        "game_can_use_flashlights"
+      ]
+    },
+    {
+      "slug": "script",
+      "title": "Script language",
+      "count": 62,
+      "live": 62,
+      "stubs": 0,
+      "described": 17,
+      "sample": [
+        "-",
+        "!=",
+        "*",
+        "/"
+      ]
+    },
+    {
+      "slug": "survival",
+      "title": "Firefight",
+      "count": 54,
+      "live": 54,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "survival_increment_elite_score",
+        "survival_increment_human_score",
+        "survival_mode_ammo_crates_enable",
+        "survival_mode_award_hero_medal"
+      ]
+    },
+    {
+      "slug": "chud",
+      "title": "HUD",
+      "count": 52,
+      "live": 50,
+      "stubs": 2,
+      "described": 6,
+      "sample": [
+        "chud_bonus_round_set_timer",
+        "chud_bonus_round_show_timer",
+        "chud_bonus_round_start_timer",
+        "chud_breadcrumbs_track_flag"
+      ]
+    },
+    {
+      "slug": "debug",
+      "title": "Debugging",
+      "count": 44,
+      "live": 4,
+      "stubs": 40,
+      "described": 0,
+      "sample": [
+        "debug_scripting",
+        "debug_scripting_globals",
+        "debug_scripting_variable",
+        "debug_scripting_variable_all"
+      ]
+    },
+    {
+      "slug": "net",
+      "title": "Networking",
+      "count": 40,
+      "live": 0,
+      "stubs": 40,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "sound",
+      "title": "Sound",
+      "count": 39,
+      "live": 29,
+      "stubs": 10,
+      "described": 4,
+      "sample": [
+        "sound_class_enable_ducker",
+        "sound_class_set_gain",
+        "sound_class_set_gain_db",
+        "sound_disable_acoustic_palette"
+      ]
+    },
+    {
+      "slug": "events",
+      "title": "Events",
+      "count": 27,
+      "live": 0,
+      "stubs": 27,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "objectives",
+      "title": "Objectives",
+      "count": 26,
+      "live": 26,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "objectives_hud_clear",
+        "objectives_hud_finish",
+        "objectives_hud_finish_string",
+        "objectives_hud_finish_up_to"
+      ]
+    },
+    {
+      "slug": "camera",
+      "title": "Camera",
+      "count": 25,
+      "live": 23,
+      "stubs": 2,
+      "described": 2,
+      "sample": [
+        "camera_clear_look_at_target",
+        "camera_control",
+        "camera_pan",
+        "camera_set"
+      ]
+    },
+    {
+      "slug": "render",
+      "title": "Rendering",
+      "count": 23,
+      "live": 17,
+      "stubs": 6,
+      "described": 0,
+      "sample": [
+        "render_autoexposure_enable",
+        "render_autoexposure_instant",
+        "render_cinematic_motion_blur",
+        "render_depth_of_field"
+      ]
+    },
+    {
+      "slug": "device",
+      "title": "Devices",
+      "count": 19,
+      "live": 19,
+      "stubs": 0,
+      "described": 4,
+      "sample": [
+        "device_animate_overlay",
+        "device_animate_position",
+        "device_closes_automatically_set",
+        "device_get_position"
+      ]
+    },
+    {
+      "slug": "vehicle",
+      "title": "Vehicles",
+      "count": 16,
+      "live": 16,
+      "stubs": 0,
+      "described": 2,
+      "sample": [
+        "vehicle_auto_turret",
+        "vehicle_count_bipeds_killed",
+        "vehicle_driver",
+        "vehicle_flip"
+      ]
+    },
+    {
+      "slug": "cui",
+      "title": "UI screens",
+      "count": 15,
+      "live": 0,
+      "stubs": 15,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "mantini",
+      "title": "Mantini",
+      "count": 15,
+      "live": 15,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "mantini_add_cell_to_runtime_squad",
+        "mantini_add_runtime_point_to_set",
+        "mantini_add_runtime_point_to_set_from_camera",
+        "mantini_add_starting_location_to_squad"
+      ]
+    },
+    {
+      "slug": "mp",
+      "title": "Multiplayer",
+      "count": 15,
+      "live": 12,
+      "stubs": 3,
+      "described": 0,
+      "sample": [
+        "mp_active_player_count_by_team",
+        "mp_ai_allegiance",
+        "mp_allegiance",
+        "mp_game_won"
+      ]
+    },
+    {
+      "slug": "controller",
+      "title": "Controllers",
+      "count": 14,
+      "live": 0,
+      "stubs": 14,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "saved",
+      "title": "Saved films",
+      "count": 13,
+      "live": 2,
+      "stubs": 11,
+      "described": 0,
+      "sample": [
+        "saved_film_set_playback_game_speed",
+        "saved_film_set_repro_mode"
+      ]
+    },
+    {
+      "slug": "simulation",
+      "title": "Simulation",
+      "count": 12,
+      "live": 2,
+      "stubs": 10,
+      "described": 0,
+      "sample": [
+        "simulation_profiler_detail_level",
+        "simulation_profiler_enable_downstream_processing"
+      ]
+    },
+    {
+      "slug": "tag",
+      "title": "Tags",
+      "count": 12,
+      "live": 5,
+      "stubs": 7,
+      "described": 0,
+      "sample": [
+        "tag_file_set_backend",
+        "tag_is_active",
+        "tag_load_force",
+        "tag_reload_force"
+      ]
+    },
+    {
+      "slug": "flock",
+      "title": "Flocks",
+      "count": 11,
+      "live": 11,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "flock_create",
+        "flock_definition_set",
+        "flock_delete",
+        "flock_destination_copy_position"
+      ]
+    },
+    {
+      "slug": "havok",
+      "title": "Havok physics",
+      "count": 11,
+      "live": 0,
+      "stubs": 11,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "performance",
+      "title": "Performance",
+      "count": 10,
+      "live": 10,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "performance_begin",
+        "performance_get_actor",
+        "performance_get_actor_by_index",
+        "performance_get_actor_count"
+      ]
+    },
+    {
+      "slug": "core",
+      "title": "Core",
+      "count": 9,
+      "live": 3,
+      "stubs": 6,
+      "described": 0,
+      "sample": [
+        "core_load",
+        "core_load_name",
+        "core_save_name"
+      ]
+    },
+    {
+      "slug": "scenery",
+      "title": "Scenery",
+      "count": 9,
+      "live": 9,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "scenery_animation_idle",
+        "scenery_animation_start",
+        "scenery_animation_start_at_frame",
+        "scenery_animation_start_at_frame_loop"
+      ]
+    },
+    {
+      "slug": "submit",
+      "title": "Submit",
+      "count": 9,
+      "live": 9,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "submit_incident",
+        "submit_incident_with_cause_campaign_team",
+        "submit_incident_with_cause_player",
+        "submit_incident_with_cause_player_and_effect_player"
+      ]
+    },
+    {
+      "slug": "thespian",
+      "title": "Thespian",
+      "count": 9,
+      "live": 9,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "thespian_fake_task_transition",
+        "thespian_folder_activate",
+        "thespian_folder_deactivate",
+        "thespian_performance_activate"
+      ]
+    },
+    {
+      "slug": "volume",
+      "title": "Volumes",
+      "count": 9,
+      "live": 9,
+      "stubs": 0,
+      "described": 4,
+      "sample": [
+        "volume_return_objects",
+        "volume_return_objects_by_campaign_type",
+        "volume_return_objects_by_type",
+        "volume_teleport_players_not_inside"
+      ]
+    },
+    {
+      "slug": "damage",
+      "title": "Damage",
+      "count": 8,
+      "live": 6,
+      "stubs": 2,
+      "described": 0,
+      "sample": [
+        "damage_new",
+        "damage_object",
+        "damage_object_effect",
+        "damage_objects"
+      ]
+    },
+    {
+      "slug": "dump",
+      "title": "Dumps",
+      "count": 8,
+      "live": 4,
+      "stubs": 4,
+      "described": 0,
+      "sample": [
+        "dump_active_resources",
+        "dump_active_zone_tags",
+        "dump_cinematics_script",
+        "dump_designer_zone"
+      ]
+    },
+    {
+      "slug": "effect",
+      "title": "Effects",
+      "count": 8,
+      "live": 8,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "effect_new",
+        "effect_new_at_ai_point",
+        "effect_new_at_point_set_point",
+        "effect_new_on_ground"
+      ]
+    },
+    {
+      "slug": "determinism",
+      "title": "Determinism",
+      "count": 7,
+      "live": 0,
+      "stubs": 7,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "incidents",
+      "title": "Incidents",
+      "count": 7,
+      "live": 0,
+      "stubs": 7,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "ui",
+      "title": "UI",
+      "count": 7,
+      "live": 0,
+      "stubs": 7,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "animation",
+      "title": "Animation",
+      "count": 6,
+      "live": 0,
+      "stubs": 6,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "auto",
+      "title": "Auto",
+      "count": 6,
+      "live": 0,
+      "stubs": 6,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "campaign",
+      "title": "Campaign",
+      "count": 6,
+      "live": 6,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "campaign_metagame_award_points",
+        "campaign_metagame_award_skull",
+        "campaign_metagame_enabled",
+        "campaign_metagame_get_player_score"
+      ]
+    },
+    {
+      "slug": "scenario",
+      "title": "Scenario",
+      "count": 6,
+      "live": 4,
+      "stubs": 2,
+      "described": 0,
+      "sample": [
+        "scenario_content_status_force_clear",
+        "scenario_content_status_force_content",
+        "scenario_content_status_force_local",
+        "scenario_content_status_reload"
+      ]
+    },
+    {
+      "slug": "achievement",
+      "title": "achievement",
+      "count": 5,
+      "live": 1,
+      "stubs": 4,
+      "described": 0,
+      "sample": [
+        "achievement_grant_to_player"
+      ]
+    },
+    {
+      "slug": "cheat",
+      "title": "Cheats",
+      "count": 5,
+      "live": 0,
+      "stubs": 5,
+      "described": 4,
+      "sample": []
+    },
+    {
+      "slug": "custom",
+      "title": "Custom",
+      "count": 5,
+      "live": 5,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "custom_animation",
+        "custom_animation_list",
+        "custom_animation_loop",
+        "custom_animation_relative"
+      ]
+    },
+    {
+      "slug": "error",
+      "title": "Errors",
+      "count": 5,
+      "live": 0,
+      "stubs": 5,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "interpolator",
+      "title": "Interpolators",
+      "count": 5,
+      "live": 5,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "interpolator_dump",
+        "interpolator_dump_all",
+        "interpolator_start",
+        "interpolator_stop"
+      ]
+    },
+    {
+      "slug": "map",
+      "title": "Map",
+      "count": 5,
+      "live": 1,
+      "stubs": 4,
+      "described": 0,
+      "sample": [
+        "map_reset"
+      ]
+    },
+    {
+      "slug": "director",
+      "title": "Director",
+      "count": 4,
+      "live": 0,
+      "stubs": 4,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "drop",
+      "title": "Drop",
+      "count": 4,
+      "live": 0,
+      "stubs": 4,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "fade",
+      "title": "Fades",
+      "count": 4,
+      "live": 4,
+      "stubs": 0,
+      "described": 2,
+      "sample": [
+        "fade_in",
+        "fade_in_for_player",
+        "fade_out",
+        "fade_out_for_player"
+      ]
+    },
+    {
+      "slug": "flags",
+      "title": "Editor flags",
+      "count": 4,
+      "live": 0,
+      "stubs": 4,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "main",
+      "title": "Main loop",
+      "count": 4,
+      "live": 0,
+      "stubs": 4,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "physics",
+      "title": "Physics",
+      "count": 4,
+      "live": 4,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "physics_constants_reset",
+        "physics_disable_character_ground_adhesion_forces",
+        "physics_set_gravity",
+        "physics_set_velocity_frame"
+      ]
+    },
+    {
+      "slug": "pvs",
+      "title": "Visibility",
+      "count": 4,
+      "live": 3,
+      "stubs": 1,
+      "described": 0,
+      "sample": [
+        "pvs_clear",
+        "pvs_set_camera",
+        "pvs_set_object"
+      ]
+    },
+    {
+      "slug": "shader",
+      "title": "Shaders",
+      "count": 4,
+      "live": 0,
+      "stubs": 4,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "skull",
+      "title": "Skulls",
+      "count": 4,
+      "live": 4,
+      "stubs": 0,
+      "described": 0,
+      "sample": [
+        "skull_affects_players",
+        "skull_any_enabled",
+        "skull_enable",
+        "skull_enabled"
+      ]
+    },
+    {
+      "slug": "meteorite",
+      "title": "Meteorite additions",
+      "count": 8,
+      "live": 0,
+      "stubs": 8,
+      "described": 0,
+      "sample": []
+    },
+    {
+      "slug": "console",
+      "title": "Console",
+      "count": 7,
+      "live": 1,
+      "stubs": 6,
+      "described": 2,
+      "sample": [
+        "help"
+      ]
+    },
+    {
+      "slug": "other",
+      "title": "Everything else",
+      "count": 134,
+      "live": 70,
+      "stubs": 64,
+      "described": 1,
+      "sample": [
+        "actor_from_performance",
+        "add_recycling_volume",
+        "add_recycling_volume_by_type",
+        "airstrike_enable"
+      ]
+    }
+  ]
+}
