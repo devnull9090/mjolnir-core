@@ -215,9 +215,20 @@ jobs:
       # Give each mod its hub page. The endpoint re-verifies the signature
       # server-side, so this is a nudge, not a trusted write.
       - name: Sync hub pages
+        # The endpoint fetches latest/manifest.json and latest/manifest.json.sig
+        # as two reads of R2, which the step above has only just written. A
+        # read that lands between the two uploads pairs the new manifest with
+        # the previous release's signature and fails verification, which is
+        # what happened to mods-v0.6.0. Retry before calling it a failure.
         run: |
-          curl -sS -X POST https://mjolnircore.com/api/v1/code-mods/sync | tee sync.json
-          test "$(jq -r '.mods_synced // 0' sync.json)" -gt 0
+          for attempt in 1 2 3 4 5; do
+            curl -sS -X POST https://mjolnircore.com/api/v1/code-mods/sync | tee sync.json
+            echo
+            if test "$(jq -r '.mods_synced // 0' sync.json)" -gt 0; then exit 0; fi
+            echo "sync attempt $attempt did not sync anything; retrying in 10s"
+            sleep 10
+          done
+          exit 1
 
       - name: Post release notification to Discord
         env:
