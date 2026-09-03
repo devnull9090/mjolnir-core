@@ -9,7 +9,7 @@
     "globals": 260,
     "deadGlobals": 217,
     "families": 62,
-    "described": 78
+    "described": 84
   },
   "families": [
     {
@@ -102,7 +102,7 @@
       "count": 66,
       "live": 34,
       "stubs": 32,
-      "described": 7,
+      "described": 9,
       "sample": [
         "game_all_players_active",
         "game_all_quiet",
@@ -733,7 +733,7 @@
       "count": 4,
       "live": 4,
       "stubs": 0,
-      "described": 0,
+      "described": 4,
       "sample": [
         "skull_affects_players",
         "skull_any_enabled",

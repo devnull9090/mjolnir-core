@@ -211,6 +211,19 @@ directly.
 | `game_speed 0.5`, then `game_speed` | `= 0.000000 (real)` both times; no storage |
 | `cheat_deathless_player 1` | `= false (boolean)`; no storage |
 
+What replaces the dead cheats, tried the same day in A30:
+
+| Sent | Answer |
+|---|---|
+| `skull_enabled bandana` | `error: skull must be "skull_iron", "skull_black_eye", ...` — the compiler lists the whole enum, 54 names before it truncates |
+| `skull_enable skull_bandanna true` | `ok`, and the reserve ammo counter read ∞ at once |
+| `skull_enabled skull_bandanna` | `= true (boolean)` |
+| `game_rate 0.5 0 30` | `ok`, and the game ran in slow motion; `game_rate 1 0 0` restored it |
+| `game_tick_get` twice, 7 s apart | ~59 ticks/s, before and during slow motion: the counter runs on real time |
+
+So the skulls are the shipped route to the cheats, and `game_rate` stands in
+for the `game_speed` global that has no storage.
+
 The stub and no-storage flags were checked against the running process the
 same day, not just the file on disk: `ReadProcessMemory` on the live globals
 array found the same 217 null storage pointers, and walking the live function
