@@ -789,10 +789,16 @@ fn bake(a: BakeArgs) -> Result<()> {
             .to_string();
         let new_leaf = format!("{code}-scenario");
         ensure_same_len(&old_leaf, &new_leaf)?;
-        let new_pkg = format!(
-            "{}/{new_leaf}",
-            old_pkg.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
-        );
+        // The campaign flow derives the scenario tag's package path from the
+        // data-table row name — `.../Solo/<NAME>/_Generated_/<NAME>-scenario`
+        // — so the new package must sit in a folder named after the codename,
+        // not in the donor's. The folder segment is the donor's own codename
+        // (same length), so the rename stays same-length surgery.
+        let old_code = old_leaf.trim_end_matches("-scenario").to_string();
+        let old_dir = old_pkg.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let new_dir = old_dir.replace(&format!("/{old_code}/"), &format!("/{code}/"));
+        let new_pkg = format!("{new_dir}/{new_leaf}");
+        ensure_same_len(&old_pkg, &new_pkg)?;
         let imported: Vec<u64> = donor
             .imported_package_names
             .iter()
