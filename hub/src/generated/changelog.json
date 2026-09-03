@@ -41,6 +41,34 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.6.0",
+      "tag": "mods-v0.6.0",
+      "title": "Blam console answers on screen",
+      "date": "2026-09-02",
+      "summary": "MJOLNIRBlamConsole 0.2.0 shows each answer in an on-screen panel and writes what it can to the Unreal console, so the UE4SS window is no longer required to see what a command did.",
+      "body": "### Added\n\n- **MJOLNIRBlamConsole 0.2.0** puts answers on screen. A panel in the top-left\n  corner shows the last few results for fifteen seconds after each one: the\n  line you typed, the value or the compiler's error, the stub warning. It is a\n  plain UMG text block built from engine classes, so it carries no\n  build-specific addresses. `blam_overlay on|off` turns it off and on, and\n  the setting is remembered. The UE4SS console and log still get everything,\n  including the long `help` listings the panel truncates.\n- The Unreal console now shows what the handler knows while Unreal's output\n  device is still alive: an acknowledgement that the line was sent and where\n  the answer will appear, the compiled-out and no-storage warnings, and the\n  whole of `help` and `blam_status`, which are answered synchronously.\n\n### Known limits\n\n- The answer to a Blam line itself cannot reach the Unreal console. It\n  arrives a simulation tick after the command's output device is gone, the\n  simulation does not tick while the handler waits, and the console's\n  scrollback is not reflected. The on-screen panel is the route that works;\n  the research note on the Blam console records what was tried.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "MJOLNIRBlamConsole 0.2.0 puts answers on screen. A panel in the top-left corner shows the last few results for fifteen seconds after each one: the line you typed, the value or the compiler's error, the stub warning. It is a plain UMG text block built from engine classes, so it carries no build-specific addresses. blamoverlay on|off turns it off and on, and the setting is remembered. The UE4SS console and log still get everything, including the long help listings the panel truncates.",
+            "The Unreal console now shows what the handler knows while Unreal's output device is still alive: an acknowledgement that the line was sent and where the answer will appear, the compiled-out and no-storage warnings, and the whole of help and blamstatus, which are answered synchronously."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "The answer to a Blam line itself cannot reach the Unreal console. It arrives a simulation tick after the command's output device is gone, the simulation does not tick while the handler waits, and the console's scrollback is not reflected. The on-screen panel is the route that works; the research note on the Blam console records what was tried."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.6.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.5.0",
       "tag": "mods-v0.5.0",
       "title": "The classic Blam console, at the Unreal console",
