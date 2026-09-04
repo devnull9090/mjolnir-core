@@ -56,6 +56,10 @@ plane's projection (`pack16::projection_axes`, `pack16::node_planes`); the
 probe stays at 100% after a `(-35.4, 151.17, 50)` move of a shipped
 definition. On the Halo data the probe reads 98.3% both before and after
 translation, so that residual is the data or the probe, not the move.
+`examples/probe_residual.rs` narrows it to 14 of 5,098 surfaces (flat floors
+among them), with no 2D subtree shared between references and no dependence
+on the reference's negation bit — a property of those Halo trees, worth a
+look only if holes show up in play.
 
 ## Placing Bloodgulch
 
@@ -73,6 +77,43 @@ Staged for the next launch (`pakchunk999-MJOLNIR-Windows_P`):
     def_clear       out out2 78 97 110 129 32 141 168 71 9
     widen_group     out2 out3 58 33.504 33.532 68.826 99.4
     mjolnir pack --group scenario_structure_bsp --tag Solo/B40/_Generated_/BSP_01_1_Start --payload out3
+
+### The broadphase, as far as it is decoded
+
+`examples/mopp_dump.rs <payload> 58` prints group 58's Havok mopp: 141 bytes
+of bytecode, build type 0, scale/offset `v = (16.70, 24.37, 37.86; w
+635595.9)`, over ten members `[165, 214, 279, 545, 550, 593, 643, 722, 763,
+779]`. It is a bounding-volume tree over the members' boxes, so a query far
+from instance 763's original box will not return 763 even after the group
+sphere is widened; near the spawn, inside that box, it should. Regenerating
+these mopps (both levels) is the price of placing terrain as instances
+anywhere in the map — or the price is avoided entirely if the world shell
+turns out to be walkable once its 2D splits are right, which is why two
+variants are staged:
+
+| variant | where the terrain lives | broadphase | in `Paks` now |
+|---|---|---|---|
+| shell | `raw_items.collision bsp[0]`, pass-through supernode, Chasm_old kd companions | none (kd supernodes) | **yes** (`scratch/bgshell`) |
+| definition | definition 159 behind instance 763, group 58 sphere widened | group mopps, untouched | no (`scratch/bgsbsp`) |
+
+Both clear the spawn-floor definitions (78 97 110 129 32 141 168 71 9; the
+definition variant leaves 159) so the pawn has nothing else to stand on.
+Every earlier "the shell is not walkable" verdict came from transplants with
+the 2D-split bug, so it is unproven either way.
+
+### The one-launch protocol
+
+NEW GAME → Assault on the Control Room (row 5), no screenshots. Then:
+
+```lua
+local pawn = FindFirstOf("BP_MeteoritePawn_C")
+local z0 = pawn:K2_GetActorLocation().Z / 304.8
+local t = os.clock(); while os.clock() - t < 3 do end
+local z1 = pawn:K2_GetActorLocation().Z / 304.8
+print(string.format("z %.2f -> %.2f : %s", z0, z1,
+  (z1 > 43.5 and z1 < 45.5) and "PASS: standing on Halo terrain"
+  or (z1 < 30 and "FAIL: fell through" or "inconclusive")))
+```
 
 Prediction for the blank B40 map, NEW GAME: the pawn spawns at 48.16 wu with
 no tower floor under it and lands on Bloodgulch's canyon floor at about
