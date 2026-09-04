@@ -100,19 +100,58 @@ the game's own flow.
 ## What still blocks
 
 The simulation does not start for PG1: the pawn stays at the origin and the
-frame is black, while shipped missions started through the same menu run.
-Adding the cooked-references entries (4) did not change this. Working
-hypotheses, cheapest first:
+frame is black, while shipped missions started through the same menu run. The
+stall has a precise signature (measured 2026-09-03 on CU4, host pid 13828):
 
-- The world binds to *its* scenario: the B40 world package may reference
-  `B40-scenario` (a `BlamScenarioActor` lives in the world); a PG1 scenario
-  on B40's world would then never complete the map-load handshake. Check the
-  world's zen imports; if so, the fix is a world override whose actor points
-  at the new scenario (the MapKit cook), or a runtime repoint before the sim
-  binds.
+| signal | shipped mission (B40) | new scenario (PG1) |
+|---|---|---|
+| `SetAndBeginCampaign` returns | true | true |
+| scenario tag asset in memory | `B40-scenario` | `PG1-scenario` (mod container) |
+| `ServerMarkFinishedBlamMapLoad` | fires ~4 s after launch | never fires |
+| `bWaitingForBlamGameplayStart` | clears | stays true |
+
+So the blocker sits in the Blam simulation's own map load, upstream of every
+UE-side gate. Three candidates were ruled out by experiment:
+
+- **The world's scenario actor is not the binding.** `BlamScenario` is an
+  `Actor` subclass (`ScenarioName`, `CampaignId`, `MapId`, `MAPNAME`,
+  `StructureBsps`, `ZoneSets`...) and the cooked B40 world package does contain
+  an export named `BlamScenario_UAID_F02F74DC4569B31902`. But in the loaded,
+  stalled world `FindAllOf("BlamScenario")` returns **zero** actors and no
+  actor's name contains "BlamScenario" (28 actors; the only Blam-named one is
+  `BP_BlamCameraManager_C`). The actor is spawned *after* the sim's map load
+  succeeds, so it cannot be what refuses PG1. The B40 world also does not
+  import `B40-scenario`.
+- **The UE map-load handshake is downstream.** Calling
+  `ServerMarkFinishedBlamMapLoad`, `ServerMarkHasFinishedHaloActorPooling` and
+  `ServerMarkHasFinishedProcessingPsoCache` by hand flips all three flags,
+  brings `BlamNetworkGameStateComponent::bSessionRunning` to true and spawns a
+  `BP_MeteoritePawn_C` — but `bWaitingForBlamGameplayStart` stays true and the
+  pawn stays at the origin. Forcing the handshake does not start the sim.
+- **The cooked-reference table is not the gate.** With
+  `Blam.TagIoHandler.IoStore.UseCookedTagReferences.Enabled 0` (set through
+  `KismetSystemLibrary::ExecuteConsoleCommand`; the backing byte at
+  `.data 0xD0A94DC` reads 0 afterwards) a shipped mission still loads and
+  plays normally, and PG1 still stalls identically. Adding PG1 to the path
+  table and cloning B40's per-scenario reference list (earlier run) also
+  changed nothing.
+
+Remaining hypotheses, cheapest first:
+
+- The sim keys campaign maps by **name** through its own registry. The Blam
+  console carries `levels_add_campaign_map` and
+  `levels_add_campaign_map_with_id`, but both are stubs in this release build,
+  so the registry (if it exists) cannot be extended from the console.
 - Something in the scenario's own root fields (`map id`, `campaign id`,
-  `map name` string id) is matched against the campaign/progression tables.
-- The `TagIoHandler` preopen list for a scenario not in the cooked tables.
+  `map name` string id) is matched against a sim-side table. The scnr field
+  documentation in the sim binary describes `map name` as "Used to associate
+  external resources with" the scenario.
+- The loading pipeline itself: a tick state machine at RVA `0x7B48160`
+  (registered by `0x7B47FE0`, which sets a state byte at `+0xD9` and a repeating
+  timer) dispatches five states, one of which consults the cooked-reference
+  lookup (`0x6720650`, the same helper `BuildTagIoRequest` uses) and one of
+  which is a float-timeout wait at `+0x1F0`/`+0x1F4`. Instrumenting that state
+  byte during a PG1 load is the next concrete step.
 
 ## Runtime insertion (probe recipe)
 
