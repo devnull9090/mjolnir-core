@@ -143,3 +143,38 @@ Remove `pakchunk998-MJOLNIRLEVEL-blank_b40_P.*` first: two `_P` containers
 over the same scenario chunk would race. Order of tests: blank map + shell
 collision (landing height), then this level on whichever collision variant
 held the pawn.
+
+## The visual half
+
+The world under the blank map is already a MapKit cook: the installed
+`pakchunk990-MJOLNIRWORLD-Windows_P` holds one file, an empty `B40.umap`, so
+the void with one streaming level and no lights was our own canvas, not the
+shipped world. Visuals therefore ride the same container as the world:
+
+1. `unreal/MJOLNIRMapKit/Content/Python/mjolnir_import_bloodgulch.py` builds
+   the empty canvas with the existing generator, then imports halo2ue's
+   `staging/bloodgulch/bsp/bsp_0.gltf` (one mesh, 42 materials, 16 textures)
+   under the level's folder, which the chunk label routes into chunk 990. The
+   UE 5.6 HaloUE project's 343 assets cannot be reused: cooked formats are
+   engine-version locked and the game is 5.5.
+2. `scripts/package.ps1 -LevelPackage /Game/Levels/Halo1/Solo/B40/B40` cooks
+   world and mesh into the container.
+3. The level file's `decor` names the mesh
+   (`/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0`) at the
+   collision offset; the runtime loader spawns it.
+
+Coordinates check out from the glTF alone: its position bounds are
+`(18.0, -1.06, 137.33)..(402.04, 79.96, 579.79)` m, which is Halo
+`(x, z, -y) x 3.048`, and Unreal's glTF import turns that into
+`(x, -y, z) x 304.8` cm — the same mapping every other placement uses — so
+the mesh at identity sits at native Halo positions and only the transplant
+offset is applied.
+
+Two unknowns the next launch answers, both in
+`tools/level/checks/bloodgulch_check.lua`: whether the game deserialises a
+stock-cooked `UStaticMesh` (the actor/component wall documented in the MapKit
+README is about unversioned *actor* properties; assets are untested), and
+whether a package absent from the shipped asset registry can be loaded by
+path from Lua at all (`LoadAsset` versus `KismetSystemLibrary.LoadAsset_Blocking`).
+If neither loads it, the fallback is to make the empty world import the mesh
+so it arrives with the level.
