@@ -86,7 +86,23 @@ mod imp {
         exe_file: [u16; 260],
     }
 
+    #[repr(C)]
+    struct ModuleEntry32W {
+        size: u32,
+        module_id: u32,
+        process_id: u32,
+        glbl_usage: u32,
+        proc_usage: u32,
+        base_addr: usize,
+        base_size: u32,
+        h_module: usize,
+        module_name: [u16; 256],
+        exe_path: [u16; 260],
+    }
+
     extern "system" {
+        fn Module32FirstW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
+        fn Module32NextW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
         fn CloseHandle(h: Handle) -> i32;
         fn ReadProcessMemory(
@@ -155,6 +171,34 @@ mod imp {
             CloseHandle(snap);
         }
         Ok(found)
+    }
+
+    /// Base address and size of a DLL loaded in `pid`, by file name
+    /// (case-insensitive). None when the module is not (yet) loaded.
+    pub fn module_base(pid: u32, name: &str) -> Option<(u64, u32)> {
+        const TH32CS_SNAPMODULE: u32 = 0x8;
+        const TH32CS_SNAPMODULE32: u32 = 0x10;
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+            if snap == -1 {
+                return None;
+            }
+            let mut entry: ModuleEntry32W = std::mem::zeroed();
+            entry.size = std::mem::size_of::<ModuleEntry32W>() as u32;
+            let mut ok = Module32FirstW(snap, &mut entry);
+            let mut hit = None;
+            while ok != 0 {
+                let end = entry.module_name.iter().position(|c| *c == 0).unwrap_or(256);
+                let n = String::from_utf16_lossy(&entry.module_name[..end]);
+                if n.eq_ignore_ascii_case(name) {
+                    hit = Some((entry.base_addr as u64, entry.base_size));
+                    break;
+                }
+                ok = Module32NextW(snap, &mut entry);
+            }
+            CloseHandle(snap);
+            hit
+        }
     }
 
     impl Process {
@@ -310,6 +354,10 @@ mod imp {
         pub pid: u32,
     }
 
+    pub fn module_base(_pid: u32, _name: &str) -> Option<(u64, u32)> {
+        None
+    }
+
     pub fn running(_exe: &str) -> Result<Vec<ProcessInfo>> {
         Err(Error::Unsupported)
     }
@@ -333,7 +381,7 @@ mod imp {
     }
 }
 
-pub use imp::Process;
+pub use imp::{module_base, Process};
 
 impl Process {
     /// Attach to the single running game, or say plainly why we cannot.

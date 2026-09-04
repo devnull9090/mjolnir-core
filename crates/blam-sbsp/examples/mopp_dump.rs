@@ -1,6 +1,6 @@
 //! Hex-dump one instance-group mopp: header scalars and bytecode.
 //!
-//!   cargo run -p blam-sbsp --example mopp_dump -- <payload> <group>
+//!   cargo run -p blam-sbsp --example mopp_dump -- <payload> <element> [block path]
 use blam_tag::blockedit::find_block;
 
 fn main() {
@@ -10,10 +10,15 @@ fn main() {
     let tag = blam_tag::TagFile::parse(&file, None).expect("parse");
     let layout = tag.layout().expect("layout");
     let root = tag.read_data(&layout).expect("data");
-    let m = find_block(&layout, &file, &root, "instance group to instance mopps").expect("mopps");
+    let path = a.get(2).cloned().unwrap_or_else(|| "instance group to instance mopps".to_string());
+    let m = find_block(&layout, &file, &root, &path).expect("mopps");
     let e = m.block.element(g).expect("element");
     let f = |o: usize| f32::from_le_bytes(e[o..o + 4].try_into().unwrap());
     let i32_at = |o: usize| i32::from_le_bytes(e[o..o + 4].try_into().unwrap());
+    for (i, chunk) in e.chunks(16).enumerate() {
+        let hex: Vec<String> = chunk.iter().map(|x| format!("{x:02x}")).collect();
+        println!("hdr {:02x}: {}", i * 16, hex.join(" "));
+    }
     println!("group {g}: size {} count {} v=({:.3}, {:.3}, {:.3}, w {:.6}) m_size {} buildType {}",
         u16::from_le_bytes([e[8], e[9]]), u16::from_le_bytes([e[10], e[11]]),
         f(32), f(36), f(40), f(44), i32_at(56), e[64] as i8);
@@ -45,7 +50,8 @@ fn main() {
     for v in &m.block.children[g] {
         dump_blocks(v, 1);
     }
-    let members = find_block(&layout, &file, &root, &format!("instance group to instance spheres[{g}].instance indices")).expect("members");
-    let ids: Vec<u16> = (0..members.block.count as usize).map(|k| { let b = members.block.element(k).unwrap(); u16::from_le_bytes([b[0], b[1]]) }).collect();
-    println!("members: {ids:?}");
+    if let Ok(members) = find_block(&layout, &file, &root, &format!("instance group to instance spheres[{g}].instance indices")) {
+        let ids: Vec<u16> = (0..members.block.count as usize).map(|k| { let b = members.block.element(k).unwrap(); u16::from_le_bytes([b[0], b[1]]) }).collect();
+        println!("members: {ids:?}");
+    }
 }

@@ -49,7 +49,7 @@ use std::ops::Range;
 
 mod sys;
 
-pub use sys::{Process, ProcessInfo};
+pub use sys::{module_base, Process, ProcessInfo};
 
 /// The executable the game runs as.
 pub const GAME_EXE: &str = "HaloCampaignEvolved.exe";

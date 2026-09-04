@@ -83,3 +83,44 @@ route hit the same wall. A same-size route cannot hold Blood Gulch's 5,098
 surfaces in any shipped definition (largest is 3,205), so the options are
 (a) crack the relocation via the live diff and rewrite whatever count-derived
 structure is stale, or (b) drop the tag-resize approach for collision.
+
+## Live memory diff (2026-09-04, `blam-live` examples `simrec`, `heapscan`)
+
+The resident structure-BSP records (`DAT_1813d45a8`, records 4/8/12/16 for
+B40) hold raw 64-bit pointers into arena 1 plus a few arena-1 packed refs;
+every difference between a shipped and a resized load is a session address,
+nothing goes null there. One level down, the resized definition 159's nine
+collision block fields in the heap are all relocated (`{12159, a1+…, a14+…}`
+… supernodes included), exactly like shipped definition 178 beside it.
+
+So the resize was never the problem. **Every crashing build had run
+`def_clear`**, and an emptied block is `{0, 0, struct}`: its zero data ref
+resolves through arena slot 0, which is null, and the first access reads
+address 0. A transplant with no clear (`bg_noclear`) loads fine.
+
+## What walkable instance collision actually is
+
+Loading the no-clear build and dropping the pawn onto the transplanted
+definition (spawn platforms moved to z −500 so they cull) it fell straight
+through. Emptying the definition's `mopp codes` block instead crashed inside
+**`hkpMoppObbVirtualMachine`** (`fn_739780`, Havok 7.0.0-Reach, the build
+path string is in the binary): an instance's collision is a Havok
+`hkpMoppBvTreeShape` (`mopp bv tree shape` struct: `mopp code pointer`,
+`mopp data size`, `code info copy`) whose bytecode is the definition's
+`mopp codes` element, a bounding-volume tree over the collision surfaces.
+The transplant keeps the donor platform's MOPP, so queries never reach a
+Blood Gulch triangle; 117 of 182 shipped definitions carry one.
+
+The VM opcodes (from the decompile): `00` return; `01–04` rescale (3 offset
+bytes, shift = opcode); `05/06/07` jump 8/16/24-bit; `09/0a/0b` add to the
+terminal reindex base; `0c` chunk jump; `10/11/12` single-axis split
+`[leftMax, rightMin, rightJump8]` (left child at +4); `20–22` split
+`[plane, jump8]`; `23–25` split with 16-bit left/right jumps; `26–28`
+bounds check; `13–1c` diagonal splits; `30–4f` terminal id 0–31;
+`50–53` terminal with 1–4 id bytes. Query setup (`fn_73a000`): world box
+→ `(x − info.offset) × info.scale` as 24-bit fixed point (`code info` w is
+the scale: `2^24 / extent`), the top level compares `coord >> 16`.
+
+Next: a MOPP compiler in `blam-sbsp` (kd-tree over surface boxes, splits +
+rescales + terminals = surface indices), validated by an interpreter that
+mirrors the VM against the shipped 5,187-byte code of definition 159.
