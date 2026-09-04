@@ -78,9 +78,31 @@ def import_terrain():
     log("mesh list written to " + out)
 
 
+def label_mesh_dir():
+    """The canvas label's directory rule stops at its own folder, so the mesh
+    folder gets a label of its own routing it into the same chunk."""
+    name = "PAL_MJOLNIRWORLD_BLOODGULCH"
+    path = MESH_DIR + "/" + name
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        log("mesh chunk label already exists: " + path)
+        return
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    label = tools.create_asset(name, MESH_DIR, unreal.PrimaryAssetLabel, unreal.DataAssetFactory())
+    if not label:
+        raise RuntimeError("could not create PrimaryAssetLabel at " + path)
+    rules = unreal.PrimaryAssetRules()
+    rules.set_editor_property("chunk_id", 990)
+    rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
+    label.set_editor_property("rules", rules)
+    label.set_editor_property("label_assets_in_my_directory", True)
+    unreal.EditorAssetLibrary.save_asset(path)
+    log("created mesh chunk label " + path)
+
+
 def main():
     build_world()
     import_terrain()
+    label_mesh_dir()
     unreal.EditorAssetLibrary.save_directory(MESH_DIR, only_if_is_dirty=False, recursive=True)
     log("done")
 
