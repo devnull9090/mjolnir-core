@@ -253,3 +253,22 @@ or the terrain giving way elsewhere is the open question. The loader again
 reported the terrain mesh not found at spawn time; a later `StaticFindObject`
 returned an object (validity unchecked), `LoadAsset` returned invalid, and a
 level reload plus registry scan was followed by a game-thread hang.
+
+### What the minidumps say
+
+UE4SS wrote a minidump for each stall. All four decode to the same access
+violation at `HaloSimulation_tag_release.dll+0x2eb450`: the bsp3d tree walker
+reading a node through the definition's runtime block reference (an arena id
+in the top four bits of the word after the count, plus a word offset — the
+`{count, arena-offset/4, struct id}` header from the runtime-poking notes).
+Its caller, `+0x2eb130`, is a **kd supernode walk**: it takes a supernode
+index, reads that supernode's 128 bytes (15 split values, an opaque word, 15
+cells, a dimensions word), picks a cell and passes the cell's node to the
+walker. Every Blood Gulch definition build shipped with **zero supernodes**,
+so the walk read garbage cells; the all-clear build had nothing at all. The
+one shipped definitions with no supernode are small and probably non-solid.
+The shipped-copy control (21 supernodes) crashing the same way is not yet
+explained. Next build: a pass-through supernode built on definition 159's own
+(15 cells all naming node 0), which no definition build had tried through
+NEW GAME. `examples/super_dump.rs` shows shipped cells are `0x40000000|node`
+for tree roots and small integers for child supernodes.
