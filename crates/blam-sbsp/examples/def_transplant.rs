@@ -170,20 +170,28 @@ fn main() {
             format!("({}, {}, {})", centre[0], centre[1], centre[2]),
         ),
         (format!("{p}.world bounding sphere radius"), format!("{radius}")),
-        // The Havok shape's own box, which the broadphase reads before the
-        // tree is walked: leaving the donor's tiny box behind the new geometry
-        // is asking for trouble.
+        // The Havok shape's own box is the definition's LOCAL vertex bounds
+        // scaled by the instance scale, with no rotation or position applied
+        // (checked on shipped instances 763, 105 and 545: centre and half
+        // extent match local bounds x scale to the last digit). Every build
+        // that wrote it in world space, or left a box that no longer matched
+        // the tables, stalled the load while the shape was built.
         (
             format!("{p}.physics[0].collision geometry shape[0].center"),
-            format!("({}, {}, {})", centre[0], centre[1], centre[2]),
+            format!(
+                "({}, {}, {})",
+                (local_bounds.min[0] + local_bounds.max[0]) / 2.0,
+                (local_bounds.min[1] + local_bounds.max[1]) / 2.0,
+                (local_bounds.min[2] + local_bounds.max[2]) / 2.0
+            ),
         ),
         (
             format!("{p}.physics[0].collision geometry shape[0].half extent"),
             format!(
                 "({}, {}, {})",
-                (bounds.max[0] - bounds.min[0]) / 2.0,
-                (bounds.max[1] - bounds.min[1]) / 2.0,
-                (bounds.max[2] - bounds.min[2]) / 2.0
+                (local_bounds.max[0] - local_bounds.min[0]) / 2.0,
+                (local_bounds.max[1] - local_bounds.min[1]) / 2.0,
+                (local_bounds.max[2] - local_bounds.min[2]) / 2.0
             ),
         ),
         (
