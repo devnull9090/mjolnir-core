@@ -288,6 +288,6 @@ decide which nested block headers to relocate is not in the layout, not in
 the package, and not in the header shape — and the world shell's silent "no
 collision" is most likely the same unrelocated reference read by a walker
 that tolerates null. This is where the definition route stops without
-reversing the loader; `C:	ools\ghidra_12.1.2_PUBLIC` is available for that
+reversing the loader; `C:\tools\ghidra_12.1.2_PUBLIC` is available for that
 pass, starting from the caller chain into `HaloSimulation_tag_release.dll`
 `+0x2eb130` and the relocation of `raw_items` blocks at BSP mount.
