@@ -240,3 +240,16 @@ held the pawn), the Blood Gulch level with BSP 8's world box widened to the
 terrain's extent, and the world container carrying the terrain mesh. The
 check script also asks the asset registry to scan the mesh folder before
 loading.
+
+### Shell route, second launch (user-driven, 22:41)
+
+Blood Gulch level with BSP 8's box widened, shell collision, mesh world.
+Vehicles and pickups placed. With `bWaitingForBlamGameplayStart` already
+false, the pawn read **(63.09, -6.47, 44.05) steady for five seconds** at
+the Halo start — 1.65 wu below the start point, i.e. landed, on Blood
+Gulch's floor (the transplant has nothing else there). The user reported
+falling to death before that sample; whether the fall was the respawn cycle
+or the terrain giving way elsewhere is the open question. The loader again
+reported the terrain mesh not found at spawn time; a later `StaticFindObject`
+returned an object (validity unchecked), `LoadAsset` returned invalid, and a
+level reload plus registry scan was followed by a game-thread hang.

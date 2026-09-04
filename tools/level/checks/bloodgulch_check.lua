@@ -8,7 +8,9 @@
 --    terrain means a steady height near EXPECT_Z; falling means FAIL.
 -- 3. Asks the asset registry to scan the mesh folder (a mod container is not
 --    in the shipped registry), then tries LoadAsset. No blocking soft-path
---    load: that call crashed the game once with a mis-shaped struct.
+--    load: that call crashed the game once with a mis-shaped struct. The
+--    scan + LoadAsset pair was followed by a game-thread hang once
+--    (2026-09-03 22:46, after a level reload), so run this part last.
 
 local TERRAIN_MESH = "/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0"
 local MESH_DIR = "/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch"
@@ -52,7 +54,8 @@ print(string.format("[BG CHECK] pawn xy (%.2f, %.2f) z trace %s  %s",
   l.X / 304.8, -l.Y / 304.8, table.concat(trace, " "), verdict))
 
 -- Mesh asset loading.
-print("[BG CHECK] mesh in memory before:", tostring(StaticFindObject(TERRAIN_MESH) ~= nil))
+local before = StaticFindObject(TERRAIN_MESH)
+print("[BG CHECK] mesh in memory before:", tostring(before ~= nil and before:IsValid()))
 local okScan, scanErr = pcall(function()
   local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
   local reg = helpers:GetAssetRegistry()
@@ -61,4 +64,5 @@ end)
 print("[BG CHECK] registry scan:", okScan and "ok" or ("error " .. tostring(scanErr)))
 local okLoad, asset = pcall(function() return LoadAsset(TERRAIN_MESH) end)
 print("[BG CHECK] LoadAsset after scan:", okLoad and tostring(asset and asset:IsValid()) or ("error " .. tostring(asset)))
-print("[BG CHECK] mesh in memory after:", tostring(StaticFindObject(TERRAIN_MESH) ~= nil))
+local after = StaticFindObject(TERRAIN_MESH)
+print("[BG CHECK] mesh in memory after:", tostring(after ~= nil and after:IsValid()))
