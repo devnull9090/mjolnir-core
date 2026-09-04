@@ -158,7 +158,11 @@ shipped world. Visuals therefore ride the same container as the world:
    UE 5.6 HaloUE project's 343 assets cannot be reused: cooked formats are
    engine-version locked and the game is 5.5.
 2. `scripts/package.ps1 -LevelPackage /Game/Levels/Halo1/Solo/B40/B40` cooks
-   world and mesh into the container.
+   world and mesh into the container. Two things had to be true for the mesh
+   to come along at all: nothing in the empty world references it, so
+   `DefaultGame.ini` lists the folder under `DirectoriesToAlwaysCook`; and a
+   label's "assets in my directory" rule does not descend into subfolders, so
+   the mesh folder carries its own chunk-990 label.
 3. The level file's `decor` names the mesh
    (`/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0`) at the
    collision offset; the runtime loader spawns it.
