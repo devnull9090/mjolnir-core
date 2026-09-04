@@ -291,3 +291,20 @@ that tolerates null. This is where the definition route stops without
 reversing the loader; `C:\tools\ghidra_12.1.2_PUBLIC` is available for that
 pass, starting from the caller chain into `HaloSimulation_tag_release.dll`
 `+0x2eb130` and the relocation of `raw_items` blocks at BSP mount.
+
+### Ghidra: the relocation, found (2026-09-04)
+
+Full write-up in `docs/re/collision_bsp/`. The sim resolves collision data
+through 16 memory arenas: a reference is `(arena<<28)|(dword offset)`, resolved
+as `arena_base_table[arena] + offset*4` (base table at `.data 0x1802c2ccc0`).
+On-disk block fields are `{count, 0, 0}`; the two zeros are the data and
+struct-def refs, filled at load into a resident structure-BSP record at
+`DAT_1813d45a8 + bsp_index*0x490`. The crash (`+0x2eb450`, the kd supernode
+walk) reads `arena_base[ref>>28]` and gets null: the collision block's ref was
+never correctly relocated. The trigger is **changing a nested collision
+block's element count** — the same-size `shift_defs` edit loads and the pawn
+stands, while every count change (transplant grow, shipped-copy, all-clear
+shrink) crashes, regardless of byte validity or total size. The exact writer
+populates the 0x490 record through a passed pointer, so the cheapest next step
+is a live memory diff of that record between a shipped and a resized load to
+name the block whose relocation breaks.
