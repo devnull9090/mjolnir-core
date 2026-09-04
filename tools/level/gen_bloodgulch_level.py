@@ -129,6 +129,12 @@ def main():
             "vehicles": vehicles,
             "weapons": weapons,
             "equipment": equipment,
+            # The host BSP's world box tiles the scenario; Blood Gulch is wider
+            # than BSP_01_1_Start's, and a point outside every box is "outside
+            # the world". Union of the shipped box and the terrain, plus 5 wu.
+            "world_bounds": [
+                {"bsp": 8, "min": [-34.5, -44.05, -270.2], "max": [101.5, 120.9, 116.35]}
+            ],
         },
         "markers": [
             {"type": MARKERS[f["type"]], "team": f["team"], "pos": to_ue(f["pos"]), "yaw": yaw_ue(f["facing"])}
