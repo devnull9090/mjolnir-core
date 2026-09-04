@@ -221,3 +221,22 @@ the pawn walks on (and the earlier shift result needs re-reading); falling
 means overrides are served and the slot swap is the problem. The blank
 level, the fan-split transplant and the Blood Gulch level all wait in the
 session scratch. Do not test through Resume.
+
+### Later the same night
+
+Two more definition-route launches, both stalled in the travel transition:
+every definition emptied (`bg_allclear`), and the Blood Gulch transplant
+with the Havok shape box written correctly. `examples/shape_frame.rs`
+established the box's frame first — the definition's local vertex bounds
+times the instance scale, no rotation or position (instances 763, 105, 545
+match to the last digit) — so the box is right and still not sufficient.
+Five stalls against one load: the definition route is parked until the
+per-instance load-time build is understood, most likely by finding what the
+simulation does with `instanced geometry instances[i].physics` and the
+instance-group mopps when a BSP is mounted.
+
+Installed for the next launch: **world shell** collision (the build that
+held the pawn), the Blood Gulch level with BSP 8's world box widened to the
+terrain's extent, and the world container carrying the terrain mesh. The
+check script also asks the asset registry to scan the mesh folder before
+loading.
