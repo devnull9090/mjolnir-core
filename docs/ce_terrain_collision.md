@@ -197,3 +197,27 @@ NEW GAME launch of Assault on the Control Room, then
 does the shell collision hold the pawn, does the mesh asset load, does it
 render where the collision is. The definition-collision variant and the
 blank level wait in the session scratch (`bgsbsp`, `paks_moved`).
+
+## Launch log, 2026-09-03 evening
+
+| build | collision | level | result |
+|---|---|---|---|
+| shell, 2D fixed, floors cleared | world shell | Blood Gulch level (starts, vehicles, pickups) | vehicles and pickups placed; pawn steady 3 s at the Halo start (63.09, -6.47, 45.13); user fell after moving; LoadAsset on the mesh returned invalid; a blocking soft-path load with a 5.0-shaped struct crashed the game |
+| def 159 via inst 763, 2D fixed, group sphere widened | definition | blank | game thread stalled ~4 s after the B40 world loaded |
+| same, sphere untouched | definition | blank | stalled after the world loaded |
+| same + fan split (73 polygons -> triangles) | definition | blank | stalled during the travel transition, before the world |
+| **control: shipped def 178 copied verbatim into 159** | definition | blank | stalled during the travel transition |
+
+So the definition-slot swap stalls the load even with shipped geometry, and
+the one definition build that did load earlier (broken 2D data) had its
+emptied floors still holding the pawn - which means that container's tables
+were not what the pawn stood on. Whether the override was served at all in
+that run is unknown. None of these stalls left a crash report.
+
+The next launch is a control, already installed: **every definition's
+collision emptied** (`bg_allclear`), with the mesh-free canvas world back in
+place. Standing at 48.16 means definition tables in an override are not what
+the pawn walks on (and the earlier shift result needs re-reading); falling
+means overrides are served and the slot swap is the problem. The blank
+level, the fan-split transplant and the Blood Gulch level all wait in the
+session scratch. Do not test through Resume.
