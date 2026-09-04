@@ -14,6 +14,12 @@ import sys
 PLACEMENT = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\will\prj\HalcyonRing\staging\bloodgulch\placement.json"
 BLANK = "examples/levels/blank_b40.level.json"
 OUT = "examples/levels/bloodgulch.level.json"
+# The terrain mesh the MapKit cook carries (unreal/MJOLNIRMapKit/Content/Python/
+# mjolnir_import_bloodgulch.py writes the real object paths to
+# Saved/mjolnir_bloodgulch_meshes.txt); override with MJOLNIR_TERRAIN_MESH.
+TERRAIN_MESH = __import__("os").environ.get(
+    "MJOLNIR_TERRAIN_MESH", "/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0"
+)
 
 # Halo wu -> blank-B40 world wu: the offset the collision transplant used.
 DELTA = (-35.4, 151.17, 44.0)
@@ -129,7 +135,16 @@ def main():
             for f in src["netgame_flags"]
             if f["type"] in MARKERS
         ],
-        "decor": [],
+        # The terrain mesh, spawned by the runtime loader at the collision offset:
+        # halo2ue exports the level so an Unreal import lands at Halo (x, -y, z)
+        # x 304.8 cm, so only the transplant's offset is applied here.
+        "decor": [
+            {
+                "id": "bloodgulch_terrain",
+                "mesh": TERRAIN_MESH,
+                "pos": [round(DELTA[0] * 304.8, 1), round(-DELTA[1] * 304.8, 1), round(DELTA[2] * 304.8, 1)],
+            }
+        ],
     }
     json.dump(level, open(OUT, "w"), indent=2)
     print(

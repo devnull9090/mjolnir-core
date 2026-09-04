@@ -2356,5 +2356,15 @@
       "yaw": -0.0
     }
   ],
-  "decor": []
+  "decor": [
+    {
+      "id": "bloodgulch_terrain",
+      "mesh": "/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0",
+      "pos": [
+        -10789.9,
+        -46076.6,
+        13411.2
+      ]
+    }
+  ]
 }
