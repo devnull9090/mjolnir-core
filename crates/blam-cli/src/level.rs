@@ -157,6 +157,11 @@ pub struct Clear {
     pub equipment: bool,
     #[serde(default)]
     pub scripts: bool,
+    /// Any other root block to empty, by its name in the tag layout, e.g.
+    /// `"machines"` or `"scenario kill triggers"`. Named before the flags so a
+    /// file can strip a mission down to bare geometry in one list.
+    #[serde(default)]
+    pub blocks: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -271,7 +276,10 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
         );
     }
     if level.blam.clear.scripts {
-        notes.push("clear.scripts is not implemented yet; the flag is ignored".to_string());
+        notes.push(
+            "clear.scripts replaces the mission's script with one startup script that              fades in and hands the camera and input to the player"
+                .to_string(),
+        );
     }
     Ok(notes)
 }
@@ -665,6 +673,59 @@ impl Baker {
         Ok(())
     }
 
+    /// Replace the mission's whole script section with one startup script.
+    ///
+    /// Emptying the block would be simpler, but a Blam map boots with the
+    /// screen faded out, the camera under script control and player input off:
+    /// the mission's own script is what hands those back. A map with no script
+    /// at all therefore loads black and frozen, with a live simulation behind
+    /// it. This writes the smallest script that opens a level for play.
+    fn stub_scripts(&mut self) -> Result<()> {
+        const STUB: &str = "(script startup mjolnir_level_startup
+  (begin
+    (fade_in 0 0 0 15)
+    (camera_control false)
+    (player_enable_input true)))
+";
+        let corpus_path = crate::resolve_data_path(Path::new("defs/hce/scripting.json"));
+        let corpus = blam_hsc::ScriptCorpus::load(&corpus_path).with_context(|| {
+            format!(
+                "clear.scripts needs the scripting corpus at {}; run `mjolnir scripting` first",
+                corpus_path.display()
+            )
+        })?;
+
+        let tag = TagFile::parse(&self.file, None)?;
+        let layout = tag.layout()?;
+        let block = tag.read_data(&layout)?;
+        let original = blam_hsc::read::read(&layout, &block, &self.file)?;
+
+        let compiled = blam_hsc::Compiler::from_corpus(&corpus)
+            .compile(&[("mjolnir_level_startup", STUB)]);
+        if !compiled.ok() {
+            let first = compiled
+                .errors()
+                .next()
+                .map(|e| e.message.clone())
+                .unwrap_or_default();
+            bail!("the startup script did not compile: {first}");
+        }
+
+        let mut section = compiled.section;
+        section.shapes = original.shapes;
+        // The source text goes with it, so `mjolnir script --source` still
+        // shows what the level runs.
+        section.source_files = Vec::new();
+
+        self.file = blam_hsc::emit::rewrite(&section, &self.file)
+            .map_err(|e| anyhow::anyhow!("writing the startup script: {e}"))?;
+        println!(
+            "  clear   scripts: {} -> 1 script (startup: fade in, camera and input to the player)",
+            original.scripts.len()
+        );
+        Ok(())
+    }
+
     /// Drop the host mission's own placements, keeping this bake's appends.
     /// Runs AFTER the placement passes so their donors still existed.
     fn clears(&mut self, clear: &Clear) -> Result<()> {
@@ -692,8 +753,12 @@ impl Baker {
         if clear.squads {
             wipe("squads")?;
         }
+        for name in &clear.blocks {
+            wipe(name)?;
+        }
+        drop(wipe);
         if clear.scripts {
-            println!("  clear   scripts: not implemented yet, ignored");
+            self.stub_scripts()?;
         }
         Ok(())
     }

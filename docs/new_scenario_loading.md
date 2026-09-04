@@ -153,6 +153,64 @@ Remaining hypotheses, cheapest first:
   which is a float-timeout wait at `+0x1F0`/`+0x1F4`. Instrumenting that state
   byte during a PG1 load is the next concrete step.
 
+## The name is fine; the package is not (2026-09-03, second session)
+
+A clean discriminator settles what the simulation actually rejects. Inject a
+data-table row keyed `PG2` — a name the game has never seen — but leave its
+`ScenarioName` field reading `B40`, so the flow derives the *shipped* tag path
+from it. Launched from MISSION SELECT as an eleventh mission, that row starts
+normally: `ServerMarkFinishedBlamMapLoad` fires 1.8 s later and the mission
+plays.
+
+So new names, new `DT_Scenarios` rows and new `ScenarioList` entries are all
+accepted. What the simulation refuses is a **new scenario tag package**, even
+one whose `.uasset` and `.ubulk` are byte-identical to a shipped scenario's
+(verified: both chunks ship in the mod container at the same sizes, and a
+byte search for the donor codename finds the same 46 and 413 hits at the same
+offsets as the shipped tag). Until the tag registry the simulation builds at
+startup can be extended, a custom map has to ride on a shipped scenario tag,
+with a new menu row pointing at that shipped codename.
+
+Also worth keeping: a bare `SetAndBeginCampaign` from script does not
+cold-start the simulation *even for a shipped mission* — it returns true, the
+world loads, and no map-load mark ever arrives. Only the menu flow brings the
+session up, so it is not a shortcut for automation and not evidence about a
+new scenario.
+
+## Making a blank map out of a shipped mission
+
+`mjolnir level bake` now strips a mission to bare geometry. `blam.clear` takes
+the placement flags it always had plus a `blocks` list naming any other root
+block to empty, and `clear.scripts` no longer just empties the script block:
+
+```json
+"clear": { "squads": true, "vehicles": true, "scripts": true,
+           "blocks": ["scenery", "machines", "trigger volumes",
+                      "scenario kill triggers"] }
+```
+
+**A map with no script at all boots black and frozen.** Blam hands a level to
+the player from the mission's own script: the screen starts faded out, the
+camera is under script control and player input is off. B40 in particular
+opens with the player belted into a Pelican for the intro cinematic, so a
+script-less bake leaves a live simulation the player cannot see or move in —
+the simulation is fine (a console `player_teleport` moves the unit), only the
+handover never happens. `clear.scripts` therefore compiles a replacement
+section holding one script:
+
+```
+(script startup mjolnir_level_startup
+  (begin
+    (fade_in 0 0 0 15)
+    (camera_control false)
+    (player_enable_input true)))
+```
+
+That is enough: the map fades in, the player owns the camera and walks.
+`examples/levels/blank_b40.level.json` is the worked example — B40 with every
+placement, every AI, every trigger and the whole mission script gone, plus a
+sky and four landmark shapes spawned by the runtime loader.
+
 ## Runtime insertion (probe recipe)
 
 `native/scenario_probe/tagrefs_probe.c` exports, loaded from the UE4SS Lua

@@ -37,7 +37,7 @@ mod texture;
 ///
 /// An explicit `--corpus` that does not exist still comes back unchanged, so the
 /// error names the path the caller asked for rather than one they never typed.
-fn resolve_data_path(given: &std::path::Path) -> PathBuf {
+pub fn resolve_data_path(given: &std::path::Path) -> PathBuf {
     if given.exists() || given.is_absolute() {
         return given.to_path_buf();
     }

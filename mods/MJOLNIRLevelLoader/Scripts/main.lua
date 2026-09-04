@@ -315,6 +315,21 @@ local function spawnEnvironment(world)
         c:RecaptureSky()
     end)
     Log("environment spawned (sun/atmosphere/skylight)")
+
+    -- A level baked with `clear.scripts` has no mission script left to fade the
+    -- screen back in after the loading screen, so the map boots pitch black
+    -- with a live simulation behind it. Ask the Blam console to fade in once,
+    -- unless the level opts out with `environment.fade_in = false`.
+    if env.fade_in ~= false then
+        local ok = pcall(function()
+            local kismet = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            local pc = FindFirstOf("PlayerController")
+            if kismet and pc then
+                kismet:ExecuteConsoleCommand(pc, "blam !(fade_in 0 0 0 15)", pc)
+            end
+        end)
+        Log(ok and "fade_in requested" or "fade_in request failed")
+    end
 end
 
 local function spawnDecor(world)
