@@ -182,3 +182,18 @@ whether a package absent from the shipped asset registry can be loaded by
 path from Lua at all (`LoadAsset` versus `KismetSystemLibrary.LoadAsset_Blocking`).
 If neither loads it, the fallback is to make the empty world import the mesh
 so it arrives with the level.
+
+## Installed right now (2026-09-03 evening)
+
+| container | holds |
+|---|---|
+| `pakchunk990-MJOLNIRWORLD-Windows_P` | empty B40 canvas world + `bsp_0` terrain mesh, 42 materials, 16 textures (79 chunks) |
+| `pakchunk998-MJOLNIRLEVEL-bloodgulch_P` | stripped B40 scenario with Bloodgulch starts, vehicles, pickups, startup script |
+| `pakchunk999-MJOLNIR-Windows_P` | BSP_01_1_Start with the Bloodgulch collision in the **world shell**, spawn floors cleared |
+
+Plus the loader's `levels/B40.level.json` with the terrain decor entry. One
+NEW GAME launch of Assault on the Control Room, then
+`tools/level/checks/bloodgulch_check.lua`, answers three questions at once:
+does the shell collision hold the pawn, does the mesh asset load, does it
+render where the collision is. The definition-collision variant and the
+blank level wait in the session scratch (`bgsbsp`, `paks_moved`).
