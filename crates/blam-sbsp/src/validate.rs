@@ -45,13 +45,19 @@ fn f32_at(b: &[u8], o: usize) -> f32 {
 
 /// Validate the world shell of `file`.
 pub fn shell(file: &[u8]) -> Result<Report, Error> {
+    at(file, SHELL)
+}
+
+/// Validate the collision tables under `base` — the world shell, or an
+/// instanced-geometry definition's `collision info`, which has the same shape.
+pub fn at(file: &[u8], base: &str) -> Result<Report, Error> {
     let tag = blam_tag::TagFile::parse(file, None).map_err(|e| Error::Other(e.to_string()))?;
     let layout = tag.layout().map_err(|e| Error::Other(e.to_string()))?;
     let root = tag
         .read_data(&layout)
         .map_err(|e| Error::Other(e.to_string()))?;
     let get = |name: &str| -> Result<(&[u8], usize, usize), Error> {
-        let f = find_block(&layout, file, &root, &format!("{SHELL}.{name}"))?;
+        let f = find_block(&layout, file, &root, &format!("{base}.{name}"))?;
         Ok((
             f.block.elements,
             f.block.count as usize,

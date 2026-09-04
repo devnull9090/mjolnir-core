@@ -110,6 +110,35 @@ pub fn passthrough_supernode(bounds: Bounds) -> Vec<u8> {
 
 /// The rewrites that put `packed` into `donor`, as a list the caller can
 /// inspect before applying.
+/// The eight collision tables, as replacements under `base` — the world shell
+/// (`SHELL`) or an instanced-geometry definition's `collision info`, which
+/// carry the same block shapes.
+pub fn tables_at(base: &str, packed: &Packed) -> Vec<NestedReplace> {
+    let table = |name: &str, bytes: &[u8], size: usize| NestedReplace {
+        path: format!("{base}.{name}"),
+        count: (bytes.len() / size) as u32,
+        elements: bytes.to_vec(),
+        wrappers: None,
+    };
+    vec![
+        table("bsp3d nodes", &packed.bsp3d_nodes, 8),
+        table("planes", &packed.planes, 16),
+        table("leaves", &packed.leaves, 8),
+        table("bsp2d references", &packed.bsp2d_references, 4),
+        table("bsp2d nodes", &packed.bsp2d_nodes, 16),
+        table("surfaces", &packed.surfaces, 14),
+        table("edges", &packed.edges, 12),
+        table("vertices", &packed.vertices, 16),
+    ]
+}
+
+/// The collision-info path of one instanced-geometry definition.
+pub fn definition(index: usize) -> String {
+    format!(
+        "resource interface.raw_resources[0].raw_items.instanced geometries definitions[{index}].collision info"
+    )
+}
+
 pub fn plan(donor: &[u8], packed: &Packed, opts: &Options) -> Result<Vec<NestedReplace>, Error> {
     let tag = blam_tag::TagFile::parse(donor, None).map_err(|e| Error::Other(e.to_string()))?;
     let layout = tag.layout().map_err(|e| Error::Other(e.to_string()))?;
@@ -117,21 +146,13 @@ pub fn plan(donor: &[u8], packed: &Packed, opts: &Options) -> Result<Vec<NestedR
         .read_data(&layout)
         .map_err(|e| Error::Other(e.to_string()))?;
 
-    let mut out = Vec::new();
+    let mut out = tables_at(SHELL, packed);
     let table = |name: &str, bytes: &[u8], size: usize| NestedReplace {
         path: format!("{SHELL}.{name}"),
         count: (bytes.len() / size) as u32,
         elements: bytes.to_vec(),
         wrappers: None,
     };
-    out.push(table("bsp3d nodes", &packed.bsp3d_nodes, 8));
-    out.push(table("planes", &packed.planes, 16));
-    out.push(table("leaves", &packed.leaves, 8));
-    out.push(table("bsp2d references", &packed.bsp2d_references, 4));
-    out.push(table("bsp2d nodes", &packed.bsp2d_nodes, 16));
-    out.push(table("surfaces", &packed.surfaces, 14));
-    out.push(table("edges", &packed.edges, 12));
-    out.push(table("vertices", &packed.vertices, 16));
 
     let leaf_count = (packed.leaves.len() / 8) as u32;
     let edge_count = (packed.edges.len() / 12) as u32;

@@ -3,7 +3,11 @@
 fn main() {
     let path = std::env::args().nth(1).expect("payload path");
     let file = std::fs::read(&path).expect("read");
-    let r = blam_sbsp::validate::shell(&file).expect("validate");
+    let base = std::env::args().nth(2);
+    let r = match base {
+        Some(b) => blam_sbsp::validate::at(&file, &b).expect("validate"),
+        None => blam_sbsp::validate::shell(&file).expect("validate"),
+    };
     println!(
         "nodes {} (roots {:?}) supernodes {} planes {} leaves {} (referenced {}) 2d refs {} 2d nodes {} surfaces {} edges {} vertices {}",
         r.nodes, r.roots, r.supernodes, r.planes, r.leaves, r.leaves_referenced,

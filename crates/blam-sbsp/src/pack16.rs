@@ -181,14 +181,55 @@ fn surface16(s: &Surface, materials: &dyn MaterialMap) -> [u8; 14] {
     b
 }
 
-/// Translate every vertex, plane and 2D plane by `delta` (world units): the
-/// probe path that moves a donor shell under the player without touching its
-/// topology. A plane `n·x = d` moved by `t` becomes `n·x = d + n·t`; a 2D
-/// plane lives in the projection of its parent 3D plane, which the packed
-/// tables do not name, so 2D planes are left alone — they only decide which
-/// surface a point already known to be on the 3D plane belongs to, and the
-/// projection is translation-invariant up to the same offset for every
-/// surface in that plane.
+/// Which two world axes a 3D plane's 2D BSP works in, and in what order.
+///
+/// Determined from shipped data (`examples/roundtrip16.rs`): drop the axis the
+/// normal is largest along, keep the other two in cyclic order when that
+/// component is positive and swapped when it is negative. Scored 100% of
+/// vertex checks on three definitions and 99.5% on the world shell; every
+/// other candidate sat near chance.
+pub fn projection_axes(n: [f32; 3]) -> (usize, usize) {
+    let a = (0..3)
+        .max_by(|&i, &j| n[i].abs().partial_cmp(&n[j].abs()).unwrap())
+        .unwrap();
+    let (p, q) = ((a + 1) % 3, (a + 2) % 3);
+    if n[a] > 0.0 {
+        (p, q)
+    } else {
+        (q, p)
+    }
+}
+
+/// The 3D plane each 2D node belongs to, found by walking down from every
+/// 2D reference. A node unreachable from any reference maps to `None`.
+pub fn node_planes(c: &Collision) -> Vec<Option<usize>> {
+    let mut owner = vec![None; c.bsp2d_nodes.len()];
+    for r in &c.bsp2d_references {
+        let plane = (r.plane as u32 & 0x7fff) as usize;
+        let mut stack = vec![r.node];
+        while let Some(child) = stack.pop() {
+            if child == -1 || (child as u32) & 0x8000_0000 != 0 {
+                continue;
+            }
+            let i = child as usize;
+            if i >= owner.len() || owner[i].is_some() {
+                continue;
+            }
+            owner[i] = Some(plane);
+            stack.push(c.bsp2d_nodes[i].left);
+            stack.push(c.bsp2d_nodes[i].right);
+        }
+    }
+    owner
+}
+
+/// Translate the whole BSP by `delta` (world units) without touching its
+/// topology: vertices move, a plane `n·x = d` becomes `n·x = d + n·t`, and
+/// each 2D split line `i·u + j·v = d` — which lives in the projection of its
+/// parent 3D plane — becomes `d + i·t[u] + j·t[v]`. An earlier version left
+/// the 2D lines alone, which put every surface on the wrong side of its
+/// splits after any sideways move; that is why transplanted shells and
+/// definitions let the pawn through.
 pub fn translate(c: &mut Collision, delta: [f32; 3]) {
     for v in &mut c.vertices {
         for a in 0..3 {
@@ -197,6 +238,12 @@ pub fn translate(c: &mut Collision, delta: [f32; 3]) {
     }
     for p in &mut c.planes {
         p.d += p.n[0] * delta[0] + p.n[1] * delta[1] + p.n[2] * delta[2];
+    }
+    let owners = node_planes(c);
+    for (i, node) in c.bsp2d_nodes.iter_mut().enumerate() {
+        let Some(plane) = owners[i] else { continue };
+        let (u, v) = projection_axes(c.planes[plane].n);
+        node.plane[2] += node.plane[0] * delta[u] + node.plane[1] * delta[v];
     }
 }
 
