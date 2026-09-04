@@ -272,3 +272,22 @@ explained. Next build: a pass-through supernode built on definition 159's own
 (15 cells all naming node 0), which no definition build had tried through
 NEW GAME. `examples/super_dump.rs` shows shipped cells are `0x40000000|node`
 for tree roots and small integers for child supernodes.
+
+### The fault address is zero
+
+The pass-through-supernode build crashed at the same instruction, and the
+exception records of the last two dumps both read address **0x0**. At that
+instruction the address is `arena_base + (block_ref_offset + node*2)*4`, so
+the definition's runtime block reference for `bsp3d nodes` was still zero:
+the block header was never relocated at load. The rewrite leaves the layout
+sections byte-identical and only grows the data section; the wrapping
+`.uasset` is 769 bytes with no offset table; the block fields and `tgbl`
+headers are shaped exactly like the shipped ones (`examples/block_headers.rs`,
+`tag_sections.rs`, `uasset_offsets.rs`). So whatever the loader uses to
+decide which nested block headers to relocate is not in the layout, not in
+the package, and not in the header shape — and the world shell's silent "no
+collision" is most likely the same unrelocated reference read by a walker
+that tolerates null. This is where the definition route stops without
+reversing the loader; `C:	ools\ghidra_12.1.2_PUBLIC` is available for that
+pass, starting from the caller chain into `HaloSimulation_tag_release.dll`
+`+0x2eb130` and the relocation of `raw_items` blocks at BSP mount.
