@@ -121,3 +121,25 @@ no tower floor under it and lands on Bloodgulch's canyon floor at about
 Havok mopp still culls the instance, and the mopp bytecode is the next thing
 to decode. Do not test through RESUME: three of three resumes with a modified
 structure BSP hung the game thread, while NEW GAME loaded every time.
+
+## The scenario half
+
+`tools/level/gen_bloodgulch_level.py` turns the halo2ue staging export
+(`staging/bloodgulch/placement.json`) into `examples/levels/bloodgulch.level.json`:
+eight CTF/Slayer starts, the 28 vehicles, 15 weapons and 18 pickups the CE map
+places (through `defs/level/palette-map.json`; health packs, the flamethrower
+and the plasma cannon have no equivalent and are dropped), and 170 netgame
+markers kept for a later game-mode layer. Everything moves by the same
+`(-35.4, 151.17, 44.0)` wu offset as the collision, so a start at Halo
+`(98.49, -157.64, 1.70)` lands at `(63.09, -6.47, 45.70)` wu, 1.6 wu above the
+transplanted floor there.
+
+Assembly for a test, two containers plus the loader's level file:
+
+    mjolnir level bake examples/levels/bloodgulch.level.json --install-test     # scnr: pakchunk998-MJOLNIRLEVEL-bloodgulch_P
+    (one of the two collision containers above)                               # sbsp: pakchunk999-MJOLNIR-Windows_P
+
+Remove `pakchunk998-MJOLNIRLEVEL-blank_b40_P.*` first: two `_P` containers
+over the same scenario chunk would race. Order of tests: blank map + shell
+collision (landing height), then this level on whichever collision variant
+held the pawn.
