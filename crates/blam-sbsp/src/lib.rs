@@ -12,6 +12,7 @@
 pub mod ce;
 pub mod pack16;
 pub mod transplant;
+pub mod split;
 pub mod unpack16;
 pub mod validate;
 

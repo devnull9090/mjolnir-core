@@ -51,6 +51,10 @@ fn main() {
         [0.0, 0.0, 0.0]
     };
     pack16::translate(&mut collision, delta);
+    // Shipped definitions are triangles and quads only; larger CE polygons
+    // took the simulation down once lookups reached them.
+    let (split, rewired) = blam_sbsp::split::fan_split(&mut collision, 4);
+    println!("  split {split} polygon(s) with more than four vertices ({rewired} 2D reference(s) rewired)");
     let bounds = collision.bounds().expect("vertices");
     println!(
         "collision: {} nodes, {} planes, {} leaves, {} surfaces, {} edges, {} vertices",

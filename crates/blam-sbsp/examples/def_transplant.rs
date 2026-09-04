@@ -70,6 +70,10 @@ fn main() {
     if local_delta != [0.0; 3] {
         pack16::translate(&mut collision, local_delta);
     }
+    // Shipped definitions are triangles and quads only; larger CE polygons
+    // took the simulation down once lookups reached them.
+    let (split, rewired) = blam_sbsp::split::fan_split(&mut collision, 4);
+    println!("  split {split} polygon(s) with more than four vertices ({rewired} 2D reference(s) rewired)");
     let local_bounds = collision.bounds().expect("bounds");
     let bounds = if keep_pos {
         blam_sbsp::ce::Bounds {
