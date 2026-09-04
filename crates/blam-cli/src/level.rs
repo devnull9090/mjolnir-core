@@ -140,6 +140,19 @@ pub struct BlamSection {
     pub equipment: Vec<TypedPlacement>,
     #[serde(default)]
     pub objects: Vec<ObjectPlacement>,
+    /// Widen a structure BSP's world box (Halo wu). The scenario's boxes tile
+    /// the world and decide which BSP a point belongs to; transplanted terrain
+    /// larger than its host BSP falls "outside the world" past the old edge.
+    #[serde(default)]
+    pub world_bounds: Vec<WorldBounds>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldBounds {
+    pub bsp: usize,
+    pub min: [f64; 3],
+    pub max: [f64; 3],
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -802,6 +815,19 @@ fn bake(a: BakeArgs) -> Result<()> {
     baker.typed("equipment", "equipment palette", &level.blam.equipment, &map.equipment)?;
     baker.objects(&level.blam.objects)?;
     baker.clears(&level.blam.clear)?;
+    for wb in &level.blam.world_bounds {
+        for (axis, name) in ["x", "y", "z"].iter().enumerate() {
+            apply_set(
+                &mut baker.file,
+                &format!("structure bsps[{}].world bounds {name}", wb.bsp),
+                &format!("({}, {})", wb.min[axis], wb.max[axis]),
+            )?;
+        }
+        println!(
+            "  bounds  structure bsps[{}] -> ({:.2}, {:.2}, {:.2}) .. ({:.2}, {:.2}, {:.2}) wu",
+            wb.bsp, wb.min[0], wb.min[1], wb.min[2], wb.max[0], wb.max[1], wb.max[2]
+        );
+    }
 
     let file = baker.file;
 
