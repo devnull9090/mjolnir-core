@@ -277,7 +277,7 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     if level.blam.clear.scripts {
         notes.push(
-            "clear.scripts replaces the mission's script with one startup script that              fades in and hands the camera and input to the player"
+            "clear.scripts replaces the mission's script with one startup script that fades in and hands the camera and input to the player"
                 .to_string(),
         );
     }
