@@ -257,7 +257,10 @@ pub struct Descriptor {
 pub struct LiveTag {
     /// Slot in the table.
     pub index: u32,
-    pub salt: u16,
+    /// The engine's per-slot reuse counter (Blam calls it the salt): a
+    /// reloaded tag in the same slot gets a new one, so a stale handle
+    /// never resolves.
+    pub generation: u16,
     /// Tag group four-CC as the file spells it (`weap`).
     pub group: [u8; 4],
     /// Tag path as the engine spells it: backslashes, no extension,
@@ -267,9 +270,9 @@ pub struct LiveTag {
 }
 
 impl LiveTag {
-    /// The value a tag reference holds in the resident copy: `salt << 16 | index`.
+    /// The value a tag reference holds in the resident copy: `generation << 16 | index`.
     pub fn handle(&self) -> u32 {
-        (self.salt as u32) << 16 | self.index
+        (self.generation as u32) << 16 | self.index
     }
 
     pub fn group_str(&self) -> String {
@@ -389,7 +392,7 @@ impl TagTable {
             };
             tags.push(LiveTag {
                 index: i as u32,
-                salt: u16::from_le_bytes(e[0..2].try_into().unwrap()),
+                generation: u16::from_le_bytes(e[0..2].try_into().unwrap()),
                 group: u32_at(ENTRY_GROUP).to_be_bytes(),
                 name,
                 root: Descriptor {
@@ -472,7 +475,7 @@ impl LiveTags {
             .map(|i| &self.tags[*i])
     }
 
-    /// The entry a handle names, if the salt still matches.
+    /// The entry a handle names, if the generation still matches.
     pub fn by_handle(&self, handle: u32) -> Option<&LiveTag> {
         let index = handle & 0xFFFF;
         self.tags
@@ -549,9 +552,9 @@ mod tests {
         h
     }
 
-    fn entry(salt: u16, group: &[u8; 4], name_ptr: u64, data: u32) -> Vec<u8> {
+    fn entry(generation: u16, group: &[u8; 4], name_ptr: u64, data: u32) -> Vec<u8> {
         let mut e = vec![0u8; ENTRY_SIZE];
-        e[0..2].copy_from_slice(&salt.to_le_bytes());
+        e[0..2].copy_from_slice(&generation.to_le_bytes());
         e[4..8].copy_from_slice(&u32::from_be_bytes(*group).to_le_bytes());
         e[0x10..0x18].copy_from_slice(&name_ptr.to_le_bytes());
         e[0x18..0x1c].copy_from_slice(&1u32.to_le_bytes());
@@ -637,7 +640,7 @@ mod tests {
         assert_eq!(tags.by_handle(0xE24A_0002).map(|t| t.index), Some(2));
         assert!(
             tags.by_handle(0xE24B_0002).is_none(),
-            "a stale salt is not the same tag"
+            "a stale generation is not the same tag"
         );
     }
 

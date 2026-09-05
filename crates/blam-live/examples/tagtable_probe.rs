@@ -136,14 +136,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let e = &blob[i * 0x30..(i + 1) * 0x30];
-        let salt = u16_at(e, 0);
+        let generation = u16_at(e, 0);
         let group = fourcc(u32_at(e, 4));
         let name_ptr = u64_at(e, 0x10);
         let count = u32_at(e, 0x18);
         let enc_data = u32_at(e, 0x1c);
         let enc_def = u32_at(e, 0x20);
         let name = read_cstr(&p, name_ptr);
-        let handle = (salt as u32) << 16 | i as u32;
+        let handle = (generation as u32) << 16 | i as u32;
         let data = resolve(enc_data);
         let def = resolve(enc_def);
         found += 1;
