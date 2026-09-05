@@ -352,6 +352,7 @@ cargo run --release -p blam-cli -- tag-file --file ar.tag --field "magazines[0].
 cargo run --release -p blam-cli -- poke --group biped --tag spartans --field "jump velocity" --value 25
 cargo run --release -p blam-cli -- live tags --group weap             # every loaded tag, from the game's own table
 cargo run --release -p blam-cli -- live string-ids --find warthog_d   # is this string id registered in the running game?
+cargo run --release -p blam-cli -- new-tag --group collision_model --from marine-collision_model --to "objects\characters\marinf\marinf" --install-test
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 

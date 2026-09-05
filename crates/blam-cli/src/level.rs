@@ -919,7 +919,7 @@ fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
 
 /// The smallest shipped .pak, copied as the mount stub (same trick the tag
 /// editor's test install uses).
-fn stub_pak_bytes(paks: &Path) -> Result<Vec<u8>> {
+pub(crate) fn stub_pak_bytes(paks: &Path) -> Result<Vec<u8>> {
     let mut smallest: Option<(u64, PathBuf)> = None;
     for entry in std::fs::read_dir(paks)?.flatten() {
         let path = entry.path();

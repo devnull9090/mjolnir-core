@@ -19,6 +19,7 @@ mod index;
 mod level;
 mod live;
 mod mesh;
+mod newtag;
 mod rename;
 mod tagdiff;
 mod texture;
@@ -146,6 +147,8 @@ enum Command {
     Poke(PokeArgs),
     /// Read the running game's own tag table and string-id registry.
     Live(live::LiveArgs),
+    /// Put a brand-new tag package in front of the game, cloned from a donor.
+    NewTag(newtag::NewTagArgs),
     /// Read the Blam script a scenario carries.
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
@@ -519,6 +522,7 @@ fn main() -> Result<()> {
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
         Command::Live(a) => live::run(a),
+        Command::NewTag(a) => newtag::run(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Console(a) => console::run(a),
@@ -1116,35 +1120,7 @@ fn pack(a: PackArgs) -> Result<()> {
 
     // Apply every edit, then re-read the result from scratch so what goes into
     // the container is judged by what the bytes say, not by what we intended.
-    let mut file = original.clone();
-    for set in &a.sets {
-        let (path, value) = set
-            .split_once('=')
-            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
-        let tag = TagFile::parse(&file, Some(file.len()))?;
-        let l = tag.layout()?;
-        let block = tag.read_data(&l)?;
-        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
-        // A section-backed value resizes the tag, so it takes the rebuild path.
-        let resizes = target.section.is_some();
-        let parsed = match target.type_name.as_str() {
-            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
-            "tag reference" => parse_reference(value)?,
-            _ => blam_tag::value::parse(&l, &target.field, value)?,
-        };
-        let (out, applied) = if resizes {
-            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
-        } else {
-            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
-        };
-        println!(
-            "  edit     {} : {} -> {}",
-            applied.path,
-            applied.before.display(),
-            applied.after.display()
-        );
-        file = out;
-    }
+    let file = apply_sets(&original, &a.sets)?;
 
     if file.len() == original.len() {
         let changed = (0..file.len()).filter(|i| file[*i] != original[*i]).count();
@@ -1310,6 +1286,42 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
 /// Parse `group:path` or `none` into a tag reference.
+/// Apply `path=value` edits to a tag payload in order, printing each one.
+/// Shared by `pack` and `new-tag`: string ids and tag references take their
+/// own parsers, a section-backed value takes the rebuild path.
+pub(crate) fn apply_sets(original: &[u8], sets: &[String]) -> Result<Vec<u8>> {
+    let mut file = original.to_vec();
+    for set in sets {
+        let (path, value) = set
+            .split_once('=')
+            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
+        let tag = TagFile::parse(&file, Some(file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
+        // A section-backed value resizes the tag, so it takes the rebuild path.
+        let resizes = target.section.is_some();
+        let parsed = match target.type_name.as_str() {
+            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+            "tag reference" => parse_reference(value)?,
+            _ => blam_tag::value::parse(&l, &target.field, value)?,
+        };
+        let (out, applied) = if resizes {
+            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
+        } else {
+            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
+        };
+        println!(
+            "  edit     {} : {} -> {}",
+            applied.path,
+            applied.before.display(),
+            applied.after.display()
+        );
+        file = out;
+    }
+    Ok(file)
+}
+
 pub(crate) fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
     let t = text.trim();
     if t.is_empty() || t.eq_ignore_ascii_case("none") {

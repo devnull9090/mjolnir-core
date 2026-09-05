@@ -570,3 +570,19 @@ The game ships both `.pak` and `.utoc`/`.ucas`, and the `.pak` files are large �
 They will not, for the tags. The tag payloads are IoStore **chunks**, addressed by chunk ID
 through the zen loader, not by file path through the pak mount. A `.pak` override would have
 to reach the package store, which is what the IoStore container is for.
+
+## New packages register and resolve by name
+
+**Answered 2026-09-05** (build CU4, mission A30). A brand-new tag package — the marine's
+collision model cloned under `/Game/Tags/objects/characters/marinf/marinf-collision_model` by
+`mjolnir new-tag`, in a `_P` container carrying only its own `ContainerHeader`
+(`blam_pack::build_addition`) — was loaded by the simulation when the marine `model` tag's
+`collision model` reference was repointed at it with `mjolnir pack`. No tag imported it. The
+simulation's own tag table (`mjolnir live tags --filter marinf`) listed it as the 7,056th loaded
+tag, and the model's resident reference held its handle. Details in
+[`tag_table_and_string_ids.md`](tag_table_and_string_ids.md).
+
+Three earlier open items close with it: the runtime tag registry is enumerated from what is
+mounted; a mod container's own `ContainerHeader` is honoured; references resolve by name on
+demand. The same-length rename constraint on the wrapper is the remaining limit, and it is the
+wrapper serializer's job to lift.

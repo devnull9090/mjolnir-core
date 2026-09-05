@@ -118,13 +118,32 @@ tag-name overlay, not a command console. Calling `SetShowTagDebugNames(true, [0.
 live widget succeeds and ticks every type, but no label appears over any object in A30 — the
 overlay's drawing is compiled out of the shipping build along with the rest of the debug draw.
 
-## Not yet measured
+## A brand-new tag package loads by name
 
-Whether a **new** tag package resolves by name with nothing importing it — ship a cloned
-`collision_model` under a new path and repoint `marine-biped` at it without adding an import —
-needs a `.uasset` whose name map, identity hashes and store entry are rewritten, which is the
-tag-authoring writer still to be built. The tag table gives the readout for free once it exists:
-a new tag either appears in the table or does not.
+Measured 2026-09-05, same session. `mjolnir new-tag` cloned the marine's collision model under
+a path the game never shipped — `/Game/Tags/objects/characters/marinf/marinf-collision_model`,
+same-length rename surgery on the donor's wrapper, the body untouched — into its own `_P`
+container carrying its own `ContainerHeader` (`blam_pack::build_addition`), and `mjolnir pack`
+repointed the marine `model` tag's `collision model` reference at
+`objects\characters\marinf\marinf`. No import-map change anywhere: nothing declares the new
+package as a dependency.
+
+After a relaunch into A30 the table held **7,056** tags, one more than before, and slot 21 was
+`coll objects\characters\marinf\marinf`, allocated right after the marine's `model` (slot 20).
+The model's resident root reads its collision reference as
+`'coll' · name pointer · 0x20 · 0xE1890015` — the new tag's handle. The game played normally.
+
+So, for tags:
+
+- the runtime tag registry is **enumerated from the mounted containers**, not a fixed list;
+- a mod container's **own** `ContainerHeader` registers its packages — the store reads it;
+- a tag reference resolves by **name**, on demand, with no hard import required;
+- a tag reference in the resident copy is `{group four-CC, pointer to the path, path length,
+  handle}`.
+
+This is the door the new-scenario work found closed for `scenario` packages
+(`new-scenario-door-open`): the refusal there is specific to how a scenario is opened, not to
+new packages as such.
 
 ## Adding a build
 
