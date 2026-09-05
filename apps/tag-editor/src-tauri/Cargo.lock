@@ -354,6 +354,7 @@ dependencies = [
 name = "blam-live"
 version = "0.1.0"
 dependencies = [
+ "sha2",
  "thiserror 2.0.19",
 ]
 
@@ -2488,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-tag-editor"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "base64 0.22.1",
  "blam-defs",

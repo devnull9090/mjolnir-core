@@ -1344,6 +1344,8 @@ export const useEditor = create<EditorState>((set, get) => {
               liveNote:
                 p.phase === "objects"
                   ? "live: reading the engine's object table…"
+                  : p.phase === "table"
+                  ? "live: reading the simulation's tag table…"
                   : p.phase === "cache"
                   ? "live: reading the engine's loader cache…"
                   : p.phase === "prints"
@@ -1360,8 +1362,11 @@ export const useEditor = create<EditorState>((set, get) => {
           liveLoaded: report.loaded,
           liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
           liveNote:
-            `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s` +
+            (report.method === "table"
+              ? `live: ${report.located} loaded tags from the game's own tag table in ${report.secs.toFixed(1)}s`
+              : `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s`) +
             (report.cached ? ` · ${report.cached} straight from the engine's cache` : "") +
+            (report.table_unmapped ? ` · ${report.table_unmapped} not in this installation` : "") +
             (report.level ? ` · in ${report.level}` : ""),
         });
         void get().refreshLive();

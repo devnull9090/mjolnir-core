@@ -570,3 +570,63 @@ The game ships both `.pak` and `.utoc`/`.ucas`, and the `.pak` files are large �
 They will not, for the tags. The tag payloads are IoStore **chunks**, addressed by chunk ID
 through the zen loader, not by file path through the pak mount. A `.pak` override would have
 to reach the package store, which is what the IoStore container is for.
+
+## New packages register and resolve by name
+
+**Answered 2026-09-05** (build CU4, mission A30). A brand-new tag package — the marine's
+collision model cloned under `/Game/Tags/objects/characters/marinf/marinf-collision_model` by
+`mjolnir new-tag`, in a `_P` container carrying only its own `ContainerHeader`
+(`blam_pack::build_addition`) — was loaded by the simulation when the marine `model` tag's
+`collision model` reference was repointed at it with `mjolnir pack`. No tag imported it. The
+simulation's own tag table (`mjolnir live tags --filter marinf`) listed it as the 7,056th loaded
+tag, and the model's resident reference held its handle. Details in
+[`tag_table_and_string_ids.md`](tag_table_and_string_ids.md).
+
+Three earlier open items close with it: the runtime tag registry is enumerated from what is
+mounted; a mod container's own `ContainerHeader` is honoured; references resolve by name on
+demand. The same-length rename constraint on the wrapper is the remaining limit, and it is the
+wrapper serializer's job to lift.
+
+## Writing the wrapper
+
+**Measured 2026-09-05** against every `.uasset` under `Tags/` across all containers (12,332 —
+the 12,290 tags plus a few dozen region string tables, Niagara systems and one Blueprint that
+share the folder). `ue_asset::package::ZenPackage` parses the whole cooked package header and
+serializes it again; `mjolnir zen-roundtrip` is the gate.
+
+| Check | Result |
+|---|---:|
+| re-serialized byte-exact | **12,332 / 12,332** |
+| bare wrappers rebuilt from `(group, path, payload length)` alone, byte-exact | **2,871 / 2,871** |
+| name-batch hash = CityHash64 of the lowercased name | 12,332 / 12,332 |
+| package id = CityHash64 of the lowercased UTF-16LE package name | 12,332 / 12,332 |
+| export hash = the same over the object (leaf) name | every tag |
+| class / CDO = ScriptImport index of `/Script/BlamSynchronization.Blam<Pascal(group)>TagDataAsset` and its `Default__` | every tag |
+| one bulk entry `{0, -1, size, 66817, 0}`, size = `.ubulk` length | every tag (one shipped sound declares 4,700 bytes and ships no `.ubulk`) |
+| export body framed `[00 00 00 00] … [00 00 00 00]` | every tag |
+| flags `0xb / 0x80002200`; `0x1 / 0x88002200` on the five level-resident groups; `0x3` on `sound` | every tag |
+| bulk map padded to 8 bytes after the name batch | 12,332 / 12,332 |
+
+Layout details the reader had wrong or missing before: the bulk-data map is preceded by a `u64`
+pad size and that many zero bytes; a package import in the import map is
+`(imported package index << 32) | index into the imported public export hashes` under the type-2
+tag; the imported-package-names section is a name batch **followed by one `u32` FName number per
+name** (an imported `BP_Hood_10` is stored as base `BP_Hood_` + number 11), and an empty batch is
+the 4-byte count alone. The cooker's import slot order interleaves package imports between the
+CDO and the class and is not reproducible; it does not need to be.
+
+`cooked_header_size` is the *legacy* header's size: `617 + 2·len(package) + len(object) +
+2·len(class)` for every bare wrapper, but with imports it depends on legacy import names the zen
+header does not carry. **The game does not read it for tag packages**: the marinf collision model
+was reinstalled with the field set to 9999 and loaded and resolved exactly as before.
+
+**Proven in game, 2026-09-05:** `mjolnir new-tag` built `objects\characters\marine\marine_clone`
+(a collision model, path longer than any donor's) from scratch with `ZenPackage::bare_tag`, and
+`mjolnir pack` repointed the marine model at it — a resizing reference edit, so the model rode a
+two-chunk override with its `BinaryBlobSize` rewritten. After a relaunch into A30 the tag table
+listed `marine_clone` and the model's resident reference held its handle with the longer name.
+The wrapper needs no donor and no length constraint for the 47 bare groups.
+
+What remains for wrapper-bearing groups (the 54 whose class adds `AssetReference`,
+`CookedAssetsReferencedByTag`, `RuntimeVariants`, …) is the unversioned property encoder; until
+then `mjolnir new-tag` clones such a donor with same-length surgery.

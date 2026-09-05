@@ -6,6 +6,14 @@
 
 use crate::{Error, Result};
 
+/// A loaded module: where it is in the process and which file it came from.
+#[derive(Debug, Clone)]
+pub struct ModuleInfo {
+    pub base: u64,
+    pub size: u64,
+    pub path: std::path::PathBuf,
+}
+
 /// A running process we might attach to.
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -23,7 +31,7 @@ pub struct Region {
 
 #[cfg(windows)]
 mod imp {
-    use super::{Error, ProcessInfo, Region, Result};
+    use super::{Error, ModuleInfo, ProcessInfo, Region, Result};
     use std::io;
 
     type Handle = isize;
@@ -240,6 +248,51 @@ mod imp {
             }
         }
 
+        /// Base, size and on-disk path of a loaded module by name,
+        /// case-insensitive. The path is what a build is identified by: the
+        /// file's hash selects the profile whose RVAs apply to this image.
+        pub fn module_info(&self, name: &str) -> Result<ModuleInfo> {
+            unsafe {
+                let snap = CreateToolhelp32Snapshot(
+                    TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                    self.pid,
+                );
+                if snap == -1 {
+                    return Err(Error::NotRunning(name.to_string()));
+                }
+                let mut entry: ModuleEntry32W = std::mem::zeroed();
+                entry.size = std::mem::size_of::<ModuleEntry32W>() as u32;
+                let mut ok = Module32FirstW(snap, &mut entry);
+                let mut found = None;
+                while ok != 0 {
+                    let end = entry
+                        .module_name
+                        .iter()
+                        .position(|c| *c == 0)
+                        .unwrap_or(entry.module_name.len());
+                    let modname = String::from_utf16_lossy(&entry.module_name[..end]);
+                    if modname.eq_ignore_ascii_case(name) {
+                        let pend = entry
+                            .exe_path
+                            .iter()
+                            .position(|c| *c == 0)
+                            .unwrap_or(entry.exe_path.len());
+                        found = Some(ModuleInfo {
+                            base: entry.mod_base_addr as u64,
+                            size: entry.mod_base_size as u64,
+                            path: std::path::PathBuf::from(String::from_utf16_lossy(
+                                &entry.exe_path[..pend],
+                            )),
+                        });
+                        break;
+                    }
+                    ok = Module32NextW(snap, &mut entry);
+                }
+                CloseHandle(snap);
+                found.ok_or_else(|| Error::NotRunning(name.to_string()))
+            }
+        }
+
         /// Read into a caller-owned buffer, returning how many bytes arrived.
         ///
         /// The scan reads gigabytes in 128 MB windows; allocating and zeroing a
@@ -359,7 +412,7 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{Error, ProcessInfo, Region, Result};
+    use super::{Error, ModuleInfo, ProcessInfo, Region, Result};
 
     pub struct Process {
         pub pid: u32,
@@ -386,6 +439,10 @@ mod imp {
             Err(Error::Unsupported)
         }
         pub fn module(&self, _name: &str) -> Result<(u64, u64)> {
+            Err(Error::Unsupported)
+        }
+
+        pub fn module_info(&self, _name: &str) -> Result<ModuleInfo> {
             Err(Error::Unsupported)
         }
     }

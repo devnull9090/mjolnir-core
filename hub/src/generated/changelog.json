@@ -39,6 +39,74 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.2.0",
+      "tag": "cli-v0.2.0",
+      "title": "`mjolnir live`: what the running game has loaded",
+      "date": "2026-09-05",
+      "summary": "A new live command reads the running game's own table of loaded tags and its string-id registry, and poke uses that table to find a tag instantly instead of sweeping memory.",
+      "body": "The simulation module the game loads keeps two tables that answer questions\nthis tool used to answer by scanning the whole process: which tags are loaded\nand where each one's data is, and which `string id` names the running game\nknows. Both are reached from fixed addresses in the module — addresses that\nbelong to one build, so the module is hashed first and an unknown build is\nrefused with its hash rather than read at a guess.\n\n### Added\n\n- **`mjolnir live status`** — the build, where the simulation module sits, how\n  many tags are loaded, how many string ids are registered.\n- **`mjolnir live tags [--group weap] [--filter text] [--tsv out]`** — every\n  loaded tag with its handle, group, path and root address.\n- **`mjolnir live string-ids [--find name] [--out file.json]`** — the\n  registry of names the running game accepts in a `string id` field. A name\n  the game has not registered makes it reject the whole tag, so this is the\n  list to check an edit against; `defs/hce/string-ids.json` is the dump for\n  the current build in mission A30.\n\n- **`mjolnir new-tag --group <g> --from <donor> --to <path>`** — put a brand-new\n  tag package in front of the game, in a container that registers it itself.\n  For the 47 groups whose wrapper carries no properties the wrapper is built\n  from scratch, so the new path can be anything; for the rest the donor's\n  wrapper is renamed in place, which needs a same-length path. Measured in\n  game: a collision model shipped this way loaded by name the moment a model\n  tag was repointed at it, with no import declared anywhere. `--set` edits the\n  new tag's body on the way; `--install-test` writes the triplet straight into\n  the Paks folder.\n- **`mjolnir zen-roundtrip`** — parse and re-serialize every shipped tag\n  wrapper (byte-exact for all 12,332) and count the derivation rules a\n  from-scratch wrapper relies on; `--rebuild` is implied for bare wrappers,\n  all 2,871 of which come back byte for byte from group, path and payload\n  length alone.\n\n### Changed\n\n- **`poke` finds a tag through the table** on a known build — exact, and no\n  scan — and reads the engine's segment table to reach fields inside block\n  elements. On a build without a profile it sweeps as before and says so.\n\n### Known limits\n\n- Profiles exist for the current Steam build (`2026.08.11.1121610.2`, CU4).\n  A game update needs its eight addresses measured and added; until then the\n  sweep is the path.\n- The tables exist only once a mission is loading; at the menu `live` reports\n  that no mission is loaded.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir live status — the build, where the simulation module sits, how many tags are loaded, how many string ids are registered.",
+            "mjolnir live tags [--group weap] [--filter text] [--tsv out] — every loaded tag with its handle, group, path and root address.",
+            "mjolnir live string-ids [--find name] [--out file.json] — the registry of names the running game accepts in a string id field. A name the game has not registered makes it reject the whole tag, so this is the list to check an edit against; defs/hce/string-ids.json is the dump for the current build in mission A30.",
+            "mjolnir new-tag --group <g> --from <donor> --to <path> — put a brand-new tag package in front of the game, in a container that registers it itself. For the 47 groups whose wrapper carries no properties the wrapper is built from scratch, so the new path can be anything; for the rest the donor's wrapper is renamed in place, which needs a same-length path. Measured in game: a collision model shipped this way loaded by name the moment a model tag was repointed at it, with no import declared anywhere. --set edits the new tag's body on the way; --install-test writes the triplet straight into the Paks folder.",
+            "mjolnir zen-roundtrip — parse and re-serialize every shipped tag wrapper (byte-exact for all 12,332) and count the derivation rules a from-scratch wrapper relies on; --rebuild is implied for bare wrappers, all 2,871 of which come back byte for byte from group, path and payload length alone."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "poke finds a tag through the table on a known build — exact, and no scan — and reads the engine's segment table to reach fields inside block elements. On a build without a profile it sweeps as before and says so."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "Profiles exist for the current Steam build (2026.08.11.1121610.2, CU4). A game update needs its eight addresses measured and added; until then the sweep is the path.",
+            "The tables exist only once a mission is loading; at the menu live reports that no mission is loaded."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.2.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.2.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.2.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.18.0",
+      "tag": "tag-editor-v0.18.0",
+      "title": "Live mode reads the game's own tag table",
+      "date": "2026-09-05",
+      "summary": "Live mode now reads the simulation's own table of loaded tags instead of sweeping 13 GB of memory: every loaded tag and its exact address in well under a second, on the current game build.",
+      "body": "Arming live mode used to mean a census — a scan of the whole game process for\nbyte patterns taken from every tag, twenty seconds on half the machine's cores,\nand a first edit of a weapon paid a similar scan of its own. The engine keeps a\nbetter record than that. Its simulation module holds a table it labels\n`tag instance`: one entry per loaded tag with the tag's name, group, a handle,\nand where its root element lives. Reading that table is one pointer-chase from\ntwo addresses in the module, and it is what the editor does now.\n\n### Changed\n\n- **The census is instant.** Arming live mode in a mission lists every loaded\n  tag — 7,055 in the Pillar of Autumn — from the game's own table, with the\n  level named exactly, and every one of them pokes at an exact address. The\n  status line says `from the game's own tag table` when this path was used.\n- **Fields inside block elements resolve exactly.** The table's addresses use\n  the engine's own encoding — a segment plus an offset — and the editor reads\n  the segment table rather than inferring an \"arena\" from a tag's contents. The\n  old inference stays as the fallback.\n- **A relocated tag is caught.** The engine can re-read and move a tag while the\n  game runs (its `tag_reload_force` command does exactly that), so a remembered\n  address is verified against the tag's own scalars before anything is written,\n  and re-read from the table when it no longer matches.\n\n### Known limits\n\n- The table's addresses are specific to a game build, chosen by the hash of\n  the simulation module. This release knows the current Steam build\n  (`2026.08.11.1121610.2`, CU4). On a build it does not know, live mode says so\n  and falls back to the sweep, which needs no addresses at all.\n- The table is built when a mission loads. At the main menu live mode reports\n  that no mission is loaded rather than scanning.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The census is instant. Arming live mode in a mission lists every loaded tag — 7,055 in the Pillar of Autumn — from the game's own table, with the level named exactly, and every one of them pokes at an exact address. The status line says from the game's own tag table when this path was used.",
+            "Fields inside block elements resolve exactly. The table's addresses use the engine's own encoding — a segment plus an offset — and the editor reads the segment table rather than inferring an \"arena\" from a tag's contents. The old inference stays as the fallback.",
+            "A relocated tag is caught. The engine can re-read and move a tag while the game runs (its tagreloadforce command does exactly that), so a remembered address is verified against the tag's own scalars before anything is written, and re-read from the table when it no longer matches."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "The table's addresses are specific to a game build, chosen by the hash of the simulation module. This release knows the current Steam build (2026.08.11.1121610.2, CU4). On a build it does not know, live mode says so and falls back to the sweep, which needs no addresses at all.",
+            "The table is built when a mission loads. At the main menu live mode reports that no mission is loaded rather than scanning."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.18.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.18.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.18.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.6.0",
