@@ -2,14 +2,18 @@
 //!
 //! A tag is one UE package — a cooked `.uasset` wrapper plus the `.ubulk` tag
 //! body — and its identity (the chunk ids the game addresses it by, the
-//! package-store entry, the export hash) all derive from its name. Today the
-//! wrapper is produced by **same-length rename surgery on a shipped donor of
-//! the same group** (`crate::rename`): the donor's two strings are overwritten
-//! and its hashes recomputed, so every offset in the summary stays true. That
-//! is why the new path must have exactly the donor's length, segment for
-//! segment. A wrapper *serializer* that lifts the constraint is the next step;
-//! this command is the one that lets the load model be measured first — does
-//! the game register and resolve a package it has never shipped?
+//! package-store entry, the export hash) all derive from its name. For a group
+//! whose wrapper class adds no property (47 of the 101 shipped groups) the
+//! wrapper is built from scratch by `ue_asset::package::ZenPackage::bare_tag`,
+//! so the new path can be anything. For a wrapper that carries properties and
+//! imports, the wrapper is the donor's with **same-length rename surgery**
+//! (`crate::rename`) until the property encoder exists — so there the new path
+//! must have exactly the donor's length, segment for segment.
+//!
+//! Measured 2026-09-05: a package built this way is registered by the mod
+//! container's own `ContainerHeader`, resolved by name the moment a tag
+//! references it, and loaded — with `cooked_header_size` left wrong on purpose
+//! it still loaded, so that field is not consulted for tag packages.
 //!
 //! The readout is `mjolnir live tags --filter <leaf>` once a mission that
 //! references the new tag is loaded: the simulation's own tag table either
@@ -53,6 +57,10 @@ pub struct NewTagArgs {
     /// ready for the next launch.
     #[arg(long)]
     install_test: bool,
+    /// Measurement aid: overwrite the wrapper's `cooked_header_size` with this
+    /// value, to test whether the game reads it.
+    #[arg(long, hide = true)]
+    cooked_header_size: Option<u32>,
 }
 
 pub fn run(a: NewTagArgs) -> Result<()> {
@@ -112,21 +120,39 @@ pub fn run(a: NewTagArgs) -> Result<()> {
     let to = to.trim_matches('/');
     let new_pkg = format!("/Game/Tags/{to}-{}", a.group);
     let new_leaf = new_pkg.rsplit('/').next().unwrap_or("").to_string();
-    ensure!(
-        old_pkg.len() == new_pkg.len(),
-        "the new path must be exactly as long as the donor's (same-length surgery):\n  {old_pkg}\n  {new_pkg}"
-    );
-    ensure!(
-        old_leaf.len() == new_leaf.len(),
-        "the new leaf {new_leaf:?} must be as long as the donor's {old_leaf:?}"
-    );
-    ensure!(
-        !idx.by_group()
-            .get(a.group.as_str())
-            .is_some_and(|es| es.iter().any(|e| e
-                .path
+    // A donor whose class adds no property has a wrapper that is a pure
+    // function of (group, path, length): build it from scratch, any length.
+    // Otherwise the wrapper carries properties and imports this tool cannot
+    // yet re-encode, and the same-length surgery is the only safe route.
+    let donor_full = ue_asset::package::ZenPackage::parse(&donor_uasset)
+        .map_err(|e| anyhow::anyhow!("donor package: {e}"))?;
+    let bare = donor_full.is_bare();
+    if !bare {
+        ensure!(
+            old_pkg.len() == new_pkg.len(),
+            "the donor's wrapper carries properties, so the new path must be exactly as long as the donor's (same-length surgery):\n  {old_pkg}\n  {new_pkg}"
+        );
+        ensure!(
+            old_leaf.len() == new_leaf.len(),
+            "the new leaf {new_leaf:?} must be as long as the donor's {old_leaf:?}"
+        );
+    }
+    // Only the game's own containers count as "shipped": an earlier run of this
+    // command leaves its own indexed container in the Paks folder.
+    let shipped_has_leaf = entries.iter().any(|e| {
+        let container = idx.containers[e.container]
+            .utoc_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        !container.contains("MJOLNIR")
+            && !container.to_ascii_lowercase().ends_with("_p.utoc")
+            && e.path
                 .to_ascii_lowercase()
-                .contains(&format!("/{}.ubulk", new_leaf.to_ascii_lowercase())))),
+                .contains(&format!("/{}.ubulk", new_leaf.to_ascii_lowercase()))
+    });
+    ensure!(
+        !shipped_has_leaf,
         "a shipped tag already has the leaf {new_leaf:?}"
     );
 
@@ -142,12 +168,28 @@ pub fn run(a: NewTagArgs) -> Result<()> {
         imported.len()
     );
 
-    let uasset = crate::rename::clone_tag_uasset(
-        &donor_uasset,
-        &[(old_leaf, new_leaf.clone()), (old_pkg, new_pkg.clone())],
-        original.len(),
-        file.len(),
-    )?;
+    let mut uasset = if bare {
+        println!("  wrapper  built from scratch (bare group)");
+        ue_asset::package::ZenPackage::bare_tag(&a.group, &new_pkg, file.len() as u64).write()
+    } else {
+        println!("  wrapper  donor's, renamed in place");
+        crate::rename::clone_tag_uasset(
+            &donor_uasset,
+            &[(old_leaf, new_leaf.clone()), (old_pkg, new_pkg.clone())],
+            original.len(),
+            file.len(),
+        )?
+    };
+    if let Some(cooked) = a.cooked_header_size {
+        let mut pkg = ue_asset::package::ZenPackage::parse(&uasset)
+            .map_err(|e| anyhow::anyhow!("renamed wrapper: {e}"))?;
+        println!(
+            "  cooked header size {} -> {cooked} (measurement)",
+            pkg.cooked_header_size
+        );
+        pkg.cooked_header_size = cooked;
+        uasset = pkg.write();
+    }
 
     let base = a
         .name

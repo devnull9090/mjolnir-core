@@ -21,6 +21,7 @@ mod live;
 mod mesh;
 mod newtag;
 mod rename;
+mod zenrt;
 mod tagdiff;
 mod texture;
 
@@ -149,6 +150,8 @@ enum Command {
     Live(live::LiveArgs),
     /// Put a brand-new tag package in front of the game, cloned from a donor.
     NewTag(newtag::NewTagArgs),
+    /// Re-serialize every shipped tag wrapper and count the derivation rules that hold.
+    ZenRoundtrip(zenrt::ZenRoundtripArgs),
     /// Read the Blam script a scenario carries.
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
@@ -523,6 +526,7 @@ fn main() -> Result<()> {
         Command::Poke(a) => poke(a),
         Command::Live(a) => live::run(a),
         Command::NewTag(a) => newtag::run(a),
+        Command::ZenRoundtrip(a) => zenrt::run(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Console(a) => console::run(a),
