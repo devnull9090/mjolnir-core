@@ -595,6 +595,11 @@ export type CensusReport = {
    *  exact, found without the sweep. Null when the cache roots could not be
    *  found in this build. */
   cached: number | null;
+  /** How the loaded set was established: read from the simulation's own tag
+   *  table (exact, instant) or swept out of memory. */
+  method: "table" | "sweep";
+  /** With `table`: entries in the game's table no catalog tag matched. */
+  table_unmapped: number | null;
 };
 
 /** What the engine's object table says, without a memory sweep. */
@@ -607,7 +612,7 @@ export type ProbeReport = {
 
 /** Progress of a running census, as `live-census` events report it. */
 export type CensusProgress = {
-  phase: "objects" | "cache" | "prints" | "scan";
+  phase: "objects" | "table" | "cache" | "prints" | "scan";
   done_mb: number;
   total_mb: number;
 };

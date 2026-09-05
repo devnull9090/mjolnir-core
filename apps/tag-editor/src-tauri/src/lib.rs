@@ -30,6 +30,7 @@ pub mod refscan;
 pub mod scripts;
 pub mod secret;
 pub mod tagcache;
+pub mod tagtable;
 pub mod sounds;
 /// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
 pub use ue_texture as textures;
@@ -889,6 +890,12 @@ struct CensusReport {
     /// exact, no sweep needed for them. `None` when the cache roots could
     /// not be found in this build.
     cached: Option<usize>,
+    /// How the loaded set was established: `table` — read from the
+    /// simulation's own tag table, exact and instant — or `sweep`.
+    method: &'static str,
+    /// With `table`: entries in the game's table that no catalog tag matched
+    /// (tags only a mod provides, or a mapping gap). `None` for a sweep.
+    table_unmapped: Option<usize>,
 }
 
 /// Find every loaded tag in one sweep of the game's memory.
@@ -929,6 +936,41 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     let present = probe_present(&state, &live, &process).ok();
     if let Some(p) = &present {
         live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+    }
+
+    // The simulation's own tag table, when the running build has a profile:
+    // every loaded tag's root at an exact address, and the level, in well
+    // under a second. That is the whole census, so the sweep is skipped. On a
+    // build without a profile, or before a mission is loaded, this is
+    // `Err` and the older phases run as before.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "table",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    if let Ok(census) = with_catalog(&state, |c| tagtable::read(&process, c))? {
+        let located = census.found.len();
+        let level = census.level.clone();
+        let table_unmapped = Some(census.unmapped);
+        let mut loaded: Vec<live::LoadedTag> =
+            census.found.iter().map(|(_, _, t)| t.clone()).collect();
+        loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        live.adopt_table(process.pid, census);
+        return Ok(CensusReport {
+            located,
+            level,
+            ambiguous: 0,
+            scanned_mb: 0,
+            secs: started.elapsed().as_secs_f32(),
+            loaded,
+            present: present.as_ref().map(|p| p.tags.len()),
+            cached: None,
+            method: "table",
+            table_unmapped,
+        });
     }
 
     // The loader's own cache next: every tag it still references is a buffer
@@ -1161,6 +1203,8 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         loaded,
         present: present.as_ref().map(|p| p.tags.len()),
         cached: cache_hits.as_ref().map(|_| cached_verified),
+        method: "sweep",
+        table_unmapped: None,
     })
 }
 

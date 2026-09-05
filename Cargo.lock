@@ -93,7 +93,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "blam-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blam-defs",
@@ -130,6 +130,7 @@ dependencies = [
 name = "blam-live"
 version = "0.1.0"
 dependencies = [
+ "sha2",
  "thiserror 2.0.19",
 ]
 

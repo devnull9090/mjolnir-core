@@ -16,6 +16,7 @@ mod container;
 mod defs;
 mod hsc;
 mod index;
+mod live;
 mod tagdiff;
 mod texture;
 
@@ -140,6 +141,8 @@ enum Command {
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
     Poke(PokeArgs),
+    /// Read the running game's own tag table and string-id registry.
+    Live(live::LiveArgs),
     /// Read the Blam script a scenario carries.
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
@@ -504,6 +507,7 @@ fn main() -> Result<()> {
         Command::Container(a) => container::run(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
+        Command::Live(a) => live::run(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Console(a) => console::run(a),
@@ -1423,30 +1427,55 @@ fn poke(a: PokeArgs) -> Result<()> {
         headers: &headers,
     };
 
-    let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
-    println!(
-        "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
-         {:.1} GB scanned)",
-        at.base,
-        at.agreeing_runs,
-        at.candidates,
-        at.scanned as f64 / 1e9
-    );
-    println!(
-        "           {:.0}% of the root element's scalar bytes match the file; the engine \
-         rewrites the references around them",
-        at.match_fraction * 100.0
-    );
+    // The simulation's own tag table names every loaded tag and its root, so
+    // on a known build the tag is found by a pointer-chase; the sweep is the
+    // fallback for a build without a profile.
+    let (base, segments) =
+        match live::locate_via_table(&process, tag.header.group.0, &entry.path)? {
+            Some(hit) => {
+                println!(
+                    "  located  root at 0x{:X} via the tag table (handle 0x{:08X}, {})",
+                    hit.root, hit.handle, hit.profile
+                );
+                (hit.root - root_off as u64, Some(hit.segments))
+            }
+            None => {
+                let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
+                println!(
+                    "  located  payload at 0x{:X}  ({} independent runs agree, best of {} \
+                     candidate(s), {:.1} GB scanned)",
+                    at.base,
+                    at.agreeing_runs,
+                    at.candidates,
+                    at.scanned as f64 / 1e9
+                );
+                println!(
+                    "           {:.0}% of the root element's scalar bytes match the file; the \
+                     engine rewrites the references around them",
+                    at.match_fraction * 100.0
+                );
+                (at.base, None)
+            }
+        };
 
     let address = if hops.is_empty() {
-        at.base + span.start as u64
+        base + span.start as u64
     } else {
-        let arena = blam_live::derive_arena(&process, at.base, &file, &stable, &blocks)
-            .context(
+        let arena = match &segments {
+            Some(segments) => {
+                let header =
+                    blam_live::read_block_header(&process, base + hops[0].header as u64)?;
+                segments.arena_for(header.words).context(
+                    "the first block header on the way to the field points into a segment \
+                     the game has not mapped",
+                )?
+            }
+            None => blam_live::derive_arena(&process, base, &file, &stable, &blocks).context(
                 "the field sits inside a block element, which the engine keeps outside the \
                  tag, and the arena those live in could not be worked out from this tag",
-            )?;
-        blam_live::field_address(&process, at.base, arena, &hops, span.start)?
+            )?,
+        };
+        blam_live::field_address(&process, base, arena, &hops, span.start)?
     };
     println!(
         "  address  0x{address:X}{}",
