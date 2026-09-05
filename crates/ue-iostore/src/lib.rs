@@ -11,6 +11,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+pub mod city;
+pub mod container_header;
 pub mod oodle;
 pub mod pack;
 pub mod pak;
@@ -39,6 +41,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("not an IoStore TOC (bad magic)")]
     BadMagic,
+    #[error("malformed container header: {0}")]
+    BadContainerHeader(&'static str),
     #[error("TOC version {0} predates the directory index")]
     VersionTooOld(u8),
     #[error("directory index is encrypted; no key supplied")]
