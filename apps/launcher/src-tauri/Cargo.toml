@@ -1,6 +1,6 @@
 [package]
 name = "mjolnir-launcher"
-version = "0.8.0"
+version = "0.8.1"
 description = "MJOLNIR Launcher — Mod manager for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
@@ -28,8 +28,19 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 sha2 = "0.10"
 mjolnir-sign = { path = "../../../crates/mjolnir-sign" }
+# Writes the stub `.pak` beside each installed container (`pak::stub_for`);
+# the reader side is unused here.
+ue-iostore = { path = "../../../crates/ue-iostore" }
 hex = "0.4"
 zip = "2"
 # Verifies the code-mods release manifest against the pinned public key
 # (keys/mod-signing.pub); see src/hub.rs.
 ed25519-dalek = "2"
+
+# Mirrors the root workspace: the stock oozextract mishandles two unaligned
+# tail reads and cannot decode five of the shipped Oodle blocks. This workspace
+# is separate, so it needs the patch stated again. Keep the rev in step with the
+# root Cargo.toml, and drop both once the fix lands in a published release.
+# Upstream PR: https://github.com/lvlvllvlvllvlvl/oozextract/pull/3
+[patch.crates-io]
+oozextract = { git = "https://github.com/devnull9090/oozextract", rev = "75fbb3812cc8273f8738eb72623035f0510e3359" }

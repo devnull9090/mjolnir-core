@@ -39,6 +39,27 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.8.1",
+      "tag": "launcher-v0.8.1",
+      "title": "The stub beside every mod is written, not copied",
+      "date": "2026-09-06",
+      "summary": "The empty .pak the launcher places beside each installed container is now written from scratch instead of copied from the smallest shipped one.",
+      "body": "Every mod container the launcher installs needs a `.pak` file beside it, or the\ngame never discovers the container. Until now the launcher found the smallest\n`.pak` the game ships and copied it — 339 bytes that happen to be an empty\narchive. It now writes that empty archive itself, the same bytes the game's own\nstubs carry apart from a seed that hashes nothing.\n\n### Changed\n\n- **The stub `.pak` is written by the launcher**, shared with the tag editor\n  and the `mjolnir` command line, rather than derived from whatever the\n  installation happens to contain. An installation with no small shipped\n  `.pak` — or one the launcher could not read — no longer stops a profile from\n  materializing.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The stub .pak is written by the launcher, shared with the tag editor and the mjolnir command line, rather than derived from whatever the installation happens to contain. An installation with no small shipped .pak — or one the launcher could not read — no longer stops a profile from materializing."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.8.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.8.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.8.1"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.2.0",

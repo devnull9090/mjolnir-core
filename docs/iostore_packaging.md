@@ -583,8 +583,8 @@ empty compression-method names. Only the seed and the footer hash differ between
 stubs, and with no entries the seed hashes nothing. `ue_iostore::pak::write_stub` reproduces
 `pakchunk115-Windows.pak` byte for byte from that file's own seed (a unit test checks it when
 `HCE_PAKS` is set), and `stub_for(name)` seeds from the container name so a rebuild is
-identical. The CLI, the tag editor's test install and the launcher-facing export all write it;
-nothing copies a shipped file any more.
+identical. The CLI, the tag editor's test install and export, and the launcher's profile
+materialization all write it; nothing copies a shipped file any more.
 
 ## New packages register and resolve by name
 
