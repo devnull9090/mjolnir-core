@@ -58,7 +58,7 @@ pub struct Baked {
 }
 
 /// Bake resolved edits into override containers, one per source container,
-/// and new tags into addition containers, one per package folder.
+/// and new tags into one addition container.
 pub fn bake(
     c: &Catalog,
     slug: &str,
@@ -95,28 +95,15 @@ pub fn bake(
     }
 
     // New packages register through the container's own header and are
-    // named in its directory index, which holds one folder — so one addition
-    // container per folder the new tags land in.
-    let mut by_dir: BTreeMap<String, Vec<NewTagPackage>> = BTreeMap::new();
-    for a in additions {
-        let dir = a
-            .package
-            .package_name
-            .rsplit_once('/')
-            .map(|(d, _)| d.to_string())
-            .unwrap_or_default();
-        by_dir.entry(dir).or_default().push(a);
-    }
-    for (nth, (_, group)) in by_dir.into_iter().enumerate() {
+    // named in its directory index, folders and all — one addition container
+    // holds every new tag.
+    if let Some(first) = additions.first() {
         let source = c
-            .container(group[0].source)
+            .container(first.source)
             .ok_or("source container index out of range")?;
-        let name = if nth == 0 {
-            format!("{slug}-new")
-        } else {
-            format!("{slug}-new-{}", nth + 1)
-        };
-        let packages: Vec<blam_pack::NewPackage> = group.into_iter().map(|a| a.package).collect();
+        let name = format!("{slug}-new");
+        let packages: Vec<blam_pack::NewPackage> =
+            additions.into_iter().map(|a| a.package).collect();
         let built = blam_pack::build_addition(source, c.oodle_paths(), &name, &packages)?;
         out.push(Baked {
             basename: format!("{name}_P"),

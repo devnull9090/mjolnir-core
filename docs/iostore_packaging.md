@@ -605,9 +605,11 @@ wrapper serializer's job to lift.
 The tag editor exposes the same path as **New Tag From This…** (tag editor 0.18.0). The clone
 is a virtual entry in the catalogue that reads as its donor; its edits are recorded under the
 new name in the project's `edits.json` (`new_tags`); a bake builds each one with
-`blam_pack::newtag` — shared with `mjolnir new-tag` — into an addition container beside the
-override containers, named `<slug>-new_P` (then `<slug>-new-2_P`, …), one per package folder
-because the container's directory index names a single directory.
+`blam_pack::newtag` — shared with `mjolnir new-tag` — into one addition container beside the
+override containers, named `<slug>-new_P`. Its directory index is a real tree
+(`ue_iostore::pack::directory_index`): mounted at `../../../Meteorite/Content/`, one entry per
+distinct folder, files chained under the folder they live in — so new tags from any number of
+folders share the container, and our own reader lists them at their full paths.
 
 **Proven in game, 2026-09-06:** the editor's own bake path (`resolved_edits` → `modpack::bake` →
 `modpack::install_test`, staged by the ignored test `stage_a_new_tag_for_the_in_game_test`)
@@ -634,9 +636,10 @@ tag table with `mjolnir live tags` on a fresh launch of A30 (CU4, 2026-09-06).
 | New tag in a `_Generated_` group | `landing_zone_p1` lighting info cloned as `landing_zone_p1_mk4` under `A30/_Generated_/`; scenario `structure bsps[7].structure lighting_info` repointed | loaded (slot 12); the shipped lighting info left the table; level rendered and played |
 | Package redirect | — | not exposed: measured elsewhere as not forwarding shipped references, and a clone under a new name does everything a redirect would |
 
-Two clones in different folders became two addition containers (`matrix-rifle-new_P`,
-`matrix-rifle-new-2_P`), each loaded. Total loaded tags: 7,057 with two additions, 7,055 when
-the clone replaced a shipped tag the scenario no longer named.
+Two clones in different folders first became two addition containers (`matrix-rifle-new_P`,
+`matrix-rifle-new-2_P`), each loaded; with the nested directory index they share one
+(`matrix-rifle-new_P`, five chunks), which loaded the same way. Total loaded tags: 7,057 with
+two additions, 7,055 when the clone replaced a shipped tag the scenario no longer named.
 
 The scenario row also found a bug in the reference scanner shared by the editor's
 "referenced by" index and the new tag's preload list (`blam_tag::refs::tgrf_refs`): an empty
