@@ -32,6 +32,7 @@ import {
   type PasteReport,
   type DiffView,
   type RefNode,
+  LevelExportSummary,
 } from "../lib/api";
 import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
@@ -282,6 +283,10 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+  /** Write the shown mesh as a `.glb`. */
+  exportMesh: (dest: string) => Promise<number | null>;
+  /** Export the selected scenario's Unreal geometry as glTF cells into a folder. */
+  exportLevel: (dest: string, nanite: boolean, hlod: boolean) => Promise<LevelExportSummary | null>;
   /** Set while a swap is re-encoding, which takes seconds on a large texture. */
   textureSwapping: boolean;
   /** What the last applied swap did, cleared when another texture is opened. */
@@ -1122,6 +1127,28 @@ export const useEditor = create<EditorState>((set, get) => {
         return await api.exportTexture(index, dest);
       } catch (e) {
         set({ textureError: String(e) });
+        return null;
+      }
+    },
+
+    async exportMesh(dest) {
+      const index = get().selectedMesh;
+      if (index === null) return null;
+      try {
+        return await api.exportMesh(index, dest);
+      } catch (e) {
+        set({ error: String(e) });
+        return null;
+      }
+    },
+
+    async exportLevel(dest, nanite, hlod) {
+      const index = get().selectedTag;
+      if (index === null) return null;
+      try {
+        return await api.exportLevel(index, dest, nanite, hlod);
+      } catch (e) {
+        set({ error: String(e) });
         return null;
       }
     },

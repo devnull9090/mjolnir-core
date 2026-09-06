@@ -20,6 +20,7 @@ mod index;
 mod level;
 mod live;
 mod mesh;
+mod ue;
 mod newtag;
 mod rename;
 mod zenrt;
@@ -174,6 +175,8 @@ enum Command {
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
+    /// Read and edit the properties of any cooked Unreal package — a material instance's parameters, a data asset's fields — and write the edit as an override container
+    Ue(ue::UeArgs),
     /// Derive FPackageId values and check them against the shipped TOCs.
     Packageid(container::PackageIdArgs),
     /// Diff the shipped tags of two builds, field by field.
@@ -549,6 +552,7 @@ fn main() -> Result<()> {
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
         Command::Mesh(a) => mesh::run(a),
+        Command::Ue(a) => ue::run(a),
         Command::Packageid(a) => container::run_packageid(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }

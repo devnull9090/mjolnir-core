@@ -79,6 +79,17 @@ pub struct Package {
     pub imports: Vec<ObjectIndex>,
     pub exports: Vec<Export>,
     pub imported_package_names: Vec<String>,
+    /// The public export hashes an import into another package refers to,
+    /// by the low half of its `FPackageImportReference`.
+    pub imported_public_export_hashes: Vec<u64>,
+}
+
+/// Where an import into another package points: the package by name and
+/// the public export hash of the object within it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportTarget {
+    pub package: String,
+    pub public_hash: u64,
 }
 
 impl Package {
@@ -98,6 +109,7 @@ impl Package {
         let name_index = u32_at(8)?;
         let name_number = u32_at(12)?;
         let cooked_header_size = u32_at(20)?;
+        let hashes_off = u32_at(24)? as usize;
         let import_map_off = u32_at(28)? as usize;
         let export_map_off = u32_at(32)? as usize;
         let export_bundle_off = u32_at(36)? as usize;
@@ -116,6 +128,15 @@ impl Package {
             }
         };
         let name = mapped(name_index, name_number);
+
+        let mut imported_public_export_hashes = Vec::new();
+        if hashes_off > 0 && hashes_off <= import_map_off {
+            let mut at = hashes_off;
+            while at + 8 <= import_map_off {
+                imported_public_export_hashes.push(u64_at(at)?);
+                at += 8;
+            }
+        }
 
         let mut imports = Vec::new();
         let mut at = import_map_off;
@@ -141,10 +162,24 @@ impl Package {
             at += EXPORT_ENTRY;
         }
 
+        // `FZenPackageImportedPackageNamesContainer`: the name batch, then
+        // one FName number per name, folded back into the name here
+        // (`SM_Foo` with number 7 is the package `SM_Foo_6`).
         let imported_package_names = if imported_pkg_names_off > 0
             && imported_pkg_names_off < header_size as usize
         {
-            load_name_batch(data, imported_pkg_names_off).unwrap_or_default()
+            match load_name_batch_at(data, imported_pkg_names_off) {
+                Some((mut names, end)) => {
+                    for (i, name) in names.iter_mut().enumerate() {
+                        let number = u32_at(end + i * 4).unwrap_or(0);
+                        if number != 0 {
+                            name.push_str(&format!("_{}", number - 1));
+                        }
+                    }
+                    names
+                }
+                None => Vec::new(),
+            }
         } else {
             Vec::new()
         };
@@ -157,7 +192,33 @@ impl Package {
             imports,
             exports,
             imported_package_names,
+            imported_public_export_hashes,
         })
+    }
+
+    /// Resolve an object index that refers into another package: the package
+    /// name and the public export hash of the object there.
+    pub fn import_target(&self, index: ObjectIndex) -> Option<ImportTarget> {
+        match index.classify() {
+            ObjectRef::PackageImport(v) => {
+                let package_index = ((v >> 32) & 0x3FFF_FFFF) as usize;
+                let hash_index = (v & 0xFFFF_FFFF) as usize;
+                Some(ImportTarget {
+                    package: self.imported_package_names.get(package_index)?.clone(),
+                    public_hash: *self.imported_public_export_hashes.get(hash_index)?,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// [`import_target`](Self::import_target) for an `FPackageIndex` as a
+    /// property value stores it: negative is an import.
+    pub fn import_target_of(&self, object: i32) -> Option<ImportTarget> {
+        if object >= 0 {
+            return None;
+        }
+        self.import_target(*self.imports.get((-object - 1) as usize)?)
     }
 
     /// The serialized bytes of one export within the package chunk.

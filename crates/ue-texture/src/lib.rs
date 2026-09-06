@@ -12,6 +12,7 @@
 //! exactly the shipped size, which is what makes a texture swap a chunk
 //! replacement rather than a re-cook.
 
+pub mod dds;
 pub mod encode;
 
 use serde::Serialize;
@@ -132,7 +133,7 @@ fn morton(x: u32, y: u32) -> u32 {
 /// desynchronising the chain walk, so an unlisted format is refused instead.
 ///
 /// Uncompressed formats are described as 1x1 "blocks" so one rule sizes both.
-fn block_layout(format: &str) -> Option<(u64, u64)> {
+pub(crate) fn block_layout(format: &str) -> Option<(u64, u64)> {
     Some(match format {
         "PF_DXT1" | "PF_BC4" => (8, 4),
         "PF_DXT3" | "PF_DXT5" | "PF_BC5" | "PF_BC6H" | "PF_BC7" => (16, 4),
@@ -673,6 +674,61 @@ pub fn to_png(img: &TextureImage) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Encode RGBA to an uncompressed 8-bit TIFF: one strip, little-endian, with
+/// the alpha declared unassociated. The plainest TIFF there is, which is the
+/// one every reader opens.
+pub fn to_tiff(img: &TextureImage) -> Result<Vec<u8>, String> {
+    let (w, h) = (img.width, img.height);
+    let pixels = (w as usize) * (h as usize) * 4;
+    if img.rgba.len() != pixels {
+        return Err(format!("{w}x{h} needs {pixels} bytes, image holds {}", img.rgba.len()));
+    }
+    let mut out = Vec::with_capacity(pixels + 256);
+    out.extend_from_slice(b"II");
+    out.extend_from_slice(&42u16.to_le_bytes());
+    // Pixel data right after the header; the IFD follows it.
+    let data_at = 8u32;
+    let ifd_at = data_at + pixels as u32;
+    out.extend_from_slice(&ifd_at.to_le_bytes());
+    out.extend_from_slice(&img.rgba);
+
+    // Values longer than four bytes live after the IFD.
+    let entries: u16 = 11;
+    let after_ifd = ifd_at + 2 + u32::from(entries) * 12 + 4;
+    let bits_at = after_ifd; // 4 x u16
+    let mut extra = Vec::new();
+    for _ in 0..4 {
+        extra.extend_from_slice(&8u16.to_le_bytes());
+    }
+
+    let mut ifd = Vec::new();
+    let mut entry = |tag: u16, kind: u16, count: u32, value: u32| {
+        ifd.extend_from_slice(&tag.to_le_bytes());
+        ifd.extend_from_slice(&kind.to_le_bytes());
+        ifd.extend_from_slice(&count.to_le_bytes());
+        ifd.extend_from_slice(&value.to_le_bytes());
+    };
+    const SHORT: u16 = 3;
+    const LONG: u16 = 4;
+    entry(256, LONG, 1, w); // ImageWidth
+    entry(257, LONG, 1, h); // ImageLength
+    entry(258, SHORT, 4, bits_at); // BitsPerSample
+    entry(259, SHORT, 1, 1); // Compression: none
+    entry(262, SHORT, 1, 2); // Photometric: RGB
+    entry(273, LONG, 1, data_at); // StripOffsets
+    entry(277, SHORT, 1, 4); // SamplesPerPixel
+    entry(278, LONG, 1, h); // RowsPerStrip
+    entry(279, LONG, 1, pixels as u32); // StripByteCounts
+    entry(284, SHORT, 1, 1); // PlanarConfiguration: chunky
+    entry(338, SHORT, 1, 2); // ExtraSamples: unassociated alpha
+
+    out.extend_from_slice(&entries.to_le_bytes());
+    out.extend_from_slice(&ifd);
+    out.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+    out.extend_from_slice(&extra);
+    Ok(out)
+}
+
 /// Zen package: offset of the export blob.
 pub fn zen_header_size(uasset: &[u8]) -> Option<usize> {
     if uasset.len() < 64 {
@@ -776,5 +832,29 @@ mod tests {
         // Volume: the mip's own depth wins, and it halves down the chain.
         assert_eq!(payload_slices(32, 32), 32);
         assert_eq!(payload_slices(16, 32), 16);
+    }
+
+    #[test]
+    fn a_tiff_declares_its_strip_and_alpha() {
+        let img = TextureImage {
+            width: 2,
+            height: 1,
+            format: "PF_B8G8R8A8".into(),
+            mip: 0,
+            rgba: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        };
+        let t = to_tiff(&img).unwrap();
+        assert_eq!(&t[..4], b"II* ");
+        let ifd = u32::from_le_bytes(t[4..8].try_into().unwrap()) as usize;
+        assert_eq!(ifd, 16);
+        assert_eq!(&t[8..16], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(u16::from_le_bytes(t[ifd..ifd + 2].try_into().unwrap()), 11);
+        // ExtraSamples = 2 is the last entry.
+        let last = ifd + 2 + 10 * 12;
+        assert_eq!(u16::from_le_bytes(t[last..last + 2].try_into().unwrap()), 338);
+        assert_eq!(u32::from_le_bytes(t[last + 8..last + 12].try_into().unwrap()), 2);
+        // BitsPerSample values sit after the IFD.
+        let bits = u32::from_le_bytes(t[ifd + 2 + 2 * 12 + 8..ifd + 2 + 2 * 12 + 12].try_into().unwrap()) as usize;
+        assert_eq!(&t[bits..bits + 8], &[8, 0, 8, 0, 8, 0, 8, 0]);
     }
 }

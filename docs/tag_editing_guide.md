@@ -446,7 +446,9 @@ the pixel format, the authored size and the mip count. Textures larger than 4096
 at the first mip at or below that, and the header says `shown at mip N` when it does — you are
 not looking at the full-resolution image unless it says nothing.
 
-**Export…** writes the decoded image as a PNG.
+**Export…** writes the texture as a PNG or TIFF of the shown mip, decoded, or as a DDS in the
+cooked pixel format with every mip — the file a DDS-aware tool or a re-import wants, nothing
+re-encoded. A virtual texture's tiles are put back into linear mips on the way.
 
 4787 of the install's 4844 textures decode. The 57 that do not ship no pixel data at all: 52 are
 render targets or otherwise generated at runtime, and 5 are virtual textures whose payload was
@@ -458,6 +460,60 @@ tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_for
 format, proven by decoding it back, and recorded in the mod project like any other edit — see
 [`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
 The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
+
+### Meshes
+
+A cooked Unreal mesh opens in the mesh viewer with its real textures. Nearly every static mesh,
+and the vehicles' skeletal hulls, ship as Nanite cluster pages with only a reduced fallback in the
+classic buffers; the viewer decodes the pages and shows the mesh at full detail, saying
+**Nanite, full detail** in the header. **export .glb…** writes it as glTF binary — the Nanite
+mesh first, then every classic LOD, one primitive per material slot, metres and +Y up — for
+Blender or any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the
+bones as nodes; it is not skinned, because the cooked buffers carry no weights. Weapons and
+most Covenant vehicles hold a one-triangle placeholder in both forms, since their bodies are
+assembled at runtime from other assets. On the command line:
+
+```powershell
+mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
+mjolnir texture export --asset T_ar_default_D --out ar.dds
+```
+
+### Levels
+
+A mission's Unreal geometry — the static meshes the level places, not the Blam structure BSP —
+lives in World Partition cells, one generated `.umap` per grid square. **export level
+geometry…** in a scenario's World view (or `mjolnir level export --mission a30 --out <dir>`)
+writes one `.glb` per cell: every placed static mesh as a node at its world transform, with
+instanced components (foliage, scree, rocks) expanded instance by instance, and a
+`manifest.json` saying what each cell placed and what it skipped. A30 is 576 cells, 1.8 million
+placements and about a gigabyte, in under a minute. Each mesh is placed as its classic fallback
+LOD; `--nanite` on the command line places the full-detail geometry instead. Hierarchical-LOD
+proxies (`--hlod`), hidden components, landscape heightfields, child actors and Niagara effects
+are counted in the manifest rather than placed. The files are independent, so open the cells you
+want.
+
+### Unreal packages
+
+Anything cooked as an Unreal package — a material instance's parameters, a data asset's
+fields, a component template's settings — can be read and edited by property path with
+`mjolnir ue`, the same way `set` edits a tag field:
+
+```powershell
+mjolnir ue get --package MIP_Rifle_AssaultRifle_Default --filter Emissive
+mjolnir ue set --package MIP_Rifle_AssaultRifle_Default `
+    --field "VectorParameterValues[2].ParameterValue" --value "80,0,0,1" `
+    --out-dir mods
+```
+
+`set` decodes the export's property block losslessly, changes the value, writes the block
+back in front of the class's untouched native bytes, and packs the package into an override
+container the game loads in front of the shipped one; it reads the result back before
+writing. Paths index arrays with `[n]` and map keys with `{key}`. Numbers, bools, names,
+strings, enums (by name or number), soft object paths (`/Game/Pkg.Asset`) and vectors,
+colours and guids as comma lists can be set. Object references cannot: pointing a property
+at a different package needs import-map surgery, which is not done here. There is no
+editor surface for this yet; it is the foundation the mesh and material tooling will build
+on.
 
 ### Audio
 

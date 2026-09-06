@@ -17,8 +17,10 @@
 //! 00 00 00 00        UObject::Serialize's "has guid" bool
 //! ```
 //!
-//! Absent properties are simply skipped; the zero mask (a value present but
-//! all zeros) is not used by any tag export, so decoding one is an error here.
+//! Absent properties are simply skipped. A value present but all zeros can
+//! ride in the header's zero mask instead of the value stream — no tag
+//! export does that, but material instances and components do — and comes
+//! back as [`Val::Zeroed`], which encodes to the same mask bit.
 
 use crate::usmap::{PropType, Usmap};
 
@@ -36,8 +38,14 @@ pub enum Error {
         prop: String,
         ty: PropType,
     },
-    #[error("{class}: the header carries a zero mask, which no tag export uses")]
-    ZeroMask { class: String },
+    #[error("{class}.{prop}: a native {name} value must be {want} bytes, not {got}")]
+    NativeSize {
+        class: String,
+        prop: String,
+        name: String,
+        want: usize,
+        got: usize,
+    },
     #[error("{class}: a fragment runs past the {total} slots of the schema")]
     Overrun { class: String, total: u16 },
     #[error("a tag export body must start with four zero bytes and end with four zero bytes")]
@@ -59,8 +67,15 @@ pub struct Name {
 pub enum Val {
     Bool(bool),
     Byte(u8),
+    Int8(i8),
+    Int16(i16),
+    UInt16(u16),
     Int(i32),
     UInt32(u32),
+    Int64(i64),
+    UInt64(u64),
+    Float(f32),
+    Double(f64),
     Name(Name),
     /// An `FPackageIndex`: `<0` import `-n-1`, `>0` export `n-1`, `0` null.
     Object(i32),
@@ -70,11 +85,20 @@ pub enum Val {
         asset: Name,
         sub: String,
     },
+    Str(String),
+    /// An `FText`, kept as the bytes the cook wrote.
+    Text(Vec<u8>),
+    /// A natively serialized struct (`FVector`, `FLinearColor`, `FGuid`…),
+    /// byte for byte.
+    Native(Vec<u8>),
     Array(Vec<Val>),
+    Set(Vec<Val>),
     /// Key/value pairs; the "removed" prefix is always empty in a cook.
     Map(Vec<(Val, Val)>),
     /// A reflected struct: another unversioned block, with no guid guard.
     Struct(Block),
+    /// Present, but flagged in the header's zero mask: all zeros, no bytes.
+    Zeroed,
 }
 
 /// The present properties of one object or struct, by flat schema slot.
@@ -103,7 +127,7 @@ impl Block {
         fn walk(v: &Val, out: &mut Vec<i32>) {
             match v {
                 Val::Object(i) => out.push(*i),
-                Val::Array(items) => items.iter().for_each(|i| walk(i, out)),
+                Val::Array(items) | Val::Set(items) => items.iter().for_each(|i| walk(i, out)),
                 Val::Map(pairs) => pairs.iter().for_each(|(k, v)| {
                     walk(k, out);
                     walk(v, out);
@@ -126,7 +150,7 @@ impl Block {
                     out.push(*package);
                     out.push(*asset);
                 }
-                Val::Array(items) => items.iter().for_each(|i| walk(i, out)),
+                Val::Array(items) | Val::Set(items) => items.iter().for_each(|i| walk(i, out)),
                 Val::Map(pairs) => pairs.iter().for_each(|(k, v)| {
                     walk(k, out);
                     walk(v, out);
@@ -147,6 +171,10 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
+    fn u64(&mut self) -> Result<u64, Error> {
+        let b = self.bytes(8)?;
+        Ok(u64::from_le_bytes(b.try_into().unwrap()))
+    }
     fn bytes(&mut self, n: usize) -> Result<&'a [u8], Error> {
         let s = self
             .b
@@ -216,12 +244,33 @@ fn put_name(out: &mut Vec<u8>, n: Name) {
 
 /// Decode one unversioned block against `class`'s flattened schema.
 pub fn decode(usmap: &Usmap, class: &str, data: &[u8]) -> Result<Block, Error> {
-    let mut c = Cursor { b: data, at: 0 };
-    let block = decode_block(usmap, class, &mut c)?;
-    if c.at != data.len() {
-        return Err(Error::Trailing(data.len() - c.at));
+    let (block, used) = decode_prefix(usmap, class, data)?;
+    if used != data.len() {
+        return Err(Error::Trailing(data.len() - used));
     }
     Ok(block)
+}
+
+/// Decode the block at the head of `data` and say how many bytes it took —
+/// for an export whose native serialization follows its properties.
+pub fn decode_prefix(usmap: &Usmap, class: &str, data: &[u8]) -> Result<(Block, usize), Error> {
+    let mut c = Cursor { b: data, at: 0 };
+    let block = decode_block(usmap, class, &mut c)?;
+    Ok((block, c.at))
+}
+
+/// The zero mask's byte count for a number of masked values, as
+/// `FUnversionedHeader` sizes it.
+fn zero_mask_bytes(zero_bits: usize) -> usize {
+    if zero_bits == 0 {
+        0
+    } else if zero_bits <= 8 {
+        1
+    } else if zero_bits <= 16 {
+        2
+    } else {
+        zero_bits.div_ceil(32) * 4
+    }
 }
 
 fn decode_block(usmap: &Usmap, class: &str, c: &mut Cursor<'_>) -> Result<Block, Error> {
@@ -229,23 +278,28 @@ fn decode_block(usmap: &Usmap, class: &str, c: &mut Cursor<'_>) -> Result<Block,
         return Err(Error::NoSchema(class.to_string()));
     }
     let total = usmap.total_slots(class);
-    // Header: (skip:7, has_zeroes:1, is_last:1, value_count:7+) fragments.
-    let mut runs: Vec<(u16, u16)> = Vec::new();
+    // Header: (skip:7, has_zeroes:1, is_last:1, value_count:7+) fragments,
+    // then one mask bit per value of every fragment flagged as having zeros.
+    let mut runs: Vec<(u16, u16, bool)> = Vec::new();
+    let mut zero_bits = 0usize;
     loop {
         let packed = c.u16()?;
-        if packed & 0x80 != 0 {
-            return Err(Error::ZeroMask {
-                class: class.to_string(),
-            });
+        let zeroes = packed & 0x80 != 0;
+        let values = packed >> 9;
+        if zeroes {
+            zero_bits += values as usize;
         }
-        runs.push((packed & 0x7F, packed >> 9));
+        runs.push((packed & 0x7F, values, zeroes));
         if packed & 0x100 != 0 {
             break;
         }
     }
+    let mask = c.bytes(zero_mask_bytes(zero_bits))?.to_vec();
+    let bit = |i: usize| mask[i / 8] & (1 << (i % 8)) != 0;
     let mut block = Block::default();
     let mut slot = 0u16;
-    for (skip, values) in runs {
+    let mut zero_index = 0usize;
+    for (skip, values, zeroes) in runs {
         slot += skip;
         for _ in 0..values {
             if slot >= total {
@@ -258,7 +312,15 @@ fn decode_block(usmap: &Usmap, class: &str, c: &mut Cursor<'_>) -> Result<Block,
                 class: class.to_string(),
                 slot,
             })?;
-            let value = decode_value(usmap, class, &prop.name, &prop.ty, c)?;
+            let zeroed = zeroes && bit(zero_index);
+            if zeroes {
+                zero_index += 1;
+            }
+            let value = if zeroed {
+                Val::Zeroed
+            } else {
+                decode_value(usmap, class, &prop.name, &prop.ty, c)?
+            };
             block.values.push((slot, value));
             slot += 1;
         }
@@ -277,10 +339,50 @@ fn decode_value(
     Ok(match ty {
         T::Bool => Val::Bool(c.u8()? != 0),
         T::Byte => Val::Byte(c.u8()?),
+        T::Int8 => Val::Int8(c.u8()? as i8),
+        T::Int16 => Val::Int16(c.u16()? as i16),
+        T::UInt16 => Val::UInt16(c.u16()?),
         T::Int => Val::Int(c.u32()? as i32),
         T::UInt32 => Val::UInt32(c.u32()?),
+        T::Int64 => Val::Int64(c.u64()? as i64),
+        T::UInt64 => Val::UInt64(c.u64()?),
+        T::Float => Val::Float(f32::from_bits(c.u32()?)),
+        T::Double => Val::Double(f64::from_bits(c.u64()?)),
+        // An enum serializes as its underlying numeric type.
+        T::Enum(inner, _) => decode_value(usmap, class, prop, inner, c)?,
+        T::Str => Val::Str(c.fstring()?),
+        T::Text => {
+            let start = c.at;
+            let _flags = c.u32()?;
+            let history = c.u8()? as i8;
+            match history {
+                -1 => {
+                    if c.u32()? != 0 {
+                        c.fstring()?;
+                    }
+                }
+                0 => {
+                    c.fstring()?;
+                    c.fstring()?;
+                    c.fstring()?;
+                }
+                11 => {
+                    c.name()?;
+                    c.fstring()?;
+                }
+                _ => {
+                    return Err(Error::Unsupported {
+                        class: class.to_string(),
+                        prop: prop.to_string(),
+                        ty: ty.clone(),
+                    })
+                }
+            }
+            Val::Text(c.b[start..c.at].to_vec())
+        }
+        T::LazyObject => Val::Native(c.bytes(16)?.to_vec()),
         T::Name => Val::Name(c.name()?),
-        T::Object | T::Interface => Val::Object(c.u32()? as i32),
+        T::Object | T::Interface | T::WeakObject => Val::Object(c.u32()? as i32),
         T::SoftObject | T::AssetObject => Val::SoftObject {
             package: c.name()?,
             asset: c.name()?,
@@ -296,6 +398,25 @@ fn decode_value(
                 items.push(decode_value(usmap, class, prop, inner, c)?);
             }
             Val::Array(items)
+        }
+        T::Set(inner) => {
+            let removed = c.u32()?;
+            if removed != 0 {
+                return Err(Error::Unsupported {
+                    class: class.to_string(),
+                    prop: prop.to_string(),
+                    ty: ty.clone(),
+                });
+            }
+            let count = c.u32()? as usize;
+            if count > 0x0100_0000 {
+                return Err(Error::Eof(c.at));
+            }
+            let mut items = Vec::with_capacity(count);
+            for _ in 0..count {
+                items.push(decode_value(usmap, class, prop, inner, c)?);
+            }
+            Val::Set(items)
         }
         T::Map(key, value) => {
             let removed = c.u32()?;
@@ -321,9 +442,40 @@ fn decode_value(
                 asset: c.name()?,
                 sub: c.fstring()?,
             },
-            _ if usmap.structs.contains_key(name) && !NATIVE_STRUCTS.contains(&name.as_str()) => {
-                Val::Struct(decode_block(usmap, name, c)?)
+            _ if crate::unversioned::native_struct_size(name).is_some() => {
+                let n = crate::unversioned::native_struct_size(name).unwrap();
+                Val::Native(c.bytes(n)?.to_vec())
             }
+            // Custom serializers this encoder does not model; refused by
+            // name rather than misread as a reflected block.
+            "InstancedPropertyBag" | "NiagaraVariable" | "NiagaraVariableBase" => {
+                return Err(Error::Unsupported {
+                    class: class.to_string(),
+                    prop: prop.to_string(),
+                    ty: ty.clone(),
+                })
+            }
+            // Eight native bytes, then the reflected block; kept raw as one
+            // value, since nothing here edits Nanite overrides.
+            "MaterialOverrideNanite" => {
+                let start = c.at;
+                c.bytes(8)?;
+                decode_block(usmap, name, c)?;
+                Val::Native(c.b[start..c.at].to_vec())
+            }
+            // The container's custom serializer: a name array, kept raw.
+            "GameplayTagContainer" => {
+                let start = c.at;
+                let count = c.u32()? as usize;
+                if count > 0x0010_0000 {
+                    return Err(Error::Eof(c.at));
+                }
+                for _ in 0..count {
+                    c.name()?;
+                }
+                Val::Native(c.b[start..c.at].to_vec())
+            }
+            _ if usmap.structs.contains_key(name) => Val::Struct(decode_block(usmap, name, c)?),
             _ => {
                 return Err(Error::Unsupported {
                     class: class.to_string(),
@@ -342,34 +494,6 @@ fn decode_value(
     })
 }
 
-/// Structs the engine serializes natively rather than as reflected blocks.
-/// Nothing in a tag wrapper uses one; listed so they are refused by name.
-const NATIVE_STRUCTS: &[&str] = &[
-    "Vector",
-    "Rotator",
-    "Vector3f",
-    "Vector2D",
-    "Vector2f",
-    "Vector4",
-    "Quat",
-    "Plane",
-    "Vector4f",
-    "Quat4f",
-    "Color",
-    "LinearColor",
-    "IntPoint",
-    "IntVector",
-    "IntVector4",
-    "Guid",
-    "FrameNumber",
-    "PerPlatformFloat",
-    "PerPlatformInt",
-    "PerPlatformBool",
-    "DateTime",
-    "Timespan",
-    "TopLevelAssetPath",
-];
-
 impl Block {
     /// Encode against `class`'s schema: the fragment header, then the values.
     pub fn encode(&self, usmap: &Usmap, class: &str) -> Result<Vec<u8>, Error> {
@@ -381,43 +505,95 @@ impl Block {
         // skip starts a fragment, consecutive present slots extend it (127 at
         // most), and the next absent slot closes it. Trailing absent slots need
         // no fragment — unless nothing was present at all, when a single
-        // all-skip fragment says so. The last fragment carries the flag.
-        let mut fragments: Vec<u16> = Vec::new();
+        // all-skip fragment says so. The last fragment carries the flag. A
+        // fragment holding any zeroed value is flagged, and contributes one
+        // mask bit per value.
+        struct Fragment {
+            skip: u16,
+            values: u16,
+            zeroed: Vec<bool>,
+        }
+        let mut fragments: Vec<Fragment> = Vec::new();
         let mut skip = 0u16;
         let mut values = 0u16;
+        let mut zeroed: Vec<bool> = Vec::new();
         for slot in 0..total {
-            let present = self.values.iter().any(|(s, _)| *s == slot);
-            if present {
+            let present = self.values.iter().find(|(s, _)| *s == slot).map(|(_, v)| v);
+            if let Some(v) = present {
                 if values == 127 {
-                    fragments.push(skip | (values << 9));
+                    fragments.push(Fragment {
+                        skip,
+                        values,
+                        zeroed: std::mem::take(&mut zeroed),
+                    });
                     skip = 0;
                     values = 0;
                 }
                 values += 1;
+                zeroed.push(matches!(v, Val::Zeroed));
             } else {
                 if values > 0 {
-                    fragments.push(skip | (values << 9));
+                    fragments.push(Fragment {
+                        skip,
+                        values,
+                        zeroed: std::mem::take(&mut zeroed),
+                    });
                     skip = 0;
                     values = 0;
                 }
-                skip += 1;
+                // A fragment's skip is seven bits; one that has reached 127
+                // may still take values, so it only closes when another
+                // absent slot follows.
                 if skip == 127 {
-                    fragments.push(skip);
+                    fragments.push(Fragment {
+                        skip,
+                        values: 0,
+                        zeroed: Vec::new(),
+                    });
                     skip = 0;
                 }
+                skip += 1;
             }
         }
-        if values > 0 || fragments.is_empty() {
-            fragments.push(skip | (values << 9));
+        if values > 0 || skip > 0 || fragments.is_empty() {
+            fragments.push(Fragment {
+                skip,
+                values,
+                zeroed,
+            });
         }
-        if let Some(last) = fragments.last_mut() {
-            *last |= 0x100;
+        // Trailing skip fragments are dropped, except that a block with no
+        // value at all keeps its first one — one fragment skipping every
+        // slot, as the cook writes it.
+        while fragments.len() > 1 && fragments.last().is_some_and(|f| f.values == 0) {
+            fragments.pop();
         }
+        let last = fragments.len() - 1;
         let mut out = Vec::new();
-        for f in fragments {
-            out.extend_from_slice(&f.to_le_bytes());
+        let mut mask_bits: Vec<bool> = Vec::new();
+        for (i, f) in fragments.iter().enumerate() {
+            let has_zeroes = f.zeroed.iter().any(|z| *z);
+            let mut packed = f.skip | (f.values << 9);
+            if has_zeroes {
+                packed |= 0x80;
+                mask_bits.extend_from_slice(&f.zeroed);
+            }
+            if i == last {
+                packed |= 0x100;
+            }
+            out.extend_from_slice(&packed.to_le_bytes());
         }
+        let mut mask = vec![0u8; zero_mask_bytes(mask_bits.len())];
+        for (i, bit) in mask_bits.iter().enumerate() {
+            if *bit {
+                mask[i / 8] |= 1 << (i % 8);
+            }
+        }
+        out.extend_from_slice(&mask);
         for (slot, value) in &self.values {
+            if matches!(value, Val::Zeroed) {
+                continue;
+            }
             if *slot >= total {
                 return Err(Error::Overrun {
                     class: class.to_string(),
@@ -451,10 +627,22 @@ fn encode_value(
     match (ty, value) {
         (T::Bool, Val::Bool(b)) => out.push(*b as u8),
         (T::Byte, Val::Byte(b)) => out.push(*b),
+        (T::Int8, Val::Int8(i)) => out.push(*i as u8),
+        (T::Int16, Val::Int16(i)) => out.extend_from_slice(&i.to_le_bytes()),
+        (T::UInt16, Val::UInt16(i)) => out.extend_from_slice(&i.to_le_bytes()),
         (T::Int, Val::Int(i)) => out.extend_from_slice(&i.to_le_bytes()),
         (T::UInt32, Val::UInt32(i)) => out.extend_from_slice(&i.to_le_bytes()),
+        (T::Int64, Val::Int64(i)) => out.extend_from_slice(&i.to_le_bytes()),
+        (T::UInt64, Val::UInt64(i)) => out.extend_from_slice(&i.to_le_bytes()),
+        (T::Float, Val::Float(f)) => out.extend_from_slice(&f.to_bits().to_le_bytes()),
+        (T::Double, Val::Double(f)) => out.extend_from_slice(&f.to_bits().to_le_bytes()),
+        (T::Enum(inner, _), v) => encode_value(usmap, class, prop, inner, v, out)?,
+        (T::Str, Val::Str(s)) => put_fstring(out, s),
+        (T::Text, Val::Text(bytes)) | (T::LazyObject, Val::Native(bytes)) => out.extend_from_slice(bytes),
         (T::Name, Val::Name(n)) => put_name(out, *n),
-        (T::Object | T::Interface, Val::Object(i)) => out.extend_from_slice(&i.to_le_bytes()),
+        (T::Object | T::Interface | T::WeakObject, Val::Object(i)) => {
+            out.extend_from_slice(&i.to_le_bytes())
+        }
         (
             T::SoftObject | T::AssetObject,
             Val::SoftObject {
@@ -480,6 +668,31 @@ fn encode_value(
             for item in items {
                 encode_value(usmap, class, prop, inner, item, out)?;
             }
+        }
+        (T::Set(inner), Val::Set(items)) => {
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&(items.len() as u32).to_le_bytes());
+            for item in items {
+                encode_value(usmap, class, prop, inner, item, out)?;
+            }
+        }
+        (T::Struct(name), Val::Native(bytes))
+            if matches!(name.as_str(), "MaterialOverrideNanite" | "GameplayTagContainer") =>
+        {
+            out.extend_from_slice(bytes);
+        }
+        (T::Struct(name), Val::Native(bytes)) => {
+            let want = crate::unversioned::native_struct_size(name).ok_or_else(mismatch)?;
+            if bytes.len() != want {
+                return Err(Error::NativeSize {
+                    class: class.to_string(),
+                    prop: prop.to_string(),
+                    name: name.clone(),
+                    want,
+                    got: bytes.len(),
+                });
+            }
+            out.extend_from_slice(bytes);
         }
         (T::Map(key, val), Val::Map(pairs)) => {
             out.extend_from_slice(&0u32.to_le_bytes());
@@ -703,14 +916,127 @@ mod tests {
         assert_eq!(b.object_refs(), vec![-2, -4]);
     }
 
+    /// Against the installed game: the blocks of material instances, data
+    /// assets and Blueprint packages decode and encode byte for byte, with
+    /// the class's native tail split off exactly where the walker says.
     #[test]
-    fn a_zero_mask_is_refused_not_guessed() {
+    fn shipped_material_and_blueprint_blocks_round_trip() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let containers = ue_iostore::load_all(&paks).unwrap();
+        let global = containers
+            .iter()
+            .find(|c| c.utoc_path.file_name().is_some_and(|n| n == "global.utoc"))
+            .unwrap();
+        let script_chunk = global
+            .chunks
+            .iter()
+            .find(|c| c.type_name() == "ScriptObjects")
+            .unwrap();
+        let scripts = crate::zen::ScriptObjects::parse(
+            &ue_iostore::read_chunk(global, script_chunk, None, &[]).unwrap(),
+        )
+        .unwrap();
+        static USMAP: &[u8] = include_bytes!("../../../defs/ue/Meteorite-2607-CU3.usmap");
+        let u = Usmap::parse(USMAP).unwrap();
+        let limit: usize = std::env::var("PROPS_TEST_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(400);
+        // class -> (exact, mismatched, unsupported)
+        let mut by_class: std::collections::BTreeMap<String, (usize, usize, usize)> = Default::default();
+        let mut first_by_class: std::collections::BTreeMap<String, String> = Default::default();
+        let hex = |b: &[u8]| b.iter().take(40).map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" ");
+        let mut first_problem: Option<String> = None;
+        for prefix in ["MI_", "DA_", "BP_"] {
+            let mut seen = 0usize;
+            'containers: for c in &containers {
+                let mut names: Vec<&String> = c.files.keys().collect();
+                names.sort();
+                for rel in names {
+                    let full = c.full_path(rel);
+                    let leaf = full.rsplit('/').next().unwrap_or("");
+                    if !leaf.starts_with(prefix) || !full.ends_with(".uasset") || full.contains("/Tags/") {
+                        continue;
+                    }
+                    if seen >= limit {
+                        break 'containers;
+                    }
+                    seen += 1;
+                    let data = ue_iostore::read_chunk(c, &c.chunks[c.files[rel]], None, &[]).unwrap();
+                    let Ok(pkg) = crate::package::ZenPackage::parse(&data) else {
+                        continue;
+                    };
+                    for (ei, e) in pkg.export_map.iter().enumerate() {
+                        let Some(class) = scripts.leaf(crate::zen::ObjectIndex(e.class)) else {
+                            continue;
+                        };
+                        let Some(bytes) = pkg.export_bytes(ei) else { continue };
+                        let entry = by_class.entry(class.to_string()).or_default();
+                        match decode_prefix(&u, class, bytes) {
+                            Ok((block, used)) => match block.encode(&u, class) {
+                                Ok(back) if back == bytes[..used] => entry.0 += 1,
+                                Ok(back) => {
+                                    entry.1 += 1;
+                                    let at = back.iter().zip(&bytes[..used]).position(|(a, b)| a != b).unwrap_or(back.len().min(used));
+                                    let msg = format!(
+                                        "{leaf} [{ei}] {class}: re-encoded bytes differ at {at} of {used} (got {})
+    was {}
+    now {}",
+                                        back.len(), hex(bytes), hex(&back)
+                                    );
+                                    first_by_class.entry(class.to_string()).or_insert_with(|| msg.clone());
+                                    first_problem.get_or_insert(msg);
+                                }
+                                Err(err) => {
+                                    entry.2 += 1;
+                                    first_by_class.entry(class.to_string()).or_insert_with(|| format!("{leaf} [{ei}]: encode: {err}"));
+                                    first_problem.get_or_insert_with(|| format!("{leaf} [{ei}] {class}: encode: {err}"));
+                                }
+                            },
+                            Err(err) => {
+                                entry.2 += 1;
+                                first_by_class.entry(class.to_string()).or_insert_with(|| format!("{leaf} [{ei}]: {err}"));
+                                if class == "MaterialInstanceConstant" {
+                                    first_problem.get_or_insert_with(|| format!("{leaf} [{ei}] {class}: {err}"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let (mut exact, mut mismatched, mut unsupported) = (0, 0, 0);
+        for (class, (a, b, c)) in &by_class {
+            eprintln!("{a:6} exact {b:4} mismatched {c:4} unsupported  {class}");
+            if let Some(f) = first_by_class.get(class) {
+                if *b + *c > 0 {
+                    eprintln!("        {f}");
+                }
+            }
+            exact += a;
+            mismatched += b;
+            unsupported += c;
+        }
+        eprintln!("{exact} exact, {mismatched} mismatched, {unsupported} unsupported");
+        if let Some(p) = &first_problem {
+            eprintln!("first problem: {p}");
+        }
+        assert_eq!(mismatched, 0, "a decoded block re-encoded differently");
+        let mic = by_class.get("MaterialInstanceConstant").copied().unwrap_or_default();
+        assert!(mic.0 > 0 && mic.2 == 0, "material instances: {mic:?}");
+        assert!(exact * 10 >= (exact + unsupported) * 9, "under 90% of blocks are modelled");
+    }
+
+    #[test]
+    fn a_zero_mask_round_trips_as_zeroed() {
         let u = usmap();
-        // skip 0, has_zeroes, 1 value, last: 0x0380
+        // skip 0, has_zeroes, 1 value, last: 0x0380; mask bit 0 set.
         let body = [0, 0, 0, 0, 0x80, 0x03, 0x01, 0, 0, 0, 0];
-        assert!(matches!(
-            decode_tag_body(&u, "BlamBaseEffectTagDataAsset", &body),
-            Err(Error::ZeroMask { .. })
-        ));
+        let block = decode_tag_body(&u, "BlamBaseEffectTagDataAsset", &body).unwrap();
+        assert_eq!(block.values, vec![(0, Val::Zeroed)]);
+        let back = encode_tag_body(&u, "BlamBaseEffectTagDataAsset", &block).unwrap();
+        assert_eq!(back, body);
     }
 }
