@@ -120,7 +120,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     other => format!("{other:?}"),
                                 };
-                                let shown = if shown.len() > 160 { format!("{}…", &shown[..160]) } else { shown };
+                                let shown = if std::env::var_os("LEVEL_PROBE_FULL").is_some() {
+                                    format!("{v:?}")
+                                } else if shown.len() > 160 {
+                                    format!("{}…", &shown[..160])
+                                } else {
+                                    shown
+                                };
                                 println!("       {k} = {shown}");
                             }
                             let rest = &bytes[w.pos.min(bytes.len())..];

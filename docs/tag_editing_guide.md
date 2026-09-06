@@ -492,6 +492,29 @@ proxies (`--hlod`), hidden components, landscape heightfields, child actors and 
 are counted in the manifest rather than placed. The files are independent, so open the cells you
 want.
 
+### Unreal packages
+
+Anything cooked as an Unreal package — a material instance's parameters, a data asset's
+fields, a component template's settings — can be read and edited by property path with
+`mjolnir ue`, the same way `set` edits a tag field:
+
+```powershell
+mjolnir ue get --package MIP_Rifle_AssaultRifle_Default --filter Emissive
+mjolnir ue set --package MIP_Rifle_AssaultRifle_Default `
+    --field "VectorParameterValues[2].ParameterValue" --value "80,0,0,1" `
+    --out-dir mods
+```
+
+`set` decodes the export's property block losslessly, changes the value, writes the block
+back in front of the class's untouched native bytes, and packs the package into an override
+container the game loads in front of the shipped one; it reads the result back before
+writing. Paths index arrays with `[n]` and map keys with `{key}`. Numbers, bools, names,
+strings, enums (by name or number), soft object paths (`/Game/Pkg.Asset`) and vectors,
+colours and guids as comma lists can be set. Object references cannot: pointing a property
+at a different package needs import-map surgery, which is not done here. There is no
+editor surface for this yet; it is the foundation the mesh and material tooling will build
+on.
+
 ### Audio
 
 The **sounds** tab browses the game's Wwise audio — about 6 GB of it, which lives in the `.pak`

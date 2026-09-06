@@ -270,6 +270,32 @@ cached bounds: 71 of 59,478 fall outside, all the cook's dummy instances parked 
 are mapped. Rendering a cell's `.glb` in three.js shows the rocks and ledges where the game has
 them.
 
+**Verified 2026-09-06 — cooked property blocks of every kind re-encode byte for byte, and an
+edited package loads.** `ue_asset::props` (the lossless unversioned-block codec that already
+rebuilt every tag wrapper) now covers what materials, data assets and Blueprint packages use:
+the zero mask (a fragment flagged `0x80` carries one mask bit per value; a masked value has no
+bytes), floats, doubles, strings, `FText` (kept raw; history types None, Base and
+StringTableEntry), sets, enums as their underlying type, and the natively serialized structs by
+size — plus three layouts measured from the bytes: `FMaterialOverrideNanite` is eight native
+bytes (`01 00 00 00 00 00 00 00`) followed by its reflected block; `FGameplayTagContainer` is
+a raw name array; `FRichCurveKey` is 27 bytes. Two header rules the tag wrappers never
+exercised: a fragment whose skip has reached 127 may still carry values (it closes only when
+another absent slot follows), and a block with no value at all is one fragment skipping every
+slot, while trailing skip fragments after the last value are dropped. `ue_asset::edit`
+addresses a value by path (`ScalarParameterValues[4].ParameterValue`,
+`RuntimeRegions{head}.Permutations{default}`), sets it from text, and
+`ZenPackage::set_export_bytes` re-lays a multi-export package. Sweep over 1,500 packages each
+of `MI_`, `DA_` and `BP_` (`shipped_material_and_blueprint_blocks_round_trip`): 22,014
+exports exact, 0 mismatched, 390 refused by name (`InstancedPropertyBag`, `NiagaraVariable`,
+maps with removed keys); every tag wrapper still exact. In game: two vector parameters of
+`MIP_Rifle_AssaultRifle_Default` (the first-person rifle's material) set to `80,0,0,1` through
+`mjolnir ue set`, installed as `pakchunk995-MJOLNIRUE2_P`, read back as `80,0,0,1` from the
+running game's material instance by reflection. The emissive tints did not visibly recolour the
+rifle's lights — the display and indicator glow come from other materials — so the proof is the
+reflected value, not the pixels. Also found: no shipped package carries a populated
+`RuntimeRegions` map; the mesh-sync data assets hold only `ModelTag`, and the region-to-mesh
+binding is made at runtime, so a mesh swap by soft-path rewrite has nothing cooked to rewrite.
+
 **Verified 2026-08-19 — an object tag reaches its render mesh through its actor Blueprint.**
 The tag's `.uasset` imports name `BP_*` actor packages; each Blueprint's mesh component
 templates (SCS `SkeletalMeshComponent` / `StaticMeshComponent` exports) carry the `SK_`/`SM_`

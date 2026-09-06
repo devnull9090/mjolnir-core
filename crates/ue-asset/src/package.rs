@@ -571,6 +571,29 @@ impl ZenPackage {
         )
     }
 
+    /// Replace one export's serial bytes, shifting the exports laid out after
+    /// it and keeping the export map's offsets and sizes in step.
+    pub fn set_export_bytes(&mut self, index: usize, bytes: Vec<u8>) -> Result<(), Error> {
+        let e = *self
+            .export_map
+            .get(index)
+            .ok_or(Error::Layout("export index out of range"))?;
+        let start = e.cooked_serial_offset as usize;
+        let end = start + e.cooked_serial_size as usize;
+        if end > self.export_data.len() {
+            return Err(Error::Layout("export lies outside the export data"));
+        }
+        let delta = bytes.len() as i64 - (end - start) as i64;
+        self.export_data.splice(start..end, bytes.iter().copied());
+        self.export_map[index].cooked_serial_size = bytes.len() as u64;
+        for (i, other) in self.export_map.iter_mut().enumerate() {
+            if i != index && other.cooked_serial_offset as usize >= end {
+                other.cooked_serial_offset = (other.cooked_serial_offset as i64 + delta) as u64;
+            }
+        }
+        Ok(())
+    }
+
     /// Replace the export data of a single-export package and keep the export
     /// map's size in step.
     pub fn set_export_data(&mut self, data: Vec<u8>) -> Result<(), Error> {
