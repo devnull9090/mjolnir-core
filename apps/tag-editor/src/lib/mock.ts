@@ -724,6 +724,7 @@ export const mockApi = {
     };
   },
   readTextureThumb: async (index: number) => mockApi.readTexture(index),
+  exportMesh: async () => 4096,
   exportTexture: async () => 0,
   swapTexture: async (index: number) => {
     const path =

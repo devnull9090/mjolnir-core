@@ -27,6 +27,23 @@ pub struct MeshArgs {
 pub enum MeshCommand {
     /// List shipped static meshes with their local-space bounds, as JSON.
     List(ListArgs),
+    /// Write one mesh as glTF binary (`.glb`): every LOD, a primitive per
+    /// material slot, metres and +Y up. Skeletal meshes come out in their
+    /// rest pose with the bones as nodes.
+    Export(ExportArgs),
+}
+
+#[derive(Args)]
+pub struct ExportArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// Substring of the mesh's content path (`SM_` or `SK_` name); the first
+    /// match is exported.
+    #[arg(long)]
+    pub asset: String,
+    /// The `.glb` to write.
+    #[arg(long)]
+    pub out: PathBuf,
 }
 
 #[derive(Args)]
@@ -48,7 +65,119 @@ pub struct ListArgs {
 pub fn run(a: MeshArgs) -> Result<()> {
     match a.command {
         MeshCommand::List(a) => list(a),
+        MeshCommand::Export(a) => export(a),
     }
+}
+
+/// Every `SM_`/`SK_` package by stem: the `.uasset` chunk and the `.ubulk`
+/// sibling carrying any streamed LOD buffers.
+type Sighting = (
+    Option<(usize, ue_iostore::ChunkEntry)>,
+    Option<(usize, ue_iostore::ChunkEntry)>,
+);
+
+fn mesh_candidates(containers: &[ue_iostore::Container], skeletal: bool) -> BTreeMap<String, Sighting> {
+    let mut candidates: BTreeMap<String, Sighting> = BTreeMap::new();
+    for (ci, c) in containers.iter().enumerate() {
+        for (rel, chunk_index) in &c.files {
+            let full = c.full_path(rel);
+            if full.contains("/Engine/") || full.contains("/Tags/") {
+                continue;
+            }
+            let leaf = full.rsplit('/').next().unwrap_or("");
+            let is_mesh = leaf.starts_with("SM_") || (skeletal && leaf.starts_with("SK_"));
+            if !is_mesh {
+                continue;
+            }
+            let (stem, is_uasset) = if let Some(s) = full.strip_suffix(".uasset") {
+                (s, true)
+            } else if let Some(s) = full.strip_suffix(".ubulk") {
+                (s, false)
+            } else {
+                continue;
+            };
+            let entry = candidates.entry(stem.to_string()).or_default();
+            if is_uasset {
+                entry.0 = Some((ci, c.chunks[*chunk_index]));
+            } else {
+                entry.1 = Some((ci, c.chunks[*chunk_index]));
+            }
+        }
+    }
+    candidates
+}
+
+fn script_objects(
+    containers: &[ue_iostore::Container],
+    oodle: &[PathBuf],
+) -> Result<ue_asset::zen::ScriptObjects> {
+    let global = containers
+        .iter()
+        .find(|c| c.utoc_path.file_name().is_some_and(|n| n == "global.utoc"))
+        .context("no global.utoc")?;
+    let script_chunk = global
+        .chunks
+        .iter()
+        .find(|c| c.type_name() == "ScriptObjects")
+        .context("global.utoc has no ScriptObjects chunk")?;
+    let script_bytes = ue_iostore::read_chunk(global, script_chunk, None, oodle)?;
+    Ok(ue_asset::zen::ScriptObjects::parse(&script_bytes)?)
+}
+
+fn export(a: ExportArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let usmap = usmap()?;
+    let scripts = script_objects(&containers, &oodle)?;
+    let candidates = mesh_candidates(&containers, true);
+    let needle = a.asset.to_ascii_lowercase();
+    let (stem, (uasset, ubulk)) = candidates
+        .iter()
+        .find(|(stem, (u, _))| u.is_some() && stem.to_ascii_lowercase().contains(&needle))
+        .with_context(|| format!("no mesh matching {:?}", a.asset))?;
+    let (ci, chunk) = uasset.as_ref().unwrap();
+    let short = stem.trim_start_matches("../../../Meteorite/Content/");
+    let leaf = short.rsplit('/').next().unwrap_or(short);
+    let skeletal = leaf.starts_with("SK_");
+    let wanted_class = if skeletal { "SkeletalMesh" } else { "StaticMesh" };
+
+    let data = ue_iostore::read_chunk(&containers[*ci], chunk, None, &oodle)?;
+    let package = ue_asset::zen::Package::parse(&data)?;
+    let export = package
+        .exports
+        .iter()
+        .position(|e| scripts.leaf(e.class) == Some(wanted_class))
+        .with_context(|| format!("{short} has no {wanted_class} export"))?;
+    let bytes = package.export_data(&data, export)?;
+    let ctx = Ctx {
+        usmap: &usmap,
+        names: &package.names,
+    };
+    let bulk = match ubulk {
+        Some((bi, bchunk)) => Some(ue_iostore::read_chunk(&containers[*bi], bchunk, None, &oodle)?),
+        None => None,
+    };
+    let glb = if skeletal {
+        let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, bulk.as_deref())?;
+        ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
+            name: leaf,
+            materials: &sk.materials,
+            lods: &sk.lods,
+            bones: &sk.bones,
+        })
+    } else {
+        let sm = ue_asset::mesh::parse_static_mesh(&ctx, bytes, bulk.as_deref())?;
+        ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
+            name: leaf,
+            materials: &sm.materials,
+            lods: &sm.lods,
+            bones: &[],
+        })
+    }
+    .map_err(|e| anyhow::anyhow!("{short}: {e}"))?;
+    std::fs::write(&a.out, &glb).with_context(|| format!("cannot write {}", a.out.display()))?;
+    println!("{short}\n  -> {} ({} bytes)", a.out.display(), glb.len());
+    Ok(())
 }
 
 #[derive(serde::Serialize)]

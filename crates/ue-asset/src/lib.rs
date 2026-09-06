@@ -7,6 +7,7 @@
 
 pub mod material;
 pub mod mesh;
+pub mod gltf;
 pub mod package;
 pub mod props;
 pub mod tagwrap;

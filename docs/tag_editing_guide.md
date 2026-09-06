@@ -446,7 +446,9 @@ the pixel format, the authored size and the mip count. Textures larger than 4096
 at the first mip at or below that, and the header says `shown at mip N` when it does — you are
 not looking at the full-resolution image unless it says nothing.
 
-**Export…** writes the decoded image as a PNG.
+**Export…** writes the texture as a PNG or TIFF of the shown mip, decoded, or as a DDS in the
+cooked pixel format with every mip — the file a DDS-aware tool or a re-import wants, nothing
+re-encoded. A virtual texture's tiles are put back into linear mips on the way.
 
 4787 of the install's 4844 textures decode. The 57 that do not ship no pixel data at all: 52 are
 render targets or otherwise generated at runtime, and 5 are virtual textures whose payload was
@@ -458,6 +460,18 @@ tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_for
 format, proven by decoding it back, and recorded in the mod project like any other edit — see
 [`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
 The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
+
+### Meshes
+
+A cooked Unreal mesh opens in the mesh viewer with its real textures. **export .glb…** writes it
+as glTF binary — every LOD, one primitive per material slot, metres and +Y up — for Blender or
+any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the bones as
+nodes; it is not skinned, because the cooked buffers carry no weights. On the command line:
+
+```powershell
+mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
+mjolnir texture export --asset T_ar_default_D --out ar.dds
+```
 
 ### Audio
 

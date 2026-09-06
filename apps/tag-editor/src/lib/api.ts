@@ -770,6 +770,8 @@ const tauriApi = {
   setScripts: (index: number, files: [string, string][]) =>
     invoke<CompileReport>("set_scripts", { index, files }),
   revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
+  exportMesh: (index: number, dest: string) =>
+    invoke<number>("export_mesh", { index, dest }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   swapTexture: (index: number, image: string) =>
