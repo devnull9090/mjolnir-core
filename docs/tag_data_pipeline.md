@@ -219,12 +219,30 @@ Reproduce with `cargo run --example probe_geometry -- scenario_structure_bsp hol
 **Verified 2026-08-08 — the game uses Nanite.** Static-mesh `.ubulk` payloads open with the
 `NFM` fixup magic: they are Nanite cluster pages, and the "cooked out" LOD0 slots in
 `FStaticMeshRenderData` are the LODs Nanite replaced. What remains readable classically is the
-inline Nanite **fallback** mesh (correct shape and materials, reduced density) — that is what the
-tag editor's mesh viewer shows for `SM_` assets. Skeletal meshes do not use Nanite and keep full
-detail. The `ue-asset` crate reads the whole chain — usmap reflection schemas (dumped from the
+inline Nanite **fallback** mesh (correct shape and materials, reduced density). ~~Skeletal meshes
+do not use Nanite and keep full detail.~~ (Corrected below: the vehicles' skeletal hulls are
+Nanite too.) The `ue-asset` crate reads the whole chain — usmap reflection schemas (dumped from the
 running game via UE4SS `DumpUSMAP`, `defs/ue/Meteorite-2607-CU3.usmap`), zen package structure,
 unversioned properties, StaticMesh buffers, and MaterialInstance texture parameters — a 1,200
 package soak parses 99.25%.
+
+**Verified 2026-09-06 — the Nanite pages decode.** `ue_asset::nanite` (a Rust port of
+CUE4Parse's reader, Apache-2.0, credited in `NOTICE`) parses the `FResources` block that trails
+the LOD array — in a zen package the streamable-pages bulk header is a single `i32` index into
+the package's bulk-data map, not the legacy inline header — and decodes every page: fixup
+chunk, cluster headers, strip-coded triangle indices, the low/mid/high byte streams behind
+positions, normals, tangents, colours and UVs, and vertex references into earlier clusters
+through the page dependencies. Full-leaf clusters (flag `0x4`) are welded on position, normal
+and UV into one `Lod` with a section per material, which the mesh viewer, `mjolnir mesh export`
+and the glTF writer prefer over the fallback. Skeletal meshes carry the same block directly
+after their LOD array (no inlined-LOD bytes first), and it is where the vehicle hulls live:
+`SK_Warthog_01` decodes to 197k triangles where its classic buffers hold the suspension alone.
+Weapons and the Ghost/Banshee keep a one-triangle placeholder in the pages as well as in the
+buffers. The gated test `shipped_nanite_meshes_decode_consistently` sweeps the install: 1,495
+of the first 1,500 static meshes carry pages and all decode with no vertex outside its
+cluster's box, no unresolved reference, and a triangle count within a tenth of the builder's
+input; the only meshes whose bounds differ from their fallback are biome trees and plants,
+whose fallbacks are wind-proxy shapes.
 
 **Verified 2026-08-19 — an object tag reaches its render mesh through its actor Blueprint.**
 The tag's `.uasset` imports name `BP_*` actor packages; each Blueprint's mesh component
@@ -246,10 +264,11 @@ editor's Model and World views draw the chase's results (`render_mesh_refs` in
   exactly at that scale in the Model view. The engine negates Y between Blam and Unreal space,
   so a mesh drawn among tag data mirrors Y back.
 - **Some meshes stay unreadable classically.** Skeletal-Nanite meshes (weapons, most Covenant
-  vehicles) hold placeholder triangles; and vehicles like the warthog keep only the suspension
-  in their SK — the hull ships as ~40 per-region rig statics (`Mesh/Static/SM_Warthog_*`,
-  bone-local frames, matching Blam region names) attached at runtime. Assembling those rigs is
-  open work; affected objects fall back to their collision shells.
+  vehicles) hold placeholder triangles — in their Nanite pages too, as of the 2026-09-06 decode;
+  and vehicles like the warthog keep only the suspension in their SK's classic buffers — the
+  hull ships as ~40 per-region rig statics (`Mesh/Static/SM_Warthog_*`, bone-local frames,
+  matching Blam region names) attached at runtime, and whole in the SK's Nanite pages.
+  Assembling those rigs is open work; affected objects fall back to their collision shells.
 
 **Verified 2026-08-19 — a vehicle's hull is rig statics on the SK's skeleton.** The warthog's
 `SK_Warthog_01` carries only the suspension geometry (one `InteriorWheelsShocks` material); the

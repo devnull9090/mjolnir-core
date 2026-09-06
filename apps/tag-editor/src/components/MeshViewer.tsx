@@ -118,9 +118,8 @@ export function MeshViewer() {
         </button>
         {wrote && <span className="font-mono text-[10px] text-accent-green">{wrote}</span>}
         <span className="ml-auto font-mono text-[10px] text-text-dim">
-          {header.verts.toLocaleString()} verts · {header.tris.toLocaleString()} tris · LOD{" "}
-          {header.lod}
-          {header.lod > 0 ? " (Nanite fallback)" : ""}
+          {header.verts.toLocaleString()} verts · {header.tris.toLocaleString()} tris ·{" "}
+          {header.nanite ? "Nanite, full detail" : `LOD ${header.lod}${header.lod > 0 ? " (Nanite fallback)" : ""}`}
         </span>
       </div>
       <MeshScene header={header} payload={payload} wireframe={wireframe} textured={textured} />

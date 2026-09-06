@@ -76,7 +76,10 @@ type Sighting = (
     Option<(usize, ue_iostore::ChunkEntry)>,
 );
 
-fn mesh_candidates(containers: &[ue_iostore::Container], skeletal: bool) -> BTreeMap<String, Sighting> {
+fn mesh_candidates(
+    containers: &[ue_iostore::Container],
+    skeletal: bool,
+) -> BTreeMap<String, Sighting> {
     let mut candidates: BTreeMap<String, Sighting> = BTreeMap::new();
     for (ci, c) in containers.iter().enumerate() {
         for (rel, chunk_index) in &c.files {
@@ -131,15 +134,30 @@ fn export(a: ExportArgs) -> Result<()> {
     let scripts = script_objects(&containers, &oodle)?;
     let candidates = mesh_candidates(&containers, true);
     let needle = a.asset.to_ascii_lowercase();
+    // A leaf or path that matches exactly wins over a longer name that merely
+    // contains it (`SK_AssaultRifle` over `SK_AssaultRifle_Translucent_Default`).
+    let exact = |stem: &str| {
+        let lower = stem.to_ascii_lowercase();
+        lower.ends_with(&format!("/{needle}")) || lower == needle
+    };
     let (stem, (uasset, ubulk)) = candidates
         .iter()
-        .find(|(stem, (u, _))| u.is_some() && stem.to_ascii_lowercase().contains(&needle))
+        .find(|(stem, (u, _))| u.is_some() && exact(stem))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|(stem, (u, _))| u.is_some() && stem.to_ascii_lowercase().contains(&needle))
+        })
         .with_context(|| format!("no mesh matching {:?}", a.asset))?;
     let (ci, chunk) = uasset.as_ref().unwrap();
     let short = stem.trim_start_matches("../../../Meteorite/Content/");
     let leaf = short.rsplit('/').next().unwrap_or(short);
     let skeletal = leaf.starts_with("SK_");
-    let wanted_class = if skeletal { "SkeletalMesh" } else { "StaticMesh" };
+    let wanted_class = if skeletal {
+        "SkeletalMesh"
+    } else {
+        "StaticMesh"
+    };
 
     let data = ue_iostore::read_chunk(&containers[*ci], chunk, None, &oodle)?;
     let package = ue_asset::zen::Package::parse(&data)?;
@@ -154,23 +172,53 @@ fn export(a: ExportArgs) -> Result<()> {
         names: &package.names,
     };
     let bulk = match ubulk {
-        Some((bi, bchunk)) => Some(ue_iostore::read_chunk(&containers[*bi], bchunk, None, &oodle)?),
+        Some((bi, bchunk)) => Some(ue_iostore::read_chunk(
+            &containers[*bi],
+            bchunk,
+            None,
+            &oodle,
+        )?),
         None => None,
     };
+    let bulk_map = ue_asset::mesh::bulk_map_of(&data);
+    let say_nanite = |report: Option<&ue_asset::nanite::Report>, note: Option<&String>| {
+        if let Some(r) = report {
+            println!(
+                "  nanite: {} page(s), {} cluster(s), {} at full detail, {} triangles",
+                r.pages, r.clusters, r.leaf_clusters, r.triangles
+            );
+        } else if let Some(note) = note {
+            println!("  nanite: not decoded ({note})");
+        }
+    };
     let glb = if skeletal {
-        let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, bulk.as_deref())?;
+        let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(
+            &ctx,
+            bytes,
+            bulk.as_deref(),
+            &bulk_map,
+        )?;
+        say_nanite(sk.nanite_report.as_ref(), sk.nanite_note.as_ref());
+        let lods: Vec<ue_asset::mesh::Lod> = sk.export_lods().into_iter().cloned().collect();
         ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
             name: leaf,
             materials: &sk.materials,
-            lods: &sk.lods,
+            lods: &lods,
             bones: &sk.bones,
         })
     } else {
-        let sm = ue_asset::mesh::parse_static_mesh(&ctx, bytes, bulk.as_deref())?;
+        let sm = ue_asset::mesh::parse_static_mesh_with_bulk_map(
+            &ctx,
+            bytes,
+            bulk.as_deref(),
+            &bulk_map,
+        )?;
+        say_nanite(sm.nanite_report.as_ref(), sm.nanite_note.as_ref());
+        let lods: Vec<ue_asset::mesh::Lod> = sm.export_lods().into_iter().cloned().collect();
         ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
             name: leaf,
             materials: &sm.materials,
-            lods: &sm.lods,
+            lods: &lods,
             bones: &[],
         })
     }
@@ -237,7 +285,10 @@ fn list(a: ListArgs) -> Result<()> {
 
     // One entry per package stem: the .uasset chunk, and the .ubulk sibling
     // carrying any streamed LOD buffers.
-    type Sighting = (Option<(usize, ue_iostore::ChunkEntry)>, Option<(usize, ue_iostore::ChunkEntry)>);
+    type Sighting = (
+        Option<(usize, ue_iostore::ChunkEntry)>,
+        Option<(usize, ue_iostore::ChunkEntry)>,
+    );
     let mut candidates: BTreeMap<String, Sighting> = BTreeMap::new();
     for (ci, c) in containers.iter().enumerate() {
         for (rel, chunk_index) in &c.files {
@@ -279,7 +330,11 @@ fn list(a: ListArgs) -> Result<()> {
         }
         let leaf = short.rsplit('/').next().unwrap_or(short);
         let skeletal = leaf.starts_with("SK_");
-        let wanted_class = if skeletal { "SkeletalMesh" } else { "StaticMesh" };
+        let wanted_class = if skeletal {
+            "SkeletalMesh"
+        } else {
+            "StaticMesh"
+        };
 
         let parsed = (|| -> Result<Option<MeshRow>> {
             let data = ue_iostore::read_chunk(&containers[*ci], chunk, None, &oodle)?;
@@ -297,15 +352,31 @@ fn list(a: ListArgs) -> Result<()> {
                 names: &package.names,
             };
             let bulk = match ubulk {
-                Some((bi, bchunk)) => {
-                    Some(ue_iostore::read_chunk(&containers[*bi], bchunk, None, &oodle)?)
-                }
+                Some((bi, bchunk)) => Some(ue_iostore::read_chunk(
+                    &containers[*bi],
+                    bchunk,
+                    None,
+                    &oodle,
+                )?),
                 None => None,
             };
-            let lods = if skeletal {
-                ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, bulk.as_deref())?.lods
+            let bulk_map = ue_asset::mesh::bulk_map_of(&data);
+            let lods: Vec<ue_asset::mesh::Lod> = if skeletal {
+                let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(
+                    &ctx,
+                    bytes,
+                    bulk.as_deref(),
+                    &bulk_map,
+                )?;
+                sk.export_lods().into_iter().cloned().collect()
             } else {
-                ue_asset::mesh::parse_static_mesh(&ctx, bytes, bulk.as_deref())?.lods
+                let sm = ue_asset::mesh::parse_static_mesh_with_bulk_map(
+                    &ctx,
+                    bytes,
+                    bulk.as_deref(),
+                    &bulk_map,
+                )?;
+                sm.export_lods().into_iter().cloned().collect()
             };
             let (min, max, verts) = aabb(&lods);
             Ok(Some(MeshRow {

@@ -2354,6 +2354,8 @@ struct MeshHeader {
     /// Which LOD the buffers come from; higher means further from full
     /// detail (LOD0 slots replaced by Nanite carry no classic buffers).
     lod: usize,
+    /// The geometry is the full-detail mesh decoded from the Nanite pages.
+    nanite: bool,
     skeletal: bool,
 }
 
@@ -2380,15 +2382,19 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             usmap,
             names: &package.names,
         };
+        let bulk_map = ue_asset::mesh::bulk_map_of(&data);
         let mesh = if skeletal {
-            let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
+            let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?;
             ue_asset::mesh::StaticMeshData {
                 materials: sk.materials,
                 lods: sk.lods,
+                nanite: sk.nanite,
+                nanite_report: sk.nanite_report,
+                nanite_note: sk.nanite_note,
             }
         } else {
-            ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+            ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?
         };
 
@@ -2440,19 +2446,29 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             })
             .collect();
 
-        // The best LOD that actually carries buffers. Skeletal Nanite meshes
-        // ship a single placeholder triangle, which is worth naming.
-        let (lod_index, lod) = mesh
-            .lods
-            .iter()
-            .enumerate()
-            .find(|(_, l)| !l.indices.is_empty())
-            .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+        // The Nanite mesh at full detail when its pages decoded, else the
+        // best classic LOD that carries buffers. Skeletal Nanite meshes ship
+        // a single placeholder triangle, which is worth naming.
+        let (lod_index, lod, nanite) = match mesh.nanite.as_ref() {
+            Some(n) => (0, n, true),
+            None => {
+                let (i, l) = mesh
+                    .lods
+                    .iter()
+                    .enumerate()
+                    .find(|(_, l)| !l.indices.is_empty())
+                    .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+                (i, l, false)
+            }
+        };
         if lod.indices.len() <= 3 {
             return Err(format!(
-                "{} is Nanite-only: its classic buffers hold a placeholder triangle, and the \
-                 reader does not decode Nanite cluster pages",
-                entry.short
+                "{} is Nanite-only: its classic buffers hold a placeholder triangle{}",
+                entry.short,
+                match &mesh.nanite_note {
+                    Some(note) => format!(", and its Nanite pages did not decode: {note}"),
+                    None => String::new(),
+                }
             ));
         }
 
@@ -2471,6 +2487,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                 .collect(),
             materials,
             lod: lod_index,
+            nanite,
             skeletal,
         };
         let json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
@@ -4091,22 +4108,25 @@ fn export_mesh(index: usize, dest: String, state: State<'_, AppState>) -> Result
             usmap,
             names: &package.names,
         };
+        let bulk_map = ue_asset::mesh::bulk_map_of(&data);
         let glb = if entry.skeletal {
-            let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
+            let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?;
+            let lods: Vec<ue_asset::mesh::Lod> = sk.export_lods().into_iter().cloned().collect();
             ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
                 name: &name,
                 materials: &sk.materials,
-                lods: &sk.lods,
+                lods: &lods,
                 bones: &sk.bones,
             })?
         } else {
-            let sm = ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+            let sm = ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?;
+            let lods: Vec<ue_asset::mesh::Lod> = sm.export_lods().into_iter().cloned().collect();
             ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
                 name: &name,
                 materials: &sm.materials,
-                lods: &sm.lods,
+                lods: &lods,
                 bones: &[],
             })?
         };

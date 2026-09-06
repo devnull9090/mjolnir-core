@@ -475,6 +475,8 @@ export type MeshHeader = {
   /** Which LOD the buffers are; 0 is full detail, higher is the Nanite
    *  fallback the cook kept. */
   lod: number;
+  /** The geometry is the full-detail Nanite mesh, not a classic LOD. */
+  nanite: boolean;
   skeletal: boolean;
 };
 

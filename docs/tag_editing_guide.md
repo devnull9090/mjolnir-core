@@ -463,10 +463,15 @@ The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-en
 
 ### Meshes
 
-A cooked Unreal mesh opens in the mesh viewer with its real textures. **export .glb…** writes it
-as glTF binary — every LOD, one primitive per material slot, metres and +Y up — for Blender or
-any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the bones as
-nodes; it is not skinned, because the cooked buffers carry no weights. On the command line:
+A cooked Unreal mesh opens in the mesh viewer with its real textures. Nearly every static mesh,
+and the vehicles' skeletal hulls, ship as Nanite cluster pages with only a reduced fallback in the
+classic buffers; the viewer decodes the pages and shows the mesh at full detail, saying
+**Nanite, full detail** in the header. **export .glb…** writes it as glTF binary — the Nanite
+mesh first, then every classic LOD, one primitive per material slot, metres and +Y up — for
+Blender or any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the
+bones as nodes; it is not skinned, because the cooked buffers carry no weights. Weapons and
+most Covenant vehicles hold a one-triangle placeholder in both forms, since their bodies are
+assembled at runtime from other assets. On the command line:
 
 ```powershell
 mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
