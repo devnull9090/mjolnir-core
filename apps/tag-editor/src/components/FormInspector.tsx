@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { degreesToRadiansText, isAngleType, radiansToDegreesText } from "../lib/angles";
 import { fieldPath } from "../lib/paths";
 import { refKey, useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
@@ -81,7 +82,12 @@ function FField({ node, path }: { node: NodeView; path: string }) {
 
   const isEdited = edited.includes(path);
   const editable = canEdit(node);
-  const commit = (text: string) => void setField(path, text);
+  // Angles convert at the edge: shown in degrees when asked, stored in radians.
+  const degreesOn = useEditor((s) => s.degrees);
+  const angular = degreesOn && isAngleType(node.type);
+  const shownNode = angular ? { ...node, value: radiansToDegreesText(node.value) } : node;
+  const commit = (text: string) =>
+    void setField(path, angular ? degreesToRadiansText(text) : text);
 
   let control: React.ReactNode;
 
@@ -173,9 +179,9 @@ function FField({ node, path }: { node: NodeView; path: string }) {
         {has && node.reference && <RefPreview reference={node.reference} />}
       </span>
     );
-  } else if (COMPONENT_LABELS[node.type] && node.value.includes(",")) {
+  } else if (COMPONENT_LABELS[node.type] && shownNode.value.includes(",")) {
     const labels = COMPONENT_LABELS[node.type];
-    const parts = splitComponents(node.value);
+    const parts = splitComponents(shownNode.value);
     control = (
       <span className="flex flex-wrap items-center gap-3">
         {parts.map((part, i) => (
@@ -223,7 +229,7 @@ function FField({ node, path }: { node: NodeView; path: string }) {
       node.type === "string" || node.type === "long string" || node.type === "string id";
     control = (
       <FText
-        value={editableText(node)}
+        value={editableText(shownNode)}
         edited={isEdited}
         disabled={!editable}
         wide={wide}
@@ -256,6 +262,11 @@ function FField({ node, path }: { node: NodeView; path: string }) {
       >
         {isEdited && <span className="mr-1 text-mjolnir-gold">●</span>}
         {node.name || <em>unnamed</em>}
+        {angular && (
+          <span className="ml-1 font-mono text-[10px] text-text-dim" title="Shown in degrees; the tag stores radians">
+            °
+          </span>
+        )}
       </span>
       {control}
       {isEdited && (

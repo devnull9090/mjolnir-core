@@ -65,6 +65,8 @@ export type Tab = {
 };
 
 const VIEW_KEY = "tag-editor-view";
+/** Whether angles show in degrees; the tag always holds radians. */
+const DEGREES_KEY = "tag-editor-degrees";
 
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
@@ -194,6 +196,9 @@ type EditorState = {
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
+  /** Show and type angles in degrees rather than the radians the tag holds. */
+  degrees: boolean;
+  setDegrees: (on: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
 
   /** What the left panel browses: assets, tag groups, textures, sounds, or
@@ -986,6 +991,22 @@ export const useEditor = create<EditorState>((set, get) => {
     setViewMode(mode) {
       localStorage.setItem(VIEW_KEY, mode);
       set({ viewMode: mode });
+    },
+
+    degrees: (() => {
+      try {
+        return localStorage.getItem(DEGREES_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    setDegrees(on) {
+      try {
+        localStorage.setItem(DEGREES_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ degrees: on });
     },
 
     browse: "files",

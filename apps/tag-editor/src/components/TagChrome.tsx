@@ -340,6 +340,8 @@ function LiveToggle() {
 export function TagHeader() {
   const { tag, viewMode } = useEditor();
   const setViewMode = useEditor((s) => s.setViewMode);
+  const degrees = useEditor((s) => s.degrees);
+  const setDegrees = useEditor((s) => s.setDegrees);
 
   if (!tag) return null;
   // Only a scenario carries Blam script, so the third view is offered only
@@ -401,6 +403,23 @@ export function TagHeader() {
               {m.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setDegrees(!degrees)}
+            aria-pressed={degrees}
+            title={
+              degrees
+                ? "Angles are shown and typed in degrees; the tag stores radians. Click for radians."
+                : "Angles are shown as stored, in radians. Click to show and type them in degrees."
+            }
+            className={`ml-2 border border-border-subtle px-2 py-0.5 font-mono text-[11px] ${
+              degrees
+                ? "bg-surface-hover text-mjolnir-gold"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
+          >
+            {degrees ? "deg" : "rad"}
+          </button>
         </div>
         <span
           className={`font-mono text-[11px] ${

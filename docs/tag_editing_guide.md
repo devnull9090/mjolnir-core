@@ -341,7 +341,9 @@ control points[3].position: (-3.522356, 0.00095, 1.838378) → (1.5, 2.5, 3.5) (
 ```
 
 Values go in the same form the CLI takes — see the table above. Enums and bitfields are
-written by name, tag references as `group:path`.
+written by name, tag references as `group:path`. Angles are radians in the tag and in the CLI;
+the **rad / deg** toggle in the tag header shows them in degrees and takes degrees when you
+type, converting at the edge (a copied element or a TSV still carries radians).
 
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
