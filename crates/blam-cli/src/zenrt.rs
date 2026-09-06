@@ -33,6 +33,10 @@ pub struct ZenRoundtripArgs {
     /// formula is fitted from.
     #[arg(long)]
     fit: Option<std::path::PathBuf>,
+    /// The game's reflection schemas, for decoding and re-encoding the export
+    /// body's properties. Default: the bundled CU3 usmap.
+    #[arg(long, env = "HCE_USMAP")]
+    usmap: Option<std::path::PathBuf>,
 }
 
 #[derive(Default)]
@@ -69,11 +73,35 @@ pub fn run(a: ZenRoundtripArgs) -> Result<()> {
     let oodle = a.src.oodle_roots();
     let mut t = Tally::default();
     let module_index = package::script_import_index(BLAM_MODULE);
+    let loaded;
+    let usmap: &ue_asset::Usmap = match &a.usmap {
+        Some(path) => {
+            loaded = ue_asset::Usmap::parse(
+                &std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
+            )
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+            &loaded
+        }
+        None => crate::embedded_usmap()?,
+    };
+    let mut body_errors: BTreeMap<String, usize> = BTreeMap::new();
+    let mut rebuild_errors: BTreeMap<String, usize> = BTreeMap::new();
+    let mut fname_order_misses = 0usize;
     let mut fit_rows = String::from(
         "cooked_header_size,pkg_len,obj_len,class_len,imported_pkgs,imported_name_bytes,ipeh,import_slots,dep_entries,names,name_bytes,body_len,group,package\n",
     );
 
     'outer: for c in &containers {
+        // Only what the game ships: this tool's own containers in the same
+        // folder carry wrappers written by earlier versions of this tool.
+        let file = c
+            .utoc_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        if file.contains("mjolnir") || file.ends_with("_p.utoc") {
+            continue;
+        }
         let mut files: Vec<(&String, &usize)> = c.files.iter().collect();
         files.sort();
         for (rel, chunk_index) in files {
@@ -384,6 +412,148 @@ pub fn run(a: ZenRoundtripArgs) -> Result<()> {
                 &format!("{full} (pad {})", pkg.pad.len()),
                 v,
             );
+            // The export body's properties: decode losslessly against the
+            // wrapper class, encode again, require the bytes back.
+            if usmap.structs.contains_key(&class) {
+                match ue_asset::props::decode_tag_body(&usmap, &class, &pkg.export_data) {
+                    Ok(block) => {
+                        t.rule(
+                            "export body decodes against the wrapper class",
+                            true,
+                            &full,
+                            v,
+                        );
+                        let again = ue_asset::props::encode_tag_body(&usmap, &class, &block)
+                            .map(|b| b == pkg.export_data)
+                            .unwrap_or(false);
+                        t.rule("export body re-encodes byte-exact", again, &full, v);
+                    }
+                    Err(e) => {
+                        t.rule(
+                            "export body decodes against the wrapper class",
+                            false,
+                            &format!("{full}: {e}"),
+                            v,
+                        );
+                        let key = e.to_string();
+                        let key = key.split(':').next().unwrap_or(&key).to_string();
+                        *body_errors.entry(key).or_default() += 1;
+                    }
+                }
+            } else {
+                t.rule(
+                    "wrapper class is in the usmap",
+                    false,
+                    &format!("{full} ({class})"),
+                    v,
+                );
+            }
+            // Wrapper-bearing wrappers: read the shipped one back into a spec,
+            // build from that spec alone, read the result back, and require the
+            // same spec, the same dependency order and the same FName set.
+            // Bytes need not match — the cooker's import slot order is its own.
+            if !pkg.is_bare() && pkg.export_map.len() == 1 && scripts.len() == 3 {
+                match ue_asset::tagwrap::read(&pkg, &usmap) {
+                    Ok(reading) => {
+                        let verdict: Result<(), String> = (|| {
+                            let built = ue_asset::tagwrap::build(&reading.spec, &usmap)
+                                .map_err(|e| format!("build: {e}"))?;
+                            let again = ZenPackage::parse(&built.write())
+                                .map_err(|e| format!("reparse: {e}"))?;
+                            let reread = ue_asset::tagwrap::read(&again, &usmap)
+                                .map_err(|e| format!("reread: {e}"))?;
+                            if reread.spec != reading.spec {
+                                return Err(format!(
+                                    "spec differs: shipped {:?} vs rebuilt {:?}",
+                                    reading.spec, reread.spec
+                                ));
+                            }
+                            if reread.dependencies != reading.dependencies {
+                                return Err(format!(
+                                    "dependency order: shipped {:?} vs rebuilt {:?}",
+                                    reading
+                                        .dependencies
+                                        .iter()
+                                        .map(|d| d
+                                            .package
+                                            .rsplit('/')
+                                            .next()
+                                            .unwrap_or("")
+                                            .to_string())
+                                        .collect::<Vec<_>>(),
+                                    reread
+                                        .dependencies
+                                        .iter()
+                                        .map(|d| d
+                                            .package
+                                            .rsplit('/')
+                                            .next()
+                                            .unwrap_or("")
+                                            .to_string())
+                                        .collect::<Vec<_>>()
+                                ));
+                            }
+                            let mut a = reading.fnames.clone();
+                            let mut b = reread.fnames.clone();
+                            a.sort();
+                            b.sort();
+                            if a != b {
+                                return Err(format!("fnames: shipped {a:?} vs rebuilt {b:?}"));
+                            }
+                            if again.export_map[0].public_export_hash != e.public_export_hash
+                                || again.export_map[0].class != e.class
+                            {
+                                return Err("export hash or class".into());
+                            }
+                            if again.bulk != pkg.bulk {
+                                return Err("bulk entry".into());
+                            }
+                            // RF_Transactional (0x8) is inert in a cooked build; 2,563 sound
+                            // tags ship without it and the rest with it.
+                            if (again.export_map[0].object_flags & !0x8, again.package_flags)
+                                != (e.object_flags & !0x8, pkg.package_flags)
+                            {
+                                return Err(format!(
+                                    "flags {:#x}/{:#x}",
+                                    e.object_flags, pkg.package_flags
+                                ));
+                            }
+                            if reading.fnames != reread.fnames {
+                                fname_order_misses += 1;
+                            }
+                            Ok(())
+                        })();
+                        let ok = verdict.is_ok();
+                        if let Err(why) = &verdict {
+                            let key = why.split(':').next().unwrap_or(why).to_string();
+                            *rebuild_errors.entry(key).or_default() += 1;
+                        }
+                        t.rule(
+                            "wrapper-bearing wrappers rebuild from their spec (semantic)",
+                            ok,
+                            &format!("{full}: {}", verdict.err().unwrap_or_default()),
+                            v,
+                        );
+                        if ok {
+                            let bytes = ue_asset::tagwrap::build(&reading.spec, &usmap)
+                                .map(|b| b.write())
+                                .unwrap_or_default();
+                            t.rule(
+                                "… and byte-exact too (import order happened to match)",
+                                bytes == data,
+                                &full,
+                                v,
+                            );
+                        }
+                    }
+                    Err(e) => t.rule(
+                        "wrapper-bearing wrappers rebuild from their spec (semantic)",
+                        false,
+                        &format!("{full}: {e}"),
+                        v,
+                    ),
+                }
+            }
             if pkg.is_bare() {
                 let rebuilt = ZenPackage::bare_tag(group, &name, pkg.bulk[0].serial_size as u64);
                 t.rule(
@@ -426,6 +596,18 @@ pub fn run(a: ZenRoundtripArgs) -> Result<()> {
     println!("\nrules (holds / checked):");
     for (name, (ok, all)) in &t.rules {
         println!("  {ok:>6} / {all:<6}  {name}");
+    }
+    if !body_errors.is_empty() {
+        println!("\nexport bodies that did not decode, by reason:");
+        for (why, n) in &body_errors {
+            println!("  {n:>6}  {why}");
+        }
+    }
+    if !rebuild_errors.is_empty() {
+        println!("\nwrapper-bearing rebuilds that differed, by reason:");
+        for (why, n) in &rebuild_errors {
+            println!("  {n:>6}  {why}");
+        }
     }
     println!("\nflag pairs (object flags, package flags):");
     for ((o, p), n) in &t.flags {

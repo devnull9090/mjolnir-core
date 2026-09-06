@@ -627,6 +627,36 @@ two-chunk override with its `BinaryBlobSize` rewritten. After a relaunch into A3
 listed `marine_clone` and the model's resident reference held its handle with the longer name.
 The wrapper needs no donor and no length constraint for the 47 bare groups.
 
-What remains for wrapper-bearing groups (the 54 whose class adds `AssetReference`,
-`CookedAssetsReferencedByTag`, `RuntimeVariants`, …) is the unversioned property encoder; until
-then `mjolnir new-tag` clones such a donor with same-length surgery.
+### The property encoder — wrapper-bearing groups
+
+The 54 groups whose class adds properties (`AssetReference`, `CookedAssetsReferencedByTag`,
+`bSpawnPerInstance`, `ModelRegionStringTable`, `RuntimeVariants`) are covered by
+`ue_asset::props` — a lossless decoder and encoder for unversioned property blocks over the value
+kinds tags use (object, bool, integer, name, array, map, reflected struct, soft object path) —
+and `ue_asset::tagwrap`, which builds the whole wrapper from a `WrapperSpec`: the binding, the
+preload list, the variants. Measured with `mjolnir zen-roundtrip`:
+
+| Check | Result |
+|---|---:|
+| export bodies decoded against the wrapper class | 12,161 / 12,162 (the one miss is the customization-globals tag, whose nested struct uses a zero mask) |
+| decoded bodies re-encoded byte-exact | **12,161 / 12,161** |
+| wrapper-bearing wrappers read back into a spec, rebuilt, and read again: same spec, same dependency order, same names | **9,408 / 9,456** |
+
+The 48 that differ are the 13 `scenario` tags, whose dependency bundles the cooker orders
+differently from their preload arrays (scenario authoring is deferred), and the non-tag packages
+under the folder. Bytes are not compared: the cooker's import slot order is its own, and the
+name map's order is cosmetic — the shipped maps put `None` first in one model and in alphabetical
+position in another. `RF_Transactional` is treated as inert (2,563 sound tags ship without it).
+
+Layout facts pinned on the way: a package import is `(imported package index << 32) | index into
+the imported public export hashes`; `FName` numbers split off a trailing `_<digits>`
+(`BP_Hood_10` is stored as `BP_Hood_` plus number 11); the dependency bundle lists the body's
+object references base-class properties first; `None` and `none` are distinct name-map entries.
+
+**Proven in game, 2026-09-05:** `mjolnir new-tag` built
+`objects\weapons\rifle\assault_rifle\projectiles\assault_rifle_bullet_mk2` — an object-group
+tag bound to `BP_AssaultRifleBulletProjectileActor`, its preload list derived from the body's
+own references — and `mjolnir pack` repointed the assault rifle's barrel at it. In A30 the tag
+table listed the projectile (slot 357) and the rifle fired it: a seven-round burst took the
+magazine from 36 to 29 with no fallback. `new-tag` now builds every group's wrapper from scratch;
+the same-length surgery is no longer needed for tags.

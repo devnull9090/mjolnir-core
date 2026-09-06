@@ -1290,6 +1290,17 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
 /// Parse `group:path` or `none` into a tag reference.
+/// The game's reflection schemas, bundled so the tool needs no file beside it.
+/// The Blam wrapper classes have not changed between CU3 and CU4.
+pub(crate) fn embedded_usmap() -> Result<&'static ue_asset::Usmap> {
+    static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
+    static BYTES: &[u8] = include_bytes!("../../../defs/ue/Meteorite-2607-CU3.usmap");
+    USMAP
+        .get_or_init(|| ue_asset::Usmap::parse(BYTES).ok())
+        .as_ref()
+        .context("the bundled usmap does not parse")
+}
+
 /// Apply `path=value` edits to a tag payload in order, printing each one.
 /// Shared by `pack` and `new-tag`: string ids and tag references take their
 /// own parsers, a section-backed value takes the rebuild path.
