@@ -104,6 +104,7 @@ function TagList() {
   const { groups, selectedGroup, tags, query, selectedTag } = useEditor();
   const selectGroup = useEditor((s) => s.selectGroup);
   const openTab = useEditor((s) => s.openTab);
+  const openNewTag = useEditor((s) => s.openNewTag);
   const search = useEditor((s) => s.search);
 
   return (
@@ -166,6 +167,11 @@ function TagList() {
                           }),
                       },
                       { label: "Copy Path", action: () => void copyText(t.short) },
+                      {
+                        label: "New Tag From This…",
+                        action: () =>
+                          openNewTag({ index: t.index, group: t.group, short: t.short }),
+                      },
                     ])
                   }
                   className={`flex w-full items-baseline px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-surface-hover ${

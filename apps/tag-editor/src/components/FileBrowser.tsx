@@ -64,6 +64,7 @@ function Breadcrumbs() {
 function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
   const openDir = useEditor((s) => s.openDir);
   const openTab = useEditor((s) => s.openTab);
+  const openNewTag = useEditor((s) => s.openNewTag);
   const tabs = useEditor((s) => s.tabs);
   const loadedSet = useEditor((s) => s.liveLoadedSet);
 
@@ -92,6 +93,24 @@ function Row({ entry, showPath }: { entry: DirEntry; showPath: boolean }) {
           showContextMenu(e, [
             { label: "Open", action: open },
             { label: "Copy Path", action: () => void copyText(entry.path) },
+            // A tag row reads `tags/<short>.<group>`; the New Tag dialog
+            // wants the two halves.
+            ...(entry.kind === "tag" && entry.index !== null
+              ? [
+                  {
+                    label: "New Tag From This…",
+                    action: () => {
+                      const rel = entry.path.replace(/^tags\//, "");
+                      const dot = rel.lastIndexOf(".");
+                      openNewTag({
+                        index: entry.index ?? 0,
+                        group: dot < 0 ? "" : rel.slice(dot + 1),
+                        short: dot < 0 ? rel : rel.slice(0, dot),
+                      });
+                    },
+                  },
+                ]
+              : []),
           ])
         }
         title={entry.path}

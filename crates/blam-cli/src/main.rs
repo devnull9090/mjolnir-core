@@ -17,8 +17,11 @@ mod defs;
 mod hsc;
 mod index;
 mod level;
+mod live;
 mod mesh;
+mod newtag;
 mod rename;
+mod zenrt;
 mod tagdiff;
 mod texture;
 
@@ -143,6 +146,12 @@ enum Command {
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
     Poke(PokeArgs),
+    /// Read the running game's own tag table and string-id registry.
+    Live(live::LiveArgs),
+    /// Put a brand-new tag package in front of the game, cloned from a donor.
+    NewTag(newtag::NewTagArgs),
+    /// Re-serialize every shipped tag wrapper and count the derivation rules that hold.
+    ZenRoundtrip(zenrt::ZenRoundtripArgs),
     /// Read the Blam script a scenario carries.
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
@@ -515,6 +524,9 @@ fn main() -> Result<()> {
         Command::Container(a) => container::run(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
+        Command::Live(a) => live::run(a),
+        Command::NewTag(a) => newtag::run(a),
+        Command::ZenRoundtrip(a) => zenrt::run(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
         Command::Console(a) => console::run(a),
@@ -1112,35 +1124,7 @@ fn pack(a: PackArgs) -> Result<()> {
 
     // Apply every edit, then re-read the result from scratch so what goes into
     // the container is judged by what the bytes say, not by what we intended.
-    let mut file = original.clone();
-    for set in &a.sets {
-        let (path, value) = set
-            .split_once('=')
-            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
-        let tag = TagFile::parse(&file, Some(file.len()))?;
-        let l = tag.layout()?;
-        let block = tag.read_data(&l)?;
-        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
-        // A section-backed value resizes the tag, so it takes the rebuild path.
-        let resizes = target.section.is_some();
-        let parsed = match target.type_name.as_str() {
-            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
-            "tag reference" => parse_reference(value)?,
-            _ => blam_tag::value::parse(&l, &target.field, value)?,
-        };
-        let (out, applied) = if resizes {
-            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
-        } else {
-            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
-        };
-        println!(
-            "  edit     {} : {} -> {}",
-            applied.path,
-            applied.before.display(),
-            applied.after.display()
-        );
-        file = out;
-    }
+    let file = apply_sets(&original, &a.sets)?;
 
     if file.len() == original.len() {
         let changed = (0..file.len()).filter(|i| file[*i] != original[*i]).count();
@@ -1306,6 +1290,53 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
 /// Parse `group:path` or `none` into a tag reference.
+/// The game's reflection schemas, bundled so the tool needs no file beside it.
+/// The Blam wrapper classes have not changed between CU3 and CU4.
+pub(crate) fn embedded_usmap() -> Result<&'static ue_asset::Usmap> {
+    static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
+    static BYTES: &[u8] = include_bytes!("../../../defs/ue/Meteorite-2607-CU3.usmap");
+    USMAP
+        .get_or_init(|| ue_asset::Usmap::parse(BYTES).ok())
+        .as_ref()
+        .context("the bundled usmap does not parse")
+}
+
+/// Apply `path=value` edits to a tag payload in order, printing each one.
+/// Shared by `pack` and `new-tag`: string ids and tag references take their
+/// own parsers, a section-backed value takes the rebuild path.
+pub(crate) fn apply_sets(original: &[u8], sets: &[String]) -> Result<Vec<u8>> {
+    let mut file = original.to_vec();
+    for set in sets {
+        let (path, value) = set
+            .split_once('=')
+            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
+        let tag = TagFile::parse(&file, Some(file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
+        // A section-backed value resizes the tag, so it takes the rebuild path.
+        let resizes = target.section.is_some();
+        let parsed = match target.type_name.as_str() {
+            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+            "tag reference" => parse_reference(value)?,
+            _ => blam_tag::value::parse(&l, &target.field, value)?,
+        };
+        let (out, applied) = if resizes {
+            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
+        } else {
+            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
+        };
+        println!(
+            "  edit     {} : {} -> {}",
+            applied.path,
+            applied.before.display(),
+            applied.after.display()
+        );
+        file = out;
+    }
+    Ok(file)
+}
+
 pub(crate) fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
     let t = text.trim();
     if t.is_empty() || t.eq_ignore_ascii_case("none") {
@@ -1437,30 +1468,55 @@ fn poke(a: PokeArgs) -> Result<()> {
         headers: &headers,
     };
 
-    let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
-    println!(
-        "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
-         {:.1} GB scanned)",
-        at.base,
-        at.agreeing_runs,
-        at.candidates,
-        at.scanned as f64 / 1e9
-    );
-    println!(
-        "           {:.0}% of the root element's scalar bytes match the file; the engine \
-         rewrites the references around them",
-        at.match_fraction * 100.0
-    );
+    // The simulation's own tag table names every loaded tag and its root, so
+    // on a known build the tag is found by a pointer-chase; the sweep is the
+    // fallback for a build without a profile.
+    let (base, segments) =
+        match live::locate_via_table(&process, tag.header.group.0, &entry.path)? {
+            Some(hit) => {
+                println!(
+                    "  located  root at 0x{:X} via the tag table (handle 0x{:08X}, {})",
+                    hit.root, hit.handle, hit.profile
+                );
+                (hit.root - root_off as u64, Some(hit.segments))
+            }
+            None => {
+                let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
+                println!(
+                    "  located  payload at 0x{:X}  ({} independent runs agree, best of {} \
+                     candidate(s), {:.1} GB scanned)",
+                    at.base,
+                    at.agreeing_runs,
+                    at.candidates,
+                    at.scanned as f64 / 1e9
+                );
+                println!(
+                    "           {:.0}% of the root element's scalar bytes match the file; the \
+                     engine rewrites the references around them",
+                    at.match_fraction * 100.0
+                );
+                (at.base, None)
+            }
+        };
 
     let address = if hops.is_empty() {
-        at.base + span.start as u64
+        base + span.start as u64
     } else {
-        let arena = blam_live::derive_arena(&process, at.base, &file, &stable, &blocks)
-            .context(
+        let arena = match &segments {
+            Some(segments) => {
+                let header =
+                    blam_live::read_block_header(&process, base + hops[0].header as u64)?;
+                segments.arena_for(header.words).context(
+                    "the first block header on the way to the field points into a segment \
+                     the game has not mapped",
+                )?
+            }
+            None => blam_live::derive_arena(&process, base, &file, &stable, &blocks).context(
                 "the field sits inside a block element, which the engine keeps outside the \
                  tag, and the arena those live in could not be worked out from this tag",
-            )?;
-        blam_live::field_address(&process, at.base, arena, &hops, span.start)?
+            )?,
+        };
+        blam_live::field_address(&process, base, arena, &hops, span.start)?
     };
     println!(
         "  address  0x{address:X}{}",

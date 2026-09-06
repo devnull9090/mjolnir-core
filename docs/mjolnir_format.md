@@ -62,9 +62,16 @@ keys with the shipped value beside the modded one:
     }
   ],
   "textures": [{ "path": "characters/weapons/assaultrifle/T_ar_default_D", "bytes": 481203 }],
-  "scripts": [{ "group": "scenario", "tag": "levels/a10/a10" }]
+  "scripts": [{ "group": "scenario", "tag": "levels/a10/a10" }],
+  "new_tags": [
+    { "group": "weapon", "tag": "objects/weapons/pistol/pistol_mk2", "from": "objects/weapons/pistol/pistol" }
+  ]
 }
 ```
+
+`new_tags` lists the tags the mod adds, each cloned from a shipped one. The hub's
+validator drops fields it does not know, so a hub that predates the list accepts the
+archive and shows nothing for them.
 
 It is a **declaration, not a proof**: the containers remain the bytes that
 ship. The hub stores the list at scan time and renders it beside the

@@ -26,10 +26,10 @@ pub mod modpack;
 pub mod present;
 pub mod project;
 pub mod refcache;
-pub mod refscan;
 pub mod scripts;
 pub mod secret;
 pub mod tagcache;
+pub mod tagtable;
 pub mod sounds;
 /// Cooked texture reading and rewriting, shared with the `mjolnir` CLI.
 pub use ue_texture as textures;
@@ -63,8 +63,21 @@ struct Workbench {
     /// encoded payload for the same reason scripts are held as source: the
     /// recipe re-encodes against whatever the player's game ships.
     textures: BTreeMap<String, Vec<u8>>,
+    /// Tags the mod adds, keyed like everything else by `(group, short)`.
+    /// A new tag's own field edits live in `edits` under the same key and
+    /// apply over the donor's bytes.
+    new_tags: BTreeMap<TagKey, NewTagSpec>,
     /// When set, every change to `edits` is mirrored to the project folder.
     project: Option<project::Project>,
+}
+
+/// Where a new tag's bytes come from and how it binds to Unreal.
+#[derive(Clone)]
+struct NewTagSpec {
+    /// The shipped tag of the same group it was cloned from.
+    from: String,
+    /// Package path of the Unreal asset to bind to; `None` keeps the donor's.
+    asset_reference: Option<String>,
 }
 
 impl Workbench {
@@ -79,6 +92,19 @@ impl Workbench {
                     field: e.path.clone(),
                     value: e.value.clone(),
                 })
+            })
+            .collect()
+    }
+
+    /// The new tags for the project file, in map order.
+    fn saved_new_tags(&self) -> Vec<project::SavedNewTag> {
+        self.new_tags
+            .iter()
+            .map(|((group, tag), spec)| project::SavedNewTag {
+                group: group.clone(),
+                tag: tag.clone(),
+                from: spec.from.clone(),
+                asset_reference: spec.asset_reference.clone(),
             })
             .collect()
     }
@@ -116,7 +142,12 @@ impl Workbench {
             p.write_texture_file(path, png)?;
             textures.push(project::SavedTexture { path: path.clone() });
         }
-        p.save_all(&self.saved_edits(), &scripts, &textures)
+        p.save_all(
+            &self.saved_edits(),
+            &scripts,
+            &textures,
+            &self.saved_new_tags(),
+        )
     }
 }
 
@@ -274,7 +305,13 @@ fn open_install(
                 paks.trim()
             )
         })?;
-    let catalog = Catalog::open(&paks, &oodle)?;
+    let mut catalog = Catalog::open(&paks, &oodle)?;
+    {
+        // The workbench outlives the catalog: reopening the installation must
+        // not lose the tags the open project adds.
+        let work = state.work.lock().map_err(|e| e.to_string())?;
+        restore_new_tags(&mut catalog, &work.new_tags);
+    }
     let groups = catalog.groups()?.len();
     let tags = catalog.tags.len();
     let decoder = match catalog.oodle_backend() {
@@ -889,6 +926,12 @@ struct CensusReport {
     /// exact, no sweep needed for them. `None` when the cache roots could
     /// not be found in this build.
     cached: Option<usize>,
+    /// How the loaded set was established: `table` — read from the
+    /// simulation's own tag table, exact and instant — or `sweep`.
+    method: &'static str,
+    /// With `table`: entries in the game's table that no catalog tag matched
+    /// (tags only a mod provides, or a mapping gap). `None` for a sweep.
+    table_unmapped: Option<usize>,
 }
 
 /// Find every loaded tag in one sweep of the game's memory.
@@ -929,6 +972,41 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
     let present = probe_present(&state, &live, &process).ok();
     if let Some(p) = &present {
         live.adopt_present(process.pid, p.level.clone(), p.tags.len());
+    }
+
+    // The simulation's own tag table, when the running build has a profile:
+    // every loaded tag's root at an exact address, and the level, in well
+    // under a second. That is the whole census, so the sweep is skipped. On a
+    // build without a profile, or before a mission is loaded, this is
+    // `Err` and the older phases run as before.
+    let _ = app.emit(
+        "live-census",
+        CensusProgress {
+            phase: "table",
+            done_mb: 0,
+            total_mb: 0,
+        },
+    );
+    if let Ok(census) = with_catalog(&state, |c| tagtable::read(&process, c))? {
+        let located = census.found.len();
+        let level = census.level.clone();
+        let table_unmapped = Some(census.unmapped);
+        let mut loaded: Vec<live::LoadedTag> =
+            census.found.iter().map(|(_, _, t)| t.clone()).collect();
+        loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        live.adopt_table(process.pid, census);
+        return Ok(CensusReport {
+            located,
+            level,
+            ambiguous: 0,
+            scanned_mb: 0,
+            secs: started.elapsed().as_secs_f32(),
+            loaded,
+            present: present.as_ref().map(|p| p.tags.len()),
+            cached: None,
+            method: "table",
+            table_unmapped,
+        });
     }
 
     // The loader's own cache next: every tag it still references is a buffer
@@ -1161,6 +1239,8 @@ fn run_census(app: &tauri::AppHandle) -> Result<CensusReport, String> {
         loaded,
         present: present.as_ref().map(|p| p.tags.len()),
         cached: cache_hits.as_ref().map(|_| cached_verified),
+        method: "sweep",
+        table_unmapped: None,
     })
 }
 
@@ -3215,6 +3295,21 @@ struct TextureChange {
     bytes: usize,
 }
 
+/// One tag the mod adds, for the project change list.
+#[derive(Serialize)]
+struct NewTagView {
+    group: String,
+    tag: String,
+    /// The shipped tag it was cloned from.
+    from: String,
+    asset_reference: Option<String>,
+    /// Catalog index in the open installation, so the panel can open it.
+    /// `None` means the donor is no longer shipped, so the clone has no bytes.
+    index: Option<usize>,
+    /// How many of its fields the mod changes from the donor's.
+    edits: usize,
+}
+
 #[derive(Serialize)]
 struct ProjectView {
     root: String,
@@ -3222,6 +3317,8 @@ struct ProjectView {
     changes: Vec<TagChange>,
     /// Textures the mod replaces.
     textures: Vec<TextureChange>,
+    /// Tags the mod adds.
+    new_tags: Vec<NewTagView>,
     /// Files a test install left in the Paks folder, so the panel can show
     /// that the mod is currently installed for testing.
     test_files: Vec<String>,
@@ -3230,9 +3327,15 @@ struct ProjectView {
 /// The project change list, with each edit resolved against the open
 /// installation so the panel can show shipped → modded values and flag
 /// anything the last game update broke.
-fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<TagChange> {
+fn changes_for(
+    c: &Catalog,
+    edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
+    new_tags: &BTreeMap<TagKey, NewTagSpec>,
+) -> Vec<TagChange> {
     edits
         .iter()
+        // A new tag's edits are part of the new tag, shown on its own row.
+        .filter(|(key, _)| !new_tags.contains_key(key))
         .map(|((group, tag), pending)| {
             let index = c.tag_index(group, tag);
             // Replayed rather than merely resolved: an edit inside an element
@@ -3275,7 +3378,7 @@ fn changes_for(c: &Catalog, edits: &BTreeMap<TagKey, Vec<PendingEdit>>) -> Vec<T
 
 /// The current project rendered for the UI, or `None` when none is open.
 fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, String> {
-    let (root, meta, edits, swaps) = {
+    let (root, meta, edits, swaps, added) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         match &work.project {
             None => return Ok(None),
@@ -3284,10 +3387,11 @@ fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, Stri
                 p.meta.clone(),
                 work.edits.clone(),
                 work.textures.clone(),
+                work.new_tags.clone(),
             ),
         }
     };
-    let (changes, textures, test_files) = with_catalog(state, |c| {
+    let (changes, textures, new_tags, test_files) = with_catalog(state, |c| {
         let textures = swaps
             .iter()
             .map(|(path, png)| TextureChange {
@@ -3296,9 +3400,21 @@ fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, Stri
                 bytes: png.len(),
             })
             .collect();
+        let new_tags = added
+            .iter()
+            .map(|((group, tag), spec)| NewTagView {
+                group: group.clone(),
+                tag: tag.clone(),
+                from: spec.from.clone(),
+                asset_reference: spec.asset_reference.clone(),
+                index: c.new_tag_index(group, tag),
+                edits: edits.get(&(group.clone(), tag.clone())).map_or(0, Vec::len),
+            })
+            .collect();
         Ok((
-            changes_for(c, &edits),
+            changes_for(c, &edits, &added),
             textures,
+            new_tags,
             modpack::test_files(c.paks()),
         ))
     })?;
@@ -3307,6 +3423,7 @@ fn project_view(state: &State<'_, AppState>) -> Result<Option<ProjectView>, Stri
         meta,
         changes,
         textures,
+        new_tags,
         test_files,
     }))
 }
@@ -3363,6 +3480,19 @@ fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, 
         let png = p.read_texture_file(&t.path)?;
         textures.insert(t.path, png);
     }
+    let new_tags: BTreeMap<TagKey, NewTagSpec> = p
+        .load_new_tags()?
+        .into_iter()
+        .map(|t| {
+            (
+                (t.group, t.tag),
+                NewTagSpec {
+                    from: t.from,
+                    asset_reference: t.asset_reference,
+                },
+            )
+        })
+        .collect();
     {
         let mut work = state.work.lock().map_err(|e| e.to_string())?;
         let mut edits: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
@@ -3378,7 +3508,14 @@ fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, 
         work.edits = edits;
         work.scripts = scripts;
         work.textures = textures;
+        work.new_tags = new_tags.clone();
         work.project = Some(p);
+    }
+    {
+        let mut guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        if let Some(c) = guard.as_mut() {
+            restore_new_tags(c, &new_tags);
+        }
     }
     install::remember_project(Some(&dir));
     project_view(&state)?.ok_or_else(|| "the project did not open".to_string())
@@ -3388,12 +3525,130 @@ fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, 
 /// change — so this only clears the workbench.
 #[tauri::command]
 fn project_close(state: State<'_, AppState>) -> Result<(), String> {
-    let mut work = state.work.lock().map_err(|e| e.to_string())?;
-    work.project = None;
-    work.edits.clear();
-    work.scripts.clear();
-    work.textures.clear();
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.project = None;
+        work.edits.clear();
+        work.scripts.clear();
+        work.textures.clear();
+        work.new_tags.clear();
+    }
+    {
+        let mut guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        if let Some(c) = guard.as_mut() {
+            c.clear_new_tags();
+        }
+    }
     install::remember_project(None);
+    Ok(())
+}
+
+/// Put the workbench's new tags into a catalog, replacing whatever it held.
+///
+/// A new tag whose donor this installation no longer ships is left out; the
+/// project panel shows it without an index so it can be removed.
+fn restore_new_tags(c: &mut Catalog, new_tags: &BTreeMap<TagKey, NewTagSpec>) {
+    c.clear_new_tags();
+    for ((group, tag), spec) in new_tags {
+        if let Some(donor) = c.tag_index(group, &spec.from) {
+            let _ = c.add_new_tag(group, tag, donor);
+        }
+    }
+}
+
+/// Mirror the new-tag list into `edits.json`, when a project is open.
+fn save_new_tags(work: &Workbench) -> Result<(), String> {
+    let Some(p) = &work.project else {
+        return Ok(());
+    };
+    p.save_edits_and_new_tags(&work.saved_edits(), &work.saved_new_tags())
+}
+
+/// Add a tag to the mod: a clone of the shipped tag at `from`, under a new
+/// path in the same group, optionally bound to a different Unreal asset.
+///
+/// The clone starts as the donor currently is in the mod — the donor's
+/// pending edits are copied to it — and is opened like any other tag. Its
+/// bytes only exist at bake time; until then it reads as the donor plus the
+/// edits recorded under its own name.
+#[tauri::command]
+fn project_new_tag(
+    from: usize,
+    path: String,
+    asset_reference: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<NewTagView, String> {
+    let short = blam_pack::newtag::normalize_path(&path)?;
+    let asset_reference = asset_reference
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(a) = &asset_reference {
+        if !a.starts_with("/Game/") || a.contains('.') {
+            return Err(
+                "an asset reference is the package path of a Blueprint or asset, e.g. \
+                 /Game/Blueprints/Weapons/BP_Pistol"
+                    .into(),
+            );
+        }
+    }
+    let (group, donor_short, index) = {
+        let mut guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let c = guard.as_mut().ok_or("no installation is open")?;
+        let donor = c.entry(from).ok_or("tag index out of range")?;
+        let group = donor.group.clone();
+        let donor_short = donor.short.clone();
+        let index = c.add_new_tag(&group, &short, from)?;
+        (group, donor_short, index)
+    };
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    let key = (group.clone(), short.clone());
+    let inherited = work
+        .edits
+        .get(&(group.clone(), donor_short.clone()))
+        .cloned()
+        .unwrap_or_default();
+    let edits = inherited.len();
+    if !inherited.is_empty() {
+        work.edits.insert(key.clone(), inherited);
+    }
+    work.new_tags.insert(
+        key,
+        NewTagSpec {
+            from: donor_short.clone(),
+            asset_reference: asset_reference.clone(),
+        },
+    );
+    save_new_tags(&work)?;
+    Ok(NewTagView {
+        group,
+        tag: short,
+        from: donor_short,
+        asset_reference,
+        index: Some(index),
+        edits,
+    })
+}
+
+/// Drop a new tag from the mod, with every edit recorded under its name.
+#[tauri::command]
+fn project_remove_new_tag(
+    group: String,
+    tag: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let key = (group.clone(), tag.clone());
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.new_tags
+            .remove(&key)
+            .ok_or("this tag is not one the mod adds")?;
+        work.edits.remove(&key);
+        save_new_tags(&work)?;
+    }
+    let mut guard = state.catalog.lock().map_err(|e| e.to_string())?;
+    if let Some(c) = guard.as_mut() {
+        c.remove_new_tag(&group, &tag);
+    }
     Ok(())
 }
 
@@ -3456,6 +3711,14 @@ fn last_project() -> Option<String> {
         .filter(|dir| std::path::Path::new(dir).join(project::MOD_FILE).is_file())
 }
 
+/// What a bake consumes: chunk overrides, new packages, and the warnings the
+/// resolution raised on the way.
+type Resolved = (
+    Vec<modpack::ResolvedEdit>,
+    Vec<modpack::NewTagPackage>,
+    Vec<String>,
+);
+
 /// Every project edit resolved against the open installation and proven to
 /// produce a tag that still reads back exactly. Anything stale fails loudly
 /// here — a mod must never silently ship half its recipe.
@@ -3470,7 +3733,8 @@ fn resolved_edits(
     edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
     scripts: &BTreeMap<TagKey, Vec<(String, String)>>,
     textures: &BTreeMap<String, Vec<u8>>,
-) -> Result<(Vec<modpack::ResolvedEdit>, Vec<String>), String> {
+    new_tags: &BTreeMap<TagKey, NewTagSpec>,
+) -> Result<Resolved, String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
     resolve_textures(c, textures, &mut out)?;
@@ -3479,6 +3743,11 @@ fn resolved_edits(
     let keys: std::collections::BTreeSet<&TagKey> = edits.keys().chain(scripts.keys()).collect();
     for key in keys {
         let (group, tag) = key;
+        // A new tag's edits become its own package below. Packing them here
+        // would override the donor's chunk with the clone's bytes.
+        if new_tags.contains_key(key) {
+            continue;
+        }
         let no_edits = Vec::new();
         let pending = edits.get(key).unwrap_or(&no_edits);
         let script = scripts.get(key).map(Vec::as_slice);
@@ -3525,21 +3794,7 @@ fn resolved_edits(
             continue;
         }
         // And the result must still be a tag that walks exactly.
-        {
-            let parsed = blam_tag::TagFile::parse(&patched, Some(patched.len()))
-                .map_err(|e| format!("{label}: {e}"))?;
-            let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
-            let block = parsed
-                .read_data(&layout)
-                .map_err(|e| format!("{label}: {e}"))?;
-            let payload = patched.len();
-            let expected = parsed.data().map(|d| d.size as usize).unwrap_or(payload);
-            if block.consumed != expected {
-                return Err(format!(
-                    "{label}: the patched tag does not read back exactly"
-                ));
-            }
-        }
+        check_walks(&label, &patched)?;
         out.push(modpack::ResolvedEdit {
             label,
             container: entry.container,
@@ -3548,10 +3803,138 @@ fn resolved_edits(
             patched,
         });
     }
-    if out.is_empty() {
+
+    let mut additions = Vec::new();
+    for ((group, tag), spec) in new_tags {
+        let label = format!("{tag}.{group}");
+        let donor = c.tag_index(group, &spec.from).ok_or_else(|| {
+            format!(
+                "{label}: cloned from {}.{group}, which this installation does not ship — \
+                 remove the new tag first",
+                spec.from
+            )
+        })?;
+        let entry = c.entry(donor).ok_or("tag index out of range")?;
+        let original = c.read_tag(donor)?;
+        let no_edits = Vec::new();
+        let pending = edits
+            .get(&(group.clone(), tag.clone()))
+            .unwrap_or(&no_edits);
+        let (patched, outcomes) =
+            apply_pending(original, pending).map_err(|e| format!("{label}: {e}"))?;
+        let missing = outcomes.iter().filter(|o| !o.applied).count();
+        if missing != 0 {
+            return Err(format!(
+                "{label}: {missing} of {} edits no longer resolve — the game may have \
+                 updated; revert the stale edits first",
+                pending.len()
+            ));
+        }
+        check_walks(&label, &patched)?;
+        let donor_uasset = c
+            .read_tag_uasset(donor)
+            .map_err(|e| format!("{label}: donor wrapper: {e}"))?;
+        let resolve = |cc: &str, path: &str| -> Option<String> {
+            c.resolve_ref(cc, path)
+                .and_then(|i| c.entry(i))
+                .map(|e| package_name_of(&e.path))
+        };
+        let built = blam_pack::newtag::build(
+            &blam_pack::newtag::NewTag {
+                group,
+                path: tag,
+                body: &patched,
+                donor_uasset: &donor_uasset,
+                asset_reference: spec.asset_reference.as_deref(),
+            },
+            usmap()?,
+            resolve,
+        )
+        .map_err(|e| format!("{label}: {e}"))?;
+        if built.dangling > 0 {
+            warnings.push(format!(
+                "{label}: {} reference(s) in it point at tags this installation does not \
+                 ship, so they resolve to nothing in game.",
+                built.dangling
+            ));
+        }
+        let source = c
+            .container(entry.container)
+            .ok_or("source container index out of range")?;
+        let (uasset_meta, ubulk_meta) =
+            blam_pack::newtag::donor_chunk_meta(source, entry.chunk.chunk_id)?;
+        let mut package = built.package;
+        package.uasset_meta = uasset_meta;
+        package.ubulk_meta = ubulk_meta;
+        additions.push(modpack::NewTagPackage {
+            label,
+            source: entry.container,
+            package,
+        });
+    }
+
+    // A new tag nothing points at is never loaded. The references are read
+    // from the bodies the mod ships — edited shipped tags and the other new
+    // tags — the same way the loader's preload list is derived.
+    if !additions.is_empty() {
+        let mut referenced: std::collections::BTreeSet<(String, String)> = Default::default();
+        let bodies = out
+            .iter()
+            .map(|e| e.patched.as_slice())
+            .chain(additions.iter().map(|a| a.package.ubulk.as_slice()));
+        for body in bodies {
+            for (cc, path) in blam_tag::refs::tgrf_refs(body, |_| true) {
+                referenced.insert((cc, catalog::normalize_ref_path(&path)));
+            }
+        }
+        for (group, tag) in new_tags.keys() {
+            let Some(cc) = c.four_cc_of_group(group) else {
+                continue;
+            };
+            if !referenced.contains(&(cc.to_string(), catalog::normalize_ref_path(tag))) {
+                warnings.push(format!(
+                    "{tag}.{group} is referenced by nothing in the mod, so the game will never \
+                     load it. Point a tag at `{group}:{}` to use it.",
+                    tag.replace('/', "\\")
+                ));
+            }
+        }
+    }
+
+    if out.is_empty() && additions.is_empty() {
         return Err("the mod changes nothing yet — edit a tag first".into());
     }
-    Ok((out, warnings))
+    Ok((out, additions, warnings))
+}
+
+/// A patched tag must still be a tag that walks exactly.
+fn check_walks(label: &str, patched: &[u8]) -> Result<(), String> {
+    let parsed = blam_tag::TagFile::parse(patched, Some(patched.len()))
+        .map_err(|e| format!("{label}: {e}"))?;
+    let layout = parsed.layout().map_err(|e| format!("{label}: {e}"))?;
+    let block = parsed
+        .read_data(&layout)
+        .map_err(|e| format!("{label}: {e}"))?;
+    let expected = parsed
+        .data()
+        .map(|d| d.size as usize)
+        .unwrap_or(patched.len());
+    if block.consumed != expected {
+        return Err(format!(
+            "{label}: the patched tag does not read back exactly"
+        ));
+    }
+    Ok(())
+}
+
+/// A catalog entry's container path as the package name the cooker gave it:
+/// `../../../Meteorite/Content/Tags/x/y-group.ubulk` is `/Game/Tags/x/y-group`.
+fn package_name_of(path: &str) -> String {
+    let stem = path.trim_end_matches(".ubulk");
+    match stem.strip_prefix("../../../Meteorite/Content/") {
+        Some(rest) => format!("/Game/{rest}"),
+        None => stem.to_string(),
+    }
 }
 
 /// Re-encode every replaced texture against the installation being packed.
@@ -3620,7 +4003,7 @@ fn export_archive(
     state: &State<'_, AppState>,
     allow_sign: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
-    let (root, meta, (edits, scripts, swaps)) = {
+    let (root, meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
         (
@@ -3630,6 +4013,7 @@ fn export_archive(
                 work.edits.clone(),
                 work.scripts.clone(),
                 work.textures.clone(),
+                work.new_tags.clone(),
             ),
         )
     };
@@ -3644,8 +4028,9 @@ fn export_archive(
     let author =
         install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
-        let (resolved, mut warnings) = resolved_edits(c, &edits, &scripts, &swaps)?;
-        let baked = modpack::bake(c, &meta.slug, resolved)?;
+        let (resolved, additions, mut warnings) =
+            resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+        let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
 
@@ -3654,7 +4039,7 @@ fn export_archive(
         // the mod page says is what the author saw at export.
         let declared = modpack::DeclaredChanges {
             schema_version: 1,
-            tags: changes_for(c, &edits)
+            tags: changes_for(c, &edits, &added)
                 .into_iter()
                 .map(|t| modpack::DeclaredTag {
                     group: t.group,
@@ -3682,6 +4067,14 @@ fn export_archive(
                 .map(|(group, tag)| modpack::DeclaredScript {
                     group: group.clone(),
                     tag: tag.clone(),
+                })
+                .collect(),
+            new_tags: added
+                .iter()
+                .map(|((group, tag), spec)| modpack::DeclaredNewTag {
+                    group: group.clone(),
+                    tag: tag.clone(),
+                    from: spec.from.clone(),
                 })
                 .collect(),
         };
@@ -3758,7 +4151,7 @@ struct TestView {
 /// Bake the project and install it into the Paks folder for an in-game test.
 #[tauri::command]
 fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
-    let (meta, (edits, scripts, swaps)) = {
+    let (meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
         (
@@ -3767,12 +4160,13 @@ fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
                 work.edits.clone(),
                 work.scripts.clone(),
                 work.textures.clone(),
+                work.new_tags.clone(),
             ),
         )
     };
     with_catalog(&state, |c| {
-        let (resolved, warnings) = resolved_edits(c, &edits, &scripts, &swaps)?;
-        let baked = modpack::bake(c, &meta.slug, resolved)?;
+        let (resolved, additions, warnings) = resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+        let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let resized = baked.iter().any(|b| b.built.resized());
         let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
         Ok(TestView {
@@ -3948,6 +4342,8 @@ pub fn run() {
             project_close,
             project_set_meta,
             project_revert,
+            project_new_tag,
+            project_remove_new_tag,
             last_project,
             project_export,
             project_test,
@@ -3983,4 +4379,244 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole New Tag path against a real installation: clone a shipped
+    /// tag under a new name, resolve it into an addition package, bake it, and
+    /// read the container back the way the game's loader does.
+    #[test]
+    fn a_new_tag_bakes_into_a_container_that_reads_back() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let mut c = Catalog::open(&paks, "").unwrap();
+        let donor = c
+            .tags_in("weapon", 1)
+            .into_iter()
+            .next()
+            .expect("weapons ship");
+        let from = donor.short.clone();
+        let to = format!("{from}_mk2");
+        let index = c.add_new_tag("weapon", &to, donor.index).unwrap();
+        assert!(c.is_new_tag(index));
+        assert_eq!(c.tag_index("weapon", &to), Some(index));
+        assert_eq!(c.read_tag(index).unwrap(), c.read_tag(donor.index).unwrap());
+
+        let mut new_tags = BTreeMap::new();
+        new_tags.insert(
+            ("weapon".to_string(), to.clone()),
+            NewTagSpec {
+                from: from.clone(),
+                asset_reference: None,
+            },
+        );
+        let (edits, scripts, textures) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+        let (overrides, additions, warnings) =
+            resolved_edits(&c, &edits, &scripts, &textures, &new_tags).unwrap();
+        assert!(overrides.is_empty());
+        assert_eq!(additions.len(), 1);
+        assert_eq!(
+            additions[0].package.package_name,
+            format!("/Game/Tags/{to}-weapon")
+        );
+        assert_eq!(additions[0].package.ubulk, c.read_tag(donor.index).unwrap());
+        assert!(!additions[0].package.uasset.is_empty());
+        assert!(
+            warnings.iter().any(|w| w.contains("referenced by nothing")),
+            "{warnings:?}"
+        );
+
+        let baked = modpack::bake(&c, "test-mod", overrides, additions).unwrap();
+        assert_eq!(baked.len(), 1);
+        assert_eq!(baked[0].basename, "test-mod-new_P");
+        let dir = std::env::temp_dir().join(format!("mjolnir-newtag-{}", std::process::id()));
+        modpack::write_and_verify(&dir, &baked, c.oodle_paths()).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A shipped tag by group and the tail of its short path.
+    fn shipped(c: &Catalog, group: &str, tail: &str) -> TagSummary {
+        c.search(tail, 50)
+            .into_iter()
+            .find(|t| t.group == group && t.short.to_ascii_lowercase().ends_with(&tail.to_ascii_lowercase()))
+            .unwrap_or_else(|| panic!("{tail}.{group} ships"))
+    }
+
+    /// One new tag for a staging run: group, donor tail, new leaf suffix and
+    /// an optional Unreal binding.
+    struct Clone<'a> {
+        group: &'a str,
+        donor_tail: &'a str,
+        suffix: &'a str,
+        asset_reference: Option<&'a str>,
+    }
+
+    /// Stage a mod the way `project_test` does — clones, field edits, bake,
+    /// install — and print what was installed. The caller launches the game
+    /// and reads its tag table (`mjolnir live tags --filter <suffix>`).
+    fn stage(slug: &str, clones: &[Clone], edits: &[(&str, &str, &str, &str)]) {
+        let paks = std::env::var("HCE_PAKS").expect("HCE_PAKS");
+        let mut c = Catalog::open(&paks, "").unwrap();
+        let mut new_tags = BTreeMap::new();
+        for cl in clones {
+            let donor = shipped(&c, cl.group, cl.donor_tail);
+            let source = c
+                .container(c.entry(donor.index).unwrap().container)
+                .unwrap()
+                .utoc_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            eprintln!("donor {}.{} lives in {source}", donor.short, donor.group);
+            let to = format!("{}{}", donor.short, cl.suffix);
+            c.add_new_tag(cl.group, &to, donor.index).unwrap();
+            new_tags.insert(
+                (cl.group.to_string(), to),
+                NewTagSpec {
+                    from: donor.short.clone(),
+                    asset_reference: cl.asset_reference.map(str::to_string),
+                },
+            );
+        }
+        let mut pending: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
+        for (group, tail, field, value) in edits {
+            let target = shipped(&c, group, tail);
+            let source = c
+                .container(c.entry(target.index).unwrap().container)
+                .unwrap()
+                .utoc_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            eprintln!("edit  {}.{} lives in {source}", target.short, target.group);
+            pending
+                .entry((group.to_string(), target.short.clone()))
+                .or_default()
+                .push(PendingEdit {
+                    path: (*field).to_string(),
+                    value: (*value).to_string(),
+                });
+        }
+        let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
+        let (overrides, additions, warnings) =
+            resolved_edits(&c, &pending, &scripts, &textures, &new_tags).unwrap();
+        assert_eq!(additions.len(), clones.len());
+        assert!(
+            !warnings.iter().any(|w| w.contains("referenced by nothing")),
+            "every clone is referenced: {warnings:?}"
+        );
+        let baked = modpack::bake(&c, slug, overrides, additions).unwrap();
+        for b in &baked {
+            eprintln!(
+                "container {}: {} chunk(s){}",
+                b.basename,
+                b.built.expect.len(),
+                if b.built.resized() { ", resized" } else { "" }
+            );
+        }
+        for f in modpack::install_test(c.paks(), &baked, c.oodle_paths()).unwrap() {
+            eprintln!("installed {f}");
+        }
+        for w in warnings {
+            eprintln!("warning: {w}");
+        }
+    }
+
+    /// The in-game measurement of the editor's New Tag path: clone the
+    /// assault rifle's projectile as `assault_rifle_bullet_mk3`, repoint the
+    /// rifle at the clone, bake the override and the addition, install both.
+    ///
+    /// Then launch a mission with the rifle and run
+    /// `mjolnir live tags --filter mk3`: the game's own tag table lists the
+    /// clone if the editor's containers did their job. Remove the install
+    /// afterwards from the mod panel or by deleting the `-MJOLNIRDEV-` files.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_a_new_tag_for_the_in_game_test() {
+        stage(
+            "editor-newtag",
+            &[Clone {
+                group: "projectile",
+                donor_tail: "projectiles/assault_rifle_bullet",
+                suffix: "_mk3",
+                asset_reference: None,
+            }],
+            &[(
+                "weapon",
+                "assault_rifle/assault_rifle",
+                "barrels[0].projectile",
+                "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk3",
+            )],
+        );
+    }
+
+    /// Matrix rows 4 and 5: a new object-group tag bound to a *different*
+    /// Blueprint than its donor (the rifle's bullet on the magnum's projectile
+    /// actor), and a new `model` carrying the donor's `RuntimeVariants`; the
+    /// rifle is repointed at both. Two clones in two folders, so two addition
+    /// containers.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_matrix_rifle_rows() {
+        stage(
+            "matrix-rifle",
+            &[
+                Clone {
+                    group: "projectile",
+                    donor_tail: "projectiles/assault_rifle_bullet",
+                    suffix: "_mk4",
+                    asset_reference: Some(
+                        "/Game/_Prototypes/SynchronizationTestContent/Assets/Weapons/ProjectileActors/BP_MagnumProjectileActor",
+                    ),
+                },
+                Clone {
+                    group: "model",
+                    donor_tail: "assault_rifle/assault_rifle",
+                    suffix: "_mk4",
+                    asset_reference: None,
+                },
+            ],
+            &[
+                (
+                    "weapon",
+                    "assault_rifle/assault_rifle",
+                    "barrels[0].projectile",
+                    "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk4",
+                ),
+                (
+                    "weapon",
+                    "assault_rifle/assault_rifle",
+                    "item.object.model",
+                    "hlmt:objects\\weapons\\rifle\\assault_rifle\\assault_rifle_mk4",
+                ),
+            ],
+        );
+    }
+
+    /// Matrix rows 6 and 7: an override of a tag that ships in a per-level
+    /// container (the A30 scenario), pointing one structure's lighting info at
+    /// a clone in a `_Generated_` group.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_matrix_scenario_rows() {
+        stage(
+            "matrix-scenario",
+            &[Clone {
+                group: "scenario_structure_lighting_info",
+                donor_tail: "A30/_Generated_/landing_zone_p1",
+                suffix: "_mk4",
+                asset_reference: None,
+            }],
+            &[(
+                "scenario",
+                "A30/_Generated_/a30",
+                "structure bsps[7].structure lighting_info",
+                "stli:levels\\halo1\\solo\\a30\\landing_zone_p1_mk4",
+            )],
+        );
+    }
 }

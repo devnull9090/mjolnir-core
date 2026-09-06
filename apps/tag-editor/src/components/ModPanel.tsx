@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEditor } from "../stores/editor-store";
 import { isTauri } from "../lib/mock";
-import type { HubStatus, ProjectMeta, TagChange, TextureChange } from "../lib/api";
+import type { HubStatus, NewTagView, ProjectMeta, TagChange, TextureChange } from "../lib/api";
 
 /** Folder picker; outside Tauri (browser dev against the mock) any string
  *  keeps the flow walkable. */
@@ -198,7 +198,61 @@ function MetaForm({ meta }: { meta: ProjectMeta }) {
   );
 }
 
-/** One tag's edits: open the tag, revert a line, or drop the lot. */
+/** One tag the mod adds: open it, or drop it with its edits. */
+function NewTagRow({ change }: { change: NewTagView }) {
+  const openTab = useEditor((s) => s.openTab);
+  const removeNewTag = useEditor((s) => s.removeNewTag);
+  const label = `${change.tag.split("/").pop() ?? change.tag}.${change.group}`;
+  const stale = change.index === null;
+
+  return (
+    <div className="border-b border-border-subtle/60 px-3 py-2">
+      <div className="flex items-baseline gap-2">
+        <span className="shrink-0 text-[10px] uppercase tracking-wider text-accent-green">new</span>
+        <button
+          type="button"
+          disabled={stale}
+          title={`${change.tag}.${change.group}, cloned from ${change.from}`}
+          onClick={() => {
+            if (change.index !== null) {
+              void openTab("tag", change.index, label, {
+                group: change.group,
+                path: change.tag,
+              });
+            }
+          }}
+          className={`min-w-0 truncate font-mono text-xs ${
+            stale ? "cursor-default text-text-dim" : "text-mjolnir-gold hover:underline"
+          }`}
+        >
+          {label}
+        </button>
+        {stale && (
+          <span
+            className="shrink-0 text-[10px] text-accent-red"
+            title="The tag this was cloned from is not in the open installation — the game may have updated. Remove the new tag, or fix the recipe by hand."
+          >
+            donor missing
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => void removeNewTag(change.group, change.tag)}
+          title="Remove this tag from the mod, with every edit made to it"
+          className="ml-auto shrink-0 text-[10px] text-text-dim hover:text-accent-red"
+        >
+          remove
+        </button>
+      </div>
+      <p className="mt-1 truncate font-mono text-[11px] text-text-dim" title={change.from}>
+        from {change.from.split("/").pop()}
+        {change.edits > 0 && ` · ${change.edits} edit${change.edits === 1 ? "" : "s"}`}
+        {change.asset_reference && ` · bound to ${change.asset_reference.split("/").pop()}`}
+      </p>
+    </div>
+  );
+}
+
 /** One replaced texture in the change list. */
 function TextureRow({ change }: { change: TextureChange }) {
   const openTab = useEditor((s) => s.openTab);
@@ -541,10 +595,12 @@ function ProjectPanel() {
 
   // A mod that only repaints a texture still has something to bake, so the
   // test and export buttons key off both lists.
-  const hasChanges = project.changes.length > 0 || project.textures.length > 0;
+  const hasChanges =
+    project.changes.length > 0 || project.textures.length > 0 || project.new_tags.length > 0;
   const tested = project.test_files.length > 0;
   const editCount = project.changes.reduce((n, c) => n + c.edits.length, 0);
   const swapCount = project.textures.length;
+  const newCount = project.new_tags.length;
 
   return (
     <>
@@ -579,9 +635,13 @@ function ProjectPanel() {
           {project.changes.length === 1 ? "" : "s"}
           {swapCount > 0 &&
             ` · ${swapCount} texture${swapCount === 1 ? "" : "s"}`}
+          {newCount > 0 && ` · ${newCount} new tag${newCount === 1 ? "" : "s"}`}
         </h2>
         {hasChanges ? (
           <>
+            {project.new_tags.map((t) => (
+              <NewTagRow key={`new:${t.group}:${t.tag}`} change={t} />
+            ))}
             {project.changes.map((c) => (
               <ChangeRow key={`${c.group}:${c.tag}`} change={c} />
             ))}
@@ -591,8 +651,8 @@ function ProjectPanel() {
           </>
         ) : (
           <p className="px-3 py-2 text-[11px] text-text-dim">
-            No changes yet. Open a tag and edit a field, or replace a texture —
-            it lands here automatically.
+            No changes yet. Open a tag and edit a field, replace a texture, or right-click a
+            tag and choose New Tag From This — it lands here automatically.
           </p>
         )}
       </div>

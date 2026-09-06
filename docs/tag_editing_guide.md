@@ -382,6 +382,22 @@ See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
 **Export patched tag…** still writes a single tag with your edits to a file you choose —
 useful for inspection and diffing, but not something the game loads.
 
+### New tags
+
+Right-click a tag — in the tag list or the file browser — and choose **New Tag From This…** to
+add a tag to your mod: a clone of the one you clicked, under a path you type, in the same group.
+The clone opens like any other tag and starts as the donor currently is in your mod, edits
+included; from then on its edits are its own, recorded under the new name. The mod panel lists
+it with a **remove** link. Optionally give it a different Unreal asset to bind to — a Blueprint
+package path for objects and effects, an asset for sounds; leave it empty to share the donor's.
+
+Nothing references a new tag until you point something at it: open the tag that should use it
+and set a reference field to `<group>:<path>`. A bake warns when nothing in the mod references
+a new tag, because the game never loads one that nothing names. Testing or exporting builds each
+new tag into a package of its own, in an addition container the game registers by name — the
+path `mjolnir new-tag` proved in game; see
+[`iostore_packaging.md`](iostore_packaging.md#new-packages-register-and-resolve-by-name).
+
 ### Textures
 
 The **textures** tab lists every `Texture2D` in the install, and opening one decodes it and
@@ -439,12 +455,19 @@ not the same as pokeable: an object exists for nearly every tag whether or not i
 resident, so it is the identity index, not the editable set. Finding the editable set is
 what the scan is for.
 
-Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
-the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
-a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15
-seconds, 324 loaded tags verified. The first census on an installation also spends about a
-minute fingerprinting every tag; that table is cached on disk, so later sessions skip
-straight to the sweep. After a census:
+Next to the toggle, while the game is running, is **scan game** — the census. On the current
+game build it is not a scan at all: the simulation module keeps its own table of every loaded
+tag — name, group, a handle, and where the root element lives — and the editor reads that
+table directly, in well under a second, with every address exact. The status line says
+`from the game's own tag table` when this path was used. The table's addresses belong to one
+build (they are chosen by the hash of the simulation module), so on a build the editor does
+not know it falls back to the sweep described next; nothing else changes.
+
+The sweep: one pass over the game's memory finds *every* loaded tag at once, for less than
+the old flow paid to find a single tag: measured against a mission in the shipped build,
+~12.6 GB swept in about 15 seconds, 324 loaded tags verified. The first census on an
+installation also spends about a minute fingerprinting every tag; that table is cached on
+disk, so later sessions skip straight to the sweep. After a census, by either route:
 
 - every found tag pokes **instantly** — no per-tag first-edit scan;
 - the status line names **the level you are in**, read from the loaded scenario tag;
@@ -470,12 +493,16 @@ mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25 --l
 ```
 
 ```
-  located  payload at 0x11FA6DF1B0A  (2 independent runs agree, best of 13 candidate(s), 16.7 GB scanned)
-           25% of the data section is byte-identical to disk; the rest is the engine's own fix-ups
+  located  root at 0x239108DF900 via the tag table (handle 0xE24A00D6, Steam CU4 2026.08.11.1121610.2)
   live     9   (shipped 2.3)
   wrote    25
   re-read  25  (bytes confirmed in the process)
 ```
+
+On a build without a table profile the `located` line reports the sweep instead — how many
+independent byte runs agreed and how much memory was read. `mjolnir live status`, `live tags`
+and `live string-ids` read the same tables on their own: what is loaded, and which `string id`
+names the running game will accept.
 
 ### What it is, and is not
 
