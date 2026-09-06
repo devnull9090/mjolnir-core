@@ -382,6 +382,22 @@ See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
 **Export patched tag…** still writes a single tag with your edits to a file you choose —
 useful for inspection and diffing, but not something the game loads.
 
+### New tags
+
+Right-click a tag — in the tag list or the file browser — and choose **New Tag From This…** to
+add a tag to your mod: a clone of the one you clicked, under a path you type, in the same group.
+The clone opens like any other tag and starts as the donor currently is in your mod, edits
+included; from then on its edits are its own, recorded under the new name. The mod panel lists
+it with a **remove** link. Optionally give it a different Unreal asset to bind to — a Blueprint
+package path for objects and effects, an asset for sounds; leave it empty to share the donor's.
+
+Nothing references a new tag until you point something at it: open the tag that should use it
+and set a reference field to `<group>:<path>`. A bake warns when nothing in the mod references
+a new tag, because the game never loads one that nothing names. Testing or exporting builds each
+new tag into a package of its own, in an addition container the game registers by name — the
+path `mjolnir new-tag` proved in game; see
+[`iostore_packaging.md`](iostore_packaging.md#new-packages-register-and-resolve-by-name).
+
 ### Textures
 
 The **textures** tab lists every `Texture2D` in the install, and opening one decodes it and

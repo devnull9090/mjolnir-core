@@ -5,7 +5,7 @@
 //! shipped byte size. Nothing in the metadata has to move, so the override
 //! container carries one chunk: the `.ubulk`. See `docs/texture_swapping.md`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
@@ -395,13 +395,10 @@ fn swap(a: SwapArgs) -> Result<()> {
     std::fs::write(&ucas, &built.ucas)?;
     blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
 
-    // A container without a `.pak` sibling is never discovered, so one rides
-    // along — a byte-copy of the smallest shipped pak, the same trick the
-    // launcher and the tag editor use on install.
+    // A container without a `.pak` sibling is never discovered, so an empty
+    // one rides along (`ue_iostore::pak::write_stub`).
     let pak = a.out_dir.join(format!("{}.pak", a.name));
-    if let Some(stub) = smallest_pak(&a.one.src.paks) {
-        std::fs::write(&pak, stub)?;
-    }
+    std::fs::write(&pak, ue_iostore::pak::stub_for(&a.name))?;
 
     println!("\n  wrote {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote {} ({} bytes)", ucas.display(), built.ucas.len());
@@ -412,19 +409,3 @@ fn swap(a: SwapArgs) -> Result<()> {
     Ok(())
 }
 
-/// Bytes of the smallest shipped `.pak`, to ride along as a discovery stub.
-fn smallest_pak(paks: &Path) -> Option<Vec<u8>> {
-    let mut best: Option<(u64, PathBuf)> = None;
-    for entry in std::fs::read_dir(paks).ok()?.flatten() {
-        let path = entry.path();
-        let name = path.file_name()?.to_str()?.to_string();
-        if !name.ends_with(".pak") || name.contains("MJOLNIR") {
-            continue;
-        }
-        let len = entry.metadata().ok()?.len();
-        if best.as_ref().is_none_or(|(b, _)| len < *b) {
-            best = Some((len, path));
-        }
-    }
-    std::fs::read(best?.1).ok()
-}

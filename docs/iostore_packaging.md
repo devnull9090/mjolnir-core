@@ -233,7 +233,7 @@ Not in the repository — these are local, and removing them undoes everything:
 
 ```
 <install>/Meteorite/Content/Paks/
-  pakchunk999-MJOLNIR-Windows_P.pak     339 B   stub, copied from pakchunk115-Windows.pak
+  pakchunk999-MJOLNIR-Windows_P.pak     339 B   stub (then a copy of pakchunk115-Windows.pak; now written, see below)
   pakchunk999-MJOLNIR-Windows_P.utoc    302 B   built by `mjolnir pack`
   pakchunk999-MJOLNIR-Windows_P.ucas    36 KB   two chunks, uncompressed
 
@@ -293,7 +293,8 @@ classes are loaded, which is useful orientation first.
 1. **Discovery needs a `.pak` sibling.** Every shipped `pakchunkN` has one; only `global.utoc`
    does not, and that one is mounted explicitly by the engine. A `.utoc`/`.ucas` pair alone was
    never picked up. Several shipped containers pair a **339-byte stub** `.pak` with a large
-   `.ucas`, so copying a stub is legitimate rather than a hack.
+   `.ucas`, so a stub is legitimate rather than a hack — and it is now written rather than
+   copied (see [The stub `.pak`, written](#the-stub-pak-written)).
 
 2. **The container does mount.** Attempting to overwrite the `.ucas` while the game ran failed
    with *device or resource busy*, while the `.utoc` overwrote freely. A process does not hold a
@@ -571,6 +572,20 @@ They will not, for the tags. The tag payloads are IoStore **chunks**, addressed 
 through the zen loader, not by file path through the pak mount. A `.pak` override would have
 to reach the package store, which is what the IoStore container is for.
 
+### The stub `.pak`, written
+
+Every shipped stub is the same 339 bytes apart from two fields. It is an empty version-11
+archive: a primary index holding the mount point `/`, zero entries, a path-hash seed, and the
+offsets, sizes and SHA-1s of an empty path-hash index (8 zero bytes) and an empty full
+directory index (4 zero bytes); then the `FPakInfo` footer — a zero encryption GUID, the magic
+`0x5A6F12E1`, version 11, the index offset and size, the SHA-1 of the primary index, and five
+empty compression-method names. Only the seed and the footer hash differ between shipped
+stubs, and with no entries the seed hashes nothing. `ue_iostore::pak::write_stub` reproduces
+`pakchunk115-Windows.pak` byte for byte from that file's own seed (a unit test checks it when
+`HCE_PAKS` is set), and `stub_for(name)` seeds from the container name so a rebuild is
+identical. The CLI, the tag editor's test install and the launcher-facing export all write it;
+nothing copies a shipped file any more.
+
 ## New packages register and resolve by name
 
 **Answered 2026-09-05** (build CU4, mission A30). A brand-new tag package — the marine's
@@ -586,6 +601,13 @@ Three earlier open items close with it: the runtime tag registry is enumerated f
 mounted; a mod container's own `ContainerHeader` is honoured; references resolve by name on
 demand. The same-length rename constraint on the wrapper is the remaining limit, and it is the
 wrapper serializer's job to lift.
+
+The tag editor exposes the same path as **New Tag From This…** (tag editor 0.18.0). The clone
+is a virtual entry in the catalogue that reads as its donor; its edits are recorded under the
+new name in the project's `edits.json` (`new_tags`); a bake builds each one with
+`blam_pack::newtag` — shared with `mjolnir new-tag` — into an addition container beside the
+override containers, named `<slug>-new_P` (then `<slug>-new-2_P`, …), one per package folder
+because the container's directory index names a single directory.
 
 ## Writing the wrapper
 

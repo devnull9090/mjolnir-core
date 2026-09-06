@@ -1,13 +1,10 @@
 //! `mjolnir new-tag`: put a brand-new tag package in front of the game.
 //!
-//! A tag is one UE package — a cooked `.uasset` wrapper plus the `.ubulk` tag
-//! body — and its identity (the chunk ids the game addresses it by, the
-//! package-store entry, the export hash) all derive from its name. The wrapper
-//! is built from scratch for every group (`ue_asset::tagwrap`): its preload
-//! list from the references the body actually carries, its Unreal binding
-//! (`AssetReference`) and its model variants from the donor's wrapper unless
-//! overridden. So the new path can be anything, and the body can be edited on
-//! the way with `--set`.
+//! The package itself is `blam_pack::newtag` — the wrapper built from scratch
+//! for the group, the preload list from the body's own references, the Unreal
+//! binding and model variants from the donor unless overridden. This command
+//! finds the donor, applies `--set` edits to its body, resolves the body's
+//! references against the installation, and writes the container triplet.
 //!
 //! Measured 2026-09-05: a package built this way is registered by the mod
 //! container's own `ContainerHeader`, resolved by name the moment a tag
@@ -21,7 +18,6 @@ use anyhow::{bail, ensure, Context, Result};
 use blam_tag::TagFile;
 use clap::Args;
 use ue_asset::package::ZenPackage;
-use ue_asset::tagwrap::{self, ImportTarget};
 
 use crate::index;
 
@@ -67,16 +63,6 @@ pub struct NewTagArgs {
     cooked_header_size: Option<u32>,
 }
 
-/// Groups whose `AssetReference` names a plain asset rather than a Blueprint
-/// class.
-const ASSET_BOUND_GROUPS: [&str; 5] = [
-    "sound",
-    "sound_looping",
-    "sound_combiner",
-    "cinematic",
-    "damage_response_definition",
-];
-
 pub fn run(a: NewTagArgs) -> Result<()> {
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
@@ -105,34 +91,20 @@ pub fn run(a: NewTagArgs) -> Result<()> {
 
     // The donor's wrapper: the Unreal-side facts a body cannot tell us.
     let source = &idx.containers[donor_entry.container];
-    let toc = ue_iostore::toc::Toc::read(&source.utoc_path)
-        .map_err(|e| anyhow::anyhow!("{}: {e}", source.utoc_path.display()))?;
     let uasset_chunk = source
         .chunks
         .iter()
         .find(|c| c.chunk_id == donor_entry.chunk.chunk_id && c.chunk_type == 1)
         .context("the donor has no package chunk beside its payload")?;
     let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &a.src.oodle_roots())?;
-    let meta_of = |kind: u8| -> Vec<u8> {
-        toc.chunk_ids
-            .iter()
-            .position(|c| c.id == donor_entry.chunk.chunk_id && c.kind == kind)
-            .and_then(|slot| toc.meta(slot))
-            .map(<[u8]>::to_vec)
-            .unwrap_or_default()
-    };
-    let donor_pkg =
-        ZenPackage::parse(&donor_uasset).map_err(|e| anyhow::anyhow!("donor package: {e}"))?;
-    let donor =
-        tagwrap::read(&donor_pkg, usmap).map_err(|e| anyhow::anyhow!("donor wrapper: {e}"))?;
+    let (uasset_meta, ubulk_meta) =
+        blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
-    // The new identity, spelled the way the cooker spells packages.
-    let to = a.to.trim().replace('\\', "/");
-    let to = to.trim_matches('/');
-    let new_pkg = format!("/Game/Tags/{to}-{}", a.group);
-    let new_leaf = new_pkg.rsplit('/').next().unwrap_or("").to_string();
     // Only the game's own containers count as "shipped": an earlier run of this
     // command leaves its own indexed container in the Paks folder.
+    let to = blam_pack::newtag::normalize_path(&a.to).map_err(|e| anyhow::anyhow!(e))?;
+    let new_leaf = format!("{}-{}", to.rsplit('/').next().unwrap_or(&to), a.group);
     let shipped_has_leaf = entries.iter().any(|e| {
         let container = idx.containers[e.container]
             .utoc_path
@@ -151,8 +123,7 @@ pub fn run(a: NewTagArgs) -> Result<()> {
     );
 
     // The preload list: every tag the body references that exists in this
-    // installation. Dangling references are ordinary (1,381 shipped instances
-    // point at nothing) and are only reported.
+    // installation, by four-CC and path.
     let cc_to_group = group_directories(&idx, &a.src.oodle_roots())?;
     let by_lower: HashMap<String, String> = idx
         .containers
@@ -167,96 +138,70 @@ pub fn run(a: NewTagArgs) -> Result<()> {
             (full.to_ascii_lowercase(), full)
         })
         .collect();
-    let mut cooked_refs: Vec<ImportTarget> = Vec::new();
-    let mut dangling = 0usize;
-    for (cc, path) in blam_tag::refs::tgrf_refs(&file, |cc| cc_to_group.contains_key(cc)) {
-        let group = &cc_to_group[&cc];
+    let resolve = |cc: &str, path: &str| -> Option<String> {
+        let group = cc_to_group.get(cc)?;
         let want = format!(
             "/game/tags/{}-{group}",
             path.replace('\\', "/").to_ascii_lowercase()
         );
-        match by_lower.get(&want) {
-            Some(real) => {
-                let target = ImportTarget::asset(real);
-                if !cooked_refs.contains(&target) {
-                    cooked_refs.push(target);
-                }
-            }
-            None => dangling += 1,
-        }
-    }
+        by_lower.get(&want).cloned()
+    };
 
-    let asset_reference = match &a.asset_reference {
-        Some(pkg) if ASSET_BOUND_GROUPS.contains(&a.group.as_str()) => {
-            Some(ImportTarget::asset(pkg))
-        }
-        Some(pkg) => Some(ImportTarget::blueprint_class(pkg)),
-        None => donor.spec.asset_reference.clone(),
-    };
-    let spec = tagwrap::WrapperSpec {
-        group: a.group.clone(),
-        package_path: new_pkg.clone(),
-        ubulk_len: file.len() as u64,
-        asset_reference,
-        cooked_refs,
-        spawn_per_instance: donor.spec.spawn_per_instance,
-        model_region_string_table: donor.spec.model_region_string_table.clone(),
-        runtime_variants: donor.spec.runtime_variants.clone(),
-    };
+    let built_tag = blam_pack::newtag::build(
+        &blam_pack::newtag::NewTag {
+            group: &a.group,
+            path: &to,
+            body: &file,
+            donor_uasset: &donor_uasset,
+            asset_reference: a.asset_reference.as_deref(),
+        },
+        usmap,
+        resolve,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+    let new_pkg = built_tag.package_name.clone();
+    let donor_pkg =
+        ZenPackage::parse(&donor_uasset).map_err(|e| anyhow::anyhow!("donor package: {e}"))?;
     println!("package  {}\n      -> {new_pkg}", donor_pkg.name());
     println!(
         "  id     {:#018x}  preloads {} tag(s){}",
         ue_iostore::city::package_id(&new_pkg),
-        spec.cooked_refs.len(),
-        if dangling > 0 {
-            format!(", {dangling} reference(s) point at nothing shipped")
+        built_tag.preloads,
+        if built_tag.dangling > 0 {
+            format!(
+                ", {} reference(s) point at nothing shipped",
+                built_tag.dangling
+            )
         } else {
             String::new()
         }
     );
-    if let Some(t) = &spec.asset_reference {
-        println!("  bound  {}", t.package);
+    if let Some(t) = &built_tag.bound {
+        println!("  bound  {t}");
     }
-    if !spec.runtime_variants.is_empty() {
-        println!("  variants {}", spec.runtime_variants.len());
+    if built_tag.variants > 0 {
+        println!("  variants {}", built_tag.variants);
     }
 
-    let mut built_pkg =
-        tagwrap::build(&spec, usmap).map_err(|e| anyhow::anyhow!("wrapper: {e}"))?;
+    let mut package = built_tag.package;
+    package.uasset_meta = uasset_meta;
+    package.ubulk_meta = ubulk_meta;
     if let Some(cooked) = a.cooked_header_size {
+        let mut pkg = ZenPackage::parse(&package.uasset).map_err(|e| anyhow::anyhow!("{e}"))?;
         println!(
             "  cooked header size {} -> {cooked} (measurement)",
-            built_pkg.cooked_header_size
+            pkg.cooked_header_size
         );
-        built_pkg.cooked_header_size = cooked;
+        pkg.cooked_header_size = cooked;
+        package.uasset = pkg.write();
     }
-    let uasset = built_pkg.write();
-    let imported: Vec<u64> = built_pkg
-        .imported_package_names
-        .names
-        .iter()
-        .zip(&built_pkg.imported_package_name_numbers)
-        .map(|(base, n)| ue_iostore::city::package_id(&tagwrap::fname_join(base, *n)))
-        .collect();
 
     let base = a
         .name
         .clone()
         .unwrap_or_else(|| format!("pakchunk996-MJOLNIRNEW-{}", new_leaf.replace('-', "_")));
-    let built = blam_pack::build_addition(
-        source,
-        &a.src.oodle_roots(),
-        &base,
-        &[blam_pack::NewPackage {
-            package_name: new_pkg.clone(),
-            uasset,
-            ubulk: file.clone(),
-            imported_package_ids: imported,
-            uasset_meta: meta_of(1),
-            ubulk_meta: meta_of(2),
-        }],
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+    let built = blam_pack::build_addition(source, &a.src.oodle_roots(), &base, &[package])
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     let out_dir = match (&a.out_dir, a.install_test) {
         (Some(dir), _) => dir.clone(),
@@ -285,14 +230,14 @@ pub fn run(a: NewTagArgs) -> Result<()> {
     println!("  wrote  {} ({} bytes)", ucas.display(), built.ucas.len());
     // A .utoc/.ucas pair never mounts without a .pak sibling.
     let pak = out_dir.join(format!("{name}.pak"));
-    std::fs::write(&pak, crate::level::stub_pak_bytes(&a.src.paks)?)?;
+    std::fs::write(&pak, ue_iostore::pak::stub_for(&name))?;
     println!("  wrote  {} (stub)", pak.display());
 
     println!(
         "\n  Nothing references {new_leaf} yet. Repoint a shipped tag at `{}:{}` with\n  `mjolnir pack --set`, launch a mission that loads it, then run\n  `mjolnir live tags --filter {}` — the tag table lists it if the game did.",
         tag.header.group.as_str(),
         to.replace('/', "\\"),
-        to.rsplit('/').next().unwrap_or(to)
+        to.rsplit('/').next().unwrap_or(&to)
     );
     if !a.install_test {
         println!("  Install: copy all three files into the game's Paks folder.");

@@ -68,6 +68,24 @@ pub struct SavedTexture {
     pub path: String,
 }
 
+/// A tag the mod adds, cloned from a shipped one.
+///
+/// Its own field edits are ordinary [`SavedEdit`]s keyed by the new
+/// `(group, tag)`, applied over the donor's bytes; this records where the
+/// bytes come from and how the tag binds to Unreal.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SavedNewTag {
+    pub group: String,
+    /// The new tag's short path, e.g. `objects/weapons/pistol/pistol_mk2`.
+    pub tag: String,
+    /// The shipped tag of the same group it was cloned from.
+    pub from: String,
+    /// The Unreal asset the tag binds to, as a package path; absent keeps the
+    /// donor's binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_reference: Option<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct EditsFile {
     schema_version: u32,
@@ -79,6 +97,9 @@ struct EditsFile {
     /// Likewise absent in projects written before texture swapping existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     textures: Vec<SavedTexture>,
+    /// Likewise absent in projects written before new tags existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    new_tags: Vec<SavedNewTag>,
 }
 
 /// Where a tag's `.hsc` files live inside a project.
@@ -245,8 +266,8 @@ impl Project {
     }
 
     pub fn save_edits(&self, edits: &[SavedEdit]) -> Result<(), String> {
-        let (scripts, textures) = self.load_sidecars();
-        self.save_all(edits, &scripts, &textures)
+        let (scripts, textures, new_tags) = self.load_sidecars();
+        self.save_all(edits, &scripts, &textures, &new_tags)
     }
 
     pub fn save_edits_and_scripts(
@@ -254,8 +275,8 @@ impl Project {
         edits: &[SavedEdit],
         scripts: &[SavedScript],
     ) -> Result<(), String> {
-        let (_, textures) = self.load_sidecars();
-        self.save_all(edits, scripts, &textures)
+        let (_, textures, new_tags) = self.load_sidecars();
+        self.save_all(edits, scripts, &textures, &new_tags)
     }
 
     pub fn save_edits_and_textures(
@@ -263,8 +284,17 @@ impl Project {
         edits: &[SavedEdit],
         textures: &[SavedTexture],
     ) -> Result<(), String> {
-        let (scripts, _) = self.load_sidecars();
-        self.save_all(edits, &scripts, textures)
+        let (scripts, _, new_tags) = self.load_sidecars();
+        self.save_all(edits, &scripts, textures, &new_tags)
+    }
+
+    pub fn save_edits_and_new_tags(
+        &self,
+        edits: &[SavedEdit],
+        new_tags: &[SavedNewTag],
+    ) -> Result<(), String> {
+        let (scripts, textures, _) = self.load_sidecars();
+        self.save_all(edits, &scripts, &textures, new_tags)
     }
 
     /// Write `edits.json` whole. Every other save funnels through here, so a
@@ -274,6 +304,7 @@ impl Project {
         edits: &[SavedEdit],
         scripts: &[SavedScript],
         textures: &[SavedTexture],
+        new_tags: &[SavedNewTag],
     ) -> Result<(), String> {
         write_json(
             &self.root.join(EDITS_FILE),
@@ -282,6 +313,7 @@ impl Project {
                 edits: edits.to_vec(),
                 scripts: scripts.to_vec(),
                 textures: textures.to_vec(),
+                new_tags: new_tags.to_vec(),
             },
         )
     }
@@ -294,17 +326,23 @@ impl Project {
                 edits: Vec::new(),
                 scripts: Vec::new(),
                 textures: Vec::new(),
+                new_tags: Vec::new(),
             });
         }
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         serde_json::from_str(&text).map_err(|e| e.to_string())
     }
 
-    fn load_sidecars(&self) -> (Vec<SavedScript>, Vec<SavedTexture>) {
+    fn load_sidecars(&self) -> (Vec<SavedScript>, Vec<SavedTexture>, Vec<SavedNewTag>) {
         match self.read_edits_file() {
-            Ok(f) => (f.scripts, f.textures),
-            Err(_) => (Vec::new(), Vec::new()),
+            Ok(f) => (f.scripts, f.textures, f.new_tags),
+            Err(_) => (Vec::new(), Vec::new(), Vec::new()),
         }
+    }
+
+    /// Which tags the mod adds, from `edits.json`.
+    pub fn load_new_tags(&self) -> Result<Vec<SavedNewTag>, String> {
+        Ok(self.read_edits_file()?.new_tags)
     }
 
     /// Which tags have a script override, from `edits.json`.

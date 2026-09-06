@@ -40,6 +40,15 @@ pub struct ResolvedEdit {
     pub patched: Vec<u8>,
 }
 
+/// One tag the mod adds, built against the open installation.
+pub struct NewTagPackage {
+    /// `objects/weapons/pistol/pistol_mk2.weapon`, for messages.
+    pub label: String,
+    /// The donor's container, whose index settings the addition copies.
+    pub source: usize,
+    pub package: blam_pack::NewPackage,
+}
+
 /// A built override container and the basename it ships under.
 pub struct Baked {
     /// e.g. `faster-pistol_P` — the `_P` suffix is what makes it a patch
@@ -48,8 +57,14 @@ pub struct Baked {
     pub built: blam_pack::Built,
 }
 
-/// Bake resolved edits into override containers, one per source container.
-pub fn bake(c: &Catalog, slug: &str, edits: Vec<ResolvedEdit>) -> Result<Vec<Baked>, String> {
+/// Bake resolved edits into override containers, one per source container,
+/// and new tags into addition containers, one per package folder.
+pub fn bake(
+    c: &Catalog,
+    slug: &str,
+    edits: Vec<ResolvedEdit>,
+    additions: Vec<NewTagPackage>,
+) -> Result<Vec<Baked>, String> {
     let mut by_source: BTreeMap<usize, Vec<blam_pack::ChunkEdit>> = BTreeMap::new();
     for e in edits {
         by_source
@@ -77,6 +92,36 @@ pub fn bake(c: &Catalog, slug: &str, edits: Vec<ResolvedEdit>) -> Result<Vec<Bak
             format!("{slug}-{}_P", nth + 1)
         };
         out.push(Baked { basename, built });
+    }
+
+    // New packages register through the container's own header and are
+    // named in its directory index, which holds one folder — so one addition
+    // container per folder the new tags land in.
+    let mut by_dir: BTreeMap<String, Vec<NewTagPackage>> = BTreeMap::new();
+    for a in additions {
+        let dir = a
+            .package
+            .package_name
+            .rsplit_once('/')
+            .map(|(d, _)| d.to_string())
+            .unwrap_or_default();
+        by_dir.entry(dir).or_default().push(a);
+    }
+    for (nth, (_, group)) in by_dir.into_iter().enumerate() {
+        let source = c
+            .container(group[0].source)
+            .ok_or("source container index out of range")?;
+        let name = if nth == 0 {
+            format!("{slug}-new")
+        } else {
+            format!("{slug}-new-{}", nth + 1)
+        };
+        let packages: Vec<blam_pack::NewPackage> = group.into_iter().map(|a| a.package).collect();
+        let built = blam_pack::build_addition(source, c.oodle_paths(), &name, &packages)?;
+        out.push(Baked {
+            basename: format!("{name}_P"),
+            built,
+        });
     }
     Ok(out)
 }
@@ -138,6 +183,15 @@ pub struct DeclaredScript {
     pub tag: String,
 }
 
+/// One tag the mod adds, as `changes.json` declares it.
+#[derive(Serialize)]
+pub struct DeclaredNewTag {
+    pub group: String,
+    pub tag: String,
+    /// The shipped tag it was cloned from.
+    pub from: String,
+}
+
 /// The `changes.json` an archive carries: the recipe resolved against the
 /// author's installation at export time, written for players rather than
 /// for re-application. The hub and the launcher render it as "what this
@@ -150,6 +204,8 @@ pub struct DeclaredChanges {
     pub textures: Vec<DeclaredTexture>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scripts: Vec<DeclaredScript>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub new_tags: Vec<DeclaredNewTag>,
 }
 
 /// The author identity an archive is signed with, when one exists.
@@ -231,29 +287,6 @@ pub fn write_archive(
         .map_err(|e| format!("{}: {e}", dest.display()))
 }
 
-/// The stub `.pak` a container triple needs: containers without a `.pak`
-/// sibling are never discovered, so a byte-copy of the smallest shipped one
-/// rides along — the same trick the launcher uses on install.
-fn stub_pak_bytes(paks: &Path) -> Result<Vec<u8>, String> {
-    let mut smallest: Option<(u64, PathBuf)> = None;
-    let entries = std::fs::read_dir(paks).map_err(|e| format!("{}: {e}", paks.display()))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !name.ends_with(".pak") || name.contains(TEST_MARKER) || name.contains("-MJOLNIRHUB-") {
-            continue;
-        }
-        let Ok(len) = entry.metadata().map(|m| m.len()) else {
-            continue;
-        };
-        if smallest.as_ref().is_none_or(|(best, _)| len < *best) {
-            smallest = Some((len, path));
-        }
-    }
-    let (_, path) = smallest.ok_or("no shipped .pak to copy a stub from")?;
-    std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
 /// Files a test install would write or a previous one left behind.
 pub fn test_files(paks: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(paks) else {
@@ -278,11 +311,13 @@ pub fn install_test(
     oodle: &[PathBuf],
 ) -> Result<Vec<String>, String> {
     remove_test(paks)?;
-    let stub = stub_pak_bytes(paks)?;
     let mut written = Vec::new();
     for b in baked {
         let base = format!("{TEST_PREFIX}{TEST_MARKER}{}", b.basename);
         let utoc = paks.join(format!("{base}.utoc"));
+        // A container without a `.pak` sibling is never discovered, so an
+        // empty one rides along.
+        let stub = ue_iostore::pak::stub_for(&base);
         for (ext, bytes) in [
             ("utoc", &b.built.utoc),
             ("ucas", &b.built.ucas),

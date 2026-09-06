@@ -11,6 +11,8 @@
 //! chunk wins; that convention is the caller's to honour, since only the
 //! caller names files.
 
+pub mod newtag;
+
 use std::path::{Path, PathBuf};
 
 use ue_iostore::toc::{ChunkId, Toc};

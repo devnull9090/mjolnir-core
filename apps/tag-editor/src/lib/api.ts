@@ -480,11 +480,25 @@ export type TextureChange = {
   bytes: number;
 };
 
+/** One tag the project adds, cloned from a shipped one. */
+export type NewTagView = {
+  group: string;
+  tag: string;
+  /** The shipped tag it was cloned from. */
+  from: string;
+  asset_reference: string | null;
+  /** Catalog index in the open installation; null when the donor is gone. */
+  index: number | null;
+  /** How many of its fields the mod changes from the donor's. */
+  edits: number;
+};
+
 export type ProjectView = {
   root: string;
   meta: ProjectMeta;
   changes: TagChange[];
   textures: TextureChange[];
+  new_tags: NewTagView[];
   /** Files a test install left in the Paks folder. */
   test_files: string[];
 };
@@ -711,6 +725,10 @@ const tauriApi = {
     invoke<ProjectView>("project_set_meta", { name, slug, version, summary }),
   projectRevert: (group: string, tag: string, field: string | null) =>
     invoke<void>("project_revert", { group, tag, field }),
+  projectNewTag: (from: number, path: string, assetReference: string | null) =>
+    invoke<NewTagView>("project_new_tag", { from, path, assetReference }),
+  projectRemoveNewTag: (group: string, tag: string) =>
+    invoke<void>("project_remove_new_tag", { group, tag }),
   lastProject: () => invoke<string | null>("last_project"),
   projectExport: () => invoke<ExportView>("project_export"),
   projectTest: () => invoke<TestView>("project_test"),
