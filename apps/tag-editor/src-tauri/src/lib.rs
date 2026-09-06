@@ -67,8 +67,31 @@ struct Workbench {
     /// A new tag's own field edits live in `edits` under the same key and
     /// apply over the donor's bytes.
     new_tags: BTreeMap<TagKey, NewTagSpec>,
+    /// Undo and redo per tag: snapshots of the tag's edit list as it stood
+    /// before each change. In memory only — the project file holds the
+    /// current recipe, not its history.
+    history: BTreeMap<TagKey, Journal>,
     /// When set, every change to `edits` is mirrored to the project folder.
     project: Option<project::Project>,
+}
+
+/// One tag's undo and redo stacks. Each entry is a whole edit list, so undoing
+/// restores exactly what the tag's recipe was, element ops included.
+#[derive(Default)]
+struct Journal {
+    undo: Vec<Vec<PendingEdit>>,
+    redo: Vec<Vec<PendingEdit>>,
+}
+
+/// How far back one tag's journal keeps. Field edits are a few bytes each, so
+/// this is generous rather than tight.
+const HISTORY_LIMIT: usize = 200;
+
+/// How deep a tag's undo and redo stacks are, for the UI to enable buttons.
+#[derive(Clone, Copy, Default, Serialize)]
+struct HistoryView {
+    undo: usize,
+    redo: usize,
 }
 
 /// Where a new tag's bytes come from and how it binds to Unreal.
@@ -81,6 +104,65 @@ struct NewTagSpec {
 }
 
 impl Workbench {
+    /// Remember a tag's edit list as it stands, so the change about to be made
+    /// can be undone. A new change forks history: whatever was undone before
+    /// it can no longer be redone.
+    fn remember(&mut self, key: &TagKey) {
+        let snapshot = self.edits.get(key).cloned().unwrap_or_default();
+        let journal = self.history.entry(key.clone()).or_default();
+        journal.undo.push(snapshot);
+        if journal.undo.len() > HISTORY_LIMIT {
+            journal.undo.remove(0);
+        }
+        journal.redo.clear();
+    }
+
+    /// Put a tag's edit list back to the snapshot before the last change.
+    /// Returns false when there is nothing to undo.
+    fn undo(&mut self, key: &TagKey) -> bool {
+        let Some(journal) = self.history.get_mut(key) else {
+            return false;
+        };
+        let Some(previous) = journal.undo.pop() else {
+            return false;
+        };
+        let current = self.edits.get(key).cloned().unwrap_or_default();
+        journal.redo.push(current);
+        self.set_edits(key, previous);
+        true
+    }
+
+    /// Re-apply the last undone change. Returns false when there is none.
+    fn redo(&mut self, key: &TagKey) -> bool {
+        let Some(journal) = self.history.get_mut(key) else {
+            return false;
+        };
+        let Some(next) = journal.redo.pop() else {
+            return false;
+        };
+        let current = self.edits.get(key).cloned().unwrap_or_default();
+        journal.undo.push(current);
+        self.set_edits(key, next);
+        true
+    }
+
+    fn history_of(&self, key: &TagKey) -> HistoryView {
+        self.history.get(key).map_or(HistoryView::default(), |j| HistoryView {
+            undo: j.undo.len(),
+            redo: j.redo.len(),
+        })
+    }
+
+    /// Replace a tag's edit list; an empty list means no entry at all, which
+    /// is how "no edits" is spelled everywhere else.
+    fn set_edits(&mut self, key: &TagKey, list: Vec<PendingEdit>) {
+        if list.is_empty() {
+            self.edits.remove(key);
+        } else {
+            self.edits.insert(key.clone(), list);
+        }
+    }
+
     /// The edits flattened for the project file, in map order.
     fn saved_edits(&self) -> Vec<project::SavedEdit> {
         self.edits
@@ -221,6 +303,8 @@ struct TagView {
     node_count: usize,
     /// Field paths with an unexported edit, so the UI can mark them.
     edited: Vec<String>,
+    /// How much of this tag's editing can be undone or redone.
+    history: HistoryView,
     fields: Vec<NodeView>,
 }
 
@@ -686,6 +770,7 @@ fn set_field(
 
     // Only record once it is known to work.
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.remember(&key);
     let list = work.edits.entry(key).or_default();
     list.retain(|e| e.path != path);
     list.push(PendingEdit { path, value });
@@ -741,6 +826,7 @@ fn record_element_op(
     // Element ops stack rather than replace: two adds are two elements, so
     // the same-path dedupe a value edit gets would lose the first one.
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.remember(&key);
     work.edits
         .entry(key)
         .or_default()
@@ -1299,6 +1385,7 @@ fn live_loaded(live: State<'_, live::Live>) -> Vec<live::LoadedTag> {
 fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Result<usize, String> {
     let key = tag_key(&state, index)?;
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.remember(&key);
     let list = work.edits.entry(key.clone()).or_default();
     // Reverting a block's element ops also drops every edit inside its
     // elements: an edit recorded inside an added element would otherwise
@@ -1318,9 +1405,35 @@ fn revert_field(index: usize, path: String, state: State<'_, AppState>) -> Resul
 fn revert_tag(index: usize, state: State<'_, AppState>) -> Result<(), String> {
     let key = tag_key(&state, index)?;
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.remember(&key);
     work.edits.remove(&key);
     work.autosave()?;
     Ok(())
+}
+
+/// Take back the last change to a tag's edits — a field set, an element op, a
+/// revert — restoring the edit list as it was. Returns the depths left.
+#[tauri::command]
+fn undo_edit(index: usize, state: State<'_, AppState>) -> Result<HistoryView, String> {
+    let key = tag_key(&state, index)?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    if !work.undo(&key) {
+        return Err("nothing to undo".into());
+    }
+    work.autosave()?;
+    Ok(work.history_of(&key))
+}
+
+/// Re-apply the last change undone on a tag.
+#[tauri::command]
+fn redo_edit(index: usize, state: State<'_, AppState>) -> Result<HistoryView, String> {
+    let key = tag_key(&state, index)?;
+    let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    if !work.redo(&key) {
+        return Err("nothing to redo".into());
+    }
+    work.autosave()?;
+    Ok(work.history_of(&key))
 }
 
 /// Write the tag, with its pending edits applied, to a file the user chose.
@@ -1344,6 +1457,11 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
     let key = tag_key(&state, index)?;
     let pending = pending_for(&state, &key)?;
     let edited: Vec<String> = pending.iter().map(|e| e.path.clone()).collect();
+    let history = state
+        .work
+        .lock()
+        .map_err(|e| e.to_string())?
+        .history_of(&key);
 
     with_catalog(&state, |c| {
         let entry = c.entry(index).ok_or("tag index out of range")?;
@@ -1390,6 +1508,7 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
                 error,
                 node_count,
                 edited,
+                history,
                 fields,
             })
         }
@@ -3509,6 +3628,7 @@ fn project_open(dir: String, state: State<'_, AppState>) -> Result<ProjectView, 
         work.scripts = scripts;
         work.textures = textures;
         work.new_tags = new_tags.clone();
+        work.history.clear();
         work.project = Some(p);
     }
     {
@@ -3532,6 +3652,7 @@ fn project_close(state: State<'_, AppState>) -> Result<(), String> {
         work.scripts.clear();
         work.textures.clear();
         work.new_tags.clear();
+        work.history.clear();
     }
     {
         let mut guard = state.catalog.lock().map_err(|e| e.to_string())?;
@@ -3687,6 +3808,7 @@ fn project_revert(
 ) -> Result<(), String> {
     let key = (group, tag);
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
+    work.remember(&key);
     match field {
         Some(f) => {
             if let Some(list) = work.edits.get_mut(&key) {
@@ -4335,6 +4457,8 @@ pub fn run() {
             live_probe,
             revert_field,
             revert_tag,
+            undo_edit,
+            redo_edit,
             export_tag,
             project_status,
             project_new,
@@ -4384,6 +4508,58 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn edit(path: &str, value: &str) -> PendingEdit {
+        PendingEdit {
+            path: path.into(),
+            value: value.into(),
+        }
+    }
+
+    #[test]
+    fn the_journal_steps_edits_back_and_forward_and_forks_on_a_new_change() {
+        let key: TagKey = ("weapon".into(), "objects/weapons/pistol/pistol".into());
+        let mut w = Workbench::default();
+        assert!(!w.undo(&key), "nothing to undo on a fresh tag");
+
+        // Two edits, each remembered before it lands.
+        w.remember(&key);
+        w.edits.insert(key.clone(), vec![edit("a", "1")]);
+        w.remember(&key);
+        w.edits
+            .get_mut(&key)
+            .unwrap()
+            .push(edit("b", "2"));
+        assert_eq!(w.history_of(&key).undo, 2);
+
+        assert!(w.undo(&key));
+        assert_eq!(w.edits[&key].len(), 1);
+        assert!(w.undo(&key));
+        assert!(!w.edits.contains_key(&key), "an empty list is no entry");
+        assert_eq!(w.history_of(&key).redo, 2);
+        assert!(!w.undo(&key));
+
+        assert!(w.redo(&key));
+        assert_eq!(w.edits[&key].len(), 1);
+        assert_eq!(w.edits[&key][0].path, "a");
+
+        // A new change after an undo drops what could have been redone.
+        w.remember(&key);
+        w.edits.get_mut(&key).unwrap().push(edit("c", "3"));
+        assert_eq!(w.history_of(&key).redo, 0);
+        assert_eq!(w.history_of(&key).undo, 2);
+    }
+
+    #[test]
+    fn the_journal_is_bounded() {
+        let key: TagKey = ("weapon".into(), "x".into());
+        let mut w = Workbench::default();
+        for i in 0..(HISTORY_LIMIT + 25) {
+            w.remember(&key);
+            w.edits.insert(key.clone(), vec![edit("a", &i.to_string())]);
+        }
+        assert_eq!(w.history_of(&key).undo, HISTORY_LIMIT);
+    }
 
     /// The whole New Tag path against a real installation: clone a shipped
     /// tag under a new name, resolve it into an addition package, bake it, and

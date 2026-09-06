@@ -60,6 +60,33 @@
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.8.1"
     },
     {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.19.0",
+      "tag": "tag-editor-v0.19.0",
+      "title": "Undo",
+      "date": "2026-09-06",
+      "summary": "Ctrl+Z takes back the last change to a tag and Ctrl+Y puts it back, through field edits, element changes and reverts alike.",
+      "body": "Until now the only way back from an edit was to revert the field, and the only\nway back from a revert was to type the value again. The editor now keeps a\njournal per tag: every change to its edits — a value set, an element added,\nduplicated or removed, a field or the whole tag reverted — records the recipe\nas it stood before, and a step back restores exactly that.\n\n### Added\n\n- **Undo and redo.** Ctrl+Z steps the open tag's edits back, Ctrl+Y (or\n  Ctrl+Shift+Z) forward; the edit bar shows both as buttons with how many\n  steps remain. Undoing all the way leaves the bar in place so the way back\n  is still there. A new change after an undo forks history, the way a text\n  editor does. Text fields keep their own undo: the shortcut only reaches the\n  tag when the keys did not land in one.\n\n### Known limits\n\n- The journal lives in memory for the session and covers field and element\n  edits. Script and texture changes are not journaled; the mod panel remains\n  the way to take those back. The project file holds the current recipe,\n  which is what a reopened project starts from.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Undo and redo. Ctrl+Z steps the open tag's edits back, Ctrl+Y (or Ctrl+Shift+Z) forward; the edit bar shows both as buttons with how many steps remain. Undoing all the way leaves the bar in place so the way back is still there. A new change after an undo forks history, the way a text editor does. Text fields keep their own undo: the shortcut only reaches the tag when the keys did not land in one."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "The journal lives in memory for the session and covers field and element edits. Script and texture changes are not journaled; the mod panel remains the way to take those back. The project file holds the current recipe, which is what a reopened project starts from."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.19.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.19.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.19.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.2.0",

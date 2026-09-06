@@ -358,6 +358,9 @@ type EditorState = {
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
+  /** Step the active tag's edits back or forward through its journal. */
+  undoEdit: () => Promise<void>;
+  redoEdit: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
 };
 
@@ -616,6 +619,26 @@ export const useEditor = create<EditorState>((set, get) => {
     for (const t of get().tabs) {
       if (t.kind === "tag" && added.some((a) => a.index === t.index)) get().closeTab(t.id);
     }
+  }
+
+  /** One undo or redo step on the active tag, then re-read it. A journal
+   *  with nothing left is not an error worth showing. */
+  async function stepHistory(step: (index: number) => Promise<unknown>) {
+    const index = get().selectedTag;
+    if (index === null) return;
+    try {
+      await step(index);
+    } catch {
+      return;
+    }
+    const tag = await api.readTag(index);
+    set((s) => ({
+      tag,
+      lastEdit: null,
+      editError: null,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
   }
 
   async function refreshActiveTag() {
@@ -1470,6 +1493,14 @@ export const useEditor = create<EditorState>((set, get) => {
         dirtyTags: { ...s.dirtyTags, [index]: false },
       }));
       if (get().project) void get().refreshProject();
+    },
+
+    async undoEdit() {
+      await stepHistory(api.undoEdit);
+    },
+
+    async redoEdit() {
+      await stepHistory(api.redoEdit);
     },
 
     async exportTag(dest) {

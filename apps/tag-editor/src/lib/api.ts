@@ -90,8 +90,13 @@ export type TagView = {
   node_count: number;
   /** Field paths with an unexported edit. */
   edited: string[];
+  /** How much of this tag's editing can be undone or redone. */
+  history: HistoryView;
   fields: NodeView[];
 };
+
+/** Depth of a tag's undo and redo stacks. */
+export type HistoryView = { undo: number; redo: number };
 
 export type ScriptSourceFile = {
   name: string;
@@ -683,6 +688,8 @@ const tauriApi = {
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
+  undoEdit: (index: number) => invoke<HistoryView>("undo_edit", { index }),
+  redoEdit: (index: number) => invoke<HistoryView>("redo_edit", { index }),
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
   listTextures: (query: string) =>

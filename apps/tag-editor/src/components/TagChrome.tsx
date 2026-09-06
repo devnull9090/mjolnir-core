@@ -435,6 +435,8 @@ export function EditBar() {
   const project = useEditor((s) => s.project);
   const setBrowse = useEditor((s) => s.setBrowse);
   const revertTag = useEditor((s) => s.revertTag);
+  const undoEdit = useEditor((s) => s.undoEdit);
+  const redoEdit = useEditor((s) => s.redoEdit);
   const exportTag = useEditor((s) => s.exportTag);
   const [wrote, setWrote] = useState<string | null>(null);
 
@@ -442,7 +444,10 @@ export function EditBar() {
 
   if (!tag) return null;
   const count = tag.edited.length;
-  if (count === 0 && !editError) return null;
+  const history = tag.history ?? { undo: 0, redo: 0 };
+  // The bar stays while something can be redone: undoing every edit must not
+  // hide the way back.
+  if (count === 0 && !editError && history.redo === 0) return null;
 
   async function onExport() {
     if (!tag) return;
@@ -476,6 +481,28 @@ export function EditBar() {
         >
           Revert all
         </button>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void undoEdit()}
+            disabled={history.undo === 0}
+            title={`Undo the last change to this tag (Ctrl+Z) — ${history.undo} step${
+              history.undo === 1 ? "" : "s"
+            } back`}
+            className="border border-border-subtle px-2 py-0.5 font-mono text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            ↶ {history.undo}
+          </button>
+          <button
+            type="button"
+            onClick={() => void redoEdit()}
+            disabled={history.redo === 0}
+            title={`Redo (Ctrl+Y) — ${history.redo} step${history.redo === 1 ? "" : "s"} forward`}
+            className="border border-border-subtle px-2 py-0.5 font-mono text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            ↷ {history.redo}
+          </button>
+        </span>
         {project ? (
           <button
             type="button"

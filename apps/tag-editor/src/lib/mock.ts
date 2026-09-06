@@ -164,6 +164,7 @@ const mockTag: TagView = {
   error: null,
   node_count: 214,
   edited: [],
+  history: { undo: 0, redo: 0 },
   fields: [
     block("skies", "sky_reference_block", 8, [
       {
@@ -271,6 +272,7 @@ const mockModelTag: TagView = {
   error: null,
   node_count: 12,
   edited: [],
+  history: { undo: 0, redo: 0 },
   fields: [
     field({
       name: "collision model",
@@ -292,9 +294,29 @@ const mockModelTag: TagView = {
 
 const edits = new Map<string, string>();
 
+/** Undo and redo for the mock, as snapshots of the edit map. */
+const undoStack: Map<string, string>[] = [];
+const redoStack: Map<string, string>[] = [];
+function remember() {
+  undoStack.push(new Map(edits));
+  redoStack.length = 0;
+}
+function restore(from: Map<string, string>[], to: Map<string, string>[]) {
+  const snapshot = from.pop();
+  if (!snapshot) throw new Error("nothing to undo");
+  to.push(new Map(edits));
+  edits.clear();
+  for (const [k, v] of snapshot) edits.set(k, v);
+  return { undo: undoStack.length, redo: redoStack.length };
+}
+
 function withEdits(index = 0): TagView {
   const base = index === 2 ? mockModelTag : mockTag;
-  return { ...base, edited: [...edits.keys()] };
+  return {
+    ...base,
+    edited: [...edits.keys()],
+    history: { undo: undoStack.length, redo: redoStack.length },
+  };
 }
 
 /**
@@ -565,28 +587,36 @@ export const mockApi = {
     };
   },
   setField: async (_index: number, path: string, value: string): Promise<EditResult> => {
+    remember();
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };
   },
   addElement: async (_index: number, path: string): Promise<EditResult> => {
+    remember();
     edits.set(path, "add");
     return { path, type: "block", before: "0 element(s)", after: "1 element(s)", changed_bytes: 32 };
   },
   removeElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    remember();
     edits.set(path, `remove ${element}`);
     return { path, type: "block", before: "1 element(s)", after: "0 element(s)", changed_bytes: 32 };
   },
   duplicateElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    remember();
     edits.set(path, `duplicate ${element}`);
     return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
   },
   revertField: async (_index: number, path: string) => {
+    remember();
     edits.delete(path);
     return edits.size;
   },
   revertTag: async () => {
+    remember();
     edits.clear();
   },
+  undoEdit: async () => restore(undoStack, redoStack),
+  redoEdit: async () => restore(redoStack, undoStack),
   exportTag: async () => 0,
   listTextures: async (query: string) =>
     [

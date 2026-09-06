@@ -347,6 +347,11 @@ An edit is applied to a copy, the result re-parsed from scratch and re-walked, a
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
 
+**Ctrl+Z** takes the last change back and **Ctrl+Y** puts it forward again — every change to a
+tag's edits counts, including element changes and reverts, and the edit bar shows how many
+steps remain either way. The journal is per tag and lives for the session; the project file
+holds the current recipe, not its history.
+
 **Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
 **del**: add appends a new element, dup inserts a copy of the selected element after it, del
 removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
