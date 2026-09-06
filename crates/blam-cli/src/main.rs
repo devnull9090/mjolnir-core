@@ -14,6 +14,7 @@ use clap::{Args, Parser, Subcommand};
 mod console;
 mod container;
 mod defs;
+mod extract;
 mod hsc;
 mod index;
 mod level;
@@ -130,6 +131,9 @@ enum Command {
     Roundtrip(ValidateArgs),
     /// Print one tag's fields with their decoded values.
     Values(ValuesArgs),
+    /// Write tags out of the containers as files, in the layout Blam tooling
+    /// expects (`objects/weapons/rifle/assault_rifle.weapon`); mod-aware.
+    Extract(extract::ExtractArgs),
     /// Decode and re-encode every field, checking no byte changes.
     Recode(ValidateArgs),
     /// Change one field of a tag and report exactly which bytes moved.
@@ -246,6 +250,10 @@ struct ScriptArgs {
     /// With --verify, print the first few disagreements in full.
     #[arg(long, default_value_t = 5)]
     show: usize,
+    /// Write every source file the selected scenarios carry as `.hsc` under
+    /// this directory, one folder per scenario, and print nothing else.
+    #[arg(long)]
+    extract: Option<PathBuf>,
     /// Recovered scripting corpus, used to know which literals are quoted.
     /// Ignored if the file is absent.
     #[arg(long, default_value = "defs/hce/scripting.json")]
@@ -385,6 +393,12 @@ struct ValuesArgs {
     /// Print fields whose value is empty or zero.
     #[arg(long)]
     all: bool,
+    /// Print the value tree as JSON instead of text: every field with its
+    /// name, type, offset, size and displayed value, blocks with their
+    /// elements (as many as `--elements` allows) and counts. `--depth` and
+    /// `--all` do not apply.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -516,6 +530,7 @@ fn main() -> Result<()> {
         Command::DataVersions(a) => data_versions(a),
         Command::Roundtrip(a) => roundtrip(a),
         Command::Values(a) => values(a),
+        Command::Extract(a) => extract::run(a),
         Command::Recode(a) => recode(a),
         Command::Set(a) => set(a),
         Command::TocRoundtrip(a) => toc_roundtrip(a),
@@ -1818,6 +1833,18 @@ fn values(a: ValuesArgs) -> Result<()> {
         .with_context(|| format!("{} values are not readable", entry.path))?;
     let nodes = blam_tag::view::root_capped(&l, &block, build_cap(a.elements));
 
+    if a.json {
+        let doc = serde_json::json!({
+            "path": entry.path,
+            "group": a.group,
+            "four_cc": tag.header.group.as_str(),
+            "version": tag.header.group_version,
+            "fields": nodes.iter().map(node_json).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&doc)?);
+        return Ok(());
+    }
+
     println!("{}", entry.path);
     println!(
         "  {} ({}) v{} - {} nodes\n",
@@ -1838,6 +1865,58 @@ fn values(a: ValuesArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// One value-tree node as JSON, for `values --json`: what the text printer
+/// shows, in a shape another tool can read.
+fn node_json(n: &blam_tag::view::Node) -> serde_json::Value {
+    use blam_tag::view::Kind;
+    let mut o = serde_json::Map::new();
+    o.insert("name".into(), n.name.clone().into());
+    o.insert(
+        "kind".into(),
+        match n.kind {
+            Kind::Field => "field",
+            Kind::Struct => "struct",
+            Kind::Block => "block",
+            Kind::Element => "element",
+            Kind::Array => "array",
+        }
+        .into(),
+    );
+    if !n.type_name.is_empty() {
+        o.insert("type".into(), n.type_name.clone().into());
+    }
+    o.insert("offset".into(), n.offset.into());
+    o.insert("size".into(), n.size.into());
+    if matches!(n.kind, Kind::Field) {
+        o.insert("value".into(), n.value.display().into());
+        if let blam_tag::Scalar::Reference { group, path } = &n.value {
+            o.insert(
+                "reference".into(),
+                serde_json::json!({ "group": group, "path": path }),
+            );
+        }
+        if !n.options.is_empty() {
+            o.insert("options".into(), n.options.clone().into());
+        }
+    }
+    if let Some(b) = &n.block_name {
+        o.insert("block".into(), b.clone().into());
+    }
+    if let Some(m) = n.max_count {
+        o.insert("max_count".into(), m.into());
+    }
+    if let Some(c) = n.count {
+        o.insert("count".into(), c.into());
+    }
+    if !n.children.is_empty() {
+        o.insert(
+            "children".into(),
+            n.children.iter().map(node_json).collect::<Vec<_>>().into(),
+        );
+    }
+    serde_json::Value::Object(o)
 }
 
 /// Read one scenario's script section, or every scenario's.
@@ -1887,6 +1966,37 @@ fn script(a: ScriptArgs) -> Result<()> {
             .read_data(&l)
             .with_context(|| format!("{} is not readable", entry.path))?;
         let hs = blam_hsc::read::read(&l, &block, &buf)?;
+
+        // The sources as files, the way a mod project keeps them: one folder
+        // per scenario, one `.hsc` per source file, in the order they compile.
+        if let Some(root) = &a.extract {
+            let leaf = entry
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&entry.path)
+                .trim_end_matches(".ubulk")
+                .trim_end_matches("-scenario");
+            let dir = root.join(leaf);
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("creating {}", dir.display()))?;
+            for file in &hs.source_files {
+                let safe: String = file
+                    .name
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                    .collect();
+                let dest = dir.join(format!("{safe}.hsc"));
+                std::fs::write(&dest, file.text().as_bytes())
+                    .with_context(|| format!("writing {}", dest.display()))?;
+            }
+            println!(
+                "{leaf:<12} {} source file(s) -> {}",
+                hs.source_files.len(),
+                dir.display()
+            );
+            continue;
+        }
 
         // Printing one file's text is the whole output; the summary would only
         // get in the way of piping it.

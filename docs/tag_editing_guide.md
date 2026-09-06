@@ -114,6 +114,22 @@ Useful flags:
 
 ```powershell
 mjolnir values --group model --depth 1 | findstr "tag reference"
+mjolnir values --group weapon --tag SMG --json      # the same tree as JSON, for other tools
+```
+
+To work on tags as files — the layout Blam tooling expects, `objects/weapons/rifle/smg.weapon`
+— write them out:
+
+```powershell
+mjolnir extract --group weapon --out D:\kit --verify    # one group
+mjolnir extract --filter characters/elite --out D:\kit  # by path
+mjolnir extract --dry-run                                # what would be written
+mjolnir script --tag a30 --extract D:\hsc               # a mission's .hsc source files
+```
+
+`extract` is mod-aware: a tag an installed mod overrides comes out as the mod left it, the way
+the game sees it, unless `--shipped-only` asks for the game's own. What comes out is game
+content — keep it local.
 ```
 
 ### Changing a field
