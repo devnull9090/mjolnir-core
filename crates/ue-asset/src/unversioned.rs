@@ -353,6 +353,11 @@ impl<'a> Walker<'a> {
         let fixed = match name {
             "Vector" | "Rotator" => Some(24),
             "Vector3f" => Some(12),
+            // FBox: min, max, then the IsValid byte — natively serialized,
+            // no fragment header (measured on HierarchicalInstancedStaticMesh
+            // components' BuiltInstanceBounds in the level cells).
+            "Box" => Some(49),
+            "Box3f" => Some(25),
             "Vector2D" => Some(16),
             "Vector2f" => Some(8),
             "Vector4" | "Quat" | "Plane" => Some(32),

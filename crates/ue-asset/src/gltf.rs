@@ -146,6 +146,127 @@ fn json_str(s: &str) -> String {
     out
 }
 
+/// One LOD's primitives into the buffer; the mesh's JSON, or none when no
+/// section had a triangle.
+fn push_lod(
+    buffer: &mut Buffer,
+    lod: &Lod,
+    material_count: usize,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let vertex_count = lod.positions.len() / 3;
+    let positions: Vec<[f32; 3]> = lod
+        .positions
+        .chunks_exact(3)
+        .map(|p| to_gltf([p[0], p[1], p[2]], UE_TO_GLTF_SCALE))
+        .collect();
+    let pos = buffer.push_f32s(&positions, 34962, true);
+    let normal = if lod.normals.len() == lod.positions.len() {
+        let normals: Vec<[f32; 3]> = lod
+            .normals
+            .chunks_exact(3)
+            .map(|n| {
+                let v = to_gltf([n[0], n[1], n[2]], 1.0);
+                let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                if len > 1e-6 {
+                    [v[0] / len, v[1] / len, v[2] / len]
+                } else {
+                    [0.0, 1.0, 0.0]
+                }
+            })
+            .collect();
+        Some(buffer.push_f32s(&normals, 34962, false))
+    } else {
+        None
+    };
+    let uv = if lod.uvs.len() == vertex_count * 2 {
+        let uvs: Vec<[f32; 2]> = lod.uvs.chunks_exact(2).map(|t| [t[0], t[1]]).collect();
+        Some(buffer.push_uvs(&uvs))
+    } else {
+        None
+    };
+
+    let sections: Vec<&Section> = if lod.sections.is_empty() {
+        Vec::new()
+    } else {
+        lod.sections.iter().collect()
+    };
+    let mut primitives = Vec::new();
+    let ranges: Vec<(usize, usize, i32)> = if sections.is_empty() {
+        vec![(0, lod.indices.len() / 3, 0)]
+    } else {
+        sections
+            .iter()
+            .map(|s| {
+                (
+                    s.first_index as usize,
+                    s.num_triangles as usize,
+                    s.material_index,
+                )
+            })
+            .collect()
+    };
+    for (first, triangles, material) in ranges {
+        let end = (first + triangles * 3).min(lod.indices.len());
+        if first >= end {
+            continue;
+        }
+        // Swapping two axes mirrors the geometry; reversing the winding
+        // keeps the faces pointing out.
+        let mut indices = Vec::with_capacity(end - first);
+        for tri in lod.indices[first..end].chunks_exact(3) {
+            indices.extend_from_slice(&[tri[0], tri[2], tri[1]]);
+        }
+        if indices.iter().any(|&i| i as usize >= vertex_count) {
+            return Err(format!(
+                "{name}: an index reaches past the {vertex_count} vertices"
+            ));
+        }
+        let idx = buffer.push_indices(&indices);
+        let material = usize::try_from(material)
+            .ok()
+            .filter(|m| *m < material_count)
+            .unwrap_or(0);
+        let mut attrs = format!("\"POSITION\":{pos}");
+        if let Some(n) = normal {
+            attrs.push_str(&format!(",\"NORMAL\":{n}"));
+        }
+        if let Some(t) = uv {
+            attrs.push_str(&format!(",\"TEXCOORD_0\":{t}"));
+        }
+        primitives.push(format!(
+            "{{\"attributes\":{{{attrs}}},\"indices\":{idx},\"material\":{material},\"mode\":4}}"
+        ));
+    }
+    if primitives.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "{{\"name\":{},\"primitives\":[{}]}}",
+        json_str(name),
+        primitives.join(",")
+    )))
+}
+
+fn material_json(name: &str) -> String {
+    format!(
+        "{{\"name\":{},\"pbrMetallicRoughness\":{{\"baseColorFactor\":[0.8,0.8,0.8,1],\"metallicFactor\":0,\"roughnessFactor\":0.8}},\"doubleSided\":true}}",
+        json_str(name)
+    )
+}
+
+/// The material slots as named default-look materials; at least one.
+fn materials_json(materials: &[(String, i32)]) -> Vec<String> {
+    let mut out: Vec<String> = materials
+        .iter()
+        .map(|(name, _)| material_json(name))
+        .collect();
+    if out.is_empty() {
+        out.push(material_json("default"));
+    }
+    out
+}
+
 /// One mesh's LODs and the material names its sections refer to.
 pub struct MeshExport<'a> {
     pub name: &'a str,
@@ -171,117 +292,14 @@ pub fn write_glb(mesh: &MeshExport<'_>) -> Result<Vec<u8>, String> {
         views: Vec::new(),
         accessors: Vec::new(),
     };
-    let mut materials_json: Vec<String> = mesh
-        .materials
-        .iter()
-        .map(|(name, _)| {
-            format!(
-                "{{\"name\":{},\"pbrMetallicRoughness\":{{\"baseColorFactor\":[0.8,0.8,0.8,1],\"metallicFactor\":0,\"roughnessFactor\":0.8}},\"doubleSided\":true}}",
-                json_str(name)
-            )
-        })
-        .collect();
-    if materials_json.is_empty() {
-        materials_json.push(
-            "{\"name\":\"default\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.8,0.8,0.8,1],\"metallicFactor\":0,\"roughnessFactor\":0.8},\"doubleSided\":true}"
-                .into(),
-        );
-    }
+    let materials_json = materials_json(mesh.materials);
 
     let mut meshes_json = Vec::new();
     for (li, lod) in lods.iter().enumerate() {
-        let vertex_count = lod.positions.len() / 3;
-        let positions: Vec<[f32; 3]> = lod
-            .positions
-            .chunks_exact(3)
-            .map(|p| to_gltf([p[0], p[1], p[2]], UE_TO_GLTF_SCALE))
-            .collect();
-        let pos = buffer.push_f32s(&positions, 34962, true);
-        let normal = if lod.normals.len() == lod.positions.len() {
-            let normals: Vec<[f32; 3]> = lod
-                .normals
-                .chunks_exact(3)
-                .map(|n| {
-                    let v = to_gltf([n[0], n[1], n[2]], 1.0);
-                    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-                    if len > 1e-6 {
-                        [v[0] / len, v[1] / len, v[2] / len]
-                    } else {
-                        [0.0, 1.0, 0.0]
-                    }
-                })
-                .collect();
-            Some(buffer.push_f32s(&normals, 34962, false))
-        } else {
-            None
-        };
-        let uv = if lod.uvs.len() == vertex_count * 2 {
-            let uvs: Vec<[f32; 2]> = lod.uvs.chunks_exact(2).map(|t| [t[0], t[1]]).collect();
-            Some(buffer.push_uvs(&uvs))
-        } else {
-            None
-        };
-
-        let sections: Vec<&Section> = if lod.sections.is_empty() {
-            Vec::new()
-        } else {
-            lod.sections.iter().collect()
-        };
-        let mut primitives = Vec::new();
-        let ranges: Vec<(usize, usize, i32)> = if sections.is_empty() {
-            vec![(0, lod.indices.len() / 3, 0)]
-        } else {
-            sections
-                .iter()
-                .map(|s| {
-                    (
-                        s.first_index as usize,
-                        s.num_triangles as usize,
-                        s.material_index,
-                    )
-                })
-                .collect()
-        };
-        for (first, triangles, material) in ranges {
-            let end = (first + triangles * 3).min(lod.indices.len());
-            if first >= end {
-                continue;
-            }
-            // Swapping two axes mirrors the geometry; reversing the winding
-            // keeps the faces pointing out.
-            let mut indices = Vec::with_capacity(end - first);
-            for tri in lod.indices[first..end].chunks_exact(3) {
-                indices.extend_from_slice(&[tri[0], tri[2], tri[1]]);
-            }
-            if indices.iter().any(|&i| i as usize >= vertex_count) {
-                return Err(format!(
-                    "LOD {li}: an index reaches past the {vertex_count} vertices"
-                ));
-            }
-            let idx = buffer.push_indices(&indices);
-            let material = usize::try_from(material)
-                .ok()
-                .filter(|m| *m < materials_json.len())
-                .unwrap_or(0);
-            let mut attrs = format!("\"POSITION\":{pos}");
-            if let Some(n) = normal {
-                attrs.push_str(&format!(",\"NORMAL\":{n}"));
-            }
-            if let Some(t) = uv {
-                attrs.push_str(&format!(",\"TEXCOORD_0\":{t}"));
-            }
-            primitives.push(format!(
-                "{{\"attributes\":{{{attrs}}},\"indices\":{idx},\"material\":{material},\"mode\":4}}"
-            ));
+        let name = format!("{}_LOD{li}", mesh.name);
+        if let Some(json) = push_lod(&mut buffer, lod, materials_json.len(), &name)? {
+            meshes_json.push(json);
         }
-        if primitives.is_empty() {
-            continue;
-        }
-        meshes_json.push(format!(
-            "{{\"name\":{},\"primitives\":[{}]}}",
-            json_str(&format!("{}_LOD{li}", mesh.name)),
-            primitives.join(",")
-        ));
     }
     if meshes_json.is_empty() {
         return Err("no section had any triangles".into());
@@ -341,6 +359,136 @@ pub fn write_glb(mesh: &MeshExport<'_>) -> Result<Vec<u8>, String> {
         scene_nodes.extend(roots);
     }
 
+    Ok(assemble(
+        &format!(
+            "{{\"nodes\":[{}]}}",
+            scene_nodes
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        &nodes_json,
+        &meshes_json,
+        &materials_json,
+        buffer,
+    ))
+}
+
+/// One mesh of a scene: a single LOD and the material slots it indexes.
+pub struct SceneMesh<'a> {
+    pub name: String,
+    pub materials: &'a [(String, i32)],
+    pub lod: &'a Lod,
+}
+
+/// One placement: a node with a glTF (column-major) matrix over a mesh.
+pub struct SceneNode {
+    pub name: String,
+    pub mesh: usize,
+    pub matrix: [f32; 16],
+}
+
+/// Serialize a scene — a level cell's placed meshes — as a `.glb`: every
+/// mesh once, a node per placement sharing it, all nodes in one scene.
+/// Materials are appended per mesh, so each mesh's primitives index its
+/// own slots.
+pub fn write_scene_glb(
+    name: &str,
+    meshes: &[SceneMesh<'_>],
+    nodes: &[SceneNode],
+) -> Result<Vec<u8>, String> {
+    let mut buffer = Buffer {
+        bytes: Vec::new(),
+        views: Vec::new(),
+        accessors: Vec::new(),
+    };
+    let mut materials: Vec<String> = Vec::new();
+    let mut meshes_json: Vec<String> = Vec::new();
+    // Mesh index in the input to index in the file, for meshes that had
+    // geometry.
+    let mut mesh_index: Vec<Option<usize>> = Vec::with_capacity(meshes.len());
+    for m in meshes {
+        let slots = materials_json(m.materials);
+        let base = materials.len();
+        let json = push_lod(&mut buffer, m.lod, slots.len(), &m.name)?;
+        match json {
+            Some(json) => {
+                // Rebase the primitives' material indices onto the file's
+                // material list.
+                let rebased = rebase_materials(&json, base);
+                materials.extend(slots);
+                mesh_index.push(Some(meshes_json.len()));
+                meshes_json.push(rebased);
+            }
+            None => mesh_index.push(None),
+        }
+    }
+    if meshes_json.is_empty() {
+        return Err("no mesh in the scene has any triangles".into());
+    }
+    let mut nodes_json: Vec<String> = Vec::new();
+    for n in nodes {
+        let Some(Some(mi)) = mesh_index.get(n.mesh) else {
+            continue;
+        };
+        let matrix: Vec<String> = n.matrix.iter().map(|v| format_f32(*v)).collect();
+        nodes_json.push(format!(
+            "{{\"name\":{},\"mesh\":{mi},\"matrix\":[{}]}}",
+            json_str(&n.name),
+            matrix.join(",")
+        ));
+    }
+    if nodes_json.is_empty() {
+        return Err("no node in the scene refers to a mesh with geometry".into());
+    }
+    let scene_nodes: Vec<String> = (0..nodes_json.len()).map(|i| i.to_string()).collect();
+    Ok(assemble(
+        &format!(
+            "{{\"nodes\":[{}],\"name\":{}}}",
+            scene_nodes.join(","),
+            json_str(name)
+        ),
+        &nodes_json,
+        &meshes_json,
+        &materials,
+        buffer,
+    ))
+}
+
+/// Add `base` to every `"material":N` in a mesh's JSON.
+fn rebase_materials(json: &str, base: usize) -> String {
+    let mut out = String::with_capacity(json.len());
+    let mut rest = json;
+    let key = "\"material\":";
+    while let Some(at) = rest.find(key) {
+        out.push_str(&rest[..at + key.len()]);
+        rest = &rest[at + key.len()..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let n: usize = digits.parse().unwrap_or(0);
+        out.push_str(&(n + base).to_string());
+        rest = &rest[digits.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn format_f32(v: f32) -> String {
+    if v == v.trunc() && v.abs() < 1e9 {
+        format!("{}", v as i64)
+    } else {
+        format!("{v}")
+    }
+}
+
+/// Wrap the JSON pieces and the buffer as a `.glb`.
+fn assemble(
+    scene_json: &str,
+    nodes_json: &[String],
+    meshes_json: &[String],
+    materials_json: &[String],
+    mut buffer: Buffer,
+) -> Vec<u8> {
     let views_json: Vec<String> = buffer
         .views
         .iter()
@@ -371,12 +519,8 @@ pub fn write_glb(mesh: &MeshExport<'_>) -> Result<Vec<u8>, String> {
 
     pad4(&mut buffer.bytes, 0);
     let json = format!(
-        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"mjolnir\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{}],\"materials\":[{}],\"bufferViews\":[{}],\"accessors\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
-        scene_nodes
-            .iter()
-            .map(|n| n.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
+        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"mjolnir\"}},\"scene\":0,\"scenes\":[{}],\"nodes\":[{}],\"meshes\":[{}],\"materials\":[{}],\"bufferViews\":[{}],\"accessors\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
+        scene_json,
         nodes_json.join(","),
         meshes_json.join(","),
         materials_json.join(","),
@@ -398,7 +542,7 @@ pub fn write_glb(mesh: &MeshExport<'_>) -> Result<Vec<u8>, String> {
     out.extend_from_slice(&(buffer.bytes.len() as u32).to_le_bytes());
     out.extend_from_slice(&0x004E_4942u32.to_le_bytes()); // BIN
     out.extend_from_slice(&buffer.bytes);
-    Ok(out)
+    out
 }
 
 #[cfg(test)]

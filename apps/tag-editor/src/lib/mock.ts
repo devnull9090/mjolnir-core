@@ -725,6 +725,16 @@ export const mockApi = {
   },
   readTextureThumb: async (index: number) => mockApi.readTexture(index),
   exportMesh: async () => 4096,
+  exportLevel: async () => ({
+    mission: "a30",
+    cells: 3,
+    files: 2,
+    placements: 1200,
+    instanced: 1150,
+    bytes: 4_000_000,
+    skips: [["hidden component", 4]],
+    missing: [],
+  }),
   exportTexture: async () => 0,
   swapTexture: async (index: number) => {
     const path =

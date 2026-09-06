@@ -478,6 +478,20 @@ mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
 mjolnir texture export --asset T_ar_default_D --out ar.dds
 ```
 
+### Levels
+
+A mission's Unreal geometry — the static meshes the level places, not the Blam structure BSP —
+lives in World Partition cells, one generated `.umap` per grid square. **export level
+geometry…** in a scenario's World view (or `mjolnir level export --mission a30 --out <dir>`)
+writes one `.glb` per cell: every placed static mesh as a node at its world transform, with
+instanced components (foliage, scree, rocks) expanded instance by instance, and a
+`manifest.json` saying what each cell placed and what it skipped. A30 is 576 cells, 1.8 million
+placements and about a gigabyte, in under a minute. Each mesh is placed as its classic fallback
+LOD; `--nanite` on the command line places the full-detail geometry instead. Hierarchical-LOD
+proxies (`--hlod`), hidden components, landscape heightfields, child actors and Niagara effects
+are counted in the manifest rather than placed. The files are independent, so open the cells you
+want.
+
 ### Audio
 
 The **sounds** tab browses the game's Wwise audio — about 6 GB of it, which lives in the `.pak`

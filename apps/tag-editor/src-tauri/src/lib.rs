@@ -2313,7 +2313,7 @@ fn peek_tag(index: usize, state: State<'_, AppState>) -> Result<TagPeek, String>
 /// schema; the errors that follow are loud rather than silent.
 static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
 
-fn usmap() -> Result<&'static ue_asset::Usmap, String> {
+pub fn usmap() -> Result<&'static ue_asset::Usmap, String> {
     USMAP
         .get_or_init(|| {
             static BYTES: &[u8] = include_bytes!("../../../../defs/ue/Meteorite-2607-CU3.usmap");
@@ -4085,6 +4085,124 @@ fn export_texture_bytes(c: &Catalog, index: usize, dest: &str) -> Result<Vec<u8>
 }
 
 /// A mesh as glTF binary: every LOD, a primitive per section named after its
+/// What a level export came to, for the World view's status line.
+#[derive(Debug, Clone, Serialize)]
+pub struct LevelExportSummary {
+    pub mission: String,
+    pub cells: usize,
+    pub files: usize,
+    pub placements: usize,
+    pub instanced: usize,
+    pub bytes: usize,
+    /// Skip reasons with their counts, summed over the cells.
+    pub skips: Vec<(String, usize)>,
+    /// Meshes that would not read, with the placements dropped for each.
+    pub missing: Vec<(String, usize)>,
+}
+
+/// Export a scenario's Unreal geometry — the mission's persistent level and
+/// every World Partition cell — as one `.glb` per cell in `dest`, with a
+/// `manifest.json`. The mission is the scenario tag's leaf name.
+#[tauri::command]
+fn export_level(
+    index: usize,
+    dest: String,
+    nanite: bool,
+    hlod: bool,
+    state: State<'_, AppState>,
+) -> Result<LevelExportSummary, String> {
+    with_catalog(&state, |c| {
+        let tag = c.tags.get(index).ok_or("tag index out of range")?;
+        if tag.group != "scenario" {
+            return Err(format!("{} is not a scenario", tag.short));
+        }
+        let mission = tag.short.rsplit('/').next().unwrap_or(&tag.short).to_string();
+        let cells = c.level_cells(&mission);
+        if cells.is_empty() {
+            return Err(format!("no level package for mission {mission:?}"));
+        }
+        let usmap = usmap()?;
+        let scripts = c.script_objects().ok_or("no script-object table")?;
+        let load_package = |name: &str| c.read_package(name);
+        let load_bulk = |name: &str| c.read_package_bulk(name);
+        let mut exporter = ue_asset::level::Exporter::new(
+            usmap,
+            scripts,
+            &load_package,
+            &load_bulk,
+            ue_asset::level::ExportOptions {
+                nanite,
+                include_hlod: hlod,
+            },
+        );
+        let out = std::path::Path::new(&dest);
+        std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+        let mut summary = LevelExportSummary {
+            mission: mission.clone(),
+            cells: cells.len(),
+            files: 0,
+            placements: 0,
+            instanced: 0,
+            bytes: 0,
+            skips: Vec::new(),
+            missing: Vec::new(),
+        };
+        let mut skips: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut missing: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut manifest_cells: Vec<serde_json::Value> = Vec::new();
+        for name in &cells {
+            let cell = exporter.export_cell(name, true)?;
+            summary.placements += cell.placements;
+            summary.instanced += cell.instanced;
+            for (k, v) in &cell.skips {
+                *skips.entry(k.clone()).or_default() += v;
+            }
+            for (k, v) in &cell.missing {
+                *missing.entry(k.clone()).or_default() += v;
+            }
+            let mut entry = serde_json::json!({
+                "package": cell.package,
+                "actors": cell.actors,
+                "placements": cell.placements,
+                "instanced": cell.instanced,
+                "meshes": cell.meshes,
+                "skips": cell.skips,
+                "missing_meshes": cell.missing,
+            });
+            if let Some(glb) = &cell.glb {
+                let file = format!("{}.glb", cell.id);
+                std::fs::write(out.join(&file), glb).map_err(|e| e.to_string())?;
+                entry["file"] = serde_json::json!(file);
+                entry["bytes"] = serde_json::json!(glb.len());
+                summary.files += 1;
+                summary.bytes += glb.len();
+            }
+            manifest_cells.push(entry);
+        }
+        summary.skips = skips.into_iter().collect();
+        summary.missing = missing.into_iter().collect();
+        let manifest = serde_json::json!({
+            "mission": mission,
+            "nanite": nanite,
+            "hlod": hlod,
+            "cells": manifest_cells,
+            "totals": {
+                "cells": summary.cells,
+                "placements": summary.placements,
+                "instanced": summary.instanced,
+                "files": summary.files,
+                "skips": summary.skips.iter().cloned().collect::<std::collections::BTreeMap<_, _>>(),
+            },
+        });
+        std::fs::write(
+            out.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(summary)
+    })
+}
+
 /// material slot, in metres and +Y up. A skeletal mesh comes out in its rest
 /// pose with the bones as nodes.
 #[tauri::command]
@@ -5250,6 +5368,7 @@ pub fn run() {
             revert_scripts,
             export_texture,
             export_mesh,
+            export_level,
             swap_texture,
             revert_texture,
             list_sounds,

@@ -106,6 +106,8 @@ pub struct Catalog {
     /// every cooked `.uasset`, built on first use; how a material instance's
     /// package name becomes readable bytes.
     package_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
+    /// `.ubulk` chunks by the same key as `package_index`.
+    bulk_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
     /// The global container's script-object table, parsed on first use.
     script_objects: std::sync::OnceLock<Option<ue_asset::zen::ScriptObjects>>,
     /// Lowercased mesh short path to mesh index, built on first use; how a
@@ -206,6 +208,9 @@ fn mount_key(stem: &str) -> Option<String> {
         let at = rest.find("/content/")?;
         let mount = rest[..at].rsplit('/').next().unwrap_or(&rest[..at]);
         return Some(format!("{mount}/{}", &rest[at + "/content/".len()..]));
+    }
+    if let Some(rest) = s.strip_prefix("engine/content/") {
+        return Some(format!("engine/{rest}"));
     }
     if s.starts_with("engine/") {
         return None;
@@ -466,6 +471,7 @@ impl Catalog {
             sounds,
             meshes,
             package_index: std::sync::OnceLock::new(),
+            bulk_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
             texture_index: std::sync::OnceLock::new(),
@@ -804,11 +810,19 @@ impl Catalog {
     /// under `/HaloMaterialLibrary/`) — how a mesh's material-instance
     /// reference becomes bytes.
     pub fn read_package(&self, package: &str) -> Option<Vec<u8>> {
-        let index = self.package_index.get_or_init(|| {
+        let key = package.strip_prefix('/')?.to_ascii_lowercase();
+        let (ci, chunk) = self.package_index().get(&key)?;
+        ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
+    }
+
+    /// A package's `.ubulk` by the same name; `None` when it has none.
+    pub fn read_package_bulk(&self, package: &str) -> Option<Vec<u8>> {
+        let key = package.strip_prefix('/')?.to_ascii_lowercase();
+        let index = self.bulk_index.get_or_init(|| {
             let mut map = BTreeMap::new();
             for (ci, c) in self.containers.iter().enumerate() {
                 for (rel, &chunk_index) in &c.files {
-                    if let Some(stem) = rel.strip_suffix(".uasset") {
+                    if let Some(stem) = rel.strip_suffix(".ubulk") {
                         if let Some(key) = mount_key(stem) {
                             map.insert(key, (ci, c.chunks[chunk_index]));
                         }
@@ -817,9 +831,35 @@ impl Catalog {
             }
             map
         });
-        let key = package.strip_prefix('/')?.to_ascii_lowercase();
         let (ci, chunk) = index.get(&key)?;
         ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
+    }
+
+    fn package_index(&self) -> &BTreeMap<String, (usize, ChunkEntry)> {
+        self.package_index.get_or_init(|| {
+            let mut map = BTreeMap::new();
+            for (ci, c) in self.containers.iter().enumerate() {
+                for (rel, &chunk_index) in &c.files {
+                    let stem = rel
+                        .strip_suffix(".uasset")
+                        .or_else(|| rel.strip_suffix(".umap"));
+                    if let Some(stem) = stem {
+                        if let Some(key) = mount_key(stem) {
+                            map.insert(key, (ci, c.chunks[chunk_index]));
+                        }
+                    }
+                }
+            }
+            map
+        })
+    }
+
+    /// The level packages of a mission — the persistent level and its World
+    /// Partition cells — as `/Game/...` names, in the order the exporter
+    /// takes them.
+    pub fn level_cells(&self, mission: &str) -> Vec<String> {
+        let names: Vec<String> = self.package_index().keys().map(|k| format!("/{k}")).collect();
+        ue_asset::level::mission_cells(names.iter().map(|n| n.as_str()), mission)
     }
 
     /// The global container's script-object table, for resolving export
@@ -1527,6 +1567,7 @@ mod tests {
             sounds: Vec::new(),
             meshes: Vec::new(),
             package_index: std::sync::OnceLock::new(),
+            bulk_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
             texture_index: std::sync::OnceLock::new(),

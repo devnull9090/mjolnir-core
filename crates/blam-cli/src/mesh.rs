@@ -110,7 +110,7 @@ fn mesh_candidates(
     candidates
 }
 
-fn script_objects(
+pub(crate) fn script_objects(
     containers: &[ue_iostore::Container],
     oodle: &[PathBuf],
 ) -> Result<ue_asset::zen::ScriptObjects> {
@@ -243,7 +243,7 @@ struct MeshRow {
     skeletal: bool,
 }
 
-fn usmap() -> Result<ue_asset::Usmap> {
+pub(crate) fn usmap() -> Result<ue_asset::Usmap> {
     static BYTES: &[u8] = include_bytes!("../../../defs/ue/Meteorite-2607-CU3.usmap");
     ue_asset::Usmap::parse(BYTES).context("the bundled usmap does not parse")
 }

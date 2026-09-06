@@ -466,6 +466,18 @@ export type MeshMaterial = {
 };
 
 /** The JSON header of a `read_mesh` payload. */
+/** What a level export came to. */
+export type LevelExportSummary = {
+  mission: string;
+  cells: number;
+  files: number;
+  placements: number;
+  instanced: number;
+  bytes: number;
+  skips: [string, number][];
+  missing: [string, number][];
+};
+
 export type MeshHeader = {
   path: string;
   verts: number;
@@ -774,6 +786,8 @@ const tauriApi = {
   revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
   exportMesh: (index: number, dest: string) =>
     invoke<number>("export_mesh", { index, dest }),
+  exportLevel: (index: number, dest: string, nanite: boolean, hlod: boolean) =>
+    invoke<LevelExportSummary>("export_level", { index, dest, nanite, hlod }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   swapTexture: (index: number, image: string) =>

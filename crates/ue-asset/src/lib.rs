@@ -6,6 +6,7 @@
 //! two halves relate.
 
 pub mod gltf;
+pub mod level;
 pub mod material;
 pub mod mesh;
 pub mod nanite;

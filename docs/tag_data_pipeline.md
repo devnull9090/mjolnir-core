@@ -244,6 +244,32 @@ cluster's box, no unresolved reference, and a triangle count within a tenth of t
 input; the only meshes whose bounds differ from their fallback are biome trees and plants,
 whose fallbacks are wind-proxy shapes.
 
+**Verified 2026-09-06 — the World Partition cells read, and their placements land where the
+cook says.** A mission's Unreal geometry is `Levels/Halo1/Solo/<M>/<M>/_Generated_/<id>.umap`,
+one cell per grid square (A30: 575 cells plus the persistent `A30.umap`; C10: 2,404). A cell's
+exports are its actors and their scene components; `ue_asset::level::CellReader` walks the
+components with the usmap, composes `RelativeLocation`/`RelativeRotation`/`RelativeScale3D` up
+the `AttachParent` chain (row-vector matrices, child × parent, Unreal's
+`FScaleRotationTranslationMatrix`), and expands instanced components from the native bytes that
+trail their properties: a 4-byte flag, the cached `FBoxSphereBounds` (seven doubles) when the
+flag is set, then the bulk-serialized `[element size 128][count][count × FMatrix]` of doubles,
+found by its header and accepted only when every matrix is affine. Three things the reflection
+data does not say: `FBox` is natively serialized (six doubles and a byte, no fragment header),
+which the walker now knows — before that every `HierarchicalInstancedStaticMeshComponent`
+failed on `BuiltInstanceBounds`; a placed component leaves unset what equals its template, so a
+rock Blueprint's `StaticMesh` is read from `StaticMeshComponent0_GEN_VARIABLE` in the Blueprint
+package, reached through the export's template reference and the imported public export hash
+(`zen::Package::import_target`); and the zen `ImportedPackageNames` batch carries an FName
+number per name that must be folded back (`SM_Black_Locust_wdvhberja` + 7 is
+`SM_Black_Locust_wdvhberja_6`), or a tenth of A30's placements name meshes that do not exist.
+Packed level actors (`BP_ScreeAssembly_*`) put their instanced components straight into the
+cell. The gated test `shipped_cells_place_inside_their_cached_bounds` reads every A30 cell —
+1,825,198 placements — and checks each instance's world translation against its component's
+cached bounds: 71 of 59,478 fall outside, all the cook's dummy instances parked at
+`(0, 0, -25000)`; every mesh a placement names resolves once `/Engine/` and plugin mount points
+are mapped. Rendering a cell's `.glb` in three.js shows the rocks and ledges where the game has
+them.
+
 **Verified 2026-08-19 — an object tag reaches its render mesh through its actor Blueprint.**
 The tag's `.uasset` imports name `BP_*` actor packages; each Blueprint's mesh component
 templates (SCS `SkeletalMeshComponent` / `StaticMeshComponent` exports) carry the `SK_`/`SM_`
