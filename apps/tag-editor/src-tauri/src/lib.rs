@@ -26,7 +26,6 @@ pub mod modpack;
 pub mod present;
 pub mod project;
 pub mod refcache;
-pub mod refscan;
 pub mod scripts;
 pub mod secret;
 pub mod tagcache;
@@ -4439,10 +4438,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The in-game measurement of the editor's New Tag path, staged the way
-    /// `project_test` does it: clone the assault rifle's projectile as
-    /// `assault_rifle_bullet_mk3`, repoint the rifle at the clone, bake the
-    /// override and the addition, and install both for the next launch.
+    /// A shipped tag by group and the tail of its short path.
+    fn shipped(c: &Catalog, group: &str, tail: &str) -> TagSummary {
+        c.search(tail, 50)
+            .into_iter()
+            .find(|t| t.group == group && t.short.to_ascii_lowercase().ends_with(&tail.to_ascii_lowercase()))
+            .unwrap_or_else(|| panic!("{tail}.{group} ships"))
+    }
+
+    /// One new tag for a staging run: group, donor tail, new leaf suffix and
+    /// an optional Unreal binding.
+    struct Clone<'a> {
+        group: &'a str,
+        donor_tail: &'a str,
+        suffix: &'a str,
+        asset_reference: Option<&'a str>,
+    }
+
+    /// Stage a mod the way `project_test` does — clones, field edits, bake,
+    /// install — and print what was installed. The caller launches the game
+    /// and reads its tag table (`mjolnir live tags --filter <suffix>`).
+    fn stage(slug: &str, clones: &[Clone], edits: &[(&str, &str, &str, &str)]) {
+        let paks = std::env::var("HCE_PAKS").expect("HCE_PAKS");
+        let mut c = Catalog::open(&paks, "").unwrap();
+        let mut new_tags = BTreeMap::new();
+        for cl in clones {
+            let donor = shipped(&c, cl.group, cl.donor_tail);
+            let source = c
+                .container(c.entry(donor.index).unwrap().container)
+                .unwrap()
+                .utoc_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            eprintln!("donor {}.{} lives in {source}", donor.short, donor.group);
+            let to = format!("{}{}", donor.short, cl.suffix);
+            c.add_new_tag(cl.group, &to, donor.index).unwrap();
+            new_tags.insert(
+                (cl.group.to_string(), to),
+                NewTagSpec {
+                    from: donor.short.clone(),
+                    asset_reference: cl.asset_reference.map(str::to_string),
+                },
+            );
+        }
+        let mut pending: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
+        for (group, tail, field, value) in edits {
+            let target = shipped(&c, group, tail);
+            let source = c
+                .container(c.entry(target.index).unwrap().container)
+                .unwrap()
+                .utoc_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            eprintln!("edit  {}.{} lives in {source}", target.short, target.group);
+            pending
+                .entry((group.to_string(), target.short.clone()))
+                .or_default()
+                .push(PendingEdit {
+                    path: (*field).to_string(),
+                    value: (*value).to_string(),
+                });
+        }
+        let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
+        let (overrides, additions, warnings) =
+            resolved_edits(&c, &pending, &scripts, &textures, &new_tags).unwrap();
+        assert_eq!(additions.len(), clones.len());
+        assert!(
+            !warnings.iter().any(|w| w.contains("referenced by nothing")),
+            "every clone is referenced: {warnings:?}"
+        );
+        let baked = modpack::bake(&c, slug, overrides, additions).unwrap();
+        for b in &baked {
+            eprintln!(
+                "container {}: {} chunk(s){}",
+                b.basename,
+                b.built.expect.len(),
+                if b.built.resized() { ", resized" } else { "" }
+            );
+        }
+        for f in modpack::install_test(c.paks(), &baked, c.oodle_paths()).unwrap() {
+            eprintln!("installed {f}");
+        }
+        for w in warnings {
+            eprintln!("warning: {w}");
+        }
+    }
+
+    /// The in-game measurement of the editor's New Tag path: clone the
+    /// assault rifle's projectile as `assault_rifle_bullet_mk3`, repoint the
+    /// rifle at the clone, bake the override and the addition, install both.
     ///
     /// Then launch a mission with the rifle and run
     /// `mjolnir live tags --filter mk3`: the game's own tag table lists the
@@ -4451,55 +4537,86 @@ mod tests {
     #[test]
     #[ignore = "installs a test mod into the game's Paks folder"]
     fn stage_a_new_tag_for_the_in_game_test() {
-        let paks = std::env::var("HCE_PAKS").expect("HCE_PAKS");
-        let mut c = Catalog::open(&paks, "").unwrap();
-        let donor = c
-            .search("projectiles/assault_rifle_bullet", 20)
-            .into_iter()
-            .find(|t| t.group == "projectile" && t.short.ends_with("/assault_rifle_bullet"))
-            .expect("the rifle's projectile ships");
-        let rifle = c
-            .search("assault_rifle/assault_rifle", 20)
-            .into_iter()
-            .find(|t| t.group == "weapon" && t.short.ends_with("/assault_rifle"))
-            .expect("the rifle ships");
-        let to = format!("{}_mk3", donor.short);
-        c.add_new_tag("projectile", &to, donor.index).unwrap();
-
-        let mut new_tags = BTreeMap::new();
-        new_tags.insert(
-            ("projectile".to_string(), to.clone()),
-            NewTagSpec {
-                from: donor.short.clone(),
+        stage(
+            "editor-newtag",
+            &[Clone {
+                group: "projectile",
+                donor_tail: "projectiles/assault_rifle_bullet",
+                suffix: "_mk3",
                 asset_reference: None,
-            },
-        );
-        let mut edits: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
-        edits.insert(
-            ("weapon".to_string(), rifle.short.clone()),
-            vec![PendingEdit {
-                path: "barrels[0].projectile".into(),
-                value: "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk3"
-                    .into(),
             }],
+            &[(
+                "weapon",
+                "assault_rifle/assault_rifle",
+                "barrels[0].projectile",
+                "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk3",
+            )],
         );
-        let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
-        let (overrides, additions, warnings) =
-            resolved_edits(&c, &edits, &scripts, &textures, &new_tags).unwrap();
-        assert_eq!(overrides.len(), 1, "the rifle override");
-        assert_eq!(additions.len(), 1, "the clone");
-        assert!(
-            !warnings.iter().any(|w| w.contains("referenced by nothing")),
-            "the rifle references the clone: {warnings:?}"
+    }
+
+    /// Matrix rows 4 and 5: a new object-group tag bound to a *different*
+    /// Blueprint than its donor (the rifle's bullet on the magnum's projectile
+    /// actor), and a new `model` carrying the donor's `RuntimeVariants`; the
+    /// rifle is repointed at both. Two clones in two folders, so two addition
+    /// containers.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_matrix_rifle_rows() {
+        stage(
+            "matrix-rifle",
+            &[
+                Clone {
+                    group: "projectile",
+                    donor_tail: "projectiles/assault_rifle_bullet",
+                    suffix: "_mk4",
+                    asset_reference: Some(
+                        "/Game/_Prototypes/SynchronizationTestContent/Assets/Weapons/ProjectileActors/BP_MagnumProjectileActor",
+                    ),
+                },
+                Clone {
+                    group: "model",
+                    donor_tail: "assault_rifle/assault_rifle",
+                    suffix: "_mk4",
+                    asset_reference: None,
+                },
+            ],
+            &[
+                (
+                    "weapon",
+                    "assault_rifle/assault_rifle",
+                    "barrels[0].projectile",
+                    "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk4",
+                ),
+                (
+                    "weapon",
+                    "assault_rifle/assault_rifle",
+                    "item.object.model",
+                    "hlmt:objects\\weapons\\rifle\\assault_rifle\\assault_rifle_mk4",
+                ),
+            ],
         );
-        let baked = modpack::bake(&c, "editor-newtag", overrides, additions).unwrap();
-        assert_eq!(baked.len(), 2);
-        let files = modpack::install_test(c.paks(), &baked, c.oodle_paths()).unwrap();
-        for f in files {
-            eprintln!("installed {f}");
-        }
-        for w in warnings {
-            eprintln!("warning: {w}");
-        }
+    }
+
+    /// Matrix rows 6 and 7: an override of a tag that ships in a per-level
+    /// container (the A30 scenario), pointing one structure's lighting info at
+    /// a clone in a `_Generated_` group.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_matrix_scenario_rows() {
+        stage(
+            "matrix-scenario",
+            &[Clone {
+                group: "scenario_structure_lighting_info",
+                donor_tail: "A30/_Generated_/landing_zone_p1",
+                suffix: "_mk4",
+                asset_reference: None,
+            }],
+            &[(
+                "scenario",
+                "A30/_Generated_/a30",
+                "structure bsps[7].structure lighting_info",
+                "stli:levels\\halo1\\solo\\a30\\landing_zone_p1_mk4",
+            )],
+        );
     }
 }

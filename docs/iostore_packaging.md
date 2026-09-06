@@ -617,6 +617,34 @@ next launch of A30 the tag table listed the clone (`mjolnir live tags --filter
 assault_rifle_bullet`: slot 357, handle `0xE2D90165`, 7,056 loaded tags against the shipped
 7,055) and the rifle fired normally with no fallback.
 
+### The new-package matrix, measured
+
+Every row below was staged through the editor's bake path (the ignored `stage_matrix_*` tests
+in `apps/tag-editor/src-tauri/src/lib.rs`), installed, and read back from the running game's
+tag table with `mjolnir live tags` on a fresh launch of A30 (CU4, 2026-09-06).
+
+| Row | What | Result |
+|---|---|---|
+| Same-size override | one chunk replaced | proven earlier |
+| Resized override, two chunks | rewritten wrapper rides along | proven earlier |
+| New bare-group tag, referenced by an edited tag | `marinf`, `marine_clone` collision models | proven 2026-09-05 |
+| New object-group tag bound to a *different* Blueprint | rifle bullet cloned as `assault_rifle_bullet_mk4` bound to `BP_MagnumProjectileActor`; rifle repointed | loaded (slot 357), rifle fired 36 → 29 |
+| New `model` with the donor's `RuntimeVariants` | rifle model cloned as `assault_rifle_mk4`; rifle's `item.object.model` repointed | loaded (slot 215), rifle rendered |
+| Override of a tag in a per-level container | A30 scenario (`pakchunk130-Windows`), resized, one reference changed | took effect: the level loaded the clone below |
+| New tag in a `_Generated_` group | `landing_zone_p1` lighting info cloned as `landing_zone_p1_mk4` under `A30/_Generated_/`; scenario `structure bsps[7].structure lighting_info` repointed | loaded (slot 12); the shipped lighting info left the table; level rendered and played |
+| Package redirect | — | not exposed: measured elsewhere as not forwarding shipped references, and a clone under a new name does everything a redirect would |
+
+Two clones in different folders became two addition containers (`matrix-rifle-new_P`,
+`matrix-rifle-new-2_P`), each loaded. Total loaded tags: 7,057 with two additions, 7,055 when
+the clone replaced a shipped tag the scenario no longer named.
+
+The scenario row also found a bug in the reference scanner shared by the editor's
+"referenced by" index and the new tag's preload list (`blam_tag::refs::tgrf_refs`): an empty
+"none" reference is a twelve-byte section, and the scanner stepped thirteen bytes past it,
+walking over the header of whatever came next. Every reference that directly followed an
+empty one was invisible — the scenario's lighting reference among them. Fixed with a
+regression test.
+
 ## Writing the wrapper
 
 **Measured 2026-09-05** against every `.uasset` under `Tags/` across all containers (12,332 —

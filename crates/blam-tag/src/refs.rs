@@ -43,9 +43,14 @@ pub fn tgrf_refs(data: &[u8], is_known_cc: impl Fn(&str) -> bool) -> Vec<(String
             continue;
         }
         // An empty or four-CC-only content is a set-to-nothing reference;
-        // valid, but it points nowhere.
+        // valid, but it points nowhere. The section is exactly its header
+        // plus `size` bytes — an empty one is twelve bytes, and the section
+        // that follows starts right there. (An earlier version stepped one
+        // byte further and walked past every reference that directly
+        // followed an empty one — found 2026-09-06 when a scenario's
+        // lighting reference went unseen.)
         if content.len() < 5 {
-            i += SECTION_HEADER + size.max(1);
+            i += SECTION_HEADER + size;
             continue;
         }
         let cc: String = content[..4]
@@ -114,6 +119,24 @@ mod tests {
                     "objects\\characters\\marine\\marine".to_string()
                 ),
             ]
+        );
+    }
+
+    /// A reference set to nothing serializes as a twelve-byte section with no
+    /// content; the reference right behind it must still be found.
+    #[test]
+    fn a_reference_directly_after_an_empty_one_is_found() {
+        let mut buf = MAGIC.to_vec();
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend(tgrf("stli", "levels\\halo1\\solo\\a30\\landing_zone_p1"));
+        let refs = tgrf_refs(&buf, |_| true);
+        assert_eq!(
+            refs,
+            vec![(
+                "stli".to_string(),
+                "levels\\halo1\\solo\\a30\\landing_zone_p1".to_string()
+            )]
         );
     }
 }

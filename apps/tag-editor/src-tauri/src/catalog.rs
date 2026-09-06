@@ -1180,7 +1180,7 @@ impl Catalog {
     ///
     /// The first call builds the reverse index: every tag's payload is read
     /// and its data section scanned for `tgrf` reference sections (see
-    /// [`crate::refscan`]). That is tens of seconds of work over tens of
+    /// `blam_tag::refs`). That is tens of seconds of work over tens of
     /// thousands of chunks (~48s measured on the shipped build) — so callers
     /// must run it off the UI thread and say why they are waiting. Later
     /// calls are microsecond lookups.
@@ -1207,8 +1207,8 @@ impl Catalog {
                     .ok()
                     .and_then(|tag| tag.data().map(|d| d.content.to_vec()))
                 {
-                    Some(data) => crate::refscan::tgrf_refs(&data, |cc| known.contains_key(cc)),
-                    None => crate::refscan::tgrf_refs(&buf, |cc| known.contains_key(cc)),
+                    Some(data) => blam_tag::refs::tgrf_refs(&data, |cc| known.contains_key(cc)),
+                    None => blam_tag::refs::tgrf_refs(&buf, |cc| known.contains_key(cc)),
                 };
                 for (cc, path) in refs {
                     let list = map.entry((cc, normalize_ref_path(&path))).or_default();
