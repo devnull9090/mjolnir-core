@@ -1133,6 +1133,11 @@ impl Catalog {
         self.ref_index().cc_of_group.get(group).map(String::as_str)
     }
 
+    /// The group directory name behind a four-CC a tag body carries.
+    pub fn group_of_four_cc(&self, cc: &str) -> Option<&str> {
+        self.ref_index().group_of_cc.get(cc).map(String::as_str)
+    }
+
     /// The sound catalog index for one Wwise media short ID, built on first
     /// use. Shared audio wins over the thirteen per-language copies, because a
     /// preview should play what every player hears.

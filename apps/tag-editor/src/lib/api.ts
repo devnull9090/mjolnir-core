@@ -114,6 +114,29 @@ export type ElementClip = {
   skipped: string[];
 };
 
+/** One field that differs between two tags. */
+export type FieldDiffView = { path: string; a: string | null; b: string | null };
+
+export type DiffView = {
+  a: string;
+  b: string;
+  fields: FieldDiffView[];
+  /** Materialised fields the two sides agree on. */
+  same: number;
+  /** Set when a side did not decode. */
+  error: string | null;
+};
+
+/** One tag in a reference tree. */
+export type RefNode = {
+  index: number | null;
+  group: string;
+  path: string;
+  cycle: boolean;
+  truncated: boolean;
+  children: RefNode[];
+};
+
 export type PasteReport = {
   element: number;
   elements: number;
@@ -712,6 +735,12 @@ const tauriApi = {
     invoke<string>("copy_block_tsv", { index, path }),
   pasteBlockTsv: (index: number, path: string, tsv: string, replace: boolean) =>
     invoke<PasteReport>("paste_block_tsv", { index, path, tsv, replace }),
+  diffTags: (a: number, b: number) => invoke<DiffView>("diff_tags", { a, b }),
+  diffEdits: (index: number) => invoke<DiffView>("diff_edits", { index }),
+  referenceTree: (index: number, depth: number) =>
+    invoke<RefNode>("reference_tree", { index, depth }),
+  unreferencedTags: (group: string) =>
+    invoke<TagSummary[]>("unreferenced_tags", { group }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>

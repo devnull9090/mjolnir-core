@@ -103,6 +103,11 @@ function InstallFooter() {
 function TagList() {
   const { groups, selectedGroup, tags, query, selectedTag } = useEditor();
   const selectGroup = useEditor((s) => s.selectGroup);
+  const unreferencedOnly = useEditor((s) => s.unreferencedOnly);
+  const unreferencedLoading = useEditor((s) => s.unreferencedLoading);
+  const setUnreferencedOnly = useEditor((s) => s.setUnreferencedOnly);
+  const openDiff = useEditor((s) => s.openDiff);
+  const openRefTree = useEditor((s) => s.openRefTree);
   const openTab = useEditor((s) => s.openTab);
   const openNewTag = useEditor((s) => s.openNewTag);
   const search = useEditor((s) => s.search);
@@ -117,6 +122,18 @@ function TagList() {
           placeholder="Search tags…"
           className="w-full border border-border-subtle bg-surface-card px-3 py-2 text-sm outline-none placeholder:text-text-dim focus:border-mjolnir-gold"
         />
+        <label
+          className="mt-2 flex items-center gap-2 text-[10px] text-text-dim"
+          title="Only tags no other tag's body references. A tag the Unreal side loads directly — a scenario, the globals — is unreferenced by this measure and still in use. The first use builds the reverse index, which takes a while."
+        >
+          <input
+            type="checkbox"
+            checked={unreferencedOnly}
+            onChange={(e) => void setUnreferencedOnly(e.target.checked)}
+          />
+          unreferenced only
+          {unreferencedLoading && <span className="text-mjolnir-gold">scanning…</span>}
+        </label>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -171,6 +188,24 @@ function TagList() {
                         label: "New Tag From This…",
                         action: () =>
                           openNewTag({ index: t.index, group: t.group, short: t.short }),
+                      },
+                      "separator",
+                      {
+                        label: "Compare With Open Tag",
+                        action: () => selectedTag !== null && void openDiff(selectedTag, t.index),
+                        disabled:
+                          selectedTag === null ||
+                          selectedTag === t.index ||
+                          useEditor.getState().tag?.group !== t.group,
+                        title:
+                          selectedTag === null
+                            ? "Open a tag of the same group first"
+                            : "Field-by-field diff: the open tag as A, this one as B",
+                      },
+                      {
+                        label: "References…",
+                        action: () => void openRefTree(t.index),
+                        title: "What this tag references, a few levels deep",
                       },
                     ])
                   }

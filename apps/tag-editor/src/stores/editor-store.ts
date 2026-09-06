@@ -30,6 +30,8 @@ import {
   type CompileReport,
   type ElementClip,
   type PasteReport,
+  type DiffView,
+  type RefNode,
 } from "../lib/api";
 import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
@@ -347,6 +349,29 @@ type EditorState = {
   closeTsvPaste: () => void;
   /** Resolves to a problem to show, or null on success. */
   pasteBlockTsv: (tsv: string, replace: boolean) => Promise<string | null>;
+
+  /** The diff dialog's contents while one is open. */
+  diff: DiffView | null;
+  diffLoading: boolean;
+  /** Compare two tags of one group, pending edits included. */
+  openDiff: (a: number, b: number) => Promise<void>;
+  /** Compare the active tag as shipped against the mod's edits. */
+  openDiffEdits: () => Promise<void>;
+  closeDiff: () => void;
+
+  /** The reference tree dialog's contents while one is open. */
+  refTree: RefNode | null;
+  refTreeLoading: boolean;
+  refTreeDepth: number;
+  refTreeIndex: number | null;
+  openRefTree: (index: number) => Promise<void>;
+  loadRefTree: (depth: number) => Promise<void>;
+  closeRefTree: () => void;
+
+  /** Show only the group's tags that no tag body references. */
+  unreferencedOnly: boolean;
+  unreferencedLoading: boolean;
+  setUnreferencedOnly: (on: boolean) => Promise<void>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
   /** Where each of the open tag's references lands, keyed by [refKey]. A null
@@ -1361,10 +1386,71 @@ export const useEditor = create<EditorState>((set, get) => {
     async selectGroup(group) {
       set({ selectedGroup: group, query: "", tags: [] });
       try {
-        set({ tags: await api.listTags(group) });
+        if (get().unreferencedOnly) {
+          set({ unreferencedLoading: true });
+          const tags = await api.unreferencedTags(group);
+          if (get().selectedGroup === group) set({ tags, unreferencedLoading: false });
+        } else {
+          set({ tags: await api.listTags(group) });
+        }
       } catch (e) {
-        set({ error: String(e) });
+        set({ error: String(e), unreferencedLoading: false });
       }
+    },
+
+    unreferencedOnly: false,
+    unreferencedLoading: false,
+    async setUnreferencedOnly(on) {
+      set({ unreferencedOnly: on });
+      const group = get().selectedGroup;
+      if (group && !get().query.trim()) await get().selectGroup(group);
+    },
+
+    diff: null,
+    diffLoading: false,
+    async openDiff(a, b) {
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffTags(a, b), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    async openDiffEdits() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffEdits(index), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    closeDiff() {
+      set({ diff: null, diffLoading: false });
+    },
+
+    refTree: null,
+    refTreeLoading: false,
+    refTreeDepth: 2,
+    refTreeIndex: null,
+    async openRefTree(index) {
+      set({ refTreeIndex: index });
+      await get().loadRefTree(get().refTreeDepth);
+    },
+    async loadRefTree(depth) {
+      const index = get().refTreeIndex;
+      if (index === null) return;
+      set({ refTree: null, refTreeLoading: true, refTreeDepth: depth });
+      try {
+        const tree = await api.referenceTree(index, depth);
+        if (get().refTreeIndex === index) set({ refTree: tree, refTreeLoading: false });
+      } catch (e) {
+        set({ refTreeLoading: false, editError: String(e) });
+      }
+    },
+    closeRefTree() {
+      set({ refTree: null, refTreeLoading: false, refTreeIndex: null });
     },
 
     async search(query) {

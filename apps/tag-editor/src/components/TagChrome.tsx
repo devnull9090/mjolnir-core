@@ -344,6 +344,9 @@ export function TagHeader() {
   const setDegrees = useEditor((s) => s.setDegrees);
   const expert = useEditor((s) => s.expert);
   const setExpert = useEditor((s) => s.setExpert);
+  const openDiffEdits = useEditor((s) => s.openDiffEdits);
+  const openRefTree = useEditor((s) => s.openRefTree);
+  const selectedTag = useEditor((s) => s.selectedTag);
 
   if (!tag) return null;
   // Only a scenario carries Blam script, so the third view is offered only
@@ -438,6 +441,27 @@ export function TagHeader() {
             }`}
           >
             expert
+          </button>
+          <button
+            type="button"
+            onClick={() => void openDiffEdits()}
+            disabled={tag.edited.length === 0}
+            title={
+              tag.edited.length === 0
+                ? "Nothing to compare: this tag has no edits in the mod"
+                : "Compare the tag as shipped with the tag as this mod leaves it, field by field"
+            }
+            className="ml-2 border border-border-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            diff
+          </button>
+          <button
+            type="button"
+            onClick={() => selectedTag !== null && void openRefTree(selectedTag)}
+            title="What this tag references, and what those reference — the graph behind it"
+            className="ml-1 border border-border-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary hover:bg-surface-hover"
+          >
+            refs
           </button>
         </div>
         <span

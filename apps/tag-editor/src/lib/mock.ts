@@ -23,6 +23,8 @@ import type {
   NewTagView,
   ElementClip,
   PasteReport,
+  DiffView,
+  RefNode,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -632,6 +634,55 @@ export const mockApi = {
     const rows = tsv.split(/\r?\n/).filter((l) => l.trim()).length - 1;
     return { element: 1, elements: Math.max(rows, 0), applied: rows, unchanged: 0, skipped: [] };
   },
+  diffTags: async (): Promise<DiffView> => ({
+    a: "levels/b30/b30.scenario",
+    b: "levels/a30/a30.scenario",
+    fields: [
+      { path: "local north", a: "180", b: "90" },
+      { path: "skies/#count", a: "1", b: "2" },
+      { path: "skies[1]/sky", a: null, b: "sky\\clear afternoon (sky)" },
+    ],
+    same: 212,
+    error: null,
+  }),
+  diffEdits: async (): Promise<DiffView> => ({
+    a: "as shipped",
+    b: "with this mod's edits",
+    fields: [...edits.entries()].map(([path, value]) => ({ path, a: "…", b: value })),
+    same: 214,
+    error: null,
+  }),
+  referenceTree: async (index: number, depth: number): Promise<RefNode> => ({
+    index,
+    group: "scenario",
+    path: "levels/b30/b30",
+    cycle: false,
+    truncated: false,
+    children: [
+      {
+        index: 2,
+        group: "model",
+        path: "objects\\characters\\elite\\elite",
+        cycle: false,
+        truncated: depth < 2,
+        children:
+          depth < 2
+            ? []
+            : [
+                {
+                  index: null,
+                  group: "collision_model",
+                  path: "objects\\characters\\elite\\elite",
+                  cycle: false,
+                  truncated: false,
+                  children: [],
+                },
+              ],
+      },
+    ],
+  }),
+  unreferencedTags: async (group: string) =>
+    mockTags.filter((t) => t.group === group).slice(0, 1),
   revertField: async (_index: number, path: string) => {
     remember();
     edits.delete(path);

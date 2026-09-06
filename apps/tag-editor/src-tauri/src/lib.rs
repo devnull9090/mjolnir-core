@@ -3547,6 +3547,246 @@ async fn referencing_tags(
     .map_err(|e| e.to_string())?
 }
 
+/// One field that differs between two tags (or a tag and its edits).
+#[derive(Serialize)]
+struct FieldDiffView {
+    path: String,
+    a: Option<String>,
+    b: Option<String>,
+}
+
+/// Two tags compared field by field.
+#[derive(Serialize)]
+struct DiffView {
+    a: String,
+    b: String,
+    /// Fields both sides decode to, with values.
+    fields: Vec<FieldDiffView>,
+    /// Materialised fields the two sides agree on.
+    same: usize,
+    /// Set when a side did not decode; the fields list is then empty.
+    error: Option<String>,
+}
+
+/// Elements per block the diff materialises. Past this a block is compared
+/// by count alone, which the view says.
+const DIFF_ELEMENTS: usize = 64;
+
+fn diff_of(a_label: String, a_bytes: &[u8], b_label: String, b_bytes: &[u8]) -> DiffView {
+    let fa = blam_tag::diff::flatten(a_bytes, a_bytes.len(), DIFF_ELEMENTS);
+    let fb = blam_tag::diff::flatten(b_bytes, b_bytes.len(), DIFF_ELEMENTS);
+    match (fa, fb) {
+        (Some(fa), Some(fb)) => {
+            let fields: Vec<FieldDiffView> = blam_tag::diff::diff_maps(&fa, &fb)
+                .into_iter()
+                .map(|d| FieldDiffView {
+                    path: d.path,
+                    a: d.before,
+                    b: d.after,
+                })
+                .collect();
+            let same = fa.iter().filter(|(k, v)| fb.get(*k) == Some(v)).count();
+            DiffView {
+                a: a_label,
+                b: b_label,
+                fields,
+                same,
+                error: None,
+            }
+        }
+        (fa, fb) => DiffView {
+            a: a_label,
+            b: b_label,
+            fields: Vec::new(),
+            same: 0,
+            error: Some(match (fa.is_some(), fb.is_some()) {
+                (false, false) => "neither side decodes".into(),
+                (false, true) => "the first side does not decode".into(),
+                _ => "the second side does not decode".into(),
+            }),
+        },
+    }
+}
+
+/// Compare two tags of the same group as the editor sees them, pending edits
+/// included, field by field.
+#[tauri::command]
+fn diff_tags(a: usize, b: usize, state: State<'_, AppState>) -> Result<DiffView, String> {
+    let key_a = tag_key(&state, a)?;
+    let key_b = tag_key(&state, b)?;
+    if key_a.0 != key_b.0 {
+        return Err(format!(
+            "a {} tag and a {} tag have different layouts; compare tags of one group",
+            key_a.0, key_b.0
+        ));
+    }
+    let pending_a = pending_for(&state, &key_a)?;
+    let pending_b = pending_for(&state, &key_b)?;
+    with_catalog(&state, |c| {
+        let bytes_a = patched_bytes(c, a, &pending_a)?;
+        let bytes_b = patched_bytes(c, b, &pending_b)?;
+        Ok(diff_of(
+            format!("{}.{}", key_a.1, key_a.0),
+            &bytes_a,
+            format!("{}.{}", key_b.1, key_b.0),
+            &bytes_b,
+        ))
+    })
+}
+
+/// Compare a tag as shipped with the tag as the mod leaves it: every field
+/// the recipe changes, including those inside elements the recipe added.
+#[tauri::command]
+fn diff_edits(index: usize, state: State<'_, AppState>) -> Result<DiffView, String> {
+    let key = tag_key(&state, index)?;
+    let pending = pending_for(&state, &key)?;
+    let script = script_for(&state, &key)?;
+    with_catalog(&state, |c| {
+        let shipped = c.read_tag(index)?;
+        let edited = patched_with_script(c, index, &pending, script.as_deref())?;
+        Ok(diff_of(
+            "as shipped".into(),
+            &shipped,
+            "with this mod's edits".into(),
+            &edited,
+        ))
+    })
+}
+
+/// One tag in a reference tree.
+#[derive(Serialize)]
+struct RefNode {
+    /// Catalog index, when the reference resolves in this installation.
+    index: Option<usize>,
+    group: String,
+    /// The path as the referencing body wrote it.
+    path: String,
+    /// The tag references itself through an ancestor, so it is not expanded.
+    cycle: bool,
+    /// Children not built: the depth limit or the node budget stopped here.
+    truncated: bool,
+    children: Vec<RefNode>,
+}
+
+/// Children per node and nodes in total a reference tree may build. A
+/// scenario references thousands of tags directly; the caps keep a tree
+/// browsable and the command quick.
+const REF_TREE_CHILDREN: usize = 200;
+const REF_TREE_NODES: usize = 4000;
+
+/// A tag's body references, resolved: `(four-CC, path, catalog index)`.
+fn body_refs(c: &Catalog, index: usize, pending: &[PendingEdit]) -> Result<Vec<(String, String, Option<usize>)>, String> {
+    let file = patched_bytes(c, index, pending)?;
+    let data = blam_tag::TagFile::parse(&file, Some(file.len()))
+        .ok()
+        .and_then(|t| t.data().map(|d| d.content.to_vec()))
+        .unwrap_or_else(|| file.clone());
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for (cc, path) in blam_tag::refs::tgrf_refs(&data, |cc| c.group_of_four_cc(cc).is_some()) {
+        if !seen.insert((cc.clone(), catalog::normalize_ref_path(&path))) {
+            continue;
+        }
+        let hit = c.resolve_ref(&cc, &path);
+        out.push((cc, path, hit));
+    }
+    Ok(out)
+}
+
+fn build_ref_tree(
+    c: &Catalog,
+    state: &State<'_, AppState>,
+    index: usize,
+    depth: usize,
+    trail: &mut Vec<usize>,
+    budget: &mut usize,
+) -> Result<Vec<RefNode>, String> {
+    if depth == 0 || *budget == 0 {
+        return Ok(Vec::new());
+    }
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+    let refs = body_refs(c, index, &pending)?;
+    let mut children = Vec::new();
+    for (i, (cc, path, hit)) in refs.into_iter().enumerate() {
+        if i >= REF_TREE_CHILDREN || *budget == 0 {
+            if let Some(last) = children.last_mut() {
+                let last: &mut RefNode = last;
+                last.truncated = true;
+            }
+            break;
+        }
+        *budget -= 1;
+        let group = c.group_of_four_cc(&cc).unwrap_or(&cc).to_string();
+        let cycle = hit.is_some_and(|h| trail.contains(&h));
+        let mut node = RefNode {
+            index: hit,
+            group,
+            path,
+            cycle,
+            truncated: false,
+            children: Vec::new(),
+        };
+        if let (Some(h), false) = (hit, cycle) {
+            if depth > 1 {
+                trail.push(h);
+                node.children = build_ref_tree(c, state, h, depth - 1, trail, budget)?;
+                trail.pop();
+            } else {
+                node.truncated = true;
+            }
+        }
+        children.push(node);
+    }
+    Ok(children)
+}
+
+/// The tags a tag references, and what they reference, to `depth` levels.
+/// Built from the bodies as the editor sees them, pending edits included.
+#[tauri::command]
+fn reference_tree(index: usize, depth: usize, state: State<'_, AppState>) -> Result<RefNode, String> {
+    let key = tag_key(&state, index)?;
+    let depth = depth.clamp(1, 6);
+    with_catalog(&state, |c| {
+        let mut budget = REF_TREE_NODES;
+        let mut trail = vec![index];
+        let children = build_ref_tree(c, &state, index, depth, &mut trail, &mut budget)?;
+        Ok(RefNode {
+            index: Some(index),
+            group: key.0.clone(),
+            path: key.1.clone(),
+            cycle: false,
+            truncated: budget == 0,
+            children,
+        })
+    })
+}
+
+/// Tags of a group that no shipped tag's body references. The reverse index
+/// is built on first use (seconds, cached afterwards), so this runs off the
+/// UI thread. A tag the Unreal side loads directly — a scenario, the globals
+/// — is unreferenced by this measure and still very much in use.
+#[tauri::command]
+async fn unreferenced_tags(group: String, app: tauri::AppHandle) -> Result<Vec<TagSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.catalog.lock().map_err(|e| e.to_string())?;
+        let c = guard.as_ref().ok_or("no installation is open")?;
+        let mut out = Vec::new();
+        for t in c.tags_in(&group, usize::MAX) {
+            if c.referencing(t.index, 1)?.is_empty() {
+                out.push(t);
+            }
+            if out.len() >= MAX_ROWS {
+                break;
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Replace a texture's pixels with a PNG on disk.
 ///
 /// The swap is proven here — re-encoded, packed-length checked and decoded
@@ -4923,6 +5163,10 @@ pub fn run() {
             export_sound,
             play_sound,
             tag_links,
+            diff_tags,
+            diff_edits,
+            reference_tree,
+            unreferenced_tags,
             list_dir,
             search_files,
         ])
@@ -5178,6 +5422,40 @@ mod tests {
             }
         }
         check(&expert);
+    }
+
+    /// The diff and the reference tree on real tags: a tag against itself
+    /// has no differences; two weapons differ somewhere; the rifle's body
+    /// references resolve to loaded tags with the four-CCs the layout names.
+    #[test]
+    fn diff_and_reference_tree_on_shipped_tags() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let weapons = c.tags_in("weapon", 3);
+        let a = c.read_tag(weapons[0].index).unwrap();
+        let b = c.read_tag(weapons[1].index).unwrap();
+        let same = diff_of("a".into(), &a, "a".into(), &a);
+        assert!(same.error.is_none());
+        assert!(same.fields.is_empty());
+        assert!(same.same > 50);
+        let differ = diff_of("a".into(), &a, "b".into(), &b);
+        assert!(differ.error.is_none());
+        assert!(!differ.fields.is_empty());
+
+        let rifle = c
+            .search("assault_rifle/assault_rifle", 20)
+            .into_iter()
+            .find(|t| t.group == "weapon" && t.short.ends_with("/assault_rifle"))
+            .expect("the rifle ships");
+        let refs = body_refs(&c, rifle.index, &[]).unwrap();
+        assert!(refs.len() > 10, "the rifle references many tags: {}", refs.len());
+        let resolved = refs.iter().filter(|(_, _, hit)| hit.is_some()).count();
+        assert!(resolved > 0);
+        for (cc, _, _) in &refs {
+            assert!(c.group_of_four_cc(cc).is_some(), "{cc} is a known group");
+        }
     }
 
     #[test]

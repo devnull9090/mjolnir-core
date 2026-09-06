@@ -365,6 +365,14 @@ The **expert** toggle next to it shows the layout's structural fields too — pa
 markers and the terminator — as read-only raw bytes at their offsets, so a definition can be
 checked against the bytes it claims to describe.
 
+**diff** compares the open tag as shipped with the tag as your mod leaves it, every differing
+field with both values; right-click another tag of the same group in the list and choose
+**Compare With Open Tag** to set any two tags side by side. **refs** opens the graph behind a
+tag — what it references and what those reference, to the depth you pick — and copies as
+indented text. Under the tag search, **unreferenced only** narrows a group to the tags no tag
+body references (a scenario or the globals are loaded by the Unreal side and count as
+unreferenced here).
+
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
