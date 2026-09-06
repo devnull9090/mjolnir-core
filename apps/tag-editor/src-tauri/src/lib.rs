@@ -1862,7 +1862,11 @@ fn export_tag(index: usize, dest: String, state: State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String> {
+fn read_tag(
+    index: usize,
+    expert: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<TagView, String> {
     let key = tag_key(&state, index)?;
     let pending = pending_for(&state, &key)?;
     let edited: Vec<String> = pending.iter().map(|e| e.path.clone()).collect();
@@ -1892,11 +1896,18 @@ fn read_tag(index: usize, state: State<'_, AppState>) -> Result<TagView, String>
             let (fields, data_exact, error) = match tag.read_data(layout) {
                 Ok(block) => {
                     let exact = block.consumed == data_size as usize;
-                    (
+                    // Expert view: padding and markers too, as raw bytes.
+                    let nodes = if expert.unwrap_or(false) {
+                        blam_tag::view::root_expert(
+                            layout,
+                            &block,
+                            blam_tag::view::DEFAULT_MAX_ELEMENTS,
+                        )
+                    } else {
                         blam_tag::view::root(layout, &block)
-                            .iter()
-                            .map(to_view)
-                            .collect::<Vec<_>>(),
+                    };
+                    (
+                        nodes.iter().map(to_view).collect::<Vec<_>>(),
                         exact,
                         None,
                     )
@@ -5127,6 +5138,46 @@ mod tests {
             }
             (a, b) => a == b,
         }
+    }
+
+    /// On a real tag the expert view surfaces padding the plain view hides.
+    #[test]
+    fn the_expert_view_shows_padding_on_a_shipped_tag() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let t = c.tags_in("weapon", 1).into_iter().next().unwrap();
+        let file = c.read_tag(t.index).unwrap();
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+        fn count(nodes: &[blam_tag::view::Node]) -> usize {
+            nodes
+                .iter()
+                .map(|n| {
+                    usize::from(matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X"))
+                        + count(&n.children)
+                })
+                .sum()
+        }
+        let plain = blam_tag::view::root(&layout, &block);
+        let expert = blam_tag::view::root_expert(&layout, &block, 8);
+        assert_eq!(count(&plain), 0);
+        let shown = count(&expert);
+        eprintln!("{shown} structural fields shown for {}", t.short);
+        assert!(shown > 0, "a weapon layout carries padding");
+        // Every one is a read-only raw leaf with a real offset.
+        fn check(nodes: &[blam_tag::view::Node]) {
+            for n in nodes {
+                if matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X") {
+                    assert!(matches!(n.value, blam_tag::Scalar::Raw(_)), "{}", n.name);
+                    assert!(!n.name.is_empty());
+                }
+                check(&n.children);
+            }
+        }
+        check(&expert);
     }
 
     #[test]

@@ -677,7 +677,7 @@ const tauriApi = {
   listGroups: () => invoke<GroupSummary[]>("list_groups"),
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
-  readTag: (index: number) => invoke<TagView>("read_tag", { index }),
+  readTag: (index: number, expert = false) => invoke<TagView>("read_tag", { index, expert }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
   objectRenderModel: (index: number) =>

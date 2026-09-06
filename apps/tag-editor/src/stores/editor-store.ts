@@ -67,6 +67,8 @@ export type Tab = {
 const VIEW_KEY = "tag-editor-view";
 /** Whether angles show in degrees; the tag always holds radians. */
 const DEGREES_KEY = "tag-editor-degrees";
+/** Whether the layout's padding and markers are shown. */
+const EXPERT_KEY = "tag-editor-expert";
 
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
@@ -199,6 +201,9 @@ type EditorState = {
   /** Show and type angles in degrees rather than the radians the tag holds. */
   degrees: boolean;
   setDegrees: (on: boolean) => void;
+  /** Show every byte of the layout: padding and markers as raw bytes. */
+  expert: boolean;
+  setExpert: (on: boolean) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
 
   /** What the left panel browses: assets, tag groups, textures, sounds, or
@@ -435,7 +440,7 @@ export const useEditor = create<EditorState>((set, get) => {
     });
     let tag: TagView;
     try {
-      tag = await api.readTag(index);
+      tag = await readTagView(index);
       set((s) => ({
         tag,
         tagLoading: false,
@@ -641,10 +646,15 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
+  /** The tag as the current view options want it. */
+  function readTagView(index: number) {
+    return api.readTag(index, get().expert);
+  }
+
   /** Re-read the tag after a paste and report what the paste did in the edit
    *  bar; fields that would not take their value are the error line. */
   async function afterPaste(index: number, path: string, report: PasteReport) {
-    const tag = await api.readTag(index);
+    const tag = await readTagView(index);
     const skipped =
       report.skipped.length === 0
         ? null
@@ -678,7 +688,7 @@ export const useEditor = create<EditorState>((set, get) => {
     } catch {
       return;
     }
-    const tag = await api.readTag(index);
+    const tag = await readTagView(index);
     set((s) => ({
       tag,
       lastEdit: null,
@@ -693,7 +703,7 @@ export const useEditor = create<EditorState>((set, get) => {
     const tab = tabs.find((t) => t.id === activeTab);
     if (!tab || tab.kind !== "tag") return;
     try {
-      const tag = await api.readTag(tab.index);
+      const tag = await readTagView(tab.index);
       set((s) => ({
         tag,
         dirtyTags: { ...s.dirtyTags, [tab.index]: tag.edited.length > 0 },
@@ -1000,6 +1010,23 @@ export const useEditor = create<EditorState>((set, get) => {
         return false;
       }
     })(),
+    expert: (() => {
+      try {
+        return localStorage.getItem(EXPERT_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    async setExpert(on) {
+      try {
+        localStorage.setItem(EXPERT_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ expert: on });
+      await refreshActiveTag();
+    },
+
     setDegrees(on) {
       try {
         localStorage.setItem(DEGREES_KEY, on ? "1" : "0");
@@ -1397,7 +1424,7 @@ export const useEditor = create<EditorState>((set, get) => {
         const lastEdit = await api.setField(index, path, value);
         // Re-read so every view of the tag reflects the change, not just
         // this row.
-        const tag = await api.readTag(index);
+        const tag = await readTagView(index);
         set((s) => ({
           lastEdit,
           editError: null,
@@ -1430,7 +1457,7 @@ export const useEditor = create<EditorState>((set, get) => {
               : op === "remove"
                 ? await api.removeElement(index, path, element ?? 0)
                 : await api.duplicateElement(index, path, element ?? 0);
-        const tag = await api.readTag(index);
+        const tag = await readTagView(index);
         set((s) => ({
           lastEdit,
           editError: null,
@@ -1536,7 +1563,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertField(index, path);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,
@@ -1550,7 +1577,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertTag(index);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,

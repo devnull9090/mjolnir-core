@@ -365,7 +365,7 @@ export const mockApi = {
   listTags: async (group: string) => mockTags.filter((t) => t.group === group),
   searchTags: async (query: string) =>
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
-  readTag: async (index: number) => withEdits(index),
+  readTag: async (index: number, _expert = false) => withEdits(index),
   readTagBytes: async () => [] as number[],
   // Resolution in the mock is by normalized path alone — enough to light up
   // both the resolved and the broken badge: the sample model's references and

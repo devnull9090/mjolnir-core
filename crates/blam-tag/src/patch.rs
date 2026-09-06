@@ -1000,7 +1000,7 @@ fn default_children_into(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1373,7 +1373,7 @@ mod tests {
         out
     }
 
-    fn synth_block_file() -> Vec<u8> {
+    pub(crate) fn synth_block_file() -> Vec<u8> {
         let body_layout = synth_block_layout();
         let payload = synth_block_payload();
 

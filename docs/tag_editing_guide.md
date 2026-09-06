@@ -345,6 +345,10 @@ written by name, tag references as `group:path`. Angles are radians in the tag a
 the **rad / deg** toggle in the tag header shows them in degrees and takes degrees when you
 type, converting at the edge (a copied element or a TSV still carries radians).
 
+The **expert** toggle next to it shows the layout's structural fields too — padding, `custom`
+markers and the terminator — as read-only raw bytes at their offsets, so a definition can be
+checked against the bytes it claims to describe.
+
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.

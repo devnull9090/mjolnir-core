@@ -342,6 +342,8 @@ export function TagHeader() {
   const setViewMode = useEditor((s) => s.setViewMode);
   const degrees = useEditor((s) => s.degrees);
   const setDegrees = useEditor((s) => s.setDegrees);
+  const expert = useEditor((s) => s.expert);
+  const setExpert = useEditor((s) => s.setExpert);
 
   if (!tag) return null;
   // Only a scenario carries Blam script, so the third view is offered only
@@ -419,6 +421,23 @@ export function TagHeader() {
             }`}
           >
             {degrees ? "deg" : "rad"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void setExpert(!expert)}
+            aria-pressed={expert}
+            title={
+              expert
+                ? "Expert view: padding, custom markers and terminators are shown as raw bytes at their offsets. Click to hide them."
+                : "Show every byte of the layout — padding, custom markers, terminators — as read-only raw fields."
+            }
+            className={`ml-1 border border-border-subtle px-2 py-0.5 font-mono text-[11px] ${
+              expert
+                ? "bg-surface-hover text-mjolnir-gold"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
+          >
+            expert
           </button>
         </div>
         <span
