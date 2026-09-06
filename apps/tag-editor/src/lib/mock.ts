@@ -21,6 +21,8 @@ import type {
   TagView,
   TestView,
   NewTagView,
+  ElementClip,
+  PasteReport,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -605,6 +607,30 @@ export const mockApi = {
     remember();
     edits.set(path, `duplicate ${element}`);
     return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
+  },
+  insertElement: async (_index: number, path: string, at: number): Promise<EditResult> => {
+    remember();
+    edits.set(path, `insert ${at}`);
+    return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
+  },
+  copyElement: async (_index: number, path: string, element: number): Promise<ElementClip> => ({
+    group: "scenario",
+    block: "sky_reference_block",
+    source: `${path}[${element}] of b30`,
+    fields: [{ path: "sky", value: "sky:sky\\clear afternoon\\clear afternoon", op: false }],
+    skipped: [],
+  }),
+  pasteElement: async (_index: number, path: string): Promise<PasteReport> => {
+    remember();
+    edits.set(path, "add");
+    return { element: 1, elements: 1, applied: 1, unchanged: 0, skipped: [] };
+  },
+  copyBlockTsv: async () => "sky\nsky:sky\\clear afternoon\\clear afternoon\n",
+  pasteBlockTsv: async (_index: number, path: string, tsv: string): Promise<PasteReport> => {
+    remember();
+    edits.set(path, "add");
+    const rows = tsv.split(/\r?\n/).filter((l) => l.trim()).length - 1;
+    return { element: 1, elements: Math.max(rows, 0), applied: rows, unchanged: 0, skipped: [] };
   },
   revertField: async (_index: number, path: string) => {
     remember();

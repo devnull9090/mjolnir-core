@@ -451,6 +451,9 @@ fn parse_op(value: &str) -> Option<blam_tag::patch::ElementOp> {
     if let Some(n) = v.strip_prefix("duplicate ") {
         return n.trim().parse().ok().map(ElementOp::Duplicate);
     }
+    if let Some(n) = v.strip_prefix("insert ") {
+        return n.trim().parse().ok().map(ElementOp::Insert);
+    }
     None
 }
 
@@ -717,10 +720,24 @@ fn set_field(
     value: String,
     state: State<'_, AppState>,
 ) -> Result<EditResult, String> {
-    let key = tag_key(&state, index)?;
-    let pending = pending_for(&state, &key)?;
+    set_field_inner(index, path, value, &state, true)
+}
 
-    let result = with_catalog(&state, |c| {
+/// Apply one field edit to the tag as it currently stands and record it once
+/// it is known to work. `journal` is false when the caller journals a whole
+/// batch itself (a paste), in which case an edit that changes nothing is not
+/// recorded either.
+fn set_field_inner(
+    index: usize,
+    path: String,
+    value: String,
+    state: &State<'_, AppState>,
+    journal: bool,
+) -> Result<EditResult, String> {
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+
+    let result = with_catalog(state, |c| {
         let file = patched_bytes(c, index, &pending)?;
         // The pending edits may already have resized the tag, so the shipped
         // chunk length no longer describes `file`; its own length does.
@@ -769,8 +786,13 @@ fn set_field(
     })?;
 
     // Only record once it is known to work.
+    if !journal && result.changed_bytes == 0 {
+        return Ok(result);
+    }
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
-    work.remember(&key);
+    if journal {
+        work.remember(&key);
+    }
     let list = work.edits.entry(key).or_default();
     list.retain(|e| e.path != path);
     list.push(PendingEdit { path, value });
@@ -789,6 +811,7 @@ fn record_element_op(
     path: String,
     value: String,
     state: &State<'_, AppState>,
+    journal: bool,
 ) -> Result<EditResult, String> {
     let op = parse_op(&value).ok_or("unrecognised element operation")?;
     let key = tag_key(state, index)?;
@@ -826,7 +849,9 @@ fn record_element_op(
     // Element ops stack rather than replace: two adds are two elements, so
     // the same-path dedupe a value edit gets would lose the first one.
     let mut work = state.work.lock().map_err(|e| e.to_string())?;
-    work.remember(&key);
+    if journal {
+        work.remember(&key);
+    }
     work.edits
         .entry(key)
         .or_default()
@@ -837,7 +862,18 @@ fn record_element_op(
 
 #[tauri::command]
 fn add_element(index: usize, path: String, state: State<'_, AppState>) -> Result<EditResult, String> {
-    record_element_op(index, path, "add".to_string(), &state)
+    record_element_op(index, path, "add".to_string(), &state, true)
+}
+
+/// Insert a fresh element at `at`, before the element now there.
+#[tauri::command]
+fn insert_element(
+    index: usize,
+    path: String,
+    at: usize,
+    state: State<'_, AppState>,
+) -> Result<EditResult, String> {
+    record_element_op(index, path, format!("insert {at}"), &state, true)
 }
 
 #[tauri::command]
@@ -847,7 +883,7 @@ fn remove_element(
     element: usize,
     state: State<'_, AppState>,
 ) -> Result<EditResult, String> {
-    record_element_op(index, path, format!("remove {element}"), &state)
+    record_element_op(index, path, format!("remove {element}"), &state, true)
 }
 
 #[tauri::command]
@@ -857,7 +893,380 @@ fn duplicate_element(
     element: usize,
     state: State<'_, AppState>,
 ) -> Result<EditResult, String> {
-    record_element_op(index, path, format!("duplicate {element}"), &state)
+    record_element_op(index, path, format!("duplicate {element}"), &state, true)
+}
+
+/// One step of an element recipe: set a field to text, or (`op`) apply an
+/// element op to a nested block — `add` before the fields inside the element
+/// it creates.
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct RecipeStep {
+    /// Relative to the element, e.g. `firing.rounds per second`.
+    path: String,
+    value: String,
+    op: bool,
+}
+
+/// One element copied out of a block, as the recipe that recreates it. Field
+/// values travel as the text the inspector accepts, so the recipe is readable
+/// and applies through the same path a typed edit takes.
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct ElementClip {
+    group: String,
+    /// The block definition's name; a paste target must be the same kind of
+    /// block.
+    block: String,
+    /// Where it came from, for the UI.
+    source: String,
+    fields: Vec<RecipeStep>,
+    /// Fields that cannot travel as text — raw data, for one.
+    skipped: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct Skipped {
+    path: String,
+    reason: String,
+}
+
+/// What a paste did.
+#[derive(Serialize)]
+struct PasteReport {
+    /// Index of the first element the paste created.
+    element: usize,
+    elements: usize,
+    /// Fields set to a value they did not already hold.
+    applied: usize,
+    /// Fields whose value the recipe matched already, so nothing was recorded.
+    unchanged: usize,
+    skipped: Vec<Skipped>,
+}
+
+/// The text a field is set with to hold `value` — the same forms the inspector
+/// and the CLI accept, chosen so they parse back to exactly this value.
+fn recipe_text(value: &blam_tag::Scalar) -> Option<String> {
+    use blam_tag::Scalar;
+    Some(match value {
+        Scalar::Int(v) => v.to_string(),
+        Scalar::Real(_) | Scalar::Reals(_) | Scalar::Ints(_) | Scalar::Color(_) | Scalar::FourCc(_) => {
+            value.display()
+        }
+        Scalar::Enum { raw, option } => option.clone().unwrap_or_else(|| raw.to_string()),
+        Scalar::Flags { raw, .. } => format!("0x{raw:x}"),
+        Scalar::BlockIndex(i) if *i < 0 => "none".to_string(),
+        Scalar::BlockIndex(i) => i.to_string(),
+        Scalar::Text(s) => s.clone(),
+        Scalar::Reference { group, path } if path.is_empty() => {
+            let _ = group;
+            "none".to_string()
+        }
+        Scalar::Reference { group, path } => format!("{group}:{path}"),
+        Scalar::Raw(_) | Scalar::Empty => return None,
+    })
+}
+
+/// The node at a field path (`a.b[2].c`, escapes as [`blam_tag::patch::segments`]
+/// reads them) in a tag's value tree.
+fn find_node<'a>(
+    nodes: &'a [blam_tag::view::Node],
+    path: &str,
+) -> Option<&'a blam_tag::view::Node> {
+    let mut current = nodes;
+    let mut found = None;
+    for (name, index) in blam_tag::patch::segments(path) {
+        let node = current.iter().find(|n| n.name.trim() == name)?;
+        found = Some(node);
+        current = match index {
+            Some(i) => {
+                let element = node.children.get(i)?;
+                found = Some(element);
+                &element.children
+            }
+            None => &node.children,
+        };
+    }
+    found
+}
+
+/// The recipe for everything under `node`, paths relative to `prefix`.
+/// Nested blocks are walked when `blocks` is set (an element clip) and
+/// reported as skipped otherwise (a TSV row has nowhere to put them).
+fn element_recipe(
+    node: &blam_tag::view::Node,
+    prefix: &str,
+    blocks: bool,
+    out: &mut Vec<RecipeStep>,
+    skipped: &mut Vec<String>,
+) {
+    use blam_tag::view::Kind;
+    for child in &node.children {
+        let name = format!("{prefix}{}", blam_tag::patch::escape_segment(&child.name));
+        match child.kind {
+            Kind::Field => match recipe_text(&child.value) {
+                Some(value) => out.push(RecipeStep {
+                    path: name,
+                    value,
+                    op: false,
+                }),
+                None => skipped.push(format!("{name} ({})", child.type_name)),
+            },
+            Kind::Struct | Kind::Element => {
+                element_recipe(child, &format!("{name}."), blocks, out, skipped)
+            }
+            Kind::Array => {
+                for (k, element) in child.children.iter().enumerate() {
+                    element_recipe(element, &format!("{name}[{k}]."), blocks, out, skipped);
+                }
+            }
+            Kind::Block => {
+                if blocks {
+                    for (k, element) in child.children.iter().enumerate() {
+                        out.push(RecipeStep {
+                            path: name.clone(),
+                            value: "add".into(),
+                            op: true,
+                        });
+                        element_recipe(element, &format!("{name}[{k}]."), true, out, skipped);
+                    }
+                } else if !child.children.is_empty() {
+                    skipped.push(format!("{name} (a nested block)"));
+                }
+            }
+        }
+    }
+}
+
+/// Read a tag's value tree as it currently stands, then hand the block node at
+/// `path` to `f`.
+fn with_block<T>(
+    state: &State<'_, AppState>,
+    index: usize,
+    path: &str,
+    f: impl FnOnce(&catalog::TagEntry, &blam_tag::view::Node) -> Result<T, String>,
+) -> Result<T, String> {
+    let key = tag_key(state, index)?;
+    let pending = pending_for(state, &key)?;
+    with_catalog(state, |c| {
+        let entry = c.entry(index).ok_or("tag index out of range")?;
+        let file = patched_bytes(c, index, &pending)?;
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len())).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        let nodes = blam_tag::view::root(&layout, &block);
+        let node = find_node(&nodes, path).ok_or_else(|| format!("{path}: no such field"))?;
+        if !matches!(node.kind, blam_tag::view::Kind::Block) {
+            return Err(format!("{path} is not a block"));
+        }
+        f(entry, node)
+    })
+}
+
+/// Copy one element of a block as a recipe the same kind of block can take.
+#[tauri::command]
+fn copy_element(
+    index: usize,
+    path: String,
+    element: usize,
+    state: State<'_, AppState>,
+) -> Result<ElementClip, String> {
+    with_block(&state, index, &path, |entry, node| {
+        let el = node
+            .children
+            .get(element)
+            .ok_or_else(|| format!("{path} has no element {element}"))?;
+        let mut fields = Vec::new();
+        let mut skipped = Vec::new();
+        element_recipe(el, "", true, &mut fields, &mut skipped);
+        Ok(ElementClip {
+            group: entry.group.clone(),
+            block: node.block_name.clone().unwrap_or_default(),
+            source: format!(
+                "{}[{element}] of {}",
+                path,
+                entry.short.rsplit('/').next().unwrap_or(&entry.short)
+            ),
+            fields,
+            skipped,
+        })
+    })
+}
+
+/// Apply a recipe under `base` (`weapons[3]`), field by field, reporting
+/// rather than failing on a field that will not take its value.
+fn apply_recipe(
+    state: &State<'_, AppState>,
+    index: usize,
+    base: &str,
+    fields: &[RecipeStep],
+) -> (usize, usize, Vec<Skipped>) {
+    let mut applied = 0;
+    let mut unchanged = 0;
+    let mut skipped = Vec::new();
+    for step in fields {
+        let path = format!("{base}.{}", step.path);
+        let result = if step.op {
+            record_element_op(index, path.clone(), step.value.clone(), state, false)
+        } else {
+            set_field_inner(index, path.clone(), step.value.clone(), state, false)
+        };
+        match result {
+            Ok(r) if r.changed_bytes == 0 && !step.op => unchanged += 1,
+            Ok(_) => applied += 1,
+            Err(reason) => skipped.push(Skipped { path, reason }),
+        }
+    }
+    (applied, unchanged, skipped)
+}
+
+/// Paste a copied element into a block of the same kind: a fresh element at
+/// `at` (or appended), then every field of the recipe. One undo step.
+#[tauri::command]
+fn paste_element(
+    index: usize,
+    path: String,
+    at: Option<usize>,
+    clip: ElementClip,
+    state: State<'_, AppState>,
+) -> Result<PasteReport, String> {
+    let key = tag_key(&state, index)?;
+    let (count, block) = with_block(&state, index, &path, |_, node| {
+        Ok((
+            node.count.unwrap_or(node.children.len() as u32) as usize,
+            node.block_name.clone().unwrap_or_default(),
+        ))
+    })?;
+    if block != clip.block {
+        return Err(format!(
+            "the clipboard holds a {} element from {}; this block holds {}",
+            clip.block, clip.source, block
+        ));
+    }
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.remember(&key);
+    }
+    let position = at.unwrap_or(count).min(count);
+    let op = if position == count {
+        "add".to_string()
+    } else {
+        format!("insert {position}")
+    };
+    record_element_op(index, path.clone(), op, &state, false)?;
+    let (applied, unchanged, skipped) =
+        apply_recipe(&state, index, &format!("{path}[{position}]"), &clip.fields);
+    Ok(PasteReport {
+        element: position,
+        elements: 1,
+        applied,
+        unchanged,
+        skipped,
+    })
+}
+
+/// A block as tab-separated text: one column per field of an element (structs
+/// flattened, nested blocks left out), one row per element.
+#[tauri::command]
+fn copy_block_tsv(index: usize, path: String, state: State<'_, AppState>) -> Result<String, String> {
+    with_block(&state, index, &path, |_, node| {
+        let first = node
+            .children
+            .first()
+            .ok_or_else(|| format!("{path} has no elements to copy"))?;
+        let mut header = Vec::new();
+        let mut skipped = Vec::new();
+        element_recipe(first, "", false, &mut header, &mut skipped);
+        let columns: Vec<&str> = header.iter().map(|s| s.path.as_str()).collect();
+        let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+        let mut out = columns.join("\t");
+        out.push('\n');
+        for element in &node.children {
+            let mut steps = Vec::new();
+            let mut ignored = Vec::new();
+            element_recipe(element, "", false, &mut steps, &mut ignored);
+            let row: Vec<String> = columns
+                .iter()
+                .map(|c| {
+                    steps
+                        .iter()
+                        .find(|s| s.path == *c)
+                        .map(|s| clean(&s.value))
+                        .unwrap_or_default()
+                })
+                .collect();
+            out.push_str(&row.join("\t"));
+            out.push('\n');
+        }
+        Ok(out)
+    })
+}
+
+/// Fill a block from tab-separated text whose header names the fields: one new
+/// element per row, `replace` first removing what is there. One undo step.
+#[tauri::command]
+fn paste_block_tsv(
+    index: usize,
+    path: String,
+    tsv: String,
+    replace: bool,
+    state: State<'_, AppState>,
+) -> Result<PasteReport, String> {
+    let key = tag_key(&state, index)?;
+    let mut lines = tsv
+        .lines()
+        .map(|l| l.trim_end_matches('\r'))
+        .filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .ok_or("the text is empty")?
+        .split('\t')
+        .map(|h| h.trim().to_string())
+        .collect();
+    let rows: Vec<Vec<String>> = lines
+        .map(|l| l.split('\t').map(|c| c.trim().to_string()).collect())
+        .collect();
+    if rows.is_empty() {
+        return Err("the text has a header but no rows".into());
+    }
+    let mut count = with_block(&state, index, &path, |_, node| {
+        Ok(node.count.unwrap_or(node.children.len() as u32) as usize)
+    })?;
+    {
+        let mut work = state.work.lock().map_err(|e| e.to_string())?;
+        work.remember(&key);
+    }
+    if replace {
+        for _ in 0..count {
+            record_element_op(index, path.clone(), "remove 0".into(), &state, false)?;
+        }
+        count = 0;
+    }
+    let first = count;
+    let (mut applied, mut unchanged, mut skipped) = (0, 0, Vec::new());
+    for row in &rows {
+        record_element_op(index, path.clone(), "add".into(), &state, false)?;
+        let fields: Vec<RecipeStep> = header
+            .iter()
+            .zip(row.iter())
+            .filter(|(_, cell)| !cell.is_empty())
+            .map(|(col, cell)| RecipeStep {
+                path: col.clone(),
+                value: cell.clone(),
+                op: false,
+            })
+            .collect();
+        let (a, u, mut sk) = apply_recipe(&state, index, &format!("{path}[{count}]"), &fields);
+        applied += a;
+        unchanged += u;
+        skipped.append(&mut sk);
+        count += 1;
+    }
+    Ok(PasteReport {
+        element: first,
+        elements: rows.len(),
+        applied,
+        unchanged,
+        skipped,
+    })
 }
 
 /// Work out everything a live poke needs, while the catalog lock is held.
@@ -4447,8 +4856,13 @@ pub fn run() {
             read_mesh,
             set_field,
             add_element,
+            insert_element,
             remove_element,
             duplicate_element,
+            copy_element,
+            paste_element,
+            copy_block_tsv,
+            paste_block_tsv,
             live_status,
             live_forget,
             live_poke,
@@ -4548,6 +4962,171 @@ mod tests {
         w.edits.get_mut(&key).unwrap().push(edit("c", "3"));
         assert_eq!(w.history_of(&key).redo, 0);
         assert_eq!(w.history_of(&key).undo, 2);
+    }
+
+    #[test]
+    fn a_field_path_finds_its_node() {
+        use blam_tag::view::{Kind, Node};
+        let leaf = |name: &str| Node {
+            kind: Kind::Field,
+            name: name.into(),
+            type_name: "real".into(),
+            offset: 0,
+            size: 4,
+            value: blam_tag::Scalar::Real(1.5),
+            options: Vec::new(),
+            block_name: None,
+            max_count: None,
+            count: None,
+            children: Vec::new(),
+        };
+        let element = |fields: Vec<Node>| Node {
+            kind: Kind::Element,
+            name: String::new(),
+            type_name: String::new(),
+            offset: 0,
+            size: 0,
+            value: blam_tag::Scalar::Empty,
+            options: Vec::new(),
+            block_name: None,
+            max_count: None,
+            count: None,
+            children: fields,
+        };
+        let block = Node {
+            kind: Kind::Block,
+            name: "barrels".into(),
+            type_name: "block".into(),
+            offset: 0,
+            size: 0,
+            value: blam_tag::Scalar::Empty,
+            options: Vec::new(),
+            block_name: Some("weapon_barrels".into()),
+            max_count: Some(2),
+            count: Some(2),
+            children: vec![element(vec![leaf("spread")]), element(vec![leaf("spread")])],
+        };
+        let nodes = vec![leaf("mass"), block];
+        assert_eq!(find_node(&nodes, "mass").map(|n| n.name.as_str()), Some("mass"));
+        assert!(matches!(find_node(&nodes, "barrels").map(|n| n.kind), Some(Kind::Block)));
+        assert!(matches!(find_node(&nodes, "barrels[1]").map(|n| n.kind), Some(Kind::Element)));
+        assert_eq!(
+            find_node(&nodes, "barrels[1].spread").map(|n| n.type_name.as_str()),
+            Some("real")
+        );
+        assert!(find_node(&nodes, "barrels[2].spread").is_none());
+        assert!(find_node(&nodes, "nothing").is_none());
+
+        let mut steps = Vec::new();
+        let mut skipped = Vec::new();
+        element_recipe(&nodes[1].children[0], "", true, &mut steps, &mut skipped);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].path, "spread");
+        assert_eq!(steps[0].value, "1.5");
+        assert!(skipped.is_empty());
+    }
+
+    /// Every recipe text must parse back to exactly the value it came from —
+    /// the promise a paste relies on. Checked over the first tag of every
+    /// group in a real installation.
+    #[test]
+    fn recipe_text_round_trips_every_field_of_every_group() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let mut checked = 0usize;
+        let mut failures: Vec<String> = Vec::new();
+        for group in c.groups().unwrap() {
+            let Some(t) = c.tags_in(&group.group, 1).into_iter().next() else {
+                continue;
+            };
+            let file = c.read_tag(t.index).unwrap();
+            let tag = blam_tag::TagFile::parse(&file, Some(file.len())).unwrap();
+            let layout = tag.layout().unwrap();
+            let Ok(block) = tag.read_data(&layout) else {
+                continue;
+            };
+            // Cap the walk: a scenario has millions of elements.
+            let nodes = blam_tag::view::root_capped(&layout, &block, 4);
+            let root = blam_tag::view::Node {
+                kind: blam_tag::view::Kind::Element,
+                name: String::new(),
+                type_name: String::new(),
+                offset: 0,
+                size: 0,
+                value: blam_tag::Scalar::Empty,
+                options: Vec::new(),
+                block_name: None,
+                max_count: None,
+                count: None,
+                children: nodes,
+            };
+            let mut steps = Vec::new();
+            let mut skipped = Vec::new();
+            element_recipe(&root, "", true, &mut steps, &mut skipped);
+            for step in steps.iter().filter(|s| !s.op) {
+                let target = match blam_tag::patch::resolve(&layout, &file, &block, &step.path) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        failures.push(format!("{}: {}: {e}", t.short, step.path));
+                        continue;
+                    }
+                };
+                let parsed = match target.type_name.as_str() {
+                    // The two kinds `set_field` parses itself.
+                    "string id" => Ok(blam_tag::Scalar::Text(step.value.clone())),
+                    "tag reference" => parse_reference(&step.value).map_err(|e| e.to_string()),
+                    _ => blam_tag::value::parse(&layout, &target.field, &step.value)
+                        .map_err(|e| e.to_string()),
+                };
+                match parsed {
+                    Ok(v) if scalar_matches(&v, &target.current) => checked += 1,
+                    Ok(v) => failures.push(format!(
+                        "{}: {} = {:?} parsed {:?} from {:?}",
+                        t.short, step.path, target.current, v, step.value
+                    )),
+                    Err(e) => failures.push(format!("{}: {}: {e}", t.short, step.path)),
+                }
+            }
+        }
+        eprintln!("{checked} fields round-tripped");
+        for f in &failures {
+            eprintln!("FAIL {f}");
+        }
+        assert!(checked > 1000, "too few fields checked: {checked}");
+        assert!(
+            failures.is_empty(),
+            "{} field(s) do not round-trip; first: {:?}",
+            failures.len(),
+            &failures[..failures.len().min(10)]
+        );
+    }
+
+    /// Equality for the round-trip: a parsed enum or flags value carries the
+    /// option names the layout resolves, which the reader also resolved, so a
+    /// plain comparison holds; reals compare as their f32 bits after the
+    /// display precision the text carries.
+    fn scalar_matches(parsed: &blam_tag::Scalar, current: &blam_tag::Scalar) -> bool {
+        use blam_tag::Scalar;
+        match (parsed, current) {
+            (Scalar::Real(a), Scalar::Real(b)) => {
+                a == b || (a - b).abs() <= b.abs() * 1e-6 + 1e-6
+            }
+            (Scalar::Reals(a), Scalar::Reals(b)) => {
+                a.len() == b.len()
+                    && a
+                        .iter()
+                        .zip(b)
+                        .all(|(x, y)| x == y || (x - y).abs() <= y.abs() * 1e-6 + 1e-6)
+            }
+            (Scalar::Enum { raw: a, .. }, Scalar::Enum { raw: b, .. }) => a == b,
+            (Scalar::Flags { raw: a, .. }, Scalar::Flags { raw: b, .. }) => a == b,
+            (Scalar::Reference { group: g1, path: p1 }, Scalar::Reference { group: g2, path: p2 }) => {
+                p1 == p2 && (g1 == g2 || p1.is_empty())
+            }
+            (a, b) => a == b,
+        }
     }
 
     #[test]

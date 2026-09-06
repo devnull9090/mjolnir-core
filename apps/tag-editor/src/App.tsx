@@ -19,6 +19,7 @@ import { Shortcuts } from "./components/Shortcuts";
 import { QuickOpen } from "./components/QuickOpen";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { NewTagDialog } from "./components/NewTagDialog";
+import { TsvPasteDialog } from "./components/TsvPasteDialog";
 import { MODEL_GROUPS } from "./stores/editor-store";
 
 export default function App() {
@@ -73,6 +74,7 @@ function Editor() {
       <Shortcuts />
       <QuickOpen />
       <NewTagDialog />
+      <TsvPasteDialog />
       <ContextMenuHost />
       <TagTree />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

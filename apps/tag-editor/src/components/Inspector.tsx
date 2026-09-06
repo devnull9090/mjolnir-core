@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { fieldPath } from "../lib/paths";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
 import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
@@ -182,8 +183,7 @@ function Branch({
 
 /** Join a parent path with a child, matching what `mjolnir set --field` takes. */
 function childPath(parent: string, node: NodeView): string {
-  if (node.kind === "element") return `${parent}${node.name}`;
-  return parent ? `${parent}.${node.name}` : node.name;
+  return fieldPath(parent, node.name, node.kind);
 }
 
 function Node({ node, depth, path }: { node: NodeView; depth: number; path: string }) {
@@ -290,7 +290,7 @@ export function Inspector() {
           <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
         ) : (
           tag.fields.map((node, i) => (
-            <Node key={`${node.name}-${i}`} node={node} depth={0} path={node.name} />
+            <Node key={`${node.name}-${i}`} node={node} depth={0} path={fieldPath("", node.name)} />
           ))
         )}
       </div>

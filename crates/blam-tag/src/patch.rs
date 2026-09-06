@@ -81,38 +81,59 @@ fn offset_within(whole: &[u8], part: &[u8]) -> usize {
 }
 
 /// Split `a.b[2].c` into its segments, keeping any index with its name.
-fn segments(path: &str) -> Vec<(String, Option<usize>)> {
-    // A `\.` is a literal dot inside a field name — the Havok mopp header's
-    // fields are named `v.i`..`v.w` — so the split walks characters rather
-    // than using str::split.
-    let mut parts: Vec<String> = Vec::new();
-    let mut current = String::new();
+///
+/// A backslash escapes the next character: `\.` is a literal dot inside a
+/// field name (the Havok mopp header's fields are named `v.i`..`v.w`), and
+/// `\[` / `\]` are literal brackets (the HUD's `message anchor v[0,1]` and
+/// friends carry them in their names). [`escape_segment`] writes a name in
+/// that form.
+pub fn segments(path: &str) -> Vec<(String, Option<usize>)> {
+    let mut out: Vec<(String, Option<usize>)> = Vec::new();
+    let mut name = String::new();
+    let mut index: Option<String> = None;
     let mut chars = path.chars().peekable();
+    let mut flush = |name: &mut String, index: &mut Option<String>| {
+        let n = name.trim().to_string();
+        let i = index.take().and_then(|i| i.trim().parse::<usize>().ok());
+        if !n.is_empty() || i.is_some() {
+            out.push((n, i));
+        }
+        name.clear();
+    };
     while let Some(c) = chars.next() {
         match c {
-            '\\' if chars.peek() == Some(&'.') => {
-                current.push('.');
-                chars.next();
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    match &mut index {
+                        Some(i) => i.push(next),
+                        None => name.push(next),
+                    }
+                }
             }
-            '.' => {
-                parts.push(std::mem::take(&mut current));
-            }
-            _ => current.push(c),
+            '.' => flush(&mut name, &mut index),
+            '[' if index.is_none() => index = Some(String::new()),
+            ']' if index.is_some() => {}
+            _ => match &mut index {
+                Some(i) => i.push(c),
+                None => name.push(c),
+            },
         }
     }
-    parts.push(current);
+    flush(&mut name, &mut index);
+    out
+}
 
-    parts
-        .iter()
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| match s.split_once('[') {
-            Some((name, rest)) => (
-                name.trim().to_string(),
-                rest.trim_end_matches(']').trim().parse::<usize>().ok(),
-            ),
-            None => (s.trim().to_string(), None),
-        })
-        .collect()
+/// A field name written as one path segment: dots and brackets in the name
+/// escaped so [`segments`] reads them as part of the name.
+pub fn escape_segment(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if matches!(c, '.' | '[' | ']' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Find the field a path names, and where its bytes are in `file`.
@@ -221,7 +242,8 @@ fn locate<'v, 'a>(
             } else {
                 None
             };
-            if layout.string_at(field.name_offset).unwrap_or("") == name {
+            // Definition names can carry a trailing space; the path never does.
+            if layout.string_at(field.name_offset).unwrap_or("").trim() == name {
                 found = Some((field, offset, size, value));
                 break;
             }
@@ -645,6 +667,9 @@ pub fn payload_offset(body_offset: usize) -> usize {
 pub enum ElementOp {
     /// Append one default-initialised element.
     Add,
+    /// Insert one default-initialised element at position `i`, before the
+    /// element now there; `i == count` appends.
+    Insert(usize),
     /// Insert a copy of element `i` directly after it.
     Duplicate(usize),
     /// Remove element `i`.
@@ -696,8 +721,17 @@ pub fn edit_elements(
             });
         }
     }
+    if let ElementOp::Insert(i) = op {
+        if i > count {
+            return Err(Error::IndexOutOfRange {
+                at: path.to_string(),
+                index: i,
+                count: inner.count,
+            });
+        }
+    }
     let new_count = match op {
-        ElementOp::Add | ElementOp::Duplicate(_) => {
+        ElementOp::Add | ElementOp::Insert(_) | ElementOp::Duplicate(_) => {
             if entry.max_count != 0 && inner.count >= entry.max_count {
                 return Err(Error::BlockFull {
                     at: path.to_string(),
@@ -715,7 +749,7 @@ pub fn edit_elements(
     // The packed bytes and (when this block wraps its elements) the `tgst`
     // wrapper of the element being introduced.
     let (fresh_packed, fresh_wrapper) = match op {
-        ElementOp::Add => (
+        ElementOp::Add | ElementOp::Insert(_) => (
             default_packed(layout, run, path)?,
             if wrapped {
                 default_wrapper(layout, run, path)?
@@ -735,7 +769,7 @@ pub fn edit_elements(
         ),
         ElementOp::Remove(_) => (Vec::new(), Vec::new()),
     };
-    if matches!(op, ElementOp::Add) && fresh_packed.len() != size {
+    if matches!(op, ElementOp::Add | ElementOp::Insert(_)) && fresh_packed.len() != size {
         // The layout described an element this builder could not reproduce
         // exactly; refusing beats writing a block the game cannot read.
         return Err(Error::NoDefault {
@@ -757,6 +791,11 @@ pub fn edit_elements(
             content.extend_from_slice(inner.elements);
             content.extend_from_slice(&fresh_packed);
         }
+        ElementOp::Insert(i) => {
+            content.extend_from_slice(&inner.elements[..i * size]);
+            content.extend_from_slice(&fresh_packed);
+            content.extend_from_slice(&inner.elements[i * size..]);
+        }
         ElementOp::Duplicate(i) => {
             content.extend_from_slice(&inner.elements[..(i + 1) * size]);
             content.extend_from_slice(&fresh_packed);
@@ -772,12 +811,15 @@ pub fn edit_elements(
             if matches!(op, ElementOp::Remove(i) if i == k) {
                 continue;
             }
+            if matches!(op, ElementOp::Insert(i) if i == k) {
+                content.extend_from_slice(&fresh_wrapper);
+            }
             content.extend_from_slice(&crate::write::wrapper_section(element));
             if matches!(op, ElementOp::Duplicate(i) if i == k) {
                 content.extend_from_slice(&fresh_wrapper);
             }
         }
-        if matches!(op, ElementOp::Add) {
+        if matches!(op, ElementOp::Add) || matches!(op, ElementOp::Insert(i) if i == count) {
             content.extend_from_slice(&fresh_wrapper);
         }
     }
@@ -985,6 +1027,30 @@ mod tests {
         assert_eq!(
             segments("rounds total maximum"),
             vec![("rounds total maximum".to_string(), None)]
+        );
+    }
+
+    #[test]
+    fn escaped_dots_and_brackets_stay_in_the_name() {
+        assert_eq!(
+            segments("mopp data block[0].v\\.i"),
+            vec![
+                ("mopp data block".to_string(), Some(0)),
+                ("v.i".to_string(), None)
+            ]
+        );
+        assert_eq!(
+            segments("hud[2].message anchor v\\[0,1\\]"),
+            vec![
+                ("hud".to_string(), Some(2)),
+                ("message anchor v[0,1]".to_string(), None)
+            ]
+        );
+        assert_eq!(escape_segment("v.i"), "v\\.i");
+        assert_eq!(escape_segment("message anchor v[0,1]"), "message anchor v\\[0,1\\]");
+        assert_eq!(
+            segments(&format!("{}.{}", escape_segment("a.b"), escape_segment("c[1]"))),
+            vec![("a.b".to_string(), None), ("c[1]".to_string(), None)]
         );
     }
 
@@ -1403,6 +1469,39 @@ mod tests {
             edit_elements(layout, &grown, block, "items", ElementOp::Remove(2)).unwrap()
         });
         assert_eq!(back, file);
+    }
+
+    #[test]
+    fn inserting_at_the_front_shifts_the_others_and_at_the_end_appends() {
+        let file = synth_block_file();
+        let (out, applied) = with_tag(&file, |layout, block| {
+            edit_elements(layout, &file, block, "items", ElementOp::Insert(0)).unwrap()
+        });
+        assert_eq!(applied.after, Scalar::Int(3));
+        assert_reads_exactly(&out);
+        with_tag(&out, |layout, block| {
+            // The fresh element sits first; the shipped two follow intact.
+            let t = resolve(layout, &out, block, "items[1].label").unwrap();
+            assert_eq!(t.current, Scalar::Text("aa".into()));
+            let t = resolve(layout, &out, block, "items[2].label").unwrap();
+            assert_eq!(t.current, Scalar::Text("bb".into()));
+            let t = resolve(layout, &out, block, "items[0].n").unwrap();
+            assert_eq!(t.current, Scalar::Int(0));
+        });
+
+        // Inserting at the count is the same as adding.
+        let (added, _) = with_tag(&file, |layout, block| {
+            edit_elements(layout, &file, block, "items", ElementOp::Add).unwrap()
+        });
+        let (inserted, _) = with_tag(&file, |layout, block| {
+            edit_elements(layout, &file, block, "items", ElementOp::Insert(2)).unwrap()
+        });
+        assert_eq!(added, inserted);
+
+        // Past the count is refused.
+        with_tag(&file, |layout, block| {
+            assert!(edit_elements(layout, &file, block, "items", ElementOp::Insert(3)).is_err());
+        });
     }
 
     #[test]

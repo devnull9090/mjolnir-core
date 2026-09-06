@@ -98,6 +98,30 @@ export type TagView = {
 /** Depth of a tag's undo and redo stacks. */
 export type HistoryView = { undo: number; redo: number };
 
+/** One step of an element recipe: a field set to text, or an element op on a
+ *  nested block. */
+export type RecipeStep = { path: string; value: string; op: boolean };
+
+/** One element copied out of a block, as the recipe that recreates it. */
+export type ElementClip = {
+  group: string;
+  /** The block definition's name; a paste target must match. */
+  block: string;
+  /** Where it came from, for display. */
+  source: string;
+  fields: RecipeStep[];
+  /** Fields that could not travel as text. */
+  skipped: string[];
+};
+
+export type PasteReport = {
+  element: number;
+  elements: number;
+  applied: number;
+  unchanged: number;
+  skipped: { path: string; reason: string }[];
+};
+
 export type ScriptSourceFile = {
   name: string;
   text: string;
@@ -678,6 +702,16 @@ const tauriApi = {
     invoke<EditResult>("remove_element", { index, path, element }),
   duplicateElement: (index: number, path: string, element: number) =>
     invoke<EditResult>("duplicate_element", { index, path, element }),
+  insertElement: (index: number, path: string, at: number) =>
+    invoke<EditResult>("insert_element", { index, path, at }),
+  copyElement: (index: number, path: string, element: number) =>
+    invoke<ElementClip>("copy_element", { index, path, element }),
+  pasteElement: (index: number, path: string, at: number | null, clip: ElementClip) =>
+    invoke<PasteReport>("paste_element", { index, path, at, clip }),
+  copyBlockTsv: (index: number, path: string) =>
+    invoke<string>("copy_block_tsv", { index, path }),
+  pasteBlockTsv: (index: number, path: string, tsv: string, replace: boolean) =>
+    invoke<PasteReport>("paste_block_tsv", { index, path, tsv, replace }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>

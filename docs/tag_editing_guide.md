@@ -352,9 +352,14 @@ tag's edits counts, including element changes and reverts, and the edit bar show
 steps remain either way. The journal is per tag and lives for the session; the project file
 holds the current recipe, not its history.
 
-**Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
-**del**: add appends a new element, dup inserts a copy of the selected element after it, del
-removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **ins**, **dup**,
+**del**, **copy** and **paste**: add appends a new element, ins puts one in front of the selected
+element, dup inserts a copy of the selected element after it, del removes the selected one, copy
+takes the selected element as a recipe of its fields, and paste puts that recipe after the
+selected element of any block of the same kind — in this tag or another. Right-click the bar for
+the same commands and for **Copy Block as TSV** / **Paste TSV into Block…**, which move a whole
+block through a spreadsheet: one row per element, one column per field, the header naming the
+fields (nested blocks stay out of the table). A new element is not all zeroes — a tag reference starts unset and a
 block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
 else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
 — whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so

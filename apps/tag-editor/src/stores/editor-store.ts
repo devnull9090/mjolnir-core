@@ -28,7 +28,10 @@ import {
   type SwapReport,
   type ScriptView,
   type CompileReport,
+  type ElementClip,
+  type PasteReport,
 } from "../lib/api";
+import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/mock";
 import {
@@ -319,9 +322,21 @@ type EditorState = {
   /** Add, duplicate or remove one element of the block at `path`. */
   editElements: (
     path: string,
-    op: "add" | "remove" | "duplicate",
+    op: "add" | "remove" | "duplicate" | "insert",
     element?: number,
   ) => Promise<boolean>;
+  /** The element last copied, to paste into a block of the same kind. */
+  elementClipboard: ElementClip | null;
+  copyElement: (path: string, element: number) => Promise<void>;
+  /** Paste the clipboard element at `at`, or append when null. */
+  pasteElement: (path: string, at: number | null) => Promise<boolean>;
+  copyBlockTsv: (path: string) => Promise<void>;
+  /** The block a TSV paste dialog is open for. */
+  tsvPaste: { path: string; label: string } | null;
+  openTsvPaste: (path: string, label: string) => void;
+  closeTsvPaste: () => void;
+  /** Resolves to a problem to show, or null on success. */
+  pasteBlockTsv: (tsv: string, replace: boolean) => Promise<string | null>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
   /** Where each of the open tag's references lands, keyed by [refKey]. A null
@@ -619,6 +634,33 @@ export const useEditor = create<EditorState>((set, get) => {
     for (const t of get().tabs) {
       if (t.kind === "tag" && added.some((a) => a.index === t.index)) get().closeTab(t.id);
     }
+  }
+
+  /** Re-read the tag after a paste and report what the paste did in the edit
+   *  bar; fields that would not take their value are the error line. */
+  async function afterPaste(index: number, path: string, report: PasteReport) {
+    const tag = await api.readTag(index);
+    const skipped =
+      report.skipped.length === 0
+        ? null
+        : `${report.skipped.length} field${report.skipped.length === 1 ? "" : "s"} kept ` +
+          `their value: ${report.skipped
+            .slice(0, 3)
+            .map((s) => `${s.path} (${s.reason})`)
+            .join("; ")}${report.skipped.length > 3 ? "; …" : ""}`;
+    set((s) => ({
+      tag,
+      lastEdit: {
+        path: `${path}[${report.element}]`,
+        type: "paste",
+        before: `${report.elements} element${report.elements === 1 ? "" : "s"} added`,
+        after: `${report.applied} field${report.applied === 1 ? "" : "s"} set, ${report.unchanged} already matched`,
+        changed_bytes: report.applied,
+      },
+      editError: skipped,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
   }
 
   /** One undo or redo step on the active tag, then re-read it. A journal
@@ -1362,9 +1404,11 @@ export const useEditor = create<EditorState>((set, get) => {
         const lastEdit =
           op === "add"
             ? await api.addElement(index, path)
-            : op === "remove"
-              ? await api.removeElement(index, path, element ?? 0)
-              : await api.duplicateElement(index, path, element ?? 0);
+            : op === "insert"
+              ? await api.insertElement(index, path, element ?? 0)
+              : op === "remove"
+                ? await api.removeElement(index, path, element ?? 0)
+                : await api.duplicateElement(index, path, element ?? 0);
         const tag = await api.readTag(index);
         set((s) => ({
           lastEdit,
@@ -1497,6 +1541,66 @@ export const useEditor = create<EditorState>((set, get) => {
 
     async undoEdit() {
       await stepHistory(api.undoEdit);
+    },
+
+    elementClipboard: null,
+    async copyElement(path, element) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        const clip = await api.copyElement(index, path, element);
+        set({ elementClipboard: clip, editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    async pasteElement(path, at) {
+      const index = get().selectedTag;
+      const clip = get().elementClipboard;
+      if (index === null || !clip) return false;
+      try {
+        const report = await api.pasteElement(index, path, at, clip);
+        await afterPaste(index, path, report);
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async copyBlockTsv(path) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        await copyText(await api.copyBlockTsv(index, path));
+        set({ editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    tsvPaste: null,
+    openTsvPaste(path, label) {
+      set({ tsvPaste: { path, label } });
+    },
+    closeTsvPaste() {
+      set({ tsvPaste: null });
+    },
+
+    async pasteBlockTsv(tsv, replace) {
+      const index = get().selectedTag;
+      const target = get().tsvPaste;
+      if (index === null || !target) return "no block to paste into";
+      let report;
+      try {
+        report = await api.pasteBlockTsv(index, target.path, tsv, replace);
+      } catch (e) {
+        return String(e);
+      }
+      set({ tsvPaste: null });
+      await afterPaste(index, target.path, report);
+      return null;
     },
 
     async redoEdit() {

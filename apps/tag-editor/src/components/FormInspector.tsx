@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { fieldPath } from "../lib/paths";
 import { refKey, useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
 import { useTabUi } from "../lib/tab-ui";
@@ -304,6 +305,11 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
   const editElements = useEditor((s) => s.editElements);
   const revertField = useEditor((s) => s.revertField);
   const edited = useEditor((s) => s.tag?.edited ?? []);
+  const copyElement = useEditor((s) => s.copyElement);
+  const pasteElement = useEditor((s) => s.pasteElement);
+  const copyBlockTsv = useEditor((s) => s.copyBlockTsv);
+  const openTsvPaste = useEditor((s) => s.openTsvPaste);
+  const clipboard = useEditor((s) => s.elementClipboard);
 
   const isStruct = node.kind === "struct";
   // Only a block can gain or lose elements; an array's count is fixed by the
@@ -331,6 +337,28 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
       setOpen(true);
     }
   };
+  // A fresh element in front of the selected one, which stays selected.
+  const insert = async () => {
+    if (await editElements(path, "insert", elements.length === 0 ? 0 : index)) {
+      setOpen(true);
+    }
+  };
+  // The clipboard only fits a block of the same definition.
+  const canPaste = clipboard !== null && clipboard.block === (node.block ?? "");
+  const pasteTitle =
+    clipboard === null
+      ? "Nothing copied yet — copy an element first"
+      : canPaste
+        ? `Paste ${clipboard.source} after the selected element`
+        : `The clipboard holds a ${clipboard.block} element; this block holds ${node.block ?? "another kind"}`;
+  const paste = async () => {
+    const at = elements.length === 0 ? null : index + 1;
+    if (await pasteElement(path, at)) {
+      setElement(at ?? 0);
+      setOpen(true);
+    }
+  };
+  const label = node.name || node.block || "block";
 
   const barMenu = (e: React.MouseEvent) => {
     // A right-click on the element dropdown keeps the control's own behavior.
@@ -350,10 +378,39 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
           disabled: elements.length === 0 || atMax,
         },
         {
+          label: "Insert Element Before",
+          action: () => void insert(),
+          disabled: atMax,
+        },
+        {
           label: "Delete Element",
           action: () => void editElements(path, "remove", index),
           disabled: elements.length === 0,
           danger: true,
+        },
+        "separator",
+        {
+          label: "Copy Element",
+          action: () => void copyElement(path, index),
+          disabled: elements.length === 0,
+        },
+        {
+          label: "Paste Element After",
+          action: () => void paste(),
+          disabled: !canPaste || atMax,
+          title: pasteTitle,
+        },
+        "separator",
+        {
+          label: "Copy Block as TSV",
+          action: () => void copyBlockTsv(path),
+          disabled: elements.length === 0,
+          title: "One row per element, one column per field; nested blocks are left out",
+        },
+        {
+          label: "Paste TSV into Block…",
+          action: () => openTsvPaste(path, label),
+          title: "Rows become new elements; the header names the fields",
         },
         "separator",
         {
@@ -429,6 +486,15 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                 <button
                   type="button"
                   className={BAR_BUTTON}
+                  disabled={atMax}
+                  title="Insert a new element before the selected one"
+                  onClick={() => void insert()}
+                >
+                  ins
+                </button>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
                   disabled={elements.length === 0 || atMax}
                   title="Duplicate the selected element"
                   onClick={() => void duplicate()}
@@ -443,6 +509,24 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                   onClick={() => void editElements(path, "remove", index)}
                 >
                   del
+                </button>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
+                  disabled={elements.length === 0}
+                  title="Copy the selected element, to paste into a block of the same kind — here or in another tag"
+                  onClick={() => void copyElement(path, index)}
+                >
+                  copy
+                </button>
+                <button
+                  type="button"
+                  className={BAR_BUTTON}
+                  disabled={!canPaste || atMax}
+                  title={pasteTitle}
+                  onClick={() => void paste()}
+                >
+                  paste
                 </button>
                 {hasOps && (
                   <button
@@ -467,11 +551,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
               key={`${child.name}-${i}`}
               node={child}
               depth={depth + 1}
-              path={
-                child.kind === "element"
-                  ? `${innerBase}${child.name}`
-                  : `${innerBase}.${child.name}`
-              }
+              path={fieldPath(innerBase, child.name, child.kind)}
             />
           ))}
         </div>
@@ -543,7 +623,7 @@ export function FormInspector() {
           <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
         ) : (
           tag.fields.map((node, i) => (
-            <FNode key={`${node.name}-${i}`} node={node} depth={0} path={node.name} />
+            <FNode key={`${node.name}-${i}`} node={node} depth={0} path={fieldPath("", node.name)} />
           ))
         )}
       </div>
