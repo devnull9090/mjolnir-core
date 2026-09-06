@@ -121,7 +121,7 @@ fn swap_a_dxt1_albedo_through_a_mod_project() {
     );
 
     // Bake, write and byte-verify the container through the ordinary path.
-    let baked = modpack::bake(&catalog, "magenta-rifle", resolved).expect("bake");
+    let baked = modpack::bake(&catalog, "magenta-rifle", resolved, Vec::new()).expect("bake");
     assert_eq!(baked.len(), 1, "one source container, one override");
     assert!(
         !baked[0].built.resized(),
