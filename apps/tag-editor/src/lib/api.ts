@@ -90,7 +90,59 @@ export type TagView = {
   node_count: number;
   /** Field paths with an unexported edit. */
   edited: string[];
+  /** How much of this tag's editing can be undone or redone. */
+  history: HistoryView;
   fields: NodeView[];
+};
+
+/** Depth of a tag's undo and redo stacks. */
+export type HistoryView = { undo: number; redo: number };
+
+/** One step of an element recipe: a field set to text, or an element op on a
+ *  nested block. */
+export type RecipeStep = { path: string; value: string; op: boolean };
+
+/** One element copied out of a block, as the recipe that recreates it. */
+export type ElementClip = {
+  group: string;
+  /** The block definition's name; a paste target must match. */
+  block: string;
+  /** Where it came from, for display. */
+  source: string;
+  fields: RecipeStep[];
+  /** Fields that could not travel as text. */
+  skipped: string[];
+};
+
+/** One field that differs between two tags. */
+export type FieldDiffView = { path: string; a: string | null; b: string | null };
+
+export type DiffView = {
+  a: string;
+  b: string;
+  fields: FieldDiffView[];
+  /** Materialised fields the two sides agree on. */
+  same: number;
+  /** Set when a side did not decode. */
+  error: string | null;
+};
+
+/** One tag in a reference tree. */
+export type RefNode = {
+  index: number | null;
+  group: string;
+  path: string;
+  cycle: boolean;
+  truncated: boolean;
+  children: RefNode[];
+};
+
+export type PasteReport = {
+  element: number;
+  elements: number;
+  applied: number;
+  unchanged: number;
+  skipped: { path: string; reason: string }[];
 };
 
 export type ScriptSourceFile = {
@@ -648,7 +700,7 @@ const tauriApi = {
   listGroups: () => invoke<GroupSummary[]>("list_groups"),
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
-  readTag: (index: number) => invoke<TagView>("read_tag", { index }),
+  readTag: (index: number, expert = false) => invoke<TagView>("read_tag", { index, expert }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
   objectRenderModel: (index: number) =>
@@ -673,6 +725,22 @@ const tauriApi = {
     invoke<EditResult>("remove_element", { index, path, element }),
   duplicateElement: (index: number, path: string, element: number) =>
     invoke<EditResult>("duplicate_element", { index, path, element }),
+  insertElement: (index: number, path: string, at: number) =>
+    invoke<EditResult>("insert_element", { index, path, at }),
+  copyElement: (index: number, path: string, element: number) =>
+    invoke<ElementClip>("copy_element", { index, path, element }),
+  pasteElement: (index: number, path: string, at: number | null, clip: ElementClip) =>
+    invoke<PasteReport>("paste_element", { index, path, at, clip }),
+  copyBlockTsv: (index: number, path: string) =>
+    invoke<string>("copy_block_tsv", { index, path }),
+  pasteBlockTsv: (index: number, path: string, tsv: string, replace: boolean) =>
+    invoke<PasteReport>("paste_block_tsv", { index, path, tsv, replace }),
+  diffTags: (a: number, b: number) => invoke<DiffView>("diff_tags", { a, b }),
+  diffEdits: (index: number) => invoke<DiffView>("diff_edits", { index }),
+  referenceTree: (index: number, depth: number) =>
+    invoke<RefNode>("reference_tree", { index, depth }),
+  unreferencedTags: (group: string) =>
+    invoke<TagSummary[]>("unreferenced_tags", { group }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>
@@ -683,6 +751,8 @@ const tauriApi = {
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
+  undoEdit: (index: number) => invoke<HistoryView>("undo_edit", { index }),
+  redoEdit: (index: number) => invoke<HistoryView>("redo_edit", { index }),
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
   listTextures: (query: string) =>

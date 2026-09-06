@@ -17,8 +17,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use blam_tag::view::{Kind, Node};
-use blam_tag::TagFile;
+use blam_tag::diff::{diff_maps, flatten, FieldDiff};
 use clap::Args;
 
 use crate::index;
@@ -52,13 +51,6 @@ pub struct TagDiffArgs {
     /// only, which keeps a scenario_structure_bsp from costing gigabytes.
     #[arg(long, default_value_t = 256)]
     elements: usize,
-}
-
-/// One field-level difference inside a changed tag.
-struct FieldDiff {
-    path: String,
-    before: Option<String>,
-    after: Option<String>,
 }
 
 struct ChangedTag {
@@ -220,125 +212,4 @@ pub fn run(a: TagDiffArgs) -> Result<()> {
         eprintln!("# wrote {}", out.display());
     }
     Ok(())
-}
-
-/// Decode a payload into `path -> rendered value` for every materialised field.
-fn flatten(buf: &[u8], chunk_len: usize, elements: usize) -> Option<BTreeMap<String, String>> {
-    let tag = TagFile::parse(buf, Some(chunk_len)).ok()?;
-    let layout = tag.layout().ok()?;
-    let block = tag.read_data(&layout).ok()?;
-    let nodes = blam_tag::view::root_capped(&layout, &block, elements);
-    let mut out = BTreeMap::new();
-    for n in &nodes {
-        flatten_node(n, "", &mut out);
-    }
-    Some(out)
-}
-
-fn flatten_node(node: &Node, prefix: &str, out: &mut BTreeMap<String, String>) {
-    let path = if prefix.is_empty() {
-        node.name.clone()
-    } else if node.kind == Kind::Element {
-        // Element names are already `[i]`; gluing them without a separator
-        // reads as indexing: `control points[3]/position`.
-        format!("{prefix}{}", node.name)
-    } else {
-        format!("{prefix}/{}", node.name)
-    };
-    match node.kind {
-        Kind::Field => {
-            let shown = node.value.display();
-            if !shown.is_empty() {
-                out.insert(path, shown);
-            }
-        }
-        Kind::Block | Kind::Array => {
-            if let Some(count) = node.count {
-                out.insert(format!("{path}/#count"), count.to_string());
-            }
-            for child in &node.children {
-                flatten_node(child, &path, out);
-            }
-        }
-        Kind::Struct | Kind::Element => {
-            for child in &node.children {
-                flatten_node(child, &path, out);
-            }
-        }
-    }
-}
-
-/// Differences between two flattened payloads, in path order.
-fn diff_maps(a: &BTreeMap<String, String>, b: &BTreeMap<String, String>) -> Vec<FieldDiff> {
-    let mut out = Vec::new();
-    for (path, va) in a {
-        match b.get(path) {
-            Some(vb) if va == vb => {}
-            Some(vb) => out.push(FieldDiff {
-                path: path.clone(),
-                before: Some(va.clone()),
-                after: Some(vb.clone()),
-            }),
-            None => out.push(FieldDiff {
-                path: path.clone(),
-                before: Some(va.clone()),
-                after: None,
-            }),
-        }
-    }
-    for (path, vb) in b {
-        if !a.contains_key(path) {
-            out.push(FieldDiff {
-                path: path.clone(),
-                before: None,
-                after: Some(vb.clone()),
-            });
-        }
-    }
-    out.sort_by(|x, y| x.path.cmp(&y.path));
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn diff_reports_changed_added_and_removed_paths() {
-        let a = map(&[("jump velocity", "0.14"), ("gone", "1"), ("same", "x")]);
-        let b = map(&[("jump velocity", "0.2"), ("new", "2"), ("same", "x")]);
-        let d = diff_maps(&a, &b);
-        let rendered: Vec<String> = d
-            .iter()
-            .map(|f| {
-                format!(
-                    "{} {:?}->{:?}",
-                    f.path,
-                    f.before.as_deref(),
-                    f.after.as_deref()
-                )
-            })
-            .collect();
-        assert_eq!(
-            rendered,
-            vec![
-                "gone Some(\"1\")->None",
-                "jump velocity Some(\"0.14\")->Some(\"0.2\")",
-                "new None->Some(\"2\")",
-            ]
-        );
-    }
-
-    #[test]
-    fn identical_maps_diff_empty() {
-        let a = map(&[("x", "1")]);
-        assert!(diff_maps(&a, &a).is_empty());
-    }
 }

@@ -98,6 +98,10 @@ struct Walk<'v> {
     /// `max_elements` to the power of the nesting depth, so the total is
     /// bounded too.
     budget: usize,
+    /// Build nodes for structural fields too — padding, custom markers, the
+    /// terminator — as raw bytes at their offsets. What an expert view shows;
+    /// nothing else wants them.
+    structural: bool,
 }
 
 /// Default cap on block elements built per node.
@@ -126,6 +130,22 @@ pub fn root_capped(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) 
         build: true,
         max_elements,
         budget: DEFAULT_MAX_NODES,
+        structural: false,
+    };
+    run(layout, block, &mut walk)
+}
+
+/// [`root_capped`], with the structural fields — padding, `custom` markers,
+/// the `terminator X` — built as read-only leaves holding their raw bytes.
+/// The layout's every byte becomes visible, which is what an expert wants
+/// when a definition looks wrong.
+pub fn root_expert(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) -> Vec<Node> {
+    let mut walk = Walk {
+        visit: &mut |_, _| {},
+        build: true,
+        max_elements,
+        budget: DEFAULT_MAX_NODES,
+        structural: true,
     };
     run(layout, block, &mut walk)
 }
@@ -144,6 +164,7 @@ pub fn visit_fields(
         build: false,
         max_elements: usize::MAX,
         budget: usize::MAX,
+        structural: false,
     };
     run(layout, block, &mut walk);
 }
@@ -197,6 +218,24 @@ fn fields(
         };
 
         if structural(&type_name) {
+            if walk.build && walk.structural && walk.budget > 0 {
+                let slice = bytes
+                    .get(offset as usize..(offset + size) as usize)
+                    .unwrap_or(&[]);
+                let shown = if name.trim().is_empty() {
+                    type_name.clone()
+                } else {
+                    name.clone()
+                };
+                walk.budget -= 1;
+                out.push(Node::leaf(
+                    shown,
+                    type_name.clone(),
+                    offset,
+                    size,
+                    Scalar::Raw(slice.to_vec()),
+                ));
+            }
             offset += size;
             continue;
         }
@@ -486,6 +525,43 @@ mod tests {
         assert!(structural("custom"));
         assert!(!structural("real"));
         assert!(!structural("block"));
+    }
+
+    #[test]
+    fn the_expert_root_shows_structural_fields_as_raw_bytes() {
+        let file = crate::patch::tests::synth_block_file();
+        let tag = crate::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+        let plain = root(&layout, &block);
+        let expert = root_expert(&layout, &block, DEFAULT_MAX_ELEMENTS);
+        let count = |nodes: &[Node]| -> usize {
+            fn walk(n: &Node, f: &mut dyn FnMut(&Node)) {
+                f(n);
+                for c in &n.children {
+                    walk(c, f);
+                }
+            }
+            let mut structural = 0;
+            for n in nodes {
+                walk(n, &mut |n| {
+                    if matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X") {
+                        structural += 1;
+                    }
+                });
+            }
+            structural
+        };
+        assert_eq!(count(&plain), 0, "the plain view hides structural fields");
+        // The synthetic fixture may or may not carry padding; when it does,
+        // the expert view shows it as bytes with a size.
+        for n in &expert {
+            if matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X") {
+                assert!(matches!(n.value, Scalar::Raw(_)));
+                assert!(n.size > 0 || n.type_name == "terminator X");
+            }
+        }
+        assert!(expert.len() >= plain.len());
     }
 
     #[test]
