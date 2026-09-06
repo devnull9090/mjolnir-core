@@ -609,6 +609,14 @@ new name in the project's `edits.json` (`new_tags`); a bake builds each one with
 override containers, named `<slug>-new_P` (then `<slug>-new-2_P`, …), one per package folder
 because the container's directory index names a single directory.
 
+**Proven in game, 2026-09-06:** the editor's own bake path (`resolved_edits` → `modpack::bake` →
+`modpack::install_test`, staged by the ignored test `stage_a_new_tag_for_the_in_game_test`)
+cloned the assault rifle's projectile as `assault_rifle_bullet_mk3` and repointed the rifle at
+it — one resized override container plus one addition container, both with written stubs. On the
+next launch of A30 the tag table listed the clone (`mjolnir live tags --filter
+assault_rifle_bullet`: slot 357, handle `0xE2D90165`, 7,056 loaded tags against the shipped
+7,055) and the rifle fired normally with no fallback.
+
 ## Writing the wrapper
 
 **Measured 2026-09-05** against every `.uasset` under `Tags/` across all containers (12,332 —

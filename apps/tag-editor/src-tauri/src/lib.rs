@@ -4438,4 +4438,68 @@ mod tests {
         modpack::write_and_verify(&dir, &baked, c.oodle_paths()).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// The in-game measurement of the editor's New Tag path, staged the way
+    /// `project_test` does it: clone the assault rifle's projectile as
+    /// `assault_rifle_bullet_mk3`, repoint the rifle at the clone, bake the
+    /// override and the addition, and install both for the next launch.
+    ///
+    /// Then launch a mission with the rifle and run
+    /// `mjolnir live tags --filter mk3`: the game's own tag table lists the
+    /// clone if the editor's containers did their job. Remove the install
+    /// afterwards from the mod panel or by deleting the `-MJOLNIRDEV-` files.
+    #[test]
+    #[ignore = "installs a test mod into the game's Paks folder"]
+    fn stage_a_new_tag_for_the_in_game_test() {
+        let paks = std::env::var("HCE_PAKS").expect("HCE_PAKS");
+        let mut c = Catalog::open(&paks, "").unwrap();
+        let donor = c
+            .search("projectiles/assault_rifle_bullet", 20)
+            .into_iter()
+            .find(|t| t.group == "projectile" && t.short.ends_with("/assault_rifle_bullet"))
+            .expect("the rifle's projectile ships");
+        let rifle = c
+            .search("assault_rifle/assault_rifle", 20)
+            .into_iter()
+            .find(|t| t.group == "weapon" && t.short.ends_with("/assault_rifle"))
+            .expect("the rifle ships");
+        let to = format!("{}_mk3", donor.short);
+        c.add_new_tag("projectile", &to, donor.index).unwrap();
+
+        let mut new_tags = BTreeMap::new();
+        new_tags.insert(
+            ("projectile".to_string(), to.clone()),
+            NewTagSpec {
+                from: donor.short.clone(),
+                asset_reference: None,
+            },
+        );
+        let mut edits: BTreeMap<TagKey, Vec<PendingEdit>> = BTreeMap::new();
+        edits.insert(
+            ("weapon".to_string(), rifle.short.clone()),
+            vec![PendingEdit {
+                path: "barrels[0].projectile".into(),
+                value: "proj:objects\\weapons\\rifle\\assault_rifle\\projectiles\\assault_rifle_bullet_mk3"
+                    .into(),
+            }],
+        );
+        let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
+        let (overrides, additions, warnings) =
+            resolved_edits(&c, &edits, &scripts, &textures, &new_tags).unwrap();
+        assert_eq!(overrides.len(), 1, "the rifle override");
+        assert_eq!(additions.len(), 1, "the clone");
+        assert!(
+            !warnings.iter().any(|w| w.contains("referenced by nothing")),
+            "the rifle references the clone: {warnings:?}"
+        );
+        let baked = modpack::bake(&c, "editor-newtag", overrides, additions).unwrap();
+        assert_eq!(baked.len(), 2);
+        let files = modpack::install_test(c.paks(), &baked, c.oodle_paths()).unwrap();
+        for f in files {
+            eprintln!("installed {f}");
+        }
+        for w in warnings {
+            eprintln!("warning: {w}");
+        }
+    }
 }
