@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use tag_editor_lib::catalog::{normalize_ref_path, Catalog};
-use tag_editor_lib::{install, refscan, texture_import, wwise_media_for_tag};
+use tag_editor_lib::{install, texture_import, wwise_media_for_tag};
 
 /// How many tags the forward scan samples. Spread across the catalog rather
 /// than taken from the front, so no group dominates.
@@ -77,7 +77,7 @@ fn references_resolve_scan_and_reverse_against_the_shipped_catalog() {
             .ok()
             .and_then(|t| t.data().map(|d| d.content.to_vec()))
             .unwrap_or(buf);
-        for (cc, path) in refscan::tgrf_refs(&data, |cc| name_of_cc.contains_key(cc)) {
+        for (cc, path) in blam_tag::refs::tgrf_refs(&data, |cc| name_of_cc.contains_key(cc)) {
             scanned += 1;
             let via_index = c.resolve_ref(&cc, &path);
             let via_linear = name_of_cc.get(&cc).and_then(|g| old_linear(g, &path));
