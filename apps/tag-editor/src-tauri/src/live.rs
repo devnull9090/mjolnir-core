@@ -422,10 +422,11 @@ impl Live {
         };
         // Fresh from the table: the walk may be minutes old, and a reload
         // gives the tag a new generation.
+        let wanted = blam_live::tagtable::normalize_path(path);
         let entry = table
             .entry(process, index)
             .map_err(|e| e.to_string())?
-            .filter(|t| t.group == cc && blam_live::tagtable::normalize_path(&t.name) == blam_live::tagtable::normalize_path(path));
+            .filter(|t| t.group == cc && blam_live::tagtable::normalize_path(&t.name) == wanted);
         let entry = match entry {
             Some(entry) => entry,
             None => {
