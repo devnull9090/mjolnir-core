@@ -20,6 +20,7 @@ mod index;
 mod level;
 mod live;
 mod mesh;
+mod ue;
 mod newtag;
 mod rename;
 mod zenrt;
@@ -174,6 +175,8 @@ enum Command {
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
+    /// Read and edit the properties of any cooked Unreal package — a material instance's parameters, a data asset's fields — and write the edit as an override container
+    Ue(ue::UeArgs),
     /// Derive FPackageId values and check them against the shipped TOCs.
     Packageid(container::PackageIdArgs),
     /// Diff the shipped tags of two builds, field by field.
@@ -420,6 +423,10 @@ struct SetArgs {
     /// Write the patched tag here. Without this nothing is written to disk.
     #[arg(long)]
     out: Option<PathBuf>,
+    /// Write a string id the game's registry does not contain, knowing the
+    /// game will reject the whole tag over it.
+    #[arg(long)]
+    allow_unknown_string_id: bool,
 }
 
 #[derive(Args)]
@@ -549,6 +556,7 @@ fn main() -> Result<()> {
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
         Command::Mesh(a) => mesh::run(a),
+        Command::Ue(a) => ue::run(a),
         Command::Packageid(a) => container::run_packageid(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
@@ -1603,7 +1611,22 @@ fn set(a: SetArgs) -> Result<()> {
     let resizes = target.section.is_some();
     let parsed = match target.type_name.as_str() {
         "tag reference" => parse_reference(&a.value)?,
-        "string id" => blam_tag::Scalar::Text(a.value.trim_matches('"').to_string()),
+        "string id" => {
+            let name = a.value.trim_matches('"').to_string();
+            // The game rejects a whole tag over one string id it has not
+            // registered; the registry as it held it in A30 is the offline
+            // check (`blam_live::stringid::shipped`).
+            let registered = blam_live::stringid::normalize(&name)
+                .is_some_and(|n| blam_live::stringid::is_shipped(&n));
+            if !registered && !a.allow_unknown_string_id {
+                anyhow::bail!(
+                    "{name:?} is not in the game's string-id registry, and an unregistered \
+                     string id makes the game reject the whole tag. Pass \
+                     --allow-unknown-string-id to write it anyway."
+                );
+            }
+            blam_tag::Scalar::Text(name)
+        }
         _ => blam_tag::value::parse(&l, &target.field, &a.value)?,
     };
     let (patched, applied) = if resizes {

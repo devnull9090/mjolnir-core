@@ -305,7 +305,7 @@ impl Reader {
 // --- PE parsing (minimal, enough to scan .text) ------------------------------
 
 /// `(text RVA, text file offset, text bytes)` for AOB scanning.
-fn text_section(exe: &[u8]) -> Result<(u64, usize, &[u8])> {
+pub(crate) fn text_section(exe: &[u8]) -> Result<(u64, usize, &[u8])> {
     let bad = || crate::Error::TooSmall(exe.len());
     let e_lfanew = u32::from_le_bytes(exe.get(0x3C..0x40).ok_or_else(bad)?.try_into().unwrap()) as usize;
     if exe.get(e_lfanew..e_lfanew + 4) != Some(b"PE\0\0") {
@@ -331,7 +331,7 @@ fn text_section(exe: &[u8]) -> Result<(u64, usize, &[u8])> {
 /// Find the one offset in `code` matching an AOB like `"48 8D ? ? C3"`, where
 /// `?` is a wildcard byte. Errors if the pattern matches zero or many places —
 /// the only count UE4SS resolves deterministically.
-fn find_unique(code: &[u8], sig: &str) -> Result<usize> {
+pub(crate) fn find_unique(code: &[u8], sig: &str) -> Result<usize> {
     let pat: Vec<Option<u8>> = sig
         .split_whitespace()
         .map(|t| if t.contains('?') { None } else { u8::from_str_radix(t, 16).ok() })

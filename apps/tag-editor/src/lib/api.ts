@@ -466,6 +466,18 @@ export type MeshMaterial = {
 };
 
 /** The JSON header of a `read_mesh` payload. */
+/** What a level export came to. */
+export type LevelExportSummary = {
+  mission: string;
+  cells: number;
+  files: number;
+  placements: number;
+  instanced: number;
+  bytes: number;
+  skips: [string, number][];
+  missing: [string, number][];
+};
+
 export type MeshHeader = {
   path: string;
   verts: number;
@@ -475,6 +487,8 @@ export type MeshHeader = {
   /** Which LOD the buffers are; 0 is full detail, higher is the Nanite
    *  fallback the cook kept. */
   lod: number;
+  /** The geometry is the full-detail Nanite mesh, not a classic LOD. */
+  nanite: boolean;
   skeletal: boolean;
 };
 
@@ -770,6 +784,10 @@ const tauriApi = {
   setScripts: (index: number, files: [string, string][]) =>
     invoke<CompileReport>("set_scripts", { index, files }),
   revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
+  exportMesh: (index: number, dest: string) =>
+    invoke<number>("export_mesh", { index, dest }),
+  exportLevel: (index: number, dest: string, nanite: boolean, hlod: boolean) =>
+    invoke<LevelExportSummary>("export_level", { index, dest, nanite, hlod }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   swapTexture: (index: number, image: string) =>
@@ -800,8 +818,10 @@ const tauriApi = {
   projectRemoveNewTag: (group: string, tag: string) =>
     invoke<void>("project_remove_new_tag", { group, tag }),
   lastProject: () => invoke<string | null>("last_project"),
-  projectExport: () => invoke<ExportView>("project_export"),
-  projectTest: () => invoke<TestView>("project_test"),
+  projectExport: (allowUnknownStringIds: boolean) =>
+    invoke<ExportView>("project_export", { allowUnknownStringIds }),
+  projectTest: (allowUnknownStringIds: boolean) =>
+    invoke<TestView>("project_test", { allowUnknownStringIds }),
   projectUntest: () => invoke<number>("project_untest"),
   projectPublish: (changelog: string) =>
     invoke<PublishView>("project_publish", { changelog }),

@@ -550,3 +550,10 @@ same through the editor's own `live::Live::poke` and through `mjolnir poke`.
   opened it and it ate every click afterwards. Replacing the viewport's
   `UConsole` with a freshly constructed one (what the ConsoleEnabler mod does
   at startup) closed it.
+
+**Update 2026-09-07.** The two globals the table read depends on (and the
+six registry globals) no longer need measuring after an update: four code
+anchors in the tag module recover them (`signatures/README.md`, "The tag
+module's anchors"), and the derived profile matches the measured CU4 one
+exactly. The sweep is now the fallback for a build where an anchor fails to
+match once.

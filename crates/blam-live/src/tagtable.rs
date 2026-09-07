@@ -116,6 +116,107 @@ pub const CU4: Profile = Profile {
 /// Every build this crate knows, newest first.
 pub const PROFILES: &[Profile] = &[CU4];
 
+/// One anchor into the tag module's code: an instruction shape that refers
+/// to a global through a RIP-relative displacement, with the displacement
+/// wildcarded (`signatures/README.md`: never bake a displacement into a
+/// pattern). The instruction is `disp_at + 4` bytes long, so the global's RVA
+/// is `instruction RVA + disp_at + 4 + disp`.
+#[derive(Debug, Clone, Copy)]
+pub struct Anchor {
+    pub name: &'static str,
+    pub pattern: &'static str,
+    /// Byte offset of the disp32 within the match.
+    pub disp_at: usize,
+}
+
+/// The four anchors that recover every profile RVA from the module on disk,
+/// chosen on CU4 (`2026.08.11.1121610.2`) for shapes that say what the code
+/// does rather than where it is: each matched exactly once.
+pub const ANCHORS: [Anchor; 4] = [
+    // The table's constructor storing the new object into the global, then
+    // setting its +0x31 flag: `mov [rip+d], rbx; mov byte [rbx+0x31], 1;
+    // mov rcx, rbx`.
+    Anchor {
+        name: "tag table pointer",
+        pattern: "48 89 1D ? ? ? ? C6 43 31 01 48 8B CB",
+        disp_at: 3,
+    },
+    // The encoded-offset decode itself: `lea r14, [rip+d]` (the segment
+    // table), then `movsxd rax, edx; lea rcx, [r8+rax*4]; shr r8, 0x1c` —
+    // words times four, and the top nibble as the segment.
+    Anchor {
+        name: "segment table",
+        pattern: "4C 8D 35 ? ? ? ? 48 63 C2 49 8D 0C 80 49 C1 E8 1C",
+        disp_at: 3,
+    },
+    // The registry's constructor storing the name storage pointer, then
+    // sizing the hash table: 0xFF800 buckets and 0x7FC00 entries at most —
+    // the header numbers the live read sees. The other five registry
+    // globals sit at fixed offsets from this one.
+    Anchor {
+        name: "string-id storage",
+        pattern: "48 89 05 ? ? ? ? BA 00 F8 0F 00 41 B8 00 FC 07 00",
+        disp_at: 3,
+    },
+    // A builtin-id lookup: `lea rax, [rip+d]; mov eax, [rax+rdi*8]`.
+    Anchor {
+        name: "string-id builtins",
+        pattern: "48 8D 05 ? ? ? ? 8B 04 F8 89 44 24 70 EB 20",
+        disp_at: 3,
+    },
+];
+
+/// Offsets of the registry globals from the storage pointer, measured on CU4
+/// (`storage 0x01357490 … map 0x013574C0`).
+const REGISTRY_USED: u64 = 0x8;
+const REGISTRY_STRINGS: u64 = 0x10;
+const REGISTRY_COUNT: u64 = 0x18;
+const REGISTRY_MAP: u64 = 0x30;
+
+/// Resolve one anchor in the module image: the RVA it refers to.
+pub fn resolve_anchor(image: &[u8], anchor: &Anchor) -> Result<u64> {
+    let (text_rva, text_off, code) = crate::objects::text_section(image)?;
+    let m = crate::objects::find_unique(code, anchor.pattern)?;
+    let disp_off = text_off + m + anchor.disp_at;
+    let disp = i32::from_le_bytes(image[disp_off..disp_off + 4].try_into().unwrap());
+    let next_rva = text_rva + m as u64 + anchor.disp_at as u64 + 4;
+    Ok((next_rva as i64 + disp as i64) as u64)
+}
+
+/// Derive a profile from the module image on disk when no measured profile
+/// matches its hash: every anchor must match exactly once, and every RVA must
+/// lie inside the image. The result is leaked so it can live as long as a
+/// measured profile does — one per process lifetime.
+pub fn derive_profile(image: &[u8], dll_sha256: &str) -> Result<&'static Profile> {
+    let mut rvas = [0u64; 4];
+    for (i, anchor) in ANCHORS.iter().enumerate() {
+        rvas[i] = resolve_anchor(image, anchor).map_err(|e| Error::Layout {
+            what: "tag module signatures",
+            detail: format!("{}: {e}", anchor.name),
+        })?;
+    }
+    let storage = rvas[2];
+    let profile = Profile {
+        label: Box::leak(format!("signature-derived {}", &dll_sha256[..8]).into_boxed_str()),
+        dll_sha256: Box::leak(dll_sha256.to_string().into_boxed_str()),
+        tag_table_pointer: rvas[0],
+        segment_table: rvas[1],
+        string_id_storage: storage,
+        string_id_used: storage + REGISTRY_USED,
+        string_id_strings: storage + REGISTRY_STRINGS,
+        string_id_count: storage + REGISTRY_COUNT,
+        string_id_map: storage + REGISTRY_MAP,
+        string_id_builtin: rvas[3],
+    };
+    if profile.rvas().iter().any(|rva| *rva >= image.len() as u64 + 0x10000) {
+        return Err(Error::Layout {
+            what: "tag module signatures",
+            detail: "a derived RVA lies past the image".into(),
+        });
+    }
+    Ok(Box::leak(Box::new(profile)))
+}
+
 /// The profile for a tag module, by its file hash.
 pub fn profile_for(dll_sha256: &str) -> Option<&'static Profile> {
     PROFILES
@@ -152,7 +253,19 @@ pub fn attach(process: &Process) -> Result<Attached> {
         len: 0,
         source,
     })?;
-    let profile = profile_for(&sha).ok_or_else(|| Error::UnknownBuild(sha.clone()))?;
+    // A measured profile first; otherwise the anchors, read off the module
+    // file — the same image the process mapped.
+    let profile = match profile_for(&sha) {
+        Some(p) => p,
+        None => {
+            let image = std::fs::read(&module.path).map_err(|source| Error::Read {
+                addr: 0,
+                len: 0,
+                source,
+            })?;
+            derive_profile(&image, &sha).map_err(|_| Error::UnknownBuild(sha.clone()))?
+        }
+    };
     if profile.rvas().iter().any(|rva| *rva >= module.size) {
         return Err(Error::Layout {
             what: "tag module",
@@ -177,7 +290,8 @@ pub struct Attached {
 }
 
 impl Profile {
-    fn rvas(&self) -> [u64; 8] {
+    /// Every RVA the profile carries, in field order.
+    pub fn rvas(&self) -> [u64; 8] {
         [
             self.tag_table_pointer,
             self.segment_table,
@@ -230,6 +344,30 @@ impl Segments {
         base.checked_add(offset)
     }
 
+    /// The encoded form of an address: the inverse of [`Segments::resolve`].
+    ///
+    /// The segment nibble is part of the number that gets multiplied, so a
+    /// segment's addressable window is `base + 4·(nibble << 28)` upward and
+    /// each address encodes in at most one segment — the candidate is checked
+    /// by re-resolving it. Returns `None` for an unaligned address or one no
+    /// segment covers.
+    pub fn encode(&self, addr: u64) -> Option<u32> {
+        for (i, base) in self.bases.iter().enumerate() {
+            if *base == 0 || addr < *base {
+                continue;
+            }
+            let offset = addr - base;
+            if offset % 4 != 0 || offset / 4 > u64::from(u32::MAX) {
+                continue;
+            }
+            let enc = (offset / 4) as u32;
+            if (enc >> 28) as usize == i && enc != NULL_OFFSET {
+                return Some(enc);
+            }
+        }
+        None
+    }
+
     /// The `arena` value `crate::field_address` expects for a block header
     /// whose offset word is `enc`: the base that makes `arena + 4 * enc` land
     /// on the elements. Because the nibble rides along in the multiplication,
@@ -266,6 +404,8 @@ pub struct LiveTag {
     /// Tag path as the engine spells it: backslashes, no extension,
     /// `objects\weapons\rifle\assault_rifle\assault_rifle`.
     pub name: String,
+    /// Where that path's bytes are. A resolved tag reference points here.
+    pub name_address: u64,
     pub root: Descriptor,
 }
 
@@ -286,6 +426,25 @@ impl LiveTag {
                 }
             })
             .collect()
+    }
+
+    /// The sixteen bytes a resolved tag reference to this tag holds.
+    ///
+    /// The loader rewrites a reference field in place: the group four-CC and
+    /// the path length stay as the file spells them, the second word becomes
+    /// an encoded offset to the tag's own path string — the very bytes this
+    /// entry names — and the last word becomes the handle, where the file
+    /// carries `0xFFFFFFFF`. Measured on CU4, `docs/tag_table_and_string_ids.md`.
+    ///
+    /// `None` when the path string is not in an addressable segment.
+    pub fn reference_bytes(&self, segments: &Segments) -> Option<[u8; REFERENCE_SIZE]> {
+        let enc = segments.encode(self.name_address)?;
+        let mut out = [0u8; REFERENCE_SIZE];
+        out[0..4].copy_from_slice(&u32::from_be_bytes(self.group).to_le_bytes());
+        out[4..8].copy_from_slice(&enc.to_le_bytes());
+        out[8..12].copy_from_slice(&(self.name.len() as u32).to_le_bytes());
+        out[12..16].copy_from_slice(&self.handle().to_le_bytes());
+        Some(out)
     }
 
     /// Where the root element's bytes are.
@@ -313,6 +472,8 @@ const ENTRY_NAME: usize = 0x10;
 const ENTRY_ROOT: usize = 0x18;
 /// The most tags a table may declare before its layout is disbelieved.
 const MAX_TAGS: u32 = 0x1_0000;
+/// A tag reference field, inline and resident alike.
+pub const REFERENCE_SIZE: usize = 16;
 /// Longest tag path read.
 const MAX_NAME: usize = 1024;
 
@@ -383,27 +544,52 @@ impl TagTable {
                 continue;
             }
             let e = &blob[i * ENTRY_SIZE..(i + 1) * ENTRY_SIZE];
-            let u32_at = |o: usize| u32::from_le_bytes(e[o..o + 4].try_into().unwrap());
-            let name_ptr = u64::from_le_bytes(e[ENTRY_NAME..ENTRY_NAME + 8].try_into().unwrap());
-            let name = if name_ptr == 0 {
-                String::new()
-            } else {
-                m.cstr(name_ptr, MAX_NAME)?
-            };
-            tags.push(LiveTag {
-                index: i as u32,
-                generation: u16::from_le_bytes(e[0..2].try_into().unwrap()),
-                group: u32_at(ENTRY_GROUP).to_be_bytes(),
-                name,
-                root: Descriptor {
-                    count: u32_at(ENTRY_ROOT),
-                    data: u32_at(ENTRY_ROOT + 4),
-                    definition: u32_at(ENTRY_ROOT + 8),
-                },
-            });
+            tags.push(decode_entry(m, i as u32, e)?);
         }
         Ok(tags)
     }
+
+    /// One slot, read fresh. `None` when the slot is free or past the high
+    /// water mark.
+    ///
+    /// A walked table is a photograph: `tag_reload_force` and a level change
+    /// both re-slot tags, and a stale handle written into a live reference
+    /// would point at whatever took the slot. Re-reading the one entry a
+    /// write is about to name costs a single 0x30-byte read.
+    pub fn entry(&self, m: &impl Memory, index: u32) -> Result<Option<LiveTag>> {
+        if index >= self.high_water {
+            return Ok(None);
+        }
+        let byte = m.read(self.bitset + u64::from(index) / 8, 1)?;
+        if byte[0] & (1 << (index % 8)) == 0 {
+            return Ok(None);
+        }
+        let e = m.read(self.entries + u64::from(index) * ENTRY_SIZE as u64, ENTRY_SIZE)?;
+        Ok(Some(decode_entry(m, index, &e)?))
+    }
+}
+
+/// One 0x30-byte entry as a [`LiveTag`].
+fn decode_entry(m: &impl Memory, index: u32, e: &[u8]) -> Result<LiveTag> {
+    let u32_at = |o: usize| u32::from_le_bytes(e[o..o + 4].try_into().unwrap());
+    let name_address = u64::from_le_bytes(e[ENTRY_NAME..ENTRY_NAME + 8].try_into().unwrap());
+    let name = if name_address == 0 {
+        String::new()
+    } else {
+        m.cstr(name_address, MAX_NAME)?
+    };
+    Ok(LiveTag {
+        index,
+        generation: u16::from_le_bytes(e[0..2].try_into().unwrap()),
+        group: u32_at(ENTRY_GROUP).to_be_bytes(),
+        name,
+        name_address,
+        root: Descriptor {
+            count: u32_at(ENTRY_ROOT),
+            data: u32_at(ENTRY_ROOT + 4),
+            definition: u32_at(ENTRY_ROOT + 8),
+        },
+    })
 }
 
 /// The engine's spelling of a tag path: lowercase, backslashes, no leading
@@ -585,6 +771,63 @@ mod tests {
         m
     }
 
+    /// The path of the installed tag module, from `HCE_PAKS`.
+    fn installed_tag_dll() -> Option<std::path::PathBuf> {
+        let paks = std::env::var("HCE_PAKS").ok()?;
+        let path = std::path::Path::new(&paks)
+            .parent()?
+            .parent()?
+            .parent()?
+            .join("Binaries")
+            .join("Win64")
+            .join(TAG_DLL);
+        path.exists().then_some(path)
+    }
+
+    /// Against the installed game: the four anchors match once each in the
+    /// CU4 module and reproduce every measured RVA — the derived profile is
+    /// the measured one.
+    #[test]
+    fn anchors_reproduce_the_measured_profile() {
+        let Some(path) = installed_tag_dll() else {
+            return;
+        };
+        let image = std::fs::read(&path).unwrap();
+        let sha = sha256_file(&path).unwrap();
+        let derived = derive_profile(&image, &sha).unwrap();
+        if sha.eq_ignore_ascii_case(CU4.dll_sha256) {
+            assert_eq!(derived.rvas(), CU4.rvas());
+        } else {
+            eprintln!("module {sha} is not CU4; derived {derived:#x?}");
+            assert!(derived.rvas().iter().all(|r| *r > 0));
+        }
+    }
+
+    #[test]
+    fn an_anchor_decodes_its_displacement() {
+        // A minimal PE with one .text section holding the anchor bytes.
+        let mut image = vec![0u8; 0x400 + 64];
+        image[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        image[0x80..0x84].copy_from_slice(b"PE\0\0");
+        image[0x86..0x88].copy_from_slice(&1u16.to_le_bytes()); // one section
+        image[0x94..0x96].copy_from_slice(&0u16.to_le_bytes()); // no optional header
+        let table = 0x80 + 4 + 20;
+        image[table..table + 8].copy_from_slice(b".text\0\0\0");
+        image[table + 12..table + 16].copy_from_slice(&0x1000u32.to_le_bytes()); // rva
+        image[table + 16..table + 20].copy_from_slice(&64u32.to_le_bytes()); // raw size
+        image[table + 20..table + 24].copy_from_slice(&0x400u32.to_le_bytes()); // raw offset
+        // `mov [rip+disp], rbx` at text+8, next instruction at text+15; the
+        // global at rva 0x2000 => disp = 0x2000 - (0x1000 + 15).
+        let code = 0x400 + 8;
+        image[code..code + 3].copy_from_slice(&[0x48, 0x89, 0x1D]);
+        let disp = (0x2000i64 - (0x1000 + 15)) as i32;
+        image[code + 3..code + 7].copy_from_slice(&disp.to_le_bytes());
+        image[code + 7..code + 14].copy_from_slice(&[0xC6, 0x43, 0x31, 0x01, 0x48, 0x8B, 0xCB]);
+        assert_eq!(resolve_anchor(&image, &ANCHORS[0]).unwrap(), 0x2000);
+        // The other anchors are absent: no profile.
+        assert!(derive_profile(&image, "0000000000000000").is_err());
+    }
+
     #[test]
     fn split_and_resolve_follow_the_engine_encoding() {
         assert_eq!(Segments::split(0xa123_4567), Some((10, 0x2_848d_159c)));
@@ -614,6 +857,68 @@ mod tests {
         assert_eq!(tags[1].handle(), 0xE24A_0002);
         let segs = Segments::read(&m, DLL, &CU4).unwrap();
         assert_eq!(tags[1].root_address(&segs), Some(SEG1 + 0x1000_0020 * 4));
+    }
+
+    /// `encode` is `resolve` backwards: the nibble rides along in the
+    /// multiplication, so each address belongs to at most one segment, and an
+    /// address outside every segment's window has no encoding.
+    #[test]
+    fn encode_inverts_resolve() {
+        let mut bases = [0u64; 16];
+        bases[1] = 0x1ffe_51f0_0000;
+        bases[14] = 0x7ffb_4000_0000;
+        let s = Segments { bases };
+        for enc in [0x113e_cb98u32, 0x1000_0000, 0xebd8_5054] {
+            let addr = s.resolve(enc).unwrap();
+            assert_eq!(s.encode(addr), Some(enc), "{enc:#x}");
+        }
+        // Below segment 1's window (the nibble puts it a gigabyte up) and
+        // unaligned addresses have no encoding.
+        assert_eq!(s.encode(bases[1]), None);
+        assert_eq!(s.encode(s.resolve(0x113e_cb98).unwrap() + 1), None);
+        assert_eq!(s.encode(0), None);
+    }
+
+    /// The resident form of a reference: group and length as the file spells
+    /// them, an encoded offset to the tag's own path, and the handle.
+    #[test]
+    fn a_reference_resolves_to_the_engine_sixteen_bytes() {
+        let m = game();
+        let segs = Segments::read(&m, DLL, &CU4).unwrap();
+        let tags = LiveTags::new(TagTable::open(&m, DLL, &CU4).unwrap().walk(&m).unwrap());
+        let weap = tags.find(*b"weap", "objects/weapons/rifle/assault_rifle/assault_rifle").unwrap();
+        // The mock's names sit outside any segment window, so encoding fails
+        // rather than inventing an offset.
+        assert_eq!(weap.reference_bytes(&segs), None);
+
+        // Put the path inside segment 1 and it encodes.
+        let mut m = game();
+        let name_at = SEG1 + 0x1000_0000 * 4;
+        let mut names = vec![0u8; 0x80];
+        let path = b"objects\\weapons\\rifle\\assault_rifle\\assault_rifle";
+        names[..path.len()].copy_from_slice(path);
+        m.put(name_at, &names);
+        let mut e = entry(0xE24A, b"weap", name_at, 0x1000_0020);
+        e[0..2].copy_from_slice(&0xE24Au16.to_le_bytes());
+        let mut blob = Vec::new();
+        blob.extend(entry(0xE174, b"matg", NAMES_AT, 0x1000_0010));
+        blob.extend(entry(0, b"xxxx", 0, NULL_OFFSET));
+        blob.extend(e);
+        m.put(ENTRIES_AT, &blob);
+        let table = TagTable::open(&m, DLL, &CU4).unwrap();
+        let tags = LiveTags::new(table.walk(&m).unwrap());
+        let weap = tags.find(*b"weap", "objects\\weapons\\rifle\\assault_rifle\\assault_rifle").unwrap();
+        let bytes = weap.reference_bytes(&segs).unwrap();
+        assert_eq!(&bytes[0..4], b"paew", "the four-CC is stored reversed");
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 0x1000_0000);
+        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 49);
+        assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), 0xE24A_0002);
+
+        // One slot, read fresh, says the same thing; a free slot says nothing.
+        let fresh = table.entry(&m, 2).unwrap().unwrap();
+        assert_eq!(fresh.reference_bytes(&segs), Some(bytes));
+        assert!(table.entry(&m, 1).unwrap().is_none());
+        assert!(table.entry(&m, 99).unwrap().is_none());
     }
 
     #[test]

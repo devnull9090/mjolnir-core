@@ -34,6 +34,37 @@ pub const MAX_NAME: usize = 127;
 pub const NONE: u32 = u32::MAX;
 
 /// Every `(id, name)` the running game has registered.
+/// The registry as the running game held it when `defs/hce/string-ids.json`
+/// was dumped (CU4, mission A30: every builtin id plus the names the
+/// campaign's tags register), for checking a string-id edit offline before
+/// the game gets to reject the whole tag over it. One mission's set is a
+/// lower bound for another's, so a name absent here is "unregistered as far
+/// as anything measured shows", not proof.
+pub fn shipped() -> &'static StringIds {
+    static SHIPPED: std::sync::OnceLock<StringIds> = std::sync::OnceLock::new();
+    SHIPPED.get_or_init(|| {
+        static JSON: &str = include_str!("../../../defs/hce/string-ids.json");
+        let doc: serde_json::Value = serde_json::from_str(JSON).expect("defs/hce/string-ids.json parses");
+        let entries = doc["ids"]
+            .as_array()
+            .expect("ids array")
+            .iter()
+            .filter_map(|e| {
+                let id = e.get(0)?.as_u64()? as u32;
+                let name = e.get(1)?.as_str()?.to_string();
+                Some((id, name))
+            })
+            .collect();
+        StringIds::from_entries(entries)
+    })
+}
+
+/// Is `name` registered in the shipped registry? The empty name is the
+/// null id and always fine.
+pub fn is_shipped(name: &str) -> bool {
+    name.is_empty() || shipped().id(name).is_some()
+}
+
 pub struct StringIds {
     entries: Vec<(u32, String)>,
     by_name: HashMap<String, u32>,

@@ -1287,7 +1287,7 @@ fn build_live_job(
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
-        let (region, root, stable, headers, blocks, hops, span, bytes) = {
+        let (region, root, stable, headers, blocks, hops, span, bytes, string_id, reference) = {
             let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
@@ -1299,7 +1299,27 @@ fn build_live_job(
             // A section-backed value lives in a trailing section, so changing it
             // moves every byte after it. In a file that is fine — the tag is
             // rebuilt. In a live heap buffer there is nowhere for them to go.
-            if target.section.is_some() {
+            // The one exception is a string id: the engine resolves it at load
+            // into a registry id held in the field's own four bytes, so a name
+            // the running game has registered is poked as that id.
+            // The other is a tag reference: its group, path length and handle
+            // live in the field's own sixteen bytes, and the loader fills the
+            // handle in from the tag table, so pointing it at another *loaded*
+            // tag is a sixteen-byte write like any other.
+            let string_id = if target.type_name == "string id" {
+                Some(value.trim_matches('"').to_string())
+            } else {
+                None
+            };
+            let reference = if target.type_name == "tag reference" {
+                match parse_reference(&value)? {
+                    blam_tag::Scalar::Reference { group, path } => Some((group, path)),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if target.section.is_some() && string_id.is_none() && reference.is_none() {
                 return Err(format!(
                     "{} is a {} stored in a trailing section, so changing it resizes the tag. \
                      That cannot be poked into a running game — test it with a rebuild.",
@@ -1307,10 +1327,15 @@ fn build_live_job(
                 ));
             }
 
-            let parsed =
-                blam_tag::value::parse(&layout, &target.field, value).map_err(|e| e.to_string())?;
-            let (patched, _) = blam_tag::patch::set(&layout, &file, &block, path, &parsed)
-                .map_err(|e| e.to_string())?;
+            let patched = if string_id.is_some() || reference.is_some() {
+                file.clone()
+            } else {
+                let parsed = blam_tag::value::parse(&layout, &target.field, value)
+                    .map_err(|e| e.to_string())?;
+                blam_tag::patch::set(&layout, &file, &block, path, &parsed)
+                    .map_err(|e| e.to_string())?
+                    .0
+            };
 
             // Only the data section is resident per tag; the header and layout
             // tables are not, so searching anywhere else is wasted effort. And
@@ -1343,6 +1368,8 @@ fn build_live_job(
                 hops,
                 span,
                 bytes,
+                string_id,
+                reference,
             )
         };
 
@@ -1357,6 +1384,8 @@ fn build_live_job(
             hops,
             span,
             bytes,
+            string_id,
+            reference,
         })
     })
 }
@@ -2313,7 +2342,7 @@ fn peek_tag(index: usize, state: State<'_, AppState>) -> Result<TagPeek, String>
 /// schema; the errors that follow are loud rather than silent.
 static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
 
-fn usmap() -> Result<&'static ue_asset::Usmap, String> {
+pub fn usmap() -> Result<&'static ue_asset::Usmap, String> {
     USMAP
         .get_or_init(|| {
             static BYTES: &[u8] = include_bytes!("../../../../defs/ue/Meteorite-2607-CU3.usmap");
@@ -2354,6 +2383,8 @@ struct MeshHeader {
     /// Which LOD the buffers come from; higher means further from full
     /// detail (LOD0 slots replaced by Nanite carry no classic buffers).
     lod: usize,
+    /// The geometry is the full-detail mesh decoded from the Nanite pages.
+    nanite: bool,
     skeletal: bool,
 }
 
@@ -2380,15 +2411,19 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             usmap,
             names: &package.names,
         };
+        let bulk_map = ue_asset::mesh::bulk_map_of(&data);
         let mesh = if skeletal {
-            let sk = ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
+            let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?;
             ue_asset::mesh::StaticMeshData {
                 materials: sk.materials,
                 lods: sk.lods,
+                nanite: sk.nanite,
+                nanite_report: sk.nanite_report,
+                nanite_note: sk.nanite_note,
             }
         } else {
-            ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref())
+            ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
                 .map_err(|e| e.to_string())?
         };
 
@@ -2440,19 +2475,29 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
             })
             .collect();
 
-        // The best LOD that actually carries buffers. Skeletal Nanite meshes
-        // ship a single placeholder triangle, which is worth naming.
-        let (lod_index, lod) = mesh
-            .lods
-            .iter()
-            .enumerate()
-            .find(|(_, l)| !l.indices.is_empty())
-            .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+        // The Nanite mesh at full detail when its pages decoded, else the
+        // best classic LOD that carries buffers. Skeletal Nanite meshes ship
+        // a single placeholder triangle, which is worth naming.
+        let (lod_index, lod, nanite) = match mesh.nanite.as_ref() {
+            Some(n) => (0, n, true),
+            None => {
+                let (i, l) = mesh
+                    .lods
+                    .iter()
+                    .enumerate()
+                    .find(|(_, l)| !l.indices.is_empty())
+                    .ok_or("no LOD carries geometry (Nanite-only mesh?)")?;
+                (i, l, false)
+            }
+        };
         if lod.indices.len() <= 3 {
             return Err(format!(
-                "{} is Nanite-only: its classic buffers hold a placeholder triangle, and the \
-                 reader does not decode Nanite cluster pages",
-                entry.short
+                "{} is Nanite-only: its classic buffers hold a placeholder triangle{}",
+                entry.short,
+                match &mesh.nanite_note {
+                    Some(note) => format!(", and its Nanite pages did not decode: {note}"),
+                    None => String::new(),
+                }
             ));
         }
 
@@ -2471,6 +2516,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                 .collect(),
             materials,
             lod: lod_index,
+            nanite,
             skeletal,
         };
         let json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
@@ -4033,10 +4079,206 @@ fn export_sound(index: usize, dest: String, state: State<'_, AppState>) -> Resul
 #[tauri::command]
 fn export_texture(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
     with_catalog(&state, |c| {
-        let (_, img) = decode_texture(c, index, u32::MAX)?;
-        let png = textures::to_png(&img)?;
-        std::fs::write(&dest, &png).map_err(|e| format!("{dest}: {e}"))?;
-        Ok(png.len())
+        let bytes = export_texture_bytes(c, index, &dest)?;
+        std::fs::write(&dest, &bytes).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(bytes.len())
+    })
+}
+
+/// A texture as the file the destination's extension asks for: `.dds` keeps
+/// the cooked pixel format and every mip, `.tif`/`.tiff` and `.png` decode
+/// the largest mip to RGBA.
+fn export_texture_bytes(c: &Catalog, index: usize, dest: &str) -> Result<Vec<u8>, String> {
+    let ext = std::path::Path::new(dest)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "dds" => {
+            let uasset = c.read_texture_uasset(index)?;
+            let header = textures::zen_header_size(&uasset).ok_or("not a zen package")?;
+            let tex = textures::parse_texture(&uasset[header..])?;
+            let ubulk = c.read_texture_ubulk(index).unwrap_or_default();
+            textures::dds::write_dds(&tex, &ubulk)
+        }
+        "tif" | "tiff" => {
+            let (_, img) = decode_texture(c, index, u32::MAX)?;
+            textures::to_tiff(&img)
+        }
+        _ => {
+            let (_, img) = decode_texture(c, index, u32::MAX)?;
+            textures::to_png(&img)
+        }
+    }
+}
+
+/// A mesh as glTF binary: every LOD, a primitive per section named after its
+/// What a level export came to, for the World view's status line.
+#[derive(Debug, Clone, Serialize)]
+pub struct LevelExportSummary {
+    pub mission: String,
+    pub cells: usize,
+    pub files: usize,
+    pub placements: usize,
+    pub instanced: usize,
+    pub bytes: usize,
+    /// Skip reasons with their counts, summed over the cells.
+    pub skips: Vec<(String, usize)>,
+    /// Meshes that would not read, with the placements dropped for each.
+    pub missing: Vec<(String, usize)>,
+}
+
+/// Export a scenario's Unreal geometry — the mission's persistent level and
+/// every World Partition cell — as one `.glb` per cell in `dest`, with a
+/// `manifest.json`. The mission is the scenario tag's leaf name.
+#[tauri::command]
+fn export_level(
+    index: usize,
+    dest: String,
+    nanite: bool,
+    hlod: bool,
+    state: State<'_, AppState>,
+) -> Result<LevelExportSummary, String> {
+    with_catalog(&state, |c| {
+        let tag = c.tags.get(index).ok_or("tag index out of range")?;
+        if tag.group != "scenario" {
+            return Err(format!("{} is not a scenario", tag.short));
+        }
+        let mission = tag.short.rsplit('/').next().unwrap_or(&tag.short).to_string();
+        let cells = c.level_cells(&mission);
+        if cells.is_empty() {
+            return Err(format!("no level package for mission {mission:?}"));
+        }
+        let usmap = usmap()?;
+        let scripts = c.script_objects().ok_or("no script-object table")?;
+        let load_package = |name: &str| c.read_package(name);
+        let load_bulk = |name: &str| c.read_package_bulk(name);
+        let mut exporter = ue_asset::level::Exporter::new(
+            usmap,
+            scripts,
+            &load_package,
+            &load_bulk,
+            ue_asset::level::ExportOptions {
+                nanite,
+                include_hlod: hlod,
+            },
+        );
+        let out = std::path::Path::new(&dest);
+        std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+        let mut summary = LevelExportSummary {
+            mission: mission.clone(),
+            cells: cells.len(),
+            files: 0,
+            placements: 0,
+            instanced: 0,
+            bytes: 0,
+            skips: Vec::new(),
+            missing: Vec::new(),
+        };
+        let mut skips: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut missing: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut manifest_cells: Vec<serde_json::Value> = Vec::new();
+        for name in &cells {
+            let cell = exporter.export_cell(name, true)?;
+            summary.placements += cell.placements;
+            summary.instanced += cell.instanced;
+            for (k, v) in &cell.skips {
+                *skips.entry(k.clone()).or_default() += v;
+            }
+            for (k, v) in &cell.missing {
+                *missing.entry(k.clone()).or_default() += v;
+            }
+            let mut entry = serde_json::json!({
+                "package": cell.package,
+                "actors": cell.actors,
+                "placements": cell.placements,
+                "instanced": cell.instanced,
+                "meshes": cell.meshes,
+                "skips": cell.skips,
+                "missing_meshes": cell.missing,
+            });
+            if let Some(glb) = &cell.glb {
+                let file = format!("{}.glb", cell.id);
+                std::fs::write(out.join(&file), glb).map_err(|e| e.to_string())?;
+                entry["file"] = serde_json::json!(file);
+                entry["bytes"] = serde_json::json!(glb.len());
+                summary.files += 1;
+                summary.bytes += glb.len();
+            }
+            manifest_cells.push(entry);
+        }
+        summary.skips = skips.into_iter().collect();
+        summary.missing = missing.into_iter().collect();
+        let manifest = serde_json::json!({
+            "mission": mission,
+            "nanite": nanite,
+            "hlod": hlod,
+            "cells": manifest_cells,
+            "totals": {
+                "cells": summary.cells,
+                "placements": summary.placements,
+                "instanced": summary.instanced,
+                "files": summary.files,
+                "skips": summary.skips.iter().cloned().collect::<std::collections::BTreeMap<_, _>>(),
+            },
+        });
+        std::fs::write(
+            out.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(summary)
+    })
+}
+
+/// material slot, in metres and +Y up. A skeletal mesh comes out in its rest
+/// pose with the bones as nodes.
+#[tauri::command]
+fn export_mesh(index: usize, dest: String, state: State<'_, AppState>) -> Result<usize, String> {
+    with_catalog(&state, |c| {
+        let entry = c.meshes.get(index).ok_or("mesh index out of range")?;
+        let name = entry.short.rsplit('/').next().unwrap_or(&entry.short).to_string();
+        let usmap = usmap()?;
+        let data = c.read_mesh_uasset(index)?;
+        let ubulk = c.read_mesh_ubulk(index)?;
+        let package = ue_asset::zen::Package::parse(&data).map_err(|e| e.to_string())?;
+        let scripts = c.script_objects().ok_or("no script-object table")?;
+        let wanted_class = if entry.skeletal { "SkeletalMesh" } else { "StaticMesh" };
+        let export = package
+            .exports
+            .iter()
+            .position(|e| scripts.leaf(e.class) == Some(wanted_class))
+            .ok_or_else(|| format!("{} has no {wanted_class} export", entry.short))?;
+        let bytes = package.export_data(&data, export).map_err(|e| e.to_string())?;
+        let ctx = ue_asset::unversioned::Ctx {
+            usmap,
+            names: &package.names,
+        };
+        let bulk_map = ue_asset::mesh::bulk_map_of(&data);
+        let glb = if entry.skeletal {
+            let sk = ue_asset::mesh::parse_skeletal_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
+                .map_err(|e| e.to_string())?;
+            let lods: Vec<ue_asset::mesh::Lod> = sk.export_lods().into_iter().cloned().collect();
+            ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
+                name: &name,
+                materials: &sk.materials,
+                lods: &lods,
+                bones: &sk.bones,
+            })?
+        } else {
+            let sm = ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)
+                .map_err(|e| e.to_string())?;
+            let lods: Vec<ue_asset::mesh::Lod> = sm.export_lods().into_iter().cloned().collect();
+            ue_asset::gltf::write_glb(&ue_asset::gltf::MeshExport {
+                name: &name,
+                materials: &sm.materials,
+                lods: &lods,
+                bones: &[],
+            })?
+        };
+        std::fs::write(&dest, &glb).map_err(|e| format!("{dest}: {e}"))?;
+        Ok(glb.len())
     })
 }
 
@@ -4505,17 +4747,21 @@ type Resolved = (
 /// produce a tag that still reads back exactly. Anything stale fails loudly
 /// here — a mod must never silently ship half its recipe.
 ///
-/// Also returns per-edit warnings. The one that exists today: a `string id`
-/// set to text the game's string table does not already contain makes the
-/// game reject the whole tag — verified in game 2026-08-02, where a marker
-/// string turned the assault rifle into the pistol-fallback. The editor
-/// cannot see the game's string table, so it warns rather than blocks.
+/// Also returns per-edit warnings. A `string id` set to text the game's
+/// registry does not already contain makes the game reject the whole tag —
+/// verified in game 2026-08-02, where a marker string turned the assault
+/// rifle into the pistol-fallback. The registry as the game held it in A30
+/// ships with the editor (`blam_live::stringid::shipped`), so a name absent
+/// from it is refused unless `allow_unknown_string_ids`; a name present there
+/// but set fresh still earns a warning, since one mission's registry is a
+/// lower bound for another's.
 fn resolved_edits(
     c: &Catalog,
     edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
     scripts: &BTreeMap<TagKey, Vec<(String, String)>>,
     textures: &BTreeMap<String, Vec<u8>>,
     new_tags: &BTreeMap<TagKey, NewTagSpec>,
+    allow_unknown_string_ids: bool,
 ) -> Result<Resolved, String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
@@ -4561,12 +4807,32 @@ fn resolved_edits(
             }
             for o in &outcomes {
                 if o.type_name == "string id" && o.before.as_deref() != Some(o.value.as_str()) {
-                    warnings.push(format!(
-                        "{label}: \"{}\" sets a string id. A string the game does not \
-                         already know makes it reject the whole tag (the weapon simply \
-                         vanishes in game) — test before sharing.",
-                        o.path
-                    ));
+                    let name = o.value.trim_matches('"');
+                    let registered = blam_live::stringid::normalize(name)
+                        .is_some_and(|n| blam_live::stringid::is_shipped(&n));
+                    if !registered && !allow_unknown_string_ids {
+                        return Err(format!(
+                            "{label}: \"{}\" sets the string id \"{name}\", which the game's \
+                             registry does not contain. An unregistered string id makes the \
+                             game reject the whole tag (the weapon simply vanishes). Pick a \
+                             registered name, or tick \"allow unregistered string ids\" to \
+                             bake it anyway.",
+                            o.path
+                        ));
+                    }
+                    warnings.push(if registered {
+                        format!(
+                            "{label}: \"{}\" sets a string id the registry knows from mission \
+                             A30; another mission may not have registered it yet — test there.",
+                            o.path
+                        )
+                    } else {
+                        format!(
+                            "{label}: \"{}\" sets the unregistered string id \"{name}\" \
+                             because you allowed it; expect the game to reject the tag.",
+                            o.path
+                        )
+                    });
                 }
             }
         }
@@ -4784,6 +5050,7 @@ struct ExportView {
 fn export_archive(
     state: &State<'_, AppState>,
     allow_sign: bool,
+    allow_unknown_string_ids: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
     let (root, meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
@@ -4811,7 +5078,7 @@ fn export_archive(
         install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
         let (resolved, additions, mut warnings) =
-            resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+            resolved_edits(c, &edits, &scripts, &swaps, &added, allow_unknown_string_ids)?;
         let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
@@ -4919,8 +5186,11 @@ fn export_archive(
 }
 
 #[tauri::command]
-fn project_export(state: State<'_, AppState>) -> Result<ExportView, String> {
-    export_archive(&state, true).map(|(view, _, _)| view)
+fn project_export(
+    allow_unknown_string_ids: bool,
+    state: State<'_, AppState>,
+) -> Result<ExportView, String> {
+    export_archive(&state, true, allow_unknown_string_ids).map(|(view, _, _)| view)
 }
 
 #[derive(Serialize)]
@@ -4932,7 +5202,10 @@ struct TestView {
 
 /// Bake the project and install it into the Paks folder for an in-game test.
 #[tauri::command]
-fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
+fn project_test(
+    allow_unknown_string_ids: bool,
+    state: State<'_, AppState>,
+) -> Result<TestView, String> {
     let (meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
@@ -4947,7 +5220,8 @@ fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
         )
     };
     with_catalog(&state, |c| {
-        let (resolved, additions, warnings) = resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+        let (resolved, additions, warnings) =
+            resolved_edits(c, &edits, &scripts, &swaps, &added, allow_unknown_string_ids)?;
         let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let resized = baked.iter().any(|b| b.built.resized());
         let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
@@ -5033,7 +5307,7 @@ fn project_publish(
         Err(_) => false,
     };
 
-    let (view, archive, meta) = export_archive(&state, allow_sign)?;
+    let (view, archive, meta) = export_archive(&state, allow_sign, false)?;
     if view.size > modpack::MAX_ARCHIVE_BYTES {
         return Err(format!(
             "the archive is {} bytes, over the hub's 50 MiB limit",
@@ -5154,6 +5428,8 @@ pub fn run() {
             set_scripts,
             revert_scripts,
             export_texture,
+            export_mesh,
+            export_level,
             swap_texture,
             revert_texture,
             list_sounds,
@@ -5458,6 +5734,85 @@ mod tests {
         }
     }
 
+    /// DDS export on shipped textures: a classic chain's first mip is the
+    /// bulk bytes verbatim, and a virtual texture's tiles reassemble into a
+    /// block image that decodes to the same pixels the tile path shows.
+    #[test]
+    fn dds_export_keeps_cooked_bytes_and_reassembles_virtual_textures() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let mut seen_classic = false;
+        let mut seen_virtual = false;
+        for index in 0..c.textures.len().min(400) {
+            if seen_classic && seen_virtual {
+                break;
+            }
+            let Ok(uasset) = c.read_texture_uasset(index) else {
+                continue;
+            };
+            let Some(header) = textures::zen_header_size(&uasset) else {
+                continue;
+            };
+            let Ok(tex) = textures::parse_texture(&uasset[header..]) else {
+                continue;
+            };
+            let ubulk = c.read_texture_ubulk(index).unwrap_or_default();
+            let Ok(dds) = textures::dds::write_dds(&tex, &ubulk) else {
+                continue;
+            };
+            let body_at = if dds[84..88] == *b"DX10" { 148 } else { 128 };
+            match &tex.payload {
+                textures::Payload::Classic(mips) if !seen_classic => {
+                    let m = &mips[0];
+                    let first: &[u8] = match &m.source {
+                        textures::MipSource::Inline { bytes, .. } => bytes,
+                        textures::MipSource::Bulk { offset, len } => {
+                            &ubulk[*offset as usize..(*offset + *len) as usize]
+                        }
+                    };
+                    assert_eq!(&dds[body_at..body_at + first.len()], first);
+                    assert_eq!(u32::from_le_bytes(dds[28..32].try_into().unwrap()), tex.num_mips);
+                    eprintln!("classic: {} {}x{} {} mips", tex.format, tex.width, tex.height, tex.num_mips);
+                    seen_classic = true;
+                }
+                textures::Payload::Virtual(_) if !seen_virtual => {
+                    // Re-decode mip 0 from the linear block image the DDS holds
+                    // and compare with the tile-by-tile decode.
+                    let (w, h) = tex.mip_dims(0);
+                    let (block_bytes, edge) = match tex.format.as_str() {
+                        "PF_DXT1" | "PF_BC4" => (8u64, 4u64),
+                        "PF_B8G8R8A8" => (4, 1),
+                        "PF_G8" | "PF_A8" => (1, 1),
+                        _ => (16, 4),
+                    };
+                    let len = ((w as u64).div_ceil(edge) * (h as u64).div_ceil(edge) * block_bytes) as usize;
+                    let linear = dds[body_at..body_at + len].to_vec();
+                    let flat = textures::Texture {
+                        width: w,
+                        height: h,
+                        format: tex.format.clone(),
+                        num_mips: 1,
+                        payload: textures::Payload::Classic(vec![textures::Mip {
+                            width: w,
+                            height: h,
+                            source: textures::MipSource::Inline { at: 0, bytes: linear },
+                        }]),
+                    };
+                    let from_tiles = textures::assemble_mip(&tex, &ubulk, 0).unwrap();
+                    let from_dds = textures::assemble_mip(&flat, &[], 0).unwrap();
+                    assert_eq!(from_tiles.rgba, from_dds.rgba, "{} {}x{}", tex.format, w, h);
+                    eprintln!("virtual: {} {}x{} {} mips", tex.format, w, h, tex.num_mips);
+                    seen_virtual = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(seen_classic, "no classic texture among the first 400");
+        assert!(seen_virtual, "no virtual texture among the first 400");
+    }
+
     #[test]
     fn the_journal_is_bounded() {
         let key: TagKey = ("weapon".into(), "x".into());
@@ -5500,7 +5855,7 @@ mod tests {
         );
         let (edits, scripts, textures) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
         let (overrides, additions, warnings) =
-            resolved_edits(&c, &edits, &scripts, &textures, &new_tags).unwrap();
+            resolved_edits(&c, &edits, &scripts, &textures, &new_tags, false).unwrap();
         assert!(overrides.is_empty());
         assert_eq!(additions.len(), 1);
         assert_eq!(
@@ -5587,7 +5942,7 @@ mod tests {
         }
         let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
         let (overrides, additions, warnings) =
-            resolved_edits(&c, &pending, &scripts, &textures, &new_tags).unwrap();
+            resolved_edits(&c, &pending, &scripts, &textures, &new_tags, false).unwrap();
         assert_eq!(additions.len(), clones.len());
         assert!(
             !warnings.iter().any(|w| w.contains("referenced by nothing")),

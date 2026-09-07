@@ -19,6 +19,7 @@ use clap::{Args, Subcommand};
 
 use crate::index;
 use crate::Source;
+use std::collections::BTreeMap;
 use blam_tag::blockedit::{self, Op};
 use blam_tag::{Scalar, TagFile};
 
@@ -45,6 +46,39 @@ pub enum LevelCommand {
     Selftest(SelftestArgs),
     /// Bake a level file into a scenario override container.
     Bake(BakeArgs),
+    /// Export a shipped mission's Unreal geometry as glTF: one `.glb` per
+    /// World Partition cell, every placed static mesh at its world
+    /// transform, instanced components expanded, plus a manifest of what was
+    /// placed and what was skipped.
+    Export(ExportArgs),
+}
+
+#[derive(Args)]
+pub struct ExportArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The mission folder, e.g. `a30` or `e20`.
+    #[arg(long)]
+    pub mission: String,
+    /// Only cells whose id contains this (case-insensitive).
+    #[arg(long)]
+    pub cell: Option<String>,
+    /// Directory for the `.glb` files and `manifest.json`.
+    #[arg(long, default_value = ".")]
+    pub out: PathBuf,
+    /// Use the full-detail Nanite geometry for each mesh instead of the
+    /// classic fallback LOD. Files get much larger.
+    #[arg(long)]
+    pub nanite: bool,
+    /// Place the hierarchical-LOD proxies as well as the real meshes.
+    #[arg(long)]
+    pub hlod: bool,
+    /// Stop after this many cells.
+    #[arg(long)]
+    pub limit: Option<usize>,
+    /// Read and report only; write no `.glb`.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args)]
@@ -87,6 +121,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::Validate(a) => validate_cmd(a),
         LevelCommand::Selftest(a) => selftest(a),
         LevelCommand::Bake(a) => bake(a),
+        LevelCommand::Export(a) => export(a),
     }
 }
 
@@ -893,6 +928,181 @@ fn bake(a: BakeArgs) -> Result<()> {
         println!("\n  Install: copy both files plus a stub .pak sibling into the game's");
         println!("  Paks folder, or re-run with --install-test.");
     }
+    Ok(())
+}
+
+/// Every package in the containers by `/Game/...` name: the container and
+/// chunk of its `.uasset`/`.umap`, and of its `.ubulk` when it has one. A
+/// later container (an override) replaces an earlier one's entry.
+/// Container and chunk index of a package's `.uasset`/`.umap`, and of its
+/// `.ubulk` when it has one.
+type PackageSlot = (usize, usize, Option<(usize, usize)>);
+
+struct PackageIndex {
+    entries: std::collections::HashMap<String, PackageSlot>,
+}
+
+impl PackageIndex {
+    fn build(containers: &[ue_iostore::Container]) -> PackageIndex {
+        let mut entries: std::collections::HashMap<String, PackageSlot> = std::collections::HashMap::new();
+        for (ci, c) in containers.iter().enumerate() {
+            for (rel, chunk_index) in &c.files {
+                let full = c.full_path(rel);
+                if full.ends_with(".uptnl") {
+                    continue;
+                }
+                let Some(name) = ue_asset::level::package_name_of(&full) else {
+                    continue;
+                };
+                let is_bulk = full.ends_with(".ubulk");
+                let entry = entries
+                    .entry(name.to_ascii_lowercase())
+                    .or_insert((usize::MAX, usize::MAX, None));
+                if is_bulk {
+                    entry.2 = Some((ci, *chunk_index));
+                } else {
+                    entry.0 = ci;
+                    entry.1 = *chunk_index;
+                }
+            }
+        }
+        entries.retain(|_, e| e.0 != usize::MAX);
+        PackageIndex { entries }
+    }
+
+    fn get(&self, name: &str) -> Option<&PackageSlot> {
+        self.entries.get(&name.to_ascii_lowercase())
+    }
+}
+
+fn export(a: ExportArgs) -> Result<()> {
+    use ue_asset::level::{mission_cells, ExportOptions, Exporter};
+
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let index = PackageIndex::build(&containers);
+    let usmap = crate::mesh::usmap()?;
+    let scripts = crate::mesh::script_objects(&containers, &oodle)?;
+    let read = |ci: usize, chunk: usize| -> Option<Vec<u8>> {
+        ue_iostore::read_chunk(&containers[ci], &containers[ci].chunks[chunk], None, &oodle).ok()
+    };
+    let load_package = |name: &str| -> Option<Vec<u8>> {
+        let (ci, chunk, _) = index.get(name)?;
+        read(*ci, *chunk)
+    };
+    let load_bulk = |name: &str| -> Option<Vec<u8>> {
+        let (_, _, bulk) = index.get(name)?;
+        let (ci, chunk) = (*bulk)?;
+        read(ci, chunk)
+    };
+    let mut exporter = Exporter::new(
+        &usmap,
+        &scripts,
+        &load_package,
+        &load_bulk,
+        ExportOptions {
+            nanite: a.nanite,
+            include_hlod: a.hlod,
+        },
+    );
+
+    let mut cells = mission_cells(index.entries.keys().map(|k| k.as_str()), &a.mission);
+    if let Some(want) = &a.cell {
+        let want = want.to_ascii_lowercase();
+        cells.retain(|k| k.contains(&want));
+    }
+    if let Some(limit) = a.limit {
+        cells.truncate(limit);
+    }
+    if cells.is_empty() {
+        bail!("no level package for mission {:?}", a.mission);
+    }
+    std::fs::create_dir_all(&a.out)?;
+
+    let mut manifest_cells: Vec<serde_json::Value> = Vec::new();
+    let mut total_placements = 0usize;
+    let mut total_instanced = 0usize;
+    let mut total_skips: BTreeMap<String, usize> = BTreeMap::new();
+    let mut files = 0usize;
+    for key in &cells {
+        let cell = match exporter.export_cell(key, !a.dry_run) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{e}");
+                continue;
+            }
+        };
+        total_placements += cell.placements;
+        total_instanced += cell.instanced;
+        for (k, v) in &cell.skips {
+            *total_skips.entry(k.clone()).or_default() += v;
+        }
+        let skips: Vec<String> = cell.skips.iter().map(|(k, v)| format!("{v} {k}")).collect();
+        println!(
+            "{}: {} actors, {} placements ({} instanced) of {} meshes{}",
+            cell.id,
+            cell.actors,
+            cell.placements,
+            cell.instanced,
+            cell.meshes,
+            if skips.is_empty() {
+                String::new()
+            } else {
+                format!("; skipped {}", skips.join(", "))
+            }
+        );
+        let mut entry = serde_json::json!({
+            "package": cell.package,
+            "actors": cell.actors,
+            "placements": cell.placements,
+            "instanced": cell.instanced,
+            "meshes": cell.meshes,
+            "skips": cell.skips,
+        });
+        if !cell.missing.is_empty() {
+            let list: Vec<String> = cell.missing.iter().take(5).map(|(k, v)| format!("{k} ×{v}")).collect();
+            println!(
+                "  {} mesh(es) not readable, placements dropped: {}",
+                cell.missing.len(),
+                list.join(", ")
+            );
+            entry["missing_meshes"] = serde_json::json!(cell.missing);
+        }
+        if let Some(glb) = &cell.glb {
+            let path = a.out.join(format!("{}.glb", cell.id));
+            std::fs::write(&path, glb).with_context(|| format!("writing {}", path.display()))?;
+            entry["file"] = serde_json::json!(path.file_name().unwrap().to_string_lossy());
+            entry["bytes"] = serde_json::json!(glb.len());
+            files += 1;
+        }
+        manifest_cells.push(entry);
+    }
+    let manifest = serde_json::json!({
+        "mission": a.mission,
+        "nanite": a.nanite,
+        "hlod": a.hlod,
+        "cells": manifest_cells,
+        "totals": {
+            "cells": cells.len(),
+            "placements": total_placements,
+            "instanced": total_instanced,
+            "files": files,
+            "skips": total_skips,
+        },
+    });
+    if !a.dry_run {
+        std::fs::write(a.out.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
+    }
+    let skips: Vec<String> = total_skips.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    println!(
+        "{} cells, {total_placements} placements ({total_instanced} instanced), {files} file(s){}",
+        cells.len(),
+        if skips.is_empty() {
+            String::new()
+        } else {
+            format!("; skipped {}", skips.join(", "))
+        }
+    );
     Ok(())
 }
 

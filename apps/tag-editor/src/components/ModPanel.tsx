@@ -592,6 +592,8 @@ function ProjectPanel() {
   const exportMod = useEditor((s) => s.exportMod);
   const testMod = useEditor((s) => s.testMod);
   const untestMod = useEditor((s) => s.untestMod);
+  const allowUnknownStringIds = useEditor((s) => s.allowUnknownStringIds);
+  const setAllowUnknownStringIds = useEditor((s) => s.setAllowUnknownStringIds);
 
   // A mod that only repaints a texture still has something to bake, so the
   // test and export buttons key off both lists.
@@ -691,6 +693,17 @@ function ProjectPanel() {
             {w}
           </p>
         ))}
+        <label
+          className="flex items-center gap-1.5 text-[10px] text-text-dim"
+          title="A string id the game has not registered makes it reject the whole tag. The registry as the game held it in mission A30 ships with the editor; an edit naming a string outside it is refused unless this is ticked."
+        >
+          <input
+            type="checkbox"
+            checked={allowUnknownStringIds}
+            onChange={(e) => setAllowUnknownStringIds(e.target.checked)}
+          />
+          allow unregistered string ids
+        </label>
       </div>
 
       <div className="flex flex-col gap-2 border-b border-border-subtle p-3">

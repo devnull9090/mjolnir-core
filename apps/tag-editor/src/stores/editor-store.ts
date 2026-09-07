@@ -32,6 +32,7 @@ import {
   type PasteReport,
   type DiffView,
   type RefNode,
+  LevelExportSummary,
 } from "../lib/api";
 import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
@@ -251,6 +252,9 @@ type EditorState = {
   createNewTag: (path: string, assetReference: string) => Promise<string | null>;
   removeNewTag: (group: string, tag: string) => Promise<void>;
   exportMod: () => Promise<void>;
+  /** Bake even when an edit sets a string id the shipped registry lacks. */
+  allowUnknownStringIds: boolean;
+  setAllowUnknownStringIds: (allow: boolean) => void;
   testMod: () => Promise<void>;
   untestMod: () => Promise<void>;
   publishMod: (changelog: string) => Promise<void>;
@@ -282,6 +286,10 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+  /** Write the shown mesh as a `.glb`. */
+  exportMesh: (dest: string) => Promise<number | null>;
+  /** Export the selected scenario's Unreal geometry as glTF cells into a folder. */
+  exportLevel: (dest: string, nanite: boolean, hlod: boolean) => Promise<LevelExportSummary | null>;
   /** Set while a swap is re-encoding, which takes seconds on a large texture. */
   textureSwapping: boolean;
   /** What the last applied swap did, cleared when another texture is opened. */
@@ -1125,6 +1133,28 @@ export const useEditor = create<EditorState>((set, get) => {
         return null;
       }
     },
+
+    async exportMesh(dest) {
+      const index = get().selectedMesh;
+      if (index === null) return null;
+      try {
+        return await api.exportMesh(index, dest);
+      } catch (e) {
+        set({ error: String(e) });
+        return null;
+      }
+    },
+
+    async exportLevel(dest, nanite, hlod) {
+      const index = get().selectedTag;
+      if (index === null) return null;
+      try {
+        return await api.exportLevel(index, dest, nanite, hlod);
+      } catch (e) {
+        set({ error: String(e) });
+        return null;
+      }
+    },
     textureSwapping: false,
     swapReport: null,
     async swapTexture(image) {
@@ -1895,10 +1925,15 @@ export const useEditor = create<EditorState>((set, get) => {
       await get().refreshProject();
     },
 
+    allowUnknownStringIds: false,
+    setAllowUnknownStringIds(allow) {
+      set({ allowUnknownStringIds: allow });
+    },
+
     async exportMod() {
       set({ projectBusy: "export", exportResult: null, projectError: null });
       try {
-        set({ exportResult: await api.projectExport() });
+        set({ exportResult: await api.projectExport(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {
@@ -1909,7 +1944,7 @@ export const useEditor = create<EditorState>((set, get) => {
     async testMod() {
       set({ projectBusy: "test", testResult: null, projectError: null });
       try {
-        set({ testResult: await api.projectTest() });
+        set({ testResult: await api.projectTest(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {

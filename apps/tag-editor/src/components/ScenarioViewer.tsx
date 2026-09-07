@@ -1,3 +1,4 @@
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -121,6 +122,22 @@ function World(props: {
   const [mode, setMode] = useState<"translate" | "rotate">("translate");
   const [hidden, setHidden] = useState<Set<string>>(new Set(["trigger volumes"]));
   const [saving, setSaving] = useState<string | null>(null);
+  const exportLevel = useEditor((s) => s.exportLevel);
+  const [exporting, setExporting] = useState<string | null>(null);
+  async function onExportLevel() {
+    const dest = await openDialog({ directory: true, title: "Folder for the level's .glb files" });
+    if (!dest || Array.isArray(dest)) return;
+    setExporting("exporting level geometry…");
+    const summary = await exportLevel(dest, false, false);
+    if (!summary) {
+      setExporting(null);
+      return;
+    }
+    const mb = (summary.bytes / 1_048_576).toFixed(0);
+    setExporting(
+      `wrote ${summary.files} of ${summary.cells} cells, ${summary.placements.toLocaleString()} placements, ${mb} MB`,
+    );
+  }
   const selectedRef = useRef<Selected | null>(null);
   const categoryGroups = useRef<Map<string, THREE.Group>>(new Map());
   const invisibleMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
@@ -628,6 +645,16 @@ function World(props: {
             {label}
           </button>
         ))}
+        <span className="mx-1 h-4 w-px bg-border-subtle" />
+        <button
+          type="button"
+          onClick={onExportLevel}
+          title="Every placed Unreal static mesh of this mission, one glTF binary per World Partition cell, at its world transform"
+          className="border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-dim hover:bg-surface-hover"
+        >
+          export level geometry…
+        </button>
+        {exporting && <span className="font-mono text-[10px] text-text-dim">{exporting}</span>}
         {saving && (
           <span className="ml-auto font-mono text-[10px] text-text-dim">{saving}</span>
         )}

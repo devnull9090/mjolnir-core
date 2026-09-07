@@ -110,3 +110,23 @@ Known looseness: `GUObjectHashTables.lua` resolved to different addresses on
 different CU3 launches at the same image base, so its pattern matches more than
 one site. It has worked regardless; tighten it if hash-table lookups ever
 misbehave.
+
+## The tag module's anchors (`crates/blam-live/src/tagtable.rs`)
+
+`HaloSimulation_tag_release.dll` keeps the tag table, the segment table and
+the string-id registry behind eight globals. A measured profile pins them by
+the module's hash; when no profile matches, four anchors recover them from
+the module on disk, each matched exactly once on CU4 and each chosen for
+what the code does rather than where it is:
+
+| Global | Pattern | The instruction shape |
+|---|---|---|
+| tag table pointer | `48 89 1D ? ? ? ? C6 43 31 01 48 8B CB` | the table's constructor storing the new object, then setting its `+0x31` flag |
+| segment table | `4C 8D 35 ? ? ? ? 48 63 C2 49 8D 0C 80 49 C1 E8 1C` | the encoded-offset decode: words × 4, top nibble as the segment |
+| string-id storage | `48 89 05 ? ? ? ? BA 00 F8 0F 00 41 B8 00 FC 07 00` | the registry's constructor storing its storage pointer, then sizing the hash table (0xFF800 buckets, 0x7FC00 max) |
+| string-id builtins | `48 8D 05 ? ? ? ? 8B 04 F8 89 44 24 70 EB 20` | a builtin-id lookup, `mov eax, [rax+rdi*8]` |
+
+The other five registry globals sit at fixed offsets from the storage
+pointer (`+8` used, `+0x10` strings, `+0x18` count, `+0x30` map). The gated
+test `anchors_reproduce_the_measured_profile` checks the derived profile
+against the measured one on the installed module.

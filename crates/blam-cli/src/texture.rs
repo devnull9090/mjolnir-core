@@ -58,10 +58,13 @@ pub struct OneArgs {
 pub struct ExportArgs {
     #[command(flatten)]
     pub one: OneArgs,
-    /// PNG file to write.
+    /// File to write. The extension picks the format: `.png` or `.tif`
+    /// decode one mip to RGBA; `.dds` keeps the cooked pixel format and
+    /// writes the whole mip chain, no re-encoding.
     #[arg(long)]
     pub out: PathBuf,
-    /// Which mip to export; 0 is the largest.
+    /// Which mip to export for PNG and TIFF; 0 is the largest. A DDS always
+    /// carries every mip.
     #[arg(long, default_value_t = 0)]
     pub mip: u32,
 }
@@ -299,9 +302,35 @@ fn export(a: ExportArgs) -> Result<()> {
     let t = locate(&containers, &a.one.asset)?;
     let (_, _, ubulk, tex) = read(&containers, &t, &oodle)?;
 
+    let ext = a
+        .out
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext == "dds" {
+        let dds = ue_texture::dds::write_dds(&tex, &ubulk).map_err(|e| anyhow::anyhow!(e))?;
+        std::fs::write(&a.out, &dds)
+            .with_context(|| format!("cannot write {}", a.out.display()))?;
+        println!(
+            "{}\n  {}x{} {} x{} mip(s) -> {} ({} bytes, cooked bytes as shipped)",
+            t.path,
+            tex.width,
+            tex.height,
+            tex.format,
+            tex.num_mips,
+            a.out.display(),
+            dds.len()
+        );
+        return Ok(());
+    }
     let img = ue_texture::assemble_mip(&tex, &ubulk, a.mip).map_err(|e| anyhow::anyhow!(e))?;
-    let png = ue_texture::to_png(&img).map_err(|e| anyhow::anyhow!(e))?;
-    std::fs::write(&a.out, &png).with_context(|| format!("cannot write {}", a.out.display()))?;
+    let bytes = match ext.as_str() {
+        "tif" | "tiff" => ue_texture::to_tiff(&img),
+        _ => ue_texture::to_png(&img),
+    }
+    .map_err(|e| anyhow::anyhow!(e))?;
+    std::fs::write(&a.out, &bytes).with_context(|| format!("cannot write {}", a.out.display()))?;
     println!(
         "{}\n  mip {} {}x{} {} -> {} ({} bytes)",
         t.path,
@@ -310,7 +339,7 @@ fn export(a: ExportArgs) -> Result<()> {
         img.height,
         img.format,
         a.out.display(),
-        png.len()
+        bytes.len()
     );
     Ok(())
 }

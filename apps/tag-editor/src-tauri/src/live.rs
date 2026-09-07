@@ -47,6 +47,7 @@ use serde::Serialize;
 
 /// Everything a poke needs, lifted out of the app state so the slow part can run
 /// off the UI thread without holding a `State` across an await.
+#[derive(Clone)]
 pub struct Job {
     pub key: (String, String),
     /// The tag as the containers hold it.
@@ -69,6 +70,15 @@ pub struct Job {
     pub span: Range<usize>,
     /// The field's bytes after the edit.
     pub bytes: Vec<u8>,
+    /// For a string id: the name to write, resolved to the running game's
+    /// registry id at poke time (the engine keeps ids, not strings, in the
+    /// resident copy). `bytes` is then that id.
+    pub string_id: Option<String>,
+    /// For a tag reference: the tag to point at, as `(group four-CC, path)`.
+    /// An empty path clears the reference. The sixteen resident bytes are
+    /// built at poke time from the running game's own tag table, because the
+    /// handle and the path pointer in them exist only in the process.
+    pub reference: Option<(String, String)>,
 }
 
 /// `blam_tag`'s hop, in `blam_live`'s terms.
@@ -128,6 +138,13 @@ struct Inner {
     /// The segment bases the table's encoded offsets count from, when the
     /// table was read. Makes the arena exact instead of derived.
     segments: Mutex<Option<blam_live::tagtable::Segments>>,
+    /// The running game's string-id registry, read once per process.
+    string_ids: Mutex<Option<(u32, Arc<blam_live::stringid::StringIds>)>>,
+    /// The tag table, walked and indexed by `(group, path)` — what a
+    /// reference poke resolves its target through. Kept per process; the one
+    /// entry a write names is re-read before the write, so a tag that has
+    /// been reloaded into a new slot since the walk is caught.
+    table: Mutex<Option<(u32, Arc<blam_live::tagtable::LiveTags>)>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -194,6 +211,7 @@ impl Live {
         *self.0.arena.lock().expect("live arena lock") = None;
         self.0.roots.lock().expect("live roots lock").clear();
         *self.0.segments.lock().expect("live segments lock") = None;
+        *self.0.table.lock().expect("live table lock") = None;
         // `rvas` deliberately survives: it belongs to the build, not the
         // process, and reattach validates it anyway.
     }
@@ -330,6 +348,129 @@ impl Live {
         Ok(arena)
     }
 
+    /// The running game's string-id registry, read through the tag module's
+    /// profile and kept for the process.
+    fn string_ids(&self, process: &blam_live::Process) -> Result<Arc<blam_live::stringid::StringIds>, String> {
+        let mut held = self.0.string_ids.lock().map_err(|e| e.to_string())?;
+        if let Some((pid, ids)) = held.as_ref() {
+            if *pid == process.pid {
+                return Ok(ids.clone());
+            }
+        }
+        let attached = blam_live::tagtable::attach(process).map_err(|e| e.to_string())?;
+        let ids = blam_live::stringid::StringIds::read(process, attached.base, attached.profile)
+            .map_err(|e| e.to_string())?;
+        let ids = Arc::new(ids);
+        *held = Some((process.pid, ids.clone()));
+        Ok(ids)
+    }
+
+    /// The sixteen bytes a reference field must hold to name `path` in the
+    /// running game: group four-CC, an encoded offset to the tag's own path
+    /// string, the length, and the handle
+    /// ([`blam_live::tagtable::LiveTag::reference_bytes`]).
+    ///
+    /// The target has to be *loaded* — the handle is a slot in the live
+    /// table, and there is no way to conjure one for a tag the game has not
+    /// read. An empty path clears the field instead: group and handle go back
+    /// to `0xFFFFFFFF` and the length to zero, and the path word is left as
+    /// it stands (the engine points a cleared reference at a shared empty
+    /// string, which nothing reads once the group says there is no target).
+    fn reference_bytes(
+        &self,
+        process: &blam_live::Process,
+        group: &str,
+        path: &str,
+        current: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        const SIZE: usize = blam_live::tagtable::REFERENCE_SIZE;
+        if current.len() != SIZE {
+            return Err(format!(
+                "a tag reference is {SIZE} bytes; this field is {}",
+                current.len()
+            ));
+        }
+        if path.trim().is_empty() {
+            let mut out = current.to_vec();
+            out[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+            out[8..12].copy_from_slice(&0u32.to_le_bytes());
+            out[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+            return Ok(out);
+        }
+        let cc: Vec<u8> = group.trim().bytes().collect();
+        let cc: [u8; 4] = cc.as_slice().try_into().map_err(|_| {
+            format!("{group:?} is not a four-character tag group")
+        })?;
+
+        let attached = blam_live::tagtable::attach(process).map_err(|e| e.to_string())?;
+        let segments =
+            blam_live::tagtable::Segments::read(process, attached.base, attached.profile)
+                .map_err(|e| e.to_string())?;
+        let table = blam_live::tagtable::TagTable::open(process, attached.base, attached.profile)
+            .map_err(|e| e.to_string())?;
+
+        let index = {
+            let tags = self.tags(process, &table)?;
+            let found = tags.find(cc, path).ok_or_else(|| {
+                format!(
+                    "the running game has not loaded {group}:{path}, so it has no handle to \
+                     point at. A reference can only be poked at a tag the game has already \
+                     read — everything else needs a rebuild."
+                )
+            })?;
+            found.index
+        };
+        // Fresh from the table: the walk may be minutes old, and a reload
+        // gives the tag a new generation.
+        let wanted = blam_live::tagtable::normalize_path(path);
+        let entry = table
+            .entry(process, index)
+            .map_err(|e| e.to_string())?
+            .filter(|t| t.group == cc && blam_live::tagtable::normalize_path(&t.name) == wanted);
+        let entry = match entry {
+            Some(entry) => entry,
+            None => {
+                // The slot moved under us. Walk again and try once more.
+                self.forget_table();
+                let tags = self.tags(process, &table)?;
+                tags.find(cc, path)
+                    .cloned()
+                    .ok_or_else(|| format!("{group}:{path} left the running game's tag table"))?
+            }
+        };
+        entry
+            .reference_bytes(&segments)
+            .map(|b| b.to_vec())
+            .ok_or_else(|| {
+                format!("{group}:{path} is loaded but its path string is outside every segment")
+            })
+    }
+
+    /// The walked tag table for this process, read once and kept.
+    fn tags(
+        &self,
+        process: &blam_live::Process,
+        table: &blam_live::tagtable::TagTable,
+    ) -> Result<Arc<blam_live::tagtable::LiveTags>, String> {
+        let mut held = self.0.table.lock().map_err(|e| e.to_string())?;
+        if let Some((pid, tags)) = held.as_ref() {
+            if *pid == process.pid {
+                return Ok(tags.clone());
+            }
+        }
+        let tags = Arc::new(blam_live::tagtable::LiveTags::new(
+            table.walk(process).map_err(|e| e.to_string())?,
+        ));
+        *held = Some((process.pid, tags.clone()));
+        Ok(tags)
+    }
+
+    fn forget_table(&self) {
+        if let Ok(mut held) = self.0.table.lock() {
+            *held = None;
+        }
+    }
+
     /// Write one field into the running game, finding the tag first if needed.
     ///
     /// Blocking and slow on a cache miss; the caller runs it off the UI thread.
@@ -379,14 +520,37 @@ impl Live {
                 .map_err(|e| e.to_string())?
         };
 
+        // A string id is written as the id the running game gave that name;
+        // a tag reference as the sixteen bytes the loader would have written.
+        let bytes: Vec<u8> = match (&job.string_id, &job.reference) {
+            (_, Some((group, path))) => {
+                let current = process
+                    .read(address, blam_live::tagtable::REFERENCE_SIZE)
+                    .map_err(|e| e.to_string())?;
+                self.reference_bytes(&process, group, path, &current)?
+            }
+            (Some(name), None) => {
+                let ids = self.string_ids(&process)?;
+                let normalized = blam_live::stringid::normalize(name)
+                    .ok_or_else(|| format!("{name:?} is too long to be a string id"))?;
+                let id = ids.id(&normalized).ok_or_else(|| {
+                    format!(
+                        "the running game has not registered the string id {normalized:?}; only \
+                         a name in its registry can be poked (a tag rebuild can add one)"
+                    )
+                })?;
+                id.to_le_bytes().to_vec()
+            }
+            (None, None) => job.bytes.clone(),
+        };
         let before = process
-            .read(address, job.bytes.len())
+            .read(address, bytes.len())
             .map_err(|e| e.to_string())?;
-        process.write(address, &job.bytes).map_err(|e| e.to_string())?;
+        process.write(address, &bytes).map_err(|e| e.to_string())?;
         let after = process
-            .read(address, job.bytes.len())
+            .read(address, bytes.len())
             .map_err(|e| e.to_string())?;
-        if after != job.bytes {
+        if after != bytes {
             return Err("the value did not stick; the game may have reloaded the tag".into());
         }
         Ok(Poked {
