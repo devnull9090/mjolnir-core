@@ -60,17 +60,87 @@ fn empty_directory_index() -> Vec<u8> {
     out
 }
 
-/// A single-directory index naming this container's files.
+/// A directory index naming this container's files.
 ///
-/// Shape copied from the UE 5.5-staged `pakchunk990-MJOLNIRWORLD` container:
-/// the mount point is the directory itself, one nameless root entry points at
-/// the file chain, and each file carries its chunk index as user data. Enough
-/// for a container whose files all live in one directory, which a new tag
-/// package's `.uasset`/`.ubulk` pair does.
+/// `FIoDirectoryIndexResource` as UE 5.5 stages it: the mount point, a table
+/// of directory entries (name, first child, next sibling, first file), a
+/// table of file entries (name, next file, user data = chunk index), and the
+/// string table both name into. Entry 0 is the nameless root. Directories are
+/// chained through their parent's first-child / next-sibling links, files
+/// through their directory's first-file / next-file links — the same tree
+/// [`crate::load_container`] walks back into a path map.
 ///
-/// `mount` is the full directory with trailing slash, e.g.
-/// `../../../Meteorite/Content/Tags/.../_Generated_/`.
+/// `mount` is the directory every path is relative to, with its trailing
+/// slash, e.g. `../../../Meteorite/Content/`. A file path may carry
+/// subdirectories (`Tags/objects/weapons/x-weapon.uasset`); each distinct
+/// directory becomes one entry, in first-seen order.
 pub fn directory_index(mount: &str, files: &[(String, u32)]) -> Vec<u8> {
+    const NONE: u32 = 0xFFFF_FFFF;
+
+    struct Dir {
+        name: u32,
+        children: Vec<usize>,
+        files: Vec<usize>,
+    }
+
+    let mut strings: Vec<String> = Vec::new();
+    let string_index = |s: &str, strings: &mut Vec<String>| -> u32 {
+        match strings.iter().position(|x| x == s) {
+            Some(i) => i as u32,
+            None => {
+                strings.push(s.to_string());
+                (strings.len() - 1) as u32
+            }
+        }
+    };
+
+    let mut dirs: Vec<Dir> = vec![Dir {
+        name: NONE,
+        children: Vec::new(),
+        files: Vec::new(),
+    }];
+    // (name string, next file, chunk index)
+    let mut file_entries: Vec<(u32, u32, u32)> = Vec::new();
+
+    for (path, chunk_index) in files {
+        let mut dir = 0usize;
+        let mut parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        let Some(leaf) = parts.pop() else {
+            continue;
+        };
+        for part in parts {
+            let name = string_index(part, &mut strings);
+            let existing = dirs[dir]
+                .children
+                .iter()
+                .copied()
+                .find(|&c| dirs[c].name == name);
+            dir = match existing {
+                Some(c) => c,
+                None => {
+                    dirs.push(Dir {
+                        name,
+                        children: Vec::new(),
+                        files: Vec::new(),
+                    });
+                    let c = dirs.len() - 1;
+                    dirs[dir].children.push(c);
+                    c
+                }
+            };
+        }
+        let name = string_index(leaf, &mut strings);
+        file_entries.push((name, NONE, *chunk_index));
+        dirs[dir].files.push(file_entries.len() - 1);
+    }
+
+    // Chain each directory's files.
+    for d in &dirs {
+        for pair in d.files.windows(2) {
+            file_entries[pair[0]].1 = pair[1] as u32;
+        }
+    }
+
     let mut out = Vec::new();
     let put_string = |out: &mut Vec<u8>, s: &str| {
         out.extend_from_slice(&((s.len() + 1) as i32).to_le_bytes());
@@ -78,26 +148,34 @@ pub fn directory_index(mount: &str, files: &[(String, u32)]) -> Vec<u8> {
         out.push(0);
     };
     put_string(&mut out, mount);
-    // One root directory: no name, no children, its files start at 0.
-    out.extend_from_slice(&1i32.to_le_bytes());
-    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // name
-    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // first child
-    out.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // next sibling
-    out.extend_from_slice(&(if files.is_empty() { u32::MAX } else { 0 }).to_le_bytes());
-    // The file chain.
-    out.extend_from_slice(&(files.len() as i32).to_le_bytes());
-    for (i, (_, chunk_index)) in files.iter().enumerate() {
-        out.extend_from_slice(&(i as u32).to_le_bytes()); // name = string i
-        let next = if i + 1 < files.len() {
-            (i + 1) as u32
-        } else {
-            u32::MAX
-        };
+
+    out.extend_from_slice(&(dirs.len() as i32).to_le_bytes());
+    for (i, d) in dirs.iter().enumerate() {
+        let first_child = d.children.first().map_or(NONE, |&c| c as u32);
+        // The sibling after this one in its parent's child list.
+        let next_sibling = dirs
+            .iter()
+            .find_map(|parent| {
+                let at = parent.children.iter().position(|&c| c == i)?;
+                parent.children.get(at + 1).map(|&c| c as u32)
+            })
+            .unwrap_or(NONE);
+        let first_file = d.files.first().map_or(NONE, |&f| f as u32);
+        out.extend_from_slice(&d.name.to_le_bytes());
+        out.extend_from_slice(&first_child.to_le_bytes());
+        out.extend_from_slice(&next_sibling.to_le_bytes());
+        out.extend_from_slice(&first_file.to_le_bytes());
+    }
+
+    out.extend_from_slice(&(file_entries.len() as i32).to_le_bytes());
+    for (name, next, chunk_index) in &file_entries {
+        out.extend_from_slice(&name.to_le_bytes());
         out.extend_from_slice(&next.to_le_bytes());
         out.extend_from_slice(&chunk_index.to_le_bytes());
     }
-    out.extend_from_slice(&(files.len() as i32).to_le_bytes());
-    for (name, _) in files {
+
+    out.extend_from_slice(&(strings.len() as i32).to_le_bytes());
+    for name in &strings {
         put_string(&mut out, name);
     }
     out
@@ -460,6 +538,58 @@ mod tests {
         assert_eq!(toc.blocks.len(), 1);
         assert_eq!(toc.blocks[0].uncompressed_size, 100);
         assert_eq!(toc.blocks[0].method_index, 0);
+    }
+
+    #[test]
+    fn a_nested_directory_index_parses_back_to_its_paths() {
+        let files = vec![
+            (
+                "Tags/objects/weapons/rifle/ar-weapon.uasset".to_string(),
+                1u32,
+            ),
+            ("Tags/objects/weapons/rifle/ar-weapon.ubulk".to_string(), 2),
+            (
+                "Tags/objects/weapons/rifle/projectiles/ar_bullet-projectile.uasset".to_string(),
+                3,
+            ),
+            (
+                "Tags/objects/weapons/rifle/projectiles/ar_bullet-projectile.ubulk".to_string(),
+                4,
+            ),
+            (
+                "Tags/levels/a30/_Generated_/lz-scenario_structure_lighting_info.uasset"
+                    .to_string(),
+                5,
+            ),
+            ("root.bin".to_string(), 6),
+        ];
+        let blob = directory_index("../../../Meteorite/Content/", &files);
+        let (mount, map) = crate::parse_directory_index(&blob).expect("parses");
+        assert_eq!(mount, "../../../Meteorite/Content/");
+        assert_eq!(map.len(), files.len());
+        for (path, chunk) in &files {
+            assert_eq!(map.get(path).copied(), Some(*chunk as usize), "{path}");
+        }
+        // Shared directories are one entry each: root, Tags, objects, weapons,
+        // rifle, projectiles, levels, a30, _Generated_.
+        let mount_len = 4 + "../../../Meteorite/Content/".len() + 1;
+        let dir_count = i32::from_le_bytes(blob[mount_len..mount_len + 4].try_into().unwrap());
+        assert_eq!(dir_count, 9);
+    }
+
+    #[test]
+    fn a_flat_directory_index_is_the_old_shape() {
+        let files = vec![("a.uasset".to_string(), 1u32), ("a.ubulk".to_string(), 2)];
+        let blob = directory_index("../../../Meteorite/Content/Tags/x/", &files);
+        let (_, map) = crate::parse_directory_index(&blob).unwrap();
+        assert_eq!(map.get("a.uasset"), Some(&1));
+        assert_eq!(map.get("a.ubulk"), Some(&2));
+        // One root directory, two files, two strings.
+        let mount_len = 4 + "../../../Meteorite/Content/Tags/x/".len() + 1;
+        assert_eq!(
+            i32::from_le_bytes(blob[mount_len..mount_len + 4].try_into().unwrap()),
+            1
+        );
     }
 
     #[test]

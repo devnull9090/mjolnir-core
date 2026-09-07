@@ -8,3 +8,5 @@ description = "Locate and patch a loaded Blam tag payload in the running game"
 
 [dependencies]
 thiserror.workspace = true
+# Selecting a runtime profile by the tag module's file hash (`tagtable`).
+sha2 = "0.10"

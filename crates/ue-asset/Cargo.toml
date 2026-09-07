@@ -5,6 +5,5 @@ edition = "2021"
 
 [dependencies]
 thiserror = "1"
-
-[dev-dependencies]
+# CityHash64: package ids, export hashes and script-import indices all derive from it.
 ue-iostore = { path = "../ue-iostore" }

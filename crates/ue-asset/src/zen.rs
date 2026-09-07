@@ -265,10 +265,12 @@ pub fn load_name_batch(buf: &[u8], pos: usize) -> Option<Vec<String>> {
 
 fn load_name_batch_at(buf: &[u8], mut pos: usize) -> Option<(Vec<String>, usize)> {
     let count = i32::from_le_bytes(buf.get(pos..pos + 4)?.try_into().ok()?) as usize;
-    pos += 8;
+    // An empty batch is the count alone: the shipped tag wrappers' imported
+    // package names end at `header_size` four bytes after a zero count.
     if count == 0 {
-        return Some((Vec::new(), pos));
+        return Some((Vec::new(), pos + 4));
     }
+    pos += 8;
     if count > 1_000_000 {
         return None;
     }

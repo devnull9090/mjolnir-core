@@ -20,6 +20,7 @@ import type {
   TagSummary,
   TagView,
   TestView,
+  NewTagView,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -857,6 +858,22 @@ export const mockApi = {
     if (field === null) edits.clear();
     else edits.delete(field);
   },
+  projectNewTag: async (_from: number, path: string, assetReference: string | null) => {
+    const tag = path.replace(/\\/g, "/");
+    const made: NewTagView = {
+      group: "weapon",
+      tag,
+      from: "objects/weapons/pistol/pistol",
+      asset_reference: assetReference,
+      index: 2,
+      edits: 0,
+    };
+    newTags.set(`weapon:${tag}`, made);
+    return made;
+  },
+  projectRemoveNewTag: async (group: string, tag: string) => {
+    newTags.delete(`${group}:${tag}`);
+  },
   lastProject: async () => null,
   projectExport: async (): Promise<ExportView> => ({
     archive: "C:\\mods\\faster-pistol\\build\\faster-pistol-0.1.0.mjolnir",
@@ -926,6 +943,8 @@ let mockProject: { name: string; slug: string; version: string; summary: string 
 
 /** Textures the mock mod replaces, by path, holding the replacement image. */
 const swappedTextures = new Map<string, string>();
+/** Tags the mock project adds, keyed `group:tag`. */
+const newTags = new Map<string, NewTagView>();
 
 /** Whether the mock editor is "linked", and how many polls until it is. */
 let mockLinked = false;
@@ -957,6 +976,7 @@ function mockProjectView(): ProjectView | null {
       index: 0,
       bytes: 4_818_220,
     })),
+    new_tags: [...newTags.values()],
     test_files: [],
   };
 }

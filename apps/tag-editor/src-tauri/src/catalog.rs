@@ -138,6 +138,16 @@ pub struct Catalog {
     /// The Paks directory this catalog was read from, where a mod under test
     /// is installed.
     paks: PathBuf,
+    /// Tags the open mod project adds, appended after the shipped list. Each
+    /// points at its donor's chunk, so reading one yields the donor's bytes
+    /// for the project's edits to apply over. `(group, short)` to index.
+    new_tags: BTreeMap<(String, String), usize>,
+    /// New tags removed again. Their entries stay in `tags` so an open
+    /// document keeps its index; listings and lookups skip them.
+    retired: std::collections::BTreeSet<usize>,
+    /// How many entries of `tags` the installation ships. They are sorted by
+    /// `(group, short)`; anything after them is a new tag.
+    shipped_len: usize,
 }
 
 impl Catalog {
@@ -445,6 +455,7 @@ impl Catalog {
         // Sorted so every directory's contents form one contiguous run.
         files.sort_by(|a, b| a.path.cmp(&b.path));
 
+        let shipped_len = tags.len();
         Ok(Catalog {
             containers,
             audio_packages,
@@ -470,6 +481,9 @@ impl Catalog {
                 path => vec![PathBuf::from(path)],
             },
             paks: PathBuf::from(paks),
+            new_tags: BTreeMap::new(),
+            retired: Default::default(),
+            shipped_len,
         })
     }
 
@@ -564,6 +578,9 @@ impl Catalog {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         let mut first: BTreeMap<&str, usize> = BTreeMap::new();
         for (i, t) in self.tags.iter().enumerate() {
+            if self.retired.contains(&i) {
+                continue;
+            }
             *counts.entry(t.group.as_str()).or_default() += 1;
             first.entry(t.group.as_str()).or_insert(i);
         }
@@ -606,7 +623,7 @@ impl Catalog {
         self.tags
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.group == group)
+            .filter(|(i, t)| t.group == group && !self.retired.contains(i))
             .take(limit)
             .map(|(index, t)| TagSummary {
                 index,
@@ -627,7 +644,10 @@ impl Catalog {
         self.tags
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q))
+            .filter(|(i, t)| {
+                !self.retired.contains(i)
+                    && (t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q))
+            })
             .take(limit)
             .map(|(index, t)| TagSummary {
                 index,
@@ -921,17 +941,130 @@ impl Catalog {
     }
 
     pub fn entry(&self, index: usize) -> Option<&TagEntry> {
+        if self.retired.contains(&index) {
+            return None;
+        }
         self.tags.get(index)
     }
 
     /// Resolve a tag by its stable identity `(group, short path)` — how a mod
     /// project names tags, so a recipe finds them again in any installation.
     ///
-    /// Binary search over the `(group, short)` order the tag list is built in.
+    /// Binary search over the `(group, short)` order the shipped tag list is
+    /// built in, then the project's own new tags.
     pub fn tag_index(&self, group: &str, short: &str) -> Option<usize> {
-        self.tags
+        self.tags[..self.shipped_len]
             .binary_search_by(|t| (t.group.as_str(), t.short.as_str()).cmp(&(group, short)))
             .ok()
+            .or_else(|| self.new_tag_index(group, short))
+    }
+
+    /// The index of a tag the project added, if it is present.
+    pub fn new_tag_index(&self, group: &str, short: &str) -> Option<usize> {
+        self.new_tags
+            .get(&(group.to_string(), short.to_string()))
+            .copied()
+    }
+
+    /// Whether an index names a tag the project added rather than one the
+    /// game ships.
+    pub fn is_new_tag(&self, index: usize) -> bool {
+        index >= self.shipped_len && !self.retired.contains(&index)
+    }
+
+    /// Add a tag the project authors: `short` in `group`, cloned from the
+    /// shipped tag at `donor`. It becomes browsable and editable like any
+    /// other tag; reading it yields the donor's bytes.
+    ///
+    /// The leaf must not repeat a shipped tag's within the group. The package
+    /// name is `<leaf>-<group>` and the game's package store keys on the name
+    /// as well as the path, so a repeated leaf is refused rather than risked.
+    pub fn add_new_tag(&mut self, group: &str, short: &str, donor: usize) -> Result<usize, String> {
+        if donor >= self.shipped_len {
+            return Err("a new tag is cloned from a shipped tag, not from another new tag".into());
+        }
+        let donor_entry = self.tags.get(donor).ok_or("donor index out of range")?;
+        if donor_entry.group != group {
+            return Err(format!(
+                "the donor is a {} tag, not a {group} tag",
+                donor_entry.group
+            ));
+        }
+        if self.tag_index(group, short).is_some() {
+            return Err(format!("{short}.{group} already exists"));
+        }
+        let leaf = short.rsplit('/').next().unwrap_or(short);
+        let taken = self.tags[..self.shipped_len].iter().any(|t| {
+            t.group == group
+                && t.short
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&t.short)
+                    .eq_ignore_ascii_case(leaf)
+        });
+        if taken {
+            return Err(format!(
+                "a shipped {group} tag is already named {leaf:?}; the name has to be new \
+                 even in another folder"
+            ));
+        }
+        let entry = TagEntry {
+            container: donor_entry.container,
+            chunk: donor_entry.chunk,
+            uasset: None,
+            path: format!("/Game/Tags/{short}-{group}.ubulk"),
+            group: group.to_string(),
+            short: short.to_string(),
+        };
+        let index = self.tags.len();
+        let file = VirtualFile {
+            path: format!("tags/{short}.{group}"),
+            kind: "tag",
+            index,
+            size: entry.chunk.length,
+        };
+        self.tags.push(entry);
+        self.new_tags
+            .insert((group.to_string(), short.to_string()), index);
+        let at = self.files.partition_point(|f| f.path < file.path);
+        self.files.insert(at, file);
+        self.forget_tag_indexes();
+        Ok(index)
+    }
+
+    /// Remove a tag the project added. Returns its index, which an open
+    /// document may still hold; reads through it fail from now on.
+    pub fn remove_new_tag(&mut self, group: &str, short: &str) -> Option<usize> {
+        let index = self
+            .new_tags
+            .remove(&(group.to_string(), short.to_string()))?;
+        self.retired.insert(index);
+        self.files
+            .retain(|f| !(f.kind == "tag" && f.index == index));
+        self.forget_tag_indexes();
+        Some(index)
+    }
+
+    /// Drop every tag the project added — when the project closes or another
+    /// one opens.
+    pub fn clear_new_tags(&mut self) {
+        if self.new_tags.is_empty() && self.retired.is_empty() {
+            return;
+        }
+        let shipped = self.shipped_len;
+        self.tags.truncate(shipped);
+        self.new_tags.clear();
+        self.retired.clear();
+        self.files
+            .retain(|f| !(f.kind == "tag" && f.index >= shipped));
+        self.forget_tag_indexes();
+    }
+
+    /// The lazily built lookups over the tag list, rebuilt on next use after
+    /// the list changed.
+    fn forget_tag_indexes(&mut self) {
+        self.ref_index = std::sync::OnceLock::new();
+        self.reverse_refs = std::sync::OnceLock::new();
     }
 
     /// The exact-reference lookup tables, built on first use.
@@ -964,6 +1097,9 @@ impl Catalog {
             }
             let mut by_ref = BTreeMap::new();
             for (i, t) in self.tags.iter().enumerate() {
+                if self.retired.contains(&i) {
+                    continue;
+                }
                 // First match wins, matching what the old linear scan found.
                 by_ref
                     .entry((t.group.clone(), normalize_ref_path(&t.short)))
@@ -1044,7 +1180,7 @@ impl Catalog {
     ///
     /// The first call builds the reverse index: every tag's payload is read
     /// and its data section scanned for `tgrf` reference sections (see
-    /// [`crate::refscan`]). That is tens of seconds of work over tens of
+    /// `blam_tag::refs`). That is tens of seconds of work over tens of
     /// thousands of chunks (~48s measured on the shipped build) — so callers
     /// must run it off the UI thread and say why they are waiting. Later
     /// calls are microsecond lookups.
@@ -1071,8 +1207,8 @@ impl Catalog {
                     .ok()
                     .and_then(|tag| tag.data().map(|d| d.content.to_vec()))
                 {
-                    Some(data) => crate::refscan::tgrf_refs(&data, |cc| known.contains_key(cc)),
-                    None => crate::refscan::tgrf_refs(&buf, |cc| known.contains_key(cc)),
+                    Some(data) => blam_tag::refs::tgrf_refs(&data, |cc| known.contains_key(cc)),
+                    None => blam_tag::refs::tgrf_refs(&buf, |cc| known.contains_key(cc)),
                 };
                 for (cc, path) in refs {
                     let list = map.entry((cc, normalize_ref_path(&path))).or_default();
@@ -1396,6 +1532,9 @@ mod tests {
             files,
             oodle: Vec::new(),
             paks: PathBuf::new(),
+            new_tags: BTreeMap::new(),
+            retired: Default::default(),
+            shipped_len: 0,
         }
     }
 
@@ -1565,5 +1704,136 @@ mod tests {
     fn rejects_non_tag_paths() {
         assert!(split_path("/Game/Blueprints/BP_Foo.uasset").is_none());
         assert!(split_path("no-extension").is_none());
+    }
+
+    /// A catalog whose tag list holds these shipped `(group, short)` pairs,
+    /// with the virtual tree to match.
+    fn with_shipped_tags(pairs: &[(&str, &str)]) -> Catalog {
+        let mut c = with_files(&[]);
+        let mut tags: Vec<TagEntry> = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (group, short))| TagEntry {
+                container: 0,
+                chunk: ChunkEntry {
+                    index: i,
+                    chunk_id: i as u64 + 1,
+                    chunk_index: 0,
+                    chunk_type: 2,
+                    offset: 0,
+                    length: 100 + i as u64,
+                },
+                uasset: None,
+                path: format!("/Game/Tags/{short}-{group}.ubulk"),
+                group: group.to_string(),
+                short: short.to_string(),
+            })
+            .collect();
+        tags.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        c.files = tags
+            .iter()
+            .enumerate()
+            .map(|(index, t)| VirtualFile {
+                path: format!("tags/{}.{}", t.short, t.group),
+                kind: "tag",
+                index,
+                size: t.chunk.length,
+            })
+            .collect();
+        c.files.sort_by(|a, b| a.path.cmp(&b.path));
+        c.shipped_len = tags.len();
+        c.tags = tags;
+        c
+    }
+
+    #[test]
+    fn a_new_tag_is_listed_found_and_reads_as_its_donor() {
+        let mut c = with_shipped_tags(&[
+            ("weapon", "objects/weapons/pistol/pistol"),
+            ("weapon", "objects/weapons/rifle/ar"),
+            ("biped", "objects/characters/elite/elite"),
+        ]);
+        let donor = c.tag_index("weapon", "objects/weapons/pistol/pistol").unwrap();
+        let index = c
+            .add_new_tag("weapon", "objects/weapons/pistol/pistol_mk2", donor)
+            .unwrap();
+        assert!(c.is_new_tag(index));
+        assert!(!c.is_new_tag(donor));
+        assert_eq!(
+            c.tag_index("weapon", "objects/weapons/pistol/pistol_mk2"),
+            Some(index)
+        );
+        // Shipped lookups still binary-search the sorted prefix.
+        assert_eq!(c.tag_index("weapon", "objects/weapons/rifle/ar"), Some(2));
+        // The clone points at the donor's chunk, so a read yields the donor.
+        assert_eq!(
+            c.entry(index).unwrap().chunk.chunk_id,
+            c.entry(donor).unwrap().chunk.chunk_id
+        );
+        assert_eq!(
+            c.entry(index).unwrap().path,
+            "/Game/Tags/objects/weapons/pistol/pistol_mk2-weapon.ubulk"
+        );
+        // Listed with its group, found by search, placed in the tree.
+        assert_eq!(c.tags_in("weapon", 10).len(), 3);
+        assert_eq!(c.search("mk2", 10).len(), 1);
+        let names: Vec<String> = c
+            .list_dir("tags/objects/weapons/pistol")
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        assert_eq!(names, vec!["pistol.weapon", "pistol_mk2.weapon"]);
+    }
+
+    #[test]
+    fn a_new_tag_is_refused_when_it_would_collide() {
+        let mut c = with_shipped_tags(&[
+            ("weapon", "objects/weapons/pistol/pistol"),
+            ("biped", "objects/characters/elite/elite"),
+        ]);
+        let donor = c.tag_index("weapon", "objects/weapons/pistol/pistol").unwrap();
+        // The same path.
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/pistol/pistol", donor)
+            .is_err());
+        // The same leaf in another folder, in any case.
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/other/Pistol", donor)
+            .is_err());
+        // A donor from another group.
+        let elite = c.tag_index("biped", "objects/characters/elite/elite").unwrap();
+        assert!(c.add_new_tag("weapon", "objects/x/y", elite).is_err());
+        // A new tag as the donor of another.
+        let first = c
+            .add_new_tag("weapon", "objects/weapons/pistol/mk2", donor)
+            .unwrap();
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/pistol/mk3", first)
+            .is_err());
+    }
+
+    #[test]
+    fn removing_a_new_tag_retires_its_index_and_clearing_drops_them_all() {
+        let mut c = with_shipped_tags(&[("weapon", "objects/weapons/pistol/pistol")]);
+        let donor = 0;
+        let a = c.add_new_tag("weapon", "objects/weapons/pistol/a", donor).unwrap();
+        let b = c.add_new_tag("weapon", "objects/weapons/pistol/b", donor).unwrap();
+        assert_eq!(c.remove_new_tag("weapon", "objects/weapons/pistol/a"), Some(a));
+        assert!(c.entry(a).is_none(), "a retired index reads as gone");
+        assert!(c.entry(b).is_some(), "the other clone keeps its index");
+        assert_eq!(c.tag_index("weapon", "objects/weapons/pistol/a"), None);
+        assert_eq!(c.tags_in("weapon", 10).len(), 2);
+        assert!(c.search("pistol/a", 10).is_empty());
+        assert_eq!(c.list_dir("tags/objects/weapons/pistol").len(), 2);
+        // Removing again is a no-op; the name is free to reuse.
+        assert_eq!(c.remove_new_tag("weapon", "objects/weapons/pistol/a"), None);
+        let a2 = c.add_new_tag("weapon", "objects/weapons/pistol/a", donor).unwrap();
+        assert_ne!(a2, a);
+
+        c.clear_new_tags();
+        assert_eq!(c.tags.len(), 1);
+        assert_eq!(c.tags_in("weapon", 10).len(), 1);
+        assert_eq!(c.list_dir("tags/objects/weapons/pistol").len(), 1);
+        assert_eq!(c.tag_index("weapon", "objects/weapons/pistol/b"), None);
     }
 }

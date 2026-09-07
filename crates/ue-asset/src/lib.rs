@@ -7,6 +7,9 @@
 
 pub mod material;
 pub mod mesh;
+pub mod package;
+pub mod props;
+pub mod tagwrap;
 pub mod unversioned;
 pub mod usmap;
 pub mod zen;

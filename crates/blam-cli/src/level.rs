@@ -874,9 +874,8 @@ fn bake(a: BakeArgs) -> Result<()> {
     if a.install_test {
         // A .utoc/.ucas pair never mounts without a .pak sibling
         // (docs/iostore_packaging.md).
-        let stub = stub_pak_bytes(&a.src.paks)?;
         let pak = out_dir.join(format!("{name}.pak"));
-        std::fs::write(&pak, &stub)?;
+        std::fs::write(&pak, ue_iostore::pak::stub_for(&name))?;
         println!("  wrote    {} (stub)", pak.display());
 
         if let Some(loader_levels) = loader_levels_dir(&a.src.paks) {
@@ -917,23 +916,3 @@ fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The smallest shipped .pak, copied as the mount stub (same trick the tag
-/// editor's test install uses).
-fn stub_pak_bytes(paks: &Path) -> Result<Vec<u8>> {
-    let mut smallest: Option<(u64, PathBuf)> = None;
-    for entry in std::fs::read_dir(paks)?.flatten() {
-        let path = entry.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !name.ends_with(".pak") || name.contains("MJOLNIR") {
-            continue;
-        }
-        let Ok(len) = entry.metadata().map(|m| m.len()) else {
-            continue;
-        };
-        if smallest.as_ref().is_none_or(|(best, _)| len < *best) {
-            smallest = Some((len, path));
-        }
-    }
-    let (_, path) = smallest.context("no shipped .pak to copy a stub from")?;
-    Ok(std::fs::read(&path)?)
-}

@@ -228,6 +228,13 @@ type EditorState = {
   ) => Promise<boolean>;
   /** Revert by identity, so stale edits without a catalog index can go too. */
   revertProjectEdit: (group: string, tag: string, field: string | null) => Promise<void>;
+  /** The New Tag dialog: the tag it would clone, or null while closed. */
+  newTagFrom: { index: number; group: string; short: string } | null;
+  openNewTag: (from: { index: number; group: string; short: string }) => void;
+  closeNewTag: () => void;
+  /** Create the clone. Resolves to a problem to show, or null on success. */
+  createNewTag: (path: string, assetReference: string) => Promise<string | null>;
+  removeNewTag: (group: string, tag: string) => Promise<void>;
   exportMod: () => Promise<void>;
   testMod: () => Promise<void>;
   untestMod: () => Promise<void>;
@@ -589,6 +596,28 @@ export const useEditor = create<EditorState>((set, get) => {
   }
 
   /** Re-read the active tag after project-level changes touch its edits. */
+  /** Reload whichever tag lists could show a tag of `group`, after the set
+   *  of tags changed under them. */
+  function refreshTagLists(group: string) {
+    const { selectedGroup, query, browse } = get();
+    if (query.trim()) void get().search(query);
+    else if (selectedGroup === group) void get().selectGroup(group);
+    if (browse === "files") {
+      if (get().fileQuery.trim()) void get().searchFiles(get().fileQuery);
+      else void get().openDir(get().dir);
+    }
+  }
+
+  /** Close the documents of the open project's new tags — the catalog drops
+   *  them when the project goes. */
+  function closeNewTagTabs() {
+    const added = get().project?.new_tags ?? [];
+    if (added.length === 0) return;
+    for (const t of get().tabs) {
+      if (t.kind === "tag" && added.some((a) => a.index === t.index)) get().closeTab(t.id);
+    }
+  }
+
   async function refreshActiveTag() {
     const { tabs, activeTab } = get();
     const tab = tabs.find((t) => t.id === activeTab);
@@ -1344,6 +1373,8 @@ export const useEditor = create<EditorState>((set, get) => {
               liveNote:
                 p.phase === "objects"
                   ? "live: reading the engine's object table…"
+                  : p.phase === "table"
+                  ? "live: reading the simulation's tag table…"
                   : p.phase === "cache"
                   ? "live: reading the engine's loader cache…"
                   : p.phase === "prints"
@@ -1360,8 +1391,11 @@ export const useEditor = create<EditorState>((set, get) => {
           liveLoaded: report.loaded,
           liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
           liveNote:
-            `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s` +
+            (report.method === "table"
+              ? `live: ${report.located} loaded tags from the game's own tag table in ${report.secs.toFixed(1)}s`
+              : `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s`) +
             (report.cached ? ` · ${report.cached} straight from the engine's cache` : "") +
+            (report.table_unmapped ? ` · ${report.table_unmapped} not in this installation` : "") +
             (report.level ? ` · in ${report.level}` : ""),
         });
         void get().refreshLive();
@@ -1486,6 +1520,7 @@ export const useEditor = create<EditorState>((set, get) => {
 
     async openProject(dir) {
       try {
+        closeNewTagTabs();
         const project = await api.projectOpen(dir);
         set({
           project,
@@ -1506,6 +1541,7 @@ export const useEditor = create<EditorState>((set, get) => {
 
     async closeProject() {
       try {
+        closeNewTagTabs();
         await api.projectClose();
         set({
           project: null,
@@ -1541,6 +1577,53 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ projectError: String(e) });
       }
+    },
+
+    newTagFrom: null,
+    openNewTag(from) {
+      set({ newTagFrom: from });
+    },
+    closeNewTag() {
+      set({ newTagFrom: null });
+    },
+
+    async createNewTag(path, assetReference) {
+      const from = get().newTagFrom;
+      if (!from) return "nothing to clone";
+      let made;
+      try {
+        made = await api.projectNewTag(from.index, path, assetReference.trim() || null);
+      } catch (e) {
+        return String(e);
+      }
+      set({ newTagFrom: null, projectError: null });
+      // The clone is a new row in whatever list showed its donor.
+      refreshTagLists(made.group);
+      if (get().project) await get().refreshProject();
+      if (made.index !== null) {
+        const label = `${made.tag.split("/").pop() ?? made.tag}.${made.group}`;
+        await get().openTab("tag", made.index, label, { group: made.group, path: made.tag });
+      }
+      return null;
+    },
+
+    async removeNewTag(group, tag) {
+      const gone = get().project?.new_tags.find((t) => t.group === group && t.tag === tag);
+      try {
+        await api.projectRemoveNewTag(group, tag);
+      } catch (e) {
+        set({ projectError: String(e) });
+        return;
+      }
+      // Its document, if open, has nothing behind it any more.
+      if (gone?.index != null) {
+        for (const t of get().tabs.filter((t) => t.kind === "tag" && t.index === gone.index)) {
+          get().closeTab(t.id);
+        }
+      }
+      set({ projectError: null });
+      refreshTagLists(group);
+      await get().refreshProject();
     },
 
     async exportMod() {

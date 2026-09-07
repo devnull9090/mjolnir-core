@@ -121,6 +121,13 @@ struct Inner {
     /// The arena the engine's block headers count from. Per launch, like
     /// `bases`: derived from the first tag with a data-rich block and kept.
     arena: Mutex<Option<u64>>,
+    /// Root addresses from the simulation's own tag table
+    /// (`crate::tagtable`), per tag. Exact, and preferred over `bases`: a
+    /// poke subtracts its root offset to get the payload base. Per launch.
+    roots: Mutex<HashMap<(String, String), u64>>,
+    /// The segment bases the table's encoded offsets count from, when the
+    /// table was read. Makes the arena exact instead of derived.
+    segments: Mutex<Option<blam_live::tagtable::Segments>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -185,6 +192,8 @@ impl Live {
         *self.0.level.lock().expect("live level lock") = None;
         *self.0.present.lock().expect("live present lock") = 0;
         *self.0.arena.lock().expect("live arena lock") = None;
+        self.0.roots.lock().expect("live roots lock").clear();
+        *self.0.segments.lock().expect("live segments lock") = None;
         // `rvas` deliberately survives: it belongs to the build, not the
         // process, and reattach validates it anyway.
     }
@@ -254,9 +263,55 @@ impl Live {
         *self.0.level.lock().expect("live level lock") = level;
     }
 
-    /// The arena block headers count from: remembered for this launch, or
-    /// derived now from the tag at `base`.
+    /// Take on what the simulation's tag table said: every root becomes an
+    /// exact, poke-instant address, and the segment bases make block-element
+    /// addressing exact too. Replaces the loaded list, as a census does.
+    pub fn adopt_table(&self, pid: u32, census: crate::tagtable::TableCensus) {
+        let mut held = self.0.pid.lock().expect("live pid lock");
+        if *held != Some(pid) {
+            self.forget();
+            *held = Some(pid);
+        }
+        let mut roots = self.0.roots.lock().expect("live roots lock");
+        roots.clear();
+        let mut loaded: Vec<LoadedTag> = Vec::with_capacity(census.found.len());
+        for (key, root, tag) in census.found {
+            roots.insert(key, root);
+            loaded.push(tag);
+        }
+        loaded.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        *self.0.loaded.lock().expect("live loaded lock") = loaded;
+        *self.0.level.lock().expect("live level lock") = census.level;
+        *self.0.segments.lock().expect("live segments lock") = Some(census.segments);
+    }
+
+    /// The payload base the tag table gives this tag, if the table was read
+    /// and still agrees with the bytes: the engine relocates a tag on
+    /// `tag_reload_force`, so a remembered root is trusted only after the
+    /// root element's scalars are found at it.
+    fn table_base(
+        &self,
+        process: &blam_live::Process,
+        job: &Job,
+        shape: &blam_live::Shape<'_>,
+    ) -> Option<u64> {
+        let root = *self.0.roots.lock().ok()?.get(&job.key)?;
+        let base = root.checked_sub(job.root.start as u64)?;
+        blam_live::accept(process, &job.payload, shape, base).then_some(base)
+    }
+
+    /// The arena block headers count from: from the segment table when the
+    /// tag table was read, else remembered for this launch, else derived now
+    /// from the tag at `base`.
     fn arena(&self, process: &blam_live::Process, base: u64, job: &Job) -> Result<u64, String> {
+        if let Some(segments) = *self.0.segments.lock().map_err(|e| e.to_string())? {
+            let first = job.hops.first().ok_or("no block on the way to the field")?;
+            let header = blam_live::read_block_header(process, base + first.header as u64)
+                .map_err(|e| e.to_string())?;
+            if let Some(arena) = segments.arena_for(header.words) {
+                return Ok(arena);
+            }
+        }
         let mut held = self.0.arena.lock().map_err(|e| e.to_string())?;
         if let Some(arena) = *held {
             return Ok(arena);
@@ -295,11 +350,15 @@ impl Live {
             .get(&job.key)
             .copied();
 
-        // A cached base is trusted only after it still reads as this tag's
-        // working copy: the root element's scalars are there, and the block
-        // headers carry the engine's rewrite.
-        let (base, scanned) = match cached {
-            Some(base) if blam_live::accept(&process, &job.payload, &shape, base) => (base, false),
+        // The tag table's root first — exact, and re-verified against the
+        // bytes. Then a cached base, trusted only after it still reads as this
+        // tag's working copy: the root element's scalars are there, and the
+        // block headers carry the engine's rewrite. Then the sweep.
+        let (base, scanned) = match (self.table_base(&process, job, &shape), cached) {
+            (Some(base), _) => (base, false),
+            (None, Some(base)) if blam_live::accept(&process, &job.payload, &shape, base) => {
+                (base, false)
+            }
             _ => {
                 let at = blam_live::find(&process, &job.payload, &shape, &[job.span.clone()])
                     .map_err(|e| e.to_string())?;

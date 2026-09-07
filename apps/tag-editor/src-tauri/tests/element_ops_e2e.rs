@@ -98,7 +98,8 @@ fn element_ops_bake_against_the_real_game() {
         &[edit("ragdoll constraints", "duplicate 0")],
     );
 
-    let baked = modpack::bake(&catalog, "element-ops-e2e", vec![scenario, marine]).expect("bake");
+    let baked = modpack::bake(&catalog, "element-ops-e2e", vec![scenario, marine], Vec::new())
+        .expect("bake");
     // Element ops grow the tags, so the containers are the resized kind — the
     // path length-changing edits already ride in game.
     assert!(

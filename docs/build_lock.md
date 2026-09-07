@@ -21,6 +21,10 @@ notes describe".
 | `PlayFabMultiplayerWin.dll` | 1,845,280 | `8991E3B9ED098FCF4430C790CC3ABEDC9080F7E567E907F258326B52DAF1A756` |
 | `libHttpClient.Win32.dll` | 258,320 | `E9BD94CFC493EF97E5473D47BFA2DE67C2310CF401F9C7C4C6CD0206742E9E1C` |
 
+The tag-DLL hash is what selects a live-mode profile: the RVAs of the simulation's tag table and
+string-id registry in `crates/blam-live/src/tagtable.rs` belong to this exact binary
+(`tag_table_and_string_ids.md`).
+
 The lock file carries all 252 shipped files — every binary, all 31 IoStore container sets
 (`.utoc`/`.ucas`/`.pak`) and the bundled video, 74 GiB in total.
 

@@ -11,6 +11,8 @@
 //! chunk wins; that convention is the caller's to honour, since only the
 //! caller names files.
 
+pub mod newtag;
+
 use std::path::{Path, PathBuf};
 
 use ue_iostore::toc::{ChunkId, Toc};
@@ -263,23 +265,22 @@ pub fn build_addition(
         });
     }
 
-    // Name the files in a real directory index, the way UE staging does.
-    // One directory: all new packages must share it for now.
-    let first = &packages[0].package_name;
-    let dir = first.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-    let mount = format!(
-        "../../../Meteorite/Content/{}/",
-        dir.trim_start_matches("/Game/")
-    );
+    // Name the files in a real directory index, the way UE staging does:
+    // mounted at the content root, each package under its own folder.
+    let mount = "../../../Meteorite/Content/";
     let mut files: Vec<(String, usize)> = Vec::new();
     for (i, p) in packages.iter().enumerate() {
-        let leaf = p.package_name.rsplit('/').next().unwrap_or("");
+        let rel = p
+            .package_name
+            .strip_prefix("/Game/")
+            .unwrap_or(&p.package_name)
+            .trim_start_matches('/');
         // Entry 0 is the header; each package contributes two chunks.
-        files.push((format!("{leaf}.uasset"), 1 + i * 2));
-        files.push((format!("{leaf}.ubulk"), 2 + i * 2));
+        files.push((format!("{rel}.uasset"), 1 + i * 2));
+        files.push((format!("{rel}.ubulk"), 2 + i * 2));
     }
     let built =
-        ue_iostore::pack::build_indexed(&source_toc, container_id, &chunks, Some((&mount, &files)));
+        ue_iostore::pack::build_indexed(&source_toc, container_id, &chunks, Some((mount, &files)));
     let expect = chunks.into_iter().map(|c| (c.id, c.data)).collect();
     Ok(Built {
         utoc: built.utoc,
