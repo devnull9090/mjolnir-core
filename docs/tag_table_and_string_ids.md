@@ -151,3 +151,24 @@ The RVAs above belong to one tag module. On a game update: hash the new
 `HaloSimulation_tag_release.dll`, re-measure the eight globals (the label `tag instance` at the
 table object and the registry header `00f80f00 00fc0700 04000000` are the anchors to confirm
 against), and add a `Profile` in `crates/blam-live/src/tagtable.rs`. Until then the sweep runs.
+
+## Finding the globals without a measurement (2026-09-07)
+
+A game update moves the eight globals. Rather than re-measuring them by hand,
+`blam_live::tagtable::derive_profile` recovers them from the module on disk
+through four anchors — instruction shapes that refer to a global through a
+RIP-relative displacement, with the displacement wildcarded and decoded at run
+time (`signatures/README.md` lists them). On CU4 every anchor matches once and
+the derived profile equals the measured one RVA for RVA
+(`anchors_reproduce_the_measured_profile`). `attach` tries the measured
+profiles first and the anchors second; only when an anchor fails to match once
+does live mode fall back to the sweep. The string-id registry's five other
+globals are at fixed offsets from its storage pointer, so one anchor covers
+them.
+
+The registry also serves offline: `defs/hce/string-ids.json` (the A30 dump)
+ships in `blam_live::stringid::shipped`, and the tag editor and `mjolnir set`
+refuse a string-id edit naming anything outside it unless told to proceed —
+the game rejects a whole tag over one unregistered id. And a string id in a
+tag's root element pokes live: the editor resolves the name through the running
+game's registry and writes the id where the engine keeps it.

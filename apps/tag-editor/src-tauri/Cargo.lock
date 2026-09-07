@@ -373,6 +373,7 @@ dependencies = [
 name = "blam-live"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "sha2",
  "thiserror 2.0.19",
 ]

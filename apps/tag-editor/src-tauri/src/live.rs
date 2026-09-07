@@ -47,6 +47,7 @@ use serde::Serialize;
 
 /// Everything a poke needs, lifted out of the app state so the slow part can run
 /// off the UI thread without holding a `State` across an await.
+#[derive(Clone)]
 pub struct Job {
     pub key: (String, String),
     /// The tag as the containers hold it.
@@ -69,6 +70,10 @@ pub struct Job {
     pub span: Range<usize>,
     /// The field's bytes after the edit.
     pub bytes: Vec<u8>,
+    /// For a string id: the name to write, resolved to the running game's
+    /// registry id at poke time (the engine keeps ids, not strings, in the
+    /// resident copy). `bytes` is then that id.
+    pub string_id: Option<String>,
 }
 
 /// `blam_tag`'s hop, in `blam_live`'s terms.
@@ -128,6 +133,8 @@ struct Inner {
     /// The segment bases the table's encoded offsets count from, when the
     /// table was read. Makes the arena exact instead of derived.
     segments: Mutex<Option<blam_live::tagtable::Segments>>,
+    /// The running game's string-id registry, read once per process.
+    string_ids: Mutex<Option<(u32, Arc<blam_live::stringid::StringIds>)>>,
 }
 
 /// Managed state: what the editor remembers about the running game.
@@ -330,6 +337,23 @@ impl Live {
         Ok(arena)
     }
 
+    /// The running game's string-id registry, read through the tag module's
+    /// profile and kept for the process.
+    fn string_ids(&self, process: &blam_live::Process) -> Result<Arc<blam_live::stringid::StringIds>, String> {
+        let mut held = self.0.string_ids.lock().map_err(|e| e.to_string())?;
+        if let Some((pid, ids)) = held.as_ref() {
+            if *pid == process.pid {
+                return Ok(ids.clone());
+            }
+        }
+        let attached = blam_live::tagtable::attach(process).map_err(|e| e.to_string())?;
+        let ids = blam_live::stringid::StringIds::read(process, attached.base, attached.profile)
+            .map_err(|e| e.to_string())?;
+        let ids = Arc::new(ids);
+        *held = Some((process.pid, ids.clone()));
+        Ok(ids)
+    }
+
     /// Write one field into the running game, finding the tag first if needed.
     ///
     /// Blocking and slow on a cache miss; the caller runs it off the UI thread.
@@ -379,14 +403,30 @@ impl Live {
                 .map_err(|e| e.to_string())?
         };
 
+        // A string id is written as the id the running game gave that name.
+        let bytes: Vec<u8> = match &job.string_id {
+            Some(name) => {
+                let ids = self.string_ids(&process)?;
+                let normalized = blam_live::stringid::normalize(name)
+                    .ok_or_else(|| format!("{name:?} is too long to be a string id"))?;
+                let id = ids.id(&normalized).ok_or_else(|| {
+                    format!(
+                        "the running game has not registered the string id {normalized:?}; only \
+                         a name in its registry can be poked (a tag rebuild can add one)"
+                    )
+                })?;
+                id.to_le_bytes().to_vec()
+            }
+            None => job.bytes.clone(),
+        };
         let before = process
-            .read(address, job.bytes.len())
+            .read(address, bytes.len())
             .map_err(|e| e.to_string())?;
-        process.write(address, &job.bytes).map_err(|e| e.to_string())?;
+        process.write(address, &bytes).map_err(|e| e.to_string())?;
         let after = process
-            .read(address, job.bytes.len())
+            .read(address, bytes.len())
             .map_err(|e| e.to_string())?;
-        if after != job.bytes {
+        if after != bytes {
             return Err("the value did not stick; the game may have reloaded the tag".into());
         }
         Ok(Poked {

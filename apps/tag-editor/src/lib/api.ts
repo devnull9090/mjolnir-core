@@ -818,8 +818,10 @@ const tauriApi = {
   projectRemoveNewTag: (group: string, tag: string) =>
     invoke<void>("project_remove_new_tag", { group, tag }),
   lastProject: () => invoke<string | null>("last_project"),
-  projectExport: () => invoke<ExportView>("project_export"),
-  projectTest: () => invoke<TestView>("project_test"),
+  projectExport: (allowUnknownStringIds: boolean) =>
+    invoke<ExportView>("project_export", { allowUnknownStringIds }),
+  projectTest: (allowUnknownStringIds: boolean) =>
+    invoke<TestView>("project_test", { allowUnknownStringIds }),
   projectUntest: () => invoke<number>("project_untest"),
   projectPublish: (changelog: string) =>
     invoke<PublishView>("project_publish", { changelog }),

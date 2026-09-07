@@ -252,6 +252,9 @@ type EditorState = {
   createNewTag: (path: string, assetReference: string) => Promise<string | null>;
   removeNewTag: (group: string, tag: string) => Promise<void>;
   exportMod: () => Promise<void>;
+  /** Bake even when an edit sets a string id the shipped registry lacks. */
+  allowUnknownStringIds: boolean;
+  setAllowUnknownStringIds: (allow: boolean) => void;
   testMod: () => Promise<void>;
   untestMod: () => Promise<void>;
   publishMod: (changelog: string) => Promise<void>;
@@ -1922,10 +1925,15 @@ export const useEditor = create<EditorState>((set, get) => {
       await get().refreshProject();
     },
 
+    allowUnknownStringIds: false,
+    setAllowUnknownStringIds(allow) {
+      set({ allowUnknownStringIds: allow });
+    },
+
     async exportMod() {
       set({ projectBusy: "export", exportResult: null, projectError: null });
       try {
-        set({ exportResult: await api.projectExport() });
+        set({ exportResult: await api.projectExport(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {
@@ -1936,7 +1944,7 @@ export const useEditor = create<EditorState>((set, get) => {
     async testMod() {
       set({ projectBusy: "test", testResult: null, projectError: null });
       try {
-        set({ testResult: await api.projectTest() });
+        set({ testResult: await api.projectTest(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {

@@ -1287,7 +1287,7 @@ fn build_live_job(
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
-        let (region, root, stable, headers, blocks, hops, span, bytes) = {
+        let (region, root, stable, headers, blocks, hops, span, bytes, string_id) = {
             let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
@@ -1299,7 +1299,15 @@ fn build_live_job(
             // A section-backed value lives in a trailing section, so changing it
             // moves every byte after it. In a file that is fine — the tag is
             // rebuilt. In a live heap buffer there is nowhere for them to go.
-            if target.section.is_some() {
+            // The one exception is a string id: the engine resolves it at load
+            // into a registry id held in the field's own four bytes, so a name
+            // the running game has registered is poked as that id.
+            let string_id = if target.type_name == "string id" {
+                Some(value.trim_matches('"').to_string())
+            } else {
+                None
+            };
+            if target.section.is_some() && string_id.is_none() {
                 return Err(format!(
                     "{} is a {} stored in a trailing section, so changing it resizes the tag. \
                      That cannot be poked into a running game — test it with a rebuild.",
@@ -1307,10 +1315,15 @@ fn build_live_job(
                 ));
             }
 
-            let parsed =
-                blam_tag::value::parse(&layout, &target.field, value).map_err(|e| e.to_string())?;
-            let (patched, _) = blam_tag::patch::set(&layout, &file, &block, path, &parsed)
-                .map_err(|e| e.to_string())?;
+            let patched = if string_id.is_some() {
+                file.clone()
+            } else {
+                let parsed = blam_tag::value::parse(&layout, &target.field, value)
+                    .map_err(|e| e.to_string())?;
+                blam_tag::patch::set(&layout, &file, &block, path, &parsed)
+                    .map_err(|e| e.to_string())?
+                    .0
+            };
 
             // Only the data section is resident per tag; the header and layout
             // tables are not, so searching anywhere else is wasted effort. And
@@ -1343,6 +1356,7 @@ fn build_live_job(
                 hops,
                 span,
                 bytes,
+                string_id,
             )
         };
 
@@ -1357,6 +1371,7 @@ fn build_live_job(
             hops,
             span,
             bytes,
+            string_id,
         })
     })
 }
@@ -4718,17 +4733,21 @@ type Resolved = (
 /// produce a tag that still reads back exactly. Anything stale fails loudly
 /// here — a mod must never silently ship half its recipe.
 ///
-/// Also returns per-edit warnings. The one that exists today: a `string id`
-/// set to text the game's string table does not already contain makes the
-/// game reject the whole tag — verified in game 2026-08-02, where a marker
-/// string turned the assault rifle into the pistol-fallback. The editor
-/// cannot see the game's string table, so it warns rather than blocks.
+/// Also returns per-edit warnings. A `string id` set to text the game's
+/// registry does not already contain makes the game reject the whole tag —
+/// verified in game 2026-08-02, where a marker string turned the assault
+/// rifle into the pistol-fallback. The registry as the game held it in A30
+/// ships with the editor (`blam_live::stringid::shipped`), so a name absent
+/// from it is refused unless `allow_unknown_string_ids`; a name present there
+/// but set fresh still earns a warning, since one mission's registry is a
+/// lower bound for another's.
 fn resolved_edits(
     c: &Catalog,
     edits: &BTreeMap<TagKey, Vec<PendingEdit>>,
     scripts: &BTreeMap<TagKey, Vec<(String, String)>>,
     textures: &BTreeMap<String, Vec<u8>>,
     new_tags: &BTreeMap<TagKey, NewTagSpec>,
+    allow_unknown_string_ids: bool,
 ) -> Result<Resolved, String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
@@ -4774,12 +4793,32 @@ fn resolved_edits(
             }
             for o in &outcomes {
                 if o.type_name == "string id" && o.before.as_deref() != Some(o.value.as_str()) {
-                    warnings.push(format!(
-                        "{label}: \"{}\" sets a string id. A string the game does not \
-                         already know makes it reject the whole tag (the weapon simply \
-                         vanishes in game) — test before sharing.",
-                        o.path
-                    ));
+                    let name = o.value.trim_matches('"');
+                    let registered = blam_live::stringid::normalize(name)
+                        .is_some_and(|n| blam_live::stringid::is_shipped(&n));
+                    if !registered && !allow_unknown_string_ids {
+                        return Err(format!(
+                            "{label}: \"{}\" sets the string id \"{name}\", which the game's \
+                             registry does not contain. An unregistered string id makes the \
+                             game reject the whole tag (the weapon simply vanishes). Pick a \
+                             registered name, or tick \"allow unregistered string ids\" to \
+                             bake it anyway.",
+                            o.path
+                        ));
+                    }
+                    warnings.push(if registered {
+                        format!(
+                            "{label}: \"{}\" sets a string id the registry knows from mission \
+                             A30; another mission may not have registered it yet — test there.",
+                            o.path
+                        )
+                    } else {
+                        format!(
+                            "{label}: \"{}\" sets the unregistered string id \"{name}\" \
+                             because you allowed it; expect the game to reject the tag.",
+                            o.path
+                        )
+                    });
                 }
             }
         }
@@ -4997,6 +5036,7 @@ struct ExportView {
 fn export_archive(
     state: &State<'_, AppState>,
     allow_sign: bool,
+    allow_unknown_string_ids: bool,
 ) -> Result<(ExportView, std::path::PathBuf, project::Meta), String> {
     let (root, meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
@@ -5024,7 +5064,7 @@ fn export_archive(
         install::recall_author().map(|(id, username)| mjolnir_sign::Author { id, username });
     with_catalog(state, |c| {
         let (resolved, additions, mut warnings) =
-            resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+            resolved_edits(c, &edits, &scripts, &swaps, &added, allow_unknown_string_ids)?;
         let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let build_dir = root.join("build");
         modpack::write_and_verify(&build_dir, &baked, c.oodle_paths())?;
@@ -5132,8 +5172,11 @@ fn export_archive(
 }
 
 #[tauri::command]
-fn project_export(state: State<'_, AppState>) -> Result<ExportView, String> {
-    export_archive(&state, true).map(|(view, _, _)| view)
+fn project_export(
+    allow_unknown_string_ids: bool,
+    state: State<'_, AppState>,
+) -> Result<ExportView, String> {
+    export_archive(&state, true, allow_unknown_string_ids).map(|(view, _, _)| view)
 }
 
 #[derive(Serialize)]
@@ -5145,7 +5188,10 @@ struct TestView {
 
 /// Bake the project and install it into the Paks folder for an in-game test.
 #[tauri::command]
-fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
+fn project_test(
+    allow_unknown_string_ids: bool,
+    state: State<'_, AppState>,
+) -> Result<TestView, String> {
     let (meta, (edits, scripts, swaps, added)) = {
         let work = state.work.lock().map_err(|e| e.to_string())?;
         let p = work.project.as_ref().ok_or("no project is open")?;
@@ -5160,7 +5206,8 @@ fn project_test(state: State<'_, AppState>) -> Result<TestView, String> {
         )
     };
     with_catalog(&state, |c| {
-        let (resolved, additions, warnings) = resolved_edits(c, &edits, &scripts, &swaps, &added)?;
+        let (resolved, additions, warnings) =
+            resolved_edits(c, &edits, &scripts, &swaps, &added, allow_unknown_string_ids)?;
         let baked = modpack::bake(c, &meta.slug, resolved, additions)?;
         let resized = baked.iter().any(|b| b.built.resized());
         let files = modpack::install_test(c.paks(), &baked, c.oodle_paths())?;
@@ -5246,7 +5293,7 @@ fn project_publish(
         Err(_) => false,
     };
 
-    let (view, archive, meta) = export_archive(&state, allow_sign)?;
+    let (view, archive, meta) = export_archive(&state, allow_sign, false)?;
     if view.size > modpack::MAX_ARCHIVE_BYTES {
         return Err(format!(
             "the archive is {} bytes, over the hub's 50 MiB limit",
@@ -5794,7 +5841,7 @@ mod tests {
         );
         let (edits, scripts, textures) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
         let (overrides, additions, warnings) =
-            resolved_edits(&c, &edits, &scripts, &textures, &new_tags).unwrap();
+            resolved_edits(&c, &edits, &scripts, &textures, &new_tags, false).unwrap();
         assert!(overrides.is_empty());
         assert_eq!(additions.len(), 1);
         assert_eq!(
@@ -5881,7 +5928,7 @@ mod tests {
         }
         let (scripts, textures) = (BTreeMap::new(), BTreeMap::new());
         let (overrides, additions, warnings) =
-            resolved_edits(&c, &pending, &scripts, &textures, &new_tags).unwrap();
+            resolved_edits(&c, &pending, &scripts, &textures, &new_tags, false).unwrap();
         assert_eq!(additions.len(), clones.len());
         assert!(
             !warnings.iter().any(|w| w.contains("referenced by nothing")),

@@ -116,6 +116,107 @@ pub const CU4: Profile = Profile {
 /// Every build this crate knows, newest first.
 pub const PROFILES: &[Profile] = &[CU4];
 
+/// One anchor into the tag module's code: an instruction shape that refers
+/// to a global through a RIP-relative displacement, with the displacement
+/// wildcarded (`signatures/README.md`: never bake a displacement into a
+/// pattern). The instruction is `disp_at + 4` bytes long, so the global's RVA
+/// is `instruction RVA + disp_at + 4 + disp`.
+#[derive(Debug, Clone, Copy)]
+pub struct Anchor {
+    pub name: &'static str,
+    pub pattern: &'static str,
+    /// Byte offset of the disp32 within the match.
+    pub disp_at: usize,
+}
+
+/// The four anchors that recover every profile RVA from the module on disk,
+/// chosen on CU4 (`2026.08.11.1121610.2`) for shapes that say what the code
+/// does rather than where it is: each matched exactly once.
+pub const ANCHORS: [Anchor; 4] = [
+    // The table's constructor storing the new object into the global, then
+    // setting its +0x31 flag: `mov [rip+d], rbx; mov byte [rbx+0x31], 1;
+    // mov rcx, rbx`.
+    Anchor {
+        name: "tag table pointer",
+        pattern: "48 89 1D ? ? ? ? C6 43 31 01 48 8B CB",
+        disp_at: 3,
+    },
+    // The encoded-offset decode itself: `lea r14, [rip+d]` (the segment
+    // table), then `movsxd rax, edx; lea rcx, [r8+rax*4]; shr r8, 0x1c` —
+    // words times four, and the top nibble as the segment.
+    Anchor {
+        name: "segment table",
+        pattern: "4C 8D 35 ? ? ? ? 48 63 C2 49 8D 0C 80 49 C1 E8 1C",
+        disp_at: 3,
+    },
+    // The registry's constructor storing the name storage pointer, then
+    // sizing the hash table: 0xFF800 buckets and 0x7FC00 entries at most —
+    // the header numbers the live read sees. The other five registry
+    // globals sit at fixed offsets from this one.
+    Anchor {
+        name: "string-id storage",
+        pattern: "48 89 05 ? ? ? ? BA 00 F8 0F 00 41 B8 00 FC 07 00",
+        disp_at: 3,
+    },
+    // A builtin-id lookup: `lea rax, [rip+d]; mov eax, [rax+rdi*8]`.
+    Anchor {
+        name: "string-id builtins",
+        pattern: "48 8D 05 ? ? ? ? 8B 04 F8 89 44 24 70 EB 20",
+        disp_at: 3,
+    },
+];
+
+/// Offsets of the registry globals from the storage pointer, measured on CU4
+/// (`storage 0x01357490 … map 0x013574C0`).
+const REGISTRY_USED: u64 = 0x8;
+const REGISTRY_STRINGS: u64 = 0x10;
+const REGISTRY_COUNT: u64 = 0x18;
+const REGISTRY_MAP: u64 = 0x30;
+
+/// Resolve one anchor in the module image: the RVA it refers to.
+pub fn resolve_anchor(image: &[u8], anchor: &Anchor) -> Result<u64> {
+    let (text_rva, text_off, code) = crate::objects::text_section(image)?;
+    let m = crate::objects::find_unique(code, anchor.pattern)?;
+    let disp_off = text_off + m + anchor.disp_at;
+    let disp = i32::from_le_bytes(image[disp_off..disp_off + 4].try_into().unwrap());
+    let next_rva = text_rva + m as u64 + anchor.disp_at as u64 + 4;
+    Ok((next_rva as i64 + disp as i64) as u64)
+}
+
+/// Derive a profile from the module image on disk when no measured profile
+/// matches its hash: every anchor must match exactly once, and every RVA must
+/// lie inside the image. The result is leaked so it can live as long as a
+/// measured profile does — one per process lifetime.
+pub fn derive_profile(image: &[u8], dll_sha256: &str) -> Result<&'static Profile> {
+    let mut rvas = [0u64; 4];
+    for (i, anchor) in ANCHORS.iter().enumerate() {
+        rvas[i] = resolve_anchor(image, anchor).map_err(|e| Error::Layout {
+            what: "tag module signatures",
+            detail: format!("{}: {e}", anchor.name),
+        })?;
+    }
+    let storage = rvas[2];
+    let profile = Profile {
+        label: Box::leak(format!("signature-derived {}", &dll_sha256[..8]).into_boxed_str()),
+        dll_sha256: Box::leak(dll_sha256.to_string().into_boxed_str()),
+        tag_table_pointer: rvas[0],
+        segment_table: rvas[1],
+        string_id_storage: storage,
+        string_id_used: storage + REGISTRY_USED,
+        string_id_strings: storage + REGISTRY_STRINGS,
+        string_id_count: storage + REGISTRY_COUNT,
+        string_id_map: storage + REGISTRY_MAP,
+        string_id_builtin: rvas[3],
+    };
+    if profile.rvas().iter().any(|rva| *rva >= image.len() as u64 + 0x10000) {
+        return Err(Error::Layout {
+            what: "tag module signatures",
+            detail: "a derived RVA lies past the image".into(),
+        });
+    }
+    Ok(Box::leak(Box::new(profile)))
+}
+
 /// The profile for a tag module, by its file hash.
 pub fn profile_for(dll_sha256: &str) -> Option<&'static Profile> {
     PROFILES
@@ -152,7 +253,19 @@ pub fn attach(process: &Process) -> Result<Attached> {
         len: 0,
         source,
     })?;
-    let profile = profile_for(&sha).ok_or_else(|| Error::UnknownBuild(sha.clone()))?;
+    // A measured profile first; otherwise the anchors, read off the module
+    // file — the same image the process mapped.
+    let profile = match profile_for(&sha) {
+        Some(p) => p,
+        None => {
+            let image = std::fs::read(&module.path).map_err(|source| Error::Read {
+                addr: 0,
+                len: 0,
+                source,
+            })?;
+            derive_profile(&image, &sha).map_err(|_| Error::UnknownBuild(sha.clone()))?
+        }
+    };
     if profile.rvas().iter().any(|rva| *rva >= module.size) {
         return Err(Error::Layout {
             what: "tag module",
@@ -177,7 +290,8 @@ pub struct Attached {
 }
 
 impl Profile {
-    fn rvas(&self) -> [u64; 8] {
+    /// Every RVA the profile carries, in field order.
+    pub fn rvas(&self) -> [u64; 8] {
         [
             self.tag_table_pointer,
             self.segment_table,
@@ -583,6 +697,63 @@ mod tests {
         names[0x20..0x20 + weap.len()].copy_from_slice(weap);
         m.put(NAMES_AT, &names);
         m
+    }
+
+    /// The path of the installed tag module, from `HCE_PAKS`.
+    fn installed_tag_dll() -> Option<std::path::PathBuf> {
+        let paks = std::env::var("HCE_PAKS").ok()?;
+        let path = std::path::Path::new(&paks)
+            .parent()?
+            .parent()?
+            .parent()?
+            .join("Binaries")
+            .join("Win64")
+            .join(TAG_DLL);
+        path.exists().then_some(path)
+    }
+
+    /// Against the installed game: the four anchors match once each in the
+    /// CU4 module and reproduce every measured RVA — the derived profile is
+    /// the measured one.
+    #[test]
+    fn anchors_reproduce_the_measured_profile() {
+        let Some(path) = installed_tag_dll() else {
+            return;
+        };
+        let image = std::fs::read(&path).unwrap();
+        let sha = sha256_file(&path).unwrap();
+        let derived = derive_profile(&image, &sha).unwrap();
+        if sha.eq_ignore_ascii_case(CU4.dll_sha256) {
+            assert_eq!(derived.rvas(), CU4.rvas());
+        } else {
+            eprintln!("module {sha} is not CU4; derived {derived:#x?}");
+            assert!(derived.rvas().iter().all(|r| *r > 0));
+        }
+    }
+
+    #[test]
+    fn an_anchor_decodes_its_displacement() {
+        // A minimal PE with one .text section holding the anchor bytes.
+        let mut image = vec![0u8; 0x400 + 64];
+        image[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        image[0x80..0x84].copy_from_slice(b"PE\0\0");
+        image[0x86..0x88].copy_from_slice(&1u16.to_le_bytes()); // one section
+        image[0x94..0x96].copy_from_slice(&0u16.to_le_bytes()); // no optional header
+        let table = 0x80 + 4 + 20;
+        image[table..table + 8].copy_from_slice(b".text\0\0\0");
+        image[table + 12..table + 16].copy_from_slice(&0x1000u32.to_le_bytes()); // rva
+        image[table + 16..table + 20].copy_from_slice(&64u32.to_le_bytes()); // raw size
+        image[table + 20..table + 24].copy_from_slice(&0x400u32.to_le_bytes()); // raw offset
+        // `mov [rip+disp], rbx` at text+8, next instruction at text+15; the
+        // global at rva 0x2000 => disp = 0x2000 - (0x1000 + 15).
+        let code = 0x400 + 8;
+        image[code..code + 3].copy_from_slice(&[0x48, 0x89, 0x1D]);
+        let disp = (0x2000i64 - (0x1000 + 15)) as i32;
+        image[code + 3..code + 7].copy_from_slice(&disp.to_le_bytes());
+        image[code + 7..code + 14].copy_from_slice(&[0xC6, 0x43, 0x31, 0x01, 0x48, 0x8B, 0xCB]);
+        assert_eq!(resolve_anchor(&image, &ANCHORS[0]).unwrap(), 0x2000);
+        // The other anchors are absent: no profile.
+        assert!(derive_profile(&image, "0000000000000000").is_err());
     }
 
     #[test]

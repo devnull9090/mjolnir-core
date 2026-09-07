@@ -492,6 +492,19 @@ proxies (`--hlod`), hidden components, landscape heightfields, child actors and 
 are counted in the manifest rather than placed. The files are independent, so open the cells you
 want.
 
+### String ids
+
+A `string id` field names a string the game has to know: the engine resolves it at load
+against its own registry, and a name that is not registered makes the game reject the whole
+tag — the weapon simply vanishes. The registry as the game held it in mission A30 ships with the
+editor, so **Test in game** and **Export** refuse an edit that sets a string id outside it and
+say which field; the *allow unregistered string ids* checkbox under **Try it** bakes it anyway
+when you mean it. A registered name set fresh still earns a note, because one mission's
+registry is a lower bound for another's. On the command line, `mjolnir set` does the same and
+takes `--allow-unknown-string-id`. A string id in a tag's root element can also be poked live:
+the name is resolved through the running game's registry and the id written where the engine
+keeps it.
+
 ### Unreal packages
 
 Anything cooked as an Unreal package — a material instance's parameters, a data asset's
