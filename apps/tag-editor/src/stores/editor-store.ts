@@ -28,7 +28,12 @@ import {
   type SwapReport,
   type ScriptView,
   type CompileReport,
+  type ElementClip,
+  type PasteReport,
+  type DiffView,
+  type RefNode,
 } from "../lib/api";
+import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/mock";
 import {
@@ -62,6 +67,10 @@ export type Tab = {
 };
 
 const VIEW_KEY = "tag-editor-view";
+/** Whether angles show in degrees; the tag always holds radians. */
+const DEGREES_KEY = "tag-editor-degrees";
+/** Whether the layout's padding and markers are shown. */
+const EXPERT_KEY = "tag-editor-expert";
 
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
@@ -191,6 +200,12 @@ type EditorState = {
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
+  /** Show and type angles in degrees rather than the radians the tag holds. */
+  degrees: boolean;
+  setDegrees: (on: boolean) => void;
+  /** Show every byte of the layout: padding and markers as raw bytes. */
+  expert: boolean;
+  setExpert: (on: boolean) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
 
   /** What the left panel browses: assets, tag groups, textures, sounds, or
@@ -319,9 +334,44 @@ type EditorState = {
   /** Add, duplicate or remove one element of the block at `path`. */
   editElements: (
     path: string,
-    op: "add" | "remove" | "duplicate",
+    op: "add" | "remove" | "duplicate" | "insert",
     element?: number,
   ) => Promise<boolean>;
+  /** The element last copied, to paste into a block of the same kind. */
+  elementClipboard: ElementClip | null;
+  copyElement: (path: string, element: number) => Promise<void>;
+  /** Paste the clipboard element at `at`, or append when null. */
+  pasteElement: (path: string, at: number | null) => Promise<boolean>;
+  copyBlockTsv: (path: string) => Promise<void>;
+  /** The block a TSV paste dialog is open for. */
+  tsvPaste: { path: string; label: string } | null;
+  openTsvPaste: (path: string, label: string) => void;
+  closeTsvPaste: () => void;
+  /** Resolves to a problem to show, or null on success. */
+  pasteBlockTsv: (tsv: string, replace: boolean) => Promise<string | null>;
+
+  /** The diff dialog's contents while one is open. */
+  diff: DiffView | null;
+  diffLoading: boolean;
+  /** Compare two tags of one group, pending edits included. */
+  openDiff: (a: number, b: number) => Promise<void>;
+  /** Compare the active tag as shipped against the mod's edits. */
+  openDiffEdits: () => Promise<void>;
+  closeDiff: () => void;
+
+  /** The reference tree dialog's contents while one is open. */
+  refTree: RefNode | null;
+  refTreeLoading: boolean;
+  refTreeDepth: number;
+  refTreeIndex: number | null;
+  openRefTree: (index: number) => Promise<void>;
+  loadRefTree: (depth: number) => Promise<void>;
+  closeRefTree: () => void;
+
+  /** Show only the group's tags that no tag body references. */
+  unreferencedOnly: boolean;
+  unreferencedLoading: boolean;
+  setUnreferencedOnly: (on: boolean) => Promise<void>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
   /** Where each of the open tag's references lands, keyed by [refKey]. A null
@@ -358,6 +408,9 @@ type EditorState = {
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
+  /** Step the active tag's edits back or forward through its journal. */
+  undoEdit: () => Promise<void>;
+  redoEdit: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
 };
 
@@ -412,7 +465,7 @@ export const useEditor = create<EditorState>((set, get) => {
     });
     let tag: TagView;
     try {
-      tag = await api.readTag(index);
+      tag = await readTagView(index);
       set((s) => ({
         tag,
         tagLoading: false,
@@ -618,12 +671,64 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
+  /** The tag as the current view options want it. */
+  function readTagView(index: number) {
+    return api.readTag(index, get().expert);
+  }
+
+  /** Re-read the tag after a paste and report what the paste did in the edit
+   *  bar; fields that would not take their value are the error line. */
+  async function afterPaste(index: number, path: string, report: PasteReport) {
+    const tag = await readTagView(index);
+    const skipped =
+      report.skipped.length === 0
+        ? null
+        : `${report.skipped.length} field${report.skipped.length === 1 ? "" : "s"} kept ` +
+          `their value: ${report.skipped
+            .slice(0, 3)
+            .map((s) => `${s.path} (${s.reason})`)
+            .join("; ")}${report.skipped.length > 3 ? "; …" : ""}`;
+    set((s) => ({
+      tag,
+      lastEdit: {
+        path: `${path}[${report.element}]`,
+        type: "paste",
+        before: `${report.elements} element${report.elements === 1 ? "" : "s"} added`,
+        after: `${report.applied} field${report.applied === 1 ? "" : "s"} set, ${report.unchanged} already matched`,
+        changed_bytes: report.applied,
+      },
+      editError: skipped,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
+  }
+
+  /** One undo or redo step on the active tag, then re-read it. A journal
+   *  with nothing left is not an error worth showing. */
+  async function stepHistory(step: (index: number) => Promise<unknown>) {
+    const index = get().selectedTag;
+    if (index === null) return;
+    try {
+      await step(index);
+    } catch {
+      return;
+    }
+    const tag = await readTagView(index);
+    set((s) => ({
+      tag,
+      lastEdit: null,
+      editError: null,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
+  }
+
   async function refreshActiveTag() {
     const { tabs, activeTab } = get();
     const tab = tabs.find((t) => t.id === activeTab);
     if (!tab || tab.kind !== "tag") return;
     try {
-      const tag = await api.readTag(tab.index);
+      const tag = await readTagView(tab.index);
       set((s) => ({
         tag,
         dirtyTags: { ...s.dirtyTags, [tab.index]: tag.edited.length > 0 },
@@ -921,6 +1026,39 @@ export const useEditor = create<EditorState>((set, get) => {
     setViewMode(mode) {
       localStorage.setItem(VIEW_KEY, mode);
       set({ viewMode: mode });
+    },
+
+    degrees: (() => {
+      try {
+        return localStorage.getItem(DEGREES_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    expert: (() => {
+      try {
+        return localStorage.getItem(EXPERT_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    async setExpert(on) {
+      try {
+        localStorage.setItem(EXPERT_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ expert: on });
+      await refreshActiveTag();
+    },
+
+    setDegrees(on) {
+      try {
+        localStorage.setItem(DEGREES_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ degrees: on });
     },
 
     browse: "files",
@@ -1248,10 +1386,71 @@ export const useEditor = create<EditorState>((set, get) => {
     async selectGroup(group) {
       set({ selectedGroup: group, query: "", tags: [] });
       try {
-        set({ tags: await api.listTags(group) });
+        if (get().unreferencedOnly) {
+          set({ unreferencedLoading: true });
+          const tags = await api.unreferencedTags(group);
+          if (get().selectedGroup === group) set({ tags, unreferencedLoading: false });
+        } else {
+          set({ tags: await api.listTags(group) });
+        }
       } catch (e) {
-        set({ error: String(e) });
+        set({ error: String(e), unreferencedLoading: false });
       }
+    },
+
+    unreferencedOnly: false,
+    unreferencedLoading: false,
+    async setUnreferencedOnly(on) {
+      set({ unreferencedOnly: on });
+      const group = get().selectedGroup;
+      if (group && !get().query.trim()) await get().selectGroup(group);
+    },
+
+    diff: null,
+    diffLoading: false,
+    async openDiff(a, b) {
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffTags(a, b), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    async openDiffEdits() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffEdits(index), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    closeDiff() {
+      set({ diff: null, diffLoading: false });
+    },
+
+    refTree: null,
+    refTreeLoading: false,
+    refTreeDepth: 2,
+    refTreeIndex: null,
+    async openRefTree(index) {
+      set({ refTreeIndex: index });
+      await get().loadRefTree(get().refTreeDepth);
+    },
+    async loadRefTree(depth) {
+      const index = get().refTreeIndex;
+      if (index === null) return;
+      set({ refTree: null, refTreeLoading: true, refTreeDepth: depth });
+      try {
+        const tree = await api.referenceTree(index, depth);
+        if (get().refTreeIndex === index) set({ refTree: tree, refTreeLoading: false });
+      } catch (e) {
+        set({ refTreeLoading: false, editError: String(e) });
+      }
+    },
+    closeRefTree() {
+      set({ refTree: null, refTreeLoading: false, refTreeIndex: null });
     },
 
     async search(query) {
@@ -1311,7 +1510,7 @@ export const useEditor = create<EditorState>((set, get) => {
         const lastEdit = await api.setField(index, path, value);
         // Re-read so every view of the tag reflects the change, not just
         // this row.
-        const tag = await api.readTag(index);
+        const tag = await readTagView(index);
         set((s) => ({
           lastEdit,
           editError: null,
@@ -1339,10 +1538,12 @@ export const useEditor = create<EditorState>((set, get) => {
         const lastEdit =
           op === "add"
             ? await api.addElement(index, path)
-            : op === "remove"
-              ? await api.removeElement(index, path, element ?? 0)
-              : await api.duplicateElement(index, path, element ?? 0);
-        const tag = await api.readTag(index);
+            : op === "insert"
+              ? await api.insertElement(index, path, element ?? 0)
+              : op === "remove"
+                ? await api.removeElement(index, path, element ?? 0)
+                : await api.duplicateElement(index, path, element ?? 0);
+        const tag = await readTagView(index);
         set((s) => ({
           lastEdit,
           editError: null,
@@ -1448,7 +1649,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertField(index, path);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,
@@ -1462,7 +1663,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertTag(index);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,
@@ -1470,6 +1671,74 @@ export const useEditor = create<EditorState>((set, get) => {
         dirtyTags: { ...s.dirtyTags, [index]: false },
       }));
       if (get().project) void get().refreshProject();
+    },
+
+    async undoEdit() {
+      await stepHistory(api.undoEdit);
+    },
+
+    elementClipboard: null,
+    async copyElement(path, element) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        const clip = await api.copyElement(index, path, element);
+        set({ elementClipboard: clip, editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    async pasteElement(path, at) {
+      const index = get().selectedTag;
+      const clip = get().elementClipboard;
+      if (index === null || !clip) return false;
+      try {
+        const report = await api.pasteElement(index, path, at, clip);
+        await afterPaste(index, path, report);
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async copyBlockTsv(path) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        await copyText(await api.copyBlockTsv(index, path));
+        set({ editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    tsvPaste: null,
+    openTsvPaste(path, label) {
+      set({ tsvPaste: { path, label } });
+    },
+    closeTsvPaste() {
+      set({ tsvPaste: null });
+    },
+
+    async pasteBlockTsv(tsv, replace) {
+      const index = get().selectedTag;
+      const target = get().tsvPaste;
+      if (index === null || !target) return "no block to paste into";
+      let report;
+      try {
+        report = await api.pasteBlockTsv(index, target.path, tsv, replace);
+      } catch (e) {
+        return String(e);
+      }
+      set({ tsvPaste: null });
+      await afterPaste(index, target.path, report);
+      return null;
+    },
+
+    async redoEdit() {
+      await stepHistory(api.redoEdit);
     },
 
     async exportTag(dest) {

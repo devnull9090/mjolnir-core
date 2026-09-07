@@ -114,6 +114,22 @@ Useful flags:
 
 ```powershell
 mjolnir values --group model --depth 1 | findstr "tag reference"
+mjolnir values --group weapon --tag SMG --json      # the same tree as JSON, for other tools
+```
+
+To work on tags as files — the layout Blam tooling expects, `objects/weapons/rifle/smg.weapon`
+— write them out:
+
+```powershell
+mjolnir extract --group weapon --out D:\kit --verify    # one group
+mjolnir extract --filter characters/elite --out D:\kit  # by path
+mjolnir extract --dry-run                                # what would be written
+mjolnir script --tag a30 --extract D:\hsc               # a mission's .hsc source files
+```
+
+`extract` is mod-aware: a tag an installed mod overrides comes out as the mod left it, the way
+the game sees it, unless `--shipped-only` asks for the game's own. What comes out is game
+content — keep it local.
 ```
 
 ### Changing a field
@@ -341,15 +357,39 @@ control points[3].position: (-3.522356, 0.00095, 1.838378) → (1.5, 2.5, 3.5) (
 ```
 
 Values go in the same form the CLI takes — see the table above. Enums and bitfields are
-written by name, tag references as `group:path`.
+written by name, tag references as `group:path`. Angles are radians in the tag and in the CLI;
+the **rad / deg** toggle in the tag header shows them in degrees and takes degrees when you
+type, converting at the edge (a copied element or a TSV still carries radians).
+
+The **expert** toggle next to it shows the layout's structural fields too — padding, `custom`
+markers and the terminator — as read-only raw bytes at their offsets, so a definition can be
+checked against the bytes it claims to describe.
+
+**diff** compares the open tag as shipped with the tag as your mod leaves it, every differing
+field with both values; right-click another tag of the same group in the list and choose
+**Compare With Open Tag** to set any two tags side by side. **refs** opens the graph behind a
+tag — what it references and what those reference, to the depth you pick — and copies as
+indented text. Under the tag search, **unreferenced only** narrows a group to the tags no tag
+body references (a scenario or the globals are loaded by the Unreal side and count as
+unreferenced here).
 
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
 
-**Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
-**del**: add appends a new element, dup inserts a copy of the selected element after it, del
-removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
+**Ctrl+Z** takes the last change back and **Ctrl+Y** puts it forward again — every change to a
+tag's edits counts, including element changes and reverts, and the edit bar shows how many
+steps remain either way. The journal is per tag and lives for the session; the project file
+holds the current recipe, not its history.
+
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **ins**, **dup**,
+**del**, **copy** and **paste**: add appends a new element, ins puts one in front of the selected
+element, dup inserts a copy of the selected element after it, del removes the selected one, copy
+takes the selected element as a recipe of its fields, and paste puts that recipe after the
+selected element of any block of the same kind — in this tag or another. Right-click the bar for
+the same commands and for **Copy Block as TSV** / **Paste TSV into Block…**, which move a whole
+block through a spreadsheet: one row per element, one column per field, the header naming the
+fields (nested blocks stay out of the table). A new element is not all zeroes — a tag reference starts unset and a
 block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
 else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
 — whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so

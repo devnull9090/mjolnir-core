@@ -304,7 +304,16 @@ python tools/iostore/zen_class.py    --paks $paks --oodle $oodle --grep-scripts 
 python tools/iostore/extract_tags.py --paks $paks --oodle $oodle --group vehicle --out <dir> --verify
 ```
 
-`extract_tags.py` output is copyrighted game content. Keep it local and never commit it.
+The Rust CLI does the extraction too, without Python or an Oodle DLL, and mod-aware — an
+installed override wins its tag unless `--shipped-only` is given:
+
+```powershell
+cargo run --release -p blam-cli -- extract --group vehicle --out <dir> --verify
+cargo run --release -p blam-cli -- values --group weapon --tag assault_rifle --json
+cargo run --release -p blam-cli -- script --tag a30 --extract <dir>
+```
+
+Extracted tags and scripts are copyrighted game content. Keep them local and never commit them.
 See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings these tools produced.
 
 ### Tag Definitions

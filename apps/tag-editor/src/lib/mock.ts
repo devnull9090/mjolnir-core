@@ -21,6 +21,10 @@ import type {
   TagView,
   TestView,
   NewTagView,
+  ElementClip,
+  PasteReport,
+  DiffView,
+  RefNode,
 } from "./api";
 
 /** A slice of the virtual filesystem, shaped like the real one. */
@@ -164,6 +168,7 @@ const mockTag: TagView = {
   error: null,
   node_count: 214,
   edited: [],
+  history: { undo: 0, redo: 0 },
   fields: [
     block("skies", "sky_reference_block", 8, [
       {
@@ -271,6 +276,7 @@ const mockModelTag: TagView = {
   error: null,
   node_count: 12,
   edited: [],
+  history: { undo: 0, redo: 0 },
   fields: [
     field({
       name: "collision model",
@@ -292,9 +298,29 @@ const mockModelTag: TagView = {
 
 const edits = new Map<string, string>();
 
+/** Undo and redo for the mock, as snapshots of the edit map. */
+const undoStack: Map<string, string>[] = [];
+const redoStack: Map<string, string>[] = [];
+function remember() {
+  undoStack.push(new Map(edits));
+  redoStack.length = 0;
+}
+function restore(from: Map<string, string>[], to: Map<string, string>[]) {
+  const snapshot = from.pop();
+  if (!snapshot) throw new Error("nothing to undo");
+  to.push(new Map(edits));
+  edits.clear();
+  for (const [k, v] of snapshot) edits.set(k, v);
+  return { undo: undoStack.length, redo: redoStack.length };
+}
+
 function withEdits(index = 0): TagView {
   const base = index === 2 ? mockModelTag : mockTag;
-  return { ...base, edited: [...edits.keys()] };
+  return {
+    ...base,
+    edited: [...edits.keys()],
+    history: { undo: undoStack.length, redo: redoStack.length },
+  };
 }
 
 /**
@@ -341,7 +367,7 @@ export const mockApi = {
   listTags: async (group: string) => mockTags.filter((t) => t.group === group),
   searchTags: async (query: string) =>
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
-  readTag: async (index: number) => withEdits(index),
+  readTag: async (index: number, _expert = false) => withEdits(index),
   readTagBytes: async () => [] as number[],
   // Resolution in the mock is by normalized path alone — enough to light up
   // both the resolved and the broken badge: the sample model's references and
@@ -565,28 +591,109 @@ export const mockApi = {
     };
   },
   setField: async (_index: number, path: string, value: string): Promise<EditResult> => {
+    remember();
     edits.set(path, value);
     return { path, type: "field", before: "…", after: value, changed_bytes: 4 };
   },
   addElement: async (_index: number, path: string): Promise<EditResult> => {
+    remember();
     edits.set(path, "add");
     return { path, type: "block", before: "0 element(s)", after: "1 element(s)", changed_bytes: 32 };
   },
   removeElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    remember();
     edits.set(path, `remove ${element}`);
     return { path, type: "block", before: "1 element(s)", after: "0 element(s)", changed_bytes: 32 };
   },
   duplicateElement: async (_index: number, path: string, element: number): Promise<EditResult> => {
+    remember();
     edits.set(path, `duplicate ${element}`);
     return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
   },
+  insertElement: async (_index: number, path: string, at: number): Promise<EditResult> => {
+    remember();
+    edits.set(path, `insert ${at}`);
+    return { path, type: "block", before: "1 element(s)", after: "2 element(s)", changed_bytes: 32 };
+  },
+  copyElement: async (_index: number, path: string, element: number): Promise<ElementClip> => ({
+    group: "scenario",
+    block: "sky_reference_block",
+    source: `${path}[${element}] of b30`,
+    fields: [{ path: "sky", value: "sky:sky\\clear afternoon\\clear afternoon", op: false }],
+    skipped: [],
+  }),
+  pasteElement: async (_index: number, path: string): Promise<PasteReport> => {
+    remember();
+    edits.set(path, "add");
+    return { element: 1, elements: 1, applied: 1, unchanged: 0, skipped: [] };
+  },
+  copyBlockTsv: async () => "sky\nsky:sky\\clear afternoon\\clear afternoon\n",
+  pasteBlockTsv: async (_index: number, path: string, tsv: string): Promise<PasteReport> => {
+    remember();
+    edits.set(path, "add");
+    const rows = tsv.split(/\r?\n/).filter((l) => l.trim()).length - 1;
+    return { element: 1, elements: Math.max(rows, 0), applied: rows, unchanged: 0, skipped: [] };
+  },
+  diffTags: async (): Promise<DiffView> => ({
+    a: "levels/b30/b30.scenario",
+    b: "levels/a30/a30.scenario",
+    fields: [
+      { path: "local north", a: "180", b: "90" },
+      { path: "skies/#count", a: "1", b: "2" },
+      { path: "skies[1]/sky", a: null, b: "sky\\clear afternoon (sky)" },
+    ],
+    same: 212,
+    error: null,
+  }),
+  diffEdits: async (): Promise<DiffView> => ({
+    a: "as shipped",
+    b: "with this mod's edits",
+    fields: [...edits.entries()].map(([path, value]) => ({ path, a: "…", b: value })),
+    same: 214,
+    error: null,
+  }),
+  referenceTree: async (index: number, depth: number): Promise<RefNode> => ({
+    index,
+    group: "scenario",
+    path: "levels/b30/b30",
+    cycle: false,
+    truncated: false,
+    children: [
+      {
+        index: 2,
+        group: "model",
+        path: "objects\\characters\\elite\\elite",
+        cycle: false,
+        truncated: depth < 2,
+        children:
+          depth < 2
+            ? []
+            : [
+                {
+                  index: null,
+                  group: "collision_model",
+                  path: "objects\\characters\\elite\\elite",
+                  cycle: false,
+                  truncated: false,
+                  children: [],
+                },
+              ],
+      },
+    ],
+  }),
+  unreferencedTags: async (group: string) =>
+    mockTags.filter((t) => t.group === group).slice(0, 1),
   revertField: async (_index: number, path: string) => {
+    remember();
     edits.delete(path);
     return edits.size;
   },
   revertTag: async () => {
+    remember();
     edits.clear();
   },
+  undoEdit: async () => restore(undoStack, redoStack),
+  redoEdit: async () => restore(redoStack, undoStack),
   exportTag: async () => 0,
   listTextures: async (query: string) =>
     [
