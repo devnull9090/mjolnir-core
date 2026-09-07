@@ -18,6 +18,7 @@ was measured against them in the running game. It supersedes the sweep-first acc
 |---|---|
 | Where is every loaded tag's root? | the `tag instance` table, pointer at tag-DLL RVA `0x0182D1E8`; 7,055 tags in A30, every root resolving, bytes matching the shipped tag |
 | Which string ids does the game know? | the registry at RVA `0x013574C0`; 64,293 names in A30, dumped to `defs/hce/string-ids.json` |
+| What does a resolved tag reference hold? | group four-CC, an encoded offset to the referenced tag's own path string, the path length, and the handle `generation << 16 | index` |
 | Does `tag_is_active` say whether a tag is loaded? | **no** — it returns `false` for a loaded weapon; the HS compiler's `not a loaded tag` error does |
 | Do `tag_reload_force` / `tag_load_force` do anything? | **reload works** and relocates the tag; load-force is inert |
 | Is there a debug menu behind `DebugMenuSettings`? | yes, a pause-menu panel "Show Tag Debug Names" plus a type legend; its overlay does not render in the shipping build |
@@ -144,6 +145,70 @@ So, for tags:
 This is the door the new-scenario work found closed for `scenario` packages
 (`new-scenario-door-open`): the refusal there is specific to how a scenario is opened, not to
 new packages as such.
+
+## A tag reference in the resident copy
+
+Measured 2026-09-07 in A30, on the assault rifle's root element
+(`crates/blam-live/src/tagtable.rs`, `LiveTag::reference_bytes`).
+
+A reference field is sixteen bytes on disk and sixteen resident; the loader
+rewrites two of its four words in place:
+
+| Word | On disk | In the running game |
+|---|---|---|
+| `+0` | group four-CC, reversed (`effe`), or `0xFFFFFFFF` when unset | unchanged |
+| `+4` | zero | **encoded offset** to the referenced tag's path string |
+| `+8` | path length | unchanged |
+| `+12` | `0xFFFFFFFF` | **handle**, `generation << 16 \| index` |
+
+The second word is an encoded offset in the same scheme as a block
+descriptor's — `segment = enc >> 28`, `address = segment_base + enc * 4` — and
+the address it names is exactly the `+0x10` name pointer of the referenced
+tag's own table entry, not a copy. So `objects\weapons\fx\weapon_ready`,
+referenced twice by the rifle (`ready effect` and `weapon power-off effect`),
+carries the same word `0x113ECB98` in both, resolving to one string in
+segment 1. An unset reference points at a shared empty string
+(`0x113EA75C` in that session) and keeps `0xFFFFFFFF` in both the group and
+the handle.
+
+The rifle's own reads, file against resident:
+
+| Field | File | Resident |
+|---|---|---|
+| `ready effect` | `65666665 00000000 1f000000 ffffffff` | `65666665 98cb3e11 1f000000 1f0193e2` |
+| `pickup sound` | `21646e73 00000000 2c000000 ffffffff` | `21646e73 f4cb3e11 2c000000 2e01a2e2` |
+| `ready damage effect` (unset) | `ffffffff 00000000 00000000 ffffffff` | `ffffffff 5ca73e11 00000000 ffffffff` |
+
+`0xE2A2012E` is slot `0x12E` generation `0xE2A2` — the table entry for
+`sound\weapons\battle_rifle\battle_rifle_ammo`.
+
+**Consequence: references poke.** Given a target the game has already loaded,
+all sixteen bytes can be built from its table entry, so pointing a reference
+somewhere else is an ordinary write rather than a rebuild. That is what the
+tag editor now does (`live::Live::reference_bytes`, `Job::reference`), for a
+field in the root element and for one inside a block element alike. Two
+things it cannot do, and refuses rather than guesses:
+
+- **the target must be loaded.** A handle is a slot in the live table; there
+  is no way to invent one for a tag the game has not read. `mjolnir live tags`
+  lists what is available.
+- **the walk goes stale.** `tag_reload_force` and a level change re-slot tags,
+  so the one entry a write is about to name is re-read
+  (`TagTable::entry`) and the generation taken from that read, not from the
+  cached walk.
+
+Clearing a reference live writes `0xFFFFFFFF` into the group and the handle
+and zero into the length, and leaves the path word as it stands — the one
+place a poked field differs from what the loader would have written, and
+nothing reads a path whose group says there is no target.
+
+Verified end to end by `apps/tag-editor/src-tauri/tests/live_poke_e2e.rs`
+(`poke_a_reference_through_the_editor_path`): the bytes the field held before
+the write are the *old* target's resident form and the bytes after are the new
+target's, both rebuilt independently from the table. And behaviourally in A30:
+with `barrels[0].projectile` pointed at
+`objects\vehicles\covenant\banshee\weapons\banshee_dual_cannon\projectiles\banshee_dual_cannon_bolt`,
+the assault rifle fires banshee plasma bolts, and reverts on the next poke.
 
 ## Adding a build
 

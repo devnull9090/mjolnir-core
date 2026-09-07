@@ -344,6 +344,30 @@ impl Segments {
         base.checked_add(offset)
     }
 
+    /// The encoded form of an address: the inverse of [`Segments::resolve`].
+    ///
+    /// The segment nibble is part of the number that gets multiplied, so a
+    /// segment's addressable window is `base + 4·(nibble << 28)` upward and
+    /// each address encodes in at most one segment — the candidate is checked
+    /// by re-resolving it. Returns `None` for an unaligned address or one no
+    /// segment covers.
+    pub fn encode(&self, addr: u64) -> Option<u32> {
+        for (i, base) in self.bases.iter().enumerate() {
+            if *base == 0 || addr < *base {
+                continue;
+            }
+            let offset = addr - base;
+            if offset % 4 != 0 || offset / 4 > u64::from(u32::MAX) {
+                continue;
+            }
+            let enc = (offset / 4) as u32;
+            if (enc >> 28) as usize == i && enc != NULL_OFFSET {
+                return Some(enc);
+            }
+        }
+        None
+    }
+
     /// The `arena` value `crate::field_address` expects for a block header
     /// whose offset word is `enc`: the base that makes `arena + 4 * enc` land
     /// on the elements. Because the nibble rides along in the multiplication,
@@ -380,6 +404,8 @@ pub struct LiveTag {
     /// Tag path as the engine spells it: backslashes, no extension,
     /// `objects\weapons\rifle\assault_rifle\assault_rifle`.
     pub name: String,
+    /// Where that path's bytes are. A resolved tag reference points here.
+    pub name_address: u64,
     pub root: Descriptor,
 }
 
@@ -400,6 +426,25 @@ impl LiveTag {
                 }
             })
             .collect()
+    }
+
+    /// The sixteen bytes a resolved tag reference to this tag holds.
+    ///
+    /// The loader rewrites a reference field in place: the group four-CC and
+    /// the path length stay as the file spells them, the second word becomes
+    /// an encoded offset to the tag's own path string — the very bytes this
+    /// entry names — and the last word becomes the handle, where the file
+    /// carries `0xFFFFFFFF`. Measured on CU4, `docs/tag_table_and_string_ids.md`.
+    ///
+    /// `None` when the path string is not in an addressable segment.
+    pub fn reference_bytes(&self, segments: &Segments) -> Option<[u8; REFERENCE_SIZE]> {
+        let enc = segments.encode(self.name_address)?;
+        let mut out = [0u8; REFERENCE_SIZE];
+        out[0..4].copy_from_slice(&u32::from_be_bytes(self.group).to_le_bytes());
+        out[4..8].copy_from_slice(&enc.to_le_bytes());
+        out[8..12].copy_from_slice(&(self.name.len() as u32).to_le_bytes());
+        out[12..16].copy_from_slice(&self.handle().to_le_bytes());
+        Some(out)
     }
 
     /// Where the root element's bytes are.
@@ -427,6 +472,8 @@ const ENTRY_NAME: usize = 0x10;
 const ENTRY_ROOT: usize = 0x18;
 /// The most tags a table may declare before its layout is disbelieved.
 const MAX_TAGS: u32 = 0x1_0000;
+/// A tag reference field, inline and resident alike.
+pub const REFERENCE_SIZE: usize = 16;
 /// Longest tag path read.
 const MAX_NAME: usize = 1024;
 
@@ -497,27 +544,52 @@ impl TagTable {
                 continue;
             }
             let e = &blob[i * ENTRY_SIZE..(i + 1) * ENTRY_SIZE];
-            let u32_at = |o: usize| u32::from_le_bytes(e[o..o + 4].try_into().unwrap());
-            let name_ptr = u64::from_le_bytes(e[ENTRY_NAME..ENTRY_NAME + 8].try_into().unwrap());
-            let name = if name_ptr == 0 {
-                String::new()
-            } else {
-                m.cstr(name_ptr, MAX_NAME)?
-            };
-            tags.push(LiveTag {
-                index: i as u32,
-                generation: u16::from_le_bytes(e[0..2].try_into().unwrap()),
-                group: u32_at(ENTRY_GROUP).to_be_bytes(),
-                name,
-                root: Descriptor {
-                    count: u32_at(ENTRY_ROOT),
-                    data: u32_at(ENTRY_ROOT + 4),
-                    definition: u32_at(ENTRY_ROOT + 8),
-                },
-            });
+            tags.push(decode_entry(m, i as u32, e)?);
         }
         Ok(tags)
     }
+
+    /// One slot, read fresh. `None` when the slot is free or past the high
+    /// water mark.
+    ///
+    /// A walked table is a photograph: `tag_reload_force` and a level change
+    /// both re-slot tags, and a stale handle written into a live reference
+    /// would point at whatever took the slot. Re-reading the one entry a
+    /// write is about to name costs a single 0x30-byte read.
+    pub fn entry(&self, m: &impl Memory, index: u32) -> Result<Option<LiveTag>> {
+        if index >= self.high_water {
+            return Ok(None);
+        }
+        let byte = m.read(self.bitset + u64::from(index) / 8, 1)?;
+        if byte[0] & (1 << (index % 8)) == 0 {
+            return Ok(None);
+        }
+        let e = m.read(self.entries + u64::from(index) * ENTRY_SIZE as u64, ENTRY_SIZE)?;
+        Ok(Some(decode_entry(m, index, &e)?))
+    }
+}
+
+/// One 0x30-byte entry as a [`LiveTag`].
+fn decode_entry(m: &impl Memory, index: u32, e: &[u8]) -> Result<LiveTag> {
+    let u32_at = |o: usize| u32::from_le_bytes(e[o..o + 4].try_into().unwrap());
+    let name_address = u64::from_le_bytes(e[ENTRY_NAME..ENTRY_NAME + 8].try_into().unwrap());
+    let name = if name_address == 0 {
+        String::new()
+    } else {
+        m.cstr(name_address, MAX_NAME)?
+    };
+    Ok(LiveTag {
+        index,
+        generation: u16::from_le_bytes(e[0..2].try_into().unwrap()),
+        group: u32_at(ENTRY_GROUP).to_be_bytes(),
+        name,
+        name_address,
+        root: Descriptor {
+            count: u32_at(ENTRY_ROOT),
+            data: u32_at(ENTRY_ROOT + 4),
+            definition: u32_at(ENTRY_ROOT + 8),
+        },
+    })
 }
 
 /// The engine's spelling of a tag path: lowercase, backslashes, no leading
@@ -785,6 +857,68 @@ mod tests {
         assert_eq!(tags[1].handle(), 0xE24A_0002);
         let segs = Segments::read(&m, DLL, &CU4).unwrap();
         assert_eq!(tags[1].root_address(&segs), Some(SEG1 + 0x1000_0020 * 4));
+    }
+
+    /// `encode` is `resolve` backwards: the nibble rides along in the
+    /// multiplication, so each address belongs to at most one segment, and an
+    /// address outside every segment's window has no encoding.
+    #[test]
+    fn encode_inverts_resolve() {
+        let mut bases = [0u64; 16];
+        bases[1] = 0x1ffe_51f0_0000;
+        bases[14] = 0x7ffb_4000_0000;
+        let s = Segments { bases };
+        for enc in [0x113e_cb98u32, 0x1000_0000, 0xebd8_5054] {
+            let addr = s.resolve(enc).unwrap();
+            assert_eq!(s.encode(addr), Some(enc), "{enc:#x}");
+        }
+        // Below segment 1's window (the nibble puts it a gigabyte up) and
+        // unaligned addresses have no encoding.
+        assert_eq!(s.encode(bases[1]), None);
+        assert_eq!(s.encode(s.resolve(0x113e_cb98).unwrap() + 1), None);
+        assert_eq!(s.encode(0), None);
+    }
+
+    /// The resident form of a reference: group and length as the file spells
+    /// them, an encoded offset to the tag's own path, and the handle.
+    #[test]
+    fn a_reference_resolves_to_the_engine_sixteen_bytes() {
+        let m = game();
+        let segs = Segments::read(&m, DLL, &CU4).unwrap();
+        let tags = LiveTags::new(TagTable::open(&m, DLL, &CU4).unwrap().walk(&m).unwrap());
+        let weap = tags.find(*b"weap", "objects/weapons/rifle/assault_rifle/assault_rifle").unwrap();
+        // The mock's names sit outside any segment window, so encoding fails
+        // rather than inventing an offset.
+        assert_eq!(weap.reference_bytes(&segs), None);
+
+        // Put the path inside segment 1 and it encodes.
+        let mut m = game();
+        let name_at = SEG1 + 0x1000_0000 * 4;
+        let mut names = vec![0u8; 0x80];
+        let path = b"objects\\weapons\\rifle\\assault_rifle\\assault_rifle";
+        names[..path.len()].copy_from_slice(path);
+        m.put(name_at, &names);
+        let mut e = entry(0xE24A, b"weap", name_at, 0x1000_0020);
+        e[0..2].copy_from_slice(&0xE24Au16.to_le_bytes());
+        let mut blob = Vec::new();
+        blob.extend(entry(0xE174, b"matg", NAMES_AT, 0x1000_0010));
+        blob.extend(entry(0, b"xxxx", 0, NULL_OFFSET));
+        blob.extend(e);
+        m.put(ENTRIES_AT, &blob);
+        let table = TagTable::open(&m, DLL, &CU4).unwrap();
+        let tags = LiveTags::new(table.walk(&m).unwrap());
+        let weap = tags.find(*b"weap", "objects\\weapons\\rifle\\assault_rifle\\assault_rifle").unwrap();
+        let bytes = weap.reference_bytes(&segs).unwrap();
+        assert_eq!(&bytes[0..4], b"paew", "the four-CC is stored reversed");
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 0x1000_0000);
+        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 49);
+        assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), 0xE24A_0002);
+
+        // One slot, read fresh, says the same thing; a free slot says nothing.
+        let fresh = table.entry(&m, 2).unwrap().unwrap();
+        assert_eq!(fresh.reference_bytes(&segs), Some(bytes));
+        assert!(table.entry(&m, 1).unwrap().is_none());
+        assert!(table.entry(&m, 99).unwrap().is_none());
     }
 
     #[test]

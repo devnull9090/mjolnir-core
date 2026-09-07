@@ -1287,7 +1287,7 @@ fn build_live_job(
         // Everything derived from `file` borrows it, so the whole analysis
         // happens in this block and hands back owned values; `file` itself is
         // only moved into the job once those borrows are gone.
-        let (region, root, stable, headers, blocks, hops, span, bytes, string_id) = {
+        let (region, root, stable, headers, blocks, hops, span, bytes, string_id, reference) = {
             let tag = blam_tag::TagFile::parse(&file, Some(file.len()))
                 .map_err(|e| e.to_string())?;
             let layout = tag.layout().map_err(|e| e.to_string())?;
@@ -1302,12 +1302,24 @@ fn build_live_job(
             // The one exception is a string id: the engine resolves it at load
             // into a registry id held in the field's own four bytes, so a name
             // the running game has registered is poked as that id.
+            // The other is a tag reference: its group, path length and handle
+            // live in the field's own sixteen bytes, and the loader fills the
+            // handle in from the tag table, so pointing it at another *loaded*
+            // tag is a sixteen-byte write like any other.
             let string_id = if target.type_name == "string id" {
                 Some(value.trim_matches('"').to_string())
             } else {
                 None
             };
-            if target.section.is_some() && string_id.is_none() {
+            let reference = if target.type_name == "tag reference" {
+                match parse_reference(&value)? {
+                    blam_tag::Scalar::Reference { group, path } => Some((group, path)),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if target.section.is_some() && string_id.is_none() && reference.is_none() {
                 return Err(format!(
                     "{} is a {} stored in a trailing section, so changing it resizes the tag. \
                      That cannot be poked into a running game — test it with a rebuild.",
@@ -1315,7 +1327,7 @@ fn build_live_job(
                 ));
             }
 
-            let patched = if string_id.is_some() {
+            let patched = if string_id.is_some() || reference.is_some() {
                 file.clone()
             } else {
                 let parsed = blam_tag::value::parse(&layout, &target.field, value)
@@ -1357,6 +1369,7 @@ fn build_live_job(
                 span,
                 bytes,
                 string_id,
+                reference,
             )
         };
 
@@ -1372,6 +1385,7 @@ fn build_live_job(
             span,
             bytes,
             string_id,
+            reference,
         })
     })
 }
