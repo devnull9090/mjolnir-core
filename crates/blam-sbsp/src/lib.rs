@@ -10,6 +10,7 @@
 //! than a tag assembled from nothing.
 
 pub mod ce;
+pub mod mopp;
 pub mod pack16;
 pub mod transplant;
 pub mod split;
