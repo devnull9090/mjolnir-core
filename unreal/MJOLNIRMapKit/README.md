@@ -216,3 +216,33 @@ lookups; the stub `.pak` beside it is what makes the game discover it (both
 verified against this game — [`docs/iostore_packaging.md`](../../docs/iostore_packaging.md)).
 The container carries its own `ContainerHeader`, so the new package is
 registered in the game's package store when it mounts.
+
+## Cooked actors do not survive a campaign world override (2026-09-08)
+
+Overriding a campaign world (`/Game/Levels/Halo1/Solo/B40/B40`) with a cooked
+world works **only while the level is bare**. The moment the cook carries an
+actor, the game dies during the level load, after
+`BlamCampaignFlowGameSubsystem:SetAndBeginCampaign` and before the map comes
+up, with no UE4SS crash dump.
+
+Measured, one variable at a time, all else identical:
+
+| cooked world | result |
+|---|---|
+| bare canvas: 5 exports, 0 imported packages | loads |
+| canvas + one `StaticMeshActor` -> our imported Blood Gulch mesh | crash on load |
+| canvas + one `StaticMeshActor` -> shipped `/Engine/BasicShapes/Cube` | crash on load |
+
+The shipped-cube control is the important one: it fails too, so this is not
+about whether 343's build can deserialise a stock-cooked `UStaticMesh`. It is
+the actor -- almost certainly `UStaticMeshComponent` hitting the same
+serial-size mismatch already recorded here for `UCapsuleComponent` and
+`UDirectionalLightComponent`. Treat every cooked component class as suspect
+until proven otherwise, and read the older "floor works" note as applying to
+the standalone test level, not to a campaign override.
+
+What this leaves: the cook is a way to get **assets** (meshes, materials,
+textures) into a container, and the level must stay bare. Anything that has to
+exist as an actor gets spawned at runtime through UE4SS, which goes through the
+game's own class layouts and sidesteps cooked-component serialisation entirely
+-- the same reason lights are spawned that way.

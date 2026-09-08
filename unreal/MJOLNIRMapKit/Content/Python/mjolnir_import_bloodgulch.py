@@ -15,6 +15,19 @@ The mesh lands under the canvas level's folder, which the PrimaryAssetLabel
 there routes into chunk 990, so `package.ps1` stages world and mesh together.
 Whether the game deserialises a stock-cooked UStaticMesh is the open question
 this cook exists to answer; the world itself is known to load.
+
+The imported mesh is also **placed in the canvas level** as a StaticMeshActor.
+That is the point of this step: a package nothing references is cooked into
+the container and then never loaded, which is why earlier builds showed an
+empty void -- the canvas world had five exports and no imported packages at
+all. Placing the actor makes the world import the mesh package, so the engine
+loads it with the level instead of on a runtime request. StaticMeshActor is
+the one actor class a stock UE 5.5 cook is known to survive in 343's engine
+build (PlayerStart and the light classes hit a serial-size mismatch; see
+mjolnir_build_world.py), so lighting still comes from the runtime loader.
+
+    MJOLNIR_BLOODGULCH_OFFSET  actor location in UE cm; default is the
+                               collision transplant's offset in UE axes
 """
 import os
 import sys
@@ -31,6 +44,15 @@ GLTF = os.environ.get(
     "MJOLNIR_BLOODGULCH_GLTF",
     r"C:\Users\will\prj\HalcyonRing\staging\bloodgulch\bsp\bsp_0.gltf",
 )
+
+
+# halo2ue exports the level so an Unreal glTF import already lands the geometry
+# at Halo (x, -y, z) x 304.8 cm, so the only transform left is the offset the
+# collision transplant used to move Blood Gulch into B40's world box:
+# (-35.4, 151.17, 44.0) world units, which is (dx, -dy, dz) x 304.8 in UE.
+OFFSET = unreal.Vector(*(
+    float(v) for v in os.environ.get(
+        "MJOLNIR_BLOODGULCH_OFFSET", "-10789.9,-46076.6,13411.2").split(",")))
 
 
 def log(msg):
@@ -76,6 +98,39 @@ def import_terrain():
         for m in meshes:
             f.write(m + "\n")
     log("mesh list written to " + out)
+    return meshes
+
+
+def place_terrain(mesh_paths):
+    """Put the imported mesh into the canvas level as a StaticMeshActor.
+
+    Without this the mesh package is cooked but unreferenced, so nothing ever
+    loads it. Movable mobility keeps the actor out of the static-lighting path,
+    so the level still needs no Lightmass bake and no _BuiltData package.
+    """
+    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    if not les.load_level(LEVEL_PACKAGE):
+        raise RuntimeError("could not load canvas level " + LEVEL_PACKAGE)
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    placed = 0
+    for path in mesh_paths:
+        mesh = unreal.EditorAssetLibrary.load_asset(path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            continue
+        name = path.rsplit("/", 1)[-1].split(".")[-1]
+        actor = eas.spawn_actor_from_class(
+            unreal.StaticMeshActor, OFFSET, unreal.Rotator(0.0, 0.0, 0.0))
+        actor.set_actor_label("MJOLNIR_Bloodgulch_" + name)
+        comp = actor.static_mesh_component
+        comp.set_editor_property("static_mesh", mesh)
+        comp.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+        placed += 1
+        log("placed %s at (%.1f, %.1f, %.1f)" % (name, OFFSET.x, OFFSET.y, OFFSET.z))
+    if not placed:
+        raise RuntimeError("no StaticMesh to place")
+    if not les.save_current_level():
+        raise RuntimeError("failed to save " + LEVEL_PACKAGE)
+    log("saved %s with %d terrain actor(s)" % (LEVEL_PACKAGE, placed))
 
 
 def label_mesh_dir():
@@ -101,8 +156,9 @@ def label_mesh_dir():
 
 def main():
     build_world()
-    import_terrain()
+    meshes = import_terrain()
     label_mesh_dir()
+    place_terrain(meshes)
     unreal.EditorAssetLibrary.save_directory(MESH_DIR, only_if_is_dirty=False, recursive=True)
     log("done")
 

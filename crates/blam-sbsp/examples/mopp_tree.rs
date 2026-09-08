@@ -7,6 +7,7 @@
 //! its leaves should name every surface of the definition exactly once. If
 //! that holds for the shipped trees, the decoder matches the engine's virtual
 //! machine and the same encoding can be written for transplanted geometry.
+use blam_sbsp::unpack16::{self, Tables};
 use blam_sbsp::{mopp, transplant};
 use blam_tag::blockedit::find_block;
 
@@ -59,6 +60,51 @@ fn main() {
         for v in &m.block.children[0] {
             bytecode(v, &mut code);
         }
+        // The header's code info: the offset and scale that map definition
+        // space into the 24-bit grid the tree's bytes index.
+        let e = m.block.element(0).unwrap_or(&[]);
+        let f = |o: usize| f32::from_le_bytes(e[o..o + 4].try_into().unwrap());
+        let (ox, oy, oz, w) = (f(32), f(36), f(40), f(44));
+
+        // What the geometry actually spans, straight from the tables.
+        let get = |name: &str| -> &[u8] {
+            find_block(&layout, &file, &root, &format!("{coll}.{name}"))
+                .map(|f| f.block.elements)
+                .unwrap_or(&[])
+        };
+        let t = Tables {
+            bsp3d_nodes: get("bsp3d nodes"),
+            planes: get("planes"),
+            leaves: get("leaves"),
+            bsp2d_references: get("bsp2d references"),
+            bsp2d_nodes: get("bsp2d nodes"),
+            surfaces: get("surfaces"),
+            edges: get("edges"),
+            vertices: get("vertices"),
+        };
+        let mut lo = [f32::MAX; 3];
+        let mut hi = [f32::MIN; 3];
+        if let Ok((c, _)) = unpack16::unpack(&t) {
+            for v in &c.vertices {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(v.point[k]);
+                    hi[k] = hi[k].max(v.point[k]);
+                }
+            }
+        }
+        println!(
+            "   code info offset ({ox:.3}, {oy:.3}, {oz:.3}) w {w:.1}   geometry [{:.2}, {:.2}] x [{:.2}, {:.2}] x [{:.2}, {:.2}]",
+            lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]
+        );
+        // If w is the scale into 24-bit fixed point, the byte the tree sees is
+        // ((v - offset) * w) >> 16, so the geometry should land inside 0..255.
+        let byte = |v: f32, o: f32| ((v - o) * w) as i64 >> 16;
+        println!(
+            "   geometry in tree bytes: x [{}, {}]  y [{}, {}]  z [{}, {}]",
+            byte(lo[0], ox), byte(hi[0], ox),
+            byte(lo[1], oy), byte(hi[1], oy),
+            byte(lo[2], oz), byte(hi[2], oz)
+        );
         print!("-- definition {d}: {surfaces} surface(s), {} code byte(s)", code.len());
 
         match mopp::terminals(&code) {
