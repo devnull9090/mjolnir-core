@@ -38,9 +38,10 @@ mjolnir-core/
 │   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
 │   ├── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
-│   └── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
+│   ├── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
+│   └── MJOLNIRBlamConsole/      # The classic Blam console at the Unreal console, with help
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
-├── native/                      # C source for FName trampoline DLL
+├── native/                      # C sources: the Blam console DLL, the FName trampoline
 ├── config/                      # Reference UE4SS-settings.ini + CU3 build lock
 ├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
 ├── keys/                        # Public release-signing keys
@@ -123,6 +124,15 @@ commands or arbitrary Lua on the game thread, answering back. Paired with `tools
 gives launch, level load, live state reads, input and screenshots without a person at the keyboard.
 Install with `scripts/install-bridge.ps1`; see
 [`docs/game_automation.md`](docs/game_automation.md).
+
+### MJOLNIRBlamConsole
+The simulation DLL still carries the classic Blam console — the HS compiler and all 1,695 engine
+functions — but nothing feeds it text, so every Blam command at the Unreal console is "Command not
+recognized". This mod wires it: type `ai_enabled`, `player_teleport player0 ...` or
+`blam (unit_get_health (player0))` and the result value, or the compiler's error, comes back on the
+UE4SS console. `help <prefix>` lists names with signatures, marking the 425 functions and 217
+globals the release build compiled out. The native half is built from `native/blam_console`; see
+[`docs/blam_console.md`](docs/blam_console.md).
 
 > **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
 > C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and
@@ -294,7 +304,16 @@ python tools/iostore/zen_class.py    --paks $paks --oodle $oodle --grep-scripts 
 python tools/iostore/extract_tags.py --paks $paks --oodle $oodle --group vehicle --out <dir> --verify
 ```
 
-`extract_tags.py` output is copyrighted game content. Keep it local and never commit it.
+The Rust CLI does the extraction too, without Python or an Oodle DLL, and mod-aware — an
+installed override wins its tag unless `--shipped-only` is given:
+
+```powershell
+cargo run --release -p blam-cli -- extract --group vehicle --out <dir> --verify
+cargo run --release -p blam-cli -- values --group weapon --tag assault_rifle --json
+cargo run --release -p blam-cli -- script --tag a30 --extract <dir>
+```
+
+Extracted tags and scripts are copyrighted game content. Keep them local and never commit them.
 See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings these tools produced.
 
 ### Tag Definitions
@@ -340,12 +359,17 @@ cargo run --release -p blam-cli -- pack --group weapon --tag assault_rifle-weapo
 cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
 cargo run --release -p blam-cli -- tag-file --file ar.tag --field "magazines[0].rounds reloaded" --value 99 --out ar2.tag
 cargo run --release -p blam-cli -- poke --group biped --tag spartans --field "jump velocity" --value 25
+cargo run --release -p blam-cli -- live tags --group weap             # every loaded tag, from the game's own table
+cargo run --release -p blam-cli -- live string-ids --find warthog_d   # is this string id registered in the running game?
+cargo run --release -p blam-cli -- new-tag --group collision_model --from marine-collision_model --to "objects\characters\marinf\marinf" --install-test
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 
 `tag-file` works on a tag payload already on disk, without the paks. `poke` changes a field in
 the **running game** — no rebuild, no restart, nothing written to disk; see
-[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md).
+[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md). `live` reads the simulation's own
+table of loaded tags and its string-id registry, which is also how `poke` finds a tag on a
+known build (`docs/tag_table_and_string_ids.md`).
 
 `mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
 resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a

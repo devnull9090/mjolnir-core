@@ -59,3 +59,7 @@ tagdump/
 
 # Screenshots taken by tools/mcp/game
 tools/mcp/game/.captures/
+
+# Built by native/blam_console/build.ps1; never committed
+mods/MJOLNIRBlamConsole/native/*.dll
+native/blam_console/obj/

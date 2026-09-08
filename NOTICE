@@ -1,0 +1,16 @@
+MJOLNIR Core
+
+This product includes code derived from third-party projects under their own
+licenses. The derived portions and their origins:
+
+- crates/ue-asset/src/nanite.rs — the Nanite page and cluster decoding rules
+  (cluster header layout, strip index decoding, vertex reference resolution,
+  the low/mid/high byte streams, octahedral normal and UV float unpacking)
+  are ported from CUE4Parse, https://github.com/FabianFG/CUE4Parse,
+  Copyright (c) the CUE4Parse contributors, licensed under the Apache
+  License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0). The
+  port is a Rust rewrite of the UE 5.5 code paths; it carries no other
+  copyrighted material from that project.
+
+Everything else in this repository is covered by the LICENSE file at the
+repository root.

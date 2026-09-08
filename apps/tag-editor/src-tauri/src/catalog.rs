@@ -106,6 +106,8 @@ pub struct Catalog {
     /// every cooked `.uasset`, built on first use; how a material instance's
     /// package name becomes readable bytes.
     package_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
+    /// `.ubulk` chunks by the same key as `package_index`.
+    bulk_index: std::sync::OnceLock<BTreeMap<String, (usize, ChunkEntry)>>,
     /// The global container's script-object table, parsed on first use.
     script_objects: std::sync::OnceLock<Option<ue_asset::zen::ScriptObjects>>,
     /// Lowercased mesh short path to mesh index, built on first use; how a
@@ -118,6 +120,18 @@ pub struct Catalog {
     /// use. The fallback route to a body mesh when the actor Blueprint's own
     /// meshes are Nanite placeholders.
     meshsync_index: std::sync::OnceLock<BTreeMap<String, String>>,
+    /// Exact reference lookup: `(group name, normalized short)` to tag index,
+    /// plus the four-CC maps that let a reference arrive either way. Built on
+    /// first use; costs one capped header read per group.
+    ref_index: std::sync::OnceLock<RefIndex>,
+    /// Wwise media short ID to sound index, shared audio preferred over the
+    /// per-language copies. Built on first use from the sound list alone.
+    sound_media_index: std::sync::OnceLock<BTreeMap<u32, usize>>,
+    /// `(group four-CC, normalized referenced path)` to every tag whose body
+    /// holds that reference. Built on first use by scanning every tag's data
+    /// section — seconds of work, like [`Catalog::names`], so it is deferred
+    /// until someone actually asks "what references this?".
+    reverse_refs: std::sync::OnceLock<BTreeMap<(String, String), Vec<u32>>>,
     /// Every asset by virtual path, sorted, so a listing is a contiguous range.
     files: Vec<VirtualFile>,
     /// Where to look for the optional Oodle DLL; empty means use the built-in
@@ -126,6 +140,16 @@ pub struct Catalog {
     /// The Paks directory this catalog was read from, where a mod under test
     /// is installed.
     paks: PathBuf,
+    /// Tags the open mod project adds, appended after the shipped list. Each
+    /// points at its donor's chunk, so reading one yields the donor's bytes
+    /// for the project's edits to apply over. `(group, short)` to index.
+    new_tags: BTreeMap<(String, String), usize>,
+    /// New tags removed again. Their entries stay in `tags` so an open
+    /// document keeps its index; listings and lookups skip them.
+    retired: std::collections::BTreeSet<usize>,
+    /// How many entries of `tags` the installation ships. They are sorted by
+    /// `(group, short)`; anything after them is a new tag.
+    shipped_len: usize,
 }
 
 impl Catalog {
@@ -184,6 +208,9 @@ fn mount_key(stem: &str) -> Option<String> {
         let at = rest.find("/content/")?;
         let mount = rest[..at].rsplit('/').next().unwrap_or(&rest[..at]);
         return Some(format!("{mount}/{}", &rest[at + "/content/".len()..]));
+    }
+    if let Some(rest) = s.strip_prefix("engine/content/") {
+        return Some(format!("engine/{rest}"));
     }
     if s.starts_with("engine/") {
         return None;
@@ -433,6 +460,7 @@ impl Catalog {
         // Sorted so every directory's contents form one contiguous run.
         files.sort_by(|a, b| a.path.cmp(&b.path));
 
+        let shipped_len = tags.len();
         Ok(Catalog {
             containers,
             audio_packages,
@@ -443,10 +471,14 @@ impl Catalog {
             sounds,
             meshes,
             package_index: std::sync::OnceLock::new(),
+            bulk_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
             texture_index: std::sync::OnceLock::new(),
             meshsync_index: std::sync::OnceLock::new(),
+            ref_index: std::sync::OnceLock::new(),
+            sound_media_index: std::sync::OnceLock::new(),
+            reverse_refs: std::sync::OnceLock::new(),
             files,
             // Empty means the caller has no DLL, which is fine: the reader
             // falls back to its own decoder.
@@ -455,6 +487,9 @@ impl Catalog {
                 path => vec![PathBuf::from(path)],
             },
             paks: PathBuf::from(paks),
+            new_tags: BTreeMap::new(),
+            retired: Default::default(),
+            shipped_len,
         })
     }
 
@@ -549,6 +584,9 @@ impl Catalog {
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
         let mut first: BTreeMap<&str, usize> = BTreeMap::new();
         for (i, t) in self.tags.iter().enumerate() {
+            if self.retired.contains(&i) {
+                continue;
+            }
             *counts.entry(t.group.as_str()).or_default() += 1;
             first.entry(t.group.as_str()).or_insert(i);
         }
@@ -591,7 +629,7 @@ impl Catalog {
         self.tags
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.group == group)
+            .filter(|(i, t)| t.group == group && !self.retired.contains(i))
             .take(limit)
             .map(|(index, t)| TagSummary {
                 index,
@@ -612,7 +650,10 @@ impl Catalog {
         self.tags
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q))
+            .filter(|(i, t)| {
+                !self.retired.contains(i)
+                    && (t.short.to_ascii_lowercase().contains(&q) || t.group.contains(&q))
+            })
             .take(limit)
             .map(|(index, t)| TagSummary {
                 index,
@@ -769,11 +810,19 @@ impl Catalog {
     /// under `/HaloMaterialLibrary/`) — how a mesh's material-instance
     /// reference becomes bytes.
     pub fn read_package(&self, package: &str) -> Option<Vec<u8>> {
-        let index = self.package_index.get_or_init(|| {
+        let key = package.strip_prefix('/')?.to_ascii_lowercase();
+        let (ci, chunk) = self.package_index().get(&key)?;
+        ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
+    }
+
+    /// A package's `.ubulk` by the same name; `None` when it has none.
+    pub fn read_package_bulk(&self, package: &str) -> Option<Vec<u8>> {
+        let key = package.strip_prefix('/')?.to_ascii_lowercase();
+        let index = self.bulk_index.get_or_init(|| {
             let mut map = BTreeMap::new();
             for (ci, c) in self.containers.iter().enumerate() {
                 for (rel, &chunk_index) in &c.files {
-                    if let Some(stem) = rel.strip_suffix(".uasset") {
+                    if let Some(stem) = rel.strip_suffix(".ubulk") {
                         if let Some(key) = mount_key(stem) {
                             map.insert(key, (ci, c.chunks[chunk_index]));
                         }
@@ -782,9 +831,35 @@ impl Catalog {
             }
             map
         });
-        let key = package.strip_prefix('/')?.to_ascii_lowercase();
         let (ci, chunk) = index.get(&key)?;
         ue_iostore::read_chunk(&self.containers[*ci], chunk, None, &self.oodle).ok()
+    }
+
+    fn package_index(&self) -> &BTreeMap<String, (usize, ChunkEntry)> {
+        self.package_index.get_or_init(|| {
+            let mut map = BTreeMap::new();
+            for (ci, c) in self.containers.iter().enumerate() {
+                for (rel, &chunk_index) in &c.files {
+                    let stem = rel
+                        .strip_suffix(".uasset")
+                        .or_else(|| rel.strip_suffix(".umap"));
+                    if let Some(stem) = stem {
+                        if let Some(key) = mount_key(stem) {
+                            map.insert(key, (ci, c.chunks[chunk_index]));
+                        }
+                    }
+                }
+            }
+            map
+        })
+    }
+
+    /// The level packages of a mission — the persistent level and its World
+    /// Partition cells — as `/Game/...` names, in the order the exporter
+    /// takes them.
+    pub fn level_cells(&self, mission: &str) -> Vec<String> {
+        let names: Vec<String> = self.package_index().keys().map(|k| format!("/{k}")).collect();
+        ue_asset::level::mission_cells(names.iter().map(|n| n.as_str()), mission)
     }
 
     /// The global container's script-object table, for resolving export
@@ -906,18 +981,337 @@ impl Catalog {
     }
 
     pub fn entry(&self, index: usize) -> Option<&TagEntry> {
+        if self.retired.contains(&index) {
+            return None;
+        }
         self.tags.get(index)
     }
 
     /// Resolve a tag by its stable identity `(group, short path)` — how a mod
     /// project names tags, so a recipe finds them again in any installation.
     ///
-    /// Binary search over the `(group, short)` order the tag list is built in.
+    /// Binary search over the `(group, short)` order the shipped tag list is
+    /// built in, then the project's own new tags.
     pub fn tag_index(&self, group: &str, short: &str) -> Option<usize> {
-        self.tags
+        self.tags[..self.shipped_len]
             .binary_search_by(|t| (t.group.as_str(), t.short.as_str()).cmp(&(group, short)))
             .ok()
+            .or_else(|| self.new_tag_index(group, short))
     }
+
+    /// The index of a tag the project added, if it is present.
+    pub fn new_tag_index(&self, group: &str, short: &str) -> Option<usize> {
+        self.new_tags
+            .get(&(group.to_string(), short.to_string()))
+            .copied()
+    }
+
+    /// Whether an index names a tag the project added rather than one the
+    /// game ships.
+    pub fn is_new_tag(&self, index: usize) -> bool {
+        index >= self.shipped_len && !self.retired.contains(&index)
+    }
+
+    /// Add a tag the project authors: `short` in `group`, cloned from the
+    /// shipped tag at `donor`. It becomes browsable and editable like any
+    /// other tag; reading it yields the donor's bytes.
+    ///
+    /// The leaf must not repeat a shipped tag's within the group. The package
+    /// name is `<leaf>-<group>` and the game's package store keys on the name
+    /// as well as the path, so a repeated leaf is refused rather than risked.
+    pub fn add_new_tag(&mut self, group: &str, short: &str, donor: usize) -> Result<usize, String> {
+        if donor >= self.shipped_len {
+            return Err("a new tag is cloned from a shipped tag, not from another new tag".into());
+        }
+        let donor_entry = self.tags.get(donor).ok_or("donor index out of range")?;
+        if donor_entry.group != group {
+            return Err(format!(
+                "the donor is a {} tag, not a {group} tag",
+                donor_entry.group
+            ));
+        }
+        if self.tag_index(group, short).is_some() {
+            return Err(format!("{short}.{group} already exists"));
+        }
+        let leaf = short.rsplit('/').next().unwrap_or(short);
+        let taken = self.tags[..self.shipped_len].iter().any(|t| {
+            t.group == group
+                && t.short
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&t.short)
+                    .eq_ignore_ascii_case(leaf)
+        });
+        if taken {
+            return Err(format!(
+                "a shipped {group} tag is already named {leaf:?}; the name has to be new \
+                 even in another folder"
+            ));
+        }
+        let entry = TagEntry {
+            container: donor_entry.container,
+            chunk: donor_entry.chunk,
+            uasset: None,
+            path: format!("/Game/Tags/{short}-{group}.ubulk"),
+            group: group.to_string(),
+            short: short.to_string(),
+        };
+        let index = self.tags.len();
+        let file = VirtualFile {
+            path: format!("tags/{short}.{group}"),
+            kind: "tag",
+            index,
+            size: entry.chunk.length,
+        };
+        self.tags.push(entry);
+        self.new_tags
+            .insert((group.to_string(), short.to_string()), index);
+        let at = self.files.partition_point(|f| f.path < file.path);
+        self.files.insert(at, file);
+        self.forget_tag_indexes();
+        Ok(index)
+    }
+
+    /// Remove a tag the project added. Returns its index, which an open
+    /// document may still hold; reads through it fail from now on.
+    pub fn remove_new_tag(&mut self, group: &str, short: &str) -> Option<usize> {
+        let index = self
+            .new_tags
+            .remove(&(group.to_string(), short.to_string()))?;
+        self.retired.insert(index);
+        self.files
+            .retain(|f| !(f.kind == "tag" && f.index == index));
+        self.forget_tag_indexes();
+        Some(index)
+    }
+
+    /// Drop every tag the project added — when the project closes or another
+    /// one opens.
+    pub fn clear_new_tags(&mut self) {
+        if self.new_tags.is_empty() && self.retired.is_empty() {
+            return;
+        }
+        let shipped = self.shipped_len;
+        self.tags.truncate(shipped);
+        self.new_tags.clear();
+        self.retired.clear();
+        self.files
+            .retain(|f| !(f.kind == "tag" && f.index >= shipped));
+        self.forget_tag_indexes();
+    }
+
+    /// The lazily built lookups over the tag list, rebuilt on next use after
+    /// the list changed.
+    fn forget_tag_indexes(&mut self) {
+        self.ref_index = std::sync::OnceLock::new();
+        self.reverse_refs = std::sync::OnceLock::new();
+    }
+
+    /// The exact-reference lookup tables, built on first use.
+    ///
+    /// The four-CC maps cost one capped header read per group — the same reads
+    /// [`Catalog::groups`] does on every call — and the path map is one pass
+    /// over the tag list. Milliseconds, once.
+    fn ref_index(&self) -> &RefIndex {
+        self.ref_index.get_or_init(|| {
+            let mut first: BTreeMap<&str, usize> = BTreeMap::new();
+            for (i, t) in self.tags.iter().enumerate() {
+                first.entry(t.group.as_str()).or_insert(i);
+            }
+            let mut group_of_cc = BTreeMap::new();
+            let mut cc_of_group = BTreeMap::new();
+            for (group, i) in first {
+                // The container bounds check keeps a fixture catalog (tests
+                // build them containerless) from panicking inside read_chunk.
+                let readable = self
+                    .tags
+                    .get(i)
+                    .is_some_and(|t| t.container < self.containers.len());
+                if !readable {
+                    continue;
+                }
+                if let Ok(cc) = self.read_header(i) {
+                    group_of_cc.insert(cc.clone(), group.to_string());
+                    cc_of_group.insert(group.to_string(), cc);
+                }
+            }
+            let mut by_ref = BTreeMap::new();
+            for (i, t) in self.tags.iter().enumerate() {
+                if self.retired.contains(&i) {
+                    continue;
+                }
+                // First match wins, matching what the old linear scan found.
+                by_ref
+                    .entry((t.group.clone(), normalize_ref_path(&t.short)))
+                    .or_insert(i);
+            }
+            RefIndex {
+                by_ref,
+                group_of_cc,
+                cc_of_group,
+            }
+        })
+    }
+
+    /// Resolve a tag reference exactly. `group` may be the directory name
+    /// (`weapon`) or the four-CC (`weap`) — tag bodies carry the four-CC,
+    /// project recipes and callers in this crate carry the name.
+    pub fn resolve_ref(&self, group: &str, path: &str) -> Option<usize> {
+        let idx = self.ref_index();
+        let name = idx
+            .group_of_cc
+            .get(group)
+            .map(String::as_str)
+            .unwrap_or(group);
+        idx.by_ref
+            .get(&(name.to_string(), normalize_ref_path(path)))
+            .copied()
+    }
+
+    /// The four-CC a group's tags carry in their headers.
+    pub fn four_cc_of_group(&self, group: &str) -> Option<&str> {
+        self.ref_index().cc_of_group.get(group).map(String::as_str)
+    }
+
+    /// The group directory name behind a four-CC a tag body carries.
+    pub fn group_of_four_cc(&self, cc: &str) -> Option<&str> {
+        self.ref_index().group_of_cc.get(cc).map(String::as_str)
+    }
+
+    /// The sound catalog index for one Wwise media short ID, built on first
+    /// use. Shared audio wins over the thirteen per-language copies, because a
+    /// preview should play what every player hears.
+    pub fn sound_by_media_id(&self, id: u32) -> Option<usize> {
+        let index = self.sound_media_index.get_or_init(|| {
+            let mut map: BTreeMap<u32, usize> = BTreeMap::new();
+            for (i, s) in self.sounds.iter().enumerate() {
+                let Some(id) = crate::wwise::media_id_of_path(&s.short) else {
+                    continue;
+                };
+                match map.entry(id) {
+                    std::collections::btree_map::Entry::Vacant(e) => {
+                        e.insert(i);
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut e) => {
+                        let held = self.sounds[*e.get()].language.is_some();
+                        if held && s.language.is_none() {
+                            e.insert(i);
+                        }
+                    }
+                }
+            }
+            map
+        });
+        index.get(&id).copied()
+    }
+
+    /// A fingerprint over everything the per-installation caches depend on:
+    /// each container's identity and every tag's `(group, short)` in catalog
+    /// order. A game update, an installed mod or a reordered catalog all
+    /// change it. Used by both the reverse-reference cache and the census
+    /// fingerprint cache; a stale hit requires a wrong-but-matching clock.
+    pub fn install_fingerprint(&self) -> u64 {
+        let mut fp = crate::refcache::Fingerprint::new();
+        for c in &self.containers {
+            fp.container(&c.utoc_path, c.container_id, c.chunks.len());
+        }
+        for t in &self.tags {
+            fp.tag(&t.group, &t.short);
+        }
+        fp.finish()
+    }
+
+    /// Every tag whose body references the tag at `index`, as summaries.
+    ///
+    /// The first call builds the reverse index: every tag's payload is read
+    /// and its data section scanned for `tgrf` reference sections (see
+    /// `blam_tag::refs`). That is tens of seconds of work over tens of
+    /// thousands of chunks (~48s measured on the shipped build) — so callers
+    /// must run it off the UI thread and say why they are waiting. Later
+    /// calls are microsecond lookups.
+    pub fn referencing(&self, index: usize, limit: usize) -> Result<Vec<TagSummary>, String> {
+        let target = self.tags.get(index).ok_or("tag index out of range")?;
+        let reverse = self.reverse_refs.get_or_init(|| {
+            // The scan is a pure function of the tag chunks, so a cached
+            // result from a previous session is as good as a fresh one for as
+            // long as the installation fingerprint holds (see `refcache`).
+            let fingerprint = self.install_fingerprint();
+            if let Some(map) = crate::refcache::load(&self.paks, fingerprint) {
+                return map;
+            }
+            let known = &self.ref_index().group_of_cc;
+            let mut map: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
+            for (i, t) in self.tags.iter().enumerate() {
+                let Ok(buf) = self.read_chunk(t, None) else {
+                    continue;
+                };
+                // Scanning just the data section keeps decoy bytes in the
+                // layout tables out of consideration; a tag whose header does
+                // not parse is scanned whole rather than skipped.
+                let refs = match blam_tag::TagFile::parse(&buf, Some(buf.len()))
+                    .ok()
+                    .and_then(|tag| tag.data().map(|d| d.content.to_vec()))
+                {
+                    Some(data) => blam_tag::refs::tgrf_refs(&data, |cc| known.contains_key(cc)),
+                    None => blam_tag::refs::tgrf_refs(&buf, |cc| known.contains_key(cc)),
+                };
+                for (cc, path) in refs {
+                    let list = map.entry((cc, normalize_ref_path(&path))).or_default();
+                    if list.last() != Some(&(i as u32)) {
+                        list.push(i as u32);
+                    }
+                }
+            }
+            crate::refcache::store(&self.paks, fingerprint, &map);
+            map
+        });
+        let cc = self
+            .four_cc_of_group(&target.group)
+            .ok_or("group four-CC unknown")?;
+        let key = (cc.to_string(), normalize_ref_path(&target.short));
+        let mut out: Vec<TagSummary> = reverse
+            .get(&key)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .take(limit)
+            .filter_map(|&i| {
+                let t = self.tags.get(i as usize)?;
+                Some(TagSummary {
+                    index: i as usize,
+                    group: t.group.clone(),
+                    path: t.path.clone(),
+                    short: t.short.clone(),
+                    size: t.chunk.length,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        Ok(out)
+    }
+}
+
+/// The tables behind [`Catalog::resolve_ref`].
+struct RefIndex {
+    /// `(group name, normalized short path)` to tag index; first tag wins on
+    /// the rare duplicate, matching the linear scan this replaced.
+    by_ref: BTreeMap<(String, String), usize>,
+    group_of_cc: BTreeMap<String, String>,
+    cc_of_group: BTreeMap<String, String>,
+}
+
+/// A reference path and a catalog short path, brought onto common ground.
+///
+/// Reference paths come out of tag bodies backslash-separated and in authored
+/// case; catalog shorts are slash-separated container paths. The cooker also
+/// inserts a `_Generated_` directory the authored paths never mention (a
+/// scenario references `levels\halo1\solo\a30\holdouts`, the container holds
+/// `Levels/Halo1/Solo/A30/_Generated_/holdouts`), so that segment is ignored
+/// on both sides.
+pub fn normalize_ref_path(p: &str) -> String {
+    p.replace('\\', "/")
+        .to_ascii_lowercase()
+        .replace("/_generated_/", "/")
 }
 
 #[cfg(test)]
@@ -1173,13 +1567,20 @@ mod tests {
             sounds: Vec::new(),
             meshes: Vec::new(),
             package_index: std::sync::OnceLock::new(),
+            bulk_index: std::sync::OnceLock::new(),
             script_objects: std::sync::OnceLock::new(),
             mesh_index: std::sync::OnceLock::new(),
             texture_index: std::sync::OnceLock::new(),
             meshsync_index: std::sync::OnceLock::new(),
+            ref_index: std::sync::OnceLock::new(),
+            sound_media_index: std::sync::OnceLock::new(),
+            reverse_refs: std::sync::OnceLock::new(),
             files,
             oodle: Vec::new(),
             paks: PathBuf::new(),
+            new_tags: BTreeMap::new(),
+            retired: Default::default(),
+            shipped_len: 0,
         }
     }
 
@@ -1192,6 +1593,75 @@ mod tests {
             ("sounds/English(US)/12/100018565.wem", "sound"),
             ("sounds/shared/10/243917884.wem", "sound"),
         ])
+    }
+
+    /// A catalog with only the tag list populated — what reference resolution
+    /// reads. Headers are unreadable (no containers), so the four-CC maps stay
+    /// empty and lookups exercise the group-name path; the four-CC path needs
+    /// a real installation and is exercised there.
+    fn with_tags(tags: &[(&str, &str)]) -> Catalog {
+        let mut c = with_files(&[]);
+        c.tags = tags
+            .iter()
+            .map(|(group, short)| TagEntry {
+                container: 0,
+                chunk: ue_iostore::ChunkEntry {
+                    index: 0,
+                    chunk_id: 0,
+                    chunk_index: 0,
+                    chunk_type: 0,
+                    offset: 0,
+                    length: 10,
+                },
+                uasset: None,
+                path: format!("{short}.{group}"),
+                group: (*group).to_string(),
+                short: (*short).to_string(),
+            })
+            .collect();
+        c
+    }
+
+    #[test]
+    fn references_resolve_the_way_the_linear_scan_did() {
+        let c = with_tags(&[
+            ("scenario_structure_bsp", "Levels/Halo1/Solo/A30/_Generated_/holdouts"),
+            ("weapon", "Objects/Weapons/Rifle/AR"),
+        ]);
+        // Authored spelling: backslashes, authored case, no _Generated_.
+        assert_eq!(
+            c.resolve_ref("scenario_structure_bsp", "levels\\halo1\\solo\\a30\\holdouts"),
+            Some(0)
+        );
+        assert_eq!(c.resolve_ref("weapon", "objects\\weapons\\rifle\\ar"), Some(1));
+        // Group and path must both match.
+        assert_eq!(c.resolve_ref("weapon", "levels\\halo1\\solo\\a30\\holdouts"), None);
+        assert_eq!(c.resolve_ref("weapon", "objects\\weapons\\rifle\\pistol"), None);
+    }
+
+    #[test]
+    fn the_first_of_duplicate_shorts_wins() {
+        // The old scan took `position()`, i.e. the first match; the index must
+        // agree so nothing silently opens a different tag than before.
+        let c = with_tags(&[
+            ("weapon", "objects/weapons/rifle/ar"),
+            ("weapon", "Objects/Weapons/Rifle/AR"),
+        ]);
+        assert_eq!(c.resolve_ref("weapon", "objects\\weapons\\rifle\\ar"), Some(0));
+    }
+
+    #[test]
+    fn normalization_meets_in_the_middle() {
+        assert_eq!(
+            normalize_ref_path("Levels\\Halo1\\Solo\\A30\\_Generated_\\holdouts"),
+            // Backslash paths get their separators flipped first, so the
+            // _Generated_ strip sees slashes.
+            "levels/halo1/solo/a30/holdouts"
+        );
+        assert_eq!(
+            normalize_ref_path("Levels/Halo1/Solo/A30/_Generated_/holdouts"),
+            "levels/halo1/solo/a30/holdouts"
+        );
     }
 
     #[test]
@@ -1280,5 +1750,136 @@ mod tests {
     fn rejects_non_tag_paths() {
         assert!(split_path("/Game/Blueprints/BP_Foo.uasset").is_none());
         assert!(split_path("no-extension").is_none());
+    }
+
+    /// A catalog whose tag list holds these shipped `(group, short)` pairs,
+    /// with the virtual tree to match.
+    fn with_shipped_tags(pairs: &[(&str, &str)]) -> Catalog {
+        let mut c = with_files(&[]);
+        let mut tags: Vec<TagEntry> = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (group, short))| TagEntry {
+                container: 0,
+                chunk: ChunkEntry {
+                    index: i,
+                    chunk_id: i as u64 + 1,
+                    chunk_index: 0,
+                    chunk_type: 2,
+                    offset: 0,
+                    length: 100 + i as u64,
+                },
+                uasset: None,
+                path: format!("/Game/Tags/{short}-{group}.ubulk"),
+                group: group.to_string(),
+                short: short.to_string(),
+            })
+            .collect();
+        tags.sort_by(|a, b| (&a.group, &a.short).cmp(&(&b.group, &b.short)));
+        c.files = tags
+            .iter()
+            .enumerate()
+            .map(|(index, t)| VirtualFile {
+                path: format!("tags/{}.{}", t.short, t.group),
+                kind: "tag",
+                index,
+                size: t.chunk.length,
+            })
+            .collect();
+        c.files.sort_by(|a, b| a.path.cmp(&b.path));
+        c.shipped_len = tags.len();
+        c.tags = tags;
+        c
+    }
+
+    #[test]
+    fn a_new_tag_is_listed_found_and_reads_as_its_donor() {
+        let mut c = with_shipped_tags(&[
+            ("weapon", "objects/weapons/pistol/pistol"),
+            ("weapon", "objects/weapons/rifle/ar"),
+            ("biped", "objects/characters/elite/elite"),
+        ]);
+        let donor = c.tag_index("weapon", "objects/weapons/pistol/pistol").unwrap();
+        let index = c
+            .add_new_tag("weapon", "objects/weapons/pistol/pistol_mk2", donor)
+            .unwrap();
+        assert!(c.is_new_tag(index));
+        assert!(!c.is_new_tag(donor));
+        assert_eq!(
+            c.tag_index("weapon", "objects/weapons/pistol/pistol_mk2"),
+            Some(index)
+        );
+        // Shipped lookups still binary-search the sorted prefix.
+        assert_eq!(c.tag_index("weapon", "objects/weapons/rifle/ar"), Some(2));
+        // The clone points at the donor's chunk, so a read yields the donor.
+        assert_eq!(
+            c.entry(index).unwrap().chunk.chunk_id,
+            c.entry(donor).unwrap().chunk.chunk_id
+        );
+        assert_eq!(
+            c.entry(index).unwrap().path,
+            "/Game/Tags/objects/weapons/pistol/pistol_mk2-weapon.ubulk"
+        );
+        // Listed with its group, found by search, placed in the tree.
+        assert_eq!(c.tags_in("weapon", 10).len(), 3);
+        assert_eq!(c.search("mk2", 10).len(), 1);
+        let names: Vec<String> = c
+            .list_dir("tags/objects/weapons/pistol")
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        assert_eq!(names, vec!["pistol.weapon", "pistol_mk2.weapon"]);
+    }
+
+    #[test]
+    fn a_new_tag_is_refused_when_it_would_collide() {
+        let mut c = with_shipped_tags(&[
+            ("weapon", "objects/weapons/pistol/pistol"),
+            ("biped", "objects/characters/elite/elite"),
+        ]);
+        let donor = c.tag_index("weapon", "objects/weapons/pistol/pistol").unwrap();
+        // The same path.
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/pistol/pistol", donor)
+            .is_err());
+        // The same leaf in another folder, in any case.
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/other/Pistol", donor)
+            .is_err());
+        // A donor from another group.
+        let elite = c.tag_index("biped", "objects/characters/elite/elite").unwrap();
+        assert!(c.add_new_tag("weapon", "objects/x/y", elite).is_err());
+        // A new tag as the donor of another.
+        let first = c
+            .add_new_tag("weapon", "objects/weapons/pistol/mk2", donor)
+            .unwrap();
+        assert!(c
+            .add_new_tag("weapon", "objects/weapons/pistol/mk3", first)
+            .is_err());
+    }
+
+    #[test]
+    fn removing_a_new_tag_retires_its_index_and_clearing_drops_them_all() {
+        let mut c = with_shipped_tags(&[("weapon", "objects/weapons/pistol/pistol")]);
+        let donor = 0;
+        let a = c.add_new_tag("weapon", "objects/weapons/pistol/a", donor).unwrap();
+        let b = c.add_new_tag("weapon", "objects/weapons/pistol/b", donor).unwrap();
+        assert_eq!(c.remove_new_tag("weapon", "objects/weapons/pistol/a"), Some(a));
+        assert!(c.entry(a).is_none(), "a retired index reads as gone");
+        assert!(c.entry(b).is_some(), "the other clone keeps its index");
+        assert_eq!(c.tag_index("weapon", "objects/weapons/pistol/a"), None);
+        assert_eq!(c.tags_in("weapon", 10).len(), 2);
+        assert!(c.search("pistol/a", 10).is_empty());
+        assert_eq!(c.list_dir("tags/objects/weapons/pistol").len(), 2);
+        // Removing again is a no-op; the name is free to reuse.
+        assert_eq!(c.remove_new_tag("weapon", "objects/weapons/pistol/a"), None);
+        let a2 = c.add_new_tag("weapon", "objects/weapons/pistol/a", donor).unwrap();
+        assert_ne!(a2, a);
+
+        c.clear_new_tags();
+        assert_eq!(c.tags.len(), 1);
+        assert_eq!(c.tags_in("weapon", 10).len(), 1);
+        assert_eq!(c.list_dir("tags/objects/weapons/pistol").len(), 1);
+        assert_eq!(c.tag_index("weapon", "objects/weapons/pistol/b"), None);
     }
 }

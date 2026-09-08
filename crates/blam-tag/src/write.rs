@@ -48,6 +48,22 @@ fn section(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {
     out.extend_from_slice(content);
 }
 
+/// A section header and its content as standalone bytes, for callers
+/// assembling `tgbl` content by hand (element editing does).
+pub fn raw_section(magic: &str, version: u32, content: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(SECTION_HEADER + content.len());
+    section(&mut out, magic, version, content);
+    out
+}
+
+/// One element's per-element `tgst` wrapper, re-serialised from its decoded
+/// children. Identical to the bytes it was read from, by the round-trip
+/// identity the writer is checked against.
+pub fn wrapper_section(element: &[Value<'_>]) -> Vec<u8> {
+    let content = write_children(element, None);
+    raw_section("tgst", content.len() as u32, &content)
+}
+
 /// Serialise a block into the bytes of a `tgbl` section's content.
 ///
 /// The root block's bytes are the whole `bdat` payload, so this is what a

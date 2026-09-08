@@ -9,11 +9,17 @@ import {
   type LinkStart,
   type LinkedAsset,
   type LiveStatus,
+  type LoadedTag,
+  type CensusProgress,
+  type NodeView,
   type ProjectView,
   type PublishView,
+  type RefHit,
+  type RefQuery,
   type SigningStatus,
   type SoundSummary,
   type SoundView,
+  type TagAudio,
   type TagSummary,
   type TagView,
   type TestView,
@@ -22,7 +28,22 @@ import {
   type SwapReport,
   type ScriptView,
   type CompileReport,
+  type ElementClip,
+  type PasteReport,
+  type DiffView,
+  type RefNode,
+  LevelExportSummary,
 } from "../lib/api";
+import { copyText } from "../lib/clipboard";
+import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "../lib/mock";
+import {
+  loadStoredSession,
+  markSessionRestored,
+  scheduleSaveSession,
+  type PersistedTab,
+} from "../lib/session";
+import { dropTabUi, seedTabUi, type TabUiState } from "../lib/tab-ui";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
@@ -38,13 +59,67 @@ export type Tab = {
   /** Catalog index within its kind. */
   index: number;
   label: string;
+  /** Blam group, for tags — half of the identity that survives game updates. */
+  group?: string;
+  /** A tag's short path, or an asset's virtual path; stamped at open where the
+   *  caller has it, else by the activation peek. Session persistence keys on
+   *  it, so a tab without one simply does not survive a relaunch. */
+  path?: string;
 };
 
 const VIEW_KEY = "tag-editor-view";
+/** Whether angles show in degrees; the tag always holds radians. */
+const DEGREES_KEY = "tag-editor-degrees";
+/** Whether the layout's padding and markers are shown. */
+const EXPERT_KEY = "tag-editor-expert";
 
 function storedViewMode(): ViewMode {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
 }
+
+/** A tag identity that survives game updates, unlike a catalog index. */
+export type RecentTag = { group: string; short: string; label: string };
+
+const RECENTS_KEY = "tag-editor-recents";
+const RECENTS_MAX = 20;
+
+function storedRecents(): RecentTag[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((r) => r && typeof r.group === "string" && typeof r.short === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The key `refStatus` files a reference under. NUL never appears in either
+ *  half, so the pair round-trips without escaping. */
+export function refKey(group: string, path: string): string {
+  return group + "\u0000" + path;
+}
+
+/** Every distinct non-empty reference in a tag's field tree. */
+function collectRefs(nodes: NodeView[], out: Map<string, RefQuery>) {
+  for (const n of nodes) {
+    if (n.reference && n.reference.path !== "" && !out.has(refKey(n.reference.group, n.reference.path))) {
+      out.set(refKey(n.reference.group, n.reference.path), {
+        group: n.reference.group,
+        path: n.reference.path,
+      });
+    }
+    collectRefs(n.children, out);
+  }
+}
+
+/** How far back the Alt+Left trail reaches. */
+const HISTORY_MAX = 100;
+
+/** Set while goBack/goForward drive openTab, so re-activating a visited tab
+ *  does not also record a new visit. Module state, not store state: it spans
+ *  one openTab call and nothing renders it. */
+let navigatingHistory = false;
 
 /** Decoded textures kept per tab; bounded because the PNGs are large. */
 const TEXTURE_CACHE_MAX = 8;
@@ -69,9 +144,16 @@ type EditorState = {
   /** Open documents and the one currently shown. */
   tabs: Tab[];
   activeTab: number | null;
-  openTab: (kind: Tab["kind"], index: number, label: string) => Promise<void>;
+  openTab: (
+    kind: Tab["kind"],
+    index: number,
+    label: string,
+    ident?: { group?: string; path: string },
+  ) => Promise<void>;
   activateTab: (id: number) => Promise<void>;
   closeTab: (id: number) => void;
+  closeOtherTabs: (id: number) => void;
+  closeTabsRight: (id: number) => void;
   /** Tag indices with unexported edits, for the tab dirty markers. */
   dirtyTags: Record<number, boolean>;
 
@@ -100,11 +182,31 @@ type EditorState = {
   livePoking: boolean;
   /** What the last poke did, or why it could not. */
   liveNote: string | null;
+  /**
+   * The last census: every tag found loaded in the running game, in one sweep
+   * of its memory. Locating them all at once costs what locating one used to,
+   * makes every found tag poke-instant, and names the level the player is in.
+   */
+  liveLoaded: LoadedTag[];
+  /** The same tags as a catalog-index set, for badging browser rows. */
+  liveLoadedSet: Set<number>;
+  /** Set while a census sweep is running. */
+  liveScanning: boolean;
   refreshLive: () => Promise<void>;
   setLiveOn: (on: boolean) => void;
+  censusLive: () => Promise<void>;
+  /** Read the engine's object table: the level and what is present, in about
+   *  a second and with no sweep. Runs when live mode is armed. */
+  probeLive: () => Promise<void>;
 
   /** How the inspector renders: Guerilla-style form or a flat field tree. */
   viewMode: ViewMode;
+  /** Show and type angles in degrees rather than the radians the tag holds. */
+  degrees: boolean;
+  setDegrees: (on: boolean) => void;
+  /** Show every byte of the layout: padding and markers as raw bytes. */
+  expert: boolean;
+  setExpert: (on: boolean) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
 
   /** What the left panel browses: assets, tag groups, textures, sounds, or
@@ -142,7 +244,17 @@ type EditorState = {
   ) => Promise<boolean>;
   /** Revert by identity, so stale edits without a catalog index can go too. */
   revertProjectEdit: (group: string, tag: string, field: string | null) => Promise<void>;
+  /** The New Tag dialog: the tag it would clone, or null while closed. */
+  newTagFrom: { index: number; group: string; short: string } | null;
+  openNewTag: (from: { index: number; group: string; short: string }) => void;
+  closeNewTag: () => void;
+  /** Create the clone. Resolves to a problem to show, or null on success. */
+  createNewTag: (path: string, assetReference: string) => Promise<string | null>;
+  removeNewTag: (group: string, tag: string) => Promise<void>;
   exportMod: () => Promise<void>;
+  /** Bake even when an edit sets a string id the shipped registry lacks. */
+  allowUnknownStringIds: boolean;
+  setAllowUnknownStringIds: (allow: boolean) => void;
   testMod: () => Promise<void>;
   untestMod: () => Promise<void>;
   publishMod: (changelog: string) => Promise<void>;
@@ -174,6 +286,10 @@ type EditorState = {
   textureLoading: boolean;
   textureError: string | null;
   exportTexture: (dest: string) => Promise<number | null>;
+  /** Write the shown mesh as a `.glb`. */
+  exportMesh: (dest: string) => Promise<number | null>;
+  /** Export the selected scenario's Unreal geometry as glTF cells into a folder. */
+  exportLevel: (dest: string, nanite: boolean, hlod: boolean) => Promise<LevelExportSummary | null>;
   /** Set while a swap is re-encoding, which takes seconds on a large texture. */
   textureSwapping: boolean;
   /** What the last applied swap did, cleared when another texture is opened. */
@@ -223,11 +339,86 @@ type EditorState = {
   selectGroup: (group: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   setField: (path: string, value: string) => Promise<boolean>;
+  /** Add, duplicate or remove one element of the block at `path`. */
+  editElements: (
+    path: string,
+    op: "add" | "remove" | "duplicate" | "insert",
+    element?: number,
+  ) => Promise<boolean>;
+  /** The element last copied, to paste into a block of the same kind. */
+  elementClipboard: ElementClip | null;
+  copyElement: (path: string, element: number) => Promise<void>;
+  /** Paste the clipboard element at `at`, or append when null. */
+  pasteElement: (path: string, at: number | null) => Promise<boolean>;
+  copyBlockTsv: (path: string) => Promise<void>;
+  /** The block a TSV paste dialog is open for. */
+  tsvPaste: { path: string; label: string } | null;
+  openTsvPaste: (path: string, label: string) => void;
+  closeTsvPaste: () => void;
+  /** Resolves to a problem to show, or null on success. */
+  pasteBlockTsv: (tsv: string, replace: boolean) => Promise<string | null>;
+
+  /** The diff dialog's contents while one is open. */
+  diff: DiffView | null;
+  diffLoading: boolean;
+  /** Compare two tags of one group, pending edits included. */
+  openDiff: (a: number, b: number) => Promise<void>;
+  /** Compare the active tag as shipped against the mod's edits. */
+  openDiffEdits: () => Promise<void>;
+  closeDiff: () => void;
+
+  /** The reference tree dialog's contents while one is open. */
+  refTree: RefNode | null;
+  refTreeLoading: boolean;
+  refTreeDepth: number;
+  refTreeIndex: number | null;
+  openRefTree: (index: number) => Promise<void>;
+  loadRefTree: (depth: number) => Promise<void>;
+  closeRefTree: () => void;
+
+  /** Show only the group's tags that no tag body references. */
+  unreferencedOnly: boolean;
+  unreferencedLoading: boolean;
+  setUnreferencedOnly: (on: boolean) => Promise<void>;
   /** Open the tag a reference points at, given its four-CC and Blam path. */
   followReference: (fourCc: string, path: string) => Promise<boolean>;
+  /** Where each of the open tag's references lands, keyed by [refKey]. A null
+   *  value is a resolved answer of "nowhere": the reference is broken. A
+   *  missing key means the batch has not answered yet. */
+  refStatus: Record<string, RefHit | null>;
+
+  /** The visited-document trail behind Alt+Left / Alt+Right. */
+  history: { kind: Tab["kind"]; index: number; label: string }[];
+  /** Cursor into `history`: where the user currently stands. */
+  historyAt: number;
+  goBack: () => void;
+  goForward: () => void;
+
+  /** Whether the Ctrl+P quick-open palette is up. */
+  quickOpen: boolean;
+  setQuickOpen: (open: boolean) => void;
+  /** Recently opened tags, newest first, persisted across launches. */
+  recents: RecentTag[];
+  /** Open a recent by identity; quietly drops it if a game update removed it. */
+  openRecent: (r: RecentTag) => Promise<void>;
+
+  /** Tags whose bodies reference the open tag; null until asked for. */
+  reverseRefs: TagSummary[] | null;
+  reverseRefsLoading: boolean;
+  reverseRefsError: string | null;
+  loadReverseRefs: () => Promise<void>;
+
+  /** What the open sound tag can play; null until asked for. */
+  tagAudio: TagAudio | null;
+  tagAudioLoading: boolean;
+  tagAudioError: string | null;
+  loadTagAudio: () => Promise<void>;
   pokeLive: (index: number, path: string, value: string) => Promise<void>;
   revertField: (path: string) => Promise<void>;
   revertTag: () => Promise<void>;
+  /** Step the active tag's edits back or forward through its journal. */
+  undoEdit: () => Promise<void>;
+  redoEdit: () => Promise<void>;
   exportTag: (dest: string) => Promise<number | null>;
 };
 
@@ -268,13 +459,21 @@ export const useEditor = create<EditorState>((set, get) => {
       tagLoading: true,
       tag: null,
       tagLinks: [],
+      refStatus: {},
+      reverseRefs: null,
+      reverseRefsLoading: false,
+      reverseRefsError: null,
+      tagAudio: null,
+      tagAudioLoading: false,
+      tagAudioError: null,
       lastEdit: null,
       // The note belongs to the tag that was open; the toggle does not.
       liveNote: null,
       editError: null,
     });
+    let tag: TagView;
     try {
-      const tag = await api.readTag(index);
+      tag = await readTagView(index);
       set((s) => ({
         tag,
         tagLoading: false,
@@ -284,12 +483,37 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ error: String(e), tagLoading: false });
       return;
     }
-    // The import links arrive after the tag; they never block it.
+    // Reference validation and import links arrive after the tag; neither
+    // blocks it.
+    await resolveTagRefs(index, tag);
     try {
       const links = await api.tagLinks(index);
       if (get().selectedTag === index) set({ tagLinks: links });
     } catch {
       // A tag without a readable package header simply shows no links.
+    }
+  }
+
+  /**
+   * Validate every reference field of a just-read tag in one batched call,
+   * filing the answers under [refKey]. Guarded on the selection so a slow
+   * answer for a tag the user already left changes nothing.
+   */
+  async function resolveTagRefs(index: number, tag: TagView) {
+    const wanted = new Map<string, RefQuery>();
+    collectRefs(tag.fields, wanted);
+    if (wanted.size === 0) return;
+    try {
+      const hits = await api.resolveRefs([...wanted.values()]);
+      if (get().selectedTag === index) {
+        const refStatus: Record<string, RefHit | null> = {};
+        [...wanted.keys()].forEach((k, i) => {
+          refStatus[k] = hits[i] ?? null;
+        });
+        set({ refStatus });
+      }
+    } catch {
+      // With no answer the fields simply carry no badge either way.
     }
   }
 
@@ -349,13 +573,170 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
+  /**
+   * Bring back the last session's tabs, resolved from identity to today's
+   * catalog. A tab a game update removed drops silently, the way a stale
+   * recent does. Only the tab that ends up active loads anything; the rest
+   * sit as labels until clicked, exactly like background tabs in a session.
+   */
+  async function restoreSession() {
+    try {
+      // First open only. Switching installations mid-session keeps whatever
+      // tabs are up rather than resurrecting last week's.
+      if (get().tabs.length > 0) return;
+      const stored = loadStoredSession();
+      if (!stored || stored.tabs.length === 0) return;
+
+      // Tags resolve in one batched call; assets by exact kind-and-path
+      // match in the virtual filesystem.
+      const tagRows = stored.tabs.filter((r) => r.kind === "tag");
+      const tagHits =
+        tagRows.length > 0
+          ? await api.resolveRefs(tagRows.map((r) => ({ group: r.group ?? "", path: r.path })))
+          : [];
+      const tagIndex = new Map<PersistedTab, number>();
+      tagRows.forEach((r, i) => {
+        const hit = tagHits[i];
+        if (hit) tagIndex.set(r, hit.index);
+      });
+      const assetIndex = new Map<PersistedTab, number>();
+      await Promise.all(
+        stored.tabs
+          .filter((r) => r.kind !== "tag")
+          .map(async (r) => {
+            try {
+              const entries = await api.searchFiles(r.path);
+              const entry = entries.find((e) => e.kind === r.kind && e.path === r.path);
+              if (entry && entry.index !== null) assetIndex.set(r, entry.index);
+            } catch {
+              // Unresolvable is the same as removed: the tab drops.
+            }
+          }),
+      );
+
+      const tabs: Tab[] = [];
+      const seeds: [number, TabUiState][] = [];
+      let activeId: number | null = null;
+      stored.tabs.forEach((row, at) => {
+        const index = row.kind === "tag" ? tagIndex.get(row) : assetIndex.get(row);
+        if (index === undefined) return;
+        const tab: Tab = {
+          id: nextTabId++,
+          kind: row.kind,
+          index,
+          label: row.label,
+          group: row.group ?? undefined,
+          path: row.path,
+        };
+        tabs.push(tab);
+        if (row.ui) seeds.push([tab.id, row.ui]);
+        if (at === stored.active) activeId = tab.id;
+      });
+      if (tabs.length === 0) return;
+      for (const [id, ui] of seeds) seedTabUi(id, ui);
+      set({ tabs });
+
+      // Dirty dots for tabs that will not load yet: the open project already
+      // knows which tags carry edits.
+      const changes = get().project?.changes ?? [];
+      const dirtyTags: Record<number, boolean> = {};
+      for (const c of changes) {
+        if (c.index !== null && c.edits.length > 0) dirtyTags[c.index] = true;
+      }
+      if (Object.keys(dirtyTags).length > 0) {
+        set((s) => ({ dirtyTags: { ...s.dirtyTags, ...dirtyTags } }));
+      }
+
+      await get().activateTab(activeId ?? tabs[tabs.length - 1].id);
+    } catch {
+      // A failed restore leaves a blank slate and the stored session intact
+      // for the next launch.
+    } finally {
+      markSessionRestored();
+    }
+  }
+
   /** Re-read the active tag after project-level changes touch its edits. */
+  /** Reload whichever tag lists could show a tag of `group`, after the set
+   *  of tags changed under them. */
+  function refreshTagLists(group: string) {
+    const { selectedGroup, query, browse } = get();
+    if (query.trim()) void get().search(query);
+    else if (selectedGroup === group) void get().selectGroup(group);
+    if (browse === "files") {
+      if (get().fileQuery.trim()) void get().searchFiles(get().fileQuery);
+      else void get().openDir(get().dir);
+    }
+  }
+
+  /** Close the documents of the open project's new tags — the catalog drops
+   *  them when the project goes. */
+  function closeNewTagTabs() {
+    const added = get().project?.new_tags ?? [];
+    if (added.length === 0) return;
+    for (const t of get().tabs) {
+      if (t.kind === "tag" && added.some((a) => a.index === t.index)) get().closeTab(t.id);
+    }
+  }
+
+  /** The tag as the current view options want it. */
+  function readTagView(index: number) {
+    return api.readTag(index, get().expert);
+  }
+
+  /** Re-read the tag after a paste and report what the paste did in the edit
+   *  bar; fields that would not take their value are the error line. */
+  async function afterPaste(index: number, path: string, report: PasteReport) {
+    const tag = await readTagView(index);
+    const skipped =
+      report.skipped.length === 0
+        ? null
+        : `${report.skipped.length} field${report.skipped.length === 1 ? "" : "s"} kept ` +
+          `their value: ${report.skipped
+            .slice(0, 3)
+            .map((s) => `${s.path} (${s.reason})`)
+            .join("; ")}${report.skipped.length > 3 ? "; …" : ""}`;
+    set((s) => ({
+      tag,
+      lastEdit: {
+        path: `${path}[${report.element}]`,
+        type: "paste",
+        before: `${report.elements} element${report.elements === 1 ? "" : "s"} added`,
+        after: `${report.applied} field${report.applied === 1 ? "" : "s"} set, ${report.unchanged} already matched`,
+        changed_bytes: report.applied,
+      },
+      editError: skipped,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
+  }
+
+  /** One undo or redo step on the active tag, then re-read it. A journal
+   *  with nothing left is not an error worth showing. */
+  async function stepHistory(step: (index: number) => Promise<unknown>) {
+    const index = get().selectedTag;
+    if (index === null) return;
+    try {
+      await step(index);
+    } catch {
+      return;
+    }
+    const tag = await readTagView(index);
+    set((s) => ({
+      tag,
+      lastEdit: null,
+      editError: null,
+      dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+    }));
+    if (get().project) void get().refreshProject();
+  }
+
   async function refreshActiveTag() {
     const { tabs, activeTab } = get();
     const tab = tabs.find((t) => t.id === activeTab);
     if (!tab || tab.kind !== "tag") return;
     try {
-      const tag = await api.readTag(tab.index);
+      const tag = await readTagView(tab.index);
       set((s) => ({
         tag,
         dirtyTags: { ...s.dirtyTags, [tab.index]: tag.edited.length > 0 },
@@ -383,14 +764,121 @@ export const useEditor = create<EditorState>((set, get) => {
     tabs: [],
     activeTab: null,
     dirtyTags: {},
+    refStatus: {},
+    history: [],
+    historyAt: -1,
+    quickOpen: false,
+    recents: storedRecents(),
+    reverseRefs: null,
+    reverseRefsLoading: false,
+    reverseRefsError: null,
+    tagAudio: null,
+    tagAudioLoading: false,
+    tagAudioError: null,
 
-    async openTab(kind, index, label) {
+    goBack() {
+      const { history, historyAt } = get();
+      if (historyAt <= 0) return;
+      const entry = history[historyAt - 1];
+      set({ historyAt: historyAt - 1 });
+      navigatingHistory = true;
+      // openTab's dedupe-or-reopen means a closed tab transparently comes
+      // back, so history needs no bookkeeping about closures.
+      void get()
+        .openTab(entry.kind, entry.index, entry.label)
+        .finally(() => {
+          navigatingHistory = false;
+        });
+    },
+
+    goForward() {
+      const { history, historyAt } = get();
+      if (historyAt >= history.length - 1) return;
+      const entry = history[historyAt + 1];
+      set({ historyAt: historyAt + 1 });
+      navigatingHistory = true;
+      void get()
+        .openTab(entry.kind, entry.index, entry.label)
+        .finally(() => {
+          navigatingHistory = false;
+        });
+    },
+
+    setQuickOpen(open) {
+      set({ quickOpen: open });
+    },
+
+    async openRecent(r) {
+      try {
+        const hits = await api.resolveRefs([{ group: r.group, path: r.short }]);
+        const hit = hits[0];
+        if (!hit) {
+          // A game update took it; the row quietly leaves the list.
+          set((s) => {
+            const recents = s.recents.filter(
+              (x) => !(x.group === r.group && x.short === r.short),
+            );
+            try {
+              localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+            } catch {
+              // Nothing to do; it will be filtered again next time.
+            }
+            return { recents };
+          });
+          return;
+        }
+        await get().openTab("tag", hit.index, r.label, { group: hit.group, path: hit.short });
+      } catch {
+        // Leave the list as it is; opening simply did not happen.
+      }
+    },
+
+    async loadReverseRefs() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ reverseRefsLoading: true, reverseRefsError: null });
+      try {
+        const rows = await api.referencingTags(index);
+        if (get().selectedTag === index) {
+          set({ reverseRefs: rows, reverseRefsLoading: false });
+        }
+      } catch (e) {
+        if (get().selectedTag === index) {
+          set({ reverseRefsError: String(e), reverseRefsLoading: false });
+        }
+      }
+    },
+
+    async loadTagAudio() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ tagAudioLoading: true, tagAudioError: null });
+      try {
+        const audio = await api.soundTagMedia(index);
+        if (get().selectedTag === index) {
+          set({ tagAudio: audio, tagAudioLoading: false });
+        }
+      } catch (e) {
+        if (get().selectedTag === index) {
+          set({ tagAudioError: String(e), tagAudioLoading: false });
+        }
+      }
+    },
+
+    async openTab(kind, index, label, ident) {
       const existing = get().tabs.find((t) => t.kind === kind && t.index === index);
       if (existing) {
         await get().activateTab(existing.id);
         return;
       }
-      const tab: Tab = { id: nextTabId++, kind, index, label };
+      const tab: Tab = {
+        id: nextTabId++,
+        kind,
+        index,
+        label,
+        group: ident?.group,
+        path: ident?.path,
+      };
       set((s) => ({ tabs: [...s.tabs, tab] }));
       await get().activateTab(tab.id);
     },
@@ -399,6 +887,55 @@ export const useEditor = create<EditorState>((set, get) => {
       const tab = get().tabs.find((t) => t.id === id);
       if (!tab) return;
       set({ activeTab: id });
+      // Every activation is a visit — opening, clicking a tab, following a
+      // reference — so this one choke point maintains the whole trail. Going
+      // back is re-activation too, hence the flag.
+      if (!navigatingHistory) {
+        set((s) => {
+          const cur = s.history[s.historyAt];
+          if (cur && cur.kind === tab.kind && cur.index === tab.index) return {};
+          const history = [
+            ...s.history.slice(0, s.historyAt + 1),
+            { kind: tab.kind, index: tab.index, label: tab.label },
+          ].slice(-HISTORY_MAX);
+          return { history, historyAt: history.length - 1 };
+        });
+      }
+      scheduleSaveSession();
+      if (tab.kind === "tag") {
+        // The recents list keys on identity, not index, so it survives game
+        // updates; peek is the cheap way from an index to an identity.
+        void api
+          .peekTag(tab.index)
+          .then((p) => {
+            if (!p.short) return;
+            // The same identity is what lets the tab itself survive a
+            // relaunch; a caller that only knew a path gets the group filled
+            // in and the path canonicalised.
+            if (!tab.path || !tab.group) {
+              set((s) => ({
+                tabs: s.tabs.map((t) =>
+                  t.id === id ? { ...t, group: p.group, path: p.short } : t,
+                ),
+              }));
+              scheduleSaveSession();
+            }
+            set((s) => {
+              const entry = { group: p.group, short: p.short, label: tab.label };
+              const rest = s.recents.filter(
+                (r) => !(r.group === entry.group && r.short === entry.short),
+              );
+              const recents = [entry, ...rest].slice(0, RECENTS_MAX);
+              try {
+                localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+              } catch {
+                // Not persisting recents loses nothing but convenience.
+              }
+              return { recents };
+            });
+          })
+          .catch(() => {});
+      }
       if (tab.kind === "tag") {
         await loadTag(tab.index);
       } else if (tab.kind === "sound") {
@@ -416,12 +953,36 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
+    closeOtherTabs(id) {
+      const { tabs, activeTab } = get();
+      const keep = tabs.find((t) => t.id === id);
+      if (!keep) return;
+      for (const t of tabs) if (t.id !== id) dropTabUi(t.id);
+      set({ tabs: [keep] });
+      if (activeTab !== id) void get().activateTab(id);
+      scheduleSaveSession();
+    },
+
+    closeTabsRight(id) {
+      const { tabs, activeTab } = get();
+      const at = tabs.findIndex((t) => t.id === id);
+      if (at < 0) return;
+      const closed = tabs.slice(at + 1);
+      if (closed.length === 0) return;
+      for (const t of closed) dropTabUi(t.id);
+      set({ tabs: tabs.slice(0, at + 1) });
+      if (closed.some((t) => t.id === activeTab)) void get().activateTab(id);
+      scheduleSaveSession();
+    },
+
     closeTab(id) {
       const { tabs, activeTab } = get();
       const at = tabs.findIndex((t) => t.id === id);
       if (at < 0) return;
       const next = tabs.filter((t) => t.id !== id);
       set({ tabs: next });
+      dropTabUi(id);
+      scheduleSaveSession();
       if (activeTab !== id) return;
       const neighbor = next[Math.min(at, next.length - 1)];
       if (neighbor) {
@@ -432,6 +993,13 @@ export const useEditor = create<EditorState>((set, get) => {
           selectedTag: null,
           tag: null,
           tagLinks: [],
+          refStatus: {},
+          reverseRefs: null,
+          reverseRefsLoading: false,
+          reverseRefsError: null,
+          tagAudio: null,
+          tagAudioLoading: false,
+          tagAudioError: null,
           selectedTexture: null,
           texture: null,
           textureError: null,
@@ -458,11 +1026,47 @@ export const useEditor = create<EditorState>((set, get) => {
     liveOn: false,
     livePoking: false,
     liveNote: null,
+    liveLoaded: [],
+    liveLoadedSet: new Set<number>(),
+    liveScanning: false,
 
     viewMode: storedViewMode(),
     setViewMode(mode) {
       localStorage.setItem(VIEW_KEY, mode);
       set({ viewMode: mode });
+    },
+
+    degrees: (() => {
+      try {
+        return localStorage.getItem(DEGREES_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    expert: (() => {
+      try {
+        return localStorage.getItem(EXPERT_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    async setExpert(on) {
+      try {
+        localStorage.setItem(EXPERT_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ expert: on });
+      await refreshActiveTag();
+    },
+
+    setDegrees(on) {
+      try {
+        localStorage.setItem(DEGREES_KEY, on ? "1" : "0");
+      } catch {
+        // A browser without storage still gets the setting for the session.
+      }
+      set({ degrees: on });
     },
 
     browse: "files",
@@ -526,6 +1130,28 @@ export const useEditor = create<EditorState>((set, get) => {
         return await api.exportTexture(index, dest);
       } catch (e) {
         set({ textureError: String(e) });
+        return null;
+      }
+    },
+
+    async exportMesh(dest) {
+      const index = get().selectedMesh;
+      if (index === null) return null;
+      try {
+        return await api.exportMesh(index, dest);
+      } catch (e) {
+        set({ error: String(e) });
+        return null;
+      }
+    },
+
+    async exportLevel(dest, nanite, hlod) {
+      const index = get().selectedTag;
+      if (index === null) return null;
+      try {
+        return await api.exportLevel(index, dest, nanite, hlod);
+      } catch (e) {
+        set({ error: String(e) });
         return null;
       }
     },
@@ -781,16 +1407,80 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ projectError: String(e) });
       }
+      // After the project, so the restored tab reads with edits applied and
+      // the dirty markers can be seeded from the recipe.
+      await restoreSession();
       void get().loadHub();
     },
 
     async selectGroup(group) {
       set({ selectedGroup: group, query: "", tags: [] });
       try {
-        set({ tags: await api.listTags(group) });
+        if (get().unreferencedOnly) {
+          set({ unreferencedLoading: true });
+          const tags = await api.unreferencedTags(group);
+          if (get().selectedGroup === group) set({ tags, unreferencedLoading: false });
+        } else {
+          set({ tags: await api.listTags(group) });
+        }
       } catch (e) {
-        set({ error: String(e) });
+        set({ error: String(e), unreferencedLoading: false });
       }
+    },
+
+    unreferencedOnly: false,
+    unreferencedLoading: false,
+    async setUnreferencedOnly(on) {
+      set({ unreferencedOnly: on });
+      const group = get().selectedGroup;
+      if (group && !get().query.trim()) await get().selectGroup(group);
+    },
+
+    diff: null,
+    diffLoading: false,
+    async openDiff(a, b) {
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffTags(a, b), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    async openDiffEdits() {
+      const index = get().selectedTag;
+      if (index === null) return;
+      set({ diff: null, diffLoading: true });
+      try {
+        set({ diff: await api.diffEdits(index), diffLoading: false });
+      } catch (e) {
+        set({ diffLoading: false, editError: String(e) });
+      }
+    },
+    closeDiff() {
+      set({ diff: null, diffLoading: false });
+    },
+
+    refTree: null,
+    refTreeLoading: false,
+    refTreeDepth: 2,
+    refTreeIndex: null,
+    async openRefTree(index) {
+      set({ refTreeIndex: index });
+      await get().loadRefTree(get().refTreeDepth);
+    },
+    async loadRefTree(depth) {
+      const index = get().refTreeIndex;
+      if (index === null) return;
+      set({ refTree: null, refTreeLoading: true, refTreeDepth: depth });
+      try {
+        const tree = await api.referenceTree(index, depth);
+        if (get().refTreeIndex === index) set({ refTree: tree, refTreeLoading: false });
+      } catch (e) {
+        set({ refTreeLoading: false, editError: String(e) });
+      }
+    },
+    closeRefTree() {
+      set({ refTree: null, refTreeLoading: false, refTreeIndex: null });
     },
 
     async search(query) {
@@ -819,7 +1509,28 @@ export const useEditor = create<EditorState>((set, get) => {
 
     setLiveOn(on) {
       set({ liveOn: on, liveNote: null });
-      if (on) void get().refreshLive();
+      if (on) {
+        void get().refreshLive();
+        // The level is one object-table read away; say it now rather than
+        // after a scan the user may never run.
+        void get().probeLive();
+      }
+    },
+
+    async probeLive() {
+      try {
+        const r = await api.liveProbe();
+        set({
+          liveNote:
+            (r.level ? `live: in ${r.level}` : "live: no level loaded") +
+            ` · ${r.present} tags present (${r.secs.toFixed(1)}s, no scan)`,
+        });
+        void get().refreshLive();
+      } catch {
+        // No game, or a build whose engine globals did not resolve. Either
+        // way the status line already says what is known, and the scan still
+        // works without this.
+      }
     },
 
     async setField(path, value) {
@@ -829,13 +1540,15 @@ export const useEditor = create<EditorState>((set, get) => {
         const lastEdit = await api.setField(index, path, value);
         // Re-read so every view of the tag reflects the change, not just
         // this row.
-        const tag = await api.readTag(index);
+        const tag = await readTagView(index);
         set((s) => ({
           lastEdit,
           editError: null,
           tag,
           dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
         }));
+        // A retyped reference gets its badge re-judged with everything else.
+        void resolveTagRefs(index, tag);
         if (get().project) void get().refreshProject();
         // The project is the record of what the edit is; the poke only makes it
         // visible now. So it happens after the edit is safely recorded, and a
@@ -845,6 +1558,82 @@ export const useEditor = create<EditorState>((set, get) => {
       } catch (e) {
         set({ editError: String(e), lastEdit: null });
         return false;
+      }
+    },
+
+    async editElements(path, op, element) {
+      const index = get().selectedTag;
+      if (index === null) return false;
+      try {
+        const lastEdit =
+          op === "add"
+            ? await api.addElement(index, path)
+            : op === "insert"
+              ? await api.insertElement(index, path, element ?? 0)
+              : op === "remove"
+                ? await api.removeElement(index, path, element ?? 0)
+                : await api.duplicateElement(index, path, element ?? 0);
+        const tag = await readTagView(index);
+        set((s) => ({
+          lastEdit,
+          editError: null,
+          tag,
+          dirtyTags: { ...s.dirtyTags, [index]: tag.edited.length > 0 },
+        }));
+        if (get().project) void get().refreshProject();
+        // No live poke: an element change resizes the tag, which cannot land
+        // in a running game's heap. It reaches the game via a test install.
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async censusLive() {
+      if (get().liveScanning) return;
+      set({ liveScanning: true, liveNote: "live: preparing tag fingerprints…" });
+      // Progress arrives as events because the sweep runs for tens of seconds;
+      // outside Tauri there is no event bridge and nothing to listen to.
+      let unlisten: (() => void) | null = null;
+      try {
+        if (isTauri) {
+          unlisten = await listen<CensusProgress>("live-census", (e) => {
+            const p = e.payload;
+            set({
+              liveNote:
+                p.phase === "objects"
+                  ? "live: reading the engine's object table…"
+                  : p.phase === "table"
+                  ? "live: reading the simulation's tag table…"
+                  : p.phase === "cache"
+                  ? "live: reading the engine's loader cache…"
+                  : p.phase === "prints"
+                  ? "live: preparing tag fingerprints…"
+                  : `live: scanning game memory · ${Math.round(
+                      (p.done_mb / Math.max(1, p.total_mb)) * 100,
+                    )}% of ${(p.total_mb / 1024).toFixed(1)} GB`,
+            });
+          });
+        }
+        const report = await api.liveCensus();
+        set({
+          liveScanning: false,
+          liveLoaded: report.loaded,
+          liveLoadedSet: new Set(report.loaded.map((t) => t.index)),
+          liveNote:
+            (report.method === "table"
+              ? `live: ${report.located} loaded tags from the game's own tag table in ${report.secs.toFixed(1)}s`
+              : `live: found ${report.located} loaded tags in ${report.secs.toFixed(0)}s`) +
+            (report.cached ? ` · ${report.cached} straight from the engine's cache` : "") +
+            (report.table_unmapped ? ` · ${report.table_unmapped} not in this installation` : "") +
+            (report.level ? ` · in ${report.level}` : ""),
+        });
+        void get().refreshLive();
+      } catch (e) {
+        set({ liveScanning: false, liveNote: `live: ${String(e)}` });
+      } finally {
+        if (unlisten) unlisten();
       }
     },
 
@@ -865,27 +1654,23 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     async followReference(fourCc, path) {
-      // The reference stores a four-CC and a Blam path with backslashes; the
-      // catalog stores group directory names and forward slashes.
-      const group = get()
-        .groups.find((g) => g.four_cc.trim() === fourCc.trim())
-        ?.group;
-      const want = path.replace(/\\/g, "/").toLowerCase();
-      const tail = want.split("/").pop() ?? want;
+      // The backend resolves exactly — four-CC or group name, backslashes,
+      // authored case, the cooker's _Generated_ segment. A miss is a real
+      // answer and gets said out loud, where the old fuzzy search shrugged.
       try {
-        const results = await api.searchTags(tail);
-        const hit =
-          results.find(
-            (t) => t.short.toLowerCase() === want && (!group || t.group === group),
-          ) ??
-          results.find(
-            (t) =>
-              t.short.toLowerCase().endsWith(want) && (!group || t.group === group),
-          );
-        if (!hit) return false;
-        await get().openTab("tag", hit.index, tagLabel(hit));
+        const hits = await api.resolveRefs([{ group: fourCc, path }]);
+        const hit = hits[0];
+        if (!hit) {
+          set({ editError: `reference not found: ${fourCc.trim()} ${path}` });
+          return false;
+        }
+        await get().openTab("tag", hit.index, tagLabel(hit), {
+          group: hit.group,
+          path: hit.short,
+        });
         return true;
-      } catch {
+      } catch (e) {
+        set({ editError: String(e) });
         return false;
       }
     },
@@ -894,7 +1679,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertField(index, path);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,
@@ -908,7 +1693,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const index = get().selectedTag;
       if (index === null) return;
       await api.revertTag(index);
-      const tag = await api.readTag(index);
+      const tag = await readTagView(index);
       set((s) => ({
         tag,
         lastEdit: null,
@@ -916,6 +1701,74 @@ export const useEditor = create<EditorState>((set, get) => {
         dirtyTags: { ...s.dirtyTags, [index]: false },
       }));
       if (get().project) void get().refreshProject();
+    },
+
+    async undoEdit() {
+      await stepHistory(api.undoEdit);
+    },
+
+    elementClipboard: null,
+    async copyElement(path, element) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        const clip = await api.copyElement(index, path, element);
+        set({ elementClipboard: clip, editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    async pasteElement(path, at) {
+      const index = get().selectedTag;
+      const clip = get().elementClipboard;
+      if (index === null || !clip) return false;
+      try {
+        const report = await api.pasteElement(index, path, at, clip);
+        await afterPaste(index, path, report);
+        return true;
+      } catch (e) {
+        set({ editError: String(e), lastEdit: null });
+        return false;
+      }
+    },
+
+    async copyBlockTsv(path) {
+      const index = get().selectedTag;
+      if (index === null) return;
+      try {
+        await copyText(await api.copyBlockTsv(index, path));
+        set({ editError: null });
+      } catch (e) {
+        set({ editError: String(e) });
+      }
+    },
+
+    tsvPaste: null,
+    openTsvPaste(path, label) {
+      set({ tsvPaste: { path, label } });
+    },
+    closeTsvPaste() {
+      set({ tsvPaste: null });
+    },
+
+    async pasteBlockTsv(tsv, replace) {
+      const index = get().selectedTag;
+      const target = get().tsvPaste;
+      if (index === null || !target) return "no block to paste into";
+      let report;
+      try {
+        report = await api.pasteBlockTsv(index, target.path, tsv, replace);
+      } catch (e) {
+        return String(e);
+      }
+      set({ tsvPaste: null });
+      await afterPaste(index, target.path, report);
+      return null;
+    },
+
+    async redoEdit() {
+      await stepHistory(api.redoEdit);
     },
 
     async exportTag(dest) {
@@ -966,6 +1819,7 @@ export const useEditor = create<EditorState>((set, get) => {
 
     async openProject(dir) {
       try {
+        closeNewTagTabs();
         const project = await api.projectOpen(dir);
         set({
           project,
@@ -986,6 +1840,7 @@ export const useEditor = create<EditorState>((set, get) => {
 
     async closeProject() {
       try {
+        closeNewTagTabs();
         await api.projectClose();
         set({
           project: null,
@@ -1023,10 +1878,62 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
 
+    newTagFrom: null,
+    openNewTag(from) {
+      set({ newTagFrom: from });
+    },
+    closeNewTag() {
+      set({ newTagFrom: null });
+    },
+
+    async createNewTag(path, assetReference) {
+      const from = get().newTagFrom;
+      if (!from) return "nothing to clone";
+      let made;
+      try {
+        made = await api.projectNewTag(from.index, path, assetReference.trim() || null);
+      } catch (e) {
+        return String(e);
+      }
+      set({ newTagFrom: null, projectError: null });
+      // The clone is a new row in whatever list showed its donor.
+      refreshTagLists(made.group);
+      if (get().project) await get().refreshProject();
+      if (made.index !== null) {
+        const label = `${made.tag.split("/").pop() ?? made.tag}.${made.group}`;
+        await get().openTab("tag", made.index, label, { group: made.group, path: made.tag });
+      }
+      return null;
+    },
+
+    async removeNewTag(group, tag) {
+      const gone = get().project?.new_tags.find((t) => t.group === group && t.tag === tag);
+      try {
+        await api.projectRemoveNewTag(group, tag);
+      } catch (e) {
+        set({ projectError: String(e) });
+        return;
+      }
+      // Its document, if open, has nothing behind it any more.
+      if (gone?.index != null) {
+        for (const t of get().tabs.filter((t) => t.kind === "tag" && t.index === gone.index)) {
+          get().closeTab(t.id);
+        }
+      }
+      set({ projectError: null });
+      refreshTagLists(group);
+      await get().refreshProject();
+    },
+
+    allowUnknownStringIds: false,
+    setAllowUnknownStringIds(allow) {
+      set({ allowUnknownStringIds: allow });
+    },
+
     async exportMod() {
       set({ projectBusy: "export", exportResult: null, projectError: null });
       try {
-        set({ exportResult: await api.projectExport() });
+        set({ exportResult: await api.projectExport(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {
@@ -1037,7 +1944,7 @@ export const useEditor = create<EditorState>((set, get) => {
     async testMod() {
       set({ projectBusy: "test", testResult: null, projectError: null });
       try {
-        set({ testResult: await api.projectTest() });
+        set({ testResult: await api.projectTest(get().allowUnknownStringIds) });
       } catch (e) {
         set({ projectError: String(e) });
       } finally {

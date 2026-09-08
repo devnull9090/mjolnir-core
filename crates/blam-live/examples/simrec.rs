@@ -8,7 +8,7 @@
 //! Layout (HaloSimulation_tag_release.dll, CU4): arena bases at RVA 0x2c2ccc0
 //! (16 x u64), resident BSP records at RVA 0x13d45a8 (0x490 bytes each). See
 //! docs/re/collision_bsp/README.md.
-use blam_live::{module_base, Process};
+use blam_live::Process;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -36,8 +36,8 @@ fn main() {
     };
     say!("attached pid {}", process.pid);
     let (base, size) = loop {
-        if let Some(b) = module_base(process.pid, DLL) {
-            break b;
+        if let Ok(m) = process.module_info(DLL) {
+            break (m.base, m.size);
         }
         std::thread::sleep(Duration::from_millis(250));
     };

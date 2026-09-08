@@ -12,3 +12,4 @@ thiserror.workspace = true
 flate2.workspace = true
 libloading.workspace = true
 oozextract.workspace = true
+sha1 = "0.10"

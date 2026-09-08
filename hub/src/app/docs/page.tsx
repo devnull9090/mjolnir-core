@@ -9,12 +9,15 @@ import {
   FileText,
   FlaskConical,
   Package,
+  Terminal,
 } from "lucide-react";
 import { getDocNotes, getGuides } from "@/lib/docs";
 import { getTotals } from "@/lib/tags";
+import { getConsoleTotals } from "@/lib/console";
 import { EvidenceBadge, type EvidenceLevel } from "./_components/EvidenceBadge";
 
 const totals = getTotals();
+const consoleTotals = getConsoleTotals();
 
 export const metadata: Metadata = {
   title: "Technical Documentation | MJOLNIR Core",
@@ -29,6 +32,14 @@ const research = [
       `Field-level reference for all ${totals.groups} tag groups: ${totals.fields.toLocaleString()} fields with names, types, byte offsets, and enum options, generated from the shipped game data.`,
     status: "Verified" as EvidenceLevel,
     icon: Database,
+  },
+  {
+    href: "/docs/console",
+    title: "Console commands",
+    description:
+      `Every Blam console function in the game: ${consoleTotals.names.toLocaleString()} names with signatures and return types, ${consoleTotals.live.toLocaleString()} of them live in this build, plus ${consoleTotals.globals} engine globals. Read from the simulation DLL.`,
+    status: "Verified" as EvidenceLevel,
+    icon: Terminal,
   },
   {
     href: "/docs/research/tag-data",

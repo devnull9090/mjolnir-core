@@ -89,6 +89,38 @@ impl Keep<'_> {
     }
 }
 
+/// The byte size of a struct the engine serializes natively rather than as
+/// a reflected block, sized for a UE5 cook (double-based vectors). Only
+/// core primitives belong here: reflected composites like BoxSphereBounds
+/// recurse as unversioned blocks of these, verified byte-by-byte against
+/// shipped meshes. `FBox` is native too — min, max, then the IsValid byte —
+/// measured on HierarchicalInstancedStaticMesh components'
+/// `BuiltInstanceBounds` in the level cells.
+pub fn native_struct_size(name: &str) -> Option<usize> {
+    match name {
+        "Vector" | "Rotator" => Some(24),
+        "Vector3f" => Some(12),
+        "Box" => Some(49),
+        "Box3f" => Some(25),
+        "Vector2D" => Some(16),
+        "Vector2f" => Some(8),
+        "Vector4" | "Quat" | "Plane" => Some(32),
+        "Vector4f" | "Quat4f" => Some(16),
+        "Color" => Some(4),
+        "LinearColor" => Some(16),
+        "IntPoint" => Some(8),
+        "IntVector" => Some(12),
+        "IntVector4" => Some(16),
+        "Guid" => Some(16),
+        "FrameNumber" => Some(4),
+        "PerPlatformFloat" | "PerPlatformInt" | "PerPlatformBool" => Some(8),
+        "DateTime" | "Timespan" => Some(8),
+        // Three mode bytes, then time, value and four tangent floats.
+        "RichCurveKey" => Some(27),
+        _ => None,
+    }
+}
+
 /// Everything a walk needs beyond the bytes.
 pub struct Ctx<'a> {
     pub usmap: &'a Usmap,
@@ -276,6 +308,11 @@ impl<'a> Walker<'a> {
                         self.fstring()?;
                         self.fstring()?;
                     }
+                    11 => {
+                        // StringTableEntry: table id, key.
+                        self.fname()?;
+                        self.fstring()?;
+                    }
                     other => {
                         return Err(Error::Text {
                             class: class.to_string(),
@@ -346,28 +383,7 @@ impl<'a> Walker<'a> {
         name: &str,
         keep: bool,
     ) -> Result<Value, Error> {
-        // Native serializers, sized for a UE5 cook (double-based vectors).
-        // Only core primitives belong here: reflected composites like
-        // BoxSphereBounds recurse as unversioned blobs of these, verified
-        // byte-by-byte against shipped meshes.
-        let fixed = match name {
-            "Vector" | "Rotator" => Some(24),
-            "Vector3f" => Some(12),
-            "Vector2D" => Some(16),
-            "Vector2f" => Some(8),
-            "Vector4" | "Quat" | "Plane" => Some(32),
-            "Vector4f" | "Quat4f" => Some(16),
-            "Color" => Some(4),
-            "LinearColor" => Some(16),
-            "IntPoint" => Some(8),
-            "IntVector" => Some(12),
-            "IntVector4" => Some(16),
-            "Guid" => Some(16),
-            "FrameNumber" => Some(4),
-            "PerPlatformFloat" | "PerPlatformInt" | "PerPlatformBool" => Some(8),
-            "DateTime" | "Timespan" => Some(8),
-            _ => None,
-        };
+        let fixed = native_struct_size(name);
         if let Some(n) = fixed {
             let at = self.pos;
             let raw = self.bytes(n)?;
@@ -424,6 +440,25 @@ impl<'a> Walker<'a> {
                 let package = self.fname()?;
                 let asset = self.fname()?;
                 Ok(Value::Str(format!("{package}.{asset}")))
+            }
+            // Eight native bytes (measured `01 00 00 00 00 00 00 00` on every
+            // shipped material instance), then the reflected block.
+            "MaterialOverrideNanite" => {
+                self.skip(8)?;
+                let inner = self.read_unversioned(name, if keep { Keep::All } else { Keep::None })?;
+                Ok(if keep { Value::Struct(inner) } else { Value::Opaque })
+            }
+            // The container's custom serializer: the tag names as an array.
+            "GameplayTagContainer" => {
+                let count = self.u32()? as usize;
+                let mut tags = Vec::new();
+                for _ in 0..count {
+                    let tag = self.fname()?;
+                    if keep {
+                        tags.push(Value::Name(tag));
+                    }
+                }
+                Ok(if keep { Value::Array(tags) } else { Value::Opaque })
             }
             _ => {
                 // Schema recursion: another unversioned blob.

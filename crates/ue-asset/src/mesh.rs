@@ -33,7 +33,7 @@ pub struct Section {
     pub num_triangles: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Lod {
     pub sections: Vec<Section>,
     /// xyz per vertex.
@@ -53,14 +53,108 @@ pub struct StaticMeshData {
     /// (`FPackageIndex`: negative is an import).
     pub materials: Vec<(String, i32)>,
     pub lods: Vec<Lod>,
+    /// The full-detail geometry decoded from the Nanite pages, when the mesh
+    /// carries them and they decode. Its sections index `materials` too.
+    pub nanite: Option<Lod>,
+    pub nanite_report: Option<crate::nanite::Report>,
+    /// Why there is no Nanite geometry, when the mesh looked like it had
+    /// some.
+    pub nanite_note: Option<String>,
+}
+
+impl StaticMeshData {
+    /// The geometry to show or export: the Nanite mesh when it decoded, else
+    /// the first classic LOD with buffers. The flag says which.
+    pub fn preferred(&self) -> Option<(&Lod, bool)> {
+        preferred_of(self.nanite.as_ref(), &self.lods)
+    }
+
+    /// Every LOD worth exporting, Nanite first.
+    pub fn export_lods(&self) -> Vec<&Lod> {
+        export_lods_of(self.nanite.as_ref(), &self.lods)
+    }
+}
+
+fn preferred_of<'a>(nanite: Option<&'a Lod>, lods: &'a [Lod]) -> Option<(&'a Lod, bool)> {
+    if let Some(n) = nanite {
+        return Some((n, true));
+    }
+    lods.iter()
+        .find(|l| !l.positions.is_empty() && !l.indices.is_empty())
+        .map(|l| (l, false))
+}
+
+fn export_lods_of<'a>(nanite: Option<&'a Lod>, lods: &'a [Lod]) -> Vec<&'a Lod> {
+    let mut out: Vec<&Lod> = nanite.into_iter().collect();
+    out.extend(
+        lods.iter()
+            .filter(|l| !l.positions.is_empty() && !l.indices.is_empty()),
+    );
+    out
+}
+
+/// The Nanite resources that trail a mesh's LOD array: parse them at `at`,
+/// decode the pages when there are any. Returns the geometry, its report,
+/// and the note that says why there is none.
+fn decode_nanite_tail(
+    data: &[u8],
+    at: usize,
+    bulk_map: &[(u64, u64)],
+    ubulk: Option<&[u8]>,
+    trace: bool,
+) -> (Option<Lod>, Option<crate::nanite::Report>, Option<String>) {
+    match crate::nanite::parse_resources(data, at, bulk_map) {
+        Ok((res, _consumed)) => {
+            if res.pages.is_empty() {
+                return (None, None, None);
+            }
+            match crate::nanite::decode(&res, ubulk) {
+                Ok((lod, report)) => {
+                    if trace {
+                        eprintln!("nanite: {report:?}");
+                    }
+                    (Some(lod), Some(report), None)
+                }
+                Err(e) => (None, None, Some(e.to_string())),
+            }
+        }
+        Err(e) => (None, None, Some(format!("nanite resources: {e}"))),
+    }
+}
+
+/// The package's bulk-data map as `(offset, size)` into the `.ubulk`, for
+/// [`parse_static_mesh_with_bulk_map`]; empty when the package bytes do not
+/// parse as a zen package.
+pub fn bulk_map_of(package: &[u8]) -> Vec<(u64, u64)> {
+    crate::package::ZenPackage::parse(package)
+        .map(|p| {
+            p.bulk
+                .iter()
+                .map(|b| (b.serial_offset as u64, b.serial_size as u64))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Parse a `StaticMesh` export. `ubulk` carries the streamed LOD buffers when
-/// the package has one.
+/// the package has one. Without the package's bulk-data map the Nanite pages
+/// of a zen package cannot be located; [`parse_static_mesh_with_bulk_map`]
+/// takes it.
 pub fn parse_static_mesh(
     ctx: &Ctx<'_>,
     data: &[u8],
     ubulk: Option<&[u8]>,
+) -> Result<StaticMeshData, Error> {
+    parse_static_mesh_with_bulk_map(ctx, data, ubulk, &[])
+}
+
+/// [`parse_static_mesh`], with the package's bulk-data map so the Nanite
+/// streaming pages resolve.
+pub fn parse_static_mesh_with_bulk_map(
+    ctx: &Ctx<'_>,
+    data: &[u8],
+    ubulk: Option<&[u8]>,
+    bulk_map: &[(u64, u64)],
 ) -> Result<StaticMeshData, Error> {
     let mut w = Walker::new(ctx, data);
     let props = w.read_object("StaticMesh", Keep::Names(&["StaticMaterials"]))?;
@@ -110,7 +204,9 @@ pub fn parse_static_mesh(
         let _strip = w.u16()?;
         let section_count = w.u32()?;
         if section_count > 256 {
-            return Err(Error::Format(format!("{section_count} sections is implausible")));
+            return Err(Error::Format(format!(
+                "{section_count} sections is implausible"
+            )));
         }
         for _ in 0..section_count {
             let material_index = w.u32()? as i32;
@@ -149,7 +245,9 @@ pub fn parse_static_mesh(
             // buffer block.
             let extra = w.u32()?;
             if extra != 0 {
-                return Err(Error::Format(format!("pre-buffer word is {extra}, expected 0")));
+                return Err(Error::Format(format!(
+                    "pre-buffer word is {extra}, expected 0"
+                )));
             }
             read_buffers(&mut w, &mut lod, trace)?;
         } else {
@@ -190,6 +288,30 @@ pub fn parse_static_mesh(
         let (_serialized, _depth_only, _reversed) = (w.u32()?, w.u32()?, w.u32()?);
         out.lods.push(lod);
     }
+
+    // After the LOD array: the count of inlined LODs, then the Nanite
+    // resources. A mesh with none serializes an empty set; a mesh whose
+    // pages will not decode keeps its classic LODs and says why.
+    if trace {
+        let at = w.pos;
+        let tail: Vec<String> = data
+            .get(at..(at + 64).min(data.len()))
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        eprintln!(
+            "after LODs at {at:#x} of {:#x}: {}",
+            data.len(),
+            tail.join(" ")
+        );
+    }
+    if let Ok(_num_inlined) = w.u8() {
+        let (lod, report, note) = decode_nanite_tail(data, w.pos, bulk_map, ubulk, trace);
+        out.nanite = lod;
+        out.nanite_report = report;
+        out.nanite_note = note;
+    }
     Ok(out)
 }
 
@@ -204,7 +326,10 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
     let vertices = w.u32()?;
     let (elem, num) = (w.u32()?, w.u32()?);
     if trace {
-        eprintln!("  positions: stride {stride} x{vertices}, bulk {elem}x{num} at {:#x}", w.pos);
+        eprintln!(
+            "  positions: stride {stride} x{vertices}, bulk {elem}x{num} at {:#x}",
+            w.pos
+        );
     }
     if stride != 12 || elem != 12 || num != vertices {
         return Err(Error::Format(format!(
@@ -354,12 +479,16 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
     for _ in 0..=lod.sections.len() {
         let prob = w.u32()? as usize;
         if prob > 4_000_000 {
-            return Err(Error::Format(format!("{prob} sampler probabilities is implausible")));
+            return Err(Error::Format(format!(
+                "{prob} sampler probabilities is implausible"
+            )));
         }
         w.skip(prob * 4)?;
         let alias = w.u32()? as usize;
         if alias != prob {
-            return Err(Error::Format(format!("sampler has {prob} probs but {alias} aliases")));
+            return Err(Error::Format(format!(
+                "sampler has {prob} probs but {alias} aliases"
+            )));
         }
         w.skip(alias * 4)?;
         let _total_weight = w.f32()?;
@@ -380,7 +509,9 @@ fn skip_raw_index_buffer(w: &mut Walker<'_>, which: &str, trace: bool) -> Result
     w.skip(num as usize)?;
     let expand = w.u32()?;
     if expand > 1 {
-        return Err(Error::Format(format!("{which} index-buffer tail bool is {expand}")));
+        return Err(Error::Format(format!(
+            "{which} index-buffer tail bool is {expand}"
+        )));
     }
     if trace && num > 0 {
         eprintln!("  {which} indices: {num} bytes, at {:#x}", w.pos);
@@ -407,14 +538,48 @@ pub struct SkeletalMeshData {
     pub materials: Vec<(String, i32)>,
     pub bones: Vec<Bone>,
     pub lods: Vec<Lod>,
+    /// The full-detail geometry decoded from the Nanite pages, when the mesh
+    /// carries them and they decode. Weapons and most Covenant vehicles ship
+    /// this way, with a placeholder triangle in their classic LOD.
+    pub nanite: Option<Lod>,
+    pub nanite_report: Option<crate::nanite::Report>,
+    /// Why there is no Nanite geometry, when the mesh looked like it had
+    /// some.
+    pub nanite_note: Option<String>,
+}
+
+impl SkeletalMeshData {
+    /// The geometry to show or export: the Nanite mesh when it decoded, else
+    /// the first classic LOD with buffers. The flag says which.
+    pub fn preferred(&self) -> Option<(&Lod, bool)> {
+        preferred_of(self.nanite.as_ref(), &self.lods)
+    }
+
+    /// Every LOD worth exporting, Nanite first.
+    pub fn export_lods(&self) -> Vec<&Lod> {
+        export_lods_of(self.nanite.as_ref(), &self.lods)
+    }
 }
 
 /// Parse a `SkeletalMesh` export. Skeletal vertices are stored in component
-/// space, so a rest-pose preview needs no skinning.
+/// space, so a rest-pose preview needs no skinning. Without the package's
+/// bulk-data map the Nanite pages of a zen package cannot be located;
+/// [`parse_skeletal_mesh_with_bulk_map`] takes it.
 pub fn parse_skeletal_mesh(
     ctx: &Ctx<'_>,
     data: &[u8],
     ubulk: Option<&[u8]>,
+) -> Result<SkeletalMeshData, Error> {
+    parse_skeletal_mesh_with_bulk_map(ctx, data, ubulk, &[])
+}
+
+/// [`parse_skeletal_mesh`], with the package's bulk-data map so the Nanite
+/// streaming pages resolve.
+pub fn parse_skeletal_mesh_with_bulk_map(
+    ctx: &Ctx<'_>,
+    data: &[u8],
+    ubulk: Option<&[u8]>,
+    bulk_map: &[(u64, u64)],
 ) -> Result<SkeletalMeshData, Error> {
     let trace = std::env::var_os("UE_ASSET_TRACE").is_some();
     let mut w = Walker::new(ctx, data);
@@ -429,7 +594,9 @@ pub fn parse_skeletal_mesh(
     // the reference skeleton landing where it must).
     let material_count = w.u32()?;
     if material_count > 256 {
-        return Err(Error::Format(format!("{material_count} materials is implausible")));
+        return Err(Error::Format(format!(
+            "{material_count} materials is implausible"
+        )));
     }
     for _ in 0..material_count {
         let object = w.u32()? as i32;
@@ -524,6 +691,27 @@ pub fn parse_skeletal_mesh(
         read_skeletal_lod(&mut w, &mut lod, inlined != 0, ubulk, ctx, trace)?;
         out.lods.push(lod);
     }
+
+    // The Nanite resources follow the LOD array directly: this cook writes
+    // no inlined-LOD counts before them, unlike the static-mesh render data.
+    if trace {
+        let at = w.pos;
+        let tail: Vec<String> = data
+            .get(at..(at + 64).min(data.len()))
+            .unwrap_or(&[])
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        eprintln!(
+            "after skeletal LODs at {at:#x} of {:#x}: {}",
+            data.len(),
+            tail.join(" ")
+        );
+    }
+    let (nanite, report, note) = decode_nanite_tail(data, w.pos, bulk_map, ubulk, trace);
+    out.nanite = nanite;
+    out.nanite_report = report;
+    out.nanite_note = note;
     Ok(out)
 }
 
@@ -539,13 +727,17 @@ fn read_skeletal_lod(
     // RequiredBones, then the render sections.
     let required = w.u32()? as usize;
     if required > 4096 {
-        return Err(Error::Format(format!("{required} required bones is implausible")));
+        return Err(Error::Format(format!(
+            "{required} required bones is implausible"
+        )));
     }
     w.skip(required * 2)?;
 
     let section_count = w.u32()?;
     if section_count > 256 {
-        return Err(Error::Format(format!("{section_count} sections is implausible")));
+        return Err(Error::Format(format!(
+            "{section_count} sections is implausible"
+        )));
     }
     for _ in 0..section_count {
         read_skeletal_section(w, lod, trace)?;
@@ -558,7 +750,9 @@ fn read_skeletal_lod(
     // `buffers_size` bytes after this word.
     let second = w.u32()? as usize;
     if second > 4096 {
-        return Err(Error::Format(format!("{second} post-section bones is implausible")));
+        return Err(Error::Format(format!(
+            "{second} post-section bones is implausible"
+        )));
     }
     w.skip(second * 2)?;
     let buffers_size = w.u32()? as usize;
@@ -617,7 +811,9 @@ fn read_skeletal_section(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Resu
     // Cloth mapping data, one array per cloth LOD bias.
     let cloth_lods = w.u32()? as usize;
     if cloth_lods > 8 {
-        return Err(Error::Format(format!("{cloth_lods} cloth LODs is implausible")));
+        return Err(Error::Format(format!(
+            "{cloth_lods} cloth LODs is implausible"
+        )));
     }
     for _ in 0..cloth_lods {
         let n = w.u32()? as usize;
@@ -625,7 +821,9 @@ fn read_skeletal_section(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Resu
     }
     let bone_map = w.u32()? as usize;
     if bone_map > 4096 {
-        return Err(Error::Format(format!("{bone_map} bone-map entries is implausible")));
+        return Err(Error::Format(format!(
+            "{bone_map} bone-map entries is implausible"
+        )));
     }
     w.skip(bone_map * 2)?;
     let _num_vertices = w.u32()?;
@@ -653,12 +851,16 @@ fn read_skeletal_section(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Resu
 fn read_duplicated_vertices(w: &mut Walker<'_>) -> Result<(), Error> {
     let dup = w.u32()? as usize;
     if dup > 4_000_000 {
-        return Err(Error::Format(format!("{dup} duplicated vertices is implausible")));
+        return Err(Error::Format(format!(
+            "{dup} duplicated vertices is implausible"
+        )));
     }
     w.skip(dup * 4)?;
     let pairs = w.u32()? as usize;
     if pairs > 4_000_000 {
-        return Err(Error::Format(format!("{pairs} dup-index pairs is implausible")));
+        return Err(Error::Format(format!(
+            "{pairs} dup-index pairs is implausible"
+        )));
     }
     w.skip(pairs * 8)?;
     Ok(())

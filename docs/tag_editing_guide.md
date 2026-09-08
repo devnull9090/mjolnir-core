@@ -114,6 +114,22 @@ Useful flags:
 
 ```powershell
 mjolnir values --group model --depth 1 | findstr "tag reference"
+mjolnir values --group weapon --tag SMG --json      # the same tree as JSON, for other tools
+```
+
+To work on tags as files — the layout Blam tooling expects, `objects/weapons/rifle/smg.weapon`
+— write them out:
+
+```powershell
+mjolnir extract --group weapon --out D:\kit --verify    # one group
+mjolnir extract --filter characters/elite --out D:\kit  # by path
+mjolnir extract --dry-run                                # what would be written
+mjolnir script --tag a30 --extract D:\hsc               # a mission's .hsc source files
+```
+
+`extract` is mod-aware: a tag an installed mod overrides comes out as the mod left it, the way
+the game sees it, unless `--shipped-only` asks for the game's own. What comes out is game
+content — keep it local.
 ```
 
 ### Changing a field
@@ -281,6 +297,18 @@ Opening something from any of those tabs gives it a **tab of its own** across th
 right pane, badged `tag`, `tex` or `snd`, so several documents stay open at once. A gold dot on a
 tag tab means it has edits. Middle-click or the `×` closes one; closing does not discard edits.
 
+**Ctrl+P** is often faster than any of the five tabs: a quick-open palette over every tag,
+ranked so a name match beats a path match. With nothing typed it lists the tags you opened most
+recently — remembered across launches by name, so the list survives a game update.
+
+The editor also keeps a trail of where you have been:
+
+| Keys | What they do |
+|---|---|
+| **Ctrl+P** | Quick-open: type a tag name, Enter opens it. Empty shows recent tags. |
+| **Alt+←** / **Alt+→** | Back / forward through the documents you visited. Going back to a tab you closed reopens it. |
+| **Ctrl+PageDown** / **Ctrl+PageUp** | Next / previous tab. |
+
 The **right pane** shows the selected document. For a tag that is its fields and values, and the
 header tells you whether they are trustworthy:
 
@@ -303,6 +331,20 @@ references, and the Unreal presentation assets (Blueprints, and for some tags te
 to. Anything the editor can open is listed first and is one click away; the rest are named but
 inert. A scenario imports hundreds, so the list starts collapsed when it is long.
 
+Next to it, **referenced by** answers the opposite question: every tag whose fields point at
+this one. The first time you expand it the editor scans every shipped tag — up to a minute, once
+per session — and after that the answer is instant. Each result is a click away. (The CLI grep
+this replaces still works, but you should not need it.)
+
+**Tag reference fields carry their own conveniences.** The little group code at the end of a
+reference row is a preview: rest the pointer on it — or click to pin — and a card shows what is
+on the other end. A sound tag shows an inline player, a model tag its collision shell slowly
+turning, anything else its identity; **open** in the card, or the row's **Open** button, jumps
+to it. A reference that points at nothing in this installation —
+a typo, or a tag a game update removed — turns red, says `missing`, and its Open is disabled;
+the editor resolves every reference exactly (four-CC or group name, authored backslash paths,
+the cooker's `_Generated_` folder included), so red means broken, not "spelled differently".
+
 ### Editing
 
 Click a value, type a new one, press **Enter**. **Escape** cancels.
@@ -315,11 +357,54 @@ control points[3].position: (-3.522356, 0.00095, 1.838378) → (1.5, 2.5, 3.5) (
 ```
 
 Values go in the same form the CLI takes — see the table above. Enums and bitfields are
-written by name, tag references as `group:path`.
+written by name, tag references as `group:path`. Angles are radians in the tag and in the CLI;
+the **rad / deg** toggle in the tag header shows them in degrees and takes degrees when you
+type, converting at the edge (a copied element or a TSV still carries radians).
+
+The **expert** toggle next to it shows the layout's structural fields too — padding, `custom`
+markers and the terminator — as read-only raw bytes at their offsets, so a definition can be
+checked against the bytes it claims to describe.
+
+**diff** compares the open tag as shipped with the tag as your mod leaves it, every differing
+field with both values; right-click another tag of the same group in the list and choose
+**Compare With Open Tag** to set any two tags side by side. **refs** opens the graph behind a
+tag — what it references and what those reference, to the depth you pick — and copies as
+indented text. Under the tag search, **unreferenced only** narrows a group to the tags no tag
+body references (a scenario or the globals are loaded by the Unreal side and count as
+unreferenced here).
 
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
+
+**Ctrl+Z** takes the last change back and **Ctrl+Y** puts it forward again — every change to a
+tag's edits counts, including element changes and reverts, and the edit bar shows how many
+steps remain either way. The journal is per tag and lives for the session; the project file
+holds the current recipe, not its history.
+
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **ins**, **dup**,
+**del**, **copy** and **paste**: add appends a new element, ins puts one in front of the selected
+element, dup inserts a copy of the selected element after it, del removes the selected one, copy
+takes the selected element as a recipe of its fields, and paste puts that recipe after the
+selected element of any block of the same kind — in this tag or another. Right-click the bar for
+the same commands and for **Copy Block as TSV** / **Paste TSV into Block…**, which move a whole
+block through a spreadsheet: one row per element, one column per field, the header naming the
+fields (nested blocks stay out of the table). A new element is not all zeroes — a tag reference starts unset and a
+block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
+else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
+— whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so
+they reach the game through a test install or export, never through live mode. The **undo** on
+the bar reverts the section's element changes along with every edit inside its elements — an
+edit inside an element that no longer exists could never be re-applied.
+
+![A sniper rifle at the a30 crash site that the shipped scenario does not place](images/block-element-sniper-in-game.jpg)
+
+The screenshot is this feature in game: the a30 scenario's `weapons` block grew from 22 to 23
+elements — the last placement duplicated, the copy retyped to the sniper rifle and moved beside
+the mission start — and the game spawns it, pickup prompt and all. The field edits that shaped
+the copy target `weapons[22]`, an element the shipped tag does not have; edits are re-applied
+in the order they were made, so an edit inside an element an earlier add created lands exactly
+as it did in the editor.
 
 ### Saving — mod projects
 
@@ -337,6 +422,22 @@ See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
 **Export patched tag…** still writes a single tag with your edits to a file you choose —
 useful for inspection and diffing, but not something the game loads.
 
+### New tags
+
+Right-click a tag — in the tag list or the file browser — and choose **New Tag From This…** to
+add a tag to your mod: a clone of the one you clicked, under a path you type, in the same group.
+The clone opens like any other tag and starts as the donor currently is in your mod, edits
+included; from then on its edits are its own, recorded under the new name. The mod panel lists
+it with a **remove** link. Optionally give it a different Unreal asset to bind to — a Blueprint
+package path for objects and effects, an asset for sounds; leave it empty to share the donor's.
+
+Nothing references a new tag until you point something at it: open the tag that should use it
+and set a reference field to `<group>:<path>`. A bake warns when nothing in the mod references
+a new tag, because the game never loads one that nothing names. Testing or exporting builds each
+new tag into a package of its own, in an addition container the game registers by name — the
+path `mjolnir new-tag` proved in game; see
+[`iostore_packaging.md`](iostore_packaging.md#new-packages-register-and-resolve-by-name).
+
 ### Textures
 
 The **textures** tab lists every `Texture2D` in the install, and opening one decodes it and
@@ -345,7 +446,9 @@ the pixel format, the authored size and the mip count. Textures larger than 4096
 at the first mip at or below that, and the header says `shown at mip N` when it does — you are
 not looking at the full-resolution image unless it says nothing.
 
-**Export…** writes the decoded image as a PNG.
+**Export…** writes the texture as a PNG or TIFF of the shown mip, decoded, or as a DDS in the
+cooked pixel format with every mip — the file a DDS-aware tool or a re-import wants, nothing
+re-encoded. A virtual texture's tiles are put back into linear mips on the way.
 
 4787 of the install's 4844 textures decode. The 57 that do not ship no pixel data at all: 52 are
 render targets or otherwise generated at runtime, and 5 are virtual textures whose payload was
@@ -353,8 +456,77 @@ never cooked into the paks. A texture that cannot be decoded says so and why, ra
 you something wrong. The two cook paths behind that — virtual textures with Morton-addressed
 tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_format.md).
 
-**Editing textures is not supported.** You can look and export; replacement is designed but not
-built.
+**Replace…** swaps a texture's pixels for a PNG of yours. The swap is re-encoded in the shipped
+format, proven by decoding it back, and recorded in the mod project like any other edit — see
+[`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
+The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
+
+### Meshes
+
+A cooked Unreal mesh opens in the mesh viewer with its real textures. Nearly every static mesh,
+and the vehicles' skeletal hulls, ship as Nanite cluster pages with only a reduced fallback in the
+classic buffers; the viewer decodes the pages and shows the mesh at full detail, saying
+**Nanite, full detail** in the header. **export .glb…** writes it as glTF binary — the Nanite
+mesh first, then every classic LOD, one primitive per material slot, metres and +Y up — for
+Blender or any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the
+bones as nodes; it is not skinned, because the cooked buffers carry no weights. Weapons and
+most Covenant vehicles hold a one-triangle placeholder in both forms, since their bodies are
+assembled at runtime from other assets. On the command line:
+
+```powershell
+mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
+mjolnir texture export --asset T_ar_default_D --out ar.dds
+```
+
+### Levels
+
+A mission's Unreal geometry — the static meshes the level places, not the Blam structure BSP —
+lives in World Partition cells, one generated `.umap` per grid square. **export level
+geometry…** in a scenario's World view (or `mjolnir level export --mission a30 --out <dir>`)
+writes one `.glb` per cell: every placed static mesh as a node at its world transform, with
+instanced components (foliage, scree, rocks) expanded instance by instance, and a
+`manifest.json` saying what each cell placed and what it skipped. A30 is 576 cells, 1.8 million
+placements and about a gigabyte, in under a minute. Each mesh is placed as its classic fallback
+LOD; `--nanite` on the command line places the full-detail geometry instead. Hierarchical-LOD
+proxies (`--hlod`), hidden components, landscape heightfields, child actors and Niagara effects
+are counted in the manifest rather than placed. The files are independent, so open the cells you
+want.
+
+### String ids
+
+A `string id` field names a string the game has to know: the engine resolves it at load
+against its own registry, and a name that is not registered makes the game reject the whole
+tag — the weapon simply vanishes. The registry as the game held it in mission A30 ships with the
+editor, so **Test in game** and **Export** refuse an edit that sets a string id outside it and
+say which field; the *allow unregistered string ids* checkbox under **Try it** bakes it anyway
+when you mean it. A registered name set fresh still earns a note, because one mission's
+registry is a lower bound for another's. On the command line, `mjolnir set` does the same and
+takes `--allow-unknown-string-id`. A string id in a tag's root element can also be poked live:
+the name is resolved through the running game's registry and the id written where the engine
+keeps it.
+
+### Unreal packages
+
+Anything cooked as an Unreal package — a material instance's parameters, a data asset's
+fields, a component template's settings — can be read and edited by property path with
+`mjolnir ue`, the same way `set` edits a tag field:
+
+```powershell
+mjolnir ue get --package MIP_Rifle_AssaultRifle_Default --filter Emissive
+mjolnir ue set --package MIP_Rifle_AssaultRifle_Default `
+    --field "VectorParameterValues[2].ParameterValue" --value "80,0,0,1" `
+    --out-dir mods
+```
+
+`set` decodes the export's property block losslessly, changes the value, writes the block
+back in front of the class's untouched native bytes, and packs the package into an override
+container the game loads in front of the shipped one; it reads the result back before
+writing. Paths index arrays with `[n]` and map keys with `{key}`. Numbers, bools, names,
+strings, enums (by name or number), soft object paths (`/Game/Pkg.Asset`) and vectors,
+colours and guids as comma lists can be set. Object references cannot: pointing a property
+at a different package needs import-map surgery, which is not done here. There is no
+editor surface for this yet; it is the foundation the mesh and material tooling will build
+on.
 
 ### Audio
 
@@ -383,7 +555,46 @@ were testing. The restart is nearly all of it. **Live mode** skips it: the edit 
 running game as well as the project, and takes effect immediately.
 
 In the editor, the tag header carries a **live on/off** toggle. Switch it on and every
-accepted edit is also written into the game. From the command line:
+accepted edit is also written into the game.
+
+Switch it on and, within about a second, the status line names the **level you are in** —
+read from the engine's own object table (exactly one scenario object is ever loaded), with
+no memory scan at all — and how many tags are *present* (have a live object). Present is
+not the same as pokeable: an object exists for nearly every tag whether or not its data is
+resident, so it is the identity index, not the editable set. Finding the editable set is
+what the scan is for.
+
+Next to the toggle, while the game is running, is **scan game** — the census. On the current
+game build it is not a scan at all: the simulation module keeps its own table of every loaded
+tag — name, group, a handle, and where the root element lives — and the editor reads that
+table directly, in well under a second, with every address exact. The status line says
+`from the game's own tag table` when this path was used. The table's addresses belong to one
+build (they are chosen by the hash of the simulation module), so on a build the editor does
+not know it falls back to the sweep described next; nothing else changes.
+
+The sweep: one pass over the game's memory finds *every* loaded tag at once, for less than
+the old flow paid to find a single tag: measured against a mission in the shipped build,
+~12.6 GB swept in about 15 seconds, 324 loaded tags verified. The first census on an
+installation also spends about a minute fingerprinting every tag; that table is cached on
+disk, so later sessions skip straight to the sweep. After a census, by either route:
+
+- every found tag pokes **instantly** — no per-tag first-edit scan;
+- the status line names **the level you are in**, read from the loaded scenario tag;
+- the file browser gains an **● in game** view listing exactly the tags the game is holding
+  right now, each row badged with a green dot wherever it appears.
+
+The census also asks the engine's **loader cache** first — the map the loader keeps of every
+package it currently references, read straight from the game's memory by package id. Every
+buffer it hands over is adopted at its exact address without the sweep. It is the loader's
+map, so it forgets a buffer once loading is done: in a settled mission it covers a fraction
+of what the sweep finds, and most of it during and just after a level load. The census note
+says how many came straight from it.
+
+The census is a statement about *now*: load a different level and the set is stale — scan
+again. Tags the census could not pin down (a payload too small to fingerprint, or two
+identical copies in memory) simply fall back to the old single-tag scan on their first edit.
+
+From the command line:
 
 ```powershell
 mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25
@@ -391,12 +602,16 @@ mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25 --l
 ```
 
 ```
-  located  payload at 0x11FA6DF1B0A  (2 independent runs agree, best of 13 candidate(s), 16.7 GB scanned)
-           25% of the data section is byte-identical to disk; the rest is the engine's own fix-ups
+  located  root at 0x239108DF900 via the tag table (handle 0xE24A00D6, Steam CU4 2026.08.11.1121610.2)
   live     9   (shipped 2.3)
   wrote    25
   re-read  25  (bytes confirmed in the process)
 ```
+
+On a build without a table profile the `located` line reports the sweep instead — how many
+independent byte runs agreed and how much memory was read. `mjolnir live status`, `live tags`
+and `live string-ids` read the same tables on their own: what is loaded, and which `string id`
+names the running game will accept.
 
 ### What it is, and is not
 
@@ -421,10 +636,11 @@ jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it back.
 - **Fixed-width fields only.** A `string id` or `tag reference` resizes the payload, and a
   heap buffer has nowhere to put the extra bytes. Those still need a rebuild; both the CLI and
   the editor refuse them with that explanation rather than writing something wrong.
-- **The first edit to a tag is slow.** There is no pointer to follow — the tag asset keeps its
-  payload as *unloaded* bulk data — so the buffer is found by scanning ~17 GB for byte runs
-  taken from the tag itself. That is minutes. The address is then cached per tag for the rest
-  of the session, so every later edit is instant.
+- **Finding tags costs one sweep.** There is no pointer to follow — the tag asset keeps its
+  payload as *unloaded* bulk data — so buffers are found by scanning ~17 GB of process memory
+  for byte runs taken from the tags themselves. The **scan game** census pays that sweep once
+  and finds everything; without it, the first edit to each tag pays for its own sweep. Found
+  addresses are cached for the rest of the session, so edits after the sweep are instant.
 - **The tag has to be loaded.** Tags load on demand; be in a mission with the object in play.
 - **Not every field will respond.** Anything the engine consumes once at spawn is already
   baked into whatever it built. Numbers read per use — jump velocity, damage, speeds — are the
@@ -481,9 +697,12 @@ Being explicit, so you do not go hunting:
   text the game's string table does not already contain makes the game reject the whole tag
   (the weapon simply vanishes and the player falls back to the pistol). The editor warns when
   a mod edits a string id. See [`iostore_packaging.md`](iostore_packaging.md).
-- **Adding or removing block elements.** You can change values, not counts.
+- **Adding elements to a block whose elements hold a `pageable resource`.** Only three groups
+  declare the type (`model_animation_graph`, `scenario_structure_bsp`, `shader`); its version
+  word is not reconstructable, so a default element cannot be built for those blocks. Every
+  other block adds, duplicates and removes elements from the editor's section bars.
 - **Editing `data` fields.** Their inline structure is not yet interpreted.
-- **Replacing textures or audio.** Both can be browsed, viewed or played, and exported. Writing
-  either back is not built.
+- **Replacing audio.** Sounds can be browsed, played and exported, but writing audio back is
+  not built. (Textures *can* be replaced — since 0.8.0, in every format but BC7/BC6H.)
 - **Nine `scenario` tags** whose values do not read, all failing on the same field slot. See
   [`tag_body_format.md`](tag_body_format.md) for the detail.

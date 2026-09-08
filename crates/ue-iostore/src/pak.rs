@@ -5,19 +5,27 @@
 //! Wwise audio bank there — roughly 6 GB the IoStore reader never sees.
 //!
 //! Scope matches the IoStore side: enumerate the directory index and read
-//! individual files back into memory. Nothing is written.
+//! individual files back into memory. The one thing written is the empty
+//! archive a container triple needs to be discovered at all — see
+//! [`write_stub`].
 //!
 //! Format reference: UE 5.5 `IPlatformFilePak.cpp` (`FPakInfo::Serialize`,
-//! `FPakFile::DecodePakEntry`).
+//! `FPakFile::DecodePakEntry`, `FPakFile::SaveIndex`).
 
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use sha1::{Digest, Sha1};
+
 use crate::{decompress, Error};
 
 pub const PAK_MAGIC: u32 = 0x5A6F_12E1;
+
+/// The pak format version the game ships: `PakFile_Version_Fnv64BugFix`,
+/// the last one UE 5.5 writes.
+pub const PAK_VERSION: u32 = 11;
 
 /// Compression method slots recorded in the footer, 32 bytes each.
 const MAX_METHODS: usize = 5;
@@ -411,6 +419,100 @@ pub fn load_all(paks_dir: impl AsRef<Path>) -> Result<Vec<PakArchive>, Error> {
         .collect())
 }
 
+fn push_i32(out: &mut Vec<u8>, v: i32) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+fn push_u64(out: &mut Vec<u8>, v: u64) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+fn sha1_of(bytes: &[u8]) -> [u8; 20] {
+    let mut h = Sha1::new();
+    h.update(bytes);
+    h.finalize().into()
+}
+
+/// Size of the primary index [`write_stub`] emits; the secondary indexes and
+/// the footer's `IndexSize` all refer to it.
+const STUB_INDEX_SIZE: u64 = 106;
+
+/// An empty version-11 archive: the `.pak` a `.utoc`/`.ucas` pair must have
+/// beside it to be mounted at all.
+///
+/// The game discovers containers by their `.pak` sibling, then reads the
+/// IoStore pair; the archive itself may hold nothing. Every shipped stub is
+/// this exact shape — 339 bytes, mount point `/`, zero entries, an empty
+/// path-hash index and an empty full directory index — differing only in the
+/// path-hash seed and the footer's hash of the primary index. The seed is
+/// meaningless with no entries to hash, so any value serves; callers pass
+/// something stable per container so a rebuild is byte-identical.
+///
+/// Layout, in `FPakFile::SaveIndex` order:
+///
+/// ```text
+/// primary index (106 bytes, at offset 0)
+///   FString mount point "/"            i32 2, '/', NUL
+///   NumEntries                          i32 0
+///   PathHashSeed                        u64
+///   bReaderHasPathHashIndex             u32 1
+///   PathHashIndexOffset / Size / Hash   i64 106, i64 8, 20 bytes
+///   bReaderHasFullDirectoryIndex        u32 1
+///   FullDirectoryIndexOffset/Size/Hash  i64 114, i64 4, 20 bytes
+///   EncodedPakEntries                   TArray<u8>, count 0
+///   FilesNum                            i32 0
+/// path hash index (8 bytes): empty TMap, empty pruned directory index
+/// full directory index (4 bytes): empty TMap
+/// FPakInfo footer (221 bytes)
+///   EncryptionKeyGuid 16 zero bytes, bEncryptedIndex 0, Magic, Version 11,
+///   IndexOffset 0, IndexSize 106, IndexHash, 5 x 32-byte compression names
+/// ```
+pub fn write_stub(path_hash_seed: u64) -> Vec<u8> {
+    let path_hash_index = [0u8; 8];
+    let full_directory_index = [0u8; 4];
+
+    let mut index = Vec::with_capacity(STUB_INDEX_SIZE as usize);
+    push_i32(&mut index, 2);
+    index.extend_from_slice(&[b'/', 0]);
+    push_i32(&mut index, 0);
+    push_u64(&mut index, path_hash_seed);
+    // The two secondary indexes follow the primary one directly.
+    push_i32(&mut index, 1);
+    push_u64(&mut index, STUB_INDEX_SIZE);
+    push_u64(&mut index, path_hash_index.len() as u64);
+    index.extend_from_slice(&sha1_of(&path_hash_index));
+    push_i32(&mut index, 1);
+    push_u64(&mut index, STUB_INDEX_SIZE + path_hash_index.len() as u64);
+    push_u64(&mut index, full_directory_index.len() as u64);
+    index.extend_from_slice(&sha1_of(&full_directory_index));
+    push_i32(&mut index, 0);
+    push_i32(&mut index, 0);
+    debug_assert_eq!(index.len() as u64, STUB_INDEX_SIZE);
+
+    let mut out = index.clone();
+    out.extend_from_slice(&path_hash_index);
+    out.extend_from_slice(&full_directory_index);
+
+    // FPakInfo.
+    out.extend_from_slice(&[0u8; 16]);
+    out.push(0);
+    out.extend_from_slice(&PAK_MAGIC.to_le_bytes());
+    out.extend_from_slice(&PAK_VERSION.to_le_bytes());
+    push_u64(&mut out, 0);
+    push_u64(&mut out, STUB_INDEX_SIZE);
+    out.extend_from_slice(&sha1_of(&index));
+    out.extend_from_slice(&[0u8; 32 * MAX_METHODS]);
+    out
+}
+
+/// The stub for a container, seeded from its name so a rebuild reproduces the
+/// same bytes. The shipped stubs carry 32-bit seeds; this does too.
+pub fn stub_for(container_name: &str) -> Vec<u8> {
+    let hash = blake3::hash(container_name.as_bytes());
+    let seed = u32::from_le_bytes(hash.as_bytes()[..4].try_into().unwrap());
+    write_stub(seed as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -517,5 +619,82 @@ mod tests {
         let buf = encoded(0, &[1]);
         assert!(decode_entry(&buf, 0, 11).is_err());
         assert!(decode_entry(&buf, 999, 11).is_err());
+    }
+
+    #[test]
+    fn the_stub_has_the_shipped_shape() {
+        let stub = write_stub(0xcc13_a9dd);
+        assert_eq!(stub.len(), 339);
+        assert_eq!(&stub[..6], &[2, 0, 0, 0, b'/', 0]);
+        assert_eq!(&stub[10..18], &0xcc13_a9ddu64.to_le_bytes());
+        assert_eq!(
+            u32::from_le_bytes(stub[0x87..0x8b].try_into().unwrap()),
+            PAK_MAGIC
+        );
+        assert_eq!(
+            u32::from_le_bytes(stub[0x8b..0x8f].try_into().unwrap()),
+            PAK_VERSION
+        );
+        assert_eq!(
+            u64::from_le_bytes(stub[0x97..0x9f].try_into().unwrap()),
+            106
+        );
+        // SHA-1 of eight and of four zero bytes, as the shipped stubs carry.
+        assert_eq!(
+            stub[0x26..0x3a].to_vec(),
+            hex("05fe405753166f125559e7c9ac558654f107c7e9")
+        );
+        assert_eq!(
+            stub[0x4e..0x62].to_vec(),
+            hex("9069ca78e7450a285173431b3e52c5c25299e473")
+        );
+        // Only the seed and the footer hash vary between stubs.
+        let other = write_stub(1);
+        let differ: Vec<usize> = (0..339).filter(|&i| stub[i] != other[i]).collect();
+        assert!(!differ.is_empty());
+        assert!(differ
+            .iter()
+            .all(|&i| (10..14).contains(&i) || (159..179).contains(&i)));
+    }
+
+    #[test]
+    fn the_stub_reads_back_as_an_empty_archive() {
+        let dir = std::env::temp_dir().join(format!("mjolnir-stub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("stub.pak");
+        std::fs::write(&path, stub_for("pakchunk999-test_P")).unwrap();
+        let pak = load_pak(&path).unwrap();
+        assert_eq!(pak.mount_point, "/");
+        assert!(pak.files.is_empty());
+        assert_eq!(pak.version, PAK_VERSION);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stubs_are_stable_per_name_and_distinct_across_names() {
+        assert_eq!(stub_for("a_P"), stub_for("a_P"));
+        assert_ne!(stub_for("a_P"), stub_for("b_P"));
+    }
+
+    /// Against the real thing, when an installation is at hand: the shipped
+    /// stub's own seed must reproduce it byte for byte.
+    #[test]
+    fn matches_a_shipped_stub_when_available() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let path = Path::new(&paks).join("pakchunk115-Windows.pak");
+        let Ok(shipped) = std::fs::read(&path) else {
+            return;
+        };
+        let seed = u64::from_le_bytes(shipped[10..18].try_into().unwrap());
+        assert_eq!(write_stub(seed), shipped);
+    }
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 }

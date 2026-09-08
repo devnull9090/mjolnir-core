@@ -6,9 +6,9 @@
 //! time, and unpacks its IoStore containers into a local cache. A *profile*
 //! decides what actually reaches the game: materializing writes each enabled
 //! container into `Meteorite/Content/Paks` as the verified override triple —
-//! stub `.pak` (copied from a small shipped one; a bare `.utoc`/`.ucas` pair
-//! does not mount, see docs/iostore_packaging.md), `.utoc`, `.ucas` — named
-//! `pakchunk9NN-MJOLNIRHUB-<slug>…_P`.
+//! stub `.pak` (an empty archive written by `ue_iostore::pak`; a bare
+//! `.utoc`/`.ucas` pair does not mount, see docs/iostore_packaging.md),
+//! `.utoc`, `.ucas` — named `pakchunk9NN-MJOLNIRHUB-<slug>…_P`.
 //!
 //! Load order maps list position to that 9NN number, on the assumption that a
 //! higher pakchunk number mounts later and wins shared chunks. UE mounts
@@ -193,25 +193,6 @@ fn order_number(index: usize) -> usize {
     900 + index.min(99)
 }
 
-/// The stub `.pak` an override triple needs: the smallest shipped pak,
-/// byte-copied, exactly as in the verified experiment.
-fn stub_pak_bytes(paks: &std::path::Path) -> Result<Vec<u8>, String> {
-    let mut best: Option<(u64, PathBuf)> = None;
-    for entry in fs::read_dir(paks).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("pakchunk") || !name.ends_with(".pak") || name.contains(MARKER) {
-            continue;
-        }
-        let size = entry.metadata().map_err(|e| e.to_string())?.len();
-        if best.as_ref().is_none_or(|(s, _)| size < *s) {
-            best = Some((size, entry.path()));
-        }
-    }
-    let (_, path) = best.ok_or("No shipped .pak found to derive a stub from")?;
-    fs::read(&path).map_err(|e| e.to_string())
-}
-
 /// Make the Paks directory agree with the active profile: remove every
 /// container this module owns, then write back the enabled ones in order.
 fn materialize(state: &HubState) -> Result<(), String> {
@@ -236,7 +217,6 @@ fn materialize(state: &HubState) -> Result<(), String> {
     if mounted.is_empty() {
         return Ok(());
     }
-    let stub = stub_pak_bytes(&paks)?;
 
     for (i, entry) in mounted.iter().enumerate() {
         let inst = state
@@ -261,8 +241,13 @@ fn materialize(state: &HubState) -> Result<(), String> {
                 paks.join(format!("{base}.ucas")),
             )
             .map_err(|e| format!("{}: {e}", inst.slug))?;
-            fs::write(paks.join(format!("{base}.pak")), &stub)
-                .map_err(|e| format!("{}: {e}", inst.slug))?;
+            // A container without a `.pak` sibling is never discovered, so an
+            // empty one rides along.
+            fs::write(
+                paks.join(format!("{base}.pak")),
+                ue_iostore::pak::stub_for(&base),
+            )
+            .map_err(|e| format!("{}: {e}", inst.slug))?;
         }
     }
     Ok(())

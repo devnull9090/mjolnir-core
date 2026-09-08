@@ -26,6 +26,7 @@ const columns: { title: string; links: { href: string; label: string; external?:
     links: [
       { href: "/docs", label: "Docs" },
       { href: "/docs/tags", label: "Tag Reference" },
+      { href: "/docs/console", label: "Console Commands" },
       { href: "/docs/api", label: "API" },
       { href: "https://github.com/devnull9090/mjolnir-core", label: "Source", external: true },
     ],

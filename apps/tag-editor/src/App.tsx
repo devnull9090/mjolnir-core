@@ -15,6 +15,13 @@ import { ScenarioViewer } from "./components/ScenarioViewer";
 import { ModelViewer } from "./components/ModelViewer";
 import { MeshViewer } from "./components/MeshViewer";
 import { TabBar } from "./components/TabBar";
+import { Shortcuts } from "./components/Shortcuts";
+import { QuickOpen } from "./components/QuickOpen";
+import { ContextMenuHost } from "./components/ContextMenu";
+import { NewTagDialog } from "./components/NewTagDialog";
+import { TsvPasteDialog } from "./components/TsvPasteDialog";
+import { DiffDialog } from "./components/DiffDialog";
+import { RefTreeDialog } from "./components/RefTreeDialog";
 import { MODEL_GROUPS } from "./stores/editor-store";
 
 export default function App() {
@@ -66,6 +73,13 @@ function Editor() {
 
   return (
     <div className="flex h-full min-h-0">
+      <Shortcuts />
+      <QuickOpen />
+      <NewTagDialog />
+      <TsvPasteDialog />
+      <DiffDialog />
+      <RefTreeDialog />
+      <ContextMenuHost />
       <TagTree />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar />
@@ -86,9 +100,11 @@ function Editor() {
         ) : viewMode === "model" && modelable ? (
           <ModelViewer />
         ) : viewMode === "tree" ? (
-          <Inspector />
+          // Keyed per tab so per-tab UI state can never leak between two tags
+          // of the same group, whose child keys would otherwise line up.
+          <Inspector key={active.id} />
         ) : (
-          <FormInspector />
+          <FormInspector key={active.id} />
         )}
       </div>
     </div>

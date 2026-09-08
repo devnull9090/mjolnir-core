@@ -8,6 +8,10 @@ export const NOT_EDITABLE = new Set([
   "array",
   "pageable resource",
   "api interop",
+  // Structural fields the expert view shows: bytes, not values.
+  "pad",
+  "custom",
+  "terminator X",
 ]);
 
 /** Types whose value lives in a trailing section, so changing one resizes the

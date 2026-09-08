@@ -233,7 +233,7 @@ Not in the repository — these are local, and removing them undoes everything:
 
 ```
 <install>/Meteorite/Content/Paks/
-  pakchunk999-MJOLNIR-Windows_P.pak     339 B   stub, copied from pakchunk115-Windows.pak
+  pakchunk999-MJOLNIR-Windows_P.pak     339 B   stub (then a copy of pakchunk115-Windows.pak; now written, see below)
   pakchunk999-MJOLNIR-Windows_P.utoc    302 B   built by `mjolnir pack`
   pakchunk999-MJOLNIR-Windows_P.ucas    36 KB   two chunks, uncompressed
 
@@ -293,7 +293,8 @@ classes are loaded, which is useful orientation first.
 1. **Discovery needs a `.pak` sibling.** Every shipped `pakchunkN` has one; only `global.utoc`
    does not, and that one is mounted explicitly by the engine. A `.utoc`/`.ucas` pair alone was
    never picked up. Several shipped containers pair a **339-byte stub** `.pak` with a large
-   `.ucas`, so copying a stub is legitimate rather than a hack.
+   `.ucas`, so a stub is legitimate rather than a hack — and it is now written rather than
+   copied (see [The stub `.pak`, written](#the-stub-pak-written)).
 
 2. **The container does mount.** Attempting to overwrite the `.ucas` while the game ran failed
    with *device or resource busy*, while the `.utoc` overwrote freely. A process does not hold a
@@ -570,3 +571,153 @@ The game ships both `.pak` and `.utoc`/`.ucas`, and the `.pak` files are large �
 They will not, for the tags. The tag payloads are IoStore **chunks**, addressed by chunk ID
 through the zen loader, not by file path through the pak mount. A `.pak` override would have
 to reach the package store, which is what the IoStore container is for.
+
+### The stub `.pak`, written
+
+Every shipped stub is the same 339 bytes apart from two fields. It is an empty version-11
+archive: a primary index holding the mount point `/`, zero entries, a path-hash seed, and the
+offsets, sizes and SHA-1s of an empty path-hash index (8 zero bytes) and an empty full
+directory index (4 zero bytes); then the `FPakInfo` footer — a zero encryption GUID, the magic
+`0x5A6F12E1`, version 11, the index offset and size, the SHA-1 of the primary index, and five
+empty compression-method names. Only the seed and the footer hash differ between shipped
+stubs, and with no entries the seed hashes nothing. `ue_iostore::pak::write_stub` reproduces
+`pakchunk115-Windows.pak` byte for byte from that file's own seed (a unit test checks it when
+`HCE_PAKS` is set), and `stub_for(name)` seeds from the container name so a rebuild is
+identical. The CLI, the tag editor's test install and export, and the launcher's profile
+materialization all write it; nothing copies a shipped file any more.
+
+## New packages register and resolve by name
+
+**Answered 2026-09-05** (build CU4, mission A30). A brand-new tag package — the marine's
+collision model cloned under `/Game/Tags/objects/characters/marinf/marinf-collision_model` by
+`mjolnir new-tag`, in a `_P` container carrying only its own `ContainerHeader`
+(`blam_pack::build_addition`) — was loaded by the simulation when the marine `model` tag's
+`collision model` reference was repointed at it with `mjolnir pack`. No tag imported it. The
+simulation's own tag table (`mjolnir live tags --filter marinf`) listed it as the 7,056th loaded
+tag, and the model's resident reference held its handle. Details in
+[`tag_table_and_string_ids.md`](tag_table_and_string_ids.md).
+
+Three earlier open items close with it: the runtime tag registry is enumerated from what is
+mounted; a mod container's own `ContainerHeader` is honoured; references resolve by name on
+demand. The same-length rename constraint on the wrapper is the remaining limit, and it is the
+wrapper serializer's job to lift.
+
+The tag editor exposes the same path as **New Tag From This…** (tag editor 0.18.0). The clone
+is a virtual entry in the catalogue that reads as its donor; its edits are recorded under the
+new name in the project's `edits.json` (`new_tags`); a bake builds each one with
+`blam_pack::newtag` — shared with `mjolnir new-tag` — into one addition container beside the
+override containers, named `<slug>-new_P`. Its directory index is a real tree
+(`ue_iostore::pack::directory_index`): mounted at `../../../Meteorite/Content/`, one entry per
+distinct folder, files chained under the folder they live in — so new tags from any number of
+folders share the container, and our own reader lists them at their full paths.
+
+**Proven in game, 2026-09-06:** the editor's own bake path (`resolved_edits` → `modpack::bake` →
+`modpack::install_test`, staged by the ignored test `stage_a_new_tag_for_the_in_game_test`)
+cloned the assault rifle's projectile as `assault_rifle_bullet_mk3` and repointed the rifle at
+it — one resized override container plus one addition container, both with written stubs. On the
+next launch of A30 the tag table listed the clone (`mjolnir live tags --filter
+assault_rifle_bullet`: slot 357, handle `0xE2D90165`, 7,056 loaded tags against the shipped
+7,055) and the rifle fired normally with no fallback.
+
+### The new-package matrix, measured
+
+Every row below was staged through the editor's bake path (the ignored `stage_matrix_*` tests
+in `apps/tag-editor/src-tauri/src/lib.rs`), installed, and read back from the running game's
+tag table with `mjolnir live tags` on a fresh launch of A30 (CU4, 2026-09-06).
+
+| Row | What | Result |
+|---|---|---|
+| Same-size override | one chunk replaced | proven earlier |
+| Resized override, two chunks | rewritten wrapper rides along | proven earlier |
+| New bare-group tag, referenced by an edited tag | `marinf`, `marine_clone` collision models | proven 2026-09-05 |
+| New object-group tag bound to a *different* Blueprint | rifle bullet cloned as `assault_rifle_bullet_mk4` bound to `BP_MagnumProjectileActor`; rifle repointed | loaded (slot 357), rifle fired 36 → 29 |
+| New `model` with the donor's `RuntimeVariants` | rifle model cloned as `assault_rifle_mk4`; rifle's `item.object.model` repointed | loaded (slot 215), rifle rendered |
+| Override of a tag in a per-level container | A30 scenario (`pakchunk130-Windows`), resized, one reference changed | took effect: the level loaded the clone below |
+| New tag in a `_Generated_` group | `landing_zone_p1` lighting info cloned as `landing_zone_p1_mk4` under `A30/_Generated_/`; scenario `structure bsps[7].structure lighting_info` repointed | loaded (slot 12); the shipped lighting info left the table; level rendered and played |
+| Package redirect | — | not exposed: measured elsewhere as not forwarding shipped references, and a clone under a new name does everything a redirect would |
+
+Two clones in different folders first became two addition containers (`matrix-rifle-new_P`,
+`matrix-rifle-new-2_P`), each loaded; with the nested directory index they share one
+(`matrix-rifle-new_P`, five chunks), which loaded the same way. Total loaded tags: 7,057 with
+two additions, 7,055 when the clone replaced a shipped tag the scenario no longer named.
+
+The scenario row also found a bug in the reference scanner shared by the editor's
+"referenced by" index and the new tag's preload list (`blam_tag::refs::tgrf_refs`): an empty
+"none" reference is a twelve-byte section, and the scanner stepped thirteen bytes past it,
+walking over the header of whatever came next. Every reference that directly followed an
+empty one was invisible — the scenario's lighting reference among them. Fixed with a
+regression test.
+
+## Writing the wrapper
+
+**Measured 2026-09-05** against every `.uasset` under `Tags/` across all containers (12,332 —
+the 12,290 tags plus a few dozen region string tables, Niagara systems and one Blueprint that
+share the folder). `ue_asset::package::ZenPackage` parses the whole cooked package header and
+serializes it again; `mjolnir zen-roundtrip` is the gate.
+
+| Check | Result |
+|---|---:|
+| re-serialized byte-exact | **12,332 / 12,332** |
+| bare wrappers rebuilt from `(group, path, payload length)` alone, byte-exact | **2,871 / 2,871** |
+| name-batch hash = CityHash64 of the lowercased name | 12,332 / 12,332 |
+| package id = CityHash64 of the lowercased UTF-16LE package name | 12,332 / 12,332 |
+| export hash = the same over the object (leaf) name | every tag |
+| class / CDO = ScriptImport index of `/Script/BlamSynchronization.Blam<Pascal(group)>TagDataAsset` and its `Default__` | every tag |
+| one bulk entry `{0, -1, size, 66817, 0}`, size = `.ubulk` length | every tag (one shipped sound declares 4,700 bytes and ships no `.ubulk`) |
+| export body framed `[00 00 00 00] … [00 00 00 00]` | every tag |
+| flags `0xb / 0x80002200`; `0x1 / 0x88002200` on the five level-resident groups; `0x3` on `sound` | every tag |
+| bulk map padded to 8 bytes after the name batch | 12,332 / 12,332 |
+
+Layout details the reader had wrong or missing before: the bulk-data map is preceded by a `u64`
+pad size and that many zero bytes; a package import in the import map is
+`(imported package index << 32) | index into the imported public export hashes` under the type-2
+tag; the imported-package-names section is a name batch **followed by one `u32` FName number per
+name** (an imported `BP_Hood_10` is stored as base `BP_Hood_` + number 11), and an empty batch is
+the 4-byte count alone. The cooker's import slot order interleaves package imports between the
+CDO and the class and is not reproducible; it does not need to be.
+
+`cooked_header_size` is the *legacy* header's size: `617 + 2·len(package) + len(object) +
+2·len(class)` for every bare wrapper, but with imports it depends on legacy import names the zen
+header does not carry. **The game does not read it for tag packages**: the marinf collision model
+was reinstalled with the field set to 9999 and loaded and resolved exactly as before.
+
+**Proven in game, 2026-09-05:** `mjolnir new-tag` built `objects\characters\marine\marine_clone`
+(a collision model, path longer than any donor's) from scratch with `ZenPackage::bare_tag`, and
+`mjolnir pack` repointed the marine model at it — a resizing reference edit, so the model rode a
+two-chunk override with its `BinaryBlobSize` rewritten. After a relaunch into A30 the tag table
+listed `marine_clone` and the model's resident reference held its handle with the longer name.
+The wrapper needs no donor and no length constraint for the 47 bare groups.
+
+### The property encoder — wrapper-bearing groups
+
+The 54 groups whose class adds properties (`AssetReference`, `CookedAssetsReferencedByTag`,
+`bSpawnPerInstance`, `ModelRegionStringTable`, `RuntimeVariants`) are covered by
+`ue_asset::props` — a lossless decoder and encoder for unversioned property blocks over the value
+kinds tags use (object, bool, integer, name, array, map, reflected struct, soft object path) —
+and `ue_asset::tagwrap`, which builds the whole wrapper from a `WrapperSpec`: the binding, the
+preload list, the variants. Measured with `mjolnir zen-roundtrip`:
+
+| Check | Result |
+|---|---:|
+| export bodies decoded against the wrapper class | 12,161 / 12,162 (the one miss is the customization-globals tag, whose nested struct uses a zero mask) |
+| decoded bodies re-encoded byte-exact | **12,161 / 12,161** |
+| wrapper-bearing wrappers read back into a spec, rebuilt, and read again: same spec, same dependency order, same names | **9,408 / 9,456** |
+
+The 48 that differ are the 13 `scenario` tags, whose dependency bundles the cooker orders
+differently from their preload arrays (scenario authoring is deferred), and the non-tag packages
+under the folder. Bytes are not compared: the cooker's import slot order is its own, and the
+name map's order is cosmetic — the shipped maps put `None` first in one model and in alphabetical
+position in another. `RF_Transactional` is treated as inert (2,563 sound tags ship without it).
+
+Layout facts pinned on the way: a package import is `(imported package index << 32) | index into
+the imported public export hashes`; `FName` numbers split off a trailing `_<digits>`
+(`BP_Hood_10` is stored as `BP_Hood_` plus number 11); the dependency bundle lists the body's
+object references base-class properties first; `None` and `none` are distinct name-map entries.
+
+**Proven in game, 2026-09-05:** `mjolnir new-tag` built
+`objects\weapons\rifle\assault_rifle\projectiles\assault_rifle_bullet_mk2` — an object-group
+tag bound to `BP_AssaultRifleBulletProjectileActor`, its preload list derived from the body's
+own references — and `mjolnir pack` repointed the assault rifle's barrel at it. In A30 the tag
+table listed the projectile (slot 357) and the rifle fired it: a seven-round burst took the
+magazine from 36 to 29 with no fallback. `new-tag` now builds every group's wrapper from scratch;
+the same-length surgery is no longer needed for tags.

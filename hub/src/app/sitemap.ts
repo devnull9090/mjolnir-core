@@ -4,6 +4,7 @@ import { getDocNotes } from "@/lib/docs";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
 import { getAllTags, getBlogLastModified, getPosts } from "@/lib/blog";
 import { getTagGroups } from "@/lib/tags";
+import { getConsoleFamilies } from "@/lib/console";
 import {
   listModsForSitemap,
   listProfilesForSitemap,
@@ -82,6 +83,7 @@ async function toolImages(): Promise<Map<string, MediaRow[]>> {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const notes = getDocNotes();
   const tagGroups = getTagGroups();
+  const consoleFamilies = getConsoleFamilies();
   const releases = getReleases();
   const changelogUpdated = getLastModified();
   const [mods, profiles, previews] = await Promise.all([
@@ -105,6 +107,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     ...tagGroups.map((g) => ({
       url: `${baseUrl}/docs/tags/${g.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
+    {
+      url: `${baseUrl}/docs/console`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.9,
+    },
+    {
+      url: `${baseUrl}/docs/console/globals`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.6,
+    },
+    ...consoleFamilies.map((f) => ({
+      url: `${baseUrl}/docs/console/${f.slug}`,
       lastModified: new Date(),
       changeFrequency: "monthly" as const,
       priority: 0.6,

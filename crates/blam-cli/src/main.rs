@@ -11,13 +11,19 @@ use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
+mod console;
 mod container;
 mod defs;
+mod extract;
 mod hsc;
 mod index;
 mod level;
+mod live;
 mod mesh;
+mod ue;
+mod newtag;
 mod rename;
+mod zenrt;
 mod tagdiff;
 mod texture;
 
@@ -126,6 +132,9 @@ enum Command {
     Roundtrip(ValidateArgs),
     /// Print one tag's fields with their decoded values.
     Values(ValuesArgs),
+    /// Write tags out of the containers as files, in the layout Blam tooling
+    /// expects (`objects/weapons/rifle/assault_rifle.weapon`); mod-aware.
+    Extract(extract::ExtractArgs),
     /// Decode and re-encode every field, checking no byte changes.
     Recode(ValidateArgs),
     /// Change one field of a tag and report exactly which bytes moved.
@@ -142,12 +151,21 @@ enum Command {
     TagFile(TagFileArgs),
     /// Change a field in the *running* game, without rebuilding or restarting.
     Poke(PokeArgs),
+    /// Read the running game's own tag table and string-id registry.
+    Live(live::LiveArgs),
+    /// Put a brand-new tag package in front of the game, cloned from a donor.
+    NewTag(newtag::NewTagArgs),
+    /// Re-serialize every shipped tag wrapper and count the derivation rules that hold.
+    ZenRoundtrip(zenrt::ZenRoundtripArgs),
     /// Read the Blam script a scenario carries.
     Script(ScriptArgs),
     /// Recover the scripting function table and export it as JSON.
     Scripting(ScriptingArgs),
     /// Compile `.hsc` files and report what the compiler makes of them.
     Compile(CompileArgs),
+    /// Lift the engine's console vocabulary — every function and global the
+    /// simulation DLL knows, not just the opcodes the campaign calls.
+    Console(console::ConsoleArgs),
     /// Inspect, export and swap cooked textures.
     #[command(subcommand_help_heading = "Texture")]
     Texture(texture::TextureArgs),
@@ -157,6 +175,8 @@ enum Command {
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
+    /// Read and edit the properties of any cooked Unreal package — a material instance's parameters, a data asset's fields — and write the edit as an override container
+    Ue(ue::UeArgs),
     /// Derive FPackageId values and check them against the shipped TOCs.
     Packageid(container::PackageIdArgs),
     /// Diff the shipped tags of two builds, field by field.
@@ -233,6 +253,10 @@ struct ScriptArgs {
     /// With --verify, print the first few disagreements in full.
     #[arg(long, default_value_t = 5)]
     show: usize,
+    /// Write every source file the selected scenarios carry as `.hsc` under
+    /// this directory, one folder per scenario, and print nothing else.
+    #[arg(long)]
+    extract: Option<PathBuf>,
     /// Recovered scripting corpus, used to know which literals are quoted.
     /// Ignored if the file is absent.
     #[arg(long, default_value = "defs/hce/scripting.json")]
@@ -372,6 +396,12 @@ struct ValuesArgs {
     /// Print fields whose value is empty or zero.
     #[arg(long)]
     all: bool,
+    /// Print the value tree as JSON instead of text: every field with its
+    /// name, type, offset, size and displayed value, blocks with their
+    /// elements (as many as `--elements` allows) and counts. `--depth` and
+    /// `--all` do not apply.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -393,6 +423,10 @@ struct SetArgs {
     /// Write the patched tag here. Without this nothing is written to disk.
     #[arg(long)]
     out: Option<PathBuf>,
+    /// Write a string id the game's registry does not contain, knowing the
+    /// game will reject the whole tag over it.
+    #[arg(long)]
+    allow_unknown_string_id: bool,
 }
 
 #[derive(Args)]
@@ -508,6 +542,7 @@ fn main() -> Result<()> {
         Command::DataVersions(a) => data_versions(a),
         Command::Roundtrip(a) => roundtrip(a),
         Command::Values(a) => values(a),
+        Command::Extract(a) => extract::run(a),
         Command::Recode(a) => recode(a),
         Command::Set(a) => set(a),
         Command::TocRoundtrip(a) => toc_roundtrip(a),
@@ -516,12 +551,17 @@ fn main() -> Result<()> {
         Command::Container(a) => container::run(a),
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
+        Command::Live(a) => live::run(a),
+        Command::NewTag(a) => newtag::run(a),
+        Command::ZenRoundtrip(a) => zenrt::run(a),
         Command::Script(a) => script(a),
         Command::Scripting(a) => scripting(a),
+        Command::Console(a) => console::run(a),
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
         Command::Mesh(a) => mesh::run(a),
+        Command::Ue(a) => ue::run(a),
         Command::Packageid(a) => container::run_packageid(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
@@ -1120,34 +1160,7 @@ fn pack(a: PackArgs) -> Result<()> {
         }
         None => original.clone(),
     };
-    for set in &a.sets {
-        let (path, value) = set
-            .split_once('=')
-            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
-        let tag = TagFile::parse(&file, Some(file.len()))?;
-        let l = tag.layout()?;
-        let block = tag.read_data(&l)?;
-        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
-        // A section-backed value resizes the tag, so it takes the rebuild path.
-        let resizes = target.section.is_some();
-        let parsed = match target.type_name.as_str() {
-            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
-            "tag reference" => parse_reference(value)?,
-            _ => blam_tag::value::parse(&l, &target.field, value)?,
-        };
-        let (out, applied) = if resizes {
-            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
-        } else {
-            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
-        };
-        println!(
-            "  edit     {} : {} -> {}",
-            applied.path,
-            applied.before.display(),
-            applied.after.display()
-        );
-        file = out;
-    }
+    file = apply_sets(&file, &a.sets)?;
 
     if file.len() == original.len() {
         let changed = (0..file.len()).filter(|i| file[*i] != original[*i]).count();
@@ -1313,6 +1326,53 @@ fn toc_roundtrip(a: SectionsArgs) -> Result<()> {
 /// Nothing is written unless `--out` is given, and the patched bytes are read
 /// back and re-walked before anything is reported as a success.
 /// Parse `group:path` or `none` into a tag reference.
+/// The game's reflection schemas, bundled so the tool needs no file beside it.
+/// The Blam wrapper classes have not changed between CU3 and CU4.
+pub(crate) fn embedded_usmap() -> Result<&'static ue_asset::Usmap> {
+    static USMAP: std::sync::OnceLock<Option<ue_asset::Usmap>> = std::sync::OnceLock::new();
+    static BYTES: &[u8] = include_bytes!("../../../defs/ue/Meteorite-2607-CU3.usmap");
+    USMAP
+        .get_or_init(|| ue_asset::Usmap::parse(BYTES).ok())
+        .as_ref()
+        .context("the bundled usmap does not parse")
+}
+
+/// Apply `path=value` edits to a tag payload in order, printing each one.
+/// Shared by `pack` and `new-tag`: string ids and tag references take their
+/// own parsers, a section-backed value takes the rebuild path.
+pub(crate) fn apply_sets(original: &[u8], sets: &[String]) -> Result<Vec<u8>> {
+    let mut file = original.to_vec();
+    for set in sets {
+        let (path, value) = set
+            .split_once('=')
+            .with_context(|| format!("--set takes path=value, got {set:?}"))?;
+        let tag = TagFile::parse(&file, Some(file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let target = blam_tag::patch::resolve(&l, &file, &block, path)?;
+        // A section-backed value resizes the tag, so it takes the rebuild path.
+        let resizes = target.section.is_some();
+        let parsed = match target.type_name.as_str() {
+            "string id" => blam_tag::Scalar::Text(value.trim_matches('"').to_string()),
+            "tag reference" => parse_reference(value)?,
+            _ => blam_tag::value::parse(&l, &target.field, value)?,
+        };
+        let (out, applied) = if resizes {
+            blam_tag::patch::set_text(&l, &file, &block, path, &parsed)?
+        } else {
+            blam_tag::patch::set(&l, &file, &block, path, &parsed)?
+        };
+        println!(
+            "  edit     {} : {} -> {}",
+            applied.path,
+            applied.before.display(),
+            applied.after.display()
+        );
+        file = out;
+    }
+    Ok(file)
+}
+
 pub(crate) fn parse_reference(text: &str) -> Result<blam_tag::Scalar> {
     let t = text.trim();
     if t.is_empty() || t.eq_ignore_ascii_case("none") {
@@ -1375,7 +1435,8 @@ fn poke(a: PokeArgs) -> Result<()> {
     let tag = TagFile::parse(&file, Some(entry.chunk.length as usize))?;
     let layout = tag.layout()?;
     let block = tag.read_data(&layout)?;
-    let target = blam_tag::patch::resolve(&layout, &file, &block, &a.field)?;
+    let route = blam_tag::patch::route(&layout, &file, &block, &a.field)?;
+    let target = &route.target;
 
     // A section-backed value lives in a trailing section, so changing it moves
     // every byte after it. In a file that is fine — the tag is rebuilt. In a
@@ -1416,27 +1477,93 @@ fn poke(a: PokeArgs) -> Result<()> {
         .context("this tag has no bdat section to locate")?;
     let data_start = data.content.as_ptr() as usize - file.as_ptr() as usize;
     let region = data_start..data_start + data.content.len();
+    // Within it, only the root element keeps its file offsets: the engine
+    // resolves every reference in place and moves block elements out, so the
+    // tag is found by the root element's scalar fields and a field inside a
+    // block is reached through the block's rewritten header.
+    let root_off = block.elements.as_ptr() as usize - file.as_ptr() as usize;
+    let root = root_off..root_off + block.element_size as usize;
+    let stable = blam_tag::view::scalar_mask(&layout, &block, &file);
+    let hop = |h: &blam_tag::patch::Hop| blam_live::Hop {
+        header: h.header,
+        index: h.index,
+        element: h.element,
+        element_size: h.element_size,
+    };
+    let blocks: Vec<(blam_live::Hop, u32)> = blam_tag::patch::root_blocks(&layout, &file, &block)
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(h, n)| (hop(h), *n))
+        .collect();
+    let headers: Vec<usize> = blocks.iter().map(|(h, _)| h.header).collect();
+    let hops: Vec<blam_live::Hop> = route.hops.iter().map(hop).collect();
+    let shape = blam_live::Shape {
+        region,
+        root,
+        stable: &stable,
+        headers: &headers,
+    };
 
-    let at = blam_live::locate(&process, &file, &region, std::slice::from_ref(&span))?;
+    // The simulation's own tag table names every loaded tag and its root, so
+    // on a known build the tag is found by a pointer-chase; the sweep is the
+    // fallback for a build without a profile.
+    let (base, segments) =
+        match live::locate_via_table(&process, tag.header.group.0, &entry.path)? {
+            Some(hit) => {
+                println!(
+                    "  located  root at 0x{:X} via the tag table (handle 0x{:08X}, {})",
+                    hit.root, hit.handle, hit.profile
+                );
+                (hit.root - root_off as u64, Some(hit.segments))
+            }
+            None => {
+                let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
+                println!(
+                    "  located  payload at 0x{:X}  ({} independent runs agree, best of {} \
+                     candidate(s), {:.1} GB scanned)",
+                    at.base,
+                    at.agreeing_runs,
+                    at.candidates,
+                    at.scanned as f64 / 1e9
+                );
+                println!(
+                    "           {:.0}% of the root element's scalar bytes match the file; the \
+                     engine rewrites the references around them",
+                    at.match_fraction * 100.0
+                );
+                (at.base, None)
+            }
+        };
+
+    let address = if hops.is_empty() {
+        base + span.start as u64
+    } else {
+        let arena = match &segments {
+            Some(segments) => {
+                let header =
+                    blam_live::read_block_header(&process, base + hops[0].header as u64)?;
+                segments.arena_for(header.words).context(
+                    "the first block header on the way to the field points into a segment \
+                     the game has not mapped",
+                )?
+            }
+            None => blam_live::derive_arena(&process, base, &file, &stable, &blocks).context(
+                "the field sits inside a block element, which the engine keeps outside the \
+                 tag, and the arena those live in could not be worked out from this tag",
+            )?,
+        };
+        blam_live::field_address(&process, base, arena, &hops, span.start)?
+    };
     println!(
-        "  located  payload at 0x{:X}  ({} independent runs agree, best of {} candidate(s), \
-         {:.1} GB scanned)",
-        at.base,
-        at.agreeing_runs,
-        at.candidates,
-        at.scanned as f64 / 1e9
-    );
-    // Stated so it is not mistaken for a problem. Most of the data section is
-    // rewritten by the engine after load — offsets resolved, values computed —
-    // so a low figure here is normal. Agreement between runs is the evidence
-    // that this is the right address; this number is only colour.
-    println!(
-        "           {:.0}% of the data section is byte-identical to disk; the rest is the \
-         engine's own fix-ups",
-        at.match_fraction * 100.0
+        "  address  0x{address:X}{}",
+        if hops.is_empty() {
+            String::new()
+        } else {
+            format!("  (inside a block element, {} hop(s) from the root)", hops.len())
+        }
     );
 
-    let live_before = blam_live::peek(&process, &at, span.start, target.size)?;
+    let live_before = process.read(address, target.size)?;
     let shown = decode_live(&file, &span, &live_before, &a.field);
     println!(
         "  live     {}   (shipped {})",
@@ -1449,7 +1576,8 @@ fn poke(a: PokeArgs) -> Result<()> {
         return Ok(());
     }
 
-    let read_back = blam_live::poke(&process, &at, span.start, &bytes)?;
+    process.write(address, &bytes)?;
+    let read_back = process.read(address, bytes.len())?;
     let after = decode_live(&file, &span, &read_back, &a.field);
     println!("  wrote    {}", applied.after.display());
     println!(
@@ -1496,7 +1624,22 @@ fn set(a: SetArgs) -> Result<()> {
     let resizes = target.section.is_some();
     let parsed = match target.type_name.as_str() {
         "tag reference" => parse_reference(&a.value)?,
-        "string id" => blam_tag::Scalar::Text(a.value.trim_matches('"').to_string()),
+        "string id" => {
+            let name = a.value.trim_matches('"').to_string();
+            // The game rejects a whole tag over one string id it has not
+            // registered; the registry as it held it in A30 is the offline
+            // check (`blam_live::stringid::shipped`).
+            let registered = blam_live::stringid::normalize(&name)
+                .is_some_and(|n| blam_live::stringid::is_shipped(&n));
+            if !registered && !a.allow_unknown_string_id {
+                anyhow::bail!(
+                    "{name:?} is not in the game's string-id registry, and an unregistered \
+                     string id makes the game reject the whole tag. Pass \
+                     --allow-unknown-string-id to write it anyway."
+                );
+            }
+            blam_tag::Scalar::Text(name)
+        }
         _ => blam_tag::value::parse(&l, &target.field, &a.value)?,
     };
     let (patched, applied) = if resizes {
@@ -1726,6 +1869,18 @@ fn values(a: ValuesArgs) -> Result<()> {
         .with_context(|| format!("{} values are not readable", entry.path))?;
     let nodes = blam_tag::view::root_capped(&l, &block, build_cap(a.elements));
 
+    if a.json {
+        let doc = serde_json::json!({
+            "path": entry.path,
+            "group": a.group,
+            "four_cc": tag.header.group.as_str(),
+            "version": tag.header.group_version,
+            "fields": nodes.iter().map(node_json).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&doc)?);
+        return Ok(());
+    }
+
     println!("{}", entry.path);
     println!(
         "  {} ({}) v{} - {} nodes\n",
@@ -1746,6 +1901,58 @@ fn values(a: ValuesArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// One value-tree node as JSON, for `values --json`: what the text printer
+/// shows, in a shape another tool can read.
+fn node_json(n: &blam_tag::view::Node) -> serde_json::Value {
+    use blam_tag::view::Kind;
+    let mut o = serde_json::Map::new();
+    o.insert("name".into(), n.name.clone().into());
+    o.insert(
+        "kind".into(),
+        match n.kind {
+            Kind::Field => "field",
+            Kind::Struct => "struct",
+            Kind::Block => "block",
+            Kind::Element => "element",
+            Kind::Array => "array",
+        }
+        .into(),
+    );
+    if !n.type_name.is_empty() {
+        o.insert("type".into(), n.type_name.clone().into());
+    }
+    o.insert("offset".into(), n.offset.into());
+    o.insert("size".into(), n.size.into());
+    if matches!(n.kind, Kind::Field) {
+        o.insert("value".into(), n.value.display().into());
+        if let blam_tag::Scalar::Reference { group, path } = &n.value {
+            o.insert(
+                "reference".into(),
+                serde_json::json!({ "group": group, "path": path }),
+            );
+        }
+        if !n.options.is_empty() {
+            o.insert("options".into(), n.options.clone().into());
+        }
+    }
+    if let Some(b) = &n.block_name {
+        o.insert("block".into(), b.clone().into());
+    }
+    if let Some(m) = n.max_count {
+        o.insert("max_count".into(), m.into());
+    }
+    if let Some(c) = n.count {
+        o.insert("count".into(), c.into());
+    }
+    if !n.children.is_empty() {
+        o.insert(
+            "children".into(),
+            n.children.iter().map(node_json).collect::<Vec<_>>().into(),
+        );
+    }
+    serde_json::Value::Object(o)
 }
 
 /// Read one scenario's script section, or every scenario's.
@@ -1795,6 +2002,37 @@ fn script(a: ScriptArgs) -> Result<()> {
             .read_data(&l)
             .with_context(|| format!("{} is not readable", entry.path))?;
         let hs = blam_hsc::read::read(&l, &block, &buf)?;
+
+        // The sources as files, the way a mod project keeps them: one folder
+        // per scenario, one `.hsc` per source file, in the order they compile.
+        if let Some(root) = &a.extract {
+            let leaf = entry
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&entry.path)
+                .trim_end_matches(".ubulk")
+                .trim_end_matches("-scenario");
+            let dir = root.join(leaf);
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("creating {}", dir.display()))?;
+            for file in &hs.source_files {
+                let safe: String = file
+                    .name
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                    .collect();
+                let dest = dir.join(format!("{safe}.hsc"));
+                std::fs::write(&dest, file.text().as_bytes())
+                    .with_context(|| format!("writing {}", dest.display()))?;
+            }
+            println!(
+                "{leaf:<12} {} source file(s) -> {}",
+                hs.source_files.len(),
+                dir.display()
+            );
+            continue;
+        }
 
         // Printing one file's text is the whole output; the summary would only
         // get in the way of piping it.

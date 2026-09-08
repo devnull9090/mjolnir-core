@@ -43,10 +43,19 @@ export function TextureViewer() {
   const shownNote =
     texture.mip > 0 ? ` · shown at mip ${texture.mip} (${texture.width >> texture.mip}×${texture.height >> texture.mip})` : "";
 
-  async function onExport() {
+  // The extension picks the format: PNG and TIFF decode the shown mip, DDS
+  // keeps the cooked pixel format and every mip.
+  async function onExport(ext: "png" | "dds" | "tif") {
     if (!texture) return;
-    const name = `${texture.path.split("/").pop() ?? "texture"}.png`;
-    const dest = await save({ defaultPath: name });
+    const stem = texture.path.split("/").pop() ?? "texture";
+    const dest = await save({
+      defaultPath: `${stem}.${ext}`,
+      filters: [
+        { name: "PNG (decoded, one mip)", extensions: ["png"] },
+        { name: "DDS (cooked format, every mip)", extensions: ["dds"] },
+        { name: "TIFF (decoded, one mip)", extensions: ["tif", "tiff"] },
+      ],
+    });
     if (!dest) return;
     setWrote(null);
     const written = await exportTexture(dest);
@@ -116,11 +125,11 @@ export function TextureViewer() {
             ))}
             <button
               type="button"
-              onClick={() => void onExport()}
+              onClick={() => void onExport("png")}
               className="ml-2 border border-mjolnir-gold/60 px-2 py-0.5 text-[11px] text-mjolnir-gold hover:bg-mjolnir-gold/10"
               title="Decode at full size and save as PNG"
             >
-              Export PNG…
+              Export…
             </button>
             <button
               type="button"

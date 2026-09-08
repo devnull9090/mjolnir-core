@@ -1,5 +1,8 @@
 import type { Tab } from "../stores/editor-store";
 import { useEditor } from "../stores/editor-store";
+import { api } from "../lib/api";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu } from "./ContextMenu";
 
 /** Short badge and colour for each document kind. */
 const KINDS: Record<Tab["kind"], { badge: string; color: string }> = {
@@ -14,12 +17,26 @@ export function TabBar() {
   const { tabs, activeTab, dirtyTags } = useEditor();
   const activateTab = useEditor((s) => s.activateTab);
   const closeTab = useEditor((s) => s.closeTab);
+  const closeOtherTabs = useEditor((s) => s.closeOtherTabs);
+  const closeTabsRight = useEditor((s) => s.closeTabsRight);
 
   if (tabs.length === 0) return null;
 
+  const copyPath = (tab: Tab) => {
+    if (tab.path) {
+      void copyText(tab.path);
+    } else if (tab.kind === "tag") {
+      // A tag opened before its identity peek landed still knows its index.
+      void api
+        .peekTag(tab.index)
+        .then((p) => copyText(p.short))
+        .catch(() => {});
+    }
+  };
+
   return (
     <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-border-subtle bg-surface-secondary">
-      {tabs.map((tab) => {
+      {tabs.map((tab, at) => {
         const active = tab.id === activeTab;
         const dirty = tab.kind === "tag" && dirtyTags[tab.index];
         return (
@@ -30,6 +47,27 @@ export function TabBar() {
                 ? "bg-surface-primary text-text-primary"
                 : "text-text-dim hover:bg-surface-hover hover:text-text-secondary"
             }`}
+            onContextMenu={(e) =>
+              showContextMenu(e, [
+                { label: "Close", action: () => closeTab(tab.id) },
+                {
+                  label: "Close Others",
+                  action: () => closeOtherTabs(tab.id),
+                  disabled: tabs.length < 2,
+                },
+                {
+                  label: "Close All to the Right",
+                  action: () => closeTabsRight(tab.id),
+                  disabled: at === tabs.length - 1,
+                },
+                "separator",
+                {
+                  label: "Copy Path",
+                  action: () => copyPath(tab),
+                  disabled: !tab.path && tab.kind !== "tag",
+                },
+              ])
+            }
           >
             <button
               type="button"

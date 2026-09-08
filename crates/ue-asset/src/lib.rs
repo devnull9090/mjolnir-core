@@ -5,8 +5,15 @@
 //! game actually renders with. See `docs/tag_data_pipeline.md` for how the
 //! two halves relate.
 
+pub mod edit;
+pub mod gltf;
+pub mod level;
 pub mod material;
 pub mod mesh;
+pub mod nanite;
+pub mod package;
+pub mod props;
+pub mod tagwrap;
 pub mod unversioned;
 pub mod usmap;
 pub mod zen;

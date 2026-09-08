@@ -36,8 +36,19 @@ function decodeDataUri(uri: string): { mime: string; bytes: Uint8Array } {
  *
  * The backend hands over an Ogg (or a plain WAV for the PCM files); decoding
  * is the webview's own, both for playback and for the peaks drawn here.
+ *
+ * `index` plays a loose catalog sound. `bank` + `media` instead play a media
+ * file embedded in a bank's DATA section — audio that exists nowhere else.
  */
-export function SoundPlayer({ index }: { index: number }) {
+export function SoundPlayer({
+  index,
+  bank,
+  media,
+}: {
+  index?: number;
+  bank?: number;
+  media?: number;
+}) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +77,10 @@ export function SoundPlayer({ index }: { index: number }) {
     let mine: string | null = null;
     void (async () => {
       try {
-        const audioData = await api.playSound(index);
+        const audioData =
+          bank !== undefined && media !== undefined
+            ? await api.playBankMedia(bank, media)
+            : await api.playSound(index ?? 0);
         const { mime, bytes } = decodeDataUri(audioData.src);
         if (!live) return;
         mine = URL.createObjectURL(new Blob([bytes], { type: mime }));
@@ -88,7 +102,7 @@ export function SoundPlayer({ index }: { index: number }) {
       live = false;
       if (mine) URL.revokeObjectURL(mine);
     };
-  }, [index]);
+  }, [index, bank, media]);
 
   function onToggle() {
     if (playing) {

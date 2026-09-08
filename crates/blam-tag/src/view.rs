@@ -98,6 +98,10 @@ struct Walk<'v> {
     /// `max_elements` to the power of the nesting depth, so the total is
     /// bounded too.
     budget: usize,
+    /// Build nodes for structural fields too — padding, custom markers, the
+    /// terminator — as raw bytes at their offsets. What an expert view shows;
+    /// nothing else wants them.
+    structural: bool,
 }
 
 /// Default cap on block elements built per node.
@@ -126,6 +130,22 @@ pub fn root_capped(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) 
         build: true,
         max_elements,
         budget: DEFAULT_MAX_NODES,
+        structural: false,
+    };
+    run(layout, block, &mut walk)
+}
+
+/// [`root_capped`], with the structural fields — padding, `custom` markers,
+/// the `terminator X` — built as read-only leaves holding their raw bytes.
+/// The layout's every byte becomes visible, which is what an expert wants
+/// when a definition looks wrong.
+pub fn root_expert(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) -> Vec<Node> {
+    let mut walk = Walk {
+        visit: &mut |_, _| {},
+        build: true,
+        max_elements,
+        budget: DEFAULT_MAX_NODES,
+        structural: true,
     };
     run(layout, block, &mut walk)
 }
@@ -144,6 +164,7 @@ pub fn visit_fields(
         build: false,
         max_elements: usize::MAX,
         budget: usize::MAX,
+        structural: false,
     };
     run(layout, block, &mut walk);
 }
@@ -197,6 +218,24 @@ fn fields(
         };
 
         if structural(&type_name) {
+            if walk.build && walk.structural && walk.budget > 0 {
+                let slice = bytes
+                    .get(offset as usize..(offset + size) as usize)
+                    .unwrap_or(&[]);
+                let shown = if name.trim().is_empty() {
+                    type_name.clone()
+                } else {
+                    name.clone()
+                };
+                walk.budget -= 1;
+                out.push(Node::leaf(
+                    shown,
+                    type_name.clone(),
+                    offset,
+                    size,
+                    Scalar::Raw(slice.to_vec()),
+                ));
+            }
             offset += size;
             continue;
         }
@@ -489,6 +528,43 @@ mod tests {
     }
 
     #[test]
+    fn the_expert_root_shows_structural_fields_as_raw_bytes() {
+        let file = crate::patch::tests::synth_block_file();
+        let tag = crate::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+        let plain = root(&layout, &block);
+        let expert = root_expert(&layout, &block, DEFAULT_MAX_ELEMENTS);
+        let count = |nodes: &[Node]| -> usize {
+            fn walk(n: &Node, f: &mut dyn FnMut(&Node)) {
+                f(n);
+                for c in &n.children {
+                    walk(c, f);
+                }
+            }
+            let mut structural = 0;
+            for n in nodes {
+                walk(n, &mut |n| {
+                    if matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X") {
+                        structural += 1;
+                    }
+                });
+            }
+            structural
+        };
+        assert_eq!(count(&plain), 0, "the plain view hides structural fields");
+        // The synthetic fixture may or may not carry padding; when it does,
+        // the expert view shows it as bytes with a size.
+        for n in &expert {
+            if matches!(n.type_name.as_str(), "pad" | "custom" | "terminator X") {
+                assert!(matches!(n.value, Scalar::Raw(_)));
+                assert!(n.size > 0 || n.type_name == "terminator X");
+            }
+        }
+        assert!(expert.len() >= plain.len());
+    }
+
+    #[test]
     fn a_node_counts_its_whole_subtree() {
         let leaf = Node::leaf("a".into(), "real".into(), 0, 4, Scalar::Real(1.0));
         let parent = Node {
@@ -498,4 +574,70 @@ mod tests {
         };
         assert_eq!(parent.len(), 3);
     }
+}
+
+/// Which bytes of `file` hold fixed-width scalar values — numbers, angles,
+/// flags, enums: everything that is a *value* rather than a reference.
+///
+/// A runtime that resolves a tag in place rewrites its references — string
+/// ids become handles, tag references become pointers, block indices are
+/// re-based — and leaves the numbers where the file put them. So the scalar
+/// bytes are what survives to be matched against memory. One flag per byte
+/// of `file`; everything outside a scalar field — block headers, section
+/// wrappers, the header and layout sections — is `false`.
+pub fn scalar_mask(layout: &Layout<'_>, block: &Block<'_>, file: &[u8]) -> Vec<bool> {
+    let mut mask = vec![false; file.len()];
+    let lo = file.as_ptr() as usize;
+    visit_fields(layout, block, &mut |field, bytes| {
+        if bytes.is_empty() || !scalar(layout.type_name_of(field)) {
+            return;
+        }
+        let at = bytes.as_ptr() as usize;
+        if at < lo || at + bytes.len() > lo + file.len() {
+            return;
+        }
+        let off = at - lo;
+        mask[off..off + bytes.len()].iter_mut().for_each(|b| *b = true);
+    });
+    mask
+}
+
+/// Types whose bytes are a value, not a reference the runtime resolves.
+fn scalar(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "real"
+            | "real fraction"
+            | "angle"
+            | "real bounds"
+            | "angle bounds"
+            | "fraction bounds"
+            | "real point 2d"
+            | "real vector 2d"
+            | "real euler angles 2d"
+            | "real point 3d"
+            | "real vector 3d"
+            | "real euler angles 3d"
+            | "real rgb color"
+            | "real plane 2d"
+            | "real argb color"
+            | "real plane 3d"
+            | "real quaternion"
+            | "char integer"
+            | "byte integer"
+            | "short integer"
+            | "word integer"
+            | "long integer"
+            | "int64 integer"
+            | "short integer bounds"
+            | "rectangle 2d"
+            | "byte flags"
+            | "word flags"
+            | "long flags"
+            | "char enum"
+            | "short enum"
+            | "long enum"
+            | "rgb color"
+            | "argb color"
+    )
 }

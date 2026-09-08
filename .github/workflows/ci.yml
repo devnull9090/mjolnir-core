@@ -40,6 +40,30 @@ jobs:
             echo "⚠️ luacheck not available, skipping lint"
           fi
 
+  # The Blam console mod has a native half, built from native/blam_console on
+  # every pull request so a change that does not compile is caught here and
+  # not at the release gate. The artifact is what a reviewer installs to test;
+  # the release workflow builds its own from the tag.
+  build-native:
+    name: Build native (Blam console DLL)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build mjolnir_blam_console.dll
+        shell: pwsh
+        run: .\native\blam_console\build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_blam_console
+          path: mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll
+          if-no-files-found: error
+
   validate-structure:
     name: Validate Repo Structure
     runs-on: ubuntu-latest

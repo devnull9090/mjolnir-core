@@ -6,6 +6,14 @@
 
 use crate::{Error, Result};
 
+/// A loaded module: where it is in the process and which file it came from.
+#[derive(Debug, Clone)]
+pub struct ModuleInfo {
+    pub base: u64,
+    pub size: u64,
+    pub path: std::path::PathBuf,
+}
+
 /// A running process we might attach to.
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -23,7 +31,7 @@ pub struct Region {
 
 #[cfg(windows)]
 mod imp {
-    use super::{Error, ProcessInfo, Region, Result};
+    use super::{Error, ModuleInfo, ProcessInfo, Region, Result};
     use std::io;
 
     type Handle = isize;
@@ -34,6 +42,11 @@ mod imp {
     const PROCESS_VM_OPERATION: u32 = 0x0008;
 
     const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
+    /// Snapshot the target's loaded modules, 64-bit included. Needed to find
+    /// where the game image is mapped so a statically resolved RVA becomes a
+    /// runtime address.
+    const TH32CS_SNAPMODULE: u32 = 0x0000_0008;
+    const TH32CS_SNAPMODULE32: u32 = 0x0000_0010;
     const MEM_COMMIT: u32 = 0x1000;
     /// Heap allocations are private. Image and mapped-file regions cannot hold a
     /// tag heap, and skipping them is a statement about what a heap *is* rather
@@ -91,20 +104,20 @@ mod imp {
         size: u32,
         module_id: u32,
         process_id: u32,
-        glbl_usage: u32,
-        proc_usage: u32,
-        base_addr: usize,
-        base_size: u32,
+        glblcnt_usage: u32,
+        proccnt_usage: u32,
+        mod_base_addr: usize,
+        mod_base_size: u32,
         h_module: usize,
         module_name: [u16; 256],
         exe_path: [u16; 260],
     }
 
     extern "system" {
-        fn Module32FirstW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
-        fn Module32NextW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
         fn CloseHandle(h: Handle) -> i32;
+        fn Module32FirstW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
+        fn Module32NextW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
         fn ReadProcessMemory(
             h: Handle,
             addr: usize,
@@ -173,34 +186,6 @@ mod imp {
         Ok(found)
     }
 
-    /// Base address and size of a DLL loaded in `pid`, by file name
-    /// (case-insensitive). None when the module is not (yet) loaded.
-    pub fn module_base(pid: u32, name: &str) -> Option<(u64, u32)> {
-        const TH32CS_SNAPMODULE: u32 = 0x8;
-        const TH32CS_SNAPMODULE32: u32 = 0x10;
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-            if snap == -1 {
-                return None;
-            }
-            let mut entry: ModuleEntry32W = std::mem::zeroed();
-            entry.size = std::mem::size_of::<ModuleEntry32W>() as u32;
-            let mut ok = Module32FirstW(snap, &mut entry);
-            let mut hit = None;
-            while ok != 0 {
-                let end = entry.module_name.iter().position(|c| *c == 0).unwrap_or(256);
-                let n = String::from_utf16_lossy(&entry.module_name[..end]);
-                if n.eq_ignore_ascii_case(name) {
-                    hit = Some((entry.base_addr as u64, entry.base_size));
-                    break;
-                }
-                ok = Module32NextW(snap, &mut entry);
-            }
-            CloseHandle(snap);
-            hit
-        }
-    }
-
     impl Process {
         pub fn open(pid: u32) -> Result<Process> {
             let handle = unsafe {
@@ -227,6 +212,85 @@ mod imp {
             let got = self.read_into(addr, &mut buf)?;
             buf.truncate(got);
             Ok(buf)
+        }
+
+        /// Base address and size of a loaded module by name, case-insensitive
+        /// (e.g. the game exe). ASLR relocates the image every launch, so a
+        /// statically resolved RVA is only an address once added to this base.
+        pub fn module(&self, name: &str) -> Result<(u64, u64)> {
+            unsafe {
+                let snap = CreateToolhelp32Snapshot(
+                    TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                    self.pid,
+                );
+                if snap == -1 {
+                    return Err(Error::NotRunning(name.to_string()));
+                }
+                let mut entry: ModuleEntry32W = std::mem::zeroed();
+                entry.size = std::mem::size_of::<ModuleEntry32W>() as u32;
+                let mut ok = Module32FirstW(snap, &mut entry);
+                let mut found = None;
+                while ok != 0 {
+                    let end = entry
+                        .module_name
+                        .iter()
+                        .position(|c| *c == 0)
+                        .unwrap_or(entry.module_name.len());
+                    let modname = String::from_utf16_lossy(&entry.module_name[..end]);
+                    if modname.eq_ignore_ascii_case(name) {
+                        found = Some((entry.mod_base_addr as u64, entry.mod_base_size as u64));
+                        break;
+                    }
+                    ok = Module32NextW(snap, &mut entry);
+                }
+                CloseHandle(snap);
+                found.ok_or_else(|| Error::NotRunning(name.to_string()))
+            }
+        }
+
+        /// Base, size and on-disk path of a loaded module by name,
+        /// case-insensitive. The path is what a build is identified by: the
+        /// file's hash selects the profile whose RVAs apply to this image.
+        pub fn module_info(&self, name: &str) -> Result<ModuleInfo> {
+            unsafe {
+                let snap = CreateToolhelp32Snapshot(
+                    TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                    self.pid,
+                );
+                if snap == -1 {
+                    return Err(Error::NotRunning(name.to_string()));
+                }
+                let mut entry: ModuleEntry32W = std::mem::zeroed();
+                entry.size = std::mem::size_of::<ModuleEntry32W>() as u32;
+                let mut ok = Module32FirstW(snap, &mut entry);
+                let mut found = None;
+                while ok != 0 {
+                    let end = entry
+                        .module_name
+                        .iter()
+                        .position(|c| *c == 0)
+                        .unwrap_or(entry.module_name.len());
+                    let modname = String::from_utf16_lossy(&entry.module_name[..end]);
+                    if modname.eq_ignore_ascii_case(name) {
+                        let pend = entry
+                            .exe_path
+                            .iter()
+                            .position(|c| *c == 0)
+                            .unwrap_or(entry.exe_path.len());
+                        found = Some(ModuleInfo {
+                            base: entry.mod_base_addr as u64,
+                            size: entry.mod_base_size as u64,
+                            path: std::path::PathBuf::from(String::from_utf16_lossy(
+                                &entry.exe_path[..pend],
+                            )),
+                        });
+                        break;
+                    }
+                    ok = Module32NextW(snap, &mut entry);
+                }
+                CloseHandle(snap);
+                found.ok_or_else(|| Error::NotRunning(name.to_string()))
+            }
         }
 
         /// Read into a caller-owned buffer, returning how many bytes arrived.
@@ -348,14 +412,10 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{Error, ProcessInfo, Region, Result};
+    use super::{Error, ModuleInfo, ProcessInfo, Region, Result};
 
     pub struct Process {
         pub pid: u32,
-    }
-
-    pub fn module_base(_pid: u32, _name: &str) -> Option<(u64, u32)> {
-        None
     }
 
     pub fn running(_exe: &str) -> Result<Vec<ProcessInfo>> {
@@ -378,10 +438,17 @@ mod imp {
         pub fn writable_regions(&self) -> Result<Vec<Region>> {
             Err(Error::Unsupported)
         }
+        pub fn module(&self, _name: &str) -> Result<(u64, u64)> {
+            Err(Error::Unsupported)
+        }
+
+        pub fn module_info(&self, _name: &str) -> Result<ModuleInfo> {
+            Err(Error::Unsupported)
+        }
     }
 }
 
-pub use imp::{module_base, Process};
+pub use imp::Process;
 
 impl Process {
     /// Attach to the single running game, or say plainly why we cannot.

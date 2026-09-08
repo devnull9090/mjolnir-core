@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { degreesToRadiansText, isAngleType, radiansToDegreesText } from "../lib/angles";
+import { fieldPath } from "../lib/paths";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
 import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
+import { useTabUi } from "../lib/tab-ui";
+import { scheduleSaveSession } from "../lib/session";
+import { copyText } from "../lib/clipboard";
+import { showContextMenu } from "./ContextMenu";
 import { TagHeader, EditBar } from "./TagChrome";
 
 /** Blocks larger than this stay collapsed until asked for. */
@@ -27,15 +33,21 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
   const isEdited = edited.includes(path);
   const canEdit = !NOT_EDITABLE.has(node.type) && node.size > 0;
   const empty = node.value === "";
+  // Angles convert at the edge: shown in degrees when asked, stored in radians.
+  const degreesOn = useEditor((s) => s.degrees);
+  const angular = degreesOn && isAngleType(node.type);
+  const shownNode = angular ? { ...node, value: radiansToDegreesText(node.value) } : node;
   const shown =
     node.reference && node.reference.path
       ? `${keepTail(node.reference.path, 52)} (${node.reference.group})`
-      : node.value;
+      : angular
+        ? `${shownNode.value}°`
+        : node.value;
 
   async function commit() {
     setEditing(false);
-    if (draft === editableText(node)) return;
-    const ok = await setField(path, draft);
+    if (draft === editableText(shownNode)) return;
+    const ok = await setField(path, angular ? degreesToRadiansText(draft) : draft);
     setFailed(ok ? null : "rejected");
   }
 
@@ -44,6 +56,18 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
       className={`flex items-baseline gap-3 py-0.5 ${
         isEdited ? "bg-mjolnir-gold/10" : ""
       }`}
+      onContextMenu={(e) => {
+        // The inline editor keeps the native cut/copy/paste menu.
+        if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+        showContextMenu(e, [
+          {
+            label: "Revert Field",
+            action: () => void revertField(path),
+            disabled: !isEdited,
+          },
+          { label: "Copy Field Path", action: () => void copyText(path) },
+        ]);
+      }}
     >
       <span className="w-14 shrink-0 text-right font-mono text-[10px] text-text-dim">
         {node.offset}
@@ -70,7 +94,7 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
           type="button"
           disabled={!canEdit}
           onClick={() => {
-            setDraft(editableText(node));
+            setDraft(editableText(shownNode));
             setFailed(null);
             setEditing(true);
           }}
@@ -166,26 +190,42 @@ function Branch({
 
 /** Join a parent path with a child, matching what `mjolnir set --field` takes. */
 function childPath(parent: string, node: NodeView): string {
-  if (node.kind === "element") return `${parent}${node.name}`;
-  return parent ? `${parent}.${node.name}` : node.name;
+  return fieldPath(parent, node.name, node.kind);
 }
 
 function Node({ node, depth, path }: { node: NodeView; depth: number; path: string }) {
   // Structs are part of the shape rather than a list, so they open by default.
   // Blocks and arrays open only when short enough not to bury what follows.
-  const [open, setOpen] = useState(
-    node.kind === "struct" ||
-      (node.kind === "element" && depth < 3) ||
-      node.children.length <= AUTO_EXPAND_ELEMENTS,
+  // The tab remembers explicit choices, keyed by the same field paths as the
+  // form view, so both views share one memory of what is open.
+  const ui = useTabUi();
+  const [open, setOpenState] = useState(
+    () =>
+      ui?.open[path] ??
+      (node.kind === "struct" ||
+        (node.kind === "element" && depth < 3) ||
+        node.children.length <= AUTO_EXPAND_ELEMENTS),
   );
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    if (ui) {
+      ui.open[path] = v;
+      scheduleSaveSession();
+    }
+  };
 
   if (node.kind === "field") {
     return <Leaf node={node} path={path} />;
   }
 
   return (
-    <div>
-      <Branch node={node} open={open} onToggle={() => setOpen((v) => !v)} />
+    <div
+      onContextMenu={(e) => {
+        if (e.target !== e.currentTarget && !(e.target as HTMLElement).closest("button")) return;
+        showContextMenu(e, [{ label: "Copy Field Path", action: () => void copyText(path) }]);
+      }}
+    >
+      <Branch node={node} open={open} onToggle={() => setOpen(!open)} />
       {open && node.children.length > 0 && (
         <div className="ml-4 border-l border-border-subtle/60 pl-2">
           {node.children.map((child, i) => (
@@ -205,6 +245,19 @@ function Node({ node, depth, path }: { node: NodeView; depth: number; path: stri
 /** Flat-tree value inspector for the selected tag. */
 export function Inspector() {
   const { tag, tagLoading, selectedTag } = useEditor();
+  const ui = useTabUi();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const restored = useRef(false);
+
+  // Restore on the container's first appearance — it only exists once the tag
+  // has loaded and the nodes have initialised from the remembered state.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!restored.current && el && ui) {
+      restored.current = true;
+      el.scrollTop = ui.scroll.tree ?? 0;
+    }
+  });
 
   if (tagLoading) {
     return <Centered>Reading tag…</Centered>;
@@ -218,7 +271,16 @@ export function Inspector() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-y-auto"
+      onScroll={(e) => {
+        if (ui) {
+          ui.scroll.tree = e.currentTarget.scrollTop;
+          scheduleSaveSession();
+        }
+      }}
+    >
       <TagHeader />
       <EditBar />
 
@@ -235,7 +297,7 @@ export function Inspector() {
           <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
         ) : (
           tag.fields.map((node, i) => (
-            <Node key={`${node.name}-${i}`} node={node} depth={0} path={node.name} />
+            <Node key={`${node.name}-${i}`} node={node} depth={0} path={fieldPath("", node.name)} />
           ))
         )}
       </div>
