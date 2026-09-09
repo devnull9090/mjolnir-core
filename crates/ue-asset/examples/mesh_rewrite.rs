@@ -3,8 +3,14 @@
 //!
 //! ```text
 //! cargo run -p ue-asset --example mesh_rewrite -- \
-//!     <paks> <donor path substring> <mesh.gltf> <out.uasset> [--selftest]
+//!     <paks> <donor path substring> <mesh.gltf> <out.uasset> //!     [--selftest] [--offset x,y,z] [--rename /Game/Path/SM_Name]
 //! ```
+//!
+//! `--rename` also renames the package and its mesh export, so the result is a
+//! **new** package rather than a replacement for the donor. That matters
+//! because overriding a shipped mesh replaces every use of it in the game;
+//! a renamed clone is placed by nothing and can be added alongside with
+//! `blam-pack --example package_add`.
 //!
 //! `--selftest` rewrites the donor with the donor's *own* geometry first and
 //! checks it survives a parse, which separates "the writer is wrong" from
@@ -271,6 +277,15 @@ fn main() {
         swapped.extend_from_slice(&[n[0], n[2], n[1]]);
     }
     geo.normals = swapped;
+    // The donor's bounds are a box AND a sphere, and the engine culls against
+    // both, so report the radius the normalised geometry actually needs.
+    let mut radius = 0.0f32;
+    for p in geo.positions.chunks_exact(3) {
+        radius = radius.max((p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt());
+    }
+    println!(
+        "  normalised bounding sphere {radius:.1} (donor's box half-extent is {DONOR_HALF};          its sphere radius must be at least this)"
+    );
     println!(
         "  SPAWN: location ({:.1}, {:.1}, {:.1}) cm, uniform scale {:.4}",
         centre[0],
@@ -308,6 +323,49 @@ fn main() {
             ok = false;
         }
     }
+    // Optional rename, so the result is a new package instead of a
+    // replacement for the donor.
+    let package_bytes = match a.iter().position(|s| s == "--rename") {
+        None => package_bytes,
+        Some(i) => {
+            let new_path = a[i + 1].clone();
+            let leaf = new_path.rsplit('/').next().unwrap().to_string();
+            let mut zp =
+                ue_asset::package::ZenPackage::parse(&package_bytes).expect("re-parse for rename");
+            let old_header = u32::from_le_bytes(package_bytes[4..8].try_into().unwrap());
+            let old_name = zp.name();
+
+            zp.name_index = zp.names.intern(&new_path);
+            zp.name_number = 0;
+            // The mesh export carries the object name, and its public export
+            // hash derives from that name: `/Game/..../Leaf.Leaf`.
+            zp.export_map[export].name_index = zp.names.intern(&leaf);
+            zp.export_map[export].name_number = 0;
+            zp.export_map[export].public_export_hash =
+                ue_asset::package::public_export_hash(&leaf);
+
+            // The header just changed length. Keep the gap between the real
+            // header and the cooked one constant, since that is the only thing
+            // any consumer of CookedHeaderSize can be measuring.
+            let once = zp.write();
+            let new_header = u32::from_le_bytes(once[4..8].try_into().unwrap());
+            zp.cooked_header_size =
+                (zp.cooked_header_size as i64 + new_header as i64 - old_header as i64) as u32;
+            let out = zp.write();
+            println!(
+                "  renamed {old_name} -> {new_path} (export {export} -> {leaf}); header {old_header} -> {new_header}"
+            );
+            match ue_asset::zen::Package::parse(&out) {
+                Ok(p) => println!("  renamed package reports name {}", p.name),
+                Err(e) => {
+                    println!("  renamed package does not re-parse: {e} -- MISMATCH");
+                    ok = false;
+                }
+            }
+            out
+        }
+    };
+
     std::fs::write(out_path, &package_bytes).expect("write package");
     println!("  wrote {out_path}");
     if !ok {

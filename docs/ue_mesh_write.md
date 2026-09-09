@@ -42,8 +42,21 @@ Constraints the donor has to meet:
 * **Sections may only name material slots the donor has**, because the slots
   are properties and are not rewritten.
 
-`/Engine/BasicShapes/Cube` is the reference donor: 54 vertices, one material,
-one inlined LOD, no Nanite, and it ships.
+**`/Engine/BasicShapes/Cylinder` is the donor to use.** It has no Nanite, one
+inlined LOD, one material, a `(50, 50, 50)` box with a `70.71` sphere, and
+nothing references it: the shipped B40 world imports no engine basic shape at
+all, and the level loader places only `Cube` and `Sphere` (plus
+`BasicShapeMaterial` for tinting). `Cone` is an equivalent second choice.
+`Plane` is not usable — its box is flat, so there is nothing to normalise
+into.
+
+Do **not** use `Cube`. It works, but the level loader's own placeholder decor
+is made of cubes, so overriding it turns every one of them into the terrain.
+
+The engine culls against the donor's box *and* its sphere, so both have to
+hold. Blood Gulch normalises to a bounding sphere of `62.0` inside
+Cylinder's `70.71`, which the tool reports so the fit can be checked before
+anything is packed.
 
 ## The pipeline
 
@@ -82,10 +95,34 @@ path that does not exist, so always confirm with `GetFullName`.
 For Blood Gulch: location `(10212.1, -10220.6, 17356.0)` cm, uniform scale
 `442.4551`.
 
-## The catch
+## A brand-new package does not work (yet)
 
-Overriding `/Engine/BasicShapes/Cube` replaces **every** cube in the game, so
-the level loader's own placeholder decor becomes Blood Gulch too. That is fine
-for a demo and wrong for a shipping map; a dedicated donor package, or a
-`/Game` mesh nothing else places, is the fix. Removing the override is
-deleting the three `pakchunk989-MJOLNIRMESH-Windows_P.*` files.
+The tidier answer would be a package of our own rather than shadowing a
+shipped one, and all the machinery for it exists and produces something
+verifiably correct:
+
+```bash
+cargo run -p ue-asset --example mesh_rewrite -- ... --rename /Game/MJOLNIR/Meshes/SM_Bloodgulch
+cargo run -p blam-pack --example package_add --     "<paks>" /Game/MJOLNIR/Meshes/SM_Bloodgulch SM_Bloodgulch.uasset <out>     /Engine/EngineMaterials/WorldGridMaterial
+```
+
+`mesh_rewrite --rename` renames the package and its mesh export and
+recomputes the export's public hash, keeping `CookedHeaderSize` a constant
+distance from the real header size; `package_add` registers the new
+`FPackageId` and its imports in a `ContainerHeader`. The container installs,
+the game mounts it, and our own reader parses the package back out of the
+installed container as 5,762 vertices with no Nanite.
+
+**The game will not resolve the name.** `StaticFindObject` finds nothing and
+`LoadAsset` returns an invalid object for
+`/Game/MJOLNIR/Meshes/SM_Bloodgulch.SM_Bloodgulch`, while
+`/Engine/BasicShapes/Cylinder.Cylinder` resolves in the same breath. Adding
+the new id to the B40 world's store-entry import list with
+`relink_container` does not help either: the level still loads, and the
+package still is not there.
+
+So a brand-new **Blam tag** package registers and loads (that is how PG1
+works), but a brand-new **Unreal asset** package does not, at least by name.
+Until that is understood, ship geometry by overriding a shipped mesh nothing
+places. Removing the override is deleting the three
+`pakchunk989-MJOLNIRMESH-Windows_P.*` files.
