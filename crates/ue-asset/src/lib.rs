@@ -10,6 +10,7 @@ pub mod gltf;
 pub mod level;
 pub mod material;
 pub mod mesh;
+pub mod mesh_write;
 pub mod nanite;
 pub mod package;
 pub mod props;
