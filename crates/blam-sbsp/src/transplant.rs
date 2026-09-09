@@ -68,16 +68,23 @@ impl Default for Options {
     }
 }
 
-/// A pass-through kd supernode built on a shipped one: cells 0..14 all name
+/// A pass-through kd supernode built on a shipped one: every child cell names
 /// bsp3d node 0 (`0x4000_0000 | 0`), so whichever cell a query lands in, the
-/// whole tree is searched. The split planes, `plane dimensions` word and the
-/// opaque slot 15 (never a child in any shipped supernode — it carries a
-/// large packed value) are kept from `template`, which is one 128-byte
-/// element.
+/// whole tree is searched. The split planes and the `plane dimensions` word
+/// are kept from `template`, which is one 128-byte element.
+///
+/// The supernode is thirty-two dwords: fifteen split planes at 0..14, then
+/// **sixteen** child cells at 15..30, and the packed axis word at 31. The
+/// walk (`FUN_1802eb130`) descends four levels, so the cell it ends on is
+/// `15..=30` — slot 15 included. Leaving that slot alone is what made an
+/// earlier pass-through look broken: definition 159 ships `0x80000000` there,
+/// which the walk reads as "no hit and stop", so every query whose descent
+/// went left four times found nothing. Shipped supernode 1 carries
+/// `0x400000b9` in the same slot, which is plainly a child.
 pub fn passthrough_from(template: &[u8]) -> Vec<u8> {
     let mut b = template[..128].to_vec();
-    for cell in 0..15 {
-        let at = 64 + cell * 4;
+    for cell in 0..16 {
+        let at = 60 + cell * 4;
         b[at..at + 4].copy_from_slice(&0x4000_0000u32.to_le_bytes());
     }
     b
@@ -101,10 +108,11 @@ pub fn passthrough_supernode(bounds: Bounds) -> Vec<u8> {
         b.extend_from_slice(&mid[*axis].to_le_bytes());
         dims |= (*axis as u32 & 3) << (30 - 2 * i as u32);
     }
-    b.extend_from_slice(&dims.to_le_bytes());
     for _ in 0..16 {
         b.extend_from_slice(&0x4000_0000u32.to_le_bytes());
     }
+    // The packed axis word is the last dword, not the one after the planes.
+    b.extend_from_slice(&dims.to_le_bytes());
     b
 }
 

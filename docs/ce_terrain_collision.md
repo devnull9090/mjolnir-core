@@ -308,3 +308,54 @@ shrink) crashes, regardless of byte validity or total size. The exact writer
 populates the 0x490 record through a passed pointer, so the cheapest next step
 is a live memory diff of that record between a shipped and a resized load to
 name the block whose relocation breaks.
+
+## The MOPP compiler, and the supernode bug (2026-09-08)
+
+Two real blockers were found and fixed; the pawn now lands on transplanted
+Blood Gulch terrain, though it does not yet stay there.
+
+**The broadphase is three trees deep.** Collision reaches an instance through
+`cluster -> instance group -> instance` before the definition's own tree is
+consulted, and each level is a Havok MOPP. A transplant that moves or grows an
+instance leaves all of the upper trees describing where it used to be, and
+widening the group *sphere* does not help: the sphere and the tree are
+separate tests. `examples/group_mopp.rs` recompiles the instance-group and
+cluster trees; `examples/def_mopp.rs` recompiles the definition's own.
+
+Terminal conventions, read off the shipped data: an instance-group tree names
+**absolute instance indices** (group 58 ships `Reindex` nodes so its terminals
+come out as its member list, 165..779), and the cluster tree names **absolute
+group indices** (0..91).
+
+**The pass-through supernode was writing the wrong slots.** A `bsp3d
+supernode` is thirty-two dwords: fifteen split planes at 0..14, **sixteen**
+child cells at 15..30, and the packed axis word at 31. `passthrough_from` was
+setting cells at 16..30 and leaving slot 15 alone — and the walk
+(`FUN_1802eb130`) descends exactly four levels, so the cell it lands on is
+`15..=30`, slot 15 included. Definition 159 ships `0x80000000` there, which the
+walk reads as "no hit, stop", so every query whose descent went left four
+times found nothing. Shipped supernode 1 carries `0x400000b9` in that same
+slot, which is plainly a child, so the old comment claiming slot 15 is never a
+child was simply wrong. `passthrough_supernode` had the matching error: it put
+the axis word after the planes instead of last.
+
+That is why the earlier note here said a pass-through supernode "hung the
+simulation" and why `def_transplant` defaulted to emitting none. Emitting none
+leaves the definition with zero supernodes, and the walk then has nothing to
+traverse, which is the fall-through that survived every other fix.
+
+### Where it stands
+
+With the definition tree, both broadphase levels and the supernode all
+correct, the pawn **lands on Blood Gulch**: measured at `45.96` wu, three
+samples, zero velocity, against a predicted floor of `45.09` plus the capsule.
+Offline the compiled tree answers a pawn-sized column at the spawn with all
+eight surfaces that are actually there, and the floor polygons under the spawn
+carry upward winding normals, so orientation is right.
+
+It does not hold. Later samples at the same xy read `28.56` wu with zero
+velocity, resting on other B40 geometry below. The pawn sinks straight down
+rather than sliding, so the next suspect is the definition's own BSP rather
+than the broadphase: `probe_residual` already reports 14 of 5,098 surfaces
+that the 2D trees mis-sort, and a gap under the pawn would look exactly like
+this.
