@@ -741,8 +741,13 @@ pub fn patch_element(element: &mut [u8], q: Quant, code_len: usize) {
     put_f32(element, 36, q.offset[1]);
     put_f32(element, 40, q.offset[2]);
     put_f32(element, 44, q.scale);
+    // The length appears three times: the hkArray size at 56, its capacity
+    // word (flagged) at 60, and the mopp code's own data size at 80. Every
+    // shipped element carries all three equal; a stale third copy would let
+    // the loader take only that many bytes of a longer tree.
     element[56..60].copy_from_slice(&(code_len as u32).to_le_bytes());
     element[60..64].copy_from_slice(&(0x8000_0000u32 | code_len as u32).to_le_bytes());
+    element[80..84].copy_from_slice(&(code_len as u32).to_le_bytes());
 }
 
 #[cfg(test)]

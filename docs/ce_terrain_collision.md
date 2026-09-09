@@ -359,3 +359,32 @@ rather than sliding, so the next suspect is the definition's own BSP rather
 than the broadphase: `probe_residual` already reports 14 of 5,098 surfaces
 that the 2D trees mis-sort, and a gap under the pawn would look exactly like
 this.
+
+## It stands (2026-09-09)
+
+With the Blood Gulch scenario level installed (`pakchunk998-MJOLNIRLEVEL-bloodgulch_P`,
+which puts the player start at a CTF start rather than B40's own) the pawn spawns at
+`(63.09, -6.47)` and rests at `45.70` wu with zero velocity, and all 28 vehicles the
+scenario places rest on the terrain at `43.9..47.1` (Ghosts hovering at 44.1, Scorpions
+at 45, Banshees at 45.8) — none of the 98 vehicle actors fell to the B40 geometry at 28.
+Vehicles are Havok bodies, so that is the MOPP path proven independently of the
+pawn's own ground test.
+
+The earlier fall-throughs were at B40's original start `(33.5, 33.5)`, beside the
+tower platforms that had been moved to z −500; one load in four stood there and the
+rest rested on B40 geometry at 28.5. That spot is not representative and is no longer
+the test point.
+
+The last fix on the way: the mopp element carries its code length **three** times —
+the hkArray size at 56, its flagged capacity at 60, and the mopp code's own data size
+at 80 — and `patch_element` had been writing only the first two. Every shipped
+element carries all three equal.
+
+Build recipe that stands:
+
+    def_transplant  bsp_01_1_start.bin collision_0.json a.bin 159 763 -35.4 151.17 44.0 --keep-position --passthrough-supernode
+    widen_group     a.bin b.bin 58 33.504 33.532 68.826 99.4
+    def_mopp        b.bin c.bin 159
+    group_mopp      c.bin d.bin 58 --cluster
+    (move instances 593 779 646 545 503 314 to z -500 with `mjolnir tag-file`)
+    mjolnir pack --group scenario_structure_bsp --tag Solo/B40/_Generated_/BSP_01_1_Start --payload d.bin
