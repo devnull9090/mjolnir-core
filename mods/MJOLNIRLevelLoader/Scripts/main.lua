@@ -211,6 +211,29 @@ local function applyTint(comp, tint)
     return ok
 end
 
+--- Per-section materials: `materials` is a list of material object paths, one
+--- per material slot in order, and an empty entry leaves that slot alone. They
+--- go on the *component*, not the mesh: a mesh whose geometry was written into
+--- a donor package keeps the donor's single material slot however many slots
+--- the package declares, while `SetMaterial` grows the component's override
+--- list to as many sections as the render data names. That is what makes a
+--- transplanted mesh come out textured rather than default grey.
+local function applyMaterials(comp, list)
+    if type(list) ~= "table" then return 0, 0 end
+    local applied, failed = 0, 0
+    for i, path in ipairs(list) do
+        if type(path) == "string" and #path > 0 then
+            local mat = resolveMesh(path)
+            local ok = false
+            if mat then
+                ok = pcall(function() comp:SetMaterial(i - 1, mat) end)
+            end
+            if ok then applied = applied + 1 else failed = failed + 1 end
+        end
+    end
+    return applied, failed
+end
+
 local function spawnDecorItem(world, origin, item)
     if type(item) ~= "table" or type(item.mesh) ~= "string"
         or type(item.pos) ~= "table" then
@@ -270,6 +293,11 @@ local function spawnDecorItem(world, origin, item)
 
     if item.tint and not applyTint(actor.StaticMeshComponent, item.tint) then
         Log("tint failed for '" .. tostring(item.id) .. "' (mesh has no Color param?)")
+    end
+    if item.materials then
+        local applied, failed = applyMaterials(actor.StaticMeshComponent, item.materials)
+        Log(string.format("decor '%s': %d material(s) applied, %d failed",
+            tostring(item.id), applied, failed))
     end
     return actor
 end

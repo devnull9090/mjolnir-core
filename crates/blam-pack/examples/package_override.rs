@@ -3,8 +3,15 @@
 //!
 //! ```text
 //! cargo run -p blam-pack --example package_override -- \
-//!     <paks> <package path substring> <patched .uasset> <out dir>
+//!     <paks> <package path substring> <patched .uasset> <out dir> //!     [imported /Game or /Engine package path]...
 //! ```
+//!
+//! The imported paths, when given, are written into a package-store entry for
+//! the overridden package in this container's own header: an override that
+//! adds imports to the asset needs them, because the runtime resolves an
+//! import's package through the store entry rather than the asset header, and
+//! the shipped entry still describes the shipped import list. List them in the
+//! asset's own order -- `mesh_rewrite` prints it.
 //!
 //! This is the plain-package sibling of `mjolnir pack`, which handles Blam
 //! tags. The chunk id is taken from the shipped index, so the override answers
@@ -21,6 +28,7 @@ fn main() {
         std::process::exit(2);
     }
     let (paks, want, patched_path, out_dir) = (&a[0], a[1].to_ascii_lowercase(), &a[2], &a[3]);
+    let imported: Vec<String> = a[4..].to_vec();
     let oodle: Vec<PathBuf> = Vec::new();
 
     let patched = std::fs::read(patched_path).expect("read patched package");
@@ -45,7 +53,31 @@ fn main() {
     let original = ue_iostore::read_chunk(container, &chunk, None, &oodle).expect("read original");
     println!("  {} -> {} bytes", original.len(), patched.len());
 
-    let built = blam_pack::build_override(
+    // The package id a store entry is keyed by comes from the zen package's
+    // own name, not from the file path.
+    let store: Vec<(u64, Vec<u64>)> = if imported.is_empty() {
+        Vec::new()
+    } else {
+        let name = ue_asset::package::ZenPackage::parse(&patched)
+            .expect("parse the patched package for its name")
+            .name();
+        println!("  store entry for {name}:");
+        for p in &imported {
+            println!(
+                "    imports {p} -> {:#018x}",
+                ue_iostore::city::package_id(p)
+            );
+        }
+        vec![(
+            ue_iostore::city::package_id(&name),
+            imported
+                .iter()
+                .map(|p| ue_iostore::city::package_id(p))
+                .collect(),
+        )]
+    };
+
+    let built = blam_pack::build_override_with_store(
         container,
         &oodle,
         &[blam_pack::ChunkEdit {
@@ -58,6 +90,7 @@ fn main() {
             original_len: patched.len(),
             patched: patched.clone(),
         }],
+        &store,
     )
     .expect("build override");
 

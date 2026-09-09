@@ -88,7 +88,8 @@ map). Author around your own origin in Blender; move the whole level by editing 
     { "id": "banner_l",
       "mesh": "/Engine/BasicShapes/Cube.Cube",
       "pos": [0, -2000, 300], "rot": [0, 0, 0], "scale": [0.2, 6, 4],
-      "tint": [0.8, 0.2, 0.2, 1.0] }
+      "tint": [0.8, 0.2, 0.2, 1.0],
+      "materials": ["", "/Game/.../MI_Ground.MI_Ground"] }   // slot 0, slot 1, ...
   ],
 
   "markers": [                       // named points for future game modes; spawns nothing today
@@ -162,6 +163,14 @@ per-mission iteration on how much clearing a mission tolerates before something 
 (the `SetStaticMesh`-refuses-when-Static edge is handled) and applies `tint` through a dynamic
 material instance when the base material exposes a color parameter (BasicShapeMaterial does;
 WorldGridMaterial does not). Decor never blocks anything — do not fake floors or walls with it.
+
+`materials` assigns shipped material instances per material slot, in order, an empty entry
+leaving a slot alone. They go on the **component**, not the mesh: a mesh whose geometry was
+written into a donor package (see [ue_mesh_write.md](ue_mesh_write.md)) still reports the
+donor's single slot however many the package declares, while `SetMaterial` grows the
+component's override list to as many sections as the render data names. That is what makes a
+transplanted mesh come out textured rather than default grey — Blood Gulch's terrain is one
+decor entry with three. `mesh_rewrite --material` prints the list to paste here.
 
 ### `markers`
 

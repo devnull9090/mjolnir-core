@@ -125,6 +125,15 @@
             "minItems": 4,
             "maxItems": 4,
             "items": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "materials": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(|/(Engine|Game)/.+)$"
+            }
           }
         }
       }

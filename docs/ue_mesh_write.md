@@ -95,6 +95,56 @@ path that does not exist, so always confirm with `GetFullName`.
 For Blood Gulch: location `(10212.1, -10220.6, 17356.0)` cm, uniform scale
 `442.4551`.
 
+## Materials
+
+The donor arrives with one material slot, so a transplanted mesh renders in
+default grey until something says otherwise. Two halves:
+
+1. **Sections.** `mesh_rewrite --material Slot=/Game/Path/MI_X=pat1|pat2`
+   groups the glTF's own materials into numbered slots — every primitive whose
+   material name contains one of the patterns gets that slot's index in its
+   render-data section — and prints the slot-to-material table. A pattern of
+   `*` claims slot 0, the donor's own, so unmatched primitives get it too. For
+   Blood Gulch:
+
+   ```bash
+   cargo run -p ue-asset --example mesh_rewrite -- "<paks>" basicshapes/cylinder        <staging>/bloodgulch/bsp/bsp_0.gltf out.uasset        --material Ground=/Game/Env/Bio/Ground/Soil/Ground_Soil_Pile_D/Materials/MI_Ground_Soil_Pile_D=blood_ground|cap_moss        --material Rock=/Game/Env/Bio/Rock/Canyon/Materials/MI_Rock_Canyon_Generic=cap_cliff|boulder        --material "Metal=/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark=metal|cap_ramp|light|teleporter"
+   ```
+
+   which puts 2,449 triangles on Ground, 1,382 on Rock and 1,672 on Metal.
+
+2. **Materials.** The level file's `decor` entry carries a `materials` list and
+   `MJOLNIRLevelLoader` assigns them to the *component* at spawn
+   ([level_format.md](level_format.md)). Only shipped materials can be named —
+   nothing new is cooked, the mesh just points at what the game already has.
+
+**The mesh's own slots do not survive the load.** `--asset-imports` writes the
+materials into the package properly: `StaticMaterials` grows to four entries,
+each a package import with the right `FPackageId` and public export hash, the
+export's dependency bundle lists them, and `blam-pack --example
+package_override` takes the imported package paths and writes a store entry so
+the runtime can turn an import's index into a package id — without that store
+entry the load faults with an access violation, because the shipped entry still
+describes the shipped one-import list, and the asset's parallel array is what
+the index counts against. All of that installs, and the package still comes up
+in game reporting the donor's *one* slot with `DefaultMaterial` in it, the three
+material packages never loaded. The bytes in the installed container decode as
+four (`ue-asset --example props_diff`), so something at load or `PostLoad`
+shortens it; unexplained. Hence the component route above, which works and is
+what a level file wants anyway.
+
+Two probes came out of this and are worth keeping:
+`ue-asset --example store_entries` compares every package's store entry against
+its own imported-package list (85,176 of 87,165 in `pakchunk0` agree byte for
+byte, the rest only where an FName number makes the name-derived id differ),
+and `ue-asset --example zen_header` dumps the header a rewrite has to
+reproduce.
+
+Materials are chosen for scale, not just for looks: at the 442x the terrain is
+spawned with, a material that samples UV0 stretches badly, while the
+world-projected `Env/Bio` rock and soil hold up. That is why the cliffs read
+well and the base floors read as polished sheet.
+
 ## A brand-new package does not work (yet)
 
 The tidier answer would be a package of our own rather than shadowing a

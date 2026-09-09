@@ -75,6 +75,30 @@ pub fn build_override(
     oodle: &[PathBuf],
     edits: &[ChunkEdit],
 ) -> Result<Built, String> {
+    build_override_with_store(source, oodle, edits, &[])
+}
+
+/// [`build_override`], plus package-store entries of this container's own.
+///
+/// A cooked package resolves an import as `(imported package index, public
+/// export hash index)`, and the runtime turns that index into an `FPackageId`
+/// through the importing package's **store entry** — the container header's
+/// parallel copy of the asset header's imported-package list — not through the
+/// asset itself. Every shipped package agrees on the two lists (85,176 of
+/// 87,165 in `pakchunk0` byte for byte, the rest only where an FName number
+/// makes the name-derived id differ), so an override that adds an import to
+/// the asset alone indexes off the end of an array the game still sizes from
+/// the shipped entry, and the load faults.
+///
+/// A container's own header registers store entries for the packages it
+/// carries, and a `_P` mod container mounts last, so an entry here replaces
+/// the shipped one for the same package id.
+pub fn build_override_with_store(
+    source: &Container,
+    oodle: &[PathBuf],
+    edits: &[ChunkEdit],
+    store: &[(u64, Vec<u64>)],
+) -> Result<Built, String> {
     if edits.is_empty() {
         return Err("nothing to pack".into());
     }
@@ -151,6 +175,24 @@ pub fn build_override(
             id,
             resized,
         });
+    }
+
+    if !store.is_empty() {
+        let header =
+            ue_iostore::container_header::ContainerHeader::with_import_lists(CONTAINER_ID, store);
+        chunks.insert(
+            0,
+            ue_iostore::pack::Entry {
+                id: ChunkId {
+                    id: CONTAINER_ID,
+                    index: 0,
+                    pad: 0,
+                    kind: 6,
+                },
+                data: header.write(),
+                meta: Vec::new(),
+            },
+        );
     }
 
     let built = ue_iostore::pack::build(&source_toc, CONTAINER_ID, &chunks);

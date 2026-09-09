@@ -2374,11 +2374,22 @@
   "decor": [
     {
       "id": "bloodgulch_terrain",
-      "mesh": "/Game/Levels/Halo1/Solo/B40/Halo/Bloodgulch/bsp_0.bsp_0",
+      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder",
       "pos": [
-        -10789.9,
-        -46076.6,
-        13411.2
+        10212.1,
+        -10220.6,
+        17356.0
+      ],
+      "scale": [
+        442.4551,
+        442.4551,
+        442.4551
+      ],
+      "materials": [
+        "",
+        "/Game/Env/Bio/Ground/Soil/Ground_Soil_Pile_D/Materials/MI_Ground_Soil_Pile_D.MI_Ground_Soil_Pile_D",
+        "/Game/Env/Bio/Rock/Canyon/Materials/MI_Rock_Canyon_Generic.MI_Rock_Canyon_Generic",
+        "/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark.MI_FR_Gen_Metal_Simple_01_Grey_MidDark"
       ]
     }
   ]
