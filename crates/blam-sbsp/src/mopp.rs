@@ -393,6 +393,358 @@ fn collect(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Querying — the reader half of the contract the encoder has to satisfy.
+
+/// A primitive's box in the tree's byte space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Aabb {
+    pub lo: [u8; 3],
+    pub hi: [u8; 3],
+}
+
+/// A query box in the tree's 24-bit fixed-point space, which is what the
+/// machine actually keeps: a `Rescale` node recomputes the working box from
+/// these at a finer shift, so the full-precision values have to be carried
+/// through the whole descent.
+#[derive(Debug, Clone, Copy)]
+pub struct Query {
+    pub lo: [i32; 3],
+    pub hi: [i32; 3],
+}
+
+/// The traversal's working state: the box in the current frame, plus the
+/// offset and shift a `Rescale` accumulates.
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    lo: [i32; 3],
+    hi: [i32; 3],
+    off: [i32; 3],
+    shift: u32,
+}
+
+impl Frame {
+    fn start(q: &Query) -> Frame {
+        Frame {
+            lo: [q.lo[0] >> 16, q.lo[1] >> 16, q.lo[2] >> 16],
+            hi: [(q.hi[0] >> 16) + 1, (q.hi[1] >> 16) + 1, (q.hi[2] >> 16) + 1],
+            off: [0; 3],
+            shift: 0,
+        }
+    }
+
+    /// `hkpMoppObbVirtualMachine`'s rescale: fold the node's offset into the
+    /// running one at the new shift, then rebuild the box from the
+    /// full-precision query at that shift.
+    fn rescale(&self, q: &Query, op: u8, b: [u8; 3]) -> Frame {
+        let shift = self.shift + op as u32;
+        let s = 16i32 - shift as i32;
+        let mut off = [0i32; 3];
+        let mut lo = [0i32; 3];
+        let mut hi = [0i32; 3];
+        for k in 0..3 {
+            off[k] = (b[k] as i32 + self.off[k]) << op;
+            let (ql, qh) = if s >= 0 {
+                (q.lo[k] >> s, q.hi[k] >> s)
+            } else {
+                (q.lo[k] << (-s), q.hi[k] << (-s))
+            };
+            lo[k] = ql - off[k];
+            hi[k] = qh - off[k] + 1;
+        }
+        Frame { lo, hi, off, shift }
+    }
+}
+
+/// Run a box query the way `hkpMoppObbVirtualMachine` does, and return every
+/// primitive index it yields.
+///
+/// This mirrors the machine exactly — which comparisons are strict, and how a
+/// `Rescale` re-derives the working box — so a tree that answers correctly
+/// here answers correctly in game.
+pub fn query(code: &[u8], q: &Query) -> Result<Vec<u32>, Error> {
+    let mut out = Vec::new();
+    query_at(code, 0, 0, q, Frame::start(q), &mut out)?;
+    Ok(out)
+}
+
+/// [`query`] for a tree that carries no `Rescale`, taking the working box
+/// directly. This is what the compiler here produces.
+pub fn query_bytes(code: &[u8], lo: [i32; 3], hi: [i32; 3]) -> Result<Vec<u32>, Error> {
+    let q = Query {
+        lo: [lo[0] << 16, lo[1] << 16, lo[2] << 16],
+        hi: [(hi[0] - 1) << 16, (hi[1] - 1) << 16, (hi[2] - 1) << 16],
+    };
+    query(code, &q)
+}
+
+fn query_at(
+    code: &[u8],
+    mut at: usize,
+    base: u32,
+    q: &Query,
+    frame: Frame,
+    out: &mut Vec<u32>,
+) -> Result<(), Error> {
+    let mut base = base;
+    let mut f = frame;
+    loop {
+        let d = node_at(code, at)?;
+        match d.node {
+            Node::Return => return Ok(()),
+            Node::Terminal(i) => {
+                out.push(base + i);
+                return Ok(());
+            }
+            Node::Jump(n) => at = at + d.len + n,
+            Node::Reindex(n) => {
+                base += n;
+                at += d.len;
+            }
+            Node::Property { .. } => at += d.len,
+            Node::Chunk(_) => return Ok(()),
+            Node::Rescale { shift, offset } => {
+                f = f.rescale(q, shift, offset);
+                at += d.len;
+            }
+            Node::Clip { axis, lo: l, hi: h } => {
+                let a = axis as usize;
+                if f.hi[a] < l as i32 || (h as i32) <= f.lo[a] {
+                    return Ok(());
+                }
+                at += d.len;
+            }
+            Node::Diagonal { right, .. } => {
+                // Not emitted by this compiler; visit both sides so a shipped
+                // tree carrying one is still answered conservatively.
+                query_at(code, at + d.len, base, q, f, out)?;
+                at = at + d.len + right;
+            }
+            Node::Split {
+                axis,
+                left_max,
+                right_min,
+                left,
+                right,
+            } => {
+                let a = axis as usize;
+                let left_child = at + d.len + left;
+                let right_child = at + d.len + right;
+                if (right_min as i32) < f.hi[a] {
+                    if f.lo[a] < left_max as i32 {
+                        query_at(code, left_child, base, q, f, out)?;
+                    }
+                    at = right_child;
+                } else {
+                    if left_max as i32 <= f.lo[a] {
+                        return Ok(());
+                    }
+                    at = left_child;
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Compiling
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildError {
+    #[error("a subtree is {0} bytes, past the 16-bit jump a split node can encode")]
+    JumpOverflow(usize),
+    #[error("nothing to build a tree from")]
+    Empty,
+}
+
+/// Encode one leaf. Small indices get the one-byte form the shipped trees use.
+fn terminal(id: u32) -> Vec<u8> {
+    if id < 32 {
+        vec![0x30 + id as u8]
+    } else if id < 0x100 {
+        vec![0x50, id as u8]
+    } else if id < 0x1_0000 {
+        vec![0x51, (id >> 8) as u8, id as u8]
+    } else if id < 0x100_0000 {
+        vec![0x52, (id >> 16) as u8, (id >> 8) as u8, id as u8]
+    } else {
+        vec![
+            0x53,
+            (id >> 24) as u8,
+            (id >> 16) as u8,
+            (id >> 8) as u8,
+            id as u8,
+        ]
+    }
+}
+
+/// Build a MOPP tree over `prims`, each an index paired with its box in tree
+/// byte space.
+///
+/// The tree is a median-split kd tree. A split node names the highest
+/// coordinate the left subtree reaches and the lowest the right subtree
+/// reaches; the machine's tests are strict, so both planes are padded outwards
+/// by one, which can only add candidates and never drop one.
+pub fn build(prims: &[(u32, Aabb)]) -> Result<Vec<u8>, BuildError> {
+    if prims.is_empty() {
+        return Err(BuildError::Empty);
+    }
+    let mut work: Vec<(u32, Aabb)> = prims.to_vec();
+    emit(&mut work)
+}
+
+fn emit(prims: &mut [(u32, Aabb)]) -> Result<Vec<u8>, BuildError> {
+    if prims.len() == 1 {
+        return Ok(terminal(prims[0].0));
+    }
+    // Split on the axis the group spreads widest, at the median centroid, so
+    // the tree stays balanced and the jumps stay small.
+    let mut lo = [255u8; 3];
+    let mut hi = [0u8; 3];
+    for (_, b) in prims.iter() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(b.lo[k]);
+            hi[k] = hi[k].max(b.hi[k]);
+        }
+    }
+    let axis = (0..3)
+        .max_by_key(|&k| hi[k] as i32 - lo[k] as i32)
+        .unwrap_or(0);
+    let centroid = |b: &Aabb| b.lo[axis] as u16 + b.hi[axis] as u16;
+    prims.sort_by_key(|(_, b)| centroid(b));
+    let mid = prims.len() / 2;
+    let (l, r) = prims.split_at_mut(mid);
+
+    let left_max = l.iter().map(|(_, b)| b.hi[axis]).max().unwrap_or(0);
+    let right_min = r.iter().map(|(_, b)| b.lo[axis]).min().unwrap_or(255);
+    let left_max = left_max.saturating_add(1);
+    let right_min = right_min.saturating_sub(1);
+
+    let left = emit(l)?;
+    let right = emit(r)?;
+
+    // The four-byte form puts the left child immediately after the node and
+    // reaches the right with one byte, which is what most shipped nodes use.
+    if left.len() <= 0xff {
+        let mut out = vec![0x10 + axis as u8, left_max, right_min, left.len() as u8];
+        out.extend_from_slice(&left);
+        out.extend_from_slice(&right);
+        return Ok(out);
+    }
+    // Otherwise the seven-byte form, emitting the smaller subtree first so the
+    // jump that has to be encoded is at most half the subtree.
+    let op = 0x23 + axis as u8;
+    let jump16 = |n: usize| -> Result<[u8; 2], BuildError> {
+        if n > 0xffff {
+            return Err(BuildError::JumpOverflow(n));
+        }
+        Ok([(n >> 8) as u8, n as u8])
+    };
+    let mut out = Vec::with_capacity(7 + left.len() + right.len());
+    if left.len() <= right.len() {
+        let rj = jump16(left.len())?;
+        out.extend_from_slice(&[op, left_max, right_min, 0, 0, rj[0], rj[1]]);
+        out.extend_from_slice(&left);
+        out.extend_from_slice(&right);
+    } else {
+        let lj = jump16(right.len())?;
+        out.extend_from_slice(&[op, left_max, right_min, lj[0], lj[1], 0, 0]);
+        out.extend_from_slice(&right);
+        out.extend_from_slice(&left);
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Quantisation
+
+/// The mapping between definition space and the tree's byte space, which the
+/// mopp element's header carries as `code info` (the offset) and its `w` (the
+/// scale).
+#[derive(Debug, Clone, Copy)]
+pub struct Quant {
+    pub offset: [f32; 3],
+    pub scale: f32,
+}
+
+impl Quant {
+    /// Fit a cube around the geometry with a little slack, the way the shipped
+    /// headers do: their geometry lands inside 0..=255 with the widest axis
+    /// near 253.
+    pub fn fit(lo: [f32; 3], hi: [f32; 3]) -> Quant {
+        let span = (0..3).map(|k| hi[k] - lo[k]).fold(0.0f32, f32::max);
+        let side = (span * 1.01).max(1e-4);
+        let pad = span * 0.005;
+        Quant {
+            offset: [lo[0] - pad, lo[1] - pad, lo[2] - pad],
+            scale: 16_777_216.0 / side,
+        }
+    }
+
+    /// A coordinate as the tree sees it: 24-bit fixed point, compared by its
+    /// top eight bits.
+    pub fn byte(&self, v: f32, axis: usize) -> u8 {
+        let fixed = ((v - self.offset[axis]) * self.scale) as i64 >> 16;
+        fixed.clamp(0, 255) as u8
+    }
+
+    /// A world-space box as the machine's 24-bit fixed-point query, including
+    /// the one-unit slack `hkpMoppObbVirtualMachine`'s setup adds.
+    pub fn query_box(&self, lo: [f32; 3], hi: [f32; 3]) -> Query {
+        let mut q = Query { lo: [0; 3], hi: [0; 3] };
+        for k in 0..3 {
+            q.lo[k] = ((lo[k] - self.offset[k]) * self.scale) as i32 - 1;
+            q.hi[k] = ((hi[k] - self.offset[k]) * self.scale) as i32 + 1;
+        }
+        q
+    }
+
+    /// A polygon's box in tree byte space.
+    pub fn box_of(&self, points: &[[f32; 3]]) -> Aabb {
+        let mut lo = [f32::MAX; 3];
+        let mut hi = [f32::MIN; 3];
+        for p in points {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        Aabb {
+            lo: [self.byte(lo[0], 0), self.byte(lo[1], 1), self.byte(lo[2], 2)],
+            hi: [self.byte(hi[0], 0), self.byte(hi[1], 1), self.byte(hi[2], 2)],
+        }
+    }
+}
+
+/// The `tgbl` block a mopp element's `tgst` wrapper carries: the bytecode as a
+/// block of single bytes.
+///
+/// The size word counts from after itself to the end of the block, so it is
+/// the data length plus the count and flag words.
+pub fn wrapper(code: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(20 + code.len());
+    out.extend_from_slice(b"lbgt");
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(code.len() as u32 + 8).to_le_bytes());
+    out.extend_from_slice(&(code.len() as u32).to_le_bytes());
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(code);
+    out
+}
+
+/// Put a compiled tree's size and quantisation into a donor mopp element's
+/// 96 bytes, leaving the cook-time pointers alone — they are stale heap
+/// addresses in every shipped element, so the engine must rebuild them.
+pub fn patch_element(element: &mut [u8], q: Quant, code_len: usize) {
+    let put_f32 = |e: &mut [u8], at: usize, v: f32| e[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    put_f32(element, 32, q.offset[0]);
+    put_f32(element, 36, q.offset[1]);
+    put_f32(element, 40, q.offset[2]);
+    put_f32(element, 44, q.scale);
+    element[56..60].copy_from_slice(&(code_len as u32).to_le_bytes());
+    element[60..64].copy_from_slice(&(0x8000_0000u32 | code_len as u32).to_le_bytes());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,15 +766,108 @@ mod tests {
             node_at(&[0x24, 0x40, 0x30, 0x00, 0x04, 0x01, 0x00], 0).unwrap().node,
             Node::Split { axis: 1, left_max: 0x40, right_min: 0x30, left: 4, right: 256 }
         );
+        assert_eq!(
+            node_at(&[0x28, 0x10, 0x90], 0).unwrap().node,
+            Node::Clip { axis: 2, lo: 0x10, hi: 0x90 }
+        );
     }
 
     /// A split whose children are two leaves yields both primitives.
     #[test]
     fn walks_both_children() {
-        // 0x10 split, left child at +4 (terminal 1), right at +4+1 (terminal 2)
         let code = [0x10, 0x80, 0x40, 0x01, 0x31, 0x32];
         let mut got = terminals(&code).unwrap();
         got.sort();
         assert_eq!(got, vec![(1, 1), (2, 1)]);
+    }
+
+    /// Every terminal a leaf encoding can carry comes back as itself.
+    #[test]
+    fn terminal_forms_round_trip() {
+        for id in [0u32, 1, 31, 32, 255, 256, 65535, 65536, 1 << 20, 1 << 25] {
+            let code = terminal(id);
+            match node_at(&code, 0).unwrap().node {
+                Node::Terminal(got) => assert_eq!(got, id, "terminal {id} came back as {got}"),
+                other => panic!("terminal {id} decoded as {other:?}"),
+            }
+        }
+    }
+
+    fn spread(n: u32) -> Vec<(u32, Aabb)> {
+        // A deterministic scatter of small boxes, enough of them to force the
+        // wide split form and the multi-byte terminals.
+        let mut out = Vec::new();
+        let mut seed = 12345u64;
+        for i in 0..n {
+            let mut next = || {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                ((seed >> 33) % 240) as u8
+            };
+            let (x, y, z) = (next(), next(), next());
+            out.push((
+                i,
+                Aabb {
+                    lo: [x, y, z],
+                    hi: [x + 4, y + 3, z + 5],
+                },
+            ));
+        }
+        out
+    }
+
+    /// The tree names every primitive exactly once.
+    #[test]
+    fn every_primitive_gets_one_leaf() {
+        for n in [1u32, 2, 5, 33, 300, 2000] {
+            let prims = spread(n);
+            let code = build(&prims).unwrap();
+            let mut ids: Vec<u32> = terminals(&code).unwrap().into_iter().map(|(i, _)| i).collect();
+            ids.sort_unstable();
+            let want: Vec<u32> = (0..n).collect();
+            assert_eq!(ids, want, "{n} primitives");
+        }
+    }
+
+    /// The property that matters: querying a primitive's own box returns it.
+    /// This runs the machine's exact traversal, so a tree that passes here
+    /// answers the same way in game.
+    #[test]
+    fn every_primitive_answers_its_own_box() {
+        for n in [1u32, 2, 7, 64, 500, 3000] {
+            let prims = spread(n);
+            let code = build(&prims).unwrap();
+            for (id, b) in &prims {
+                // The engine's setup pads the query box by one on each side.
+                let lo = [b.lo[0] as i32 - 1, b.lo[1] as i32 - 1, b.lo[2] as i32 - 1];
+                let hi = [b.hi[0] as i32 + 1, b.hi[1] as i32 + 1, b.hi[2] as i32 + 1];
+                let got = query_bytes(&code, lo, hi).unwrap();
+                assert!(
+                    got.contains(id),
+                    "{n} primitives: querying {id}'s own box {b:?} returned {} hit(s) without it",
+                    got.len()
+                );
+            }
+        }
+    }
+
+    /// A query far outside the geometry returns nothing, so the tree is not
+    /// merely answering everything.
+    #[test]
+    fn a_query_outside_the_tree_is_empty() {
+        let prims = spread(500);
+        let code = build(&prims).unwrap();
+        let got = query_bytes(&code, [250, 250, 250], [255, 255, 255]).unwrap();
+        let all: usize = prims.len();
+        assert!(got.len() < all / 4, "{} of {all} hits far outside", got.len());
+    }
+
+    #[test]
+    fn the_block_wrapper_is_shaped_like_a_shipped_one() {
+        let w = wrapper(&[1, 2, 3, 4]);
+        assert_eq!(&w[0..4], b"lbgt");
+        assert_eq!(u32::from_le_bytes(w[8..12].try_into().unwrap()), 4 + 8);
+        assert_eq!(u32::from_le_bytes(w[12..16].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(w[16..20].try_into().unwrap()), 1);
+        assert_eq!(&w[20..], &[1, 2, 3, 4]);
     }
 }
