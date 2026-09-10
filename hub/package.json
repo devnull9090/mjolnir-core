@@ -27,7 +27,7 @@
   "dependencies": {
     "@hono/zod-openapi": "^1.5.1",
     "fflate": "^0.8.3",
-    "hono": "^4.12.34",
+    "hono": "^4.13.5",
     "lucide-react": "^1.27.0",
     "next": "16.3.0",
     "puppeteer": "^25.3.0",
