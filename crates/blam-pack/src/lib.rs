@@ -227,6 +227,27 @@ pub struct NewPackage {
 /// `PKG_ContainsMap` in a zen summary's package flags: the package is a world.
 pub const PKG_CONTAINS_MAP: u32 = 0x0002_0000;
 
+/// `FPackageObjectIndex` of `/Script/Engine.World`, the class of a world
+/// package's main export. Shipped mission worlds carry it without
+/// `PKG_ContainsMap` in their flags (B40's are `0x80002200`), while the
+/// MapKit's bare world has the flag; a world is either.
+pub const WORLD_CLASS_INDEX: u64 = 0x7b11_1682_9423_f7c1;
+
+/// Whether a cooked package is a world — named `.umap` in a directory index,
+/// which is how the map registry (native/map_registry) learns of it.
+pub fn is_world_package(uasset: &[u8]) -> bool {
+    let flags = uasset
+        .get(16..20)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .unwrap_or(0);
+    if flags & PKG_CONTAINS_MAP != 0 {
+        return true;
+    }
+    ue_asset::package::ZenPackage::parse(uasset)
+        .map(|zp| zp.export_map.iter().any(|e| e.class == WORLD_CLASS_INDEX))
+        .unwrap_or(false)
+}
+
 /// Build a container that ADDS packages rather than overriding chunks.
 ///
 /// The chunk ids here are **derived** from the package names
@@ -302,16 +323,7 @@ pub fn build_addition(
                 p.package_name.trim_start_matches('/')
             )
         };
-        let flags = p
-            .uasset
-            .get(16..20)
-            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-            .unwrap_or(0);
-        let ext = if flags & PKG_CONTAINS_MAP != 0 {
-            "umap"
-        } else {
-            "uasset"
-        };
+        let ext = if is_world_package(&p.uasset) { "umap" } else { "uasset" };
         files.push((format!("{rel}.{ext}"), chunks.len()));
         chunks.push(ue_iostore::pack::Entry {
             id: ChunkId {

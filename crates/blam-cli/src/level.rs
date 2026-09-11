@@ -122,11 +122,14 @@ pub struct BakeArgs {
     /// Repeatable.
     #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
     pub bsps: Vec<String>,
-    /// With `--standalone`: a cooked world package (`.umap`) to ship as the
-    /// map's own Unreal world, renamed from the canvas mission's path to the
-    /// codename's, with the registration row pointing at it. A bare level —
-    /// the MapKit's empty world — is what works: cooked actors do not load
-    /// on this build, and the loader furnishes the world at runtime anyway.
+    /// With `--standalone`: a cooked world package (`.umap`, plus a `.ubulk`
+    /// beside it when it has one) to ship as the map's own Unreal world,
+    /// renamed from the canvas mission's path to the codename's (same-length
+    /// surgery over every name, so a World Partition donor's cells point
+    /// nowhere and never stream), with the registration row pointing at it.
+    /// The canvas mission's own world is the donor that keeps the player
+    /// alive: its persistent level carries the BlamWorldSettings, the
+    /// BlamScenario actor and the player starts the game mode needs.
     #[arg(long, value_name = "FILE")]
     pub world: Option<PathBuf>,
     /// With `--standalone`: point the registration row's `UnrealLevel` at
@@ -1146,7 +1149,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
         ensure_same_len(&old_pkg, &new_pkg)?;
         for line in zp
-            .rename_package(&new_pkg)
+            .rename_world(&new_pkg)
             .map_err(|e| anyhow::anyhow!("world rename: {e}"))?
         {
             println!("  world    {line}");
@@ -1157,10 +1160,20 @@ fn bake(a: BakeArgs) -> Result<()> {
             .iter()
             .map(|n| ue_iostore::city::package_id(n))
             .collect();
+        // A shipped world's bulk data (its textures) rides a `.ubulk` beside
+        // the `.umap`; the bare MapKit world has none.
+        let ubulk_file = world_file.with_extension("ubulk");
+        let ubulk = if ubulk_file.is_file() {
+            let b = std::fs::read(&ubulk_file)?;
+            println!("  world    bulk data {} ({} bytes)", ubulk_file.display(), b.len());
+            b
+        } else {
+            Vec::new()
+        };
         extra_packages.push(blam_pack::NewPackage {
             package_name: new_pkg.clone(),
             uasset: zp.write(),
-            ubulk: Vec::new(),
+            ubulk,
             imported_package_ids: imported,
             uasset_meta: Vec::new(),
             ubulk_meta: Vec::new(),
