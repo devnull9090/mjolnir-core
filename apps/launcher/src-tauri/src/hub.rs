@@ -1349,7 +1349,7 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
     let mods_dir =
-        crate::find_game_install().map(|(p, _)| p.join("Meteorite/Binaries/Win64/ue4ss/Mods"));
+        crate::find_game_install().map(|(p, _)| crate::mods_dir(&p));
     let versions = load_installed_versions();
     let mods = manifest
         .mods
@@ -1438,7 +1438,7 @@ fn require_signed(status: &CodeModsStatus) -> Result<(), String> {
 /// Where UE4SS loads Lua mods from, or why it cannot.
 fn code_mods_dir() -> Result<PathBuf, String> {
     let (install, _) = crate::find_game_install().ok_or("Game not found")?;
-    let dir = install.join("Meteorite/Binaries/Win64/ue4ss/Mods");
+    let dir = crate::mods_dir(&install);
     if !dir.exists() {
         return Err("UE4SS is not installed. Install the modpack first.".into());
     }

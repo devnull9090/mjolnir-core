@@ -39,6 +39,36 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.8.1",
+      "tag": "launcher-v0.8.1",
+      "title": "The Xbox app version, found",
+      "date": "2026-09-11",
+      "summary": "Mod setup on the Xbox app copy of the game failed looking for a Win64 folder. That build ships in WinGDK; the launcher now finds it, and finds Xbox app installs on its own.",
+      "body": "The Steam copy of Halo Campaign Evolved keeps its executable under\n`Meteorite\\Binaries\\Win64`. The Xbox app installs a different build of the\nsame game, and that one lives under `Meteorite\\Binaries\\WinGDK` — inside a\n`Content` folder, inside `Halo- Campaign Evolved`, inside `Xbox Games`. The\nlauncher only knew the Steam layout, so on an Xbox install every setup ended\nwith `Game binaries directory not found`, and pointing it at the folder by\nhand made no difference: it found the game, then looked for `Win64` anyway.\n\n### Fixed\n\n- **Xbox app installs.** UE4SS, the runtime and the mods now go into whichever\n  binaries folder the store actually shipped — `Win64` on Steam, `WinGDK` on\n  the Xbox app. Everything that reads or writes there follows: install, verify,\n  enable and disable, the mod list, and the hub's code mods.\n- **Finding it.** The launcher probes the Xbox app's folders on its own now,\n  both the older `XboxGames` and the newer `Xbox Games` library names, the\n  dashed `Halo- Campaign Evolved` folder, and the `Content` folder the game sits\n  in. Picking any of those by hand in Settings resolves to the right root too.\n- The setup screen shows the folder the install is really going into, rather\n  than always saying `Win64`.\n- Launching by executable looks for `HaloCampaignEvolved.exe`, the name both\n  stores use, instead of the placeholder names it tried before.\n\n### Notes\n\n- Whether UE4SS itself runs against the Xbox build is a separate question this\n  release does not answer. The signatures the runtime ships are tuned against\n  the Steam executable; the WinGDK one is a different build. If it loads but\n  does nothing, that is the next thing to look at, and a report with your\n  `ue4ss\\UE4SS.log` is the fastest way there.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Xbox app installs. UE4SS, the runtime and the mods now go into whichever binaries folder the store actually shipped — Win64 on Steam, WinGDK on the Xbox app. Everything that reads or writes there follows: install, verify, enable and disable, the mod list, and the hub's code mods.",
+            "Finding it. The launcher probes the Xbox app's folders on its own now, both the older XboxGames and the newer Xbox Games library names, the dashed Halo- Campaign Evolved folder, and the Content folder the game sits in. Picking any of those by hand in Settings resolves to the right root too.",
+            "The setup screen shows the folder the install is really going into, rather than always saying Win64.",
+            "Launching by executable looks for HaloCampaignEvolved.exe, the name both stores use, instead of the placeholder names it tried before."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Whether UE4SS itself runs against the Xbox build is a separate question this release does not answer. The signatures the runtime ships are tuned against the Steam executable; the WinGDK one is a different build. If it loads but does nothing, that is the next thing to look at, and a report with your ue4ss\\UE4SS.log is the fastest way there."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.8.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.8.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.8.1"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.6.0",
