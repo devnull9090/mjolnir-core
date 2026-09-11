@@ -39,6 +39,9 @@ pub struct Registration {
     pub title: Option<String>,
     /// Menu description; the donor's when `None`.
     pub description: Option<String>,
+    /// The world the row's `UnrealLevel` points at, as an object path
+    /// (`/Game/Levels/Halo1/Solo/BGL/BGL.BGL`); the donor's when `None`.
+    pub world: Option<String>,
 }
 
 /// An `FText` that carries its own string: flags `CultureInvariant`, history
@@ -150,6 +153,27 @@ pub fn register(
             Val::Text(invariant_text(d)),
         );
     }
+    if let Some(world) = &reg.world {
+        let (package, asset) = world.rsplit_once('.').ok_or_else(|| {
+            format!("world {world:?} is not an object path (/Game/Path/Leaf.Leaf)")
+        })?;
+        let package = zp.names.intern(package);
+        let asset = zp.names.intern(asset);
+        block.set(
+            find_slot(usmap, ROW_STRUCT, "UnrealLevel")?,
+            Val::SoftObject {
+                package: Name {
+                    index: package,
+                    number: 0,
+                },
+                asset: Name {
+                    index: asset,
+                    number: 0,
+                },
+                sub: String::new(),
+            },
+        );
+    }
     let index = zp.names.intern(&reg.code);
     rows.push(ue_asset::datatable::Row {
         name: Name { index, number: 0 },
@@ -165,12 +189,16 @@ pub fn register(
     zp.set_export_bytes(0, bytes).map_err(|e| e.to_string())?;
     let table_out = zp.write();
     log.push(format!(
-        "row {} cloned from {} in {TABLE} ({} rows; {} -> {} bytes)",
+        "row {} cloned from {} in {TABLE} ({} rows; {} -> {} bytes){}",
         reg.code,
         reg.from,
         rows.len(),
         table_data.len(),
-        table_out.len()
+        table_out.len(),
+        reg.world
+            .as_ref()
+            .map(|w| format!(", UnrealLevel = {w}"))
+            .unwrap_or_default()
     ));
 
     // ---- the campaign asset: one more ScenarioList handle ------------------

@@ -122,6 +122,20 @@ pub struct BakeArgs {
     /// Repeatable.
     #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
     pub bsps: Vec<String>,
+    /// With `--standalone`: a cooked world package (`.umap`) to ship as the
+    /// map's own Unreal world, renamed from the canvas mission's path to the
+    /// codename's, with the registration row pointing at it. A bare level —
+    /// the MapKit's empty world — is what works: cooked actors do not load
+    /// on this build, and the loader furnishes the world at runtime anyway.
+    #[arg(long, value_name = "FILE")]
+    pub world: Option<PathBuf>,
+    /// With `--standalone`: point the registration row's `UnrealLevel` at
+    /// this shipped world instead (an object path such as
+    /// `/Game/Levels/Test/Testing_Clouds/Testing_Clouds.Testing_Clouds`),
+    /// without shipping a world package. A test-map world no mission uses
+    /// keeps the canvas mission's world out of the map.
+    #[arg(long, value_name = "OBJECT")]
+    pub world_object: Option<String>,
 }
 
 pub fn run(a: LevelArgs) -> Result<()> {
@@ -1062,7 +1076,9 @@ fn bake(a: BakeArgs) -> Result<()> {
                     .context("the tag has no package chunk beside its payload")?;
                 let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &oodle)?;
                 let donor_body = idx.read(donor_entry, None, &oodle)?;
-                let body: Vec<u8> = body.map(<[u8]>::to_vec).unwrap_or_else(|| donor_body.clone());
+                let body: Vec<u8> = body
+                    .map(<[u8]>::to_vec)
+                    .unwrap_or_else(|| donor_body.clone());
                 let (uasset_meta, ubulk_meta) =
                     blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
                         .map_err(|e| anyhow::anyhow!(e))?;
@@ -1100,6 +1116,56 @@ fn bake(a: BakeArgs) -> Result<()> {
                 });
             }
         }
+    }
+
+    // The map's own Unreal world, when one is given: the bare level renamed
+    // under the codename (a world with no cells refers to itself by nothing
+    // but its name) and added beside the scenario. The registration row then
+    // points its `UnrealLevel` at it instead of the canvas mission's world.
+    let mut world_object: Option<String> = a.world_object.clone();
+    if world_object.is_some() && a.standalone.is_none() {
+        bail!("--world-object needs --standalone");
+    }
+    if let Some(world_file) = &a.world {
+        let code = a
+            .standalone
+            .as_deref()
+            .context("--world needs --standalone: a canvas override keeps the canvas world")?
+            .to_uppercase();
+        let data = std::fs::read(world_file)
+            .with_context(|| format!("cannot read world {}", world_file.display()))?;
+        let mut zp = ue_asset::package::ZenPackage::parse(&data)
+            .map_err(|e| anyhow::anyhow!("world package: {e}"))?;
+        let old_pkg = zp.name();
+        let new_pkg = old_pkg.replace(
+            &format!("/{}/{}", scen.to_uppercase(), scen.to_uppercase()),
+            &format!("/{code}/{code}"),
+        );
+        if new_pkg == old_pkg {
+            bail!("world {old_pkg} is not under the canvas mission's path /{scen}/{scen}");
+        }
+        ensure_same_len(&old_pkg, &new_pkg)?;
+        for line in zp
+            .rename_package(&new_pkg)
+            .map_err(|e| anyhow::anyhow!("world rename: {e}"))?
+        {
+            println!("  world    {line}");
+        }
+        let imported: Vec<u64> = zp
+            .imported_package_names
+            .names
+            .iter()
+            .map(|n| ue_iostore::city::package_id(n))
+            .collect();
+        extra_packages.push(blam_pack::NewPackage {
+            package_name: new_pkg.clone(),
+            uasset: zp.write(),
+            ubulk: Vec::new(),
+            imported_package_ids: imported,
+            uasset_meta: Vec::new(),
+            ubulk_meta: Vec::new(),
+        });
+        world_object = Some(format!("{new_pkg}.{code}"));
     }
 
     let file = baker.file;
@@ -1254,6 +1320,7 @@ fn bake(a: BakeArgs) -> Result<()> {
             from: scen.to_uppercase(),
             title: level.title.clone(),
             description: level.description.clone(),
+            world: world_object.clone(),
         };
         let (built, reg_name, log) =
             blam_pack::scenario::register(&idx.containers, &oodle, &usmap, &scripts, &reg)

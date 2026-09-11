@@ -224,6 +224,9 @@ pub struct NewPackage {
     pub ubulk_meta: Vec<u8>,
 }
 
+/// `PKG_ContainsMap` in a zen summary's package flags: the package is a world.
+pub const PKG_CONTAINS_MAP: u32 = 0x0002_0000;
+
 /// Build a container that ADDS packages rather than overriding chunks.
 ///
 /// The chunk ids here are **derived** from the package names
@@ -273,9 +276,43 @@ pub fn build_addition(
         data: header.write(),
         meta: Vec::new(),
     }];
+    // Name the files in a real directory index, the way UE staging does:
+    // mounted at the content root, each package under its own folder. A
+    // world is a `.umap` there (its summary carries PKG_ContainsMap), and a
+    // package without bulk data gets no `.ubulk` chunk at all — a shipped
+    // bare world has none, and a zero-length bulk chunk is not the same
+    // thing as no bulk chunk.
+    // The mount point and paths are the ones a UE-staged container carries
+    // (`../../../` + `Meteorite/Content/...`), not a content-root mount: the
+    // pak platform file registers directory-index entries as files, and that
+    // is what `FPackageName::DoesPackageExist` answers from for a package the
+    // asset registry has never heard of.
+    let mount = "../../../";
+    let mut files: Vec<(String, usize)> = Vec::new();
     let mut entries = Vec::new();
     for p in packages {
         let id = ue_iostore::city::package_id(&p.package_name);
+        let rel = if let Some(r) = p.package_name.strip_prefix("/Game/") {
+            format!("Meteorite/Content/{r}")
+        } else if let Some(r) = p.package_name.strip_prefix("/Engine/") {
+            format!("Engine/Content/{r}")
+        } else {
+            format!(
+                "Meteorite/Content/{}",
+                p.package_name.trim_start_matches('/')
+            )
+        };
+        let flags = p
+            .uasset
+            .get(16..20)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+            .unwrap_or(0);
+        let ext = if flags & PKG_CONTAINS_MAP != 0 {
+            "umap"
+        } else {
+            "uasset"
+        };
+        files.push((format!("{rel}.{ext}"), chunks.len()));
         chunks.push(ue_iostore::pack::Entry {
             id: ChunkId {
                 id,
@@ -286,16 +323,19 @@ pub fn build_addition(
             data: p.uasset.clone(),
             meta: p.uasset_meta.clone(),
         });
-        chunks.push(ue_iostore::pack::Entry {
-            id: ChunkId {
-                id,
-                index: 0,
-                pad: 0,
-                kind: 2,
-            },
-            data: p.ubulk.clone(),
-            meta: p.ubulk_meta.clone(),
-        });
+        if !p.ubulk.is_empty() {
+            files.push((format!("{rel}.ubulk"), chunks.len()));
+            chunks.push(ue_iostore::pack::Entry {
+                id: ChunkId {
+                    id,
+                    index: 0,
+                    pad: 0,
+                    kind: 2,
+                },
+                data: p.ubulk.clone(),
+                meta: p.ubulk_meta.clone(),
+            });
+        }
         entries.push(PackedEntry {
             label: p.package_name.clone(),
             id: ChunkId {
@@ -306,21 +346,6 @@ pub fn build_addition(
             },
             resized: false,
         });
-    }
-
-    // Name the files in a real directory index, the way UE staging does:
-    // mounted at the content root, each package under its own folder.
-    let mount = "../../../Meteorite/Content/";
-    let mut files: Vec<(String, usize)> = Vec::new();
-    for (i, p) in packages.iter().enumerate() {
-        let rel = p
-            .package_name
-            .strip_prefix("/Game/")
-            .unwrap_or(&p.package_name)
-            .trim_start_matches('/');
-        // Entry 0 is the header; each package contributes two chunks.
-        files.push((format!("{rel}.uasset"), 1 + i * 2));
-        files.push((format!("{rel}.ubulk"), 2 + i * 2));
     }
     let built =
         ue_iostore::pack::build_indexed(&source_toc, container_id, &chunks, Some((mount, &files)));

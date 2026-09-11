@@ -300,3 +300,35 @@ it, so BSPs are cloned, not rebuilt.
 
 What is still B40's: the world (`UnrealLevel`) and the other 17 BSPs the
 scenario references, all read-only shipped tags.
+
+### The map's own Unreal world: not yet (later still)
+
+`mjolnir level bake --standalone BGL --world <bare.umap>` ships the MapKit's
+bare level renamed to `/Game/Levels/Halo1/Solo/BGL/BGL`
+(`ZenPackage::rename_package`: package name, the world export's name and
+public hash) in the map container, and points the row's `UnrealLevel` at it.
+Launching BGL then bounces straight back to the frontend. The store probe
+(`native/scenario_probe/store_probe.c`, watching the new world's id) shows
+**no `GetPackageStoreEntry` lookup for it at all**, and `LoadAsset` from the
+frontend returns nothing for any of our added packages — the BSP clone
+included, which the simulation loads fine by its own tag path. So the UE
+loader refuses a package it has never heard of before the package store is
+consulted; the tag path (chunk existence + direct IoDispatcher reads) never
+hits that gate, which is why every Blam tag we add loads and no Unreal asset
+does.
+
+Ruled out on the way: the directory index layout (a UE-staged
+`../../../` + `Meteorite/Content/...` mount changes nothing), and
+file-name existence — `BlueprintPathsLibrary::FileExists` is false for
+shipped IoStore assets too, and the shipped `.pak` siblings are 339-byte
+stubs with empty indexes. Pointing the row at the shipped
+`/Game/levels/Test/SeamlessTravelTEst` (the only cooked test world) bounces
+as well, so a world also has to be one the flow expects. Where the gate is —
+`FPackageName::DoesPackageExist` (`"is either short package name or does
+not exist"` is in the exe), a 343 package-store backend, or the asset
+registry — is the open reverse-engineering question; the CU4 exe is being
+analyzed for it (`docs/re/ghidra_mcp.md`).
+
+Until then `--world-object` can point a standalone map at any shipped world
+by object path, and without either flag the map runs on the canvas
+mission's world, which is what BGL ships with today.

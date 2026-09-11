@@ -48,6 +48,7 @@ fn main() {
         from: flag(&a, "--from").unwrap_or_else(|| "B40".into()),
         title: flag(&a, "--title"),
         description: flag(&a, "--description"),
+        world: flag(&a, "--world"),
     };
     let (built, name, log) =
         blam_pack::scenario::register(&containers, &oodle, &usmap, &scripts, &reg)

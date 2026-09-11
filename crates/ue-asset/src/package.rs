@@ -548,6 +548,46 @@ impl ZenPackage {
         self.mapped_name(self.name_index, self.name_number)
     }
 
+    /// Give the package another path: the package name, every name equal to
+    /// the old path, and the exports named after the old leaf (the asset
+    /// itself) — whose public export hash derives from that name — follow.
+    /// Nothing else is touched, so the caller has to know the package refers
+    /// to itself by nothing but its name (a bare world does; a World
+    /// Partition root, whose cells are found under its path, does not).
+    pub fn rename_package(&mut self, new_path: &str) -> Result<Vec<String>, Error> {
+        let old_path = self.name();
+        let old_leaf = old_path.rsplit('/').next().unwrap_or("").to_string();
+        let new_leaf = new_path.rsplit('/').next().unwrap_or("").to_string();
+        if old_leaf.is_empty() || new_leaf.is_empty() {
+            return Err(Error::Layout("a package path needs a leaf"));
+        }
+        let mut log = Vec::new();
+        let new_path_index = self.names.intern(new_path);
+        let new_leaf_index = self.names.intern(&new_leaf);
+        self.name_index = new_path_index;
+        self.name_number = 0;
+        log.push(format!("package {old_path} -> {new_path}"));
+        for i in 0..self.export_map.len() {
+            let e = self.export_map[i];
+            if e.name_number == 0 && self.names.names.get(e.name_index as usize) == Some(&old_leaf)
+            {
+                self.export_map[i].name_index = new_leaf_index;
+                if e.public_export_hash != 0 {
+                    self.export_map[i].public_export_hash = public_export_hash(&new_leaf);
+                }
+                log.push(format!(
+                    "export {i} {old_leaf} -> {new_leaf}{}",
+                    if e.public_export_hash != 0 {
+                        " (public hash recomputed)"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+        }
+        Ok(log)
+    }
+
     pub fn mapped_name(&self, index: u32, number: u32) -> String {
         let base = self
             .names
