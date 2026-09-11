@@ -114,6 +114,8 @@ pub struct ManifestFile {
 pub struct InstallStatus {
     pub game_found: bool,
     pub install_path: Option<String>,
+    /// Where UE4SS goes: the `Win64` folder on Steam, `WinGDK` on the Xbox app.
+    pub binaries_path: Option<String>,
     pub platform: String, // "steam" | "gamepass" | "manual" | "unknown"
     pub ue4ss_installed: bool,
     pub modpack_enabled: bool,
@@ -186,13 +188,48 @@ fn cached_manifest_path() -> PathBuf {
 /// would leave a control in Settings that does nothing.
 pub(crate) const GAME_DIR_ENV: &str = "MJOLNIR_GAME_DIR";
 
+/// Where the game binaries sit under the install root, per store. Steam ships
+/// a `Win64` build; the Xbox app ships a `WinGDK` build of the same game, and
+/// that is the folder UE4SS has to go into there. First match wins.
+const BINARIES_DIRS: &[&str] = &["Meteorite/Binaries/Win64", "Meteorite/Binaries/WinGDK"];
+
 /// Directories that only exist inside a Halo Campaign Evolved install. One is
 /// enough: a Game Pass copy that has never been launched has the content but
 /// not always the binaries beside it.
-const INSTALL_MARKERS: &[&str] = &["Meteorite/Binaries/Win64", "Meteorite/Content/Paks"];
+const INSTALL_MARKERS: &[&str] = &[
+    "Meteorite/Binaries/Win64",
+    "Meteorite/Binaries/WinGDK",
+    "Meteorite/Content/Paks",
+];
 
 /// What the install folder is called under a library folder, on every store.
-const GAME_DIR: &str = "Halo Campaign Evolved";
+/// Steam drops the colon from the title; the Xbox app turns it into a dash.
+const GAME_DIRS: &[&str] = &["Halo Campaign Evolved", "Halo- Campaign Evolved"];
+#[cfg(test)]
+const GAME_DIR: &str = GAME_DIRS[0];
+
+/// The Xbox app keeps the game one level down, under `Content`, so the root
+/// holding `Meteorite` is `<library>\Halo- Campaign Evolved\Content`.
+const XBOX_CONTENT_DIR: &str = "Content";
+
+/// The game executable, the same name in both builds.
+const GAME_EXE: &str = "HaloCampaignEvolved.exe";
+
+/// The binaries folder inside an install root: whichever store layout is
+/// present, or the Steam one when neither exists yet so that an error names a
+/// real path rather than none.
+pub(crate) fn binaries_dir(root: &Path) -> PathBuf {
+    BINARIES_DIRS
+        .iter()
+        .map(|d| root.join(d))
+        .find(|d| d.is_dir())
+        .unwrap_or_else(|| root.join(BINARIES_DIRS[0]))
+}
+
+/// Where UE4SS loads Lua mods from, under an install root.
+pub(crate) fn mods_dir(root: &Path) -> PathBuf {
+    binaries_dir(root).join("ue4ss/Mods")
+}
 
 /// How far above a chosen folder the install root may be. Deepest accepted
 /// pick is `Meteorite\Content\Paks`, three levels down.
@@ -226,10 +263,15 @@ fn resolve_install_root(input: &str) -> Option<PathBuf> {
     }
 
     // A folder holding the game by name — a Steam library, or wherever a
-    // moved copy was put — names it just as well as the install itself.
-    let named = start.join(GAME_DIR);
-    if is_install_root(&named) {
-        return Some(named);
+    // moved copy was put — names it just as well as the install itself. So
+    // does the Xbox app's game folder, whose install root is `Content` inside.
+    for name in GAME_DIRS {
+        if let Some(root) = xbox_install_root(&start.join(name)) {
+            return Some(root);
+        }
+    }
+    if let Some(root) = xbox_install_root(&start) {
+        return Some(root);
     }
 
     let mut current = start.as_path();
@@ -248,7 +290,10 @@ fn platform_for(path: &Path) -> String {
     let text = path.to_string_lossy().to_ascii_lowercase();
     if text.contains("steamapps") {
         "steam".to_string()
-    } else if text.contains("xboxgames") || text.contains("windowsapps") {
+    } else if text.contains("xboxgames")
+        || text.contains("xbox games")
+        || text.contains("windowsapps")
+    {
         "gamepass".to_string()
     } else {
         "manual".to_string()
@@ -317,23 +362,18 @@ pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
         }
     }
 
-    // Check Xbox Game Pass / Microsoft Store locations
-    let drives = ["C", "D", "E", "F"];
+    // Check Xbox app / Game Pass locations. Older Xbox app versions install
+    // under `XboxGames`, newer ones under `Xbox Games`; the game sits inside
+    // `Content` in either, which is the root everything else hangs off.
+    let drives = ["C", "D", "E", "F", "G"];
     for drive in &drives {
-        let xbox_path = PathBuf::from(format!(
-            "{}:\\XboxGames\\Halo Campaign Evolved",
-            drive
-        ));
-        if xbox_path.exists() {
-            return Some((xbox_path, "gamepass".to_string()));
-        }
-        // Also check Content subdirectory pattern
-        let xbox_content = PathBuf::from(format!(
-            "{}:\\XboxGames\\Halo Campaign Evolved\\Content",
-            drive
-        ));
-        if xbox_content.exists() {
-            return Some((xbox_content.parent().unwrap().to_path_buf(), "gamepass".to_string()));
+        for library in ["XboxGames", "Xbox Games"] {
+            for name in GAME_DIRS {
+                let game_dir = PathBuf::from(format!("{drive}:\\{library}\\{name}"));
+                if let Some(root) = xbox_install_root(&game_dir) {
+                    return Some((root, "gamepass".to_string()));
+                }
+            }
         }
     }
 
@@ -353,9 +393,21 @@ pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
     None
 }
 
-/// Get the Win64 binaries directory
+/// The install root at or just inside a game folder. The Xbox app keeps the
+/// binaries and content under `Content`; Steam, and a copy someone moved, has
+/// them directly inside. The `Content` level is checked first because the Xbox
+/// game folder itself never passes `is_install_root`.
+fn xbox_install_root(game_dir: &Path) -> Option<PathBuf> {
+    let content = game_dir.join(XBOX_CONTENT_DIR);
+    if is_install_root(&content) {
+        return Some(content);
+    }
+    is_install_root(game_dir).then(|| game_dir.to_path_buf())
+}
+
+/// Get the game binaries directory (`Win64` on Steam, `WinGDK` on the Xbox app)
 fn get_bin_dir() -> Option<PathBuf> {
-    find_game_install().map(|(p, _)| p.join("Meteorite/Binaries/Win64"))
+    find_game_install().map(|(p, _)| binaries_dir(&p))
 }
 
 /// Compute SHA-256 hash of a file
@@ -409,7 +461,7 @@ fn check_ue4ss_dll(bin_dir: &Path) -> (bool, bool) {
 fn detect_game() -> GameInfo {
     match find_game_install() {
         Some((install_path, _platform)) => {
-            let bin_dir = install_path.join("Meteorite/Binaries/Win64");
+            let bin_dir = binaries_dir(&install_path);
             let ue4ss_dir = bin_dir.join("ue4ss");
             let mods_dir = ue4ss_dir.join("Mods");
 
@@ -524,7 +576,7 @@ fn read_mod_version(mods_dir: &Path, mod_name: &str) -> String {
 #[tauri::command]
 fn get_mods() -> Vec<ModEntry> {
     if let Some((install_path, _)) = find_game_install() {
-        let mods_dir = install_path.join("Meteorite/Binaries/Win64/ue4ss/Mods");
+        let mods_dir = mods_dir(&install_path);
         if mods_dir.exists() {
             return parse_mods_txt(&mods_dir);
         }
@@ -535,7 +587,7 @@ fn get_mods() -> Vec<ModEntry> {
 #[tauri::command]
 fn toggle_mod(name: String, enabled: bool) -> Result<(), String> {
     let (install_path, _) = find_game_install().ok_or("Game not found")?;
-    let mods_dir = install_path.join("Meteorite/Binaries/Win64/ue4ss/Mods");
+    let mods_dir = mods_dir(&install_path);
     let mods_txt = mods_dir.join("mods.txt");
 
     let content = fs::read_to_string(&mods_txt).map_err(|e| e.to_string())?;
@@ -617,7 +669,7 @@ pub struct InstallPathCheck {
 fn check_install_path(path: String) -> InstallPathCheck {
     match resolve_install_root(&path) {
         Some(root) => {
-            let bin_dir = root.join("Meteorite/Binaries/Win64");
+            let bin_dir = binaries_dir(&root);
             let (dll_installed, _) = check_ue4ss_dll(&bin_dir);
             let ue4ss_installed = dll_installed && bin_dir.join("ue4ss").exists();
             let resolved = root.to_string_lossy().to_string();
@@ -642,8 +694,8 @@ fn check_install_path(path: String) -> InstallPathCheck {
             ue4ss_installed: false,
             message: format!(
                 "No Halo Campaign Evolved install at {}. Pick the folder holding \
-                 Meteorite\\Binaries\\Win64 — usually the one named \
-                 \"Halo Campaign Evolved\".",
+                 Meteorite\\Binaries — usually the one named \"Halo Campaign \
+                 Evolved\", or its Content folder for the Xbox app version.",
                 path.trim()
             ),
         },
@@ -692,9 +744,12 @@ fn launch_game() -> Result<(), String> {
 
 
             if let Some((install_path, _)) = find_game_install() {
+                let bin_dir = binaries_dir(&install_path);
                 let candidates = vec![
-                    install_path.join("Meteorite/Binaries/Win64/Meteorite-Win64-Shipping.exe"),
-                    install_path.join("Meteorite/Binaries/Win64/Meteorite.exe"),
+                    bin_dir.join(GAME_EXE),
+                    bin_dir.join("Meteorite-Win64-Shipping.exe"),
+                    bin_dir.join("Meteorite-WinGDK-Shipping.exe"),
+                    bin_dir.join("Meteorite.exe"),
                     install_path.join("Meteorite.exe"),
                     install_path.join("HaloCE.exe"),
                 ];
@@ -750,7 +805,7 @@ fn get_install_status() -> InstallStatus {
 
     match find_game_install() {
         Some((install_path, platform)) => {
-            let bin_dir = install_path.join("Meteorite/Binaries/Win64");
+            let bin_dir = binaries_dir(&install_path);
             let ue4ss_dir = bin_dir.join("ue4ss");
             let (dll_installed, dll_enabled) = check_ue4ss_dll(&bin_dir);
 
@@ -761,6 +816,7 @@ fn get_install_status() -> InstallStatus {
             InstallStatus {
                 game_found: true,
                 install_path: Some(install_path.to_string_lossy().to_string()),
+                binaries_path: Some(bin_dir.to_string_lossy().to_string()),
                 platform,
                 ue4ss_installed,
                 modpack_enabled: dll_enabled,
@@ -775,6 +831,7 @@ fn get_install_status() -> InstallStatus {
         None => InstallStatus {
             game_found: false,
             install_path: None,
+            binaries_path: None,
             platform: "unknown".to_string(),
             ue4ss_installed: false,
             modpack_enabled: false,
@@ -1091,12 +1148,17 @@ fn emit_progress(app: &AppHandle, stage: &str, message: &str, percent: f32) {
 }
 
 fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
-    let bin_dir = get_bin_dir().ok_or("Game not found. Please install Halo Campaign Evolved via Steam first.")?;
+    let bin_dir = get_bin_dir().ok_or(
+        "Game not found. Install Halo Campaign Evolved (Steam or the Xbox app) first, or set \
+         its folder in Settings.",
+    )?;
 
     // Ensure bin dir exists
     if !bin_dir.exists() {
         return Err(format!(
-            "Game binaries directory not found: {}",
+            "Game binaries directory not found: {}. Expected a Win64 (Steam) or WinGDK \
+             (Xbox app) folder under Meteorite\\Binaries. Launch the game once so the \
+             store finishes installing it, then try again.",
             bin_dir.display()
         ));
     }
@@ -1608,7 +1670,70 @@ mod tests {
             platform_for(Path::new(r"E:\XboxGames\Halo Campaign Evolved")),
             "gamepass"
         );
+        // The newer Xbox app puts a space in the library name and a dash in
+        // the game's, and installs one level down.
+        assert_eq!(
+            platform_for(Path::new(r"D:\Xbox Games\Halo- Campaign Evolved\Content")),
+            "gamepass"
+        );
         // A copy somewhere of the player's own choosing is neither.
         assert_eq!(platform_for(Path::new(r"G:\Games\HCE")), "manual");
+    }
+
+    /// The Xbox app lays the game out as `<library>\Halo- Campaign Evolved\
+    /// Content\Meteorite\Binaries\WinGDK`. Returns the install root, which is
+    /// the `Content` folder.
+    fn fake_xbox_install(name: &str) -> PathBuf {
+        let library = std::env::temp_dir().join(format!("mjolnir-launcher-{name}"));
+        let _ = fs::remove_dir_all(&library);
+        let root = library.join(GAME_DIRS[1]).join(XBOX_CONTENT_DIR);
+        fs::create_dir_all(root.join("Meteorite/Binaries/WinGDK")).expect("scratch tree");
+        fs::create_dir_all(root.join("Meteorite/Content/Paks")).expect("scratch tree");
+        fs::write(root.join("Meteorite/Binaries/WinGDK").join(GAME_EXE), b"").expect("scratch exe");
+        root
+    }
+
+    /// The bug behind the "Game binaries directory not found: ...\Win64"
+    /// report from an Xbox app install: UE4SS goes into the folder the store
+    /// actually shipped, and the Xbox game folder itself names the root.
+    #[test]
+    fn an_xbox_app_install_uses_its_wingdk_folder() {
+        let root = fake_xbox_install("xbox");
+        assert_eq!(binaries_dir(&root), root.join("Meteorite/Binaries/WinGDK"));
+        assert_eq!(mods_dir(&root), root.join("Meteorite/Binaries/WinGDK/ue4ss/Mods"));
+
+        let library = root.parent().expect("game dir").parent().expect("library");
+        let picks = [
+            library.to_path_buf(),
+            root.parent().expect("game dir").to_path_buf(),
+            root.clone(),
+            root.join("Meteorite"),
+            root.join("Meteorite/Binaries/WinGDK"),
+            root.join("Meteorite/Binaries/WinGDK").join(GAME_EXE),
+        ];
+        for pick in picks {
+            assert_eq!(
+                resolve_install_root(&pick.to_string_lossy()),
+                Some(root.clone()),
+                "{} should name the Xbox install root",
+                pick.display()
+            );
+        }
+
+        let _ = fs::remove_dir_all(library);
+    }
+
+    /// Steam's layout still resolves to `Win64`, and an install with neither
+    /// folder yet reports the Steam path so the error names somewhere real.
+    #[test]
+    fn a_steam_install_uses_its_win64_folder() {
+        let root = fake_install("win64");
+        assert_eq!(binaries_dir(&root), root.join("Meteorite/Binaries/Win64"));
+
+        fs::remove_dir_all(root.join("Meteorite/Binaries")).expect("drop binaries");
+        assert!(is_install_root(&root), "the Paks folder alone still marks an install");
+        assert_eq!(binaries_dir(&root), root.join("Meteorite/Binaries/Win64"));
+
+        let _ = fs::remove_dir_all(root.parent().expect("library"));
     }
 }

@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-launcher"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "dirs",
  "ed25519-dalek",
