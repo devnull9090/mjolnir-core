@@ -2387,9 +2387,15 @@
       ],
       "materials": [
         "",
-        "/Game/Env/Bio/Ground/Soil/Ground_Soil_Pile_D/Materials/MI_Ground_Soil_Pile_D.MI_Ground_Soil_Pile_D",
-        "/Game/Env/Bio/Rock/Canyon/Materials/MI_Rock_Canyon_Generic.MI_Rock_Canyon_Generic",
-        "/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark.MI_FR_Gen_Metal_Simple_01_Grey_MidDark"
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_hull_reach_diffuse.M_pelican_hull_reach_diffuse",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_instances_reach_diffuse.M_pelican_instances_reach_diffuse",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/ghost/M_dghost_diffuse_D.M_dghost_diffuse_D",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_general_plating_diffuse.M_pelican_general_plating_diffuse",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_tech_panels_diffuse.M_pelican_tech_panels_diffuse",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/weapons/concussion_rifle/M_assault_rifle_Inst.M_assault_rifle_Inst",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/weapons/dmr/M_dmr_Inst.M_dmr_Inst",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/M_crate_h_gun_rack_diffuse.M_crate_h_gun_rack_diffuse",
+        "/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/M_marine_packs_diffuse.M_marine_packs_diffuse"
       ]
     }
   ]

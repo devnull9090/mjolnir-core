@@ -26,15 +26,30 @@ TERRAIN_MESH = __import__("os").environ.get(
 TERRAIN_POS = (10212.1, -10220.6, 17356.0)
 TERRAIN_SCALE = 442.4551
 # Slot order matches the `--material` flags mesh_rewrite was run with; slot 0
-# is the donor's own and no primitive is assigned to it. Shipped material
-# instances, applied to the component at spawn.
+# is the donor's own and no primitive is assigned to it. The hosts are simple
+# diffuse+normal materials from the never-placed prototype content, whose
+# textures carry the classic Blood Gulch bitmaps via `mjolnir texture swap`
+# (docs/ue_mesh_write.md, "Original textures"). Applied to the component at spawn.
 TERRAIN_MATERIALS = [
     "",
-    "/Game/Env/Bio/Ground/Soil/Ground_Soil_Pile_D/Materials/MI_Ground_Soil_Pile_D"
-    ".MI_Ground_Soil_Pile_D",
-    "/Game/Env/Bio/Rock/Canyon/Materials/MI_Rock_Canyon_Generic.MI_Rock_Canyon_Generic",
-    "/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark"
-    ".MI_FR_Gen_Metal_Simple_01_Grey_MidDark",
+    # cliff
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_hull_reach_diffuse.M_pelican_hull_reach_diffuse",
+    # ground, moss
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_instances_reach_diffuse.M_pelican_instances_reach_diffuse",
+    # boulder
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/ghost/M_dghost_diffuse_D.M_dghost_diffuse_D",
+    # cap metal, lights, teleporter
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_general_plating_diffuse.M_pelican_general_plating_diffuse",
+    # metal flat
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/Vehicles/pelican/M_pelican_tech_panels_diffuse.M_pelican_tech_panels_diffuse",
+    # panels clean
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/weapons/concussion_rifle/M_assault_rifle_Inst.M_assault_rifle_Inst",
+    # panels
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/weapons/dmr/M_dmr_Inst.M_dmr_Inst",
+    # panels unearthed
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/M_crate_h_gun_rack_diffuse.M_crate_h_gun_rack_diffuse",
+    # ramps
+    "/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/M_marine_packs_diffuse.M_marine_packs_diffuse",
 ]
 
 # Halo wu -> blank-B40 world wu: the offset the collision transplant used.

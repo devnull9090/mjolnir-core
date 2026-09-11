@@ -192,6 +192,10 @@ pub struct Swap {
     /// The payload decoded again at mip 0 — what the game will show, which a
     /// caller can render as a preview or write out as a PNG.
     pub decoded: TextureImage,
+    /// A rewritten export body, when the texture keeps some of its mips
+    /// inline in the export and those had to change too. Same length as the
+    /// body that went in; the caller packs it as a second chunk.
+    pub export: Option<Vec<u8>>,
 }
 
 /// Rewrite a texture's bulk payload with `img` and prove the result before
@@ -209,12 +213,35 @@ pub struct Swap {
 ///    still packs and still verifies byte-exactly against itself; this is the
 ///    only check that catches it.
 pub fn swap(tex: &Texture, ubulk: &[u8], img: &Image) -> Result<Swap, String> {
-    let out = rewrite(tex, &[], ubulk, img)?;
+    let out = swap_with_export(tex, &[], ubulk, img)?;
     if out.export.is_some() {
         return Err(
             "this texture keeps its mips inline in the export, which cannot be rewritten yet"
                 .into(),
         );
+    }
+    Ok(out)
+}
+
+/// [`swap`] for a texture whose tail mips live inline in the export: the
+/// same gates, and the rewritten export body comes back in `Swap::export`
+/// for the caller to pack beside the bulk chunk. Classic mip chains in this
+/// game keep everything below 128x128 inline, so any classic host needs this.
+pub fn swap_with_export(
+    tex: &Texture,
+    export_body: &[u8],
+    ubulk: &[u8],
+    img: &Image,
+) -> Result<Swap, String> {
+    let out = rewrite(tex, export_body, ubulk, img)?;
+    if let Some(e) = &out.export {
+        if e.len() != export_body.len() {
+            return Err(format!(
+                "internal error: rewrote a {} byte export body over {} bytes",
+                e.len(),
+                export_body.len()
+            ));
+        }
     }
     if out.ubulk.len() != ubulk.len() {
         return Err(format!(
@@ -223,21 +250,31 @@ pub fn swap(tex: &Texture, ubulk: &[u8], img: &Image) -> Result<Swap, String> {
             ubulk.len()
         ));
     }
-    let changed = (0..ubulk.len()).filter(|i| ubulk[*i] != out.ubulk[*i]).count();
+    let changed = (0..ubulk.len())
+        .filter(|i| ubulk[*i] != out.ubulk[*i])
+        .count();
 
     let decoded = crate::assemble_mip(tex, &out.ubulk, 0)?;
     let want = img.resized(tex.width, tex.height);
+    // Only the channels the format carries can come back: a BC5 normal map
+    // stores two, BC4 one, and whatever the decoder puts in the rest is not
+    // the image's fault.
+    let channels = match tex.format.as_str() {
+        "PF_BC4" | "PF_G8" | "PF_A8" => 1,
+        "PF_BC5" => 2,
+        _ => 3,
+    };
     let total: u64 = decoded
         .rgba
         .chunks(4)
         .zip(want.rgba.chunks(4))
         .map(|(a, b)| {
-            (0..3)
+            (0..channels)
                 .map(|c| (a[c] as i32 - b[c] as i32).unsigned_abs() as u64)
                 .sum::<u64>()
         })
         .sum();
-    let error = total as f64 / (decoded.rgba.len() as f64 / 4.0 * 3.0);
+    let error = total as f64 / (decoded.rgba.len() as f64 / 4.0 * channels as f64);
     if error > MAX_READBACK_ERROR {
         return Err(format!(
             "the rewritten payload does not decode back to the image that went in \
@@ -251,6 +288,7 @@ pub fn swap(tex: &Texture, ubulk: &[u8], img: &Image) -> Result<Swap, String> {
         changed,
         error,
         decoded,
+        export: out.export,
     })
 }
 
@@ -394,6 +432,14 @@ fn rewrite_classic(
                         "mip {i} holds {} slices; cubemaps, arrays and volume textures \
                          cannot be replaced from a single image",
                         old.len() as u64 / one.max(1)
+                    ));
+                }
+                // The caller has to hand over the export body for an inline
+                // mip to have anywhere to go.
+                if *at + old.len() > body.len() {
+                    return Err(format!(
+                        "mip {i} is inline at {at}, but only {} byte(s) of export body were given",
+                        body.len()
                     ));
                 }
                 body[*at..*at + old.len()].copy_from_slice(&bytes);
@@ -542,7 +588,10 @@ mod tests {
     /// still "succeed" if we only checked lengths.
     fn roundtrip(format: &str, rgba: &[u8], w: usize, h: usize) -> Vec<u8> {
         let enc = encode_surface(format, rgba, w, h).unwrap();
-        assert_eq!(enc.len(), surface_bytes(format, w as u32, h as u32).unwrap() as usize);
+        assert_eq!(
+            enc.len(),
+            surface_bytes(format, w as u32, h as u32).unwrap() as usize
+        );
         let px = crate::decode_surface(format, &enc, w, h).unwrap();
         let mut out = vec![0u8; w * h * 4];
         for (i, p) in px.iter().enumerate() {

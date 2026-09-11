@@ -103,6 +103,19 @@ fn main() {
         c.bsp2d_references.len(),
         c.surfaces.len()
     );
+    // The frame the query has to be in: the definition's own vertex bounds.
+    let mut lo = [f32::MAX; 3];
+    let mut hi = [f32::MIN; 3];
+    for v in &c.vertices {
+        for k in 0..3 {
+            lo[k] = lo[k].min(v.point[k]);
+            hi[k] = hi[k].max(v.point[k]);
+        }
+    }
+    println!(
+        "vertex bounds x [{:.2}, {:.2}] y [{:.2}, {:.2}] z [{:.2}, {:.2}]",
+        lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]
+    );
 
     // The surfaces whose polygon box spans this xy, with their top z, as the
     // truth the tree has to agree with.
@@ -161,7 +174,11 @@ fn main() {
                     lf.flags,
                     path.len(),
                     refs.len(),
-                    if found.is_empty() { "(no surface)".to_string() } else { found.join(" ") }
+                    if found.is_empty() {
+                        "(no surface)".to_string()
+                    } else {
+                        found.join(" ")
+                    }
                 );
             }
         }

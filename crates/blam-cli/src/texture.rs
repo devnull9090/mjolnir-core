@@ -91,6 +91,11 @@ pub struct SwapArgs {
     /// exactly as the game will decode it.
     #[arg(long)]
     pub preview: Option<PathBuf>,
+    /// More swaps for the same container, as `ASSET=IMAGE` — the same
+    /// substring rule for the asset, and `flat-normal` in place of an image
+    /// writes a flat (128,128) normal map, for quieting a host's bump map.
+    #[arg(long = "pair", value_name = "ASSET=IMAGE")]
+    pub pairs: Vec<String>,
 }
 
 /// One cooked texture located in the containers.
@@ -164,8 +169,7 @@ fn read(
 ) -> Result<(Vec<u8>, usize, Vec<u8>, ue_texture::Texture)> {
     let c = &containers[t.container];
     let uasset = ue_iostore::read_chunk(c, &t.uasset, None, oodle)?;
-    let header = ue_texture::zen_header_size(&uasset)
-        .context("not a zen package")?;
+    let header = ue_texture::zen_header_size(&uasset).context("not a zen package")?;
     let tex = ue_texture::parse_texture(&uasset[header..]).map_err(|e| anyhow::anyhow!(e))?;
     let ubulk = match &t.ubulk {
         Some(chunk) => ue_iostore::read_chunk(c, chunk, None, oodle)?,
@@ -194,11 +198,7 @@ fn list(a: ListArgs) -> Result<()> {
             continue;
         }
         if !a.detail {
-            println!(
-                "{:>12}  {}",
-                t.ubulk.map(|c| c.length).unwrap_or(0),
-                t.path
-            );
+            println!("{:>12}  {}", t.ubulk.map(|c| c.length).unwrap_or(0), t.path);
             shown += 1;
             continue;
         }
@@ -344,15 +344,28 @@ fn export(a: ExportArgs) -> Result<()> {
     Ok(())
 }
 
-fn swap(a: SwapArgs) -> Result<()> {
-    let containers = ue_iostore::load_all(&a.one.src.paks)?;
-    let oodle = a.one.src.oodle_roots();
-    let t = locate(&containers, &a.one.asset)?;
-    let (_, _, ubulk, tex) = read(&containers, &t, &oodle)?;
+/// The replacement image for one swap: a PNG path, or the `flat-normal`
+/// keyword for a (128,128) normal map that leaves a surface unperturbed.
+fn swap_image(spec: &str) -> Result<Image> {
+    if spec == "flat-normal" {
+        let px = [128u8, 128, 255, 255];
+        return Image::new(4, 4, px.repeat(16)).map_err(|e| anyhow::anyhow!(e));
+    }
+    let png = std::fs::read(spec).with_context(|| format!("cannot read {spec}"))?;
+    Image::from_png(&png).map_err(|e| anyhow::anyhow!(e))
+}
 
-    let png = std::fs::read(&a.image)
-        .with_context(|| format!("cannot read {}", a.image.display()))?;
-    let img = Image::from_png(&png).map_err(|e| anyhow::anyhow!(e))?;
+/// Rewrite one texture and return the chunk edits it needs: the bulk chunk,
+/// and the `.uasset` too when tail mips live inline in the export.
+fn swap_one(
+    containers: &[Container],
+    oodle: &[PathBuf],
+    asset: &str,
+    img: &Image,
+    preview: Option<&PathBuf>,
+) -> Result<(usize, Vec<blam_pack::ChunkEdit>)> {
+    let t = locate(containers, asset)?;
+    let (uasset, header, ubulk, tex) = read(containers, &t, oodle)?;
 
     println!("{}", t.path);
     println!("  shipped  {}x{} {}", tex.width, tex.height, tex.format);
@@ -367,10 +380,12 @@ fn swap(a: SwapArgs) -> Result<()> {
         }
     );
 
-    // Every safety gate — the inline-mip refusal, the length invariant and the
-    // readback comparison — lives in the crate, so this command and the tag
-    // editor cannot drift apart on what counts as a swap worth shipping.
-    let out = ue_texture::encode::swap(&tex, &ubulk, &img)
+    // Every safety gate — the length invariant and the readback comparison —
+    // lives in the crate, so this command and the tag editor cannot drift
+    // apart on what counts as a swap worth shipping. The export body goes in
+    // too: a classic chain keeps its small mips inline, and without them the
+    // texture would revert to the shipped picture in the distance.
+    let out = ue_texture::encode::swap_with_export(&tex, &uasset[header..], &ubulk, img)
         .map_err(|e| anyhow::anyhow!("{}: {e}", t.path))?;
     println!(
         "  rewrote  {} mip(s), {} of {} payload bytes changed",
@@ -380,28 +395,77 @@ fn swap(a: SwapArgs) -> Result<()> {
     );
     println!("  readback mean channel error {:.2} / 255", out.error);
 
-    if let Some(path) = &a.preview {
+    if let Some(path) = preview {
         let png = ue_texture::to_png(&out.decoded).map_err(|e| anyhow::anyhow!(e))?;
-        std::fs::write(path, &png)
-            .with_context(|| format!("cannot write {}", path.display()))?;
+        std::fs::write(path, &png).with_context(|| format!("cannot write {}", path.display()))?;
         println!("  preview  {}", path.display());
     }
 
     let chunk = t
         .ubulk
         .context("this texture keeps every mip inline, so it has no bulk chunk to replace")?;
-    let source = &containers[t.container];
-    let built = blam_pack::build_override(
-        source,
-        &oodle,
-        &[blam_pack::ChunkEdit {
-            label: format!("{}.ubulk", t.path),
-            chunk,
-            original_len: ubulk.len(),
-            patched: out.ubulk,
-        }],
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+    let mut edits = vec![blam_pack::ChunkEdit {
+        label: format!("{}.ubulk", t.path),
+        chunk,
+        original_len: ubulk.len(),
+        patched: out.ubulk,
+    }];
+    if let Some(body) = out.export {
+        // Same length as the shipped export, so nothing in the zen header
+        // moves: the package is the shipped bytes with new pixels in the tail.
+        let mut patched = uasset[..header].to_vec();
+        patched.extend_from_slice(&body);
+        println!(
+            "  rewrote  the export too ({} inline mip bytes)",
+            body.len()
+        );
+        edits.push(blam_pack::ChunkEdit {
+            label: format!("{}.uasset", t.path),
+            chunk: t.uasset,
+            original_len: patched.len(),
+            patched,
+        });
+    }
+    Ok((t.container, edits))
+}
+
+fn swap(a: SwapArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.one.src.paks)?;
+    let oodle = a.one.src.oodle_roots();
+
+    let mut jobs: Vec<(String, String)> =
+        vec![(a.one.asset.clone(), a.image.to_string_lossy().into_owned())];
+    for pair in &a.pairs {
+        let (asset, image) = pair
+            .split_once('=')
+            .with_context(|| format!("--pair {pair:?} is not ASSET=IMAGE"))?;
+        jobs.push((asset.to_string(), image.to_string()));
+    }
+
+    let mut edits = Vec::new();
+    let mut container: Option<usize> = None;
+    for (i, (asset, image)) in jobs.iter().enumerate() {
+        let img = swap_image(image)?;
+        let (ci, more) = swap_one(
+            &containers,
+            &oodle,
+            asset,
+            &img,
+            if i == 0 { a.preview.as_ref() } else { None },
+        )?;
+        match container {
+            None => container = Some(ci),
+            Some(c) if c != ci => anyhow::bail!(
+                "{asset} lives in a different shipped container from the first texture; \
+                 one override container can only shadow one source"
+            ),
+            _ => {}
+        }
+        edits.extend(more);
+    }
+    let source = &containers[container.expect("at least one swap")];
+    let built =
+        blam_pack::build_override(source, &oodle, &edits).map_err(|e| anyhow::anyhow!(e))?;
 
     for p in &built.entries {
         println!(
@@ -437,4 +501,3 @@ fn swap(a: SwapArgs) -> Result<()> {
     println!("\n  verified: the container reads back byte-exact through the game's own path.");
     Ok(())
 }
-

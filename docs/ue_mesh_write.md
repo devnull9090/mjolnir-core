@@ -145,6 +145,40 @@ spawned with, a material that samples UV0 stretches badly, while the
 world-projected `Env/Bio` rock and soil hold up. That is why the cliffs read
 well and the base floors read as polished sheet.
 
+## Original textures
+
+Borrowed materials make Blood Gulch look like a Campaign Evolved level; the
+classic look wants the classic bitmaps. Nothing new can be cooked, but a
+shipped texture's pixels can be replaced in place (`mjolnir texture swap`,
+[texture_swapping.md](texture_swapping.md)), so the route is:
+
+1. **Hosts.** Pick shipped materials that nothing in the game places, whose
+   textures are swappable (DXT1/DXT5 colour, BC5 normal) and that sample UV0
+   plainly. `/Game/_Prototypes/SynchronizationTestContent/Assets` is full of
+   them — the Pelican and Ghost placeholder vehicles, the ammo-box gear, the
+   DMR and concussion-rifle instances — each a simple diffuse + normal
+   material with its own textures. Nine of them cover Blood Gulch's cliff,
+   ground, boulder, cap metal, flat metal, two panel variants, the unearthed
+   panels and the ramps; the lights and teleporter share the cap metal.
+2. **Pixels.** One `texture swap` call with `--pair` per extra texture puts
+   the CE bitmap on each host's `_D` and a `flat-normal` on each `_N`, so the
+   host's own bump map stops showing through. The CE bitmaps are 256–512
+   px; upscale them (Lanczos at least) to the host's size first, since a
+   noisy 512 stretched by the encoder's resampler fails the readback gate,
+   and set their alpha to opaque — CE stored specular masks there and the
+   DXT5 hosts read alpha.
+3. **Sections and slots.** `mesh_rewrite --material` with one slot per CE
+   shader group, keyed on the glTF material names, and the level file's
+   `materials` list pointing at the host materials. `tools/level/
+   gen_bloodgulch_level.py` carries the table.
+
+Classic textures keep their tail mips (everything below 128x128) inline in
+the export, which the swap refused until now; it rewrites the export body
+too and packs the `.uasset` beside the `.ubulk`, both the same length as
+shipped. The readback gate compares only the channels a format carries — a
+BC5 normal map has two, and grading its missing blue channel is what made a
+perfect flat normal read as an 85/255 error.
+
 ## A brand-new package does not work (yet)
 
 The tidier answer would be a package of our own rather than shadowing a
