@@ -990,11 +990,14 @@ fn bake(a: BakeArgs) -> Result<()> {
     }
 
     // Structure BSPs of the standalone map's own: each `--bsp` clones the
-    // referenced BSP tag under the codename's folder with the given body and
-    // repoints the scenario's reference (same length: the codename replaces
-    // the canvas mission's in the tag path). Ordinary new tags resolve by
-    // name the moment a reference names them, so the scenario package needs
-    // no import for it.
+    // referenced BSP tag and its lighting-info tag under the codename's
+    // folder — the BSP with the given body, the lighting info as shipped —
+    // and repoints the scenario's references. The clones are the shipped
+    // wrappers with the codename swapped into the package path (same-length
+    // surgery, like the scenario's own), which is what the simulation derives
+    // the tag path from; a wrapper rebuilt from scratch for this group loads
+    // but the map never starts. Ordinary new tags resolve by name the moment
+    // a reference names them, so the scenario package needs no import.
     let mut extra_packages: Vec<blam_pack::NewPackage> = Vec::new();
     if !a.bsps.is_empty() {
         let code = a
@@ -1002,12 +1005,10 @@ fn bake(a: BakeArgs) -> Result<()> {
             .as_deref()
             .context("--bsp needs --standalone: a canvas override keeps the canvas BSPs")?
             .to_uppercase();
-        let usmap = crate::embedded_usmap()?;
         let oodle = a.src.oodle_roots();
-        let resolve = crate::newtag::body_ref_resolver(&idx, &oodle)?;
-        let bsp_entries = by_group
-            .get("scenario_structure_bsp")
-            .context("no scenario_structure_bsp tags")?;
+        let old_seg = format!("\\{}\\", scen.to_lowercase());
+        let new_seg = format!("\\{}\\", code.to_lowercase());
+        ensure_same_len(&old_seg, &new_seg)?;
         for spec in &a.bsps {
             let (index, payload) = spec
                 .split_once('=')
@@ -1015,64 +1016,89 @@ fn bake(a: BakeArgs) -> Result<()> {
             let index: usize = index
                 .parse()
                 .with_context(|| format!("--bsp index {index:?}"))?;
-            let body = std::fs::read(payload)
+            let new_body = std::fs::read(payload)
                 .with_context(|| format!("cannot read BSP payload {payload}"))?;
-            let field = format!("structure bsps[{index}].structure bsp");
-            let current = {
-                let tag = TagFile::parse(&baker.file, Some(baker.file.len()))?;
-                let l = tag.layout()?;
-                let block = tag.read_data(&l)?;
-                reference_path(&l, &baker.file, &block, &field)?
-            };
-            let old_seg = format!("\\{}\\", scen.to_lowercase());
-            let new_seg = format!("\\{}\\", code.to_lowercase());
-            ensure_same_len(&old_seg, &new_seg)?;
-            let new_path = current.replace(&old_seg, &new_seg);
-            if new_path == current {
-                bail!("{field} = {current:?} does not carry the canvas codename to replace");
+            // (field, group directory, four-CC, replacement body)
+            let parts: [(String, &str, &str, Option<&[u8]>); 2] = [
+                (
+                    format!("structure bsps[{index}].structure bsp"),
+                    "scenario_structure_bsp",
+                    "sbsp",
+                    Some(&new_body),
+                ),
+                (
+                    format!("structure bsps[{index}].structure lighting_info"),
+                    "scenario_structure_lighting_info",
+                    "stli",
+                    None,
+                ),
+            ];
+            for (field, group, cc, body) in parts {
+                let current = {
+                    let tag = TagFile::parse(&baker.file, Some(baker.file.len()))?;
+                    let l = tag.layout()?;
+                    let block = tag.read_data(&l)?;
+                    reference_path(&l, &baker.file, &block, &field)?
+                };
+                let new_path = current.replace(&old_seg, &new_seg);
+                if new_path == current {
+                    bail!("{field} = {current:?} does not carry the canvas codename to replace");
+                }
+                let leaf = current.rsplit('\\').next().unwrap_or(&current).to_string();
+                let want = format!("/{}/_generated_/{leaf}-{group}", scen.to_lowercase());
+                let entries = by_group
+                    .get(group)
+                    .with_context(|| format!("no {group} tags"))?;
+                let donor_entry = entries
+                    .iter()
+                    .find(|e| e.path.to_ascii_lowercase().contains(&want))
+                    .copied()
+                    .with_context(|| format!("no shipped {group} tag package for {current}"))?;
+                let source = &idx.containers[donor_entry.container];
+                let uasset_chunk = source
+                    .chunks
+                    .iter()
+                    .find(|c| c.chunk_id == donor_entry.chunk.chunk_id && c.chunk_type == 1)
+                    .context("the tag has no package chunk beside its payload")?;
+                let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &oodle)?;
+                let donor_body = idx.read(donor_entry, None, &oodle)?;
+                let body: Vec<u8> = body.map(<[u8]>::to_vec).unwrap_or_else(|| donor_body.clone());
+                let (uasset_meta, ubulk_meta) =
+                    blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                let donor_pkg = ue_asset::zen::Package::parse(&donor_uasset)
+                    .map_err(|e| anyhow::anyhow!("{group} donor package: {e}"))?;
+                let old_pkg = donor_pkg.name.clone();
+                let new_pkg = old_pkg.replace(
+                    &format!("/{}/", scen.to_uppercase()),
+                    &format!("/{}/", code),
+                );
+                ensure_same_len(&old_pkg, &new_pkg)?;
+                let uasset = crate::rename::clone_tag_uasset(
+                    &donor_uasset,
+                    &[(old_pkg.clone(), new_pkg.clone())],
+                    donor_body.len(),
+                    body.len(),
+                )?;
+                let imported: Vec<u64> = donor_pkg
+                    .imported_package_names
+                    .iter()
+                    .map(|n| ue_iostore::city::package_id(n))
+                    .collect();
+                println!(
+                    "  {cc}     [{index}] {current}\n        -> {new_path} ({} bytes)",
+                    body.len()
+                );
+                apply_set(&mut baker.file, &field, &format!("{cc}:{new_path}"))?;
+                extra_packages.push(blam_pack::NewPackage {
+                    package_name: new_pkg,
+                    uasset,
+                    ubulk: body,
+                    imported_package_ids: imported,
+                    uasset_meta,
+                    ubulk_meta,
+                });
             }
-            let leaf = current.rsplit('\\').next().unwrap_or(&current).to_string();
-            let want = format!(
-                "/{}/_generated_/{leaf}-scenario_structure_bsp",
-                scen.to_lowercase()
-            );
-            let donor_entry = bsp_entries
-                .iter()
-                .find(|e| e.path.to_ascii_lowercase().contains(&want))
-                .copied()
-                .with_context(|| format!("no shipped BSP tag package for {current}"))?;
-            let source = &idx.containers[donor_entry.container];
-            let uasset_chunk = source
-                .chunks
-                .iter()
-                .find(|c| c.chunk_id == donor_entry.chunk.chunk_id && c.chunk_type == 1)
-                .context("the BSP has no package chunk beside its payload")?;
-            let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &oodle)?;
-            let (uasset_meta, ubulk_meta) =
-                blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
-                    .map_err(|e| anyhow::anyhow!(e))?;
-            let built_tag = blam_pack::newtag::build(
-                &blam_pack::newtag::NewTag {
-                    group: "scenario_structure_bsp",
-                    path: &new_path,
-                    body: &body,
-                    donor_uasset: &donor_uasset,
-                    asset_reference: None,
-                },
-                usmap,
-                &resolve,
-            )
-            .map_err(|e| anyhow::anyhow!(e))?;
-            let mut package = built_tag.package;
-            package.uasset_meta = uasset_meta;
-            package.ubulk_meta = ubulk_meta;
-            println!(
-                "  bsp      [{index}] {current}\n        -> {new_path} ({} bytes, {} preload(s))",
-                body.len(),
-                built_tag.preloads
-            );
-            apply_set(&mut baker.file, &field, &format!("sbsp:{new_path}"))?;
-            extra_packages.push(package);
         }
     }
 

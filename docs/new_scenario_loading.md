@@ -277,3 +277,26 @@ name), so a map no longer has to override a shipped mission. What is still
 shared is the UE side: the row's `UnrealLevel` points at B40's world, and a
 brand-new world package has not been tried natively yet — `LoadAsset` was
 never a valid probe for it either.
+
+### The map's own BSP tags (later the same day)
+
+`mjolnir level bake <file> --standalone BGL --bsp 8=<collision payload>` gives
+the map its own structure BSP: the canvas scenario's `structure bsps[8]` pair
+— `bsp_01_1_start` (sbsp) and its `scenario_structure_lighting_info` — is
+cloned under `/Solo/BGL/_Generated_/`, the BSP with the given body, the
+lighting info as shipped, and the baked scenario's two references are
+repointed (`sbsp:levels\halo1\sologlsp_01_1_start`). The clones are the
+shipped wrappers with the codename swapped into the package path — the same
+same-length surgery as the scenario package — packed into the map container
+beside it. Verified live: with no override of B40's BSP installed, BGL starts
+and the pawn stands on the Blood Gulch collision at its start.
+
+One negative result worth keeping: a BSP wrapper rebuilt from scratch by
+`blam_pack::newtag::build` (the route that works for collision models and
+projectiles) registers and the scenario loads, but the simulation never
+starts the map — pawn at the origin, loader waiting. Whatever the structure
+BSP's cooked wrapper carries beyond what `tagwrap` models, the map load needs
+it, so BSPs are cloned, not rebuilt.
+
+What is still B40's: the world (`UnrealLevel`) and the other 17 BSPs the
+scenario references, all read-only shipped tags.
