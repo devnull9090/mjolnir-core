@@ -12,6 +12,7 @@
 //! caller names files.
 
 pub mod newtag;
+pub mod scenario;
 
 use std::path::{Path, PathBuf};
 

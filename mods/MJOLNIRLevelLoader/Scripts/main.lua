@@ -112,6 +112,24 @@ local function scenarioOf(world)
     return string.upper(asset)
 end
 
+--- The codename of the scenario tag actually running, e.g. "PG1" from
+--- `.../PG1/_Generated_/PG1-scenario`. A standalone map (`mjolnir level bake
+--- --standalone`) runs its own scenario tag on a shipped world, so its level
+--- file is keyed by this rather than by the world; nil when no scenario asset
+--- is loaded yet or its name does not follow the pattern.
+local function scenarioTagOf()
+    local ok, assets = pcall(function() return FindAllOf("BlamScenarioTagDataAsset") end)
+    if not ok or type(assets) ~= "table" then return nil end
+    for _, a in ipairs(assets) do
+        local okn, name = pcall(function() return a:GetFullName() end)
+        if okn and type(name) == "string" then
+            local code = name:match("([%w_]+)%-scenario%.[%w_]+%-scenario$")
+            if code then return string.upper(code) end
+        end
+    end
+    return nil
+end
+
 --------------------------------------------------------------------------------
 -- Level state
 --------------------------------------------------------------------------------
@@ -153,8 +171,8 @@ end
 
 --- Decode and sanity-check a level file. Full validation is the CLI's job
 --- (`mjolnir level validate`); the loader checks only what it consumes.
-local function loadLevelFile(scenario)
-    local path = levelPathFor(scenario)
+local function loadLevelFile(scenario, fileKey)
+    local path = levelPathFor(fileKey or scenario)
     local raw = readFile(path)
     if not raw then return nil, "no file: " .. path end
 
@@ -402,7 +420,18 @@ local function tick()
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 
-        local level, err = loadLevelFile(Current.scenario)
+        -- A standalone scenario's own file first, then the world's.
+        local level, err
+        local tag = scenarioTagOf()
+        if tag and tag ~= Current.scenario then
+            level, err = loadLevelFile(Current.scenario, tag)
+            if level then
+                Log(string.format("scenario tag %s has its own level file", tag))
+            end
+        end
+        if not level then
+            level, err = loadLevelFile(Current.scenario)
+        end
         if not level then
             Current.fileMissing = true
             if err and not err:find("^no file") then

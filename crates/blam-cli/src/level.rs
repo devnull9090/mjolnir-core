@@ -1106,6 +1106,43 @@ fn bake(a: BakeArgs) -> Result<()> {
     println!("  wrote    {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote    {} ({} bytes)", ucas.display(), built.ucas.len());
 
+    // A standalone codename also has to be registered: a cooked
+    // `DT_Scenarios` row and a `ScenarioList` handle, which is what the
+    // simulation's map registry is built from at boot
+    // (`blam_pack::scenario`). The scenario package alone launches nothing.
+    let mut undo = format!("the three {name}.* files");
+    if let Some(code) = &a.standalone {
+        let code = code.to_uppercase();
+        let oodle = a.src.oodle_roots();
+        let usmap = crate::mesh::usmap()?;
+        let scripts = crate::mesh::script_objects(&idx.containers, &oodle)?;
+        let reg = blam_pack::scenario::Registration {
+            code: code.clone(),
+            from: scen.to_uppercase(),
+            title: level.title.clone(),
+            description: level.description.clone(),
+        };
+        let (built, reg_name, log) =
+            blam_pack::scenario::register(&idx.containers, &oodle, &usmap, &scripts, &reg)
+                .map_err(|e| anyhow::anyhow!(e))?;
+        for line in &log {
+            println!("  register {line}");
+        }
+        let utoc = out_dir.join(format!("{reg_name}.utoc"));
+        let ucas = out_dir.join(format!("{reg_name}.ucas"));
+        stage(&utoc, &built.utoc)?;
+        stage(&ucas, &built.ucas)?;
+        blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
+        println!("  wrote    {} ({} bytes)", utoc.display(), built.utoc.len());
+        println!("  wrote    {} ({} bytes)", ucas.display(), built.ucas.len());
+        if a.install_test {
+            let pak = out_dir.join(format!("{reg_name}.pak"));
+            std::fs::write(&pak, ue_iostore::pak::stub_for(&reg_name))?;
+            println!("  wrote    {} (stub)", pak.display());
+        }
+        undo = format!("the three {name}.* and three {reg_name}.* files");
+    }
+
     if a.install_test {
         // A .utoc/.ucas pair never mounts without a .pak sibling
         // (docs/iostore_packaging.md).
@@ -1113,17 +1150,27 @@ fn bake(a: BakeArgs) -> Result<()> {
         std::fs::write(&pak, ue_iostore::pak::stub_for(&name))?;
         println!("  wrote    {} (stub)", pak.display());
 
+        // The loader keys a standalone map's decor by its codename, a
+        // canvas override's by the canvas scenario.
+        let file_key = a
+            .standalone
+            .as_ref()
+            .map(|c| c.to_uppercase())
+            .unwrap_or_else(|| scen.to_string());
         if let Some(loader_levels) = loader_levels_dir(&a.src.paks) {
             std::fs::create_dir_all(&loader_levels)?;
-            let dest = loader_levels.join(format!("{scen}.level.json"));
+            let dest = loader_levels.join(format!("{file_key}.level.json"));
             std::fs::copy(&a.file, &dest)?;
             println!("  wrote    {} (decor for the loader)", dest.display());
         } else {
             println!("  note: UE4SS Mods directory not found; decor file not installed");
         }
-        println!("\n  Launch {scen} through the game's own menu (mjolnir_mission does");
+        println!(
+            "
+  Launch {file_key} through the game's own menu (mjolnir_mission does"
+        );
         println!("  not cold-start the simulation on current builds).");
-        println!("  To undo: delete the three pakchunk998-MJOLNIRLEVEL-* files.");
+        println!("  To undo: delete {undo}.");
     } else {
         println!("\n  Install: copy both files plus a stub .pak sibling into the game's");
         println!("  Paks folder, or re-run with --install-test.");
