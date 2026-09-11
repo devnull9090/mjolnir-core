@@ -124,28 +124,7 @@ pub fn run(a: NewTagArgs) -> Result<()> {
 
     // The preload list: every tag the body references that exists in this
     // installation, by four-CC and path.
-    let cc_to_group = group_directories(&idx, &a.src.oodle_roots())?;
-    let by_lower: HashMap<String, String> = idx
-        .containers
-        .iter()
-        .flat_map(|c| c.files.keys())
-        .filter(|p| p.ends_with(".ubulk"))
-        .map(|p| {
-            let full = p
-                .trim_start_matches("../")
-                .replace("Meteorite/Content/", "/Game/");
-            let full = full.trim_end_matches(".ubulk").to_string();
-            (full.to_ascii_lowercase(), full)
-        })
-        .collect();
-    let resolve = |cc: &str, path: &str| -> Option<String> {
-        let group = cc_to_group.get(cc)?;
-        let want = format!(
-            "/game/tags/{}-{group}",
-            path.replace('\\', "/").to_ascii_lowercase()
-        );
-        by_lower.get(&want).cloned()
-    };
+    let resolve = body_ref_resolver(&idx, &a.src.oodle_roots())?;
 
     let built_tag = blam_pack::newtag::build(
         &blam_pack::newtag::NewTag {
@@ -261,4 +240,36 @@ fn group_directories(idx: &index::Index, oodle: &[PathBuf]) -> Result<HashMap<St
         }
     }
     Ok(out)
+}
+
+/// A resolver from one body reference — four-CC and backslash path — to the
+/// package name of the tag it points at in this installation, or `None` when
+/// nothing shipped answers. What `blam_pack::newtag::build` wants for the
+/// preload list; shared by `new-tag` and the standalone level bake.
+pub(crate) fn body_ref_resolver(
+    idx: &index::Index,
+    oodle: &[PathBuf],
+) -> Result<impl Fn(&str, &str) -> Option<String>> {
+    let cc_to_group = group_directories(idx, oodle)?;
+    let by_lower: HashMap<String, String> = idx
+        .containers
+        .iter()
+        .flat_map(|c| c.files.keys())
+        .filter(|p| p.ends_with(".ubulk"))
+        .map(|p| {
+            let full = p
+                .trim_start_matches("../")
+                .replace("Meteorite/Content/", "/Game/");
+            let full = full.trim_end_matches(".ubulk").to_string();
+            (full.to_ascii_lowercase(), full)
+        })
+        .collect();
+    Ok(move |cc: &str, path: &str| -> Option<String> {
+        let group = cc_to_group.get(cc)?;
+        let want = format!(
+            "/game/tags/{}-{group}",
+            path.replace('\\', "/").to_ascii_lowercase()
+        );
+        by_lower.get(&want).cloned()
+    })
 }

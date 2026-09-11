@@ -114,6 +114,14 @@ pub struct BakeArgs {
     /// still host the level; the codename is a new launchable scenario name.
     #[arg(long, value_name = "CODE")]
     pub standalone: Option<String>,
+    /// With `--standalone`: give structure BSP `INDEX` of the canvas
+    /// scenario its own tag under the codename's folder, carrying `PAYLOAD`
+    /// (a scenario_structure_bsp tag file, e.g. a collision transplant), and
+    /// point the baked scenario at it. The canvas mission's own BSP is then
+    /// untouched: no override container is needed for the geometry.
+    /// Repeatable.
+    #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
+    pub bsps: Vec<String>,
 }
 
 pub fn run(a: LevelArgs) -> Result<()> {
@@ -384,6 +392,20 @@ fn abs_pos(origin: [f64; 3], rel: [f64; 3]) -> [f64; 3] {
 // -----------------------------------------------------------------------------
 // Field patching on top of blockedit
 // -----------------------------------------------------------------------------
+
+/// The path a tag-reference field currently holds, without its group.
+fn reference_path(
+    l: &blam_tag::Layout,
+    file: &[u8],
+    block: &blam_tag::Block<'_>,
+    path: &str,
+) -> Result<String> {
+    let target = blam_tag::patch::resolve(l, file, block, path)?;
+    match &target.current {
+        Scalar::Reference { path: p, .. } if !p.is_empty() => Ok(p.clone()),
+        other => bail!("{path} is {} rather than a tag reference", other.display()),
+    }
+}
 
 /// Parse-and-set one field by path, mirroring what `mjolnir pack --set` does.
 fn apply_set(file: &mut Vec<u8>, path: &str, value: &str) -> Result<()> {
@@ -967,6 +989,93 @@ fn bake(a: BakeArgs) -> Result<()> {
         );
     }
 
+    // Structure BSPs of the standalone map's own: each `--bsp` clones the
+    // referenced BSP tag under the codename's folder with the given body and
+    // repoints the scenario's reference (same length: the codename replaces
+    // the canvas mission's in the tag path). Ordinary new tags resolve by
+    // name the moment a reference names them, so the scenario package needs
+    // no import for it.
+    let mut extra_packages: Vec<blam_pack::NewPackage> = Vec::new();
+    if !a.bsps.is_empty() {
+        let code = a
+            .standalone
+            .as_deref()
+            .context("--bsp needs --standalone: a canvas override keeps the canvas BSPs")?
+            .to_uppercase();
+        let usmap = crate::embedded_usmap()?;
+        let oodle = a.src.oodle_roots();
+        let resolve = crate::newtag::body_ref_resolver(&idx, &oodle)?;
+        let bsp_entries = by_group
+            .get("scenario_structure_bsp")
+            .context("no scenario_structure_bsp tags")?;
+        for spec in &a.bsps {
+            let (index, payload) = spec
+                .split_once('=')
+                .with_context(|| format!("--bsp takes INDEX=PAYLOAD, got {spec:?}"))?;
+            let index: usize = index
+                .parse()
+                .with_context(|| format!("--bsp index {index:?}"))?;
+            let body = std::fs::read(payload)
+                .with_context(|| format!("cannot read BSP payload {payload}"))?;
+            let field = format!("structure bsps[{index}].structure bsp");
+            let current = {
+                let tag = TagFile::parse(&baker.file, Some(baker.file.len()))?;
+                let l = tag.layout()?;
+                let block = tag.read_data(&l)?;
+                reference_path(&l, &baker.file, &block, &field)?
+            };
+            let old_seg = format!("\\{}\\", scen.to_lowercase());
+            let new_seg = format!("\\{}\\", code.to_lowercase());
+            ensure_same_len(&old_seg, &new_seg)?;
+            let new_path = current.replace(&old_seg, &new_seg);
+            if new_path == current {
+                bail!("{field} = {current:?} does not carry the canvas codename to replace");
+            }
+            let leaf = current.rsplit('\\').next().unwrap_or(&current).to_string();
+            let want = format!(
+                "/{}/_generated_/{leaf}-scenario_structure_bsp",
+                scen.to_lowercase()
+            );
+            let donor_entry = bsp_entries
+                .iter()
+                .find(|e| e.path.to_ascii_lowercase().contains(&want))
+                .copied()
+                .with_context(|| format!("no shipped BSP tag package for {current}"))?;
+            let source = &idx.containers[donor_entry.container];
+            let uasset_chunk = source
+                .chunks
+                .iter()
+                .find(|c| c.chunk_id == donor_entry.chunk.chunk_id && c.chunk_type == 1)
+                .context("the BSP has no package chunk beside its payload")?;
+            let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &oodle)?;
+            let (uasset_meta, ubulk_meta) =
+                blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
+                    .map_err(|e| anyhow::anyhow!(e))?;
+            let built_tag = blam_pack::newtag::build(
+                &blam_pack::newtag::NewTag {
+                    group: "scenario_structure_bsp",
+                    path: &new_path,
+                    body: &body,
+                    donor_uasset: &donor_uasset,
+                    asset_reference: None,
+                },
+                usmap,
+                &resolve,
+            )
+            .map_err(|e| anyhow::anyhow!(e))?;
+            let mut package = built_tag.package;
+            package.uasset_meta = uasset_meta;
+            package.ubulk_meta = ubulk_meta;
+            println!(
+                "  bsp      [{index}] {current}\n        -> {new_path} ({} bytes, {} preload(s))",
+                body.len(),
+                built_tag.preloads
+            );
+            apply_set(&mut baker.file, &field, &format!("sbsp:{new_path}"))?;
+            extra_packages.push(package);
+        }
+    }
+
     let file = baker.file;
 
     // The same exactness gate `pack` applies before anything leaves the tool.
@@ -1049,20 +1158,18 @@ fn bake(a: BakeArgs) -> Result<()> {
         )?;
 
         let container_name = format!("pakchunk997-MJOLNIRMAP-{code}");
-        let built = blam_pack::build_addition(
-            source,
-            &a.src.oodle_roots(),
-            &container_name,
-            &[blam_pack::NewPackage {
-                package_name: new_pkg,
-                uasset,
-                ubulk: file.clone(),
-                imported_package_ids: imported,
-                uasset_meta: meta_of(1),
-                ubulk_meta: meta_of(2),
-            }],
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
+        let mut packages = vec![blam_pack::NewPackage {
+            package_name: new_pkg,
+            uasset,
+            ubulk: file.clone(),
+            imported_package_ids: imported,
+            uasset_meta: meta_of(1),
+            ubulk_meta: meta_of(2),
+        }];
+        packages.append(&mut extra_packages);
+        let built =
+            blam_pack::build_addition(source, &a.src.oodle_roots(), &container_name, &packages)
+                .map_err(|e| anyhow::anyhow!(e))?;
         (built, format!("{container_name}_P"))
     } else {
         let built = blam_pack::build_override(
