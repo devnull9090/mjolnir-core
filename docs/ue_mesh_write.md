@@ -163,10 +163,13 @@ shipped texture's pixels can be replaced in place (`mjolnir texture swap`,
 2. **Pixels.** One `texture swap` call with `--pair` per extra texture puts
    the CE bitmap on each host's `_D` and a `flat-normal` on each `_N`, so the
    host's own bump map stops showing through. The CE bitmaps are 256–512
-   px; upscale them (Lanczos at least) to the host's size first, since a
-   noisy 512 stretched by the encoder's resampler fails the readback gate,
-   and set their alpha to opaque — CE stored specular masks there and the
-   DXT5 hosts read alpha.
+   px; upscale them to the host's size first — a noisy 512 stretched by the
+   encoder's resampler fails the readback gate — and set their alpha to
+   opaque, since CE stored specular masks there and the DXT5 hosts read
+   alpha. Real-ESRGAN's portable build (`realesrgan-ncnn-vulkan -n
+   realesrgan-x4plus -s 4`) does the upscale well: it invents plausible rock
+   grain and plate edges where Lanczos only blurs, and the DXT readback error
+   stays under 5/255. Run it on the RGB bitmaps, then fit to the host size.
 3. **Sections and slots.** `mesh_rewrite --material` with one slot per CE
    shader group, keyed on the glTF material names, and the level file's
    `materials` list pointing at the host materials. `tools/level/
