@@ -152,9 +152,18 @@ for an arena level. The bake runs its placement passes **first** and the clears 
 clone still has a shipped donor to copy from; the clear then keeps only the
 elements this bake appended (`Op::KeepLast`) and drops the mission's prefix.
 `clear` empties the relevant placement blocks (counts set to zero or
-elements disabled) and `scripts: true` swaps the scenario's HSC source for a neutral stub
+elements disabled) and `scripts: true` swaps the scenario's HSC source for one startup script
 (mechanism proven — script sections already resize through `blam-tag::write::Edits`). Expect
 per-mission iteration on how much clearing a mission tolerates before something native asserts.
+
+That startup script is not optional dressing. A Blam map boots faded to black with the HUD
+hidden and **every player input faded out**; the mission's own script hands them back, and this
+engine's missions do it through `f_insertion_fade_to_gameplay` (decompile any shipped scenario
+with `mjolnir script --tag B40 --decompile`): wait for `(game_all_players_active)`, then
+`(player_control_fade_in_all_input 1.0)`, `(chud_cinematic_fade 1.0 30)`, `(fade_in 0 0 0 30)`
+and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and calls
+`player_enable_input` leaves the player able to look around but not move, shoot or switch
+weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
 ### `decor`
 

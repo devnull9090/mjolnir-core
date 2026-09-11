@@ -19,9 +19,9 @@ use clap::{Args, Subcommand};
 
 use crate::index;
 use crate::Source;
-use std::collections::BTreeMap;
 use blam_tag::blockedit::{self, Op};
 use blam_tag::{Scalar, TagFile};
+use std::collections::BTreeMap;
 
 /// 1 Blam world unit in Unreal centimeters.
 const WU_CM: f64 = 304.8;
@@ -254,8 +254,8 @@ struct PaletteMap {
 }
 
 fn load_level(path: &Path) -> Result<LevelFile> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let level: LevelFile =
         serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
     if level.schema_version != 1 {
@@ -307,10 +307,16 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     for o in &level.blam.objects {
         if o.group != "scenery" && o.group != "crates" {
-            bail!("objects[].group must be \"scenery\" or \"crates\", got {:?}", o.group);
+            bail!(
+                "objects[].group must be \"scenery\" or \"crates\", got {:?}",
+                o.group
+            );
         }
         if !o.tag.starts_with("objects\\") {
-            bail!("objects[].tag must be a tag path under objects\\, got {:?}", o.tag);
+            bail!(
+                "objects[].tag must be a tag path under objects\\, got {:?}",
+                o.tag
+            );
         }
     }
     if level.blam.player_starts.len() == 1 {
@@ -428,7 +434,12 @@ fn read_many(file: &[u8], paths: &[String]) -> Result<Vec<Option<Scalar>>> {
 /// set (verified on B40: donors from BSPs outside the play area never spawn).
 /// Cloning the *nearest* shipped placement inherits the BSP the level actually
 /// sits in, along with every other locality-sensitive field.
-fn nearest_donor(file: &[u8], block: &str, count: usize, origin_wu: (f64, f64, f64)) -> Result<usize> {
+fn nearest_donor(
+    file: &[u8],
+    block: &str,
+    count: usize,
+    origin_wu: (f64, f64, f64),
+) -> Result<usize> {
     let paths: Vec<String> = (0..count)
         .map(|i| format!("{block}[{i}].object data.position"))
         .collect();
@@ -509,7 +520,10 @@ fn selftest(a: SelftestArgs) -> Result<()> {
                 );
             }
             checked += 1;
-            println!("  ok  {:40} {:28} {} element(s)", entry.path, block, r.before);
+            println!(
+                "  ok  {:40} {:28} {} element(s)",
+                entry.path, block, r.before
+            );
         }
     }
     println!("\n{checked} no-op resizes, all byte-exact.");
@@ -561,7 +575,10 @@ impl Baker {
             let (out, _) = blockedit::resize(
                 &self.file,
                 "player starting locations",
-                &[Op::CloneAppend { donor, copies: extra }],
+                &[Op::CloneAppend {
+                    donor,
+                    copies: extra,
+                }],
             )?;
             self.file = out;
             for k in 0..extra {
@@ -573,11 +590,22 @@ impl Baker {
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, start.pos));
             let p = |f: &str| format!("player starting locations[{i}].{f}");
             apply_set(&mut self.file, &p("position"), &format!("({x}, {y}, {z})"))?;
-            apply_set(&mut self.file, &p("facing"), &format!("{}", ue_yaw_to_blam(start.yaw)))?;
+            apply_set(
+                &mut self.file,
+                &p("facing"),
+                &format!("{}", ue_yaw_to_blam(start.yaw)),
+            )?;
             apply_set(&mut self.file, &p("pitch"), "0")?;
             apply_set(&mut self.file, &p("insertion point index"), "#0")?;
-            apply_set(&mut self.file, &p("campaign player slot"), &format!("{}", j.min(3)))?;
-            println!("  start   [{i}] <- ({x:.3}, {y:.3}, {z:.3}) wu, slot {}", j.min(3));
+            apply_set(
+                &mut self.file,
+                &p("campaign player slot"),
+                &format!("{}", j.min(3)),
+            )?;
+            println!(
+                "  start   [{i}] <- ({x:.3}, {y:.3}, {z:.3}) wu, slot {}",
+                j.min(3)
+            );
         }
         Ok(())
     }
@@ -604,14 +632,13 @@ impl Baker {
             let tag_path = map
                 .get(&item.kind)
                 .with_context(|| format!("unknown type {:?}", item.kind))?;
-            let idx = palette_index(&self.file, palette, tag_path)?
-                .with_context(|| {
-                    format!(
-                        "{:?} ({tag_path}) is not in the canvas scenario's {palette:?} — \
+            let idx = palette_index(&self.file, palette, tag_path)?.with_context(|| {
+                format!(
+                    "{:?} ({tag_path}) is not in the canvas scenario's {palette:?} — \
                          v1 requires the palette to already carry it",
-                        item.kind
-                    )
-                })?;
+                    item.kind
+                )
+            })?;
             indices.push(idx);
         }
         let donor = nearest_donor(&self.file, block, before, ue_to_blam(self.origin))?;
@@ -619,14 +646,20 @@ impl Baker {
         let (out, _) = blockedit::resize(
             &self.file,
             block,
-            &[Op::CloneAppend { donor, copies: items.len() }],
+            &[Op::CloneAppend {
+                donor,
+                copies: items.len(),
+            }],
         )?;
         self.file = out;
-        *self.added.entry(match block {
-            "vehicles" => "vehicles",
-            "weapons" => "weapons",
-            _ => "equipment",
-        }).or_default() += items.len();
+        *self
+            .added
+            .entry(match block {
+                "vehicles" => "vehicles",
+                "weapons" => "weapons",
+                _ => "equipment",
+            })
+            .or_default() += items.len();
         for (j, (item, palette_idx)) in items.iter().zip(&indices).enumerate() {
             let i = before + j;
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, item.pos));
@@ -635,12 +668,24 @@ impl Baker {
             let p = |f: &str| format!("{block}[{i}].{f}");
             apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
             apply_set(&mut self.file, &p("name"), "none")?;
-            apply_set(&mut self.file, &p("object data.position"), &format!("({x}, {y}, {z})"))?;
-            apply_set(&mut self.file, &p("object data.rotation"), &format!("({yaw}, 0, 0)"))?;
+            apply_set(
+                &mut self.file,
+                &p("object data.position"),
+                &format!("({x}, {y}, {z})"),
+            )?;
+            apply_set(
+                &mut self.file,
+                &p("object data.rotation"),
+                &format!("({yaw}, 0, 0)"),
+            )?;
             // Bit 0 is "not automatically" (never spawns without a script);
             // bit 5 is "create at rest". Clones must actually spawn.
             apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
-            apply_set(&mut self.file, &p("object data.object id.unique id"), &format!("{uid}"))?;
+            apply_set(
+                &mut self.file,
+                &p("object data.object id.unique id"),
+                &format!("{uid}"),
+            )?;
             println!(
                 "  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu (palette #{palette_idx})",
                 item.kind
@@ -680,7 +725,10 @@ impl Baker {
                         let (out, _) = blockedit::resize(
                             &self.file,
                             palette,
-                            &[Op::CloneAppend { donor: 0, copies: 1 }],
+                            &[Op::CloneAppend {
+                                donor: 0,
+                                copies: 1,
+                            }],
                         )?;
                         self.file = out;
                         let i = palette_before + appended;
@@ -700,7 +748,10 @@ impl Baker {
             let (out, _) = blockedit::resize(
                 &self.file,
                 block,
-                &[Op::CloneAppend { donor, copies: of_group.len() }],
+                &[Op::CloneAppend {
+                    donor,
+                    copies: of_group.len(),
+                }],
             )?;
             self.file = out;
             for (j, (o, palette_idx)) in of_group.iter().zip(&indices).enumerate() {
@@ -711,10 +762,22 @@ impl Baker {
                 let p = |f: &str| format!("{block}[{i}].{f}");
                 apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
                 apply_set(&mut self.file, &p("name"), "none")?;
-                apply_set(&mut self.file, &p("object data.position"), &format!("({x}, {y}, {z})"))?;
-                apply_set(&mut self.file, &p("object data.rotation"), &format!("({yaw}, 0, 0)"))?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.position"),
+                    &format!("({x}, {y}, {z})"),
+                )?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.rotation"),
+                    &format!("({yaw}, 0, 0)"),
+                )?;
                 apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
-                apply_set(&mut self.file, &p("object data.object id.unique id"), &format!("{uid}"))?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.object id.unique id"),
+                    &format!("{uid}"),
+                )?;
                 println!("  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu", o.tag);
             }
         }
@@ -724,16 +787,37 @@ impl Baker {
     /// Replace the mission's whole script section with one startup script.
     ///
     /// Emptying the block would be simpler, but a Blam map boots with the
-    /// screen faded out, the camera under script control and player input off:
-    /// the mission's own script is what hands those back. A map with no script
-    /// at all therefore loads black and frozen, with a live simulation behind
-    /// it. This writes the smallest script that opens a level for play.
+    /// screen faded out, the HUD hidden and every player input faded to
+    /// nothing: the mission's own script is what hands those back. A map with
+    /// no script at all therefore loads black and frozen, with a live
+    /// simulation behind it — and `(player_enable_input true)` alone is not
+    /// the key. This engine's missions enter gameplay through
+    /// `f_insertion_fade_to_gameplay` (see any shipped scenario's
+    /// `global_scripts`): wait for the players to be active, then
+    /// `player_control_fade_in_all_input`, bring the HUD and screen back, and
+    /// raise the weapon; an outro cinematic locks with `player_disable_movement`
+    /// and `player_control_lock_gaze` as well, so those are released too. Without the input fade-in the player can look around
+    /// but not move, shoot or switch weapons, exactly as a cutscene holds
+    /// them. This writes the smallest script that does all of that. The wait
+    /// is bounded, so a level never hangs on a predicate this build might
+    /// never satisfy, and the weapon is lowered first the way the shipped
+    /// helper does — which also makes a stalled script visible: a lowered
+    /// weapon on a playable map means the wait never returned.
     fn stub_scripts(&mut self) -> Result<()> {
         const STUB: &str = "(script startup mjolnir_level_startup
   (begin
-    (fade_in 0 0 0 15)
+    (submit_incident_with_custom_string_id \"game_activity_begin\" \"mjolnir\")
+    (unit_lower_weapon player0 1)
+    (sleep_until (game_all_players_active) 1 (game_ticks_from_seconds 5.0))
+    (sleep 1)
+    (player_control_fade_in_all_input 1.0)
+    (chud_cinematic_fade 1.0 30)
+    (fade_in 0.0 0.0 0.0 30)
     (camera_control false)
-    (player_enable_input true)))
+    (player_enable_input true)
+    (player_disable_movement false)
+    (player_control_unlock_gaze player0)
+    (unit_raise_weapon player0 30)))
 ";
         let corpus_path = crate::resolve_data_path(Path::new("defs/hce/scripting.json"));
         let corpus = blam_hsc::ScriptCorpus::load(&corpus_path).with_context(|| {
@@ -748,8 +832,8 @@ impl Baker {
         let block = tag.read_data(&layout)?;
         let original = blam_hsc::read::read(&layout, &block, &self.file)?;
 
-        let compiled = blam_hsc::Compiler::from_corpus(&corpus)
-            .compile(&[("mjolnir_level_startup", STUB)]);
+        let compiled =
+            blam_hsc::Compiler::from_corpus(&corpus).compile(&[("mjolnir_level_startup", STUB)]);
         if !compiled.ok() {
             let first = compiled
                 .errors()
@@ -768,7 +852,7 @@ impl Baker {
         self.file = blam_hsc::emit::rewrite(&section, &self.file)
             .map_err(|e| anyhow::anyhow!("writing the startup script: {e}"))?;
         println!(
-            "  clear   scripts: {} -> 1 script (startup: fade in, camera and input to the player)",
+            "  clear   scripts: {} -> 1 script (startup: wait for players, fade input, HUD and screen in)",
             original.scripts.len()
         );
         Ok(())
@@ -780,7 +864,11 @@ impl Baker {
         let added = self.added.clone();
         let mut wipe = |name: &str| -> Result<()> {
             let keep = added.get(name).copied().unwrap_or(0);
-            let op = if keep > 0 { Op::KeepLast { keep } } else { Op::Truncate { keep: 0 } };
+            let op = if keep > 0 {
+                Op::KeepLast { keep }
+            } else {
+                Op::Truncate { keep: 0 }
+            };
             let (out, r) = blockedit::resize(&self.file, name, &[op])?;
             self.file = out;
             println!("  clear   {name}: {} -> {} element(s)", r.before, r.after);
@@ -845,9 +933,24 @@ fn bake(a: BakeArgs) -> Result<()> {
     // then the clears, which keep only what this bake appended. Clears never
     // touch player starts or the structure blocks.
     baker.player_starts(&level.blam.player_starts)?;
-    baker.typed("vehicles", "vehicle palette", &level.blam.vehicles, &map.vehicles)?;
-    baker.typed("weapons", "weapon palette", &level.blam.weapons, &map.weapons)?;
-    baker.typed("equipment", "equipment palette", &level.blam.equipment, &map.equipment)?;
+    baker.typed(
+        "vehicles",
+        "vehicle palette",
+        &level.blam.vehicles,
+        &map.vehicles,
+    )?;
+    baker.typed(
+        "weapons",
+        "weapon palette",
+        &level.blam.weapons,
+        &map.weapons,
+    )?;
+    baker.typed(
+        "equipment",
+        "equipment palette",
+        &level.blam.equipment,
+        &map.equipment,
+    )?;
     baker.objects(&level.blam.objects)?;
     baker.clears(&level.blam.clear)?;
     for wb in &level.blam.world_bounds {
@@ -1041,7 +1144,8 @@ struct PackageIndex {
 
 impl PackageIndex {
     fn build(containers: &[ue_iostore::Container]) -> PackageIndex {
-        let mut entries: std::collections::HashMap<String, PackageSlot> = std::collections::HashMap::new();
+        let mut entries: std::collections::HashMap<String, PackageSlot> =
+            std::collections::HashMap::new();
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
                 let full = c.full_path(rel);
@@ -1052,9 +1156,11 @@ impl PackageIndex {
                     continue;
                 };
                 let is_bulk = full.ends_with(".ubulk");
-                let entry = entries
-                    .entry(name.to_ascii_lowercase())
-                    .or_insert((usize::MAX, usize::MAX, None));
+                let entry = entries.entry(name.to_ascii_lowercase()).or_insert((
+                    usize::MAX,
+                    usize::MAX,
+                    None,
+                ));
                 if is_bulk {
                     entry.2 = Some((ci, *chunk_index));
                 } else {
@@ -1157,7 +1263,12 @@ fn export(a: ExportArgs) -> Result<()> {
             "skips": cell.skips,
         });
         if !cell.missing.is_empty() {
-            let list: Vec<String> = cell.missing.iter().take(5).map(|(k, v)| format!("{k} ×{v}")).collect();
+            let list: Vec<String> = cell
+                .missing
+                .iter()
+                .take(5)
+                .map(|(k, v)| format!("{k} ×{v}"))
+                .collect();
             println!(
                 "  {} mesh(es) not readable, placements dropped: {}",
                 cell.missing.len(),
@@ -1188,9 +1299,15 @@ fn export(a: ExportArgs) -> Result<()> {
         },
     });
     if !a.dry_run {
-        std::fs::write(a.out.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
+        std::fs::write(
+            a.out.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest)?,
+        )?;
     }
-    let skips: Vec<String> = total_skips.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    let skips: Vec<String> = total_skips
+        .iter()
+        .map(|(k, v)| format!("{v} {k}"))
+        .collect();
     println!(
         "{} cells, {total_placements} placements ({total_instanced} instanced), {files} file(s){}",
         cells.len(),
@@ -1215,11 +1332,14 @@ fn ensure_same_len(old: &str, new: &str) -> Result<()> {
 /// UE4SS mods tree exists.
 fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
     let meteorite = paks.parent()?.parent()?;
-    let mods = meteorite.join("Binaries").join("Win64").join("ue4ss").join("Mods");
+    let mods = meteorite
+        .join("Binaries")
+        .join("Win64")
+        .join("ue4ss")
+        .join("Mods");
     if mods.is_dir() {
         Some(mods.join("MJOLNIRLevelLoader").join("levels"))
     } else {
         None
     }
 }
-
