@@ -240,3 +240,40 @@ only grow into existing capacity.
 Two exe details worth keeping: `mjolnir_mission <CODE>` cannot cold-start the
 sim on CU4 (the UI performs a session bring-up the bare call does not), and
 UE4SS `LoadAsset` is not a loader probe.
+
+## 2026-09-11: the door is open — the row has to be cooked
+
+The "new package is refused" conclusion above was one step short. The
+simulation does not resolve campaign maps from `DT_Scenarios` on demand; it
+builds its own `levels` registry once, at boot, from the tables the
+`BlamBuiltInMapInfoDataAsset` names — `/Game/Blueprints/Campaign/BuiltInMapInfoData`,
+`CampaignMapInfoTables = [DT_Scenarios, DT_Test_Scenarios]` (`mjolnir ue get
+--package BuiltInMapInfoData`). The sim side is Reach's levels system
+(`HaloSimulation_tag_release.dll` CU4 `FUN_180322aa0` allocates the
+"campaigns", "campaign levels" (64 × 0x274 bytes), "campaign insertions",
+"multiplayer levels"… arrays; the console's `levels_add_campaign_map*` are
+stubs pointing at the same no-op handlers). So a row injected at runtime
+satisfied `StartScenario`, which reads the table then, but the registry the
+simulation had already built did not know the codename — and a *shipped*
+codename in a new row worked because the registry knew that one.
+
+`blam-pack --example scenario_register <CODE>` cooks the row: it clones the
+donor's `DT_Scenarios` row under the new name with `ScenarioName = CODE`
+(`ue_asset::datatable` — the table's native tail is the u32 object trailer, a
+u32 count, then `FName` + unversioned row struct per row, rebuilt byte for
+byte before anything changes), appends a `ScenarioList` handle to
+`DA_FirstPlayableCampaign`, and packs both into `pakchunk996-MJOLNIRREG-<CODE>_P`.
+
+Verified live (CU4): with that container beside the standalone `PG1`
+package from `mjolnir level bake --standalone PG1`, MISSION SELECT lists an
+eleventh mission, and launching it **starts the simulation** —
+`PG1-scenario` is the only scenario asset in memory, the pawn is placed,
+`ServerMarkFinishedBlamMapLoad` fires, and B40's intro cinematic and mission
+play on the new tag package. A brand-new scenario tag package loads.
+
+What that opens: the scenario, its BSPs and its other tags can all live under
+the new codename's folder (ordinary new tags were already proven to load by
+name), so a map no longer has to override a shipped mission. What is still
+shared is the UE side: the row's `UnrealLevel` points at B40's world, and a
+brand-new world package has not been tried natively yet — `LoadAsset` was
+never a valid probe for it either.
