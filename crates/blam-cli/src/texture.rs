@@ -5,7 +5,7 @@
 //! shipped byte size. Nothing in the metadata has to move, so the override
 //! container carries one chunk: the `.ubulk`. See `docs/texture_swapping.md`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
@@ -58,10 +58,13 @@ pub struct OneArgs {
 pub struct ExportArgs {
     #[command(flatten)]
     pub one: OneArgs,
-    /// PNG file to write.
+    /// File to write. The extension picks the format: `.png` or `.tif`
+    /// decode one mip to RGBA; `.dds` keeps the cooked pixel format and
+    /// writes the whole mip chain, no re-encoding.
     #[arg(long)]
     pub out: PathBuf,
-    /// Which mip to export; 0 is the largest.
+    /// Which mip to export for PNG and TIFF; 0 is the largest. A DDS always
+    /// carries every mip.
     #[arg(long, default_value_t = 0)]
     pub mip: u32,
 }
@@ -299,9 +302,35 @@ fn export(a: ExportArgs) -> Result<()> {
     let t = locate(&containers, &a.one.asset)?;
     let (_, _, ubulk, tex) = read(&containers, &t, &oodle)?;
 
+    let ext = a
+        .out
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext == "dds" {
+        let dds = ue_texture::dds::write_dds(&tex, &ubulk).map_err(|e| anyhow::anyhow!(e))?;
+        std::fs::write(&a.out, &dds)
+            .with_context(|| format!("cannot write {}", a.out.display()))?;
+        println!(
+            "{}\n  {}x{} {} x{} mip(s) -> {} ({} bytes, cooked bytes as shipped)",
+            t.path,
+            tex.width,
+            tex.height,
+            tex.format,
+            tex.num_mips,
+            a.out.display(),
+            dds.len()
+        );
+        return Ok(());
+    }
     let img = ue_texture::assemble_mip(&tex, &ubulk, a.mip).map_err(|e| anyhow::anyhow!(e))?;
-    let png = ue_texture::to_png(&img).map_err(|e| anyhow::anyhow!(e))?;
-    std::fs::write(&a.out, &png).with_context(|| format!("cannot write {}", a.out.display()))?;
+    let bytes = match ext.as_str() {
+        "tif" | "tiff" => ue_texture::to_tiff(&img),
+        _ => ue_texture::to_png(&img),
+    }
+    .map_err(|e| anyhow::anyhow!(e))?;
+    std::fs::write(&a.out, &bytes).with_context(|| format!("cannot write {}", a.out.display()))?;
     println!(
         "{}\n  mip {} {}x{} {} -> {} ({} bytes)",
         t.path,
@@ -310,7 +339,7 @@ fn export(a: ExportArgs) -> Result<()> {
         img.height,
         img.format,
         a.out.display(),
-        png.len()
+        bytes.len()
     );
     Ok(())
 }
@@ -395,13 +424,10 @@ fn swap(a: SwapArgs) -> Result<()> {
     std::fs::write(&ucas, &built.ucas)?;
     blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
 
-    // A container without a `.pak` sibling is never discovered, so one rides
-    // along — a byte-copy of the smallest shipped pak, the same trick the
-    // launcher and the tag editor use on install.
+    // A container without a `.pak` sibling is never discovered, so an empty
+    // one rides along (`ue_iostore::pak::write_stub`).
     let pak = a.out_dir.join(format!("{}.pak", a.name));
-    if let Some(stub) = smallest_pak(&a.one.src.paks) {
-        std::fs::write(&pak, stub)?;
-    }
+    std::fs::write(&pak, ue_iostore::pak::stub_for(&a.name))?;
 
     println!("\n  wrote {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote {} ({} bytes)", ucas.display(), built.ucas.len());
@@ -412,19 +438,3 @@ fn swap(a: SwapArgs) -> Result<()> {
     Ok(())
 }
 
-/// Bytes of the smallest shipped `.pak`, to ride along as a discovery stub.
-fn smallest_pak(paks: &Path) -> Option<Vec<u8>> {
-    let mut best: Option<(u64, PathBuf)> = None;
-    for entry in std::fs::read_dir(paks).ok()?.flatten() {
-        let path = entry.path();
-        let name = path.file_name()?.to_str()?.to_string();
-        if !name.ends_with(".pak") || name.contains("MJOLNIR") {
-            continue;
-        }
-        let len = entry.metadata().ok()?.len();
-        if best.as_ref().is_none_or(|(b, _)| len < *b) {
-            best = Some((len, path));
-        }
-    }
-    std::fs::read(best?.1).ok()
-}

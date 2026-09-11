@@ -6,9 +6,12 @@
 
 use blam_defs::FourCc;
 
+pub mod blockedit;
 pub mod data;
+pub mod diff;
 pub mod layout;
 pub mod patch;
+pub mod refs;
 pub mod section;
 pub mod value;
 pub mod view;

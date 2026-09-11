@@ -288,6 +288,28 @@ end
 local AutoBuild = true
 local LastWorldName = nil
 
+--- When MJOLNIRLevelLoader has a level file for this world, the level owns
+--- the environment and the floor — auto-building on top of it would add a
+--- sun and a pad the author never asked for. Manual commands still work.
+local function loaderOwnsWorld(world)
+    local ok, full = pcall(function() return world:GetFullName() end)
+    if not ok or type(full) ~= "string" then return false end
+    local asset = full:match("%.([%w_]+)$")
+    if not asset then return false end
+    local source = debug.getinfo(1, "S").source or ""
+    local here = source:gsub("^@", ""):gsub("/", "\\")
+    for _ = 1, 3 do
+        here = here:match("^(.*)\\[^\\]*$") or here
+    end
+    local path = here .. "\\MJOLNIRLevelLoader\\levels\\" .. string.upper(asset) .. ".level.json"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
 local function isCustomWorld(world)
     local ok, name = pcall(function()
         return world.PersistentLevel.WorldSettings:GetClass():GetFName():ToString()
@@ -306,6 +328,10 @@ local function tick()
     if isCustomWorld(world) then
         if not getPawn() then return end -- still loading; try again next tick
         LastWorldName = name
+        if loaderOwnsWorld(world) then
+            Log("custom world has a MJOLNIRLevelLoader level; leaving it to the loader")
+            return
+        end
         Log("custom world detected (stock WorldSettings) — furnishing it")
         build(nil)
     else

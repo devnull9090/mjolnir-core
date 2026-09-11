@@ -5,7 +5,7 @@ description = "mjolnir command-line tool for inspecting Halo Campaign Evolved ta
 # carries its own version rather than the workspace one: `cli-v0.2.0` should be
 # taggable without renumbering seven libraries nobody installs. `clap(version)`
 # prints this, and release-cli.yml refuses to build a tag that disagrees with it.
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -20,8 +20,10 @@ blam-tag = { path = "../blam-tag" }
 blam-hsc = { path = "../blam-hsc" }
 blam-pack = { path = "../blam-pack" }
 blam-live = { path = "../blam-live" }
+ue-asset = { path = "../ue-asset" }
 ue-iostore = { path = "../ue-iostore" }
 ue-texture = { path = "../ue-texture" }
 anyhow.workspace = true
 clap.workspace = true
+serde.workspace = true
 serde_json.workspace = true

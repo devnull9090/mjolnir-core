@@ -1,5 +1,13 @@
 # Locating loaded tags in the running game: sweep today, pointer-chase tomorrow
 
+> **Superseded 2026-09-05.** The "classic way" this note reaches for exists and is measured:
+> `HaloSimulation_tag_release.dll` keeps a `tag instance` table (pointer at RVA `0x0182D1E8` on
+> CU4) whose 0x30-byte entries name every loaded tag, its group, its handle and its root block
+> descriptor, resolved through a 16-slot segment table at RVA `0x02C2CCC0`. Both questions below
+> are answered by one pointer-chase; see `tag_table_and_string_ids.md` and
+> `crates/blam-live/examples/tagtable_probe.rs`. The scattered per-tag records of Finding 3 are
+> those table entries. The census remains as the fallback for an unknown build.
+
 Live mode has to answer two questions about the running game:
 
 1. **Which tags are loaded, and what level is this?**
@@ -542,3 +550,10 @@ same through the editor's own `live::Live::poke` and through `mjolnir poke`.
   opened it and it ate every click afterwards. Replacing the viewport's
   `UConsole` with a freshly constructed one (what the ConsoleEnabler mod does
   at startup) closed it.
+
+**Update 2026-09-07.** The two globals the table read depends on (and the
+six registry globals) no longer need measuring after an update: four code
+anchors in the tag module recover them (`signatures/README.md`, "The tag
+module's anchors"), and the derived profile matches the measured CU4 one
+exactly. The sweep is now the fallback for a build where an anchor fails to
+match once.

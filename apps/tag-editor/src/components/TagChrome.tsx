@@ -340,6 +340,13 @@ function LiveToggle() {
 export function TagHeader() {
   const { tag, viewMode } = useEditor();
   const setViewMode = useEditor((s) => s.setViewMode);
+  const degrees = useEditor((s) => s.degrees);
+  const setDegrees = useEditor((s) => s.setDegrees);
+  const expert = useEditor((s) => s.expert);
+  const setExpert = useEditor((s) => s.setExpert);
+  const openDiffEdits = useEditor((s) => s.openDiffEdits);
+  const openRefTree = useEditor((s) => s.openRefTree);
+  const selectedTag = useEditor((s) => s.selectedTag);
 
   if (!tag) return null;
   // Only a scenario carries Blam script, so the third view is offered only
@@ -401,6 +408,61 @@ export function TagHeader() {
               {m.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setDegrees(!degrees)}
+            aria-pressed={degrees}
+            title={
+              degrees
+                ? "Angles are shown and typed in degrees; the tag stores radians. Click for radians."
+                : "Angles are shown as stored, in radians. Click to show and type them in degrees."
+            }
+            className={`ml-2 border border-border-subtle px-2 py-0.5 font-mono text-[11px] ${
+              degrees
+                ? "bg-surface-hover text-mjolnir-gold"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
+          >
+            {degrees ? "deg" : "rad"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void setExpert(!expert)}
+            aria-pressed={expert}
+            title={
+              expert
+                ? "Expert view: padding, custom markers and terminators are shown as raw bytes at their offsets. Click to hide them."
+                : "Show every byte of the layout — padding, custom markers, terminators — as read-only raw fields."
+            }
+            className={`ml-1 border border-border-subtle px-2 py-0.5 font-mono text-[11px] ${
+              expert
+                ? "bg-surface-hover text-mjolnir-gold"
+                : "text-text-secondary hover:bg-surface-hover"
+            }`}
+          >
+            expert
+          </button>
+          <button
+            type="button"
+            onClick={() => void openDiffEdits()}
+            disabled={tag.edited.length === 0}
+            title={
+              tag.edited.length === 0
+                ? "Nothing to compare: this tag has no edits in the mod"
+                : "Compare the tag as shipped with the tag as this mod leaves it, field by field"
+            }
+            className="ml-2 border border-border-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            diff
+          </button>
+          <button
+            type="button"
+            onClick={() => selectedTag !== null && void openRefTree(selectedTag)}
+            title="What this tag references, and what those reference — the graph behind it"
+            className="ml-1 border border-border-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary hover:bg-surface-hover"
+          >
+            refs
+          </button>
         </div>
         <span
           className={`font-mono text-[11px] ${
@@ -435,6 +497,8 @@ export function EditBar() {
   const project = useEditor((s) => s.project);
   const setBrowse = useEditor((s) => s.setBrowse);
   const revertTag = useEditor((s) => s.revertTag);
+  const undoEdit = useEditor((s) => s.undoEdit);
+  const redoEdit = useEditor((s) => s.redoEdit);
   const exportTag = useEditor((s) => s.exportTag);
   const [wrote, setWrote] = useState<string | null>(null);
 
@@ -442,7 +506,10 @@ export function EditBar() {
 
   if (!tag) return null;
   const count = tag.edited.length;
-  if (count === 0 && !editError) return null;
+  const history = tag.history ?? { undo: 0, redo: 0 };
+  // The bar stays while something can be redone: undoing every edit must not
+  // hide the way back.
+  if (count === 0 && !editError && history.redo === 0) return null;
 
   async function onExport() {
     if (!tag) return;
@@ -476,6 +543,28 @@ export function EditBar() {
         >
           Revert all
         </button>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void undoEdit()}
+            disabled={history.undo === 0}
+            title={`Undo the last change to this tag (Ctrl+Z) — ${history.undo} step${
+              history.undo === 1 ? "" : "s"
+            } back`}
+            className="border border-border-subtle px-2 py-0.5 font-mono text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            ↶ {history.undo}
+          </button>
+          <button
+            type="button"
+            onClick={() => void redoEdit()}
+            disabled={history.redo === 0}
+            title={`Redo (Ctrl+Y) — ${history.redo} step${history.redo === 1 ? "" : "s"} forward`}
+            className="border border-border-subtle px-2 py-0.5 font-mono text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            ↷ {history.redo}
+          </button>
+        </span>
         {project ? (
           <button
             type="button"

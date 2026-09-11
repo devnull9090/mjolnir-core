@@ -26,6 +26,7 @@ repository = "https://github.com/devnull9090/mjolnir-core"
 
 [workspace.dependencies]
 anyhow = "1"
+blake3 = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

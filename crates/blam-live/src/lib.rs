@@ -63,8 +63,10 @@ pub mod cache;
 pub mod names;
 pub mod package_id;
 pub mod objects;
+pub mod stringid;
+pub mod tagtable;
 
-pub use sys::{Process, ProcessInfo};
+pub use sys::{ModuleInfo, Process, ProcessInfo};
 
 /// The executable the game runs as.
 pub const GAME_EXE: &str = "HaloCampaignEvolved.exe";
@@ -116,6 +118,15 @@ pub enum Error {
     ElementGone { index: usize, count: u32 },
     #[error("this platform cannot reach another process's memory")]
     Unsupported,
+    #[error("no mission is loaded: the simulation's tag table is empty. Start a mission first")]
+    NoMission,
+    #[error(
+        "the running game's tag module (SHA-256 {0}) is not a build this version knows, so its \
+         tag table cannot be read directly; the memory sweep still works"
+    )]
+    UnknownBuild(String),
+    #[error("the live {what} does not have the layout this build was measured with: {detail}")]
+    Layout { what: &'static str, detail: String },
 }
 
 type Result<T> = std::result::Result<T, Error>;

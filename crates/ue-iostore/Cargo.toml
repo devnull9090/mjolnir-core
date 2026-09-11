@@ -7,7 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+blake3.workspace = true
 thiserror.workspace = true
 flate2.workspace = true
 libloading.workspace = true
 oozextract.workspace = true
+sha1 = "0.10"

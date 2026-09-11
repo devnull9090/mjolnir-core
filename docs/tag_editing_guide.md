@@ -114,6 +114,22 @@ Useful flags:
 
 ```powershell
 mjolnir values --group model --depth 1 | findstr "tag reference"
+mjolnir values --group weapon --tag SMG --json      # the same tree as JSON, for other tools
+```
+
+To work on tags as files — the layout Blam tooling expects, `objects/weapons/rifle/smg.weapon`
+— write them out:
+
+```powershell
+mjolnir extract --group weapon --out D:\kit --verify    # one group
+mjolnir extract --filter characters/elite --out D:\kit  # by path
+mjolnir extract --dry-run                                # what would be written
+mjolnir script --tag a30 --extract D:\hsc               # a mission's .hsc source files
+```
+
+`extract` is mod-aware: a tag an installed mod overrides comes out as the mod left it, the way
+the game sees it, unless `--shipped-only` asks for the game's own. What comes out is game
+content — keep it local.
 ```
 
 ### Changing a field
@@ -341,15 +357,39 @@ control points[3].position: (-3.522356, 0.00095, 1.838378) → (1.5, 2.5, 3.5) (
 ```
 
 Values go in the same form the CLI takes — see the table above. Enums and bitfields are
-written by name, tag references as `group:path`.
+written by name, tag references as `group:path`. Angles are radians in the tag and in the CLI;
+the **rad / deg** toggle in the tag header shows them in degrees and takes degrees when you
+type, converting at the edge (a copied element or a TSV still carries radians).
+
+The **expert** toggle next to it shows the layout's structural fields too — padding, `custom`
+markers and the terminator — as read-only raw bytes at their offsets, so a definition can be
+checked against the bytes it claims to describe.
+
+**diff** compares the open tag as shipped with the tag as your mod leaves it, every differing
+field with both values; right-click another tag of the same group in the list and choose
+**Compare With Open Tag** to set any two tags side by side. **refs** opens the graph behind a
+tag — what it references and what those reference, to the depth you pick — and copies as
+indented text. Under the tag search, **unreferenced only** narrows a group to the tags no tag
+body references (a scenario or the globals are loaded by the Unreal side and count as
+unreferenced here).
 
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
 with the reason shown.
 
-**Blocks grow and shrink too.** Every block's section bar carries **add**, **dup** and
-**del**: add appends a new element, dup inserts a copy of the selected element after it, del
-removes the selected one. A new element is not all zeroes — a tag reference starts unset and a
+**Ctrl+Z** takes the last change back and **Ctrl+Y** puts it forward again — every change to a
+tag's edits counts, including element changes and reverts, and the edit bar shows how many
+steps remain either way. The journal is per tag and lives for the session; the project file
+holds the current recipe, not its history.
+
+**Blocks grow and shrink too.** Every block's section bar carries **add**, **ins**, **dup**,
+**del**, **copy** and **paste**: add appends a new element, ins puts one in front of the selected
+element, dup inserts a copy of the selected element after it, del removes the selected one, copy
+takes the selected element as a recipe of its fields, and paste puts that recipe after the
+selected element of any block of the same kind — in this tag or another. Right-click the bar for
+the same commands and for **Copy Block as TSV** / **Paste TSV into Block…**, which move a whole
+block through a spreadsheet: one row per element, one column per field, the header naming the
+fields (nested blocks stay out of the table). A new element is not all zeroes — a tag reference starts unset and a
 block index starts at `none` (`-1`), the way the shipped data writes "nothing here"; everything
 else is zeroed. The cap Guerilla enforced (`0 of 64`) is enforced here as well, and an *array*
 — whose count is fixed by the definition — gets no buttons. Element changes resize the tag, so
@@ -382,6 +422,22 @@ See [`making_your_first_mod.md`](making_your_first_mod.md) for that whole path.
 **Export patched tag…** still writes a single tag with your edits to a file you choose —
 useful for inspection and diffing, but not something the game loads.
 
+### New tags
+
+Right-click a tag — in the tag list or the file browser — and choose **New Tag From This…** to
+add a tag to your mod: a clone of the one you clicked, under a path you type, in the same group.
+The clone opens like any other tag and starts as the donor currently is in your mod, edits
+included; from then on its edits are its own, recorded under the new name. The mod panel lists
+it with a **remove** link. Optionally give it a different Unreal asset to bind to — a Blueprint
+package path for objects and effects, an asset for sounds; leave it empty to share the donor's.
+
+Nothing references a new tag until you point something at it: open the tag that should use it
+and set a reference field to `<group>:<path>`. A bake warns when nothing in the mod references
+a new tag, because the game never loads one that nothing names. Testing or exporting builds each
+new tag into a package of its own, in an addition container the game registers by name — the
+path `mjolnir new-tag` proved in game; see
+[`iostore_packaging.md`](iostore_packaging.md#new-packages-register-and-resolve-by-name).
+
 ### Textures
 
 The **textures** tab lists every `Texture2D` in the install, and opening one decodes it and
@@ -390,7 +446,9 @@ the pixel format, the authored size and the mip count. Textures larger than 4096
 at the first mip at or below that, and the header says `shown at mip N` when it does — you are
 not looking at the full-resolution image unless it says nothing.
 
-**Export…** writes the decoded image as a PNG.
+**Export…** writes the texture as a PNG or TIFF of the shown mip, decoded, or as a DDS in the
+cooked pixel format with every mip — the file a DDS-aware tool or a re-import wants, nothing
+re-encoded. A virtual texture's tiles are put back into linear mips on the way.
 
 4787 of the install's 4844 textures decode. The 57 that do not ship no pixel data at all: 52 are
 render targets or otherwise generated at runtime, and 5 are virtual textures whose payload was
@@ -402,6 +460,73 @@ tiles, and classic mip chains — are in [`ue_texture_format.md`](ue_texture_for
 format, proven by decoding it back, and recorded in the mod project like any other edit — see
 [`texture_swapping.md`](texture_swapping.md) for the mechanics and the format support table.
 The remaining gap is BC7/BC6H, which can be decoded and viewed but not yet re-encoded.
+
+### Meshes
+
+A cooked Unreal mesh opens in the mesh viewer with its real textures. Nearly every static mesh,
+and the vehicles' skeletal hulls, ship as Nanite cluster pages with only a reduced fallback in the
+classic buffers; the viewer decodes the pages and shows the mesh at full detail, saying
+**Nanite, full detail** in the header. **export .glb…** writes it as glTF binary — the Nanite
+mesh first, then every classic LOD, one primitive per material slot, metres and +Y up — for
+Blender or any other tool that reads glTF. A skeletal mesh comes out in its rest pose with the
+bones as nodes; it is not skinned, because the cooked buffers carry no weights. Weapons and
+most Covenant vehicles hold a one-triangle placeholder in both forms, since their bodies are
+assembled at runtime from other assets. On the command line:
+
+```powershell
+mjolnir mesh export --asset SM_AssaultRifle --out ar.glb
+mjolnir texture export --asset T_ar_default_D --out ar.dds
+```
+
+### Levels
+
+A mission's Unreal geometry — the static meshes the level places, not the Blam structure BSP —
+lives in World Partition cells, one generated `.umap` per grid square. **export level
+geometry…** in a scenario's World view (or `mjolnir level export --mission a30 --out <dir>`)
+writes one `.glb` per cell: every placed static mesh as a node at its world transform, with
+instanced components (foliage, scree, rocks) expanded instance by instance, and a
+`manifest.json` saying what each cell placed and what it skipped. A30 is 576 cells, 1.8 million
+placements and about a gigabyte, in under a minute. Each mesh is placed as its classic fallback
+LOD; `--nanite` on the command line places the full-detail geometry instead. Hierarchical-LOD
+proxies (`--hlod`), hidden components, landscape heightfields, child actors and Niagara effects
+are counted in the manifest rather than placed. The files are independent, so open the cells you
+want.
+
+### String ids
+
+A `string id` field names a string the game has to know: the engine resolves it at load
+against its own registry, and a name that is not registered makes the game reject the whole
+tag — the weapon simply vanishes. The registry as the game held it in mission A30 ships with the
+editor, so **Test in game** and **Export** refuse an edit that sets a string id outside it and
+say which field; the *allow unregistered string ids* checkbox under **Try it** bakes it anyway
+when you mean it. A registered name set fresh still earns a note, because one mission's
+registry is a lower bound for another's. On the command line, `mjolnir set` does the same and
+takes `--allow-unknown-string-id`. A string id in a tag's root element can also be poked live:
+the name is resolved through the running game's registry and the id written where the engine
+keeps it.
+
+### Unreal packages
+
+Anything cooked as an Unreal package — a material instance's parameters, a data asset's
+fields, a component template's settings — can be read and edited by property path with
+`mjolnir ue`, the same way `set` edits a tag field:
+
+```powershell
+mjolnir ue get --package MIP_Rifle_AssaultRifle_Default --filter Emissive
+mjolnir ue set --package MIP_Rifle_AssaultRifle_Default `
+    --field "VectorParameterValues[2].ParameterValue" --value "80,0,0,1" `
+    --out-dir mods
+```
+
+`set` decodes the export's property block losslessly, changes the value, writes the block
+back in front of the class's untouched native bytes, and packs the package into an override
+container the game loads in front of the shipped one; it reads the result back before
+writing. Paths index arrays with `[n]` and map keys with `{key}`. Numbers, bools, names,
+strings, enums (by name or number), soft object paths (`/Game/Pkg.Asset`) and vectors,
+colours and guids as comma lists can be set. Object references cannot: pointing a property
+at a different package needs import-map surgery, which is not done here. There is no
+editor surface for this yet; it is the foundation the mesh and material tooling will build
+on.
 
 ### Audio
 
@@ -439,12 +564,19 @@ not the same as pokeable: an object exists for nearly every tag whether or not i
 resident, so it is the identity index, not the editable set. Finding the editable set is
 what the scan is for.
 
-Next to the toggle, while the game is running, is **scan game** — the census. One sweep of
-the game's memory finds *every* loaded tag at once, for less than the old flow paid to find
-a single tag: measured against a mission in the shipped build, ~12.6 GB swept in about 15
-seconds, 324 loaded tags verified. The first census on an installation also spends about a
-minute fingerprinting every tag; that table is cached on disk, so later sessions skip
-straight to the sweep. After a census:
+Next to the toggle, while the game is running, is **scan game** — the census. On the current
+game build it is not a scan at all: the simulation module keeps its own table of every loaded
+tag — name, group, a handle, and where the root element lives — and the editor reads that
+table directly, in well under a second, with every address exact. The status line says
+`from the game's own tag table` when this path was used. The table's addresses belong to one
+build (they are chosen by the hash of the simulation module), so on a build the editor does
+not know it falls back to the sweep described next; nothing else changes.
+
+The sweep: one pass over the game's memory finds *every* loaded tag at once, for less than
+the old flow paid to find a single tag: measured against a mission in the shipped build,
+~12.6 GB swept in about 15 seconds, 324 loaded tags verified. The first census on an
+installation also spends about a minute fingerprinting every tag; that table is cached on
+disk, so later sessions skip straight to the sweep. After a census, by either route:
 
 - every found tag pokes **instantly** — no per-tag first-edit scan;
 - the status line names **the level you are in**, read from the loaded scenario tag;
@@ -470,12 +602,16 @@ mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25 --l
 ```
 
 ```
-  located  payload at 0x11FA6DF1B0A  (2 independent runs agree, best of 13 candidate(s), 16.7 GB scanned)
-           25% of the data section is byte-identical to disk; the rest is the engine's own fix-ups
+  located  root at 0x239108DF900 via the tag table (handle 0xE24A00D6, Steam CU4 2026.08.11.1121610.2)
   live     9   (shipped 2.3)
   wrote    25
   re-read  25  (bytes confirmed in the process)
 ```
+
+On a build without a table profile the `located` line reports the sweep instead — how many
+independent byte runs agreed and how much memory was read. `mjolnir live status`, `live tags`
+and `live string-ids` read the same tables on their own: what is loaded, and which `string id`
+names the running game will accept.
 
 ### What it is, and is not
 

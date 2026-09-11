@@ -11,6 +11,8 @@
 //! chunk wins; that convention is the caller's to honour, since only the
 //! caller names files.
 
+pub mod newtag;
+
 use std::path::{Path, PathBuf};
 
 use ue_iostore::toc::{ChunkId, Toc};
@@ -152,6 +154,133 @@ pub fn build_override(
     }
 
     let built = ue_iostore::pack::build(&source_toc, CONTAINER_ID, &chunks);
+    let expect = chunks.into_iter().map(|c| (c.id, c.data)).collect();
+    Ok(Built {
+        utoc: built.utoc,
+        ucas: built.ucas,
+        entries,
+        expect,
+    })
+}
+
+/// A brand-new package to put in front of the game: the loader has never seen
+/// its id, so the container must also register it in the package store via a
+/// `ContainerHeader` chunk.
+pub struct NewPackage {
+    /// UE package name, e.g. `/Game/Tags/.../PG1-scenario`. The chunk ids are
+    /// derived from it.
+    pub package_name: String,
+    /// The cooked zen package (type-1 chunk content).
+    pub uasset: Vec<u8>,
+    /// The bulk payload (type-2 chunk content).
+    pub ubulk: Vec<u8>,
+    /// Package ids this package imports, for its store entry.
+    pub imported_package_ids: Vec<u64>,
+    /// Chunk meta records copied from the donor package's chunks.
+    pub uasset_meta: Vec<u8>,
+    pub ubulk_meta: Vec<u8>,
+}
+
+/// Build a container that ADDS packages rather than overriding chunks.
+///
+/// The chunk ids here are **derived** from the package names
+/// ([`ue_iostore::city::package_id`], validated against every shipped
+/// package). Registration rides the shipped container's own `ContainerHeader`:
+/// this container OVERRIDES the source's type-6 chunk with a copy that has the
+/// new packages appended, because the package store provably consumes shipped
+/// headers, while a mod container's own header may never be read.
+pub fn build_addition(
+    source: &Container,
+    oodle: &[PathBuf],
+    container_name: &str,
+    packages: &[NewPackage],
+) -> Result<Built, String> {
+    if packages.is_empty() {
+        return Err("nothing to pack".into());
+    }
+    let source_toc =
+        Toc::read(&source.utoc_path).map_err(|e| format!("{}: {e}", source.utoc_path.display()))?;
+
+    let _ = oodle;
+    let container_id = ue_iostore::city::package_id(container_name);
+
+    // The container's own header, read by the loader at mount from the chunk
+    // named {container id, 0, type 6}. Its meta must be the real BLAKE3-160 of
+    // its bytes — the packer computes every chunk's now; a copied hash is
+    // exactly why earlier attempts were silently ignored at mount.
+    let header = ue_iostore::container_header::ContainerHeader::with_import_lists(
+        container_id,
+        &packages
+            .iter()
+            .map(|p| {
+                (
+                    ue_iostore::city::package_id(&p.package_name),
+                    p.imported_package_ids.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    let mut chunks: Vec<ue_iostore::pack::Entry> = vec![ue_iostore::pack::Entry {
+        id: ChunkId {
+            id: container_id,
+            index: 0,
+            pad: 0,
+            kind: 6,
+        },
+        data: header.write(),
+        meta: Vec::new(),
+    }];
+    let mut entries = Vec::new();
+    for p in packages {
+        let id = ue_iostore::city::package_id(&p.package_name);
+        chunks.push(ue_iostore::pack::Entry {
+            id: ChunkId {
+                id,
+                index: 0,
+                pad: 0,
+                kind: 1,
+            },
+            data: p.uasset.clone(),
+            meta: p.uasset_meta.clone(),
+        });
+        chunks.push(ue_iostore::pack::Entry {
+            id: ChunkId {
+                id,
+                index: 0,
+                pad: 0,
+                kind: 2,
+            },
+            data: p.ubulk.clone(),
+            meta: p.ubulk_meta.clone(),
+        });
+        entries.push(PackedEntry {
+            label: p.package_name.clone(),
+            id: ChunkId {
+                id,
+                index: 0,
+                pad: 0,
+                kind: 1,
+            },
+            resized: false,
+        });
+    }
+
+    // Name the files in a real directory index, the way UE staging does:
+    // mounted at the content root, each package under its own folder.
+    let mount = "../../../Meteorite/Content/";
+    let mut files: Vec<(String, usize)> = Vec::new();
+    for (i, p) in packages.iter().enumerate() {
+        let rel = p
+            .package_name
+            .strip_prefix("/Game/")
+            .unwrap_or(&p.package_name)
+            .trim_start_matches('/');
+        // Entry 0 is the header; each package contributes two chunks.
+        files.push((format!("{rel}.uasset"), 1 + i * 2));
+        files.push((format!("{rel}.ubulk"), 2 + i * 2));
+    }
+    let built =
+        ue_iostore::pack::build_indexed(&source_toc, container_id, &chunks, Some((mount, &files)));
     let expect = chunks.into_iter().map(|c| (c.id, c.data)).collect();
     Ok(Built {
         utoc: built.utoc,

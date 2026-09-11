@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "name": "proving_ground",
+  "title": "Proving Ground",
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      36500.0,
+      8160.0,
+      -370.0
+    ]
+  },
+  "environment": {
+    "sun": {
+      "pitch": -50,
+      "yaw": 30,
+      "intensity": 8.0
+    },
+    "skylight": {
+      "intensity": 3.0
+    },
+    "atmosphere": true
+  },
+  "blam": {
+    "clear": {
+      "vehicles": true,
+      "weapons": true,
+      "equipment": true,
+      "bipeds": true
+    },
+    "player_starts": [
+      {
+        "pos": [
+          -2000.0,
+          200.0,
+          100.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "pos": [
+          -2000.0,
+          -200.0,
+          100.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "pos": [
+          2000.0,
+          200.0,
+          100.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "pos": [
+          2000.0,
+          -200.0,
+          100.0
+        ],
+        "yaw": 0.0
+      }
+    ],
+    "vehicles": [
+      {
+        "type": "warthog",
+        "pos": [
+          -2000.0,
+          -600.0,
+          30.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "ghost",
+        "pos": [
+          2000.0,
+          -600.0,
+          30.0
+        ],
+        "yaw": 0.0
+      }
+    ],
+    "weapons": [
+      {
+        "type": "sniper_rifle",
+        "pos": [
+          -2300.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "assault_rifle",
+        "pos": [
+          -1400.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 180.0
+      },
+      {
+        "type": "sniper_rifle",
+        "pos": [
+          2300.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "assault_rifle",
+        "pos": [
+          1400.0,
+          0.0,
+          15.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "rocket_launcher",
+        "pos": [
+          0.0,
+          0.0,
+          15.0
+        ],
+        "yaw": -90.0
+      }
+    ],
+    "equipment": [
+      {
+        "type": "overshield",
+        "pos": [
+          0.0,
+          -800.0,
+          20.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "active_camouflage",
+        "pos": [
+          0.0,
+          800.0,
+          20.0
+        ],
+        "yaw": 0.0
+      },
+      {
+        "type": "frag_grenade",
+        "pos": [
+          250.0,
+          150.0,
+          15.0
+        ],
+        "yaw": 0.0
+      }
+    ],
+    "objects": [
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          -1600.0,
+          400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          160.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          -1600.0,
+          -400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -160.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          1600.0,
+          400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -20.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield",
+        "group": "scenery",
+        "pos": [
+          1600.0,
+          -400.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          20.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          -150.0,
+          -100.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -10.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          150.0,
+          -100.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          15.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          0.0,
+          150.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -40.0,
+          0.0
+        ]
+      },
+      {
+        "tag": "objects\\props\\unsc\\unsc_gen_prop_crate_f\\unsc_gen_prop_crate_f",
+        "group": "crates",
+        "pos": [
+          0.0,
+          -20.0,
+          0.0
+        ],
+        "rot": [
+          0.0,
+          -25.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "decor": [
+    {
+      "id": "beacon_red",
+      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder",
+      "pos": [
+        -2000.0,
+        0.0,
+        600.0
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        12.0
+      ],
+      "tint": [
+        0.8,
+        0.1,
+        0.1,
+        1.0
+      ]
+    },
+    {
+      "id": "beacon_blue",
+      "mesh": "/Engine/BasicShapes/Cylinder.Cylinder",
+      "pos": [
+        2000.0,
+        0.0,
+        600.0
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        12.0
+      ],
+      "tint": [
+        0.1,
+        0.2,
+        0.8,
+        1.0
+      ]
+    },
+    {
+      "id": "arena_floor",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0.0,
+        0.0,
+        -10.0
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        64.0,
+        44.0,
+        0.2
+      ],
+      "tint": [
+        0.25,
+        0.25,
+        0.28,
+        1.0
+      ]
+    }
+  ],
+  "markers": [
+    {
+      "name": "hill_1",
+      "pos": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "yaw": 0.0
+    }
+  ]
+}

@@ -90,7 +90,59 @@ export type TagView = {
   node_count: number;
   /** Field paths with an unexported edit. */
   edited: string[];
+  /** How much of this tag's editing can be undone or redone. */
+  history: HistoryView;
   fields: NodeView[];
+};
+
+/** Depth of a tag's undo and redo stacks. */
+export type HistoryView = { undo: number; redo: number };
+
+/** One step of an element recipe: a field set to text, or an element op on a
+ *  nested block. */
+export type RecipeStep = { path: string; value: string; op: boolean };
+
+/** One element copied out of a block, as the recipe that recreates it. */
+export type ElementClip = {
+  group: string;
+  /** The block definition's name; a paste target must match. */
+  block: string;
+  /** Where it came from, for display. */
+  source: string;
+  fields: RecipeStep[];
+  /** Fields that could not travel as text. */
+  skipped: string[];
+};
+
+/** One field that differs between two tags. */
+export type FieldDiffView = { path: string; a: string | null; b: string | null };
+
+export type DiffView = {
+  a: string;
+  b: string;
+  fields: FieldDiffView[];
+  /** Materialised fields the two sides agree on. */
+  same: number;
+  /** Set when a side did not decode. */
+  error: string | null;
+};
+
+/** One tag in a reference tree. */
+export type RefNode = {
+  index: number | null;
+  group: string;
+  path: string;
+  cycle: boolean;
+  truncated: boolean;
+  children: RefNode[];
+};
+
+export type PasteReport = {
+  element: number;
+  elements: number;
+  applied: number;
+  unchanged: number;
+  skipped: { path: string; reason: string }[];
 };
 
 export type ScriptSourceFile = {
@@ -414,6 +466,18 @@ export type MeshMaterial = {
 };
 
 /** The JSON header of a `read_mesh` payload. */
+/** What a level export came to. */
+export type LevelExportSummary = {
+  mission: string;
+  cells: number;
+  files: number;
+  placements: number;
+  instanced: number;
+  bytes: number;
+  skips: [string, number][];
+  missing: [string, number][];
+};
+
 export type MeshHeader = {
   path: string;
   verts: number;
@@ -423,6 +487,8 @@ export type MeshHeader = {
   /** Which LOD the buffers are; 0 is full detail, higher is the Nanite
    *  fallback the cook kept. */
   lod: number;
+  /** The geometry is the full-detail Nanite mesh, not a classic LOD. */
+  nanite: boolean;
   skeletal: boolean;
 };
 
@@ -480,11 +546,25 @@ export type TextureChange = {
   bytes: number;
 };
 
+/** One tag the project adds, cloned from a shipped one. */
+export type NewTagView = {
+  group: string;
+  tag: string;
+  /** The shipped tag it was cloned from. */
+  from: string;
+  asset_reference: string | null;
+  /** Catalog index in the open installation; null when the donor is gone. */
+  index: number | null;
+  /** How many of its fields the mod changes from the donor's. */
+  edits: number;
+};
+
 export type ProjectView = {
   root: string;
   meta: ProjectMeta;
   changes: TagChange[];
   textures: TextureChange[];
+  new_tags: NewTagView[];
   /** Files a test install left in the Paks folder. */
   test_files: string[];
 };
@@ -595,6 +675,11 @@ export type CensusReport = {
    *  exact, found without the sweep. Null when the cache roots could not be
    *  found in this build. */
   cached: number | null;
+  /** How the loaded set was established: read from the simulation's own tag
+   *  table (exact, instant) or swept out of memory. */
+  method: "table" | "sweep";
+  /** With `table`: entries in the game's table no catalog tag matched. */
+  table_unmapped: number | null;
 };
 
 /** What the engine's object table says, without a memory sweep. */
@@ -607,7 +692,7 @@ export type ProbeReport = {
 
 /** Progress of a running census, as `live-census` events report it. */
 export type CensusProgress = {
-  phase: "objects" | "cache" | "prints" | "scan";
+  phase: "objects" | "table" | "cache" | "prints" | "scan";
   done_mb: number;
   total_mb: number;
 };
@@ -629,7 +714,7 @@ const tauriApi = {
   listGroups: () => invoke<GroupSummary[]>("list_groups"),
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
-  readTag: (index: number) => invoke<TagView>("read_tag", { index }),
+  readTag: (index: number, expert = false) => invoke<TagView>("read_tag", { index, expert }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
   objectRenderModel: (index: number) =>
@@ -654,6 +739,22 @@ const tauriApi = {
     invoke<EditResult>("remove_element", { index, path, element }),
   duplicateElement: (index: number, path: string, element: number) =>
     invoke<EditResult>("duplicate_element", { index, path, element }),
+  insertElement: (index: number, path: string, at: number) =>
+    invoke<EditResult>("insert_element", { index, path, at }),
+  copyElement: (index: number, path: string, element: number) =>
+    invoke<ElementClip>("copy_element", { index, path, element }),
+  pasteElement: (index: number, path: string, at: number | null, clip: ElementClip) =>
+    invoke<PasteReport>("paste_element", { index, path, at, clip }),
+  copyBlockTsv: (index: number, path: string) =>
+    invoke<string>("copy_block_tsv", { index, path }),
+  pasteBlockTsv: (index: number, path: string, tsv: string, replace: boolean) =>
+    invoke<PasteReport>("paste_block_tsv", { index, path, tsv, replace }),
+  diffTags: (a: number, b: number) => invoke<DiffView>("diff_tags", { a, b }),
+  diffEdits: (index: number) => invoke<DiffView>("diff_edits", { index }),
+  referenceTree: (index: number, depth: number) =>
+    invoke<RefNode>("reference_tree", { index, depth }),
+  unreferencedTags: (group: string) =>
+    invoke<TagSummary[]>("unreferenced_tags", { group }),
   liveStatus: () => invoke<LiveStatus>("live_status"),
   liveForget: () => invoke<void>("live_forget"),
   livePoke: (index: number, path: string, value: string) =>
@@ -664,6 +765,8 @@ const tauriApi = {
   revertField: (index: number, path: string) =>
     invoke<number>("revert_field", { index, path }),
   revertTag: (index: number) => invoke<void>("revert_tag", { index }),
+  undoEdit: (index: number) => invoke<HistoryView>("undo_edit", { index }),
+  redoEdit: (index: number) => invoke<HistoryView>("redo_edit", { index }),
   exportTag: (index: number, dest: string) =>
     invoke<number>("export_tag", { index, dest }),
   listTextures: (query: string) =>
@@ -681,6 +784,10 @@ const tauriApi = {
   setScripts: (index: number, files: [string, string][]) =>
     invoke<CompileReport>("set_scripts", { index, files }),
   revertScripts: (index: number) => invoke<void>("revert_scripts", { index }),
+  exportMesh: (index: number, dest: string) =>
+    invoke<number>("export_mesh", { index, dest }),
+  exportLevel: (index: number, dest: string, nanite: boolean, hlod: boolean) =>
+    invoke<LevelExportSummary>("export_level", { index, dest, nanite, hlod }),
   exportTexture: (index: number, dest: string) =>
     invoke<number>("export_texture", { index, dest }),
   swapTexture: (index: number, image: string) =>
@@ -706,9 +813,15 @@ const tauriApi = {
     invoke<ProjectView>("project_set_meta", { name, slug, version, summary }),
   projectRevert: (group: string, tag: string, field: string | null) =>
     invoke<void>("project_revert", { group, tag, field }),
+  projectNewTag: (from: number, path: string, assetReference: string | null) =>
+    invoke<NewTagView>("project_new_tag", { from, path, assetReference }),
+  projectRemoveNewTag: (group: string, tag: string) =>
+    invoke<void>("project_remove_new_tag", { group, tag }),
   lastProject: () => invoke<string | null>("last_project"),
-  projectExport: () => invoke<ExportView>("project_export"),
-  projectTest: () => invoke<TestView>("project_test"),
+  projectExport: (allowUnknownStringIds: boolean) =>
+    invoke<ExportView>("project_export", { allowUnknownStringIds }),
+  projectTest: (allowUnknownStringIds: boolean) =>
+    invoke<TestView>("project_test", { allowUnknownStringIds }),
   projectUntest: () => invoke<number>("project_untest"),
   projectPublish: (changelog: string) =>
     invoke<PublishView>("project_publish", { changelog }),

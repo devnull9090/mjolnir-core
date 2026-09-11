@@ -68,6 +68,7 @@ fn bake_export_and_test_install_against_the_real_game() {
             original_len: original.len(),
             patched,
         }],
+        Vec::new(),
     )
     .expect("bake");
     assert_eq!(baked.len(), 1, "one source container, one override");
@@ -100,6 +101,7 @@ fn bake_export_and_test_install_against_the_real_game() {
         }],
         textures: Vec::new(),
         scripts: Vec::new(),
+        new_tags: Vec::new(),
     })
     .unwrap();
     let size = modpack::write_archive(
