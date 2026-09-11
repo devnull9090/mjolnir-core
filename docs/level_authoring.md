@@ -84,8 +84,19 @@ file as `<CODE>.level.json`. `--bsp INDEX=PAYLOAD` clones structure BSP
 body, so custom collision no longer overrides the shipped mission's BSP:
 
 ```
-mjolnir level bake examples/levels/bloodgulch.level.json --standalone BGL     --bsp 8=<staging>/bloodgulch/collision/bsp_01_1_start.bin --install-test
+mjolnir level bake examples/levels/bloodgulch.level.json --standalone BGL     --bsp 8=<staging>/bloodgulch/collision/bsp_01_1_start.bin     --world <bare.umap> --install-test
 ```
+
+`--world <bare.umap>` gives the map an Unreal world of its own (the MapKit's
+empty world, renamed under the codename) instead of running on the canvas
+mission's. That needs the MJOLNIRLevelLoader mod **with its native half**,
+`native/mjolnir_map_registry.dll` (built by `native/map_registry/build.ps1`,
+shipped by the mods release): the engine resolves a mission's world by its
+short name through the AssetRegistry, which only knows shipped packages, and
+the DLL answers for worlds found in the installed containers
+([new_scenario_loading.md](new_scenario_loading.md), "The world gate").
+Without it the launch bounces back to the menu; without `--world` the map
+runs on the canvas world and needs nothing native.
 
 Undo is deleting the six `pakchunk996-MJOLNIRREG-<CODE>_P.*` and
 `pakchunk997-MJOLNIRMAP-<CODE>_P.*` files. Two standalone maps installed at

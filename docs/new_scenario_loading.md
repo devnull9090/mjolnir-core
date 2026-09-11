@@ -301,7 +301,7 @@ it, so BSPs are cloned, not rebuilt.
 What is still B40's: the world (`UnrealLevel`) and the other 17 BSPs the
 scenario references, all read-only shipped tags.
 
-### The map's own Unreal world: not yet (later still)
+### The map's own Unreal world: not yet (later still; resolved in the next section)
 
 `mjolnir level bake --standalone BGL --world <bare.umap>` ships the MapKit's
 bare level renamed to `/Game/Levels/Halo1/Solo/BGL/BGL`
@@ -332,3 +332,106 @@ analyzed for it (`docs/re/ghidra_mcp.md`).
 Until then `--world-object` can point a standalone map at any shipped world
 by object path, and without either flag the map runs on the canvas
 mission's world, which is what BGL ships with today.
+
+### The world gate, found and passed (the same night)
+
+The gate is not in the loader at all. It is the engine turning a **short map
+name** into a package path, and it asks the AssetRegistry.
+
+Found by redirecting call sites in the CU4 exe (`native/scenario_probe/
+gate_probe.c`, `ar_probe.c`; `call rel32` patched to logging wrappers, no
+prologue relocation) and reading the decompiles (`docs/re/ghidra_mcp.md`):
+
+1. `BlamCampaignFlowGameSubsystem::StartScenario` (`FUN_147b44cb0`) first
+   asks the BlamEngine module's tag object (module `+0x120`, virtual slot 3)
+   whether `"/Game/Tags/" + <scenario name> + ".scenario"` exists —
+   `Levels/Halo1/Solo/BGL/BGL` passes, our scenario tag is fine — and then
+   requests a travel to the URL
+   `BGL?SeamlessTravel?ScenarioName=BGL?InsertionPointIndex=0`. **The map is
+   the row's world by its short name.**
+2. `UEngine::Browse` → `MakeSureMapNameIsValid` (`FUN_1467789d0`): a name
+   with a `/` goes to `FindObject`, then `FPackageName::DoesPackageExist`
+   (IoStore chunk existence — this is the type-1 `DoesChunkExist` the chunk
+   probe saw for B40). A name **without** a `/` goes to the AssetRegistry
+   module's registry, `IAssetRegistry::GetFirstPackageByName(FStringView)`
+   (virtual slot 30, `FUN_144614b60`, which consults the registry state's
+   package-name index). No hit, no travel — and nothing downstream is ever
+   asked, which is why no probe on the store or the dispatcher saw the new
+   world.
+3. The registry is `Meteorite/AssetRegistry.bin`, loaded once at boot
+   (`FUN_144608f90`). `B40` is in it; `BGL` is not; `HasAssets` said as much
+   from Lua all along.
+
+Confirmed by answering the lookup: with slot 30 wrapped and the miss for
+`BGL` answered with the FName `/Game/Levels/Halo1/Solo/BGL/BGL`, the travel
+went through, `DoesChunkExist` and the package-store lookup fired for the
+new world's id, and the game ran Blood Gulch on
+`/Game/Levels/Halo1/Solo/BGL/BGL` — its own scenario, its own BSP, its own
+world; B40 untouched.
+
+**Shipped fix: `mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll`**
+(source `native/map_registry/`, built by its `build.ps1`, never committed —
+CI and the mods release build it). The loader's Lua loads it at start; it
+finds the registry through `FModuleManager` (no address hand-off), wraps
+slot 30, and on a miss answers from the `.umap` files listed by the mounted
+`.utoc` directory indexes in `Meteorite/Content/Paks` (World Partition
+`_Generated_` cells skipped), building the FName the way the engine does
+(`FUN_143709650` hash + `FUN_1436fcc60` intern). Shipped maps never reach the
+fallback. That is why `blam_pack::build_addition` names files UE-style
+(`../../../` mount, `Meteorite/Content/<path>.umap`): the index is the
+manifest. `mjolnir_level_rescan` re-reads the containers after installing a
+map while the game runs. Log: `native/map_registry.log`. CU4-only by RVA;
+another build is refused with a log line and standalone worlds simply fall
+back to bouncing.
+
+**The data-only alternative, not yet built.** The same boot loader
+(`FUN_144608f90`) then iterates the plugin manager's enabled content plugins
+and appends each plugin's `<PluginDir>/AssetRegistry.bin` to the registry —
+the DLC-plugin path. A `Meteorite/Plugins/<Name>/<Name>.uplugin` with
+`EnabledByDefault` + `CanContainContent` (the exe parses both) and a
+*minimal* `AssetRegistry.bin` listing just our worlds would make the engine
+know them with no code injected at all. Needs: a writer for the UE 5.5
+`FAssetRegistryState` serialization (name batch + tag store + asset list),
+and a check that a loose `.uplugin` is discovered in this shipping build
+(`.uplugin`/`.upluginmanifest` discovery is compiled in; the shipped
+`Meteorite/` has no `Plugins` directory). Worth doing when a map should
+install as data alone.
+
+### What the map's own world may still need — and how not to test it
+
+With the resolver in place BGL loads on the MapKit's bare world renamed to
+`/Game/Levels/Halo1/Solo/BGL/BGL`: Blood Gulch terrain textured and lit,
+HUD up, weapon raised, simulation clock running. A shipped mission's
+persistent level carries more than that — `BlamWorldSettings`
+(`DefaultScenario`, `DefaultGameMode`, `bForceNoPrecomputedLighting`), a
+`BlamScenario` actor (`ScenarioName`, insertion points, mission dialogue,
+objectives data asset, cutscene titles, data layers) and ten
+`BlamGameModePlayerStart`s — and the bare world has a plain `WorldSettings`
+and nothing else. Whether any of it matters to play is **not yet known**,
+because of two traps that ate most of a night:
+
+- **Synthetic input never reaches the simulation.** The game reads gameplay
+  input through Microsoft GameInput (`GameInput.dll` is loaded), which does
+  not see `SendInput` keys or mouse motion; Slate menus do, which is why the
+  `game_input` tool drives menus fine. `IsInputKeyDown(W)` is true while the
+  unit ignores it — on the shipped B40 too. Movement has to be tried by a
+  person at the keyboard.
+- **`BP_MeteoritePawn_C` is not the unit.** Its location is the same
+  constant (19230.9, 1971.8, 13930.8) on B40, on BGL's bare world and on the
+  donor world below; the camera sits 189 cm above it. It says nothing about
+  where the Blam player is. `FindFirstOf("World")` may also hand back a
+  streaming cell's world (time 0); take the controller's world.
+
+For the comparison, `--world` accepts a shipped world too:
+`ZenPackage::rename_world` rewrites every name containing the old package
+path (2181 in B40's), so a World Partition donor's cells point at packages
+that do not exist and never stream, and the `.ubulk` beside the `.umap` is
+carried (B40's is 1.1 GB — its textures and HLODs). B40's persistent level
+renamed as BGL loads and runs the BGL scenario, with `BlamWorldSettings`, the
+`BlamScenario` actor and all ten player starts present — but also B40's
+lights, fog volumes and post-process, so Blood Gulch is pitch dark. If a
+tester finds the bare world's player locked and the donor's not, the answer
+is a synthesized minimal world: the bare package plus those three actor
+kinds copied from a shipped level (`native tail` bytes included), which is
+zen export surgery `newtag::build` does not do yet. If both play, the bare
+world is the product and the donor route can go.

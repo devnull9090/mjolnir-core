@@ -17,10 +17,18 @@
 -- the canvas scenario's world, reads the file, and furnishes it. Positions in
 -- the file are UE cm relative to canvas.origin.
 --
+-- Native half: native/mjolnir_map_registry.dll (source native/map_registry,
+-- never committed — build.ps1 or the release builds it) lets a standalone
+-- map run on a world of its own: the engine resolves a mission's world by
+-- short name through the AssetRegistry, which only knows shipped packages,
+-- and the DLL answers for worlds found in the installed containers. Without
+-- the DLL everything else here still works on canvas worlds.
+--
 -- Commands:
 --   mjolnir_level_status   what is loaded, spawned, or failing
 --   mjolnir_level_reload   re-read the level file and respawn decor (dev loop)
 --   mjolnir_level_clear    remove everything this mod spawned
+--   mjolnir_level_rescan   re-read the containers' world lists (native half)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -187,11 +195,30 @@ local function loadLevelFile(scenario, fileKey)
         or type(canvas.scenario) ~= "string" then
         return nil, "missing canvas"
     end
-    if string.upper(canvas.scenario) ~= scenario then
+    -- A file found by world name must target that world. A file found by
+    -- scenario tag codename belongs to that scenario wherever it runs: on
+    -- its canvas world, or on a world of its own that carries the codename.
+    if not fileKey and string.upper(canvas.scenario) ~= scenario then
         return nil, string.format("file targets %s but the loaded world is %s",
             canvas.scenario, scenario)
     end
     return level
+end
+
+--- The level file for the running world: the scenario tag's own file when
+--- one is loaded, else the world's.
+local function loadCurrentLevelFile(scenario)
+    local tag = scenarioTagOf()
+    if tag then
+        local level = loadLevelFile(scenario, tag)
+        if level then
+            if tag ~= scenario then
+                Log(string.format("scenario tag %s has its own level file", tag))
+            end
+            return level
+        end
+    end
+    return loadLevelFile(scenario)
 end
 
 --------------------------------------------------------------------------------
@@ -420,18 +447,7 @@ local function tick()
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 
-        -- A standalone scenario's own file first, then the world's.
-        local level, err
-        local tag = scenarioTagOf()
-        if tag and tag ~= Current.scenario then
-            level, err = loadLevelFile(Current.scenario, tag)
-            if level then
-                Log(string.format("scenario tag %s has its own level file", tag))
-            end
-        end
-        if not level then
-            level, err = loadLevelFile(Current.scenario)
-        end
+        local level, err = loadCurrentLevelFile(Current.scenario)
         if not level then
             Current.fileMissing = true
             if err and not err:find("^no file") then
@@ -483,7 +499,7 @@ local function reload()
         return
     end
     clearActors()
-    local level, err = loadLevelFile(Current.scenario)
+    local level, err = loadCurrentLevelFile(Current.scenario)
     if not level then
         Current.level = nil
         Current.fileMissing = true
@@ -496,7 +512,39 @@ local function reload()
     if world then spawnDecor(world) end
 end
 
+--- The native half. The engine turns a mission's SHORT world name into a
+--- package path through the AssetRegistry, which is loaded once at boot from
+--- the shipped AssetRegistry.bin and so never knows a world that arrives in
+--- a mod container: the travel is refused before any container is asked.
+--- native/mjolnir_map_registry.dll wraps that lookup and answers, on a miss,
+--- from the .umap files listed by the mounted .utoc directory indexes
+--- (docs/new_scenario_loading.md, "The world gate"). Shipped maps never
+--- reach the fallback. CU4-only by RVA; the DLL refuses any other build.
+local function loadMapRegistry()
+    if not package or not package.loadlib then
+        Log("map registry: this Lua has no package.loadlib; standalone worlds will not resolve")
+        return
+    end
+    local dll = MOD_DIR .. "\\native\\mjolnir_map_registry.dll"
+    local open, err = package.loadlib(dll, "mjolnir_map_registry_open")
+    if not open then
+        Log("map registry: " .. tostring(err))
+        return
+    end
+    local rescan = package.loadlib(dll, "mjolnir_map_registry_rescan")
+    open()
+    if rescan then
+        RegisterConsoleCommandHandler("mjolnir_level_rescan", function()
+            rescan()
+            Log("map registry: containers re-read (see native\\map_registry.log)")
+            return true
+        end)
+    end
+    Log("map registry: short-name resolver loaded (native\\map_registry.log)")
+end
+
 local function initialize()
+    loadMapRegistry()
     RegisterConsoleCommandHandler("mjolnir_level_status", function()
         status()
         return true

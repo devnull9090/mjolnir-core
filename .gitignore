@@ -63,3 +63,7 @@ tools/mcp/game/.captures/
 # Built by native/blam_console/build.ps1; never committed
 mods/MJOLNIRBlamConsole/native/*.dll
 native/blam_console/obj/
+# Built by native/map_registry/build.ps1; never committed
+mods/MJOLNIRLevelLoader/native/*.dll
+mods/MJOLNIRLevelLoader/native/*.log
+native/map_registry/obj/

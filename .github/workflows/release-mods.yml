@@ -14,14 +14,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  # The one native mod. Its DLL is never committed (docs/contributing_code_mods.md:
-  # no prebuilt binaries in the tree), so it is built here from the C in
-  # native/blam_console, on the same runner image every time, with a
-  # reproducible link — a reviewer can rebuild it and get the same hash the
-  # job prints. The release job below takes the artifact from this job, not
-  # from anywhere else.
+  # The native mods. Their DLLs are never committed (docs/contributing_code_mods.md:
+  # no prebuilt binaries in the tree), so they are built here from the C in
+  # native/blam_console and native/map_registry, on the same runner image
+  # every time, with a reproducible link — a reviewer can rebuild one and get
+  # the same hash the job prints. The release job below takes the artifacts
+  # from this job, not from anywhere else.
   build-native:
-    name: Build native (Blam console DLL)
+    name: Build native (Blam console + map registry DLLs)
     if: github.ref_type == 'tag'
     runs-on: windows-latest
     steps:
@@ -35,16 +35,28 @@ jobs:
         shell: pwsh
         run: .\native\blam_console\build.ps1
 
-      - name: Record the hash
+      - name: Build mjolnir_map_registry.dll
+        shell: pwsh
+        run: .\native\map_registry\build.ps1
+
+      - name: Record the hashes
         shell: pwsh
         run: |
-          $hash = (Get-FileHash mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll -Algorithm SHA256).Hash.ToLower()
-          "mjolnir_blam_console.dll sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll")) {
+            $hash = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
+            "$(Split-Path -Leaf $dll) sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: mjolnir_blam_console
           path: mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_map_registry
+          path: mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll
           if-no-files-found: error
 
   release:
@@ -64,11 +76,18 @@ jobs:
           name: mjolnir_blam_console
           path: mods/MJOLNIRBlamConsole/native
 
-      - name: Check the native half is in place
+      - uses: actions/download-artifact@v4
+        with:
+          name: mjolnir_map_registry
+          path: mods/MJOLNIRLevelLoader/native
+
+      - name: Check the native halves are in place
         run: |
-          test -s mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
-            || { echo "::error::mjolnir_blam_console.dll did not arrive from build-native"; exit 1; }
-          sha256sum mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll
+          for dll in mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
+                     mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll; do
+            test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
+            sha256sum "$dll"
+          done
 
       # The same lint gate as CI, but blocking: nothing ships with warnings
       # suppressed.
