@@ -5,6 +5,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 export interface InstallStatus {
   game_found: boolean;
   install_path: string | null;
+  /** Where UE4SS goes: Meteorite\Binaries\Win64 on Steam, \WinGDK on the Xbox app. */
+  binaries_path: string | null;
   platform: string;
   ue4ss_installed: boolean;
   modpack_enabled: boolean;

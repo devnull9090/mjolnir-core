@@ -27,6 +27,18 @@ use std::collections::BTreeMap;
 use crate::data::{Block, Value};
 use crate::section::SECTION_HEADER;
 
+/// Serialise one element's `tgst` wrapper content — its variable-length
+/// children exactly as they were read. This is what cloning an element copies:
+/// the donor's sections verbatim, novel bytes nowhere (see [`crate::blockedit`]).
+pub(crate) fn element_wrapper(children: &[Value<'_>]) -> Vec<u8> {
+    write_children(children, None)
+}
+
+/// Crate-visible section writer for code that assembles block content itself.
+pub(crate) fn section_into(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {
+    section(out, magic, version, content);
+}
+
 /// Append a section header and its content. Magics are stored reversed, so
 /// `tgbl` is written as the bytes `l b g t`.
 fn section(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {

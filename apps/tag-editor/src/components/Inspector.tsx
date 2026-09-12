@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { degreesToRadiansText, isAngleType, radiansToDegreesText } from "../lib/angles";
+import { fieldPath } from "../lib/paths";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
 import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
@@ -31,15 +33,21 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
   const isEdited = edited.includes(path);
   const canEdit = !NOT_EDITABLE.has(node.type) && node.size > 0;
   const empty = node.value === "";
+  // Angles convert at the edge: shown in degrees when asked, stored in radians.
+  const degreesOn = useEditor((s) => s.degrees);
+  const angular = degreesOn && isAngleType(node.type);
+  const shownNode = angular ? { ...node, value: radiansToDegreesText(node.value) } : node;
   const shown =
     node.reference && node.reference.path
       ? `${keepTail(node.reference.path, 52)} (${node.reference.group})`
-      : node.value;
+      : angular
+        ? `${shownNode.value}°`
+        : node.value;
 
   async function commit() {
     setEditing(false);
-    if (draft === editableText(node)) return;
-    const ok = await setField(path, draft);
+    if (draft === editableText(shownNode)) return;
+    const ok = await setField(path, angular ? degreesToRadiansText(draft) : draft);
     setFailed(ok ? null : "rejected");
   }
 
@@ -86,7 +94,7 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
           type="button"
           disabled={!canEdit}
           onClick={() => {
-            setDraft(editableText(node));
+            setDraft(editableText(shownNode));
             setFailed(null);
             setEditing(true);
           }}
@@ -182,8 +190,7 @@ function Branch({
 
 /** Join a parent path with a child, matching what `mjolnir set --field` takes. */
 function childPath(parent: string, node: NodeView): string {
-  if (node.kind === "element") return `${parent}${node.name}`;
-  return parent ? `${parent}.${node.name}` : node.name;
+  return fieldPath(parent, node.name, node.kind);
 }
 
 function Node({ node, depth, path }: { node: NodeView; depth: number; path: string }) {
@@ -290,7 +297,7 @@ export function Inspector() {
           <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
         ) : (
           tag.fields.map((node, i) => (
-            <Node key={`${node.name}-${i}`} node={node} depth={0} path={node.name} />
+            <Node key={`${node.name}-${i}`} node={node} depth={0} path={fieldPath("", node.name)} />
           ))
         )}
       </div>

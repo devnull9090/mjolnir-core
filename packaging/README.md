@@ -10,8 +10,8 @@ which runs on a `cli-v*` tag. Nothing in this directory is built by hand.
 | --- | --- | --- | --- |
 | GitHub release | download an archive | ✅ works now | nobody |
 | CDN | `releases.mjolnircore.com/cli/latest/…` | ✅ works now | nobody |
-| Scoop (Windows) | `scoop install mjolnir` | ✅ works now | nobody |
-| Homebrew (macOS, Linux) | `brew install mjolnir` | ✅ works now | nobody |
+| Scoop (Windows) | `scoop install mjolnir` | ✅ works now | you, one review per release |
+| Homebrew (macOS, Linux) | `brew install mjolnir` | ✅ works now | you, one review per release |
 | `.deb` (Debian, Ubuntu) | `sudo dpkg -i mjolnir_*.deb` | ✅ works now | nobody |
 | `.rpm` (Fedora, RHEL, SUSE) | `sudo rpm -i mjolnir-*.rpm` | ✅ works now | nobody |
 | WinGet | `winget install MJOLNIRCore.CLI` | needs `WINGET_TOKEN` | Microsoft, per release |
@@ -74,8 +74,14 @@ to its own executable, so no packaging-specific code exists anywhere in the tool
 
 Scoop reads manifests straight out of a git repository, which is why this is the
 one Windows package manager that needed no account, no submission and no
-moderator: the bucket is [`bucket/`](../bucket) in this repository, and the
-release workflow commits the new manifest to `main` at the end of a release.
+moderator: the bucket is [`bucket/`](../bucket) in this repository.
+
+The release workflow cannot commit the new manifest to `main` — the branch takes
+pull requests only — so it puts the manifest on a branch of its own, opens a
+pull request titled *Scoop manifest and Homebrew formula for mjolnir `<version>`*
+and arms auto-merge. **`scoop install` serves the previous version until that
+pull request is approved**, which is the one manual step in a CLI release; the
+GitHub release, the CDN and the announcement do not wait for it.
 
 ```powershell
 scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core
@@ -84,9 +90,10 @@ scoop install mjolnir
 
 ## Homebrew — already working
 
-A tap is a git repository too, so macOS and Linux get the same deal. The formula
-lives in [`HomebrewFormula/`](../HomebrewFormula), which is the directory brew
-looks in for a repository that is not *only* a tap.
+A tap is a git repository too, so macOS and Linux get the same deal — including
+the pull request above, which carries the formula and the Scoop manifest
+together. The formula lives in [`HomebrewFormula/`](../HomebrewFormula), which is
+the directory brew looks in for a repository that is not *only* a tap.
 
 ```bash
 brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core

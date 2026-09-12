@@ -125,9 +125,9 @@ export default function SetupPanel({ installStatus, onInstallComplete }: SetupPa
         mods a MJOLNIR install needs to do anything.
       </p>
 
-      {installStatus.install_path && (
+      {(installStatus.binaries_path ?? installStatus.install_path) && (
         <p className="text-xs text-text-secondary mb-6 font-mono opacity-60">
-          Target: {installStatus.install_path}\Meteorite\Binaries\Win64\
+          Target: {installStatus.binaries_path ?? `${installStatus.install_path}\\Meteorite\\Binaries\\Win64`}\
         </p>
       )}
 

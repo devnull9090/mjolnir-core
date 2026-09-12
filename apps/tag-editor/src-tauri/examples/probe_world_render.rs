@@ -59,7 +59,11 @@ fn main() -> Result<(), String> {
                     let ctx = Ctx { usmap: &usmap, names: &package.names };
                     let mesh = if entry.skeletal {
                         ue_asset::mesh::parse_skeletal_mesh(&ctx, bytes, ubulk.as_deref())
-                            .map(|sk| ue_asset::mesh::StaticMeshData { materials: sk.materials, lods: sk.lods })
+                            .map(|sk| ue_asset::mesh::StaticMeshData {
+                                materials: sk.materials,
+                                lods: sk.lods,
+                                ..Default::default()
+                            })
                             .ok()?
                     } else {
                         ue_asset::mesh::parse_static_mesh(&ctx, bytes, ubulk.as_deref()).ok()?

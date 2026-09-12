@@ -1,3 +1,4 @@
+import { save } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -13,6 +14,23 @@ import { useEditor } from "../stores/editor-store";
  * density. The header says which LOD it is.
  */
 export function MeshViewer() {
+  const exportMesh = useEditor((s) => s.exportMesh);
+  const meshName = useEditor((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTab);
+    return tab?.label ?? "mesh";
+  });
+  const [wrote, setWrote] = useState<string | null>(null);
+  async function onExport() {
+    const dest = await save({
+      defaultPath: `${meshName.replace(/\.[^.]*$/, "")}.glb`,
+      filters: [{ name: "glTF binary", extensions: ["glb"] }],
+    });
+    if (!dest) return;
+    setWrote(null);
+    const written = await exportMesh(dest);
+    if (written !== null) setWrote(`wrote ${written.toLocaleString()} bytes`);
+  }
+
   const index = useEditor((s) => s.selectedMesh);
   const [header, setHeader] = useState<MeshHeader | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,10 +108,18 @@ export function MeshViewer() {
         >
           wireframe
         </button>
+        <button
+          type="button"
+          onClick={() => void onExport()}
+          title="Write this mesh as glTF binary: every LOD, a primitive per material slot, metres and +Y up"
+          className="border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-dim hover:bg-surface-hover hover:text-mjolnir-gold"
+        >
+          export .glb…
+        </button>
+        {wrote && <span className="font-mono text-[10px] text-accent-green">{wrote}</span>}
         <span className="ml-auto font-mono text-[10px] text-text-dim">
-          {header.verts.toLocaleString()} verts · {header.tris.toLocaleString()} tris · LOD{" "}
-          {header.lod}
-          {header.lod > 0 ? " (Nanite fallback)" : ""}
+          {header.verts.toLocaleString()} verts · {header.tris.toLocaleString()} tris ·{" "}
+          {header.nanite ? "Nanite, full detail" : `LOD ${header.lod}${header.lod > 0 ? " (Nanite fallback)" : ""}`}
         </span>
       </div>
       <MeshScene header={header} payload={payload} wireframe={wireframe} textured={textured} />

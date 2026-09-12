@@ -7,4 +7,6 @@ repository.workspace = true
 description = "Bake edited tags into IoStore override containers"
 
 [dependencies]
+blam-tag = { path = "../blam-tag" }
+ue-asset = { path = "../ue-asset" }
 ue-iostore = { path = "../ue-iostore" }

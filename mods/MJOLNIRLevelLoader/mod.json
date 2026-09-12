@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "summary": "Runtime half of the level authoring pipeline: reads levels/<SCENARIO>.level.json and spawns the level's decorative Unreal meshes when the canvas world loads. Solid geometry comes from the baked scenario override, not from this mod.",
+  "category": "tools"
+}

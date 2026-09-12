@@ -33,15 +33,15 @@ pub struct Present {
 
 /// Where the game executable sits relative to the Paks folder the catalog was
 /// opened on: `<game>/Meteorite/Content/Paks` → `<game>/Meteorite/Binaries/
-/// Win64/HaloCampaignEvolved.exe`. The image bytes feed the static signature
-/// scans; the running process supplies the base they land on.
+/// Win64/HaloCampaignEvolved.exe` on Steam, or `Binaries/WinGDK` for the Xbox
+/// app build. The image bytes feed the static signature scans; the running
+/// process supplies the base they land on.
 pub fn exe_path(paks: &Path) -> Option<PathBuf> {
-    let meteorite = paks.parent()?.parent()?;
-    let exe = meteorite
-        .join("Binaries")
-        .join("Win64")
-        .join(blam_live::GAME_EXE);
-    exe.is_file().then_some(exe)
+    let binaries = paks.parent()?.parent()?.join("Binaries");
+    ["Win64", "WinGDK"]
+        .iter()
+        .map(|platform| binaries.join(platform).join(blam_live::GAME_EXE))
+        .find(|exe| exe.is_file())
 }
 
 /// Attach the reader, from cached RVAs when they still validate and from the

@@ -223,3 +223,122 @@ mod tests {
         assert!(!same_file(&a, &b));
     }
 }
+
+#[derive(Args)]
+pub struct PackageIdArgs {
+    /// Derive the id for one package name, e.g. /Game/Levels/Halo1/Solo/B40/B40.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Derive the id of every indexed package in the shipped containers and
+    /// require each to match its chunk id — the correctness gate for the
+    /// CityHash64 port and the path-to-name mapping.
+    #[arg(long)]
+    pub check: bool,
+    /// Parse and re-serialise every shipped ContainerHeader chunk, requiring
+    /// byte-exact output — the correctness gate for the header writer.
+    #[arg(long)]
+    pub headers: bool,
+    #[command(flatten)]
+    pub src: Source,
+}
+
+/// Container file path to UE package name, for the mounts this game uses.
+fn package_name_of(full: &str) -> Option<String> {
+    let stem = full.strip_suffix(".uasset")?;
+    if let Some(rest) = stem.strip_prefix("../../../Meteorite/Content/") {
+        return Some(format!("/Game/{rest}"));
+    }
+    if let Some(rest) = stem.strip_prefix("../../../Engine/Content/") {
+        return Some(format!("/Engine/{rest}"));
+    }
+    // Plugin content mounts under a root that is not derivable from the path
+    // alone (the .uplugin declares it), so plugin packages are out of scope —
+    // new MJOLNIR packages only ever live under /Game/.
+    None
+}
+
+pub fn run_packageid(a: PackageIdArgs) -> Result<()> {
+    if let Some(name) = &a.name {
+        println!("{name}");
+        println!("  id {:#018x}", ue_iostore::city::package_id(name));
+        if !a.check {
+            return Ok(());
+        }
+    }
+    if !a.check && !a.headers {
+        anyhow::bail!("pass --name, --check or --headers");
+    }
+
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    if a.headers {
+        let mut ok = 0usize;
+        for c in &containers {
+            for chunk in &c.chunks {
+                if chunk.chunk_type != 6 {
+                    continue;
+                }
+                let bytes = ue_iostore::read_chunk(c, chunk, None, &a.src.oodle_roots())?;
+                let parsed = ue_iostore::container_header::ContainerHeader::parse(&bytes)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", c.utoc_path.display()))?;
+                anyhow::ensure!(
+                    parsed.write() == bytes,
+                    "{}: header does not round-trip ({} packages)",
+                    c.utoc_path.display(),
+                    parsed.package_ids.len()
+                );
+                anyhow::ensure!(
+                    parsed.container_id == chunk.chunk_id,
+                    "{}: header container id differs from its chunk id",
+                    c.utoc_path.display()
+                );
+                println!(
+                    "  ok  {:44} version {} — {} package(s), {} entry bytes, tail {}",
+                    c.utoc_path.file_name().unwrap_or_default().to_string_lossy(),
+                    parsed.version,
+                    parsed.package_ids.len(),
+                    parsed.store_entries.len(),
+                    parsed.tail.len()
+                );
+                ok += 1;
+            }
+        }
+        println!("{ok} container header(s), all byte-exact");
+        if !a.check {
+            return Ok(());
+        }
+    }
+    let mut matched = 0usize;
+    let mut mismatched = 0usize;
+    let mut unmapped = 0usize;
+    for c in &containers {
+        for (rel, chunk_index) in &c.files {
+            let full = c.full_path(rel);
+            if !full.ends_with(".uasset") && !full.ends_with(".umap") {
+                continue;
+            }
+            let full = full.replace(".umap", ".uasset");
+            let Some(name) = package_name_of(&full) else {
+                unmapped += 1;
+                continue;
+            };
+            let chunk = c.chunks[*chunk_index];
+            let derived = ue_iostore::city::package_id(&name);
+            if derived == chunk.chunk_id {
+                matched += 1;
+            } else {
+                mismatched += 1;
+                if mismatched <= 10 {
+                    println!(
+                        "  MISMATCH {name}\n    chunk   {:#018x}\n    derived {derived:#018x}",
+                        chunk.chunk_id
+                    );
+                }
+            }
+        }
+    }
+    println!("{matched} matched, {mismatched} mismatched, {unmapped} unmapped");
+    if mismatched > 0 {
+        anyhow::bail!("package-id derivation does not reproduce the shipped ids");
+    }
+    Ok(())
+}

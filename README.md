@@ -304,7 +304,16 @@ python tools/iostore/zen_class.py    --paks $paks --oodle $oodle --grep-scripts 
 python tools/iostore/extract_tags.py --paks $paks --oodle $oodle --group vehicle --out <dir> --verify
 ```
 
-`extract_tags.py` output is copyrighted game content. Keep it local and never commit it.
+The Rust CLI does the extraction too, without Python or an Oodle DLL, and mod-aware — an
+installed override wins its tag unless `--shipped-only` is given:
+
+```powershell
+cargo run --release -p blam-cli -- extract --group vehicle --out <dir> --verify
+cargo run --release -p blam-cli -- values --group weapon --tag assault_rifle --json
+cargo run --release -p blam-cli -- script --tag a30 --extract <dir>
+```
+
+Extracted tags and scripts are copyrighted game content. Keep them local and never commit them.
 See [`docs/tag_data_pipeline.md`](docs/tag_data_pipeline.md) for the findings these tools produced.
 
 ### Tag Definitions
@@ -350,12 +359,17 @@ cargo run --release -p blam-cli -- pack --group weapon --tag assault_rifle-weapo
 cargo run --release -p blam-cli -- set --group camera_track --field "control points[0].position" --value "(1,2,3)"
 cargo run --release -p blam-cli -- tag-file --file ar.tag --field "magazines[0].rounds reloaded" --value 99 --out ar2.tag
 cargo run --release -p blam-cli -- poke --group biped --tag spartans --field "jump velocity" --value 25
+cargo run --release -p blam-cli -- live tags --group weap             # every loaded tag, from the game's own table
+cargo run --release -p blam-cli -- live string-ids --find warthog_d   # is this string id registered in the running game?
+cargo run --release -p blam-cli -- new-tag --group collision_model --from marine-collision_model --to "objects\characters\marinf\marinf" --install-test
 cargo run --release -p blam-cli -- defs                              # export the corpus
 ```
 
 `tag-file` works on a tag payload already on disk, without the paks. `poke` changes a field in
 the **running game** — no rebuild, no restart, nothing written to disk; see
-[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md).
+[`docs/tag_editing_guide.md`](docs/tag_editing_guide.md). `live` reads the simulation's own
+table of loaded tags and its string-id registry, which is also how `poke` finds a tag on a
+known build (`docs/tag_table_and_string_ids.md`).
 
 `mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
 resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a

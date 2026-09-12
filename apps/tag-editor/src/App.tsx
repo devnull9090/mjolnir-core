@@ -18,8 +18,12 @@ import { TabBar } from "./components/TabBar";
 import { Shortcuts } from "./components/Shortcuts";
 import { QuickOpen } from "./components/QuickOpen";
 import { ContextMenuHost } from "./components/ContextMenu";
-import { MODEL_GROUPS, activeViewMode } from "./stores/editor-store";
+import { NewTagDialog } from "./components/NewTagDialog";
+import { TsvPasteDialog } from "./components/TsvPasteDialog";
+import { DiffDialog } from "./components/DiffDialog";
+import { RefTreeDialog } from "./components/RefTreeDialog";
 import { TagHeader } from "./components/TagChrome";
+import { MODEL_GROUPS, activeViewMode } from "./stores/editor-store";
 
 export default function App() {
   const whatsNew = useWhatsNew();
@@ -72,6 +76,10 @@ function Editor() {
     <div className="flex h-full min-h-0">
       <Shortcuts />
       <QuickOpen />
+      <NewTagDialog />
+      <TsvPasteDialog />
+      <DiffDialog />
+      <RefTreeDialog />
       <ContextMenuHost />
       <TagTree />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
