@@ -318,7 +318,6 @@ export function ScriptViewer() {
   const loadScripts = useEditor((s) => s.loadScripts);
   const exportScript = useEditor((s) => s.exportScript);
   const tag = useEditor((s) => s.tag);
-  const setViewMode = useEditor((s) => s.setViewMode);
   const drafts = useEditor((s) => s.scriptDrafts);
   const report = useEditor((s) => s.scriptReport);
   const compiling = useEditor((s) => s.scriptCompiling);
@@ -400,14 +399,6 @@ export function ScriptViewer() {
             } disabled:text-text-dim`}
           >
             {editing ? "Editing" : "Edit"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("form")}
-            title="Back to the tag's fields"
-            className="border border-border-subtle px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
-          >
-            Fields
           </button>
           <button
             type="button"

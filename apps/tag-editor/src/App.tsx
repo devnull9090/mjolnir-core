@@ -22,7 +22,8 @@ import { NewTagDialog } from "./components/NewTagDialog";
 import { TsvPasteDialog } from "./components/TsvPasteDialog";
 import { DiffDialog } from "./components/DiffDialog";
 import { RefTreeDialog } from "./components/RefTreeDialog";
-import { MODEL_GROUPS } from "./stores/editor-store";
+import { TagHeader } from "./components/TagChrome";
+import { MODEL_GROUPS, activeViewMode } from "./stores/editor-store";
 
 export default function App() {
   const whatsNew = useWhatsNew();
@@ -43,7 +44,7 @@ export default function App() {
 
 function Editor() {
   const status = useEditor((s) => s.status);
-  const viewMode = useEditor((s) => s.viewMode);
+  const viewMode = useEditor(activeViewMode);
   const { tabs, activeTab } = useEditor();
   const tag = useEditor((s) => s.tag);
   const detect = useEditor((s) => s.detect);
@@ -94,11 +95,22 @@ function Editor() {
         ) : active.kind === "mesh" ? (
           <MeshViewer />
         ) : viewMode === "script" && scriptable ? (
-          <ScriptViewer />
+          // The special views keep the tag header, and with it the view
+          // switcher: it is the only way back to the fields.
+          <>
+            <TagHeader />
+            <ScriptViewer />
+          </>
         ) : viewMode === "world" && scriptable ? (
-          <ScenarioViewer />
+          <>
+            <TagHeader />
+            <ScenarioViewer />
+          </>
         ) : viewMode === "model" && modelable ? (
-          <ModelViewer />
+          <>
+            <TagHeader />
+            <ModelViewer />
+          </>
         ) : viewMode === "tree" ? (
           // Keyed per tab so per-tab UI state can never leak between two tags
           // of the same group, whose child keys would otherwise line up.
