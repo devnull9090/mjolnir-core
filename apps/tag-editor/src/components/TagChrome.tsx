@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { MODEL_GROUPS, tagLabel, useEditor, type ViewMode } from "../stores/editor-store";
+import {
+  MODEL_GROUPS,
+  activeViewMode,
+  tagLabel,
+  useEditor,
+  type ViewMode,
+} from "../stores/editor-store";
 import { SoundPlayer } from "./SoundPlayer";
 
 /** Links longer than this start collapsed, so a scenario's hundreds of
@@ -338,7 +344,8 @@ function LiveToggle() {
 }
 
 export function TagHeader() {
-  const { tag, viewMode } = useEditor();
+  const tag = useEditor((s) => s.tag);
+  const viewMode = useEditor(activeViewMode);
   const setViewMode = useEditor((s) => s.setViewMode);
 
   if (!tag) return null;

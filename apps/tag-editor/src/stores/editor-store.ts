@@ -41,7 +41,14 @@ import { dropTabUi, seedTabUi, type TabUiState } from "../lib/tab-ui";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
-export type ViewMode = "form" | "tree" | "script" | "model" | "world";
+/** How a tag's fields are drawn: the Guerilla-style form or the flat tree.
+ *  A preference, remembered across tags and launches. */
+export type FieldsView = "form" | "tree";
+/** A view only some groups offer: a scenario's script or world, an object's
+ *  model. Chosen per tab, so it never follows the user into a tag that has
+ *  nothing to show in it. */
+export type SpecialView = "script" | "model" | "world";
+export type ViewMode = FieldsView | SpecialView;
 
 /** Groups whose geometry the Model view can draw. */
 export const MODEL_GROUPS = ["model", "collision_model", "skeleton_model"];
@@ -59,12 +66,24 @@ export type Tab = {
    *  caller has it, else by the activation peek. Session persistence keys on
    *  it, so a tab without one simply does not survive a relaunch. */
   path?: string;
+  /** The special view this tab is showing instead of its fields, if any. */
+  view?: SpecialView;
 };
 
 const VIEW_KEY = "tag-editor-view";
 
-function storedViewMode(): ViewMode {
+function storedViewMode(): FieldsView {
   return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "form";
+}
+
+/** The view the active tab is showing: its own special view if it chose
+ *  one, else the fields preference. A selector, for `useEditor`. */
+export function activeViewMode(s: {
+  tabs: Tab[];
+  activeTab: number | null;
+  viewMode: FieldsView;
+}): ViewMode {
+  return s.tabs.find((t) => t.id === s.activeTab)?.view ?? s.viewMode;
 }
 
 /** A tag identity that survives game updates, unlike a catalog index. */
@@ -189,8 +208,12 @@ type EditorState = {
    *  a second and with no sweep. Runs when live mode is armed. */
   probeLive: () => Promise<void>;
 
-  /** How the inspector renders: Guerilla-style form or a flat field tree. */
-  viewMode: ViewMode;
+  /** How the inspector renders a tag's fields: Guerilla-style form or a flat
+   *  field tree. The special views live on the tab that chose them; see
+   *  [activeViewMode] for what is actually on screen. */
+  viewMode: FieldsView;
+  /** Switch the active tab's view. A fields view also becomes the remembered
+   *  preference; a special view is the active tab's alone. */
   setViewMode: (mode: ViewMode) => void;
 
   /** What the left panel browses: assets, tag groups, textures, sounds, or
@@ -890,8 +913,12 @@ export const useEditor = create<EditorState>((set, get) => {
 
     viewMode: storedViewMode(),
     setViewMode(mode) {
-      localStorage.setItem(VIEW_KEY, mode);
-      set({ viewMode: mode });
+      const special = mode === "form" || mode === "tree" ? undefined : mode;
+      if (!special) localStorage.setItem(VIEW_KEY, mode);
+      set((s) => ({
+        ...(special ? {} : { viewMode: mode as FieldsView }),
+        tabs: s.tabs.map((t) => (t.id === s.activeTab ? { ...t, view: special } : t)),
+      }));
     },
 
     browse: "files",
