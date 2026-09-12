@@ -39,6 +39,29 @@
   ],
   "releases": [
     {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.20.1",
+      "tag": "tag-editor-v0.20.1",
+      "title": "The Script, World and Model views keep the way back",
+      "date": "2026-09-12",
+      "summary": "The Script, World and Model views keep the view buttons, so there is a way back to a tag's fields, and a view chosen for one tab no longer follows you into the next.",
+      "body": "A small release: two navigation faults in the tag views, and live mode\nfinding the game under an Xbox app install.\n\n### Fixed\n\n- Switching a scenario to **Script** or **World**, or an object to **Model**,\n  left no way back. Those views did not draw the header that holds the Form,\n  Tree, Script, World and Model buttons, so the fields could only be reached\n  by opening the tag again. The header now stays on every view.\n- The view was one setting for the whole editor, so after choosing Script for\n  one scenario, every scenario opened afterwards came up in Script too, and a\n  tag that has no script showed its form with nothing highlighted. Script,\n  World and Model are now the choice of the tab they were picked in; opening\n  another tag shows its fields. Form or Tree stays the remembered preference,\n  as before.\n- Live mode finds the game's executable under an Xbox app install, whose\n  build sits in a `WinGDK` folder rather than the Steam build's `Win64`.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Switching a scenario to Script or World, or an object to Model, left no way back. Those views did not draw the header that holds the Form, Tree, Script, World and Model buttons, so the fields could only be reached by opening the tag again. The header now stays on every view.",
+            "The view was one setting for the whole editor, so after choosing Script for one scenario, every scenario opened afterwards came up in Script too, and a tag that has no script showed its form with nothing highlighted. Script, World and Model are now the choice of the tab they were picked in; opening another tag shows its fields. Form or Tree stays the remembered preference, as before.",
+            "Live mode finds the game's executable under an Xbox app install, whose build sits in a WinGDK folder rather than the Steam build's Win64."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.20.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.20.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.20.1"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.8.2",
