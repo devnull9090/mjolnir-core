@@ -1,0 +1,5 @@
+# Statically link the CRT so the proxy DLL has no vcruntime140/ucrtbase import
+# to satisfy at load time — it must load cleanly inside the game process with
+# nothing beside it but xinput1_4_orig.dll.
+[build]
+rustflags = ["-C", "target-feature=+crt-static"]

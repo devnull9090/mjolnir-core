@@ -1,0 +1,22 @@
+# Standalone: its own workspace root so it never joins the repo workspace (it is
+# a Windows-only cdylib with a custom .def and does not belong in cargo test).
+[workspace]
+
+[package]
+name = "xinput-proxy"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "xinput1_4.dll proxy that synthesizes a second gamepad from a command file, to drive a local bot player in Halo Campaign Evolved."
+
+# Output must be named xinput1_4.dll so it shadows the system DLL when dropped in
+# the game's Win64 folder. The real one is copied beside it as xinput1_4_orig.dll.
+[lib]
+name = "xinput1_4"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"
+strip = true
