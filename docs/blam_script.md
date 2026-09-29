@@ -80,7 +80,7 @@ handle, and freed slots stay in place. 24 bytes each:
 | `0x00` | 2 | generation | Pairs with the array index to form this node's handle |
 | `0x02` | 2 | opcode | Engine function, script index, or global index |
 | `0x04` | 2 | value type | Indexes the scenario's own value-type enum |
-| `0x06` | 2 | expression type | See below |
+| `0x06` | 2 | flags | What the node is; a bitfield, see below |
 | `0x08` | 4 | next | Handle of the next sibling |
 | `0x0c` | 4 | string offset | Into `script string data` |
 | `0x10` | 4 | data | First child for a call; the literal payload otherwise |
@@ -98,15 +98,27 @@ it does: an ABA counter for a slab allocator, nothing to do with cryptography.
 A **free slot** reads as `0xBA` fill with a zeroed generation. 56,415 of the campaign's
 272,190 slots are free; walking the array without checking would decode garbage.
 
-**Expression types** use the Reach-era numbering, even though the opcodes do not:
+**The flags** at `0x06` are a bitfield — the definitions name the field `flags` — not
+an enum, though only five combinations ever occur:
 
-| Value | Meaning |
-|---:|---|
-| 8 | Group — a call. `data` points at the child that names the callee |
-| 9 | Expression — a leaf: either that name, or a literal |
-| 10 | Script reference — a call to a script in this scenario; `opcode` indexes `scripts` |
-| 13 | Globals reference — `opcode` indexes `globals` |
-| 29 | Parameter reference |
+| Bit | Name | Set on |
+|---:|---|---|
+| 1 | primitive | every leaf; clear on a call |
+| 2 | script index | a call whose `opcode` indexes `scripts` |
+| 4 | variable | a global or parameter read |
+| 8 | permanent | every live node shipped |
+| 16 | parameter | parameter reads only — the one bit not in the Reach-era set |
+
+| Value | Bits | Kind |
+|---:|---|---|
+| 8 | permanent | Group — a call. `data` points at the child that names the callee |
+| 9 | permanent, primitive | Expression — a leaf: either that name, or a literal |
+| 10 | permanent, script index | Script reference — a call to a script in this scenario |
+| 13 | permanent, variable, primitive | Globals reference — `data` indexes `globals` |
+| 29 | parameter, permanent, variable, primitive | Parameter reference |
+
+`blam_hsc::expr::NodeFlags` holds the raw bits, and `ExpressionType` is the
+classification of the five; any other combination is carried through untouched.
 
 ## Recovering the opcode table
 

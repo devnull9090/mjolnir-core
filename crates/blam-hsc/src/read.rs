@@ -544,7 +544,7 @@ mod tests {
             generation,
             opcode: 0,
             value_type: 0,
-            expression_type: ty,
+            flags: ty.flags(),
             next,
             string_offset: 0,
             data,

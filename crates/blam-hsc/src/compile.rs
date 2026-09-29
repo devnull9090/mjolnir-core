@@ -185,7 +185,8 @@ impl<'a> Compiler<'a> {
 
         // Every string is interned by now, so the reserve goes after the last.
         let used = self.strings.len();
-        self.strings.resize(used + crate::emit::STRING_DATA_RESERVE, 0);
+        self.strings
+            .resize(used + crate::emit::STRING_DATA_RESERVE, 0);
 
         let section = ScriptSection {
             strings: self.strings,
@@ -335,7 +336,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode: begin,
             value_type: expected,
-            expression_type: ExpressionType::Group,
+            flags: ExpressionType::Group.flags(),
             next: DatumHandle::NULL,
             string_offset: 0,
             data: 0,
@@ -348,7 +349,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode: begin,
             value_type: name_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset: begin_string,
             data: 0,
@@ -448,7 +449,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode,
             value_type: return_type.unwrap_or_else(|| self.void_type()),
-            expression_type: kind,
+            flags: kind.flags(),
             next: DatumHandle::NULL,
             string_offset: 0,
             data: 0,
@@ -463,7 +464,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode,
             value_type: name_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset: callee_string,
             data: 0,
@@ -558,7 +559,7 @@ impl<'a> Compiler<'a> {
                         generation: 0,
                         opcode: value_type,
                         value_type,
-                        expression_type: ExpressionType::ParameterReference,
+                        flags: ExpressionType::ParameterReference.flags(),
                         next: DatumHandle::NULL,
                         string_offset: offset,
                         data: index as u32,
@@ -573,7 +574,7 @@ impl<'a> Compiler<'a> {
                         generation: 0,
                         opcode: value_type,
                         value_type,
-                        expression_type: ExpressionType::GlobalsReference,
+                        flags: ExpressionType::GlobalsReference.flags(),
                         next: DatumHandle::NULL,
                         string_offset: offset,
                         // A globals reference carries its index in `data`, not
@@ -642,7 +643,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode: value_type,
             value_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset,
             data,
@@ -963,7 +964,7 @@ mod tests {
         assert!(c.ok(), "{:?}", c.diagnostics);
         assert_eq!(c.section.scripts.len(), 1);
         let root = c.section.get(c.section.scripts[0].root).unwrap();
-        assert_eq!(root.expression_type, ExpressionType::Group);
+        assert_eq!(root.kind(), ExpressionType::Group);
         assert_eq!(c.section.callee_name(root), Some("begin"));
     }
 
@@ -991,7 +992,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::Expression && e.value_type == 7)
+            .find(|e| e.kind() == ExpressionType::Expression && e.value_type == 7)
             .expect("a short literal");
         assert_eq!(arg.data, 1);
     }
@@ -1004,7 +1005,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::GlobalsReference)
+            .find(|e| e.kind() == ExpressionType::GlobalsReference)
             .unwrap();
         assert_eq!(g.data, 0);
         assert_eq!(c.section.string_at(g.string_offset), "b_awake");
@@ -1019,7 +1020,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ParameterReference)
+            .find(|e| e.kind() == ExpressionType::ParameterReference)
             .unwrap();
         assert_eq!(p.data, 0);
         assert_eq!(p.value_type, 7); // short
@@ -1033,7 +1034,7 @@ mod tests {
         let kinds: Vec<_> = c
             .section
             .live()
-            .map(|(_, e)| e.expression_type)
+            .map(|(_, e)| e.kind())
             .filter(|t| {
                 matches!(
                     t,
@@ -1052,7 +1053,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ScriptReference)
+            .find(|e| e.kind() == ExpressionType::ScriptReference)
             .unwrap();
         assert_eq!(r.opcode, 0); // index of `helper`
         assert_eq!(c.section.callee_name(r), Some("helper"));
@@ -1076,7 +1077,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ScriptReference)
+            .find(|e| e.kind() == ExpressionType::ScriptReference)
             .unwrap();
         assert_eq!(r.opcode, 1, "the two-parameter overload");
     }
@@ -1187,7 +1188,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .filter(|e| e.expression_type == ExpressionType::Expression)
+            .filter(|e| e.kind() == ExpressionType::Expression)
             .find(|e| e.value_type != 2)
             .expect("a literal");
         c.section.value_types.name_of(e.value_type).unwrap()

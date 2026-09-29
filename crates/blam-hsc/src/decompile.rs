@@ -233,7 +233,7 @@ impl<'a> Decompiler<'a> {
     /// The statements of a `begin` that wraps a whole script body, if this node
     /// is one.
     fn implicit_begin(&self, node: &Expression) -> Option<Vec<DatumHandle>> {
-        if node.expression_type != ExpressionType::Group {
+        if node.kind() != ExpressionType::Group {
             return None;
         }
         if self.section.callee_name(node)? != "begin" {
@@ -252,7 +252,7 @@ impl<'a> Decompiler<'a> {
         }
         let node = self.section.get(handle)?;
 
-        match node.expression_type {
+        match node.kind() {
             ExpressionType::Group | ExpressionType::ScriptReference => self.call(node, depth),
             // A global or parameter read is just its name.
             ExpressionType::GlobalsReference | ExpressionType::ParameterReference => {
@@ -310,7 +310,7 @@ impl<'a> Decompiler<'a> {
 
         // A script call's opcode indexes the scenario's scripts, not the engine
         // function table, so it must not be used to look up argument rules.
-        let opcode = (node.expression_type == ExpressionType::Group).then_some(node.opcode);
+        let opcode = (node.kind() == ExpressionType::Group).then_some(node.opcode);
 
         for (position, handle) in args.iter().enumerate() {
             let Some(arg) = self.section.get(*handle) else {
@@ -516,7 +516,7 @@ mod tests {
                 generation,
                 opcode: 0,
                 value_type,
-                expression_type: ty,
+                flags: ty.flags(),
                 next: DatumHandle::NULL,
                 string_offset,
                 data,

@@ -2567,16 +2567,16 @@ fn walk_difference(
         }
     };
 
-    if ea.expression_type != eb.expression_type
+    if ea.kind() != eb.kind()
         || ea.opcode != eb.opcode
         || ea.value_type != eb.value_type
     {
         return Some(format!(
             "`{what}`: {:?}/{:#x}/{} became {:?}/{:#x}/{}",
-            ea.expression_type,
+            ea.kind(),
             ea.opcode,
             ea.value_type,
-            eb.expression_type,
+            eb.kind(),
             eb.opcode,
             eb.value_type
         ));
@@ -2590,7 +2590,7 @@ fn walk_difference(
     }
     // A call's `data` is a handle into its own array, so only a literal's
     // payload can be compared directly.
-    if !ea.expression_type.has_children() && ea.data != eb.data {
+    if !ea.kind().has_children() && ea.data != eb.data {
         return Some(format!("`{what}`: {:#x} became {:#x}", ea.data, eb.data));
     }
 

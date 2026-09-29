@@ -394,7 +394,7 @@ mod tests {
                 generation: 0xE373,
                 opcode: 0,
                 value_type: 4,
-                expression_type: ExpressionType::Group,
+                flags: ExpressionType::Group.flags(),
                 next: DatumHandle::NULL,
                 string_offset: 0,
                 data: 0,
