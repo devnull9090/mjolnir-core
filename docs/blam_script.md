@@ -239,7 +239,7 @@ assumed:
 | Script reference | index into `scripts` | handle of the first child |
 | Globals reference | the value type | index into `globals` |
 | Parameter reference | the value type | the parameter's index |
-| Literal | its own value type | the packed value |
+| Literal | its own value type | the packed value, or what a name resolves to |
 
 The type of a literal is chosen by asking the position what it usually holds and then
 checking the token can actually be that. Taking the position's commonest type alone gets
@@ -247,6 +247,51 @@ real cases wrong: the corpus says `set` usually takes a `boolean`, which compile
 `(set s_music_trigger 30)` to `true`, and it says `<` usually takes a `short`, which
 compiled `0.6` to `0`. Candidates are now tried commonest-first and the first one that
 fits the token wins.
+
+### Name literals
+
+A literal carries two types. `value type` (`+4`) is what the position takes; `opcode`
+(`+2`) is what the literal itself is. They differ where a name converts: 626 shipped
+`object_name` literals sit in `object` positions, 563 `player` literals in `unit`
+positions, 194 `ai` literals in `object` positions. And a name's `data` is not zero but
+the index of what it names, which is why the compiler needs the scenario it is compiling
+for (`Compiler::with_names`, fed by `blam_hsc::read::names`). Each encoding below was
+measured by looking every shipped literal's string up in the block it names, across all
+thirteen scenarios, and is resolved only because it agreed on every node:
+
+| Kind | Block | `data` |
+|---|---|---|
+| `object_name`, `unit_name`, `vehicle_name`, `device_name` | `object names` | `0xFFFF0000 \| index` |
+| `trigger_volume`, `cutscene_flag`, `cutscene_title`, `zone_set`, `insertion_point`, `starting_profile`, `user_interface_objective` | the block of that name | `0xFFFF0000 \| index` |
+| `script`, `ai_command_script` | `scripts` | `0xFFFF0000 \| index` |
+| `folder` | `editor folders` | `index` |
+| `player` | — | `n` for `player<n>` |
+| `point_reference` | `point sets`, then its `points` | `set << 16 \| point`, point `0xFFFF` for a whole set |
+| `ai` | `squads`, `squad groups`, a squad's `spawn points` and `designer/cells` | top three bits `001` squad, `010` group, `100` spawn point, `111` cell; a member carries its squad in the rest of the high half |
+| `string` | — | its own offset into the string blob |
+
+String-id names fold `-` to `_` when registered, so `tv_checkpoint_bridge_a_pre-gold`
+finds the volume stored as `..._pre_gold`. A number is written over a word of `0xFF` only
+as wide as its type — 11,681 of 11,683 shorts read `0xFFFF____`, 6,123 of 6,144 booleans
+`0xFFFFFF__`, the exceptions all a `cond`'s trailing zero — and the compiler does the same.
+
+Compiling each scenario's own source against its own names, every literal of these kinds
+whose two types agree with the shipped node also agrees on `data`: 3,408 trigger volumes,
+2,459 object names of the four kinds, 5,211 `ai`, 1,934 point references, 2,718 scripts
+and the rest. Where they differ it is the position's type that was chosen differently, a
+separate and older question.
+
+**Not resolved**, because shipped data did not establish the encoding: tag references
+(`sound`, `effect`, `damage`, `animation_graph`, `object_definition`,
+`cinematic_definition` — runtime tag handles), `string_id`, `ai_line`,
+`unit_seat_mapping`, `device_group` (the high half varies per element), the engine's enum
+cases (`team`, `game_difficulty`, `skull`, `actor_combat_status`, `model_state`), and
+`ai` literals naming an objective's task (20 nodes, one literal, whose index is not the
+task's position). These keep `data` zero, as before. A name that should resolve and does
+not is a warning. Across the campaign 860 fire, and in `a30` 63 of its 69 are engine
+globals such as `ai_current_actor` that the compiler does not know and so compiles as
+literals — the same, older gap that makes a shipped `Globals reference` come back as a
+literal.
 
 ### How well it does
 

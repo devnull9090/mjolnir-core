@@ -40,7 +40,7 @@ use crate::corpus::ScriptCorpus;
 use crate::expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 use crate::lex::Token;
 use crate::parse::{self, Declaration, Form, Spanned, Vocabulary};
-use crate::read::{Global, Parameter, Script, ScriptSection, SourceFile};
+use crate::read::{Global, Parameter, ScenarioNames, Script, ScriptSection, SourceFile};
 
 /// The datum generation this compiler starts counting from.
 ///
@@ -51,6 +51,28 @@ use crate::read::{Global, Parameter, Script, ScriptSection, SourceFile};
 /// start from, chosen so a diff against shipped data reads as naturally as it
 /// can.
 const GENERATION_BASE: u16 = 0xE373;
+
+/// The name-literal kinds [`Compiler::with_names`] resolves, each measured
+/// against the shipped scenarios.
+const RESOLVED: &[&str] = &[
+    "object_name",
+    "unit_name",
+    "vehicle_name",
+    "device_name",
+    "trigger_volume",
+    "cutscene_flag",
+    "cutscene_title",
+    "zone_set",
+    "insertion_point",
+    "starting_profile",
+    "user_interface_objective",
+    "folder",
+    "point_reference",
+    "ai",
+    "player",
+    "script",
+    "ai_command_script",
+];
 
 /// How deep an expression may nest before compilation gives up.
 const MAX_DEPTH: u32 = 128;
@@ -117,6 +139,10 @@ enum Resolved {
 
 pub struct Compiler<'a> {
     corpus: Option<&'a ScriptCorpus>,
+    /// What the scenario being compiled for calls its objects, volumes, squads
+    /// and so on. Without it a name literal keeps its string but not the index
+    /// the engine reads — see [`Compiler::with_names`].
+    names: Option<&'a ScenarioNames>,
     value_types: ValueTypes,
     script_types: ValueTypes,
 
@@ -138,6 +164,7 @@ impl<'a> Compiler<'a> {
     pub fn new(value_types: ValueTypes, script_types: ValueTypes) -> Self {
         Compiler {
             corpus: None,
+            names: None,
             value_types,
             script_types,
             // Offset 0 is a NUL so that an empty string interns to 0 and a
@@ -162,6 +189,18 @@ impl<'a> Compiler<'a> {
         );
         c.corpus = Some(corpus);
         c
+    }
+
+    /// Resolve name literals against the scenario the result will be written
+    /// into.
+    ///
+    /// A shipped node naming a trigger volume, an object, a squad and so on
+    /// carries that element's index in `data`, not just its string, so a tree
+    /// compiled without the scenario's names has every such literal pointing
+    /// at element 0. Read them with [`crate::read::names`].
+    pub fn with_names(mut self, names: &'a ScenarioNames) -> Self {
+        self.names = Some(names);
+        self
     }
 
     pub fn vocabulary(&self) -> Vocabulary {
@@ -681,6 +720,11 @@ impl<'a> Compiler<'a> {
     /// A number or boolean has no string, and its `+0xC` records where its
     /// token is in the source instead — true of all 24,531 shipped ones that
     /// are not a `cond`'s trailing else.
+    ///
+    /// A node carries two types: `+4` is what the position takes, and `+2` is
+    /// what the literal itself is. They differ where a name converts — an
+    /// `object_name` passed where an `object` is wanted, `player0` where a
+    /// `unit` is — and [`Compiler::resolve_name`] picks the second.
     fn emit_literal(
         &mut self,
         token: &Token,
@@ -694,28 +738,42 @@ impl<'a> Compiler<'a> {
             .name_of(value_type)
             .unwrap_or("")
             .to_string();
+        let mut own_type = value_type;
 
+        // The engine writes a value over a word of `0xFF`, only as wide as
+        // the type: 11,681 of 11,683 shipped shorts read `0xFFFF____` and
+        // 6,123 of 6,144 booleans `0xFFFFFF__`. The exceptions are all a
+        // `cond`'s trailing zero.
         let (data, string_offset) = match token {
             Token::Num(n) => match type_name.as_str() {
                 "real" => (f32::to_bits(*n as f32), offset),
                 "long" => ((*n as i64 as i32) as u32, offset),
-                "boolean" => (u32::from(*n != 0.0), offset),
+                "boolean" => (0xFFFF_FF00 | u32::from(*n != 0.0), offset),
                 // `short` and anything else numeric: the engine widens on read.
-                _ => ((*n as i64 as i16) as u16 as u32, offset),
+                _ => (0xFFFF_0000 | (*n as i64 as i16) as u16 as u32, offset),
             },
-            Token::Word(w) if w == "true" => (1, offset),
-            Token::Word(w) if w == "false" => (0, offset),
+            Token::Word(w) if w == "true" => (0xFFFF_FF01, offset),
+            Token::Word(w) if w == "false" => (0xFFFF_FF00, offset),
             // `none` is the unset sentinel for a reference-typed position.
             Token::Word(w) if w == "none" => (u32::MAX, 0),
             Token::Word(w) => {
                 // A bare word in a value position names something in the
                 // scenario: an object, a trigger volume, an enum case.
                 let offset = self.intern(w);
-                (0, offset)
+                let (own, data) = self.resolve_name(&type_name, w, line);
+                own_type = own.unwrap_or(value_type);
+                (data, offset)
             }
             Token::Str(s) => {
-                let offset = self.intern(s);
-                (0, offset)
+                let at = self.intern(s);
+                // A string's `data` repeats its offset: 3,743 of 3,743 shipped.
+                if type_name == "string" {
+                    (at, at)
+                } else {
+                    let (own, data) = self.resolve_name(&type_name, s, line);
+                    own_type = own.unwrap_or(value_type);
+                    (data, at)
+                }
             }
             Token::Open | Token::Close => (0, 0),
         };
@@ -737,7 +795,7 @@ impl<'a> Compiler<'a> {
 
         self.alloc(Expression {
             generation: 0,
-            opcode: value_type,
+            opcode: own_type,
             value_type,
             flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
@@ -746,6 +804,140 @@ impl<'a> Compiler<'a> {
             line: line as u16,
             tail: 0,
         })
+    }
+
+    /// What a name in a position of type `slot` refers to: the literal's own
+    /// type, and the `data` the engine reads for it.
+    ///
+    /// Each encoding here was measured off the thirteen shipped scenarios, by
+    /// looking the literal's string up in the scenario block it names and
+    /// comparing the element's index with the node's `data`. Only kinds that
+    /// agreed on every node are resolved; the rest — tag references, string
+    /// ids, enum cases, seat mappings, AI lines, device groups, and `ai`
+    /// objective tasks — keep `data` zero, as before, because what they hold
+    /// could not be established from shipped data.
+    ///
+    /// A name that should resolve but does not is a warning rather than an
+    /// error, since the scenario may gain the element later; without names
+    /// at all, only what the source itself declares (scripts) and the fixed
+    /// player names resolve.
+    fn resolve_name(&mut self, slot: &str, name: &str, line: u32) -> (Option<u16>, u32) {
+        // A position of an object type takes the names of the things that
+        // convert to one; the literal keeps its own type at `+2`. Each pairing
+        // is one the shipped data shows: 626 `object_name` → `object`, 563
+        // `player` → `unit`, 194 `ai` → `object`, and so on.
+        let kinds: &[&str] = match slot {
+            "object" => &["object_name", "player", "ai"],
+            "unit" => &["unit_name", "player", "ai"],
+            "object_list" => &["object_name", "player"],
+            "vehicle" => &["vehicle_name"],
+            "device" => &["device_name"],
+            // Every other resolvable kind is its own position's type.
+            other => match RESOLVED.iter().position(|k| *k == other) {
+                Some(i) => &RESOLVED[i..=i],
+                None => return (None, 0),
+            },
+        };
+        for kind in kinds {
+            if let (Some(data), Some(own)) =
+                (self.name_data(kind, name), self.value_types.index_of(kind))
+            {
+                return (Some(own), data);
+            }
+        }
+        if self.names.is_some() {
+            self.warn(
+                line,
+                format!("`{name}` names no {} in this scenario", kinds.join(" or ")),
+            );
+        }
+        (None, 0)
+    }
+
+    /// The `data` a literal of kind `kind` naming `name` carries, if it
+    /// resolves.
+    fn name_data(&self, kind: &str, name: &str) -> Option<u32> {
+        // An element of a scenario block, by index, with the high half set.
+        let indexed = |block: &str| -> Option<u32> {
+            let i = self.names?.index_of(block, name)?;
+            Some(0xFFFF_0000 | i as u32)
+        };
+        match kind {
+            // Objects of every kind share the one `object names` block.
+            "object_name" | "unit_name" | "vehicle_name" | "device_name" => indexed("object names"),
+            "trigger_volume" => indexed("trigger volumes"),
+            "cutscene_flag" => indexed("cutscene flags"),
+            "cutscene_title" => indexed("cutscene titles"),
+            "zone_set" => indexed("zone sets"),
+            "insertion_point" => indexed("insertion points"),
+            "starting_profile" => indexed("player starting profile"),
+            "user_interface_objective" => indexed("user interface objectives block"),
+            // The one indexed kind with nothing in the high half.
+            "folder" => self
+                .names?
+                .index_of("editor folders", name)
+                .map(|i| i as u32),
+            // A script literal indexes the scripts being compiled.
+            "script" | "ai_command_script" => self
+                .script_index
+                .get(name)
+                .and_then(|v| v.first())
+                .map(|i| 0xFFFF_0000 | *i as u32),
+            // `player0` through `player3`: the player's index, no scenario
+            // needed — 1,659 of 1,659 shipped.
+            "player" => name
+                .strip_prefix("player")
+                .and_then(|n| n.parse::<u16>().ok())
+                .map(u32::from),
+            // A whole point set, `set`, has `0xFFFF` for its point.
+            "point_reference" => {
+                let names = self.names?;
+                let (set, point) = match name.split_once('/') {
+                    Some((set, point)) => (set, Some(point)),
+                    None => (name, None),
+                };
+                let s = names.index_of("point sets", set)?;
+                let p = match point {
+                    Some(point) => names.nested_index_of("point sets/points", s, point)?,
+                    None => 0xFFFF,
+                };
+                Some((s as u32) << 16 | p as u32)
+            }
+            // The top three bits say what an `ai` literal names: `001` a
+            // squad, `010` a squad group, and for `squad/x` either `100` a
+            // spawn point or `111` a cell, with the squad in the rest of the
+            // high half. 5,116 of the 5,136 shipped `ai` literals that are not
+            // `none`; the other 20 are one objective task, left unresolved.
+            "ai" => {
+                let names = self.names?;
+                match name.split_once('/') {
+                    None => names
+                        .index_of("squads", name)
+                        .map(|i| 0x2000_0000 | i as u32)
+                        .or_else(|| {
+                            names
+                                .index_of("squad groups", name)
+                                .map(|i| 0x4000_0000 | i as u32)
+                        }),
+                    Some((squad, member)) => {
+                        let s = names.index_of("squads", squad)?;
+                        if s > 0x1FFF {
+                            return None;
+                        }
+                        let at = |tag: u32, i: usize| (tag | s as u32) << 16 | i as u32;
+                        names
+                            .nested_index_of("squads/spawn points", s, member)
+                            .map(|i| at(0x8000, i))
+                            .or_else(|| {
+                                names
+                                    .nested_index_of("squads/designer/cells", s, member)
+                                    .map(|i| at(0xE000, i))
+                            })
+                    }
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Pick the type for a literal, and say whether it was a guess.
@@ -1091,7 +1283,151 @@ mod tests {
             .map(|(_, e)| e)
             .find(|e| e.kind() == ExpressionType::Expression && e.value_type == 7)
             .expect("a short literal");
-        assert_eq!(arg.data, 1);
+        // Written over `0xFFFF` in the high half, as the engine does.
+        assert_eq!(arg.data, 0xFFFF_0001);
+    }
+
+    fn names() -> ScenarioNames {
+        let list = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        ScenarioNames::new(
+            [
+                ("trigger volumes", list(&["tv_a", "tv_pre_gold"])),
+                ("object names", list(&["crate", "jeep"])),
+                ("squads", list(&["sq_a", "sq_b"])),
+                ("squad groups", list(&["gr_all"])),
+                ("point sets", list(&["ps_drop"])),
+                ("editor folders", list(&["of_a", "of_b"])),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+            [
+                ("squads/spawn points", vec![list(&[]), list(&["pilot"])]),
+                ("squads/designer/cells", vec![list(&["elites"]), list(&[])]),
+                ("point sets/points", vec![list(&["p0", "p1"])]),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+        )
+    }
+
+    fn named_corpus() -> ScriptCorpus {
+        let mut c = corpus();
+        c.value_types.extend(
+            [
+                "object",
+                "object_name",
+                "unit",
+                "player",
+                "trigger_volume",
+                "point_reference",
+                "folder",
+                "script",
+            ]
+            .map(String::from),
+        );
+        c.functions.extend([
+            (400, function("volume_test", "boolean", &["trigger_volume"])),
+            (401, function("object_destroy", "void", &["object"])),
+            (402, function("unit_kill", "void", &["unit"])),
+            (403, function("ai_go", "void", &["ai"])),
+            (404, function("go_to", "void", &["point_reference"])),
+            (405, function("folder_on", "void", &["folder"])),
+            (406, function("sleep_forever", "void", &["script"])),
+        ]);
+        c
+    }
+
+    /// Every literal in a compiled body, as (own type, position type, data).
+    fn literals(src: &str, names: &ScenarioNames) -> Vec<(String, String, u32)> {
+        let corpus = named_corpus();
+        let c = Compiler::from_corpus(&corpus)
+            .with_names(names)
+            .compile(&[("test", src)]);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        let t = &c.section.value_types;
+        c.section
+            .live()
+            .map(|(_, e)| e)
+            .filter(|e| e.kind() == ExpressionType::Expression && e.value_type != 2)
+            .map(|e| {
+                (
+                    t.name_of(e.opcode).unwrap().to_string(),
+                    t.name_of(e.value_type).unwrap().to_string(),
+                    e.data,
+                )
+            })
+            .collect()
+    }
+
+    fn lit(own: &str, slot: &str, data: u32) -> (String, String, u32) {
+        (own.to_string(), slot.to_string(), data)
+    }
+
+    #[test]
+    fn a_name_carries_its_elements_index_as_the_shipped_nodes_do() {
+        let n = names();
+        let src = "(script dormant f
+            (volume_test tv_a) (volume_test tv_pre-gold) (folder_on of_b)
+            (go_to ps_drop) (go_to ps_drop/p1) (sleep_forever f))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("trigger_volume", "trigger_volume", 0xFFFF_0000),
+                // A string id folds `-` to `_` when it is registered.
+                lit("trigger_volume", "trigger_volume", 0xFFFF_0001),
+                lit("folder", "folder", 1),
+                lit("point_reference", "point_reference", 0x0000_FFFF),
+                lit("point_reference", "point_reference", 0x0000_0001),
+                lit("script", "script", 0xFFFF_0000),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_passed_where_an_object_is_wanted_keeps_its_own_type() {
+        let n = names();
+        let src =
+            "(script dormant f (object_destroy jeep) (unit_kill player1) (object_destroy sq_b))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("object_name", "object", 0xFFFF_0001),
+                lit("player", "unit", 1),
+                lit("ai", "object", 0x2000_0001),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_ai_literal_says_what_it_names_in_its_top_bits() {
+        let n = names();
+        let src =
+            "(script dormant f (ai_go sq_b) (ai_go gr_all) (ai_go sq_b/pilot) (ai_go sq_a/elites))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("ai", "ai", 0x2000_0001),
+                lit("ai", "ai", 0x4000_0000),
+                lit("ai", "ai", 0x8001_0000),
+                lit("ai", "ai", 0xE000_0000),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_the_scenario_lacks_warns_and_keeps_data_zero() {
+        let n = names();
+        let corpus = named_corpus();
+        let c = Compiler::from_corpus(&corpus)
+            .with_names(&n)
+            .compile(&[("test", "(script dormant f (volume_test tv_nowhere))")]);
+        assert!(c.ok());
+        assert!(c
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.message.contains("tv_nowhere")));
     }
 
     #[test]

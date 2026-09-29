@@ -29,7 +29,7 @@ pub use corpus::{CorpusBuilder, FunctionDef, ScriptCorpus};
 pub use decompile::Decompiler;
 pub use expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 pub use parse::{Declaration, Vocabulary};
-pub use read::{Global, Script, ScriptSection, SourceFile};
+pub use read::{Global, ScenarioNames, Script, ScriptSection, SourceFile};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
