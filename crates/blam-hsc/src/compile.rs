@@ -24,6 +24,15 @@
 //! Everything the engine reads is reproduced: expression types, opcodes, value
 //! types, sibling chains, and the rule that a call's first child names it and
 //! carries the same opcode.
+//!
+//! # Source offsets
+//!
+//! A call's `+0xC`, and a number's or boolean's, is not a string offset but a
+//! byte offset into the scenario's source files taken end to end, each with
+//! its NUL: all 72,611 shipped call nodes land on a `(`, and every numeric
+//! literal on its own token. The compiler writes the same, so a compiled tree
+//! points back into the text it came from — which is what lets the decompiler
+//! recover `cond`.
 
 use std::collections::HashMap;
 
@@ -31,7 +40,7 @@ use crate::corpus::ScriptCorpus;
 use crate::expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 use crate::lex::Token;
 use crate::parse::{self, Declaration, Form, Spanned, Vocabulary};
-use crate::read::{Global, Parameter, Script, ScriptSection};
+use crate::read::{Global, Parameter, Script, ScriptSection, SourceFile};
 
 /// The datum generation this compiler starts counting from.
 ///
@@ -168,16 +177,21 @@ impl<'a> Compiler<'a> {
         let vocab = self.vocabulary();
         let mut declarations = Vec::new();
 
+        // Source offsets run across the files end to end, each followed by the
+        // NUL it is stored with, so a file's offsets start after the last's.
+        let mut base = 0u32;
         for (name, text) in files {
             let (forms, parse_errors) = parse::parse_recovering(text);
             for e in parse_errors {
                 self.error(e.line, format!("{}: {}", name, e.message));
             }
-            let (decls, errors) = parse::declarations(&forms, &vocab);
+            let (mut decls, errors) = parse::declarations(&forms, &vocab);
             for e in errors {
                 self.error(e.line, format!("{}: {}", name, e.message));
             }
+            decls.iter_mut().for_each(|d| d.shift(base));
             declarations.extend(decls);
+            base = base.saturating_add(text.len() as u32 + 1);
         }
 
         self.declare(&declarations);
@@ -193,7 +207,17 @@ impl<'a> Compiler<'a> {
             expressions: self.expressions,
             scripts: self.scripts,
             globals: self.globals,
-            source_files: Vec::new(),
+            // The files the offsets point into, stored the way a scenario
+            // stores them. A caller writing the section into a tag may replace
+            // them with the same text, but not with different text.
+            source_files: files
+                .iter()
+                .map(|(name, text)| SourceFile {
+                    name: name.to_string(),
+                    source: text.bytes().chain(std::iter::once(0)).collect(),
+                    flags: 0,
+                })
+                .collect(),
             references: Vec::new(),
             value_types: self.value_types,
             script_types: self.script_types,
@@ -274,7 +298,10 @@ impl<'a> Compiler<'a> {
         for d in declarations {
             match d {
                 Declaration::Script {
-                    parameters, line, ..
+                    parameters,
+                    line,
+                    offset,
+                    ..
                 } => {
                     let index = script_at;
                     script_at += 1;
@@ -290,7 +317,7 @@ impl<'a> Compiler<'a> {
                         unreachable!()
                     };
                     let expected = self.scripts[index].return_type;
-                    let root = self.emit_body(body, expected, &params, *line);
+                    let root = self.emit_body(body, expected, &params, *line, *offset);
                     self.scripts[index].root = root;
                 }
                 Declaration::Global {
@@ -319,13 +346,15 @@ impl<'a> Compiler<'a> {
     ///
     /// Every one of the 6,827 shipped scripts has a `begin` group at its root,
     /// including the single-statement ones, so this wraps unconditionally
-    /// rather than trying to be clever about it.
+    /// rather than trying to be clever about it. The `begin` has no `(` of its
+    /// own, so its source offset is the declaration's, as shipped.
     fn emit_body(
         &mut self,
         body: &[Spanned],
         expected: u16,
         params: &[(String, u16)],
         line: u32,
+        offset: u32,
     ) -> DatumHandle {
         let Some(begin) = self.function_opcode("begin") else {
             self.error(line, "the function table has no `begin`".into());
@@ -338,7 +367,7 @@ impl<'a> Compiler<'a> {
             value_type: expected,
             flags: ExpressionType::Group.flags(),
             next: DatumHandle::NULL,
-            string_offset: 0,
+            string_offset: offset,
             data: 0,
             line: start_line as u16,
             tail: 0,
@@ -383,8 +412,10 @@ impl<'a> Compiler<'a> {
             return DatumHandle::NULL;
         }
         match &form.form {
-            Form::List(items) => self.emit_call(items, form.line, expected, params, depth),
-            Form::Atom(token) => self.emit_atom(token, form.line, expected, params),
+            Form::List(items) => {
+                self.emit_call(items, form.line, form.offset, expected, params, depth)
+            }
+            Form::Atom(token) => self.emit_atom(token, form.line, form.offset, expected, params),
         }
     }
 
@@ -392,6 +423,7 @@ impl<'a> Compiler<'a> {
         &mut self,
         items: &[Spanned],
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
         depth: u32,
@@ -410,7 +442,7 @@ impl<'a> Compiler<'a> {
         // nested `if` before emitting anything, which is why no opcode exists
         // for it. Doing the same here keeps the two in step.
         if name == "cond" {
-            return self.emit_cond(args, line, expected, params, depth);
+            return self.emit_cond(args, line, offset, expected, params, depth);
         }
 
         let Some(resolved) = self.resolve(name, params, args.len()) else {
@@ -451,7 +483,8 @@ impl<'a> Compiler<'a> {
             value_type: return_type.unwrap_or_else(|| self.void_type()),
             flags: kind.flags(),
             next: DatumHandle::NULL,
-            string_offset: 0,
+            // Where the call's `(` is in the source, not a string.
+            string_offset: offset,
             data: 0,
             line: line as u16,
             tail: 0,
@@ -487,10 +520,18 @@ impl<'a> Compiler<'a> {
     }
 
     /// `(cond (test body...) ...)` becomes `(if test (begin body...) <rest>)`.
+    ///
+    /// Every `if` and `begin` this makes records the `cond`'s own source
+    /// offset, as the shipped ones do: 1,162 `if`s across the campaign point at
+    /// the text `(cond`, and that is how the decompiler knows to put it back.
+    /// The last clause's `if` gets an else as well — a literal of the `cond`'s
+    /// type, zero, at the same offset — because every shipped `cond` ends in
+    /// one: 207 `void` and 23 others, all with `data` zero.
     fn emit_cond(
         &mut self,
         clauses: &[Spanned],
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
         depth: u32,
@@ -514,34 +555,79 @@ impl<'a> Compiler<'a> {
         // Rebuild as `(if <test> (begin <body…>) <cond of the rest>)` and
         // compile that, so there is one emission path rather than two.
         let mut rewritten = vec![
-            atom_word("if", first.line),
+            atom_word("if", first.line, offset),
             test.clone(),
             Spanned {
                 form: Form::List(
-                    std::iter::once(atom_word("begin", first.line))
+                    std::iter::once(atom_word("begin", first.line, offset))
                         .chain(body.iter().cloned())
                         .collect(),
                 ),
                 line: first.line,
+                offset,
             },
         ];
         if !rest.is_empty() {
             rewritten.push(Spanned {
                 form: Form::List(
-                    std::iter::once(atom_word("cond", rest[0].line))
+                    std::iter::once(atom_word("cond", rest[0].line, offset))
                         .chain(rest.iter().cloned())
                         .collect(),
                 ),
                 line: rest[0].line,
+                offset,
             });
         }
-        self.emit_call(&rewritten, line, expected, params, depth)
+        let group = self.emit_call(&rewritten, line, offset, expected, params, depth);
+
+        if rest.is_empty() {
+            if let Some(last) = self
+                .section_arguments(group)
+                .last()
+                .copied()
+                .filter(|_| !group.is_null())
+            {
+                let value_type = self.expressions[group.index()].value_type;
+                let otherwise = self.alloc(Expression {
+                    generation: 0,
+                    opcode: value_type,
+                    value_type,
+                    flags: ExpressionType::Expression.flags(),
+                    next: DatumHandle::NULL,
+                    string_offset: offset,
+                    data: 0,
+                    // Line 0, as shipped: the else has no text of its own.
+                    line: 0,
+                    tail: 0,
+                });
+                if !otherwise.is_null() {
+                    self.expressions[last.index()].next = otherwise;
+                }
+            }
+        }
+        group
+    }
+
+    /// A call's children as emitted so far: the node naming it, then each
+    /// argument.
+    fn section_arguments(&self, call: DatumHandle) -> Vec<DatumHandle> {
+        let mut out = Vec::new();
+        let Some(e) = self.expressions.get(call.index()) else {
+            return out;
+        };
+        let mut cur = DatumHandle(e.data);
+        while !cur.is_null() && out.len() <= self.expressions.len() {
+            out.push(cur);
+            cur = self.expressions[cur.index()].next;
+        }
+        out
     }
 
     fn emit_atom(
         &mut self,
         token: &Token,
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
     ) -> DatumHandle {
@@ -584,14 +670,24 @@ impl<'a> Compiler<'a> {
                         tail: 0,
                     });
                 }
-                self.emit_literal(token, line, expected)
+                self.emit_literal(token, line, offset, expected)
             }
-            _ => self.emit_literal(token, line, expected),
+            _ => self.emit_literal(token, line, offset, expected),
         }
     }
 
     /// A literal, typed by the position it sits in where that is known.
-    fn emit_literal(&mut self, token: &Token, line: u32, expected: &[u16]) -> DatumHandle {
+    ///
+    /// A number or boolean has no string, and its `+0xC` records where its
+    /// token is in the source instead — true of all 24,531 shipped ones that
+    /// are not a `cond`'s trailing else.
+    fn emit_literal(
+        &mut self,
+        token: &Token,
+        line: u32,
+        offset: u32,
+        expected: &[u16],
+    ) -> DatumHandle {
         let (value_type, guessed) = self.choose_type(token, expected);
         let type_name = self
             .value_types
@@ -601,14 +697,14 @@ impl<'a> Compiler<'a> {
 
         let (data, string_offset) = match token {
             Token::Num(n) => match type_name.as_str() {
-                "real" => (f32::to_bits(*n as f32), 0),
-                "long" => ((*n as i64 as i32) as u32, 0),
-                "boolean" => (u32::from(*n != 0.0), 0),
+                "real" => (f32::to_bits(*n as f32), offset),
+                "long" => ((*n as i64 as i32) as u32, offset),
+                "boolean" => (u32::from(*n != 0.0), offset),
                 // `short` and anything else numeric: the engine widens on read.
-                _ => ((*n as i64 as i16) as u16 as u32, 0),
+                _ => ((*n as i64 as i16) as u16 as u32, offset),
             },
-            Token::Word(w) if w == "true" => (1, 0),
-            Token::Word(w) if w == "false" => (0, 0),
+            Token::Word(w) if w == "true" => (1, offset),
+            Token::Word(w) if w == "false" => (0, offset),
             // `none` is the unset sentinel for a reference-typed position.
             Token::Word(w) if w == "none" => (u32::MAX, 0),
             Token::Word(w) => {
@@ -864,10 +960,11 @@ fn fits(type_name: &str, token: &Token) -> bool {
     }
 }
 
-fn atom_word(w: &str, line: u32) -> Spanned {
+fn atom_word(w: &str, line: u32, offset: u32) -> Spanned {
     Spanned {
         form: Form::Atom(Token::Word(w.to_string())),
         line,
+        offset,
     }
 }
 
@@ -1115,8 +1212,9 @@ mod tests {
         assert!(tail.iter().all(|b| *b == 0), "the reserve is zeros");
         // No string a node names may reach into it.
         for (_, e) in c.section.live() {
-            let text = c.section.string_at(e.string_offset);
-            assert!(e.string_offset as usize + text.len() < used.len());
+            if let Some(text) = c.section.text_of(e) {
+                assert!(e.string_offset as usize + text.len() < used.len());
+            }
         }
         assert_eq!(*used.last().unwrap(), 0, "the last string is terminated");
     }
@@ -1157,6 +1255,98 @@ mod tests {
             .filter(|(_, e)| c.section.callee_name(e) == Some("if"))
             .count();
         assert_eq!(ifs, 2);
+    }
+
+    #[test]
+    fn a_call_records_where_its_paren_is_across_files() {
+        let first = "(script dormant a (sleep 1))";
+        let second = "; two\n(script dormant b\n\t(print \"x\"))";
+        let corpus = corpus();
+        let c = Compiler::from_corpus(&corpus).compile(&[("one", first), ("two", second)]);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        // What a scenario stores: each file, then its NUL.
+        let source = c.section.source_text();
+        assert_eq!(source.len(), first.len() + 1 + second.len() + 1);
+        let at = |needle: &str| {
+            source
+                .windows(needle.len())
+                .position(|w| w == needle.as_bytes())
+                .unwrap() as u32
+        };
+        let call = |name: &str| {
+            c.section
+                .live()
+                .map(|(_, e)| e)
+                .find(|e| c.section.callee_name(e) == Some(name))
+                .unwrap()
+        };
+        assert_eq!(call("sleep").string_offset, at("(sleep"));
+        assert_eq!(call("print").string_offset, at("(print"));
+        // A script's root `begin` has no paren of its own, so it takes the
+        // declaration's.
+        let root = c.section.get(c.section.scripts[1].root).unwrap();
+        assert_eq!(root.string_offset, at("(script dormant b"));
+        // A number records its token.
+        let one = c
+            .section
+            .live()
+            .map(|(_, e)| e)
+            .find(|e| e.kind() == ExpressionType::Expression && e.value_type == 7)
+            .unwrap();
+        assert_eq!(one.string_offset, at("1))"));
+    }
+
+    #[test]
+    fn a_conds_ifs_all_record_the_conds_offset_and_the_last_has_an_else() {
+        let src = "(script dormant f (cond ((= 1 2) (sleep 1)) ((= 3 4) (sleep 2))))";
+        let c = compile(src);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        let cond_at = src.find("(cond").unwrap() as u32;
+        let ifs: Vec<_> = c
+            .section
+            .live()
+            .map(|(_, e)| e)
+            .filter(|e| c.section.callee_name(e) == Some("if"))
+            .collect();
+        assert_eq!(ifs.len(), 2);
+        for e in &ifs {
+            assert_eq!(e.string_offset, cond_at);
+            let begin = c.section.get(c.section.arguments(e)[2]).unwrap();
+            assert_eq!(begin.string_offset, cond_at);
+        }
+        // The inner `if` ends with a zero literal of its type at the same
+        // offset, as every shipped `cond` does.
+        let last = c.section.arguments(ifs[1]);
+        assert_eq!(last.len(), 4);
+        let otherwise = c.section.get(last[3]).unwrap();
+        assert_eq!(otherwise.kind(), ExpressionType::Expression);
+        assert_eq!(otherwise.data, 0);
+        assert_eq!(otherwise.string_offset, cond_at);
+        assert_eq!(otherwise.value_type, ifs[1].value_type);
+    }
+
+    #[test]
+    fn a_cond_decompiles_back_to_a_cond() {
+        let src = "(script dormant f\n\t(cond\n\t\t((= 1 2) (sleep 1) (sleep 3))\n\t\t((= 3 4) (sleep 2))\n\t)\n)";
+        let (out, diags) = round_trip(src);
+        assert!(
+            !diags.iter().any(|d| d.severity == Severity::Error),
+            "{diags:?}"
+        );
+        let want = crate::lex::tokens(src);
+        let got = crate::lex::tokens(&out);
+        assert!(
+            want.iter().zip(&got).all(|(a, b)| a.means_same(b)) && want.len() == got.len(),
+            "\n in: {src}\nout: {out}"
+        );
+    }
+
+    #[test]
+    fn without_its_source_a_cond_decompiles_as_the_ifs_it_is() {
+        let mut c = compile("(script dormant f (cond ((= 1 2) (sleep 1))))");
+        c.section.source_files.clear();
+        let out = Decompiler::new(&c.section).scenario();
+        assert!(out.contains("(if") && !out.contains("cond"), "{out}");
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use blam_tag::data::{field_writes, Block, Value};
 use blam_tag::layout::Layout;
 
-use crate::expr::{DatumHandle, Expression, ValueTypes, DATUM_SIZE};
+use crate::expr::{DatumHandle, Expression, ExpressionType, ValueTypes, DATUM_SIZE};
 use crate::Error;
 
 /// One entry of the scenario's `scripts` block.
@@ -182,6 +182,38 @@ impl ScriptSection {
         };
         let end = rest.iter().position(|c| *c == 0).unwrap_or(rest.len());
         std::str::from_utf8(&rest[..end]).unwrap_or("")
+    }
+
+    /// Whether a node's `+0xC` is a byte offset into the source files rather
+    /// than into the string blob.
+    ///
+    /// A call records where its `(` is, and a number, boolean or `void` leaf
+    /// where its token is — it has no string to point at. Names, strings,
+    /// variable reads and the node naming a callee point into the blob.
+    pub fn offset_is_source(&self, e: &Expression) -> bool {
+        match e.kind() {
+            ExpressionType::Group | ExpressionType::ScriptReference => true,
+            ExpressionType::Expression => matches!(
+                self.value_types.name_of(e.value_type),
+                Some("boolean" | "real" | "short" | "long" | "void")
+            ),
+            _ => false,
+        }
+    }
+
+    /// The string a node names, or `None` for one whose `+0xC` points into
+    /// the source instead.
+    pub fn text_of(&self, e: &Expression) -> Option<&str> {
+        (!self.offset_is_source(e)).then(|| self.string_at(e.string_offset))
+    }
+
+    /// The source files end to end, each with its NUL: what a source offset
+    /// indexes.
+    pub fn source_text(&self) -> Vec<u8> {
+        self.source_files
+            .iter()
+            .flat_map(|f| f.source.iter().copied())
+            .collect()
     }
 
     /// Walk a call's arguments: its first child, then each `next` in turn.

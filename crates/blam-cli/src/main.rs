@@ -2581,11 +2581,13 @@ fn walk_difference(
             eb.value_type
         ));
     }
-    if a.string_at(ea.string_offset) != b.string_at(eb.string_offset) {
+    // A call's or a number's offset points into its own source, which is the
+    // decompiled text the second time round; only strings can be compared.
+    if a.text_of(ea) != b.text_of(eb) {
         return Some(format!(
             "`{what}`: {:?} became {:?}",
-            a.string_at(ea.string_offset),
-            b.string_at(eb.string_offset)
+            a.text_of(ea),
+            b.text_of(eb)
         ));
     }
     // A call's `data` is a handle into its own array, so only a literal's

@@ -82,7 +82,7 @@ handle, and freed slots stay in place. 24 bytes each:
 | `0x04` | 2 | value type | Indexes the scenario's own value-type enum |
 | `0x06` | 2 | flags | What the node is; a bitfield, see below |
 | `0x08` | 4 | next | Handle of the next sibling |
-| `0x0c` | 4 | string offset | Into `script string data` |
+| `0x0c` | 4 | string or source offset | Into `script string data` for a name, string or variable read; into the source files for a call or a number (below) |
 | `0x10` | 4 | data | First child for a call; the literal payload otherwise |
 | `0x14` | 2 | line number | 1-based, in the source file it came from |
 | `0x16` | 2 | — | The definitions call it `HMM`; zero in every shipped datum |
@@ -134,13 +134,33 @@ each. **Signatures are inferred from use, not read from the engine**: a function
 campaign never calls is absent, and 46 of the 483 rest on a single call site. The file
 carries those counts so a consumer can tell the difference.
 
-Two things the tree does not preserve:
+### Source offsets, and `cond`
 
-- **`cond` does not survive compilation.** It is desugared to nested `if` before any
-  node is emitted, so no opcode exists for it even though the source files use it
-  freely. 205 scripts decompile to `if` where the source said `cond`.
-- **Special forms are not marked.** The value-type enum has a `special_form` entry, but
-  no node in any of the 272,190 shipped datums carries it.
+`+0x0c` is only a string offset on a node that has a string. On a call, and on a
+number, boolean or `void` leaf, it is a **byte offset into the scenario's source files
+taken end to end** in block order, each file followed by its NUL. The definitions name
+the field `source_offset`, and the data agrees: all 72,611 call nodes across the
+thirteen scenarios land on a `(`, and all 24,531 numeric and boolean literals that are
+not a `cond`'s trailing else land on their own token.
+
+That is what makes `cond` recoverable. It has no opcode — it is desugared to nested `if`
+before any node is emitted — but every `if` and `begin` the desugaring makes, and the
+literal it adds as the last clause's else, record the offset of the `cond` itself: 1,162
+`if`s across the campaign point at the text `(cond`. The decompiler puts one back
+wherever an `if` does, provided the shape matches exactly:
+
+```
+(if test1 (begin body1…) (if test2 (begin body2…) <zero of the cond's type>))
+```
+
+Every shipped `cond` ends in that zero: a `void` leaf in 207 of 230, a boolean or short
+`0` in the rest. The compiler writes the same shape and the same offsets, so a compiled
+tree decompiles back to `cond` too. Without the source files — a stripped scenario — a
+`cond` still renders as the `if`s it is.
+
+One thing the tree does not preserve: **special forms are not marked.** The value-type
+enum has a `special_form` entry, but no node in any of the 272,190 shipped datums
+carries it.
 
 ### Quoting
 
@@ -174,19 +194,21 @@ that keeps it reads a stray token at the end of every file.
 
 ## How well the decompiler does
 
-`mjolnir script --verify` decompiles all 6,827 campaign scripts and compares each
+`mjolnir script --verify` decompiles all 6,829 campaign scripts and compares each
 against the source the same scenario carries, as token streams — comments cannot come
-back, and the compiler coerces `-1` to `-1.0` and accepts `0` for `false`.
+back, and the compiler coerces `-1` to `-1.0` and accepts `0` for `false`. On CU4:
 
 | Outcome | Scripts |
 |---|---:|
-| Token-for-token match | 6,284 (92.0%) |
-| Differ only because the source used `cond` | 205 |
-| No source block to compare against | 150 |
+| Token-for-token match | 6,463 (94.6%) |
+| Source used `cond`, and still differs | 27 |
+| No source block to compare against | 151 |
 | Genuinely differ | 188 |
 
-**Every one of the 188 is a quoting disagreement** — same text, quoted on one side and
-bare on the other. Nothing else is unexplained.
+Before `cond` was recovered the second row was 205. The 27 left are scripts that use
+`cond` *and* have a quoting disagreement: with quotes ignored, all 27 match. **Every one
+of the 188 is a quoting disagreement** too — same text, quoted on one side and bare on
+the other. Nothing else is unexplained.
 
 ## The compiler
 
@@ -205,8 +227,11 @@ deliberately the compiler's own:
   2,806 distinct strings in `a30` — and this interns instead.
 
 Everything the engine reads is reproduced: expression types, opcodes, value types,
-sibling chains, and the rule that a call's first child names it and carries the same
-opcode. Rules confirmed against the shipped data rather than assumed:
+sibling chains, source offsets, and the rule that a call's first child names it and
+carries the same opcode. Compiling `a30`'s own source and walking each script against
+the shipped tree, all 5,845 call nodes and all 1,937 numeric, boolean and `void` leaves
+carry the shipped source offset. Rules confirmed against the shipped data rather than
+assumed:
 
 | Node | `opcode` | `data` |
 |---|---|---|
@@ -230,15 +255,15 @@ result, and compares against the source that went in:
 
 | Outcome | Scripts |
 |---|---:|
-| Token-for-token match | 6,284 (94.1%) |
-| Differ only because the source used `cond` | 205 |
+| Token-for-token match | 6,463 (96.8%) |
+| Source used `cond`, and still differs | 27 |
 | Differ | 188 |
 | Compile errors | 0 |
 
-Again **all 188 are the quoting disagreement**, which is a decompiler rendering question,
+Again **all 215 are the quoting disagreement**, which is a decompiler rendering question,
 not a compiler one. The check that separates the two is the fixpoint: compiling the
 decompiled output a second time must produce the same tree, since both trees are the
-compiler's own. **All 13 scenarios reach it.** 78 literals across the whole campaign had
+compiler's own. **All of them reach it** (14 of 14 on CU4). 78 literals across the whole campaign had
 no usable type from either the position or the token, and are reported as warnings.
 
 ## Writing it back
@@ -301,8 +326,9 @@ make it the mod's source of truth.
 
 ## Not done yet
 
-**The 188 quoting disagreements.** Both round-trip directions hit exactly this one class.
-It is the only thing standing between them and 100%.
+**The quoting disagreements** — 188, plus 27 in scripts that use `cond`. Both
+round-trip directions hit exactly this one class. It is the only thing standing between
+them and 100%.
 
 **Preserving source-less scripts through a rebuild.** They could be decompiled and
 appended, but the decompiler is at 92% and injecting output that might be subtly wrong is
