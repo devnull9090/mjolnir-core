@@ -5,13 +5,18 @@
 //! string id it knows (`blam_live::tagtable`, `blam_live::stringid`). Both are
 //! reached from globals whose addresses depend on the build, so the module is
 //! hashed first and an unknown build is refused with its hash — nothing is
-//! read at a guessed address.
+//! read at a guessed address. Objects and players come from the simulation
+//! thread's data arrays (`blam_live::gamestate`, `blam_live::world`), which are
+//! found through the module's TLS directory and name themselves.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use blam_live::gamestate::GameState;
 use blam_live::stringid::StringIds;
 use blam_live::tagtable::{self, LiveTags, Segments, TagTable};
+use blam_live::world;
 use clap::{Args, Subcommand};
 
 #[derive(Args)]
@@ -39,6 +44,22 @@ enum LiveCommand {
         #[arg(long)]
         tsv: Option<PathBuf>,
     },
+    /// Every object in play: what it is, where, and how damaged.
+    Objects {
+        /// Only this tag group four-CC, e.g. `bipd`.
+        #[arg(long)]
+        group: Option<String>,
+        /// Only definition paths containing this text.
+        #[arg(long)]
+        filter: Option<String>,
+        /// Write every row as tab-separated text here instead of the console.
+        #[arg(long)]
+        tsv: Option<PathBuf>,
+    },
+    /// Every player and the unit each controls.
+    Players,
+    /// The simulation's data arrays: every table it keeps per game, with how full each is.
+    Arrays,
     /// The string ids the running game has registered.
     StringIds {
         /// Look one name up (in any spelling the engine would accept).
@@ -111,12 +132,190 @@ pub fn run(a: LiveArgs) -> Result<()> {
         Some(pid) => blam_live::Process::open(pid)?,
         None => blam_live::Process::attach()?,
     };
+    // The data arrays name themselves, so listing them needs no build profile.
+    if let LiveCommand::Arrays = a.cmd {
+        return arrays(&process);
+    }
     let attached = tagtable::attach(&process)?;
     match a.cmd {
         LiveCommand::Status => status(&process, attached),
         LiveCommand::Tags { group, filter, tsv } => tags(&process, attached, group, filter, tsv),
+        LiveCommand::Objects { group, filter, tsv } => {
+            objects(&process, attached, group, filter, tsv)
+        }
+        LiveCommand::Players => players(&process, attached),
+        LiveCommand::Arrays => unreachable!("handled before attaching"),
         LiveCommand::StringIds { find, out } => string_ids(&process, attached, find, out),
     }
+}
+
+/// The loaded tags by handle, for naming what the object table points at.
+fn tags_by_handle(
+    process: &blam_live::Process,
+    table: &TagTable,
+) -> Result<HashMap<u32, tagtable::LiveTag>> {
+    Ok(table
+        .walk(process)?
+        .into_iter()
+        .map(|t| (t.handle(), t))
+        .collect())
+}
+
+fn percent(fraction: Option<f32>, maximum: f32) -> String {
+    match fraction {
+        Some(f) if maximum > 0.0 => format!("{:.0}% of {maximum:.0}", f * 100.0),
+        _ => "-".into(),
+    }
+}
+
+fn objects(
+    process: &blam_live::Process,
+    attached: tagtable::Attached,
+    group: Option<String>,
+    filter: Option<String>,
+    tsv: Option<PathBuf>,
+) -> Result<()> {
+    let gs = GameState::attach(process)?;
+    let table = TagTable::open(process, attached.base, attached.profile)?;
+    let segments = Segments::read(process, attached.base, attached.profile)?;
+    let tags = tags_by_handle(process, &table)?;
+    let objects = world::objects(process, &gs)?;
+    let players: HashMap<u32, u32> = world::players(process, &gs)?
+        .iter()
+        .filter_map(|p| Some((p.unit?, p.index)))
+        .collect();
+    let group = group.map(|g| g.to_ascii_lowercase());
+    let filter = filter.map(|f| f.to_ascii_lowercase());
+    let mut shields: HashMap<u32, Option<i16>> = HashMap::new();
+    let mut unnamed = 0usize;
+    let mut out = String::new();
+    let mut rows = 0usize;
+    for o in &objects {
+        let tag = tags.get(&o.tag);
+        if tag.is_none() {
+            unnamed += 1;
+        }
+        let (grp, name) = tag
+            .map(|t| (t.group_str(), t.name.clone()))
+            .unwrap_or_else(|| ("?".into(), format!("tag 0x{:08X}", o.tag)));
+        if group
+            .as_deref()
+            .is_some_and(|g| !grp.eq_ignore_ascii_case(g))
+            || filter
+                .as_deref()
+                .is_some_and(|f| !name.to_ascii_lowercase().contains(f))
+        {
+            continue;
+        }
+        let shield = if o.max_shield > 0.0 {
+            let section = match shields.get(&o.tag) {
+                Some(s) => *s,
+                None => {
+                    let s = world::shield_section(process, &table, &segments, o.tag)?;
+                    shields.insert(o.tag, s);
+                    s
+                }
+            };
+            o.shield(section)
+        } else {
+            None
+        };
+        let [x, y, z] = o.position;
+        let parent = o
+            .parent
+            .map(|p| format!("0x{p:08X}"))
+            .unwrap_or_else(|| "-".into());
+        let player = players
+            .get(&o.handle)
+            .map(|i| format!("player {i}"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\n",
+            o.index,
+            o.handle,
+            o.kind.name(),
+            percent(o.health(), o.max_body),
+            percent(shield, o.max_shield),
+        ));
+        rows += 1;
+    }
+    let summary = format!(
+        "{rows} of {} objects (thread {}, object array {} of {} slots)",
+        objects.len(),
+        gs.tid,
+        objects.len(),
+        gs.array(world::OBJECT_ARRAY).map_or(0, |a| a.maximum)
+    );
+    match tsv {
+        Some(path) => {
+            std::fs::write(&path, &out)?;
+            println!("{summary} written to {}", path.display());
+        }
+        None => {
+            print!("{out}");
+            println!("{summary}");
+        }
+    }
+    if unnamed > 0 {
+        println!(
+            "{unnamed} object(s) name a tag handle the tag table does not hold; \
+             the object datum layout may have moved"
+        );
+    }
+    Ok(())
+}
+
+fn players(process: &blam_live::Process, attached: tagtable::Attached) -> Result<()> {
+    let gs = GameState::attach(process)?;
+    let table = TagTable::open(process, attached.base, attached.profile)?;
+    let tags = tags_by_handle(process, &table)?;
+    let objects: HashMap<u32, world::LiveObject> = world::objects(process, &gs)?
+        .into_iter()
+        .map(|o| (o.handle, o))
+        .collect();
+    let players = world::players(process, &gs)?;
+    for p in &players {
+        match p.unit.and_then(|u| objects.get(&u)) {
+            Some(o) => {
+                let name = tags.get(&o.tag).map_or("?", |t| t.name.as_str());
+                let [x, y, z] = o.position;
+                println!(
+                    "player {}\t0x{:08X}\tunit 0x{:08X}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}",
+                    p.index, p.handle, o.handle
+                );
+            }
+            None => println!(
+                "player {}\t0x{:08X}\tno unit{}",
+                p.index,
+                p.handle,
+                p.unit
+                    .map(|u| format!(" (0x{u:08X} is not in play)"))
+                    .unwrap_or_default()
+            ),
+        }
+    }
+    println!("{} player(s)", players.len());
+    Ok(())
+}
+
+fn arrays(process: &blam_live::Process) -> Result<()> {
+    let gs = GameState::attach(process)?;
+    println!(
+        "thread {}, TLS slot {}, block 0x{:X}",
+        gs.tid, gs.tls_index, gs.block
+    );
+    for (offset, a) in &gs.arrays {
+        println!(
+            "+0x{offset:03X}\t{}\t{} of {}\t0x{:X} bytes each\t{}",
+            a.name,
+            a.used,
+            a.maximum,
+            a.element_size,
+            if a.valid { "" } else { "not in a game" }
+        );
+    }
+    println!("{} data arrays", gs.arrays.len());
+    Ok(())
 }
 
 fn status(process: &blam_live::Process, attached: tagtable::Attached) -> Result<()> {
@@ -148,6 +347,23 @@ fn status(process: &blam_live::Process, attached: tagtable::Attached) -> Result<
         Ok(ids) => println!("string ids {} registered", ids.len()),
         Err(blam_live::Error::NoMission) => println!("string ids registry not built yet"),
         Err(e) => return Err(e.into()),
+    }
+    // The game state is read without any build profile, so a failure here
+    // says something about the running game rather than about this build.
+    match GameState::attach(process) {
+        Ok(gs) => {
+            let object = gs.array(world::OBJECT_ARRAY);
+            println!(
+                "game state thread {}, {} data arrays; objects {}",
+                gs.tid,
+                gs.arrays.len(),
+                match object {
+                    Some(a) if a.valid => format!("{} of {}", a.used, a.maximum),
+                    _ => "not in a game".into(),
+                }
+            );
+        }
+        Err(e) => println!("game state not found: {e}"),
     }
     Ok(())
 }

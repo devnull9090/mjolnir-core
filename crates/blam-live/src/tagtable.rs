@@ -457,8 +457,10 @@ impl LiveTag {
 }
 
 /// Layout of the table object, as measured: a 32-byte label, then the array
-/// bookkeeping.
+/// bookkeeping. It is a Blam data array like every other
+/// (`crate::gamestate::DataArray`), `d@t@` magic included.
 const ELEMENT_SIZE: u64 = 0x20;
+const MAGIC: u64 = 0x28;
 const MAXIMUM: u64 = 0x2c;
 const HIGH_WATER: u64 = 0x44;
 const USED: u64 = 0x48;
@@ -500,12 +502,14 @@ impl TagTable {
         let at32 = |o: u64| u32::from_le_bytes(h[o as usize..o as usize + 4].try_into().unwrap());
         let at64 = |o: u64| u64::from_le_bytes(h[o as usize..o as usize + 8].try_into().unwrap());
         let element_size = at32(ELEMENT_SIZE);
+        let magic = at32(MAGIC);
         let maximum = at32(MAXIMUM);
         let high_water = at32(HIGH_WATER);
         let used = at32(USED);
         let entries = at64(ENTRIES);
         let bitset = at64(BITSET);
-        if element_size as usize != ENTRY_SIZE
+        if magic != crate::gamestate::DATA_ARRAY_MAGIC
+            || element_size as usize != ENTRY_SIZE
             || maximum > MAX_TAGS
             || high_water > maximum
             || used > high_water
@@ -515,8 +519,8 @@ impl TagTable {
             return Err(Error::Layout {
                 what: "tag table",
                 detail: format!(
-                    "element size {element_size:#x}, maximum {maximum}, high water {high_water}, \
-                     used {used}, entries {entries:#x}, bitset {bitset:#x}"
+                    "magic {magic:#x}, element size {element_size:#x}, maximum {maximum}, \
+                     high water {high_water}, used {used}, entries {entries:#x}, bitset {bitset:#x}"
                 ),
             });
         }
@@ -730,6 +734,7 @@ mod tests {
         let mut h = vec![0u8; HEADER_LEN];
         h[..12].copy_from_slice(b"tag instance");
         h[0x20..0x24].copy_from_slice(&(ENTRY_SIZE as u32).to_le_bytes());
+        h[0x28..0x2c].copy_from_slice(&crate::gamestate::DATA_ARRAY_MAGIC.to_le_bytes());
         h[0x2c..0x30].copy_from_slice(&32767u32.to_le_bytes());
         h[0x44..0x48].copy_from_slice(&high.to_le_bytes());
         h[0x48..0x4c].copy_from_slice(&used.to_le_bytes());
@@ -979,6 +984,17 @@ mod tests {
         let mut m = game();
         let mut h = table_header(3, 2);
         h[0x20..0x24].copy_from_slice(&0x40u32.to_le_bytes());
+        m.put(TABLE, &h);
+        assert!(matches!(
+            TagTable::open(&m, DLL, &CU4),
+            Err(Error::Layout {
+                what: "tag table",
+                ..
+            })
+        ));
+        // Right sizes but no data array magic: a pointer to something else.
+        let mut h = table_header(3, 2);
+        h[0x28..0x2c].copy_from_slice(&0u32.to_le_bytes());
         m.put(TABLE, &h);
         assert!(matches!(
             TagTable::open(&m, DLL, &CU4),
