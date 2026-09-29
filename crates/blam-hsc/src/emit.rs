@@ -44,6 +44,16 @@ pub struct SectionBytes {
 /// The `tgst` section header, which the block writer emits per element.
 const SECTION_HEADER: usize = 12;
 
+/// Bytes past its last string that `script string data` keeps free.
+///
+/// In all thirteen shipped scenarios the last string ends exactly `0x1000`
+/// bytes before the blob does, and the tail holds leftover bytes rather than
+/// strings — room the engine keeps to write strings into at runtime, such as
+/// a line typed at the console. A blob packed tight would put those writes
+/// over whatever follows it, so a compiled blob keeps the same reserve. It is
+/// written as zeros: nothing reads it back, and the leftovers mean nothing.
+pub const STRING_DATA_RESERVE: usize = 0x1000;
+
 fn section(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {
     out.extend(magic.bytes().rev());
     out.extend_from_slice(&version.to_le_bytes());

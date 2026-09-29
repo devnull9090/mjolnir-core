@@ -18,7 +18,8 @@
 //!   272,190 slots are fill. This emits a dense array.
 //! - **String blob.** The shipped blob repeats strings: 9,168 distinct offsets
 //!   across 2,806 distinct strings in `a30`. This interns, so each string is
-//!   written once.
+//!   written once, and keeps the shipped blob's free tail after the last one
+//!   (see [`crate::emit::STRING_DATA_RESERVE`]).
 //!
 //! Everything the engine reads is reproduced: expression types, opcodes, value
 //! types, sibling chains, and the rule that a call's first child names it and
@@ -181,6 +182,10 @@ impl<'a> Compiler<'a> {
 
         self.declare(&declarations);
         self.emit_all(&declarations);
+
+        // Every string is interned by now, so the reserve goes after the last.
+        let used = self.strings.len();
+        self.strings.resize(used + crate::emit::STRING_DATA_RESERVE, 0);
 
         let section = ScriptSection {
             strings: self.strings,
@@ -1097,6 +1102,22 @@ mod tests {
             .collect();
         assert_eq!(offsets.len(), 2);
         assert_eq!(offsets[0], offsets[1]);
+    }
+
+    #[test]
+    fn the_string_blob_ends_with_the_reserve_the_engine_writes_into() {
+        let c = compile("(script dormant f (print \"hi\") (sleep 1))");
+        let reserve = crate::emit::STRING_DATA_RESERVE;
+        let strings = &c.section.strings;
+        assert!(strings.len() > reserve);
+        let (used, tail) = strings.split_at(strings.len() - reserve);
+        assert!(tail.iter().all(|b| *b == 0), "the reserve is zeros");
+        // No string a node names may reach into it.
+        for (_, e) in c.section.live() {
+            let text = c.section.string_at(e.string_offset);
+            assert!(e.string_offset as usize + text.len() < used.len());
+        }
+        assert_eq!(*used.last().unwrap(), 0, "the last string is terminated");
     }
 
     #[test]

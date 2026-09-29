@@ -61,6 +61,15 @@ Seven fields of `scenario_block_struct`, all in one run at `0x3c8`:
 Plus `script string data`, a `data` field holding the string blob every node's
 `string_offset` points into (35–68 KB per scenario).
 
+**The blob ends with a 0x1000-byte reserve.** In all thirteen shipped scenarios the
+last string ends exactly 4,096 bytes before the blob does, and those bytes hold
+leftovers — non-zero in every one of the thirteen — rather than strings. It is room the
+engine keeps for strings it adds at runtime, such as a line typed at the console, so
+a writer that packs the blob tight hands those writes whatever follows it. The
+compiler appends the same 4,096 bytes, as zeros
+(`blam_hsc::emit::STRING_DATA_RESERVE`), and `mjolnir script --rebuild-check` checks
+the blob, reserve included, reads back unchanged.
+
 ## The expression datum
 
 `hs syntax datums` is a Blam **datum array**, not a list: nodes address each other by

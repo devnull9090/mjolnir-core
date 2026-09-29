@@ -2355,10 +2355,14 @@ fn rebuild_check(
             totals.differs += 1;
         }
         Ok(back) => {
+            // The string blob comes back whole, reserved tail included: a tail
+            // lost on the way would leave the engine's runtime strings
+            // writing over whatever follows the blob.
             let same = back.scripts.len() == section.scripts.len()
                 && back.globals.len() == section.globals.len()
                 && back.live().count() == section.live().count()
-                && back.source_files.len() == section.source_files.len();
+                && back.source_files.len() == section.source_files.len()
+                && back.strings == section.strings;
             if same {
                 println!(
                     "{short:<28} rebuilt ok: {} scripts, {} globals, {} expressions, {} bytes ({:+})",
