@@ -1,7 +1,7 @@
 //! The platform side: finding the game process and reaching its memory.
 //!
 //! Declared against the Win32 API directly rather than through a binding crate,
-//! because the surface used here is six functions and two structs, and the
+//! because the surface used here is a handful of functions and structs, and the
 //! workspace has no other reason to carry a Windows crate.
 
 use crate::{Error, Result};
@@ -19,6 +19,13 @@ pub struct ModuleInfo {
 pub struct ProcessInfo {
     pub pid: u32,
     pub exe: String,
+}
+
+/// A thread of the target and where its thread environment block is.
+#[derive(Debug, Clone, Copy)]
+pub struct ThreadInfo {
+    pub tid: u32,
+    pub teb: u64,
 }
 
 /// One committed, readable span of the target's address space.
@@ -42,6 +49,11 @@ mod imp {
     const PROCESS_VM_OPERATION: u32 = 0x0008;
 
     const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
+    /// Snapshot every thread in the system; entries carry their owner's pid.
+    const TH32CS_SNAPTHREAD: u32 = 0x0000_0004;
+    const THREAD_QUERY_LIMITED_INFORMATION: u32 = 0x0800;
+    /// `THREADINFOCLASS::ThreadBasicInformation`.
+    const THREAD_BASIC_INFORMATION: u32 = 0;
     /// Snapshot the target's loaded modules, 64-bit included. Needed to find
     /// where the game image is mapped so a statically resolved RVA becomes a
     /// runtime address.
@@ -113,7 +125,44 @@ mod imp {
         exe_path: [u16; 260],
     }
 
+    #[repr(C)]
+    struct ThreadEntry32 {
+        size: u32,
+        usage: u32,
+        thread_id: u32,
+        owner_process_id: u32,
+        base_pri: i32,
+        delta_pri: i32,
+        flags: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct ThreadBasicInformation {
+        exit_status: i32,
+        teb_base_address: usize,
+        unique_process: usize,
+        unique_thread: usize,
+        affinity_mask: usize,
+        priority: i32,
+        base_priority: i32,
+    }
+
+    #[link(name = "ntdll")]
     extern "system" {
+        fn NtQueryInformationThread(
+            thread: Handle,
+            class: u32,
+            info: *mut ThreadBasicInformation,
+            len: u32,
+            returned: *mut u32,
+        ) -> i32;
+    }
+
+    extern "system" {
+        fn OpenThread(access: u32, inherit: i32, tid: u32) -> Handle;
+        fn Thread32First(snap: Handle, entry: *mut ThreadEntry32) -> i32;
+        fn Thread32Next(snap: Handle, entry: *mut ThreadEntry32) -> i32;
         fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
         fn CloseHandle(h: Handle) -> i32;
         fn Module32FirstW(snap: Handle, entry: *mut ModuleEntry32W) -> i32;
@@ -293,6 +342,48 @@ mod imp {
             }
         }
 
+        /// Every thread of the process with the address of its thread
+        /// environment block. A thread that exits between the snapshot and the
+        /// query is skipped, not an error: the list is a photograph either way.
+        pub fn threads(&self) -> Result<Vec<super::ThreadInfo>> {
+            let mut out = Vec::new();
+            unsafe {
+                let snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if snap == -1 {
+                    return Err(Error::NotRunning(format!("threads of pid {}", self.pid)));
+                }
+                let mut entry: ThreadEntry32 = std::mem::zeroed();
+                entry.size = std::mem::size_of::<ThreadEntry32>() as u32;
+                let mut ok = Thread32First(snap, &mut entry);
+                while ok != 0 {
+                    if entry.owner_process_id == self.pid {
+                        let thread =
+                            OpenThread(THREAD_QUERY_LIMITED_INFORMATION, 0, entry.thread_id);
+                        if thread != 0 {
+                            let mut info = ThreadBasicInformation::default();
+                            let status = NtQueryInformationThread(
+                                thread,
+                                THREAD_BASIC_INFORMATION,
+                                &mut info,
+                                std::mem::size_of::<ThreadBasicInformation>() as u32,
+                                std::ptr::null_mut(),
+                            );
+                            CloseHandle(thread);
+                            if status >= 0 && info.teb_base_address != 0 {
+                                out.push(super::ThreadInfo {
+                                    tid: entry.thread_id,
+                                    teb: info.teb_base_address as u64,
+                                });
+                            }
+                        }
+                    }
+                    ok = Thread32Next(snap, &mut entry);
+                }
+                CloseHandle(snap);
+            }
+            Ok(out)
+        }
+
         /// Read into a caller-owned buffer, returning how many bytes arrived.
         ///
         /// The scan reads gigabytes in 128 MB windows; allocating and zeroing a
@@ -443,6 +534,10 @@ mod imp {
         }
 
         pub fn module_info(&self, _name: &str) -> Result<ModuleInfo> {
+            Err(Error::Unsupported)
+        }
+
+        pub fn threads(&self) -> Result<Vec<super::ThreadInfo>> {
             Err(Error::Unsupported)
         }
     }

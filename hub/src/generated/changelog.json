@@ -39,6 +39,38 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.3.0",
+      "tag": "cli-v0.3.0",
+      "title": "`mjolnir live objects`: every object in play, and who controls what",
+      "date": "2026-09-29",
+      "summary": "live objects lists every object in the running game with its tag, position, health and shield; live players and live arrays show the rest of the simulation's tables.",
+      "body": "The simulation keeps its objects, players, AI and script state in named\ntables that it stores in its thread-local storage. `mjolnir` now finds those\ntables directly. It reads the module's own TLS directory, and each table names\nitself, so nothing is read at an address that one build hard-codes.\n\n### Added\n\n- **`mjolnir live objects [--group bipd] [--filter text] [--tsv out]`**: every\n  object in play. Each row has its handle, its type (biped, weapon,\n  equipment…), its definition tag, its position, its body and shield as a\n  percentage of the maximum, and its parent if it is attached. The row for the\n  unit a player controls is marked with that player.\n- **`mjolnir live players`**: each player, the unit it controls, and where\n  that unit is.\n- **`mjolnir live arrays`**: all 59 of the simulation's per-game tables, with\n  how full each one is. It needs no build profile.\n- **`mjolnir live status`** also names the simulation thread and says how many\n  objects are in play.\n\n### Known limits\n\n- Read only. Positions and vitality can be read but not yet written.\n- An attached object's position is relative to its parent.\n- The layout inside an object was measured on the current Steam build (CU4).\n  A game update that moves it is caught by a consistency check, and the\n  command stops instead of printing wrong values.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir live objects [--group bipd] [--filter text] [--tsv out]: every object in play. Each row has its handle, its type (biped, weapon, equipment…), its definition tag, its position, its body and shield as a percentage of the maximum, and its parent if it is attached. The row for the unit a player controls is marked with that player.",
+            "mjolnir live players: each player, the unit it controls, and where that unit is.",
+            "mjolnir live arrays: all 59 of the simulation's per-game tables, with how full each one is. It needs no build profile.",
+            "mjolnir live status also names the simulation thread and says how many objects are in play."
+          ]
+        },
+        {
+          "heading": "Known limits",
+          "items": [
+            "Read only. Positions and vitality can be read but not yet written.",
+            "An attached object's position is relative to its parent.",
+            "The layout inside an object was measured on the current Steam build (CU4). A game update that moves it is caught by a consistency check, and the command stops instead of printing wrong values."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.3.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.3.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.3.0"
+    },
+    {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
       "version": "0.20.1",

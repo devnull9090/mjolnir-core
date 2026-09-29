@@ -60,13 +60,15 @@ use std::ops::Range;
 mod sys;
 
 pub mod cache;
+pub mod gamestate;
 pub mod names;
 pub mod package_id;
 pub mod objects;
 pub mod stringid;
 pub mod tagtable;
+pub mod world;
 
-pub use sys::{ModuleInfo, Process, ProcessInfo};
+pub use sys::{ModuleInfo, Process, ProcessInfo, ThreadInfo};
 
 /// The executable the game runs as.
 pub const GAME_EXE: &str = "HaloCampaignEvolved.exe";
@@ -118,7 +120,10 @@ pub enum Error {
     ElementGone { index: usize, count: u32 },
     #[error("this platform cannot reach another process's memory")]
     Unsupported,
-    #[error("no mission is loaded: the simulation's tag table is empty. Start a mission first")]
+    #[error(
+        "no mission is loaded: the simulation has not built its tables for a game yet. Start a \
+         mission first"
+    )]
     NoMission,
     #[error(
         "the running game's tag module (SHA-256 {0}) is not a build this version knows, so its \
