@@ -417,9 +417,9 @@ mod tests {
         d
     }
 
-    fn entry(salt: u16, index: u16, kind: u16, size: u16, datum: u64) -> Vec<u8> {
+    fn entry(generation: u16, index: u16, kind: u16, size: u16, datum: u64) -> Vec<u8> {
         let mut e = vec![0u8; ENTRY_LEN];
-        e[0..2].copy_from_slice(&salt.to_le_bytes());
+        e[0..2].copy_from_slice(&generation.to_le_bytes());
         e[ENTRY_FLAGS] = 0x87;
         e[ENTRY_KIND..ENTRY_KIND + 2].copy_from_slice(&kind.to_le_bytes());
         e[ENTRY_DATUM_SIZE..ENTRY_DATUM_SIZE + 2].copy_from_slice(&size.to_le_bytes());

@@ -79,19 +79,20 @@ pub struct DataArray {
     pub bitset: u64,
 }
 
-/// One live element: its slot, its salt, and its bytes.
+/// One live element: its slot, its generation, and its bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datum {
     pub index: u32,
-    /// The salt at the element's first two bytes. With the index it makes the
-    /// handle other structures store: `salt << 16 | index`.
-    pub salt: u16,
+    /// The engine's per-slot reuse counter at the element's first two bytes
+    /// (Blam calls it the salt). With the index it makes the handle other
+    /// structures store: `generation << 16 | index`.
+    pub generation: u16,
     pub bytes: Vec<u8>,
 }
 
 impl Datum {
     pub fn handle(&self) -> u32 {
-        u32::from(self.salt) << 16 | self.index
+        u32::from(self.generation) << 16 | self.index
     }
 }
 
@@ -173,7 +174,7 @@ impl DataArray {
             let bytes = blob[i * size..(i + 1) * size].to_vec();
             out.push(Datum {
                 index: i as u32,
-                salt: u16::from_le_bytes(bytes[0..2].try_into().unwrap()),
+                generation: u16::from_le_bytes(bytes[0..2].try_into().unwrap()),
                 bytes,
             });
         }
@@ -481,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_returns_live_slots_with_their_salts() {
+    fn walk_returns_live_slots_with_their_generations() {
         let mut m = game();
         m.put(OBJECT_AT + 0x1000, &[0b101]);
         let mut data = vec![0u8; 3 * 0x18];
