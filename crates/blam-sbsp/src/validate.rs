@@ -5,6 +5,7 @@
 
 use blam_tag::blockedit::find_block;
 
+use crate::ce::Collision;
 use crate::pack16::{LEAF24, NONE24};
 use crate::transplant::SHELL;
 use crate::Error;
@@ -27,6 +28,9 @@ pub struct Report {
     pub roots: Vec<usize>,
     pub leaves_referenced: usize,
     pub bounds: Option<([f32; 3], [f32; 3])>,
+    /// Leaves that reach a two-sided surface without leaf flag bit 0; see
+    /// [`two_sided_leaves_unflagged`].
+    pub two_sided_leaves_unflagged: Vec<usize>,
     pub problems: Vec<String>,
 }
 
@@ -66,7 +70,7 @@ pub fn at(file: &[u8], base: &str) -> Result<Report, Error> {
     };
     let (nodes, n_nodes, _) = get("bsp3d nodes")?;
     let (_supers, n_supers, _) = get("bsp3d supernodes")?;
-    let (_planes, n_planes, _) = get("planes")?;
+    let (planes, n_planes, _) = get("planes")?;
     let (leaves, n_leaves, _) = get("leaves")?;
     let (refs, n_refs, _) = get("bsp2d references")?;
     let (n2d, n_2d, _) = get("bsp2d nodes")?;
@@ -167,6 +171,26 @@ pub fn at(file: &[u8], base: &str) -> Result<Report, Error> {
         );
     }
 
+    // Two-sided surfaces need their leaf flagged.
+    let tables = crate::unpack16::Tables {
+        bsp3d_nodes: nodes,
+        planes,
+        leaves,
+        bsp2d_references: refs,
+        bsp2d_nodes: n2d,
+        surfaces,
+        edges,
+        vertices,
+    };
+    let (decoded, _) = crate::unpack16::unpack(&tables)?;
+    let unflagged = two_sided_leaves_unflagged(&decoded);
+    if let Some(&l) = unflagged.first() {
+        problem(format!(
+            "{} leaf/leaves reach a two-sided surface without flag bit 0 (first: leaf {l})",
+            unflagged.len()
+        ));
+    }
+
     // Surfaces: walk the edge loop.
     let none = u16::MAX;
     for s in 0..n_surfaces {
@@ -231,5 +255,90 @@ pub fn at(file: &[u8], base: &str) -> Result<Report, Error> {
         }
         r.bounds = Some((min, max));
     }
+    r.two_sided_leaves_unflagged = unflagged;
     Ok(r)
+}
+
+/// Leaf flag bit 0: "contains double-sided surfaces".
+pub const LEAF_TWO_SIDED: u16 = 0x1;
+/// Surface flag bit 0: two sided.
+pub const SURFACE_TWO_SIDED: u8 = 0x1;
+
+/// Leaves that reach a two-sided surface through their 2D references but do
+/// not carry [`LEAF_TWO_SIDED`]. The ray test only considers a two-sided
+/// surface when its leaf has that bit set, so such a surface is one-sided to
+/// rays. Every leaf of the staged CE Blood Gulch shell and of the 182
+/// `BSP_01_1_Start` definitions and shell passes. Out-of-range indices are
+/// skipped (the table checks report them).
+pub fn two_sided_leaves_unflagged(c: &Collision) -> Vec<usize> {
+    let mut out = Vec::new();
+    for (l, leaf) in c.leaves.iter().enumerate() {
+        if leaf.flags & LEAF_TWO_SIDED != 0 || leaf.reference_count <= 0 {
+            continue;
+        }
+        let first = leaf.first_reference.max(0) as usize;
+        let mut stack: Vec<i32> = (first..first + leaf.reference_count as usize)
+            .filter_map(|r| c.bsp2d_references.get(r).map(|r| r.node))
+            .collect();
+        let mut steps = 0usize;
+        let mut two_sided = false;
+        while let Some(child) = stack.pop() {
+            steps += 1;
+            if child == -1 || steps > 1 << 16 {
+                continue;
+            }
+            if (child as u32) & 0x8000_0000 != 0 {
+                let s = (child as u32 & 0x7fff_ffff) as usize;
+                if c.surfaces
+                    .get(s)
+                    .is_some_and(|s| s.flags & SURFACE_TWO_SIDED != 0)
+                {
+                    two_sided = true;
+                    break;
+                }
+            } else if let Some(n) = c.bsp2d_nodes.get(child as usize) {
+                stack.push(n.left);
+                stack.push(n.right);
+            }
+        }
+        if two_sided {
+            out.push(l);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ce::{Bsp2dReference, Leaf, Surface};
+
+    fn one_leaf(leaf_flags: u16, surface_flags: u8) -> Collision {
+        Collision {
+            leaves: vec![Leaf {
+                flags: leaf_flags,
+                reference_count: 1,
+                first_reference: 0,
+            }],
+            bsp2d_references: vec![Bsp2dReference {
+                plane: 0,
+                node: 0x8000_0000u32 as i32,
+            }],
+            surfaces: vec![Surface {
+                plane: 0,
+                first_edge: -1,
+                flags: surface_flags,
+                breakable: -1,
+                material: 0,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_two_sided_surface_needs_its_leaf_flagged() {
+        assert_eq!(two_sided_leaves_unflagged(&one_leaf(0, 1)), vec![0]);
+        assert!(two_sided_leaves_unflagged(&one_leaf(1, 1)).is_empty());
+        assert!(two_sided_leaves_unflagged(&one_leaf(0, 0)).is_empty());
+    }
 }
