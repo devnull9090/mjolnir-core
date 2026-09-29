@@ -287,6 +287,9 @@ impl<'a> Compiler<'a> {
                         continue;
                     };
                     let resolved_return = self.value_type(return_type, *line);
+                    for p in parameters {
+                        self.check_name_fits(&p.name, "parameter", *line);
+                    }
                     let resolved_params: Vec<Parameter> = parameters
                         .iter()
                         .map(|p| Parameter {
@@ -317,6 +320,7 @@ impl<'a> Compiler<'a> {
                     if self.global_index.contains_key(name) {
                         self.error(*line, format!("`{name}` is declared more than once"));
                     }
+                    self.check_name_fits(name, "global", *line);
                     let resolved = self.value_type(value_type, *line);
                     self.global_index.insert(name.clone(), self.globals.len());
                     self.globals.push(Global {
@@ -1098,6 +1102,22 @@ impl<'a> Compiler<'a> {
         at
     }
 
+    /// A global or parameter is named in a fixed 32-byte field, so a longer
+    /// name cannot be written — say so here, against its line, rather than
+    /// when the tag is written.
+    fn check_name_fits(&mut self, name: &str, what: &str, line: u32) {
+        let max = crate::emit::MAX_NAME_LEN;
+        if name.len() > max {
+            self.error(
+                line,
+                format!(
+                    "the {what} name `{name}` is {} bytes; a scenario holds at most {max}",
+                    name.len()
+                ),
+            );
+        }
+    }
+
     fn error(&mut self, line: u32, message: String) {
         self.diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -1683,6 +1703,19 @@ mod tests {
         c.section.source_files.clear();
         let out = Decompiler::new(&c.section).scenario();
         assert!(out.contains("(if") && !out.contains("cond"), "{out}");
+    }
+
+    #[test]
+    fn a_global_or_parameter_name_too_long_to_store_is_an_error() {
+        let long = "g".repeat(32);
+        let c = compile(&format!("(global short {long} 0)"));
+        assert!(c.errors().any(|e| e.message.contains(&long)));
+        let c = compile(&format!(
+            "(script static void (f (short {long})) (sleep 1))"
+        ));
+        assert!(c.errors().any(|e| e.message.contains(&long)));
+        // 31 bytes still fits.
+        assert!(compile(&format!("(global short {} 0)", "g".repeat(31))).ok());
     }
 
     #[test]

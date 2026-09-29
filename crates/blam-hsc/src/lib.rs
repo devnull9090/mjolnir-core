@@ -49,6 +49,13 @@ pub enum Error {
     Rewrite(String),
     #[error("the block shapes are not known; read the section from a tag first")]
     UnknownShapes,
+    #[error("the {what} name `{name}` is {len} bytes; the field holds {max}")]
+    NameTooLong {
+        what: &'static str,
+        name: String,
+        len: usize,
+        max: usize,
+    },
     #[error("{count} {what} exceed the {max} the definitions allow")]
     TooManyElements {
         what: &'static str,

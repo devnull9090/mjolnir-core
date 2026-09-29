@@ -334,6 +334,11 @@ Two facts the shipped data forced, neither of them obvious:
   (`script_fragment_block`) and performance lines reference scripts *by name* and carry
   their own source text, so rebuilding the tree cannot dangle them.
 
+Globals, parameters and source files are named in a fixed 32-byte `string`, so a name
+is at most 31 bytes. A longer one is a compile error against its line, and an error from
+the writer as a backstop — never a truncation, which would write two long names sharing
+their first 31 bytes as the same name.
+
 `mjolnir script --rewrite-check` writes each shipped section back unmodified and asserts
 the tag comes out byte for byte identical: **13 of 13**. That is the check that the
 writer is exact rather than approximately right.
