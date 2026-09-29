@@ -170,8 +170,11 @@ fn surface16(s: &Surface, materials: &dyn MaterialMap) -> [u8; 14] {
     b[4..6].copy_from_slice(&materials.meteorite_index(s.material).to_le_bytes());
     b[6..8].copy_from_slice(&(-1i16).to_le_bytes());
     b[8..10].copy_from_slice(&(-1i16).to_le_bytes());
-    // CE bits 0..3 line up with Meteorite's first four flag options.
-    let mut flags = (s.flags & 0x0f) as u16;
+    // CE bits 0..3 line up with Meteorite's first four flag options, but the
+    // breakable bit (3) is dropped: the set and index above are written as -1,
+    // and a breakable surface whose index names no breakable set is solid for
+    // good. None of the 94,391 shipped Meteorite surfaces sets it.
+    let mut flags = (s.flags & 0x07) as u16;
     if negated {
         flags |= PLANE_NEGATED;
     }
@@ -414,6 +417,11 @@ mod tests {
         };
         let b = surface16(&s, &|m| m);
         assert_eq!(u16::from_le_bytes([b[0], b[1]]), 5);
+        assert_eq!(u16::from_le_bytes([b[10], b[11]]), 0x81);
+
+        // Two-sided and breakable: the breakable bit has no set to name, so it
+        // is not carried.
+        let b = surface16(&Surface { flags: 0x9, ..s }, &|m| m);
         assert_eq!(u16::from_le_bytes([b[10], b[11]]), 0x81);
     }
 
