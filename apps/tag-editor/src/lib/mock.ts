@@ -92,6 +92,8 @@ function field(partial: Partial<NodeView> & { name: string; type: string }): Nod
     block: null,
     max_count: null,
     count: null,
+    runtime: false,
+    feeds: [],
     children: [],
     ...partial,
   };
@@ -293,6 +295,20 @@ const mockModelTag: TagView = {
       size: 16,
     }),
     field({ name: "disappear distance", type: "real", value: "250" }),
+    // Not a model field: a source and its runtime copy, so the read-only
+    // row and the live-mode warning can be reviewed in a browser.
+    field({
+      name: "crouch transition time",
+      type: "real",
+      value: "0.25",
+      feeds: ["runtime crouch transition velocity"],
+    }),
+    field({
+      name: "runtime crouch transition velocity",
+      type: "real",
+      value: "4",
+      runtime: true,
+    }),
   ],
 };
 

@@ -11,15 +11,12 @@ import { RefPreview } from "./RefPreview";
 import { TagHeader, EditBar } from "./TagChrome";
 import {
   COMPONENT_LABELS,
-  NOT_EDITABLE,
+  RUNTIME_NOTE,
   editableText,
   elementLabel,
+  isEditable,
   splitComponents,
 } from "../lib/fields";
-
-function canEdit(node: NodeView): boolean {
-  return !NOT_EDITABLE.has(node.type) && node.size > 0;
-}
 
 const INPUT =
   "border border-border-subtle bg-surface-card px-2 py-1 font-mono text-xs " +
@@ -81,7 +78,7 @@ function FField({ node, path }: { node: NodeView; path: string }) {
   );
 
   const isEdited = edited.includes(path);
-  const editable = canEdit(node);
+  const editable = isEditable(node);
   // Angles convert at the edge: shown in degrees when asked, stored in radians.
   const degreesOn = useEditor((s) => s.degrees);
   const angular = degreesOn && isAngleType(node.type);
@@ -258,7 +255,17 @@ function FField({ node, path }: { node: NodeView; path: string }) {
         className={`w-44 shrink-0 truncate pt-1 text-sm ${
           editable ? "text-text-secondary" : "text-text-dim"
         }`}
-        title={`${node.type} · ${node.size} bytes @ ${node.offset}`}
+        title={
+          `${node.type} · ${node.size} bytes @ ${node.offset}` +
+          (node.runtime ? `
+
+${RUNTIME_NOTE}, so an edit here would be overwritten.` : "") +
+          (node.feeds.length > 0
+            ? `
+
+The game computes ${node.feeds.join(", ")} from this when the tag loads.`
+            : "")
+        }
       >
         {isEdited && <span className="mr-1 text-mjolnir-gold">●</span>}
         {node.name || <em>unnamed</em>}
@@ -269,6 +276,9 @@ function FField({ node, path }: { node: NodeView; path: string }) {
         )}
       </span>
       {control}
+      {node.runtime && (
+        <span className="pt-1.5 text-[10px] italic text-text-dim">{RUNTIME_NOTE}</span>
+      )}
       {isEdited && (
         <button
           type="button"
