@@ -49,6 +49,16 @@ pub enum Error {
     NoDefault { at: String, type_name: String },
     #[error("the tag has no bdat data section")]
     NoData,
+    #[error(
+        "{at} indexes {block}, which has {count} element(s): use -1 (none){}",
+        if *count == 0 { String::new() } else { format!(" or 0 to {}", count - 1) }
+    )]
+    BlockIndexOutOfRange {
+        at: String,
+        value: i64,
+        block: String,
+        count: u32,
+    },
     #[error(transparent)]
     Write(#[from] value::WriteError),
     #[error(transparent)]
@@ -185,6 +195,172 @@ pub fn route(
     path: &str,
 ) -> Result<Route, Error> {
     locate(layout, file, block, path).map(|(target, _, hops)| Route { target, hops })
+}
+
+/// The block a block-index field points into, and how many elements it has.
+///
+/// A `char`/`short`/`long block index` field's `aux` word is the `blv2` index
+/// of the block definition it indexes — the barrel's `magazine` carries the
+/// same number as the weapon's `magazines` block field. Which *instance* of
+/// that block is meant is not recorded, so it is looked for in the element
+/// holding the index (through its inlined structs, not into its blocks), then
+/// in each enclosing element out to the root, and the first scope that
+/// declares a block of that definition answers. A scope that declares two is
+/// ambiguous and yields `None`, as does a field that is not a plain block
+/// index. `custom … block index` fields are skipped: code picks their target,
+/// not the definition.
+///
+/// Returns the block's path and its element count.
+pub fn index_bound(
+    layout: &Layout<'_>,
+    file: &[u8],
+    block: &Block<'_>,
+    path: &str,
+) -> Option<(String, u32)> {
+    let target = resolve(layout, file, block, path).ok()?;
+    if !matches!(
+        target.type_name.as_str(),
+        "char block index" | "short block index" | "long block index"
+    ) {
+        return None;
+    }
+    let definition = target.field.aux;
+    let parts = segments(path);
+    let root = layout.struct_run(block.struct_index)?;
+
+    // Element scopes, outermost first: the root, then every prefix that ends
+    // in an indexed segment, each with its struct run.
+    let mut scopes: Vec<(usize, usize)> = vec![(0, root)];
+    let mut run = root;
+    for (k, (name, index)) in parts.iter().enumerate().take(parts.len().saturating_sub(1)) {
+        let field = field_named(layout, run, name)?;
+        run = match layout.type_name_of(&field) {
+            "struct" => layout.struct_run(field.aux as usize)?,
+            "block" => {
+                let entry = layout.blocks.get(field.aux as usize)?;
+                layout.struct_run(entry.aux as usize)?
+            }
+            "array" => {
+                let entry = layout.arrays.get(field.aux as usize)?;
+                layout.struct_run(entry.struct_index as usize)?
+            }
+            _ => return None,
+        };
+        if index.is_some() {
+            scopes.push((k + 1, run));
+        }
+    }
+
+    for &(depth, run) in scopes.iter().rev() {
+        let mut found = Vec::new();
+        blocks_of(layout, run, definition, &mut Vec::new(), &mut found, 0);
+        match found.len() {
+            0 => continue,
+            1 => {
+                let mut full: Vec<String> = parts[..depth]
+                    .iter()
+                    .map(|(name, index)| match index {
+                        Some(i) => format!("{}[{i}]", escape_segment(name)),
+                        None => escape_segment(name),
+                    })
+                    .collect();
+                full.extend(found[0].iter().map(|n| escape_segment(n)));
+                let full = full.join(".");
+                let (_, value, _) = locate(layout, file, block, &full).ok()?;
+                return match value {
+                    Some(crate::data::Value::Block(inner)) => Some((full, inner.count)),
+                    _ => None,
+                };
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Refuse a block-index value that is neither `-1` nor an element of the block
+/// it indexes, when [`index_bound`] can tell which block that is.
+///
+/// A value equal to what the field already holds always passes, so writing a
+/// tag's own values back — a revert, a pasted element — is never refused over
+/// an index the shipped data already carries.
+pub fn check_block_index(
+    layout: &Layout<'_>,
+    file: &[u8],
+    block: &Block<'_>,
+    path: &str,
+    value: &Scalar,
+) -> Result<(), Error> {
+    let Scalar::BlockIndex(v) = value else {
+        return Ok(());
+    };
+    if *v == -1 {
+        return Ok(());
+    }
+    if let Ok(t) = resolve(layout, file, block, path) {
+        if t.current == *value {
+            return Ok(());
+        }
+    }
+    match index_bound(layout, file, block, path) {
+        Some((at, count)) if *v < 0 || *v >= count as i64 => Err(Error::BlockIndexOutOfRange {
+            at: path.to_string(),
+            value: *v,
+            block: at,
+            count,
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// The field of `run` with this name. Definition names can carry a trailing
+/// space; paths never do.
+fn field_named(layout: &Layout<'_>, run: usize, name: &str) -> Option<FieldEntry> {
+    let range = layout.struct_ranges().get(run)?.clone();
+    range
+        .map(|i| layout.fields[i])
+        .find(|f| layout.string_at(f.name_offset).unwrap_or("").trim() == name)
+}
+
+/// Paths, within one element, of the block fields of `definition`: the run's
+/// own and those of its inlined structs.
+fn blocks_of(
+    layout: &Layout<'_>,
+    run: usize,
+    definition: u32,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<Vec<String>>,
+    depth: u32,
+) {
+    if depth > 32 {
+        return;
+    }
+    let Some(range) = layout.struct_ranges().get(run).cloned() else {
+        return;
+    };
+    for i in range {
+        let field = layout.fields[i];
+        let name = layout
+            .string_at(field.name_offset)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        match layout.type_name_of(&field) {
+            "block" if field.aux == definition => {
+                let mut p = prefix.clone();
+                p.push(name);
+                out.push(p);
+            }
+            "struct" => {
+                if let Some(inner) = layout.struct_run(field.aux as usize) {
+                    prefix.push(name);
+                    blocks_of(layout, inner, definition, prefix, out, depth + 1);
+                    prefix.pop();
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// [`resolve`], also returning the decoded value paired with the field, when
@@ -399,6 +575,7 @@ pub fn set(
     value: &Scalar,
 ) -> Result<(Vec<u8>, Applied), Error> {
     let target = resolve(layout, file, block, path)?;
+    check_block_index(layout, file, block, path, value)?;
     let mut out = file.to_vec();
     let end = target.file_offset + target.size;
 
@@ -449,6 +626,7 @@ pub fn set_many(
     let mut targets = Vec::with_capacity(edits.len());
     for (path, value) in edits {
         targets.push((resolve(layout, file, block, path)?, path, value));
+        check_block_index(layout, file, block, path, value)?;
     }
 
     let mut out = file.to_vec();
@@ -1414,6 +1592,44 @@ pub(crate) mod tests {
         let block = tag.read_data(&layout).unwrap();
         let payload = tag.data().unwrap();
         assert_eq!(block.consumed, payload.size as usize, "walk must be exact");
+    }
+
+    #[test]
+    fn a_block_index_is_bounded_by_the_block_it_names() {
+        let file = synth_block_file();
+        with_tag(&file, |layout, block| {
+            // `link` (short block index, aux 0) sits in an `items` element;
+            // the block of definition 0 is `items`, declared by the root.
+            assert_eq!(
+                index_bound(layout, &file, block, "items[1].link"),
+                Some(("items".to_string(), 2))
+            );
+            // Not a block index: no bound.
+            assert_eq!(index_bound(layout, &file, block, "items[1].n"), None);
+
+            for ok in [-1, 0, 1] {
+                assert!(
+                    set(layout, &file, block, "items[0].link", &Scalar::BlockIndex(ok)).is_ok(),
+                    "{ok} should be accepted"
+                );
+            }
+            for bad in [2, 7, -2] {
+                let err = set(layout, &file, block, "items[0].link", &Scalar::BlockIndex(bad))
+                    .unwrap_err();
+                assert!(
+                    matches!(err, Error::BlockIndexOutOfRange { count: 2, .. }),
+                    "{bad}: {err}"
+                );
+            }
+            // A batch fails as a whole.
+            assert!(set_many(
+                layout,
+                &file,
+                block,
+                &[("items[0].link".into(), Scalar::BlockIndex(5))]
+            )
+            .is_err());
+        });
     }
 
     #[test]

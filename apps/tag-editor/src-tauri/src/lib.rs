@@ -278,6 +278,13 @@ struct NodeView {
     max_count: Option<u32>,
     /// Elements this block really has; `children` may hold fewer.
     count: Option<u32>,
+    /// A field the engine recomputes when the tag loads (`runtime …`), so
+    /// the UI shows it read-only. See `blam_defs::runtime`.
+    runtime: bool,
+    /// The runtime fields of the same element computed from this one, by
+    /// path within the element. The running game reads those copies, so a
+    /// live change to this field does nothing until the tag loads again.
+    feeds: Vec<String>,
     children: Vec<NodeView>,
 }
 
@@ -362,8 +369,89 @@ fn to_view(node: &blam_tag::view::Node) -> NodeView {
         block: node.block_name.clone(),
         max_count: node.max_count,
         count: node.count,
+        runtime: node.kind == blam_tag::view::Kind::Field
+            && blam_defs::runtime::is_runtime_field(&node.name, &node.type_name),
+        feeds: Vec::new(),
         children: node.children.iter().map(to_view).collect(),
     }
+}
+
+/// The value tree for the UI: [`to_view`] over the root fields, then each
+/// element's source fields marked with the runtime fields computed from them.
+fn to_views(nodes: &[blam_tag::view::Node]) -> Vec<NodeView> {
+    let mut fields: Vec<NodeView> = nodes.iter().map(to_view).collect();
+    mark_feeds(&mut fields);
+    fields
+}
+
+/// Fill `feeds` for one element's fields — `fields` is the root or one
+/// block/array element — and then for every element beneath it.
+///
+/// An element's own fields include those of its inlined structs, which is
+/// where some sources sit (`firing.acceleration time` feeds the barrel's
+/// `runtime rate of fire acceleration rate`).
+fn mark_feeds(fields: &mut [NodeView]) {
+    fn collect(
+        nodes: &[NodeView],
+        at: &mut Vec<usize>,
+        names: &mut Vec<String>,
+        out: &mut Vec<(Vec<usize>, Vec<String>, String)>,
+    ) {
+        for (i, n) in nodes.iter().enumerate() {
+            at.push(i);
+            names.push(n.name.clone());
+            if n.kind == "struct" {
+                collect(&n.children, at, names, out);
+            } else if n.kind == "field" {
+                out.push((at.clone(), names.clone(), n.type_name.clone()));
+            }
+            names.pop();
+            at.pop();
+        }
+    }
+    fn at_mut<'a>(nodes: &'a mut [NodeView], at: &[usize]) -> &'a mut NodeView {
+        let (first, rest) = at.split_first().expect("a non-empty index path");
+        let node = &mut nodes[*first];
+        if rest.is_empty() {
+            node
+        } else {
+            at_mut(&mut node.children, rest)
+        }
+    }
+
+    let mut flat = Vec::new();
+    collect(fields, &mut Vec::new(), &mut Vec::new(), &mut flat);
+    let pairs = {
+        let members: Vec<blam_defs::runtime::Member<'_>> = flat
+            .iter()
+            .map(|(_, names, type_name)| blam_defs::runtime::Member {
+                path: names.iter().map(String::as_str).collect(),
+                type_name: type_name.as_str(),
+            })
+            .collect();
+        blam_defs::runtime::derived_pairs(&members)
+    };
+    for (source, runtime) in pairs {
+        let path = flat[runtime].1.join(".");
+        at_mut(fields, &flat[source].0).feeds.push(path);
+    }
+
+    // Deeper elements: blocks and arrays hold elements, found through this
+    // element's fields and its inlined structs.
+    fn descend(nodes: &mut [NodeView]) {
+        for n in nodes {
+            match n.kind {
+                "struct" => descend(&mut n.children),
+                "block" | "array" => {
+                    for element in &mut n.children {
+                        mark_feeds(&mut element.children);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    descend(fields);
 }
 
 #[tauri::command]
@@ -1936,7 +2024,7 @@ fn read_tag(
                         blam_tag::view::root(layout, &block)
                     };
                     (
-                        nodes.iter().map(to_view).collect::<Vec<_>>(),
+                        to_views(&nodes),
                         exact,
                         None,
                     )
@@ -5459,6 +5547,142 @@ mod tests {
             path: path.into(),
             value: value.into(),
         }
+    }
+
+    fn node(kind: &'static str, name: &str, type_name: &str, children: Vec<NodeView>) -> NodeView {
+        NodeView {
+            kind,
+            name: name.into(),
+            type_name: type_name.into(),
+            offset: 0,
+            size: 4,
+            value: String::new(),
+            reference: None,
+            options: Vec::new(),
+            selected: Vec::new(),
+            block: None,
+            max_count: None,
+            count: None,
+            runtime: blam_defs::runtime::is_runtime_field(name, type_name),
+            feeds: Vec::new(),
+            children,
+        }
+    }
+
+    #[test]
+    fn a_source_field_names_the_runtime_fields_computed_from_it() {
+        // A weapon root with one barrel element, shaped as the shipped
+        // definition is: the rate-of-fire ramp in the inlined `firing` struct,
+        // its runtime copy on the element itself.
+        let barrel = node(
+            "element",
+            "[0]",
+            "",
+            vec![
+                node(
+                    "struct",
+                    "firing",
+                    "struct",
+                    vec![node("field", "acceleration time", "real", vec![])],
+                ),
+                node("field", "illumination recovery time", "real", vec![]),
+                node(
+                    "field",
+                    "runtime rate of fire acceleration rate",
+                    "real",
+                    vec![],
+                ),
+                node(
+                    "field",
+                    "runtime illumination recovery rate",
+                    "real",
+                    vec![],
+                ),
+            ],
+        );
+        let mut root = vec![
+            node("field", "turn on time", "real", vec![]),
+            node("block", "barrels", "block", vec![barrel]),
+        ];
+        mark_feeds(&mut root);
+
+        let barrel = &root[1].children[0];
+        assert_eq!(
+            barrel.children[0].children[0].feeds,
+            vec!["runtime rate of fire acceleration rate"]
+        );
+        assert_eq!(
+            barrel.children[1].feeds,
+            vec!["runtime illumination recovery rate"]
+        );
+        assert!(barrel.children[2].runtime && barrel.children[3].runtime);
+        assert!(!barrel.children[1].runtime);
+        assert!(root[0].feeds.is_empty());
+    }
+
+    /// Block-index bounds against the shipped data: over the first tags of
+    /// every group, every plain block index whose block `index_bound` names
+    /// must already hold -1 or a valid element — otherwise the scope rule
+    /// picked the wrong block. The one exception is a block the cooker
+    /// emptied: the HUD's `State Editor Data` ships with no elements while the
+    /// `… State Editor Root` indices into it keep their authored values.
+    #[test]
+    fn shipped_block_indices_lie_within_the_block_they_are_bounded_by() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let (mut bounded, mut unbounded, mut outside) = (0usize, 0usize, Vec::new());
+        for group in c.groups().unwrap() {
+            for t in c.tags_in(&group.group, 6) {
+                let file = c.read_tag(t.index).unwrap();
+                let tag = blam_tag::TagFile::parse(&file, Some(file.len())).unwrap();
+                let layout = tag.layout().unwrap();
+                let Ok(block) = tag.read_data(&layout) else {
+                    continue;
+                };
+                let nodes = blam_tag::view::root_capped(&layout, &block, 4);
+                let mut paths = Vec::new();
+                fn walk(nodes: &[blam_tag::view::Node], base: &str, out: &mut Vec<(String, i64)>) {
+                    for n in nodes {
+                        let path = match n.kind {
+                            blam_tag::view::Kind::Element => format!("{base}{}", n.name),
+                            _ if base.is_empty() => blam_tag::patch::escape_segment(&n.name),
+                            _ => format!("{base}.{}", blam_tag::patch::escape_segment(&n.name)),
+                        };
+                        if let blam_tag::Scalar::BlockIndex(v) = n.value {
+                            if !n.type_name.starts_with("custom") {
+                                out.push((path.clone(), v));
+                            }
+                        }
+                        walk(&n.children, &path, out);
+                    }
+                }
+                walk(&nodes, "", &mut paths);
+                for (path, v) in paths {
+                    match blam_tag::patch::index_bound(&layout, &file, &block, &path) {
+                        Some((at, count)) => {
+                            bounded += 1;
+                            if count > 0 && v != -1 && (v < 0 || v >= count as i64) {
+                                outside
+                                    .push(format!("{}: {path} = {v}, {at} has {count}", t.short));
+                            }
+                        }
+                        None => unbounded += 1,
+                    }
+                }
+            }
+        }
+        eprintln!("{bounded} block indices bounded, {unbounded} not identifiable");
+        for o in &outside {
+            eprintln!("OUTSIDE {o}");
+        }
+        assert!(bounded > 100, "too few bounded: {bounded}");
+        assert!(
+            outside.is_empty(),
+            "{} shipped indices out of range",
+            outside.len()
+        );
     }
 
     #[test]

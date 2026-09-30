@@ -63,34 +63,37 @@ impl Token {
     }
 }
 
-/// A token and the source line it appeared on, 1-based.
+/// A token, the source line it appeared on (1-based), and the byte offset it
+/// starts at: its `(`, its opening quote, or its first character.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lexeme {
     pub token: Token,
     pub line: u32,
+    pub offset: u32,
 }
 
 /// Split HSC source into tokens, dropping comments.
 pub fn tokenize(src: &str) -> Vec<Lexeme> {
     let mut out = Vec::new();
-    let mut chars = src.chars().peekable();
+    let mut chars = src.char_indices().map(|(i, c)| (i as u32, c)).peekable();
     let mut word = String::new();
     let mut word_line = 1u32;
+    let mut word_at = 0u32;
     let mut line = 1u32;
 
-    while let Some(c) = chars.next() {
+    while let Some((at, c)) = chars.next() {
         match c {
             ';' => {
-                flush(&mut word, word_line, &mut out);
+                flush(&mut word, word_line, word_at, &mut out);
                 // `;*` opens a block comment that runs to `*;`; a bare `;`
                 // comments out the rest of the line. The shipped
                 // `global_scripts` uses both, and reading a block comment as a
                 // line comment turns the rest of it into stray top-level
                 // tokens.
-                if chars.peek() == Some(&'*') {
+                if chars.peek().map(|(_, c)| *c) == Some('*') {
                     chars.next();
                     let mut prev = '\0';
-                    for c in chars.by_ref() {
+                    for (_, c) in chars.by_ref() {
                         if c == '\n' {
                             line += 1;
                         }
@@ -101,7 +104,7 @@ pub fn tokenize(src: &str) -> Vec<Lexeme> {
                     }
                     continue;
                 }
-                for c in chars.by_ref() {
+                for (_, c) in chars.by_ref() {
                     if c == '\n' {
                         line += 1;
                         break;
@@ -109,10 +112,10 @@ pub fn tokenize(src: &str) -> Vec<Lexeme> {
                 }
             }
             '"' => {
-                flush(&mut word, word_line, &mut out);
+                flush(&mut word, word_line, word_at, &mut out);
                 let start = line;
                 let mut s = String::new();
-                for c in chars.by_ref() {
+                for (_, c) in chars.by_ref() {
                     if c == '"' {
                         break;
                     }
@@ -124,17 +127,19 @@ pub fn tokenize(src: &str) -> Vec<Lexeme> {
                 out.push(Lexeme {
                     token: Token::Str(s),
                     line: start,
+                    offset: at,
                 });
             }
             '(' | ')' => {
-                flush(&mut word, word_line, &mut out);
+                flush(&mut word, word_line, word_at, &mut out);
                 out.push(Lexeme {
                     token: if c == '(' { Token::Open } else { Token::Close },
                     line,
+                    offset: at,
                 });
             }
             c if c.is_whitespace() => {
-                flush(&mut word, word_line, &mut out);
+                flush(&mut word, word_line, word_at, &mut out);
                 if c == '\n' {
                     line += 1;
                 }
@@ -142,16 +147,17 @@ pub fn tokenize(src: &str) -> Vec<Lexeme> {
             c => {
                 if word.is_empty() {
                     word_line = line;
+                    word_at = at;
                 }
                 word.push(c);
             }
         }
     }
-    flush(&mut word, word_line, &mut out);
+    flush(&mut word, word_line, word_at, &mut out);
     out
 }
 
-fn flush(word: &mut String, line: u32, out: &mut Vec<Lexeme>) {
+fn flush(word: &mut String, line: u32, offset: u32, out: &mut Vec<Lexeme>) {
     if word.is_empty() {
         return;
     }
@@ -162,7 +168,11 @@ fn flush(word: &mut String, line: u32, out: &mut Vec<Lexeme>) {
         Err(_) => Token::Word(word.clone()),
     };
     word.clear();
-    out.push(Lexeme { token, line });
+    out.push(Lexeme {
+        token,
+        line,
+        offset,
+    });
 }
 
 /// Just the tokens, for callers that do not care where they came from.

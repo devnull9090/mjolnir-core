@@ -1989,6 +1989,9 @@ fn script(a: ScriptArgs) -> Result<()> {
             .read_data(&l)
             .with_context(|| format!("{} is not readable", entry.path))?;
         let hs = blam_hsc::read::read(&l, &block, &buf)?;
+        // What the scenario calls its objects, volumes and squads, which a
+        // compiled name literal resolves against.
+        let names = blam_hsc::read::names(&l, &block);
 
         // The sources as files, the way a mod project keeps them: one folder
         // per scenario, one `.hsc` per source file, in the order they compile.
@@ -2032,7 +2035,7 @@ fn script(a: ScriptArgs) -> Result<()> {
         }
 
         if a.rebuild_check {
-            rebuild_check(&hs, corpus.as_ref(), &buf, &entry.path, &mut totals);
+            rebuild_check(&hs, &names, corpus.as_ref(), &buf, &entry.path, &mut totals);
             continue;
         }
 
@@ -2074,7 +2077,14 @@ fn script(a: ScriptArgs) -> Result<()> {
         }
 
         if a.recompile {
-            recompile_scripts(&hs, corpus.as_ref(), &entry.path, a.show, &mut totals);
+            recompile_scripts(
+                &hs,
+                &names,
+                corpus.as_ref(),
+                &entry.path,
+                a.show,
+                &mut totals,
+            );
             continue;
         }
 
@@ -2172,6 +2182,12 @@ fn script(a: ScriptArgs) -> Result<()> {
                 totals.compile_warnings
             );
         }
+        if totals.unresolved_names > 0 {
+            println!(
+                "       {} name literal(s) that match nothing in their scenario",
+                totals.unresolved_names
+            );
+        }
         if totals.fixpoint_ok + totals.fixpoint_broken > 0 {
             println!(
                 "       {} of {} scenarios recompile their own output to the same tree",
@@ -2207,6 +2223,7 @@ struct VerifyTotals {
     shown: usize,
     compile_errors: usize,
     compile_warnings: usize,
+    unresolved_names: usize,
     fixpoint_ok: usize,
     fixpoint_broken: usize,
     kinds: BTreeMap<hsc::Difference, usize>,
@@ -2287,6 +2304,7 @@ fn verify_scripts(
 /// section compared against what went in.
 fn rebuild_check(
     hs: &blam_hsc::ScriptSection,
+    names: &blam_hsc::read::ScenarioNames,
     corpus: Option<&blam_hsc::ScriptCorpus>,
     file: &[u8],
     path: &str,
@@ -2308,7 +2326,9 @@ fn rebuild_check(
         .map(|(n, t)| (n.as_str(), t.as_str()))
         .collect();
 
-    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    let compiled = blam_hsc::Compiler::from_corpus(corpus)
+        .with_names(names)
+        .compile(&files);
     if !compiled.ok() {
         println!(
             "{short:<28} FAILED to compile: {}",
@@ -2355,10 +2375,14 @@ fn rebuild_check(
             totals.differs += 1;
         }
         Ok(back) => {
+            // The string blob comes back whole, reserved tail included: a tail
+            // lost on the way would leave the engine's runtime strings
+            // writing over whatever follows the blob.
             let same = back.scripts.len() == section.scripts.len()
                 && back.globals.len() == section.globals.len()
                 && back.live().count() == section.live().count()
-                && back.source_files.len() == section.source_files.len();
+                && back.source_files.len() == section.source_files.len()
+                && back.strings == section.strings;
             if same {
                 println!(
                     "{short:<28} rebuilt ok: {} scripts, {} globals, {} expressions, {} bytes ({:+})",
@@ -2393,6 +2417,7 @@ fn rebuild_check(
 /// source that went in.
 fn recompile_scripts(
     hs: &blam_hsc::ScriptSection,
+    names: &blam_hsc::read::ScenarioNames,
     corpus: Option<&blam_hsc::ScriptCorpus>,
     path: &str,
     show: usize,
@@ -2418,7 +2443,9 @@ fn recompile_scripts(
         .map(|(n, t)| (n.as_str(), t.as_str()))
         .collect();
 
-    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    let compiled = blam_hsc::Compiler::from_corpus(corpus)
+        .with_names(names)
+        .compile(&files);
     let errors: Vec<_> = compiled.errors().collect();
     if !errors.is_empty() {
         println!("{short:<28} {} compile error(s)", errors.len());
@@ -2427,7 +2454,16 @@ fn recompile_scripts(
         }
         totals.compile_errors += errors.len();
     }
-    totals.compile_warnings += compiled.diagnostics.len() - errors.len();
+    // A name that resolves to nothing in the scenario is its own finding, not
+    // a literal whose type was guessed.
+    let unresolved = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == blam_hsc::Severity::Warning)
+        .filter(|d| d.message.ends_with("in this scenario"))
+        .count();
+    totals.unresolved_names += unresolved;
+    totals.compile_warnings += compiled.diagnostics.len() - errors.len() - unresolved;
 
     // Grade against the source that went in, the same way `--verify` grades the
     // shipped tree, so the two numbers are comparable.
@@ -2470,8 +2506,9 @@ fn recompile_scripts(
     // the known quoting classification, which is a rendering question. This
     // does: the tree is the compiler's own output either way, so any difference
     // is the compiler's.
-    let second =
-        blam_hsc::Compiler::from_corpus(corpus).compile(&[("<decompiled>", &d.scenario())]);
+    let second = blam_hsc::Compiler::from_corpus(corpus)
+        .with_names(names)
+        .compile(&[("<decompiled>", &d.scenario())]);
     match tree_difference(&compiled.section, &second.section) {
         None => totals.fixpoint_ok += 1,
         Some(why) => {
@@ -2563,30 +2600,34 @@ fn walk_difference(
         }
     };
 
-    if ea.expression_type != eb.expression_type
+    if ea.kind() != eb.kind()
         || ea.opcode != eb.opcode
         || ea.value_type != eb.value_type
     {
         return Some(format!(
             "`{what}`: {:?}/{:#x}/{} became {:?}/{:#x}/{}",
-            ea.expression_type,
+            ea.kind(),
             ea.opcode,
             ea.value_type,
-            eb.expression_type,
+            eb.kind(),
             eb.opcode,
             eb.value_type
         ));
     }
-    if a.string_at(ea.string_offset) != b.string_at(eb.string_offset) {
+    // A call's or a number's offset points into its own source, which is the
+    // decompiled text the second time round; only strings can be compared.
+    if a.text_of(ea) != b.text_of(eb) {
         return Some(format!(
             "`{what}`: {:?} became {:?}",
-            a.string_at(ea.string_offset),
-            b.string_at(eb.string_offset)
+            a.text_of(ea),
+            b.text_of(eb)
         ));
     }
-    // A call's `data` is a handle into its own array, so only a literal's
-    // payload can be compared directly.
-    if !ea.expression_type.has_children() && ea.data != eb.data {
+    // A call's `data` is a handle into its own array, and a string's repeats
+    // its offset into its own blob, so only other literals' payloads can be
+    // compared directly; the string itself was compared above.
+    let is_string = a.value_types.name_of(ea.value_type) == Some("string");
+    if !ea.kind().has_children() && !is_string && ea.data != eb.data {
         return Some(format!("`{what}`: {:#x} became {:#x}", ea.data, eb.data));
     }
 

@@ -266,6 +266,7 @@ function LiveToggle() {
   const poking = useEditor((s) => s.livePoking);
   const scanning = useEditor((s) => s.liveScanning);
   const note = useEditor((s) => s.liveNote);
+  const stale = useEditor((s) => s.liveStale);
   const setLiveOn = useEditor((s) => s.setLiveOn);
   const refreshLive = useEditor((s) => s.refreshLive);
   const censusLive = useEditor((s) => s.censusLive);
@@ -337,6 +338,18 @@ function LiveToggle() {
           }`}
         >
           {note}
+        </span>
+      )}
+      {liveOn && stale && (
+        <span
+          className="basis-full font-mono text-[10px] text-(--mj-amber)"
+          title={
+            "The engine recomputes runtime fields from their sources when a tag " +
+            "loads, and the simulation reads only those copies. Changing the " +
+            "source in memory leaves the copy as it was."
+          }
+        >
+          ⚠ {stale}
         </span>
       )}
     </div>

@@ -18,11 +18,21 @@
 //!   272,190 slots are fill. This emits a dense array.
 //! - **String blob.** The shipped blob repeats strings: 9,168 distinct offsets
 //!   across 2,806 distinct strings in `a30`. This interns, so each string is
-//!   written once.
+//!   written once, and keeps the shipped blob's free tail after the last one
+//!   (see [`crate::emit::STRING_DATA_RESERVE`]).
 //!
 //! Everything the engine reads is reproduced: expression types, opcodes, value
 //! types, sibling chains, and the rule that a call's first child names it and
 //! carries the same opcode.
+//!
+//! # Source offsets
+//!
+//! A call's `+0xC`, and a number's or boolean's, is not a string offset but a
+//! byte offset into the scenario's source files taken end to end, each with
+//! its NUL: all 72,611 shipped call nodes land on a `(`, and every numeric
+//! literal on its own token. The compiler writes the same, so a compiled tree
+//! points back into the text it came from — which is what lets the decompiler
+//! recover `cond`.
 
 use std::collections::HashMap;
 
@@ -30,7 +40,7 @@ use crate::corpus::ScriptCorpus;
 use crate::expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 use crate::lex::Token;
 use crate::parse::{self, Declaration, Form, Spanned, Vocabulary};
-use crate::read::{Global, Parameter, Script, ScriptSection};
+use crate::read::{Global, Parameter, ScenarioNames, Script, ScriptSection, SourceFile};
 
 /// The datum generation this compiler starts counting from.
 ///
@@ -41,6 +51,28 @@ use crate::read::{Global, Parameter, Script, ScriptSection};
 /// start from, chosen so a diff against shipped data reads as naturally as it
 /// can.
 const GENERATION_BASE: u16 = 0xE373;
+
+/// The name-literal kinds [`Compiler::with_names`] resolves, each measured
+/// against the shipped scenarios.
+const RESOLVED: &[&str] = &[
+    "object_name",
+    "unit_name",
+    "vehicle_name",
+    "device_name",
+    "trigger_volume",
+    "cutscene_flag",
+    "cutscene_title",
+    "zone_set",
+    "insertion_point",
+    "starting_profile",
+    "user_interface_objective",
+    "folder",
+    "point_reference",
+    "ai",
+    "player",
+    "script",
+    "ai_command_script",
+];
 
 /// How deep an expression may nest before compilation gives up.
 const MAX_DEPTH: u32 = 128;
@@ -107,6 +139,10 @@ enum Resolved {
 
 pub struct Compiler<'a> {
     corpus: Option<&'a ScriptCorpus>,
+    /// What the scenario being compiled for calls its objects, volumes, squads
+    /// and so on. Without it a name literal keeps its string but not the index
+    /// the engine reads — see [`Compiler::with_names`].
+    names: Option<&'a ScenarioNames>,
     value_types: ValueTypes,
     script_types: ValueTypes,
 
@@ -128,6 +164,7 @@ impl<'a> Compiler<'a> {
     pub fn new(value_types: ValueTypes, script_types: ValueTypes) -> Self {
         Compiler {
             corpus: None,
+            names: None,
             value_types,
             script_types,
             // Offset 0 is a NUL so that an empty string interns to 0 and a
@@ -154,6 +191,18 @@ impl<'a> Compiler<'a> {
         c
     }
 
+    /// Resolve name literals against the scenario the result will be written
+    /// into.
+    ///
+    /// A shipped node naming a trigger volume, an object, a squad and so on
+    /// carries that element's index in `data`, not just its string, so a tree
+    /// compiled without the scenario's names has every such literal pointing
+    /// at element 0. Read them with [`crate::read::names`].
+    pub fn with_names(mut self, names: &'a ScenarioNames) -> Self {
+        self.names = Some(names);
+        self
+    }
+
     pub fn vocabulary(&self) -> Vocabulary {
         Vocabulary::new(self.value_types.names(), self.script_types.names())
     }
@@ -167,27 +216,47 @@ impl<'a> Compiler<'a> {
         let vocab = self.vocabulary();
         let mut declarations = Vec::new();
 
+        // Source offsets run across the files end to end, each followed by the
+        // NUL it is stored with, so a file's offsets start after the last's.
+        let mut base = 0u32;
         for (name, text) in files {
             let (forms, parse_errors) = parse::parse_recovering(text);
             for e in parse_errors {
                 self.error(e.line, format!("{}: {}", name, e.message));
             }
-            let (decls, errors) = parse::declarations(&forms, &vocab);
+            let (mut decls, errors) = parse::declarations(&forms, &vocab);
             for e in errors {
                 self.error(e.line, format!("{}: {}", name, e.message));
             }
+            decls.iter_mut().for_each(|d| d.shift(base));
             declarations.extend(decls);
+            base = base.saturating_add(text.len() as u32 + 1);
         }
 
         self.declare(&declarations);
         self.emit_all(&declarations);
+
+        // Every string is interned by now, so the reserve goes after the last.
+        let used = self.strings.len();
+        self.strings
+            .resize(used + crate::emit::STRING_DATA_RESERVE, 0);
 
         let section = ScriptSection {
             strings: self.strings,
             expressions: self.expressions,
             scripts: self.scripts,
             globals: self.globals,
-            source_files: Vec::new(),
+            // The files the offsets point into, stored the way a scenario
+            // stores them. A caller writing the section into a tag may replace
+            // them with the same text, but not with different text.
+            source_files: files
+                .iter()
+                .map(|(name, text)| SourceFile {
+                    name: name.to_string(),
+                    source: text.bytes().chain(std::iter::once(0)).collect(),
+                    flags: 0,
+                })
+                .collect(),
             references: Vec::new(),
             value_types: self.value_types,
             script_types: self.script_types,
@@ -218,6 +287,9 @@ impl<'a> Compiler<'a> {
                         continue;
                     };
                     let resolved_return = self.value_type(return_type, *line);
+                    for p in parameters {
+                        self.check_name_fits(&p.name, "parameter", *line);
+                    }
                     let resolved_params: Vec<Parameter> = parameters
                         .iter()
                         .map(|p| Parameter {
@@ -248,6 +320,7 @@ impl<'a> Compiler<'a> {
                     if self.global_index.contains_key(name) {
                         self.error(*line, format!("`{name}` is declared more than once"));
                     }
+                    self.check_name_fits(name, "global", *line);
                     let resolved = self.value_type(value_type, *line);
                     self.global_index.insert(name.clone(), self.globals.len());
                     self.globals.push(Global {
@@ -268,7 +341,10 @@ impl<'a> Compiler<'a> {
         for d in declarations {
             match d {
                 Declaration::Script {
-                    parameters, line, ..
+                    parameters,
+                    line,
+                    offset,
+                    ..
                 } => {
                     let index = script_at;
                     script_at += 1;
@@ -284,7 +360,7 @@ impl<'a> Compiler<'a> {
                         unreachable!()
                     };
                     let expected = self.scripts[index].return_type;
-                    let root = self.emit_body(body, expected, &params, *line);
+                    let root = self.emit_body(body, expected, &params, *line, *offset);
                     self.scripts[index].root = root;
                 }
                 Declaration::Global {
@@ -313,13 +389,15 @@ impl<'a> Compiler<'a> {
     ///
     /// Every one of the 6,827 shipped scripts has a `begin` group at its root,
     /// including the single-statement ones, so this wraps unconditionally
-    /// rather than trying to be clever about it.
+    /// rather than trying to be clever about it. The `begin` has no `(` of its
+    /// own, so its source offset is the declaration's, as shipped.
     fn emit_body(
         &mut self,
         body: &[Spanned],
         expected: u16,
         params: &[(String, u16)],
         line: u32,
+        offset: u32,
     ) -> DatumHandle {
         let Some(begin) = self.function_opcode("begin") else {
             self.error(line, "the function table has no `begin`".into());
@@ -330,9 +408,9 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode: begin,
             value_type: expected,
-            expression_type: ExpressionType::Group,
+            flags: ExpressionType::Group.flags(),
             next: DatumHandle::NULL,
-            string_offset: 0,
+            string_offset: offset,
             data: 0,
             line: start_line as u16,
             tail: 0,
@@ -343,7 +421,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode: begin,
             value_type: name_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset: begin_string,
             data: 0,
@@ -377,8 +455,10 @@ impl<'a> Compiler<'a> {
             return DatumHandle::NULL;
         }
         match &form.form {
-            Form::List(items) => self.emit_call(items, form.line, expected, params, depth),
-            Form::Atom(token) => self.emit_atom(token, form.line, expected, params),
+            Form::List(items) => {
+                self.emit_call(items, form.line, form.offset, expected, params, depth)
+            }
+            Form::Atom(token) => self.emit_atom(token, form.line, form.offset, expected, params),
         }
     }
 
@@ -386,6 +466,7 @@ impl<'a> Compiler<'a> {
         &mut self,
         items: &[Spanned],
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
         depth: u32,
@@ -404,7 +485,7 @@ impl<'a> Compiler<'a> {
         // nested `if` before emitting anything, which is why no opcode exists
         // for it. Doing the same here keeps the two in step.
         if name == "cond" {
-            return self.emit_cond(args, line, expected, params, depth);
+            return self.emit_cond(args, line, offset, expected, params, depth);
         }
 
         let Some(resolved) = self.resolve(name, params, args.len()) else {
@@ -443,9 +524,10 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode,
             value_type: return_type.unwrap_or_else(|| self.void_type()),
-            expression_type: kind,
+            flags: kind.flags(),
             next: DatumHandle::NULL,
-            string_offset: 0,
+            // Where the call's `(` is in the source, not a string.
+            string_offset: offset,
             data: 0,
             line: line as u16,
             tail: 0,
@@ -458,7 +540,7 @@ impl<'a> Compiler<'a> {
             generation: 0,
             opcode,
             value_type: name_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset: callee_string,
             data: 0,
@@ -481,10 +563,18 @@ impl<'a> Compiler<'a> {
     }
 
     /// `(cond (test body...) ...)` becomes `(if test (begin body...) <rest>)`.
+    ///
+    /// Every `if` and `begin` this makes records the `cond`'s own source
+    /// offset, as the shipped ones do: 1,162 `if`s across the campaign point at
+    /// the text `(cond`, and that is how the decompiler knows to put it back.
+    /// The last clause's `if` gets an else as well — a literal of the `cond`'s
+    /// type, zero, at the same offset — because every shipped `cond` ends in
+    /// one: 207 `void` and 23 others, all with `data` zero.
     fn emit_cond(
         &mut self,
         clauses: &[Spanned],
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
         depth: u32,
@@ -508,34 +598,79 @@ impl<'a> Compiler<'a> {
         // Rebuild as `(if <test> (begin <body…>) <cond of the rest>)` and
         // compile that, so there is one emission path rather than two.
         let mut rewritten = vec![
-            atom_word("if", first.line),
+            atom_word("if", first.line, offset),
             test.clone(),
             Spanned {
                 form: Form::List(
-                    std::iter::once(atom_word("begin", first.line))
+                    std::iter::once(atom_word("begin", first.line, offset))
                         .chain(body.iter().cloned())
                         .collect(),
                 ),
                 line: first.line,
+                offset,
             },
         ];
         if !rest.is_empty() {
             rewritten.push(Spanned {
                 form: Form::List(
-                    std::iter::once(atom_word("cond", rest[0].line))
+                    std::iter::once(atom_word("cond", rest[0].line, offset))
                         .chain(rest.iter().cloned())
                         .collect(),
                 ),
                 line: rest[0].line,
+                offset,
             });
         }
-        self.emit_call(&rewritten, line, expected, params, depth)
+        let group = self.emit_call(&rewritten, line, offset, expected, params, depth);
+
+        if rest.is_empty() {
+            if let Some(last) = self
+                .section_arguments(group)
+                .last()
+                .copied()
+                .filter(|_| !group.is_null())
+            {
+                let value_type = self.expressions[group.index()].value_type;
+                let otherwise = self.alloc(Expression {
+                    generation: 0,
+                    opcode: value_type,
+                    value_type,
+                    flags: ExpressionType::Expression.flags(),
+                    next: DatumHandle::NULL,
+                    string_offset: offset,
+                    data: 0,
+                    // Line 0, as shipped: the else has no text of its own.
+                    line: 0,
+                    tail: 0,
+                });
+                if !otherwise.is_null() {
+                    self.expressions[last.index()].next = otherwise;
+                }
+            }
+        }
+        group
+    }
+
+    /// A call's children as emitted so far: the node naming it, then each
+    /// argument.
+    fn section_arguments(&self, call: DatumHandle) -> Vec<DatumHandle> {
+        let mut out = Vec::new();
+        let Some(e) = self.expressions.get(call.index()) else {
+            return out;
+        };
+        let mut cur = DatumHandle(e.data);
+        while !cur.is_null() && out.len() <= self.expressions.len() {
+            out.push(cur);
+            cur = self.expressions[cur.index()].next;
+        }
+        out
     }
 
     fn emit_atom(
         &mut self,
         token: &Token,
         line: u32,
+        offset: u32,
         expected: &[u16],
         params: &[(String, u16)],
     ) -> DatumHandle {
@@ -553,7 +688,7 @@ impl<'a> Compiler<'a> {
                         generation: 0,
                         opcode: value_type,
                         value_type,
-                        expression_type: ExpressionType::ParameterReference,
+                        flags: ExpressionType::ParameterReference.flags(),
                         next: DatumHandle::NULL,
                         string_offset: offset,
                         data: index as u32,
@@ -568,7 +703,7 @@ impl<'a> Compiler<'a> {
                         generation: 0,
                         opcode: value_type,
                         value_type,
-                        expression_type: ExpressionType::GlobalsReference,
+                        flags: ExpressionType::GlobalsReference.flags(),
                         next: DatumHandle::NULL,
                         string_offset: offset,
                         // A globals reference carries its index in `data`, not
@@ -578,42 +713,71 @@ impl<'a> Compiler<'a> {
                         tail: 0,
                     });
                 }
-                self.emit_literal(token, line, expected)
+                self.emit_literal(token, line, offset, expected)
             }
-            _ => self.emit_literal(token, line, expected),
+            _ => self.emit_literal(token, line, offset, expected),
         }
     }
 
     /// A literal, typed by the position it sits in where that is known.
-    fn emit_literal(&mut self, token: &Token, line: u32, expected: &[u16]) -> DatumHandle {
+    ///
+    /// A number or boolean has no string, and its `+0xC` records where its
+    /// token is in the source instead — true of all 24,531 shipped ones that
+    /// are not a `cond`'s trailing else.
+    ///
+    /// A node carries two types: `+4` is what the position takes, and `+2` is
+    /// what the literal itself is. They differ where a name converts — an
+    /// `object_name` passed where an `object` is wanted, `player0` where a
+    /// `unit` is — and [`Compiler::resolve_name`] picks the second.
+    fn emit_literal(
+        &mut self,
+        token: &Token,
+        line: u32,
+        offset: u32,
+        expected: &[u16],
+    ) -> DatumHandle {
         let (value_type, guessed) = self.choose_type(token, expected);
         let type_name = self
             .value_types
             .name_of(value_type)
             .unwrap_or("")
             .to_string();
+        let mut own_type = value_type;
 
+        // The engine writes a value over a word of `0xFF`, only as wide as
+        // the type: 11,681 of 11,683 shipped shorts read `0xFFFF____` and
+        // 6,123 of 6,144 booleans `0xFFFFFF__`. The exceptions are all a
+        // `cond`'s trailing zero.
         let (data, string_offset) = match token {
             Token::Num(n) => match type_name.as_str() {
-                "real" => (f32::to_bits(*n as f32), 0),
-                "long" => ((*n as i64 as i32) as u32, 0),
-                "boolean" => (u32::from(*n != 0.0), 0),
+                "real" => (f32::to_bits(*n as f32), offset),
+                "long" => ((*n as i64 as i32) as u32, offset),
+                "boolean" => (0xFFFF_FF00 | u32::from(*n != 0.0), offset),
                 // `short` and anything else numeric: the engine widens on read.
-                _ => ((*n as i64 as i16) as u16 as u32, 0),
+                _ => (0xFFFF_0000 | (*n as i64 as i16) as u16 as u32, offset),
             },
-            Token::Word(w) if w == "true" => (1, 0),
-            Token::Word(w) if w == "false" => (0, 0),
+            Token::Word(w) if w == "true" => (0xFFFF_FF01, offset),
+            Token::Word(w) if w == "false" => (0xFFFF_FF00, offset),
             // `none` is the unset sentinel for a reference-typed position.
             Token::Word(w) if w == "none" => (u32::MAX, 0),
             Token::Word(w) => {
                 // A bare word in a value position names something in the
                 // scenario: an object, a trigger volume, an enum case.
                 let offset = self.intern(w);
-                (0, offset)
+                let (own, data) = self.resolve_name(&type_name, w, line);
+                own_type = own.unwrap_or(value_type);
+                (data, offset)
             }
             Token::Str(s) => {
-                let offset = self.intern(s);
-                (0, offset)
+                let at = self.intern(s);
+                // A string's `data` repeats its offset: 3,743 of 3,743 shipped.
+                if type_name == "string" {
+                    (at, at)
+                } else {
+                    let (own, data) = self.resolve_name(&type_name, s, line);
+                    own_type = own.unwrap_or(value_type);
+                    (data, at)
+                }
             }
             Token::Open | Token::Close => (0, 0),
         };
@@ -635,15 +799,149 @@ impl<'a> Compiler<'a> {
 
         self.alloc(Expression {
             generation: 0,
-            opcode: value_type,
+            opcode: own_type,
             value_type,
-            expression_type: ExpressionType::Expression,
+            flags: ExpressionType::Expression.flags(),
             next: DatumHandle::NULL,
             string_offset,
             data,
             line: line as u16,
             tail: 0,
         })
+    }
+
+    /// What a name in a position of type `slot` refers to: the literal's own
+    /// type, and the `data` the engine reads for it.
+    ///
+    /// Each encoding here was measured off the thirteen shipped scenarios, by
+    /// looking the literal's string up in the scenario block it names and
+    /// comparing the element's index with the node's `data`. Only kinds that
+    /// agreed on every node are resolved; the rest — tag references, string
+    /// ids, enum cases, seat mappings, AI lines, device groups, and `ai`
+    /// objective tasks — keep `data` zero, as before, because what they hold
+    /// could not be established from shipped data.
+    ///
+    /// A name that should resolve but does not is a warning rather than an
+    /// error, since the scenario may gain the element later; without names
+    /// at all, only what the source itself declares (scripts) and the fixed
+    /// player names resolve.
+    fn resolve_name(&mut self, slot: &str, name: &str, line: u32) -> (Option<u16>, u32) {
+        // A position of an object type takes the names of the things that
+        // convert to one; the literal keeps its own type at `+2`. Each pairing
+        // is one the shipped data shows: 626 `object_name` → `object`, 563
+        // `player` → `unit`, 194 `ai` → `object`, and so on.
+        let kinds: &[&str] = match slot {
+            "object" => &["object_name", "player", "ai"],
+            "unit" => &["unit_name", "player", "ai"],
+            "object_list" => &["object_name", "player"],
+            "vehicle" => &["vehicle_name"],
+            "device" => &["device_name"],
+            // Every other resolvable kind is its own position's type.
+            other => match RESOLVED.iter().position(|k| *k == other) {
+                Some(i) => &RESOLVED[i..=i],
+                None => return (None, 0),
+            },
+        };
+        for kind in kinds {
+            if let (Some(data), Some(own)) =
+                (self.name_data(kind, name), self.value_types.index_of(kind))
+            {
+                return (Some(own), data);
+            }
+        }
+        if self.names.is_some() {
+            self.warn(
+                line,
+                format!("`{name}` names no {} in this scenario", kinds.join(" or ")),
+            );
+        }
+        (None, 0)
+    }
+
+    /// The `data` a literal of kind `kind` naming `name` carries, if it
+    /// resolves.
+    fn name_data(&self, kind: &str, name: &str) -> Option<u32> {
+        // An element of a scenario block, by index, with the high half set.
+        let indexed = |block: &str| -> Option<u32> {
+            let i = self.names?.index_of(block, name)?;
+            Some(0xFFFF_0000 | i as u32)
+        };
+        match kind {
+            // Objects of every kind share the one `object names` block.
+            "object_name" | "unit_name" | "vehicle_name" | "device_name" => indexed("object names"),
+            "trigger_volume" => indexed("trigger volumes"),
+            "cutscene_flag" => indexed("cutscene flags"),
+            "cutscene_title" => indexed("cutscene titles"),
+            "zone_set" => indexed("zone sets"),
+            "insertion_point" => indexed("insertion points"),
+            "starting_profile" => indexed("player starting profile"),
+            "user_interface_objective" => indexed("user interface objectives block"),
+            // The one indexed kind with nothing in the high half.
+            "folder" => self
+                .names?
+                .index_of("editor folders", name)
+                .map(|i| i as u32),
+            // A script literal indexes the scripts being compiled.
+            "script" | "ai_command_script" => self
+                .script_index
+                .get(name)
+                .and_then(|v| v.first())
+                .map(|i| 0xFFFF_0000 | *i as u32),
+            // `player0` through `player3`: the player's index, no scenario
+            // needed — 1,659 of 1,659 shipped.
+            "player" => name
+                .strip_prefix("player")
+                .and_then(|n| n.parse::<u16>().ok())
+                .map(u32::from),
+            // A whole point set, `set`, has `0xFFFF` for its point.
+            "point_reference" => {
+                let names = self.names?;
+                let (set, point) = match name.split_once('/') {
+                    Some((set, point)) => (set, Some(point)),
+                    None => (name, None),
+                };
+                let s = names.index_of("point sets", set)?;
+                let p = match point {
+                    Some(point) => names.nested_index_of("point sets/points", s, point)?,
+                    None => 0xFFFF,
+                };
+                Some((s as u32) << 16 | p as u32)
+            }
+            // The top three bits say what an `ai` literal names: `001` a
+            // squad, `010` a squad group, and for `squad/x` either `100` a
+            // spawn point or `111` a cell, with the squad in the rest of the
+            // high half. 5,116 of the 5,136 shipped `ai` literals that are not
+            // `none`; the other 20 are one objective task, left unresolved.
+            "ai" => {
+                let names = self.names?;
+                match name.split_once('/') {
+                    None => names
+                        .index_of("squads", name)
+                        .map(|i| 0x2000_0000 | i as u32)
+                        .or_else(|| {
+                            names
+                                .index_of("squad groups", name)
+                                .map(|i| 0x4000_0000 | i as u32)
+                        }),
+                    Some((squad, member)) => {
+                        let s = names.index_of("squads", squad)?;
+                        if s > 0x1FFF {
+                            return None;
+                        }
+                        let at = |tag: u32, i: usize| (tag | s as u32) << 16 | i as u32;
+                        names
+                            .nested_index_of("squads/spawn points", s, member)
+                            .map(|i| at(0x8000, i))
+                            .or_else(|| {
+                                names
+                                    .nested_index_of("squads/designer/cells", s, member)
+                                    .map(|i| at(0xE000, i))
+                            })
+                    }
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Pick the type for a literal, and say whether it was a guess.
@@ -804,6 +1102,22 @@ impl<'a> Compiler<'a> {
         at
     }
 
+    /// A global or parameter is named in a fixed 32-byte field, so a longer
+    /// name cannot be written — say so here, against its line, rather than
+    /// when the tag is written.
+    fn check_name_fits(&mut self, name: &str, what: &str, line: u32) {
+        let max = crate::emit::MAX_NAME_LEN;
+        if name.len() > max {
+            self.error(
+                line,
+                format!(
+                    "the {what} name `{name}` is {} bytes; a scenario holds at most {max}",
+                    name.len()
+                ),
+            );
+        }
+    }
+
     fn error(&mut self, line: u32, message: String) {
         self.diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -858,10 +1172,11 @@ fn fits(type_name: &str, token: &Token) -> bool {
     }
 }
 
-fn atom_word(w: &str, line: u32) -> Spanned {
+fn atom_word(w: &str, line: u32, offset: u32) -> Spanned {
     Spanned {
         form: Form::Atom(Token::Word(w.to_string())),
         line,
+        offset,
     }
 }
 
@@ -958,7 +1273,7 @@ mod tests {
         assert!(c.ok(), "{:?}", c.diagnostics);
         assert_eq!(c.section.scripts.len(), 1);
         let root = c.section.get(c.section.scripts[0].root).unwrap();
-        assert_eq!(root.expression_type, ExpressionType::Group);
+        assert_eq!(root.kind(), ExpressionType::Group);
         assert_eq!(c.section.callee_name(root), Some("begin"));
     }
 
@@ -986,9 +1301,153 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::Expression && e.value_type == 7)
+            .find(|e| e.kind() == ExpressionType::Expression && e.value_type == 7)
             .expect("a short literal");
-        assert_eq!(arg.data, 1);
+        // Written over `0xFFFF` in the high half, as the engine does.
+        assert_eq!(arg.data, 0xFFFF_0001);
+    }
+
+    fn names() -> ScenarioNames {
+        let list = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        ScenarioNames::new(
+            [
+                ("trigger volumes", list(&["tv_a", "tv_pre_gold"])),
+                ("object names", list(&["crate", "jeep"])),
+                ("squads", list(&["sq_a", "sq_b"])),
+                ("squad groups", list(&["gr_all"])),
+                ("point sets", list(&["ps_drop"])),
+                ("editor folders", list(&["of_a", "of_b"])),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+            [
+                ("squads/spawn points", vec![list(&[]), list(&["pilot"])]),
+                ("squads/designer/cells", vec![list(&["elites"]), list(&[])]),
+                ("point sets/points", vec![list(&["p0", "p1"])]),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+        )
+    }
+
+    fn named_corpus() -> ScriptCorpus {
+        let mut c = corpus();
+        c.value_types.extend(
+            [
+                "object",
+                "object_name",
+                "unit",
+                "player",
+                "trigger_volume",
+                "point_reference",
+                "folder",
+                "script",
+            ]
+            .map(String::from),
+        );
+        c.functions.extend([
+            (400, function("volume_test", "boolean", &["trigger_volume"])),
+            (401, function("object_destroy", "void", &["object"])),
+            (402, function("unit_kill", "void", &["unit"])),
+            (403, function("ai_go", "void", &["ai"])),
+            (404, function("go_to", "void", &["point_reference"])),
+            (405, function("folder_on", "void", &["folder"])),
+            (406, function("sleep_forever", "void", &["script"])),
+        ]);
+        c
+    }
+
+    /// Every literal in a compiled body, as (own type, position type, data).
+    fn literals(src: &str, names: &ScenarioNames) -> Vec<(String, String, u32)> {
+        let corpus = named_corpus();
+        let c = Compiler::from_corpus(&corpus)
+            .with_names(names)
+            .compile(&[("test", src)]);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        let t = &c.section.value_types;
+        c.section
+            .live()
+            .map(|(_, e)| e)
+            .filter(|e| e.kind() == ExpressionType::Expression && e.value_type != 2)
+            .map(|e| {
+                (
+                    t.name_of(e.opcode).unwrap().to_string(),
+                    t.name_of(e.value_type).unwrap().to_string(),
+                    e.data,
+                )
+            })
+            .collect()
+    }
+
+    fn lit(own: &str, slot: &str, data: u32) -> (String, String, u32) {
+        (own.to_string(), slot.to_string(), data)
+    }
+
+    #[test]
+    fn a_name_carries_its_elements_index_as_the_shipped_nodes_do() {
+        let n = names();
+        let src = "(script dormant f
+            (volume_test tv_a) (volume_test tv_pre-gold) (folder_on of_b)
+            (go_to ps_drop) (go_to ps_drop/p1) (sleep_forever f))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("trigger_volume", "trigger_volume", 0xFFFF_0000),
+                // A string id folds `-` to `_` when it is registered.
+                lit("trigger_volume", "trigger_volume", 0xFFFF_0001),
+                lit("folder", "folder", 1),
+                lit("point_reference", "point_reference", 0x0000_FFFF),
+                lit("point_reference", "point_reference", 0x0000_0001),
+                lit("script", "script", 0xFFFF_0000),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_passed_where_an_object_is_wanted_keeps_its_own_type() {
+        let n = names();
+        let src =
+            "(script dormant f (object_destroy jeep) (unit_kill player1) (object_destroy sq_b))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("object_name", "object", 0xFFFF_0001),
+                lit("player", "unit", 1),
+                lit("ai", "object", 0x2000_0001),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_ai_literal_says_what_it_names_in_its_top_bits() {
+        let n = names();
+        let src =
+            "(script dormant f (ai_go sq_b) (ai_go gr_all) (ai_go sq_b/pilot) (ai_go sq_a/elites))";
+        assert_eq!(
+            literals(src, &n),
+            vec![
+                lit("ai", "ai", 0x2000_0001),
+                lit("ai", "ai", 0x4000_0000),
+                lit("ai", "ai", 0x8001_0000),
+                lit("ai", "ai", 0xE000_0000),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_the_scenario_lacks_warns_and_keeps_data_zero() {
+        let n = names();
+        let corpus = named_corpus();
+        let c = Compiler::from_corpus(&corpus)
+            .with_names(&n)
+            .compile(&[("test", "(script dormant f (volume_test tv_nowhere))")]);
+        assert!(c.ok());
+        assert!(c
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.message.contains("tv_nowhere")));
     }
 
     #[test]
@@ -999,7 +1458,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::GlobalsReference)
+            .find(|e| e.kind() == ExpressionType::GlobalsReference)
             .unwrap();
         assert_eq!(g.data, 0);
         assert_eq!(c.section.string_at(g.string_offset), "b_awake");
@@ -1014,7 +1473,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ParameterReference)
+            .find(|e| e.kind() == ExpressionType::ParameterReference)
             .unwrap();
         assert_eq!(p.data, 0);
         assert_eq!(p.value_type, 7); // short
@@ -1028,7 +1487,7 @@ mod tests {
         let kinds: Vec<_> = c
             .section
             .live()
-            .map(|(_, e)| e.expression_type)
+            .map(|(_, e)| e.kind())
             .filter(|t| {
                 matches!(
                     t,
@@ -1047,7 +1506,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ScriptReference)
+            .find(|e| e.kind() == ExpressionType::ScriptReference)
             .unwrap();
         assert_eq!(r.opcode, 0); // index of `helper`
         assert_eq!(c.section.callee_name(r), Some("helper"));
@@ -1071,7 +1530,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .find(|e| e.expression_type == ExpressionType::ScriptReference)
+            .find(|e| e.kind() == ExpressionType::ScriptReference)
             .unwrap();
         assert_eq!(r.opcode, 1, "the two-parameter overload");
     }
@@ -1097,6 +1556,23 @@ mod tests {
             .collect();
         assert_eq!(offsets.len(), 2);
         assert_eq!(offsets[0], offsets[1]);
+    }
+
+    #[test]
+    fn the_string_blob_ends_with_the_reserve_the_engine_writes_into() {
+        let c = compile("(script dormant f (print \"hi\") (sleep 1))");
+        let reserve = crate::emit::STRING_DATA_RESERVE;
+        let strings = &c.section.strings;
+        assert!(strings.len() > reserve);
+        let (used, tail) = strings.split_at(strings.len() - reserve);
+        assert!(tail.iter().all(|b| *b == 0), "the reserve is zeros");
+        // No string a node names may reach into it.
+        for (_, e) in c.section.live() {
+            if let Some(text) = c.section.text_of(e) {
+                assert!(e.string_offset as usize + text.len() < used.len());
+            }
+        }
+        assert_eq!(*used.last().unwrap(), 0, "the last string is terminated");
     }
 
     #[test]
@@ -1138,6 +1614,111 @@ mod tests {
     }
 
     #[test]
+    fn a_call_records_where_its_paren_is_across_files() {
+        let first = "(script dormant a (sleep 1))";
+        let second = "; two\n(script dormant b\n\t(print \"x\"))";
+        let corpus = corpus();
+        let c = Compiler::from_corpus(&corpus).compile(&[("one", first), ("two", second)]);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        // What a scenario stores: each file, then its NUL.
+        let source = c.section.source_text();
+        assert_eq!(source.len(), first.len() + 1 + second.len() + 1);
+        let at = |needle: &str| {
+            source
+                .windows(needle.len())
+                .position(|w| w == needle.as_bytes())
+                .unwrap() as u32
+        };
+        let call = |name: &str| {
+            c.section
+                .live()
+                .map(|(_, e)| e)
+                .find(|e| c.section.callee_name(e) == Some(name))
+                .unwrap()
+        };
+        assert_eq!(call("sleep").string_offset, at("(sleep"));
+        assert_eq!(call("print").string_offset, at("(print"));
+        // A script's root `begin` has no paren of its own, so it takes the
+        // declaration's.
+        let root = c.section.get(c.section.scripts[1].root).unwrap();
+        assert_eq!(root.string_offset, at("(script dormant b"));
+        // A number records its token.
+        let one = c
+            .section
+            .live()
+            .map(|(_, e)| e)
+            .find(|e| e.kind() == ExpressionType::Expression && e.value_type == 7)
+            .unwrap();
+        assert_eq!(one.string_offset, at("1))"));
+    }
+
+    #[test]
+    fn a_conds_ifs_all_record_the_conds_offset_and_the_last_has_an_else() {
+        let src = "(script dormant f (cond ((= 1 2) (sleep 1)) ((= 3 4) (sleep 2))))";
+        let c = compile(src);
+        assert!(c.ok(), "{:?}", c.diagnostics);
+        let cond_at = src.find("(cond").unwrap() as u32;
+        let ifs: Vec<_> = c
+            .section
+            .live()
+            .map(|(_, e)| e)
+            .filter(|e| c.section.callee_name(e) == Some("if"))
+            .collect();
+        assert_eq!(ifs.len(), 2);
+        for e in &ifs {
+            assert_eq!(e.string_offset, cond_at);
+            let begin = c.section.get(c.section.arguments(e)[2]).unwrap();
+            assert_eq!(begin.string_offset, cond_at);
+        }
+        // The inner `if` ends with a zero literal of its type at the same
+        // offset, as every shipped `cond` does.
+        let last = c.section.arguments(ifs[1]);
+        assert_eq!(last.len(), 4);
+        let otherwise = c.section.get(last[3]).unwrap();
+        assert_eq!(otherwise.kind(), ExpressionType::Expression);
+        assert_eq!(otherwise.data, 0);
+        assert_eq!(otherwise.string_offset, cond_at);
+        assert_eq!(otherwise.value_type, ifs[1].value_type);
+    }
+
+    #[test]
+    fn a_cond_decompiles_back_to_a_cond() {
+        let src = "(script dormant f\n\t(cond\n\t\t((= 1 2) (sleep 1) (sleep 3))\n\t\t((= 3 4) (sleep 2))\n\t)\n)";
+        let (out, diags) = round_trip(src);
+        assert!(
+            !diags.iter().any(|d| d.severity == Severity::Error),
+            "{diags:?}"
+        );
+        let want = crate::lex::tokens(src);
+        let got = crate::lex::tokens(&out);
+        assert!(
+            want.iter().zip(&got).all(|(a, b)| a.means_same(b)) && want.len() == got.len(),
+            "\n in: {src}\nout: {out}"
+        );
+    }
+
+    #[test]
+    fn without_its_source_a_cond_decompiles_as_the_ifs_it_is() {
+        let mut c = compile("(script dormant f (cond ((= 1 2) (sleep 1))))");
+        c.section.source_files.clear();
+        let out = Decompiler::new(&c.section).scenario();
+        assert!(out.contains("(if") && !out.contains("cond"), "{out}");
+    }
+
+    #[test]
+    fn a_global_or_parameter_name_too_long_to_store_is_an_error() {
+        let long = "g".repeat(32);
+        let c = compile(&format!("(global short {long} 0)"));
+        assert!(c.errors().any(|e| e.message.contains(&long)));
+        let c = compile(&format!(
+            "(script static void (f (short {long})) (sleep 1))"
+        ));
+        assert!(c.errors().any(|e| e.message.contains(&long)));
+        // 31 bytes still fits.
+        assert!(compile(&format!("(global short {} 0)", "g".repeat(31))).ok());
+    }
+
+    #[test]
     fn a_compiled_script_decompiles_back_to_what_went_in() {
         let src = "(script dormant on_wake\n\t(sleep 3)\n\t(print \"awake\")\n)";
         let (out, diags) = round_trip(src);
@@ -1166,7 +1747,7 @@ mod tests {
             .section
             .live()
             .map(|(_, e)| e)
-            .filter(|e| e.expression_type == ExpressionType::Expression)
+            .filter(|e| e.kind() == ExpressionType::Expression)
             .find(|e| e.value_type != 2)
             .expect("a literal");
         c.section.value_types.name_of(e.value_type).unwrap()

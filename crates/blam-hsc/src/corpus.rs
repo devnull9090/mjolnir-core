@@ -308,7 +308,7 @@ impl CorpusBuilder {
         for (_, call) in section.live() {
             // A script call carries a script index in `opcode`, not an engine
             // opcode, so it says nothing about the function table.
-            if call.expression_type != ExpressionType::Group {
+            if call.kind() != ExpressionType::Group {
                 continue;
             }
             let chain = section.arguments(call);
@@ -346,7 +346,7 @@ impl CorpusBuilder {
 
                 // A literal at this position teaches how the position is
                 // written; a nested call teaches nothing.
-                if !has_source || node.expression_type != ExpressionType::Expression {
+                if !has_source || node.kind() != ExpressionType::Expression {
                     continue;
                 }
                 let text = section.string_at(node.string_offset);
@@ -376,7 +376,7 @@ impl CorpusBuilder {
         for (_, e) in section.live() {
             // Only leaves carry literals; a call's string offset names the
             // callee, which is never quoted.
-            if e.expression_type != ExpressionType::Expression {
+            if e.kind() != ExpressionType::Expression {
                 continue;
             }
             let text = section.string_at(e.string_offset);
@@ -509,7 +509,7 @@ mod tests {
             generation,
             opcode,
             value_type,
-            expression_type: ty,
+            flags: ty.flags(),
             next,
             string_offset,
             data,
@@ -631,7 +631,7 @@ mod tests {
     fn a_script_call_is_not_mistaken_for_an_engine_function() {
         let mut s = one_call(0x19c, 5, 2);
         // `opcode` on a script reference indexes the scenario's own scripts.
-        s.expressions[0].expression_type = ExpressionType::ScriptReference;
+        s.expressions[0].flags = ExpressionType::ScriptReference.flags();
         let mut b = CorpusBuilder::new();
         b.observe(&s);
         assert!(b.finish("t".into(), "b".into()).functions.is_empty());

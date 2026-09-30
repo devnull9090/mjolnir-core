@@ -74,6 +74,11 @@ export type NodeView = {
   max_count: number | null;
   /** Elements this block really has; `children` may hold fewer. */
   count: number | null;
+  /** Recomputed by the game when the tag loads (`runtime …`): read-only. */
+  runtime: boolean;
+  /** Runtime fields of the same element computed from this one. The running
+   *  game reads those copies, so a live change here waits for a reload. */
+  feeds: string[];
   children: NodeView[];
 };
 

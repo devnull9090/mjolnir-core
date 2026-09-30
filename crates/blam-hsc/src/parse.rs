@@ -17,11 +17,13 @@ pub enum Form {
     List(Vec<Spanned>),
 }
 
-/// A form and the line it started on.
+/// A form, the line it started on, and the byte offset of its first
+/// character — the `(` of a list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned {
     pub form: Form,
     pub line: u32,
+    pub offset: u32,
 }
 
 impl Spanned {
@@ -37,6 +39,17 @@ impl Spanned {
         match &self.form {
             Form::List(items) => Some(items),
             _ => None,
+        }
+    }
+
+    /// Move every offset in this form by `by`, for a file that is not the
+    /// first of the files compiled together.
+    pub fn shift(&mut self, by: u32) {
+        self.offset += by;
+        if let Form::List(items) = &mut self.form {
+            for item in items {
+                item.shift(by);
+            }
         }
     }
 }
@@ -129,6 +142,7 @@ fn parse_form(lexemes: &[Lexeme], pos: &mut usize) -> Result<Spanned, ParseError
         }),
         Token::Open => {
             let line = l.line;
+            let offset = l.offset;
             *pos += 1;
             let mut items = Vec::new();
             loop {
@@ -143,6 +157,7 @@ fn parse_form(lexemes: &[Lexeme], pos: &mut usize) -> Result<Spanned, ParseError
                     return Ok(Spanned {
                         form: Form::List(items),
                         line,
+                        offset,
                     });
                 }
                 items.push(parse_form(lexemes, pos)?);
@@ -152,6 +167,7 @@ fn parse_form(lexemes: &[Lexeme], pos: &mut usize) -> Result<Spanned, ParseError
             let out = Spanned {
                 form: Form::Atom(token.clone()),
                 line: l.line,
+                offset: l.offset,
             };
             *pos += 1;
             Ok(out)
@@ -179,6 +195,9 @@ pub enum Declaration {
         parameters: Vec<Parameter>,
         body: Vec<Spanned>,
         line: u32,
+        /// Byte offset of the declaration's `(`, which the body's root `begin`
+        /// records as its source offset.
+        offset: u32,
     },
     Global {
         name: String,
@@ -198,6 +217,21 @@ impl Declaration {
     pub fn line(&self) -> u32 {
         match self {
             Declaration::Script { line, .. } | Declaration::Global { line, .. } => *line,
+        }
+    }
+
+    /// Move every source offset this declaration holds by `by`.
+    pub fn shift(&mut self, by: u32) {
+        match self {
+            Declaration::Script { body, offset, .. } => {
+                *offset += by;
+                body.iter_mut().for_each(|f| f.shift(by));
+            }
+            Declaration::Global { initializer, .. } => {
+                if let Some(f) = initializer {
+                    f.shift(by);
+                }
+            }
         }
     }
 }
@@ -223,7 +257,7 @@ pub fn declarations(forms: &[Spanned], vocab: &Vocabulary) -> (Vec<Declaration>,
             continue;
         };
         match items.first().and_then(Spanned::word) {
-            Some("script") => match script(items, form.line, vocab) {
+            Some("script") => match script(items, form.line, form.offset, vocab) {
                 Ok(d) => out.push(d),
                 Err(e) => errors.push(e),
             },
@@ -250,7 +284,12 @@ fn describe(form: &Spanned) -> String {
     }
 }
 
-fn script(items: &[Spanned], line: u32, vocab: &Vocabulary) -> Result<Declaration, ParseError> {
+fn script(
+    items: &[Spanned],
+    line: u32,
+    offset: u32,
+    vocab: &Vocabulary,
+) -> Result<Declaration, ParseError> {
     let err = |message: String| ParseError { line, message };
 
     let kind = items
@@ -328,6 +367,7 @@ fn script(items: &[Spanned], line: u32, vocab: &Vocabulary) -> Result<Declaratio
         parameters,
         body: items[at..].to_vec(),
         line,
+        offset,
     })
 }
 

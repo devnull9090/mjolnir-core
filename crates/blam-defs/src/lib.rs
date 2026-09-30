@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub mod runtime;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("io error: {0}")]
@@ -79,6 +81,13 @@ impl FieldDef {
     /// terminators are structural and carry no user-visible value.
     pub fn is_visible(&self) -> bool {
         !matches!(self.type_name.as_str(), "pad" | "terminator X" | "custom")
+    }
+
+    /// Fields the engine recomputes when the tag loads, such as `runtime
+    /// crouch transition velocity`. The simulation reads only the computed
+    /// copy, so an edit to one is overwritten; see [`runtime`].
+    pub fn is_runtime(&self) -> bool {
+        runtime::is_runtime_field(&self.name, &self.type_name)
     }
 }
 
@@ -211,6 +220,123 @@ mod tests {
         assert!(!field("", "pad", Some(3)).is_visible());
         assert!(!field("", "terminator X", Some(0)).is_visible());
         assert!(!field("", "custom", Some(0)).is_visible());
+    }
+
+    fn shipped() -> DefCorpus {
+        DefCorpus::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../defs/hce/tag-definitions.json"),
+        )
+        .expect("defs/hce/tag-definitions.json")
+    }
+
+    /// Every field of struct `index`, descending through inlined structs.
+    fn flatten<'a>(
+        structs: &'a [StructDef],
+        index: usize,
+        prefix: &[&'a str],
+        out: &mut Vec<runtime::Member<'a>>,
+    ) {
+        for f in &structs[index].fields {
+            let mut path = prefix.to_vec();
+            path.push(f.name.as_str());
+            match (f.type_name.as_str(), f.struct_index) {
+                ("struct", Some(inner)) if inner < structs.len() => {
+                    flatten(structs, inner, &path, out)
+                }
+                _ if f.is_visible() => out.push(runtime::Member {
+                    path,
+                    type_name: f.type_name.as_str(),
+                }),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn runtime_fields_in_the_shipped_definitions() {
+        let corpus = shipped();
+        let mut occurrences = 0;
+        let mut unique = std::collections::BTreeSet::new();
+        for g in corpus.groups.values() {
+            for s in &g.structs {
+                for f in s.fields.iter().filter(|f| f.is_runtime()) {
+                    occurrences += 1;
+                    unique.insert((s.name.clone(), f.name.clone()));
+                }
+            }
+        }
+        // Counted per group, so a struct shared by several groups counts once
+        // for each; 263 fields carry the prefix, and the 24 containers among
+        // them (`runtime nodes`, the multiplayer globals' `runtime` block, …)
+        // are not runtime values.
+        assert_eq!(occurrences, 239);
+        assert_eq!(unique.len(), 147);
+        assert!(unique.contains(&(
+            "scenario_zone_set_block".into(),
+            "sruntime tructure design zone flags".into()
+        )));
+    }
+
+    /// The source-to-runtime pairs the heuristic finds in the shipped
+    /// definitions, by struct. This is the list the tag editor warns from when
+    /// a source is changed in a running game.
+    #[test]
+    fn derived_pairs_in_the_shipped_definitions() {
+        let corpus = shipped();
+        let mut found = std::collections::BTreeSet::new();
+        for g in corpus.groups.values() {
+            for (i, s) in g.structs.iter().enumerate() {
+                let mut members = Vec::new();
+                flatten(&g.structs, i, &[], &mut members);
+                for (src, rt) in runtime::derived_pairs(&members) {
+                    // Only pairs whose runtime field is this struct's own, so a
+                    // pair inside an inlined struct is listed under that struct.
+                    if members[rt].path.len() == 1 {
+                        found.insert((
+                            s.name.clone(),
+                            members[src].path.join("."),
+                            members[rt].path.join("."),
+                        ));
+                    }
+                }
+            }
+        }
+        let expected: &[(&str, &str, &str)] = &[
+            ("biped_block_struct", "crouch transition time", "runtime crouch transition velocity"),
+            ("biped_block_struct", "stationary turning threshold", "runtime cosine stationary turning threshold"),
+            ("character_look_block", "maximum aiming deviation", "runtime aiming deviation cosines"),
+            ("character_look_block", "maximum looking deviation", "runtime looking deviation cosines"),
+            ("character_morph_block_struct", "spew facing angle tolerance", "runtime spew facing angle tolerance cosine"),
+            ("character_physics_ground_struct", "downhill cutoff angle", "runtime_downhill_k0"),
+            ("character_physics_ground_struct", "downhill cutoff angle", "runtime_downhill_k1"),
+            ("character_physics_ground_struct", "downhill falloff angle", "runtime_downhill_k0"),
+            ("character_physics_ground_struct", "downhill falloff angle", "runtime_downhill_k1"),
+            ("character_physics_ground_struct", "maximum slope angle", "runtime_minimum_normal_k"),
+            ("character_physics_ground_struct", "uphill cutoff angle", "runtime_uphill_k0"),
+            ("character_physics_ground_struct", "uphill cutoff angle", "runtime_uphill_k1"),
+            ("character_physics_ground_struct", "uphill falloff angle", "runtime_uphill_k0"),
+            ("character_physics_ground_struct", "uphill falloff angle", "runtime_uphill_k1"),
+            ("character_vitality_block", "body recharge time", "runtime_body_recharge_velocity"),
+            ("character_vitality_block", "shield recharge time", "runtime_shield_recharge_velocity"),
+            ("global_damage_section_block", "recharge time", "runtime recharge velocity"),
+            ("new_global_damage_section_block", "overcharge time", "runtime overcharge velocity"),
+            ("new_global_damage_section_block", "recharge time", "runtime recharge velocity"),
+            ("weapon_barrels", "ejection port recovery time", "runtime ejection port recovery rate"),
+            ("weapon_barrels", "firing error.deceleration time", "runtime error deceleration rate"),
+            ("weapon_barrels", "firing.acceleration time", "runtime rate of fire acceleration rate"),
+            ("weapon_barrels", "firing.deceleration time", "runtime rate of fire deceleration rate"),
+            ("weapon_barrels", "illumination recovery time", "runtime illumination recovery rate"),
+            ("weapon_block_struct", "weapon power-off time", "runtime weapon power off velocity"),
+            ("weapon_block_struct", "weapon power-on time", "runtime weapon power on velocity"),
+            ("wolverine_block", "turret deployment time", "runtime inverse turret deployment time"),
+            ("wolverine_block", "turret holster time", "runtime inverse turret holster time"),
+        ];
+        let expected: std::collections::BTreeSet<(String, String, String)> = expected
+            .iter()
+            .map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string()))
+            .collect();
+        assert_eq!(found, expected);
     }
 
     #[test]

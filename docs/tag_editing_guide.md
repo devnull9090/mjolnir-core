@@ -192,6 +192,12 @@ optional.
 | string id | `--value flashlight_intensity` |
 | tag reference | `--value "coll:fx\holograms\hologram_01"`, or `none` |
 
+A real must be a finite number: `NaN`, `inf`, `-inf`, `infinity` and anything too large for a
+32-bit float (`1e39`) are refused. A block index must be `none` (`-1`) or an element of the
+block it points into, when the definition says which block that is — the barrel's `magazine`
+indexes the weapon's `magazines`, so with two magazines it takes `none`, `0` or `1`. The value a
+field already holds is always accepted, so writing a tag's own values back never fails.
+
 Option names are checked against **that field's** options. Setting `secondary flags` to
 `"allows binoculars"` is refused, because that option belongs to `flags` — which is a useful
 guard against editing the field next to the one you meant.
@@ -372,6 +378,16 @@ tag — what it references and what those reference, to the depth you pick — a
 indented text. Under the tag search, **unreferenced only** narrows a group to the tags no tag
 body references (a scenario or the globals are loaded by the Unreal side and count as
 unreferenced here).
+
+**Runtime fields are read-only.** A field whose name starts with `runtime` — a weapon barrel's
+`runtime rate of fire acceleration rate`, a biped's `runtime crouch transition velocity`, the
+ground physics' `runtime_minimum_normal_k`, a trigger volume's `runtime sector bounds` — is
+recomputed by the game when the tag loads, from the authored field beside it (`firing.acceleration
+time`, `crouch transition time`, `maximum slope angle`), and the simulation reads only that
+computed copy. An edit to one would be overwritten, so the editor shows it greyed out with
+*Recomputed by the game when the tag loads*. Change the authored field instead. There are 239
+such fields across 30 groups; a block or struct named `runtime` is not one of them (the
+multiplayer globals' `runtime` block is ordinary authored data).
 
 An edit is applied to a copy, the result re-parsed from scratch and re-walked, and only
 recorded if that works. A value that does not fit is rejected and the field is left alone,
@@ -645,6 +661,14 @@ jump arc from 3,005 cm to 11,618 cm, and restoring the bytes put it back.
 - **Not every field will respond.** Anything the engine consumes once at spawn is already
   baked into whatever it built. Numbers read per use — jump velocity, damage, speeds — are the
   ones this is for.
+- **A field with a runtime copy does not respond at all.** The simulation reads the `runtime …`
+  field computed from it when the tag loaded — a barrel's rate-of-fire `acceleration time` and
+  `deceleration time`, its `firing error.deceleration time`, a biped's `crouch transition time`
+  and `stationary turning threshold`, the ground physics' slope and falloff angles, vitality and
+  damage-section recharge times, a weapon's power-on and power-off times. The poke lands, but
+  nothing changes until the tag loads again (restart the mission, or test with a rebuild). The
+  editor says so in amber after such a poke, naming the runtime field; the edit itself is
+  recorded as usual. It does not compute the runtime value for you.
 - **Relaunching moves everything.** Cached addresses are dropped when the process changes, and
   a cached address is re-scored against the tag before it is written to.
 

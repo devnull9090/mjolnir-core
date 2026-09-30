@@ -319,11 +319,22 @@ pub fn compile_into(
 ) -> Result<(Vec<u8>, CompileReport), String> {
     let corpus = corpus().ok_or("the scripting corpus did not parse; cannot compile")?;
 
+    // The scenario is read first: a name literal (an object, a trigger
+    // volume, a squad) compiles to its index in the scenario's own blocks,
+    // and the compiled section takes the scenario's shapes.
+    let tag = blam_tag::TagFile::parse(file, Some(chunk_len)).map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let existing = blam_hsc::read::read(&layout, &block, file).map_err(|e| e.to_string())?;
+    let names = blam_hsc::read::names(&layout, &block);
+
     let files: Vec<(&str, &str)> = sources
         .iter()
         .map(|(n, t)| (n.as_str(), t.as_str()))
         .collect();
-    let compiled = blam_hsc::Compiler::from_corpus(corpus).compile(&files);
+    let compiled = blam_hsc::Compiler::from_corpus(corpus)
+        .with_names(&names)
+        .compile(&files);
 
     let mut report = CompileReport {
         ok: compiled.ok(),
@@ -339,13 +350,6 @@ pub fn compile_into(
     if !report.ok {
         return Ok((Vec::new(), report));
     }
-
-    // The compiled section carries no shapes of its own; they belong to the
-    // scenario being written into.
-    let tag = blam_tag::TagFile::parse(file, Some(chunk_len)).map_err(|e| e.to_string())?;
-    let layout = tag.layout().map_err(|e| e.to_string())?;
-    let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-    let existing = blam_hsc::read::read(&layout, &block, file).map_err(|e| e.to_string())?;
 
     // A script the tag has but the source does not declare disappears on a
     // rebuild. Say which, rather than letting the count quietly drop.
@@ -365,6 +369,8 @@ pub fn compile_into(
     report.dropped.dedup();
 
     let mut section = compiled.section;
+    // The compiled section carries no shapes of its own; they belong to the
+    // scenario being written into.
     section.shapes = existing.shapes;
     // The source files are the record of what the user wrote, so they are
     // carried into the tag alongside the tree they produced.
