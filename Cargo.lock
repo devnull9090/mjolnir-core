@@ -173,6 +173,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-sbsp"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blam-tag"
 version = "0.1.0"
 dependencies = [
@@ -1092,6 +1102,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 name = "ue-asset"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "thiserror 1.0.69",
  "ue-iostore",
 ]

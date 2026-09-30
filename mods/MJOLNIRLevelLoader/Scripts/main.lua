@@ -17,10 +17,18 @@
 -- the canvas scenario's world, reads the file, and furnishes it. Positions in
 -- the file are UE cm relative to canvas.origin.
 --
+-- Native half: native/mjolnir_map_registry.dll (source native/map_registry,
+-- never committed — build.ps1 or the release builds it) lets a standalone
+-- map run on a world of its own: the engine resolves a mission's world by
+-- short name through the AssetRegistry, which only knows shipped packages,
+-- and the DLL answers for worlds found in the installed containers. Without
+-- the DLL everything else here still works on canvas worlds.
+--
 -- Commands:
 --   mjolnir_level_status   what is loaded, spawned, or failing
 --   mjolnir_level_reload   re-read the level file and respawn decor (dev loop)
 --   mjolnir_level_clear    remove everything this mod spawned
+--   mjolnir_level_rescan   re-read the containers' world lists (native half)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -112,6 +120,24 @@ local function scenarioOf(world)
     return string.upper(asset)
 end
 
+--- The codename of the scenario tag actually running, e.g. "PG1" from
+--- `.../PG1/_Generated_/PG1-scenario`. A standalone map (`mjolnir level bake
+--- --standalone`) runs its own scenario tag on a shipped world, so its level
+--- file is keyed by this rather than by the world; nil when no scenario asset
+--- is loaded yet or its name does not follow the pattern.
+local function scenarioTagOf()
+    local ok, assets = pcall(function() return FindAllOf("BlamScenarioTagDataAsset") end)
+    if not ok or type(assets) ~= "table" then return nil end
+    for _, a in ipairs(assets) do
+        local okn, name = pcall(function() return a:GetFullName() end)
+        if okn and type(name) == "string" then
+            local code = name:match("([%w_]+)%-scenario%.[%w_]+%-scenario$")
+            if code then return string.upper(code) end
+        end
+    end
+    return nil
+end
+
 --------------------------------------------------------------------------------
 -- Level state
 --------------------------------------------------------------------------------
@@ -153,8 +179,8 @@ end
 
 --- Decode and sanity-check a level file. Full validation is the CLI's job
 --- (`mjolnir level validate`); the loader checks only what it consumes.
-local function loadLevelFile(scenario)
-    local path = levelPathFor(scenario)
+local function loadLevelFile(scenario, fileKey)
+    local path = levelPathFor(fileKey or scenario)
     local raw = readFile(path)
     if not raw then return nil, "no file: " .. path end
 
@@ -169,11 +195,30 @@ local function loadLevelFile(scenario)
         or type(canvas.scenario) ~= "string" then
         return nil, "missing canvas"
     end
-    if string.upper(canvas.scenario) ~= scenario then
+    -- A file found by world name must target that world. A file found by
+    -- scenario tag codename belongs to that scenario wherever it runs: on
+    -- its canvas world, or on a world of its own that carries the codename.
+    if not fileKey and string.upper(canvas.scenario) ~= scenario then
         return nil, string.format("file targets %s but the loaded world is %s",
             canvas.scenario, scenario)
     end
     return level
+end
+
+--- The level file for the running world: the scenario tag's own file when
+--- one is loaded, else the world's.
+local function loadCurrentLevelFile(scenario)
+    local tag = scenarioTagOf()
+    if tag then
+        local level = loadLevelFile(scenario, tag)
+        if level then
+            if tag ~= scenario then
+                Log(string.format("scenario tag %s has its own level file", tag))
+            end
+            return level
+        end
+    end
+    return loadLevelFile(scenario)
 end
 
 --------------------------------------------------------------------------------
@@ -209,6 +254,29 @@ local function applyTint(comp, tint)
         mid:SetVectorParameterValue(FName("Color"), color)
     end)
     return ok
+end
+
+--- Per-section materials: `materials` is a list of material object paths, one
+--- per material slot in order, and an empty entry leaves that slot alone. They
+--- go on the *component*, not the mesh: a mesh whose geometry was written into
+--- a donor package keeps the donor's single material slot however many slots
+--- the package declares, while `SetMaterial` grows the component's override
+--- list to as many sections as the render data names. That is what makes a
+--- transplanted mesh come out textured rather than default grey.
+local function applyMaterials(comp, list)
+    if type(list) ~= "table" then return 0, 0 end
+    local applied, failed = 0, 0
+    for i, path in ipairs(list) do
+        if type(path) == "string" and #path > 0 then
+            local mat = resolveMesh(path)
+            local ok = false
+            if mat then
+                ok = pcall(function() comp:SetMaterial(i - 1, mat) end)
+            end
+            if ok then applied = applied + 1 else failed = failed + 1 end
+        end
+    end
+    return applied, failed
 end
 
 local function spawnDecorItem(world, origin, item)
@@ -271,6 +339,11 @@ local function spawnDecorItem(world, origin, item)
     if item.tint and not applyTint(actor.StaticMeshComponent, item.tint) then
         Log("tint failed for '" .. tostring(item.id) .. "' (mesh has no Color param?)")
     end
+    if item.materials then
+        local applied, failed = applyMaterials(actor.StaticMeshComponent, item.materials)
+        Log(string.format("decor '%s': %d material(s) applied, %d failed",
+            tostring(item.id), applied, failed))
+    end
     return actor
 end
 
@@ -315,6 +388,21 @@ local function spawnEnvironment(world)
         c:RecaptureSky()
     end)
     Log("environment spawned (sun/atmosphere/skylight)")
+
+    -- A level baked with `clear.scripts` has no mission script left to fade the
+    -- screen back in after the loading screen, so the map boots pitch black
+    -- with a live simulation behind it. Ask the Blam console to fade in once,
+    -- unless the level opts out with `environment.fade_in = false`.
+    if env.fade_in ~= false then
+        local ok = pcall(function()
+            local kismet = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            local pc = FindFirstOf("PlayerController")
+            if kismet and pc then
+                kismet:ExecuteConsoleCommand(pc, "blam !(fade_in 0 0 0 15)", pc)
+            end
+        end)
+        Log(ok and "fade_in requested" or "fade_in request failed")
+    end
 end
 
 local function spawnDecor(world)
@@ -359,7 +447,7 @@ local function tick()
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 
-        local level, err = loadLevelFile(Current.scenario)
+        local level, err = loadCurrentLevelFile(Current.scenario)
         if not level then
             Current.fileMissing = true
             if err and not err:find("^no file") then
@@ -411,7 +499,7 @@ local function reload()
         return
     end
     clearActors()
-    local level, err = loadLevelFile(Current.scenario)
+    local level, err = loadCurrentLevelFile(Current.scenario)
     if not level then
         Current.level = nil
         Current.fileMissing = true
@@ -424,7 +512,39 @@ local function reload()
     if world then spawnDecor(world) end
 end
 
+--- The native half. The engine turns a mission's SHORT world name into a
+--- package path through the AssetRegistry, which is loaded once at boot from
+--- the shipped AssetRegistry.bin and so never knows a world that arrives in
+--- a mod container: the travel is refused before any container is asked.
+--- native/mjolnir_map_registry.dll wraps that lookup and answers, on a miss,
+--- from the .umap files listed by the mounted .utoc directory indexes
+--- (docs/new_scenario_loading.md, "The world gate"). Shipped maps never
+--- reach the fallback. CU4-only by RVA; the DLL refuses any other build.
+local function loadMapRegistry()
+    if not package or not package.loadlib then
+        Log("map registry: this Lua has no package.loadlib; standalone worlds will not resolve")
+        return
+    end
+    local dll = MOD_DIR .. "\\native\\mjolnir_map_registry.dll"
+    local open, err = package.loadlib(dll, "mjolnir_map_registry_open")
+    if not open then
+        Log("map registry: " .. tostring(err))
+        return
+    end
+    local rescan = package.loadlib(dll, "mjolnir_map_registry_rescan")
+    open()
+    if rescan then
+        RegisterConsoleCommandHandler("mjolnir_level_rescan", function()
+            rescan()
+            Log("map registry: containers re-read (see native\\map_registry.log)")
+            return true
+        end)
+    end
+    Log("map registry: short-name resolver loaded (native\\map_registry.log)")
+end
+
 local function initialize()
+    loadMapRegistry()
     RegisterConsoleCommandHandler("mjolnir_level_status", function()
         status()
         return true

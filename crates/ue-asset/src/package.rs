@@ -548,6 +548,96 @@ impl ZenPackage {
         self.mapped_name(self.name_index, self.name_number)
     }
 
+    /// Give the package another path: the package name, every name equal to
+    /// the old path, and the exports named after the old leaf (the asset
+    /// itself) — whose public export hash derives from that name — follow.
+    /// Nothing else is touched, so the caller has to know the package refers
+    /// to itself by nothing but its name (a bare world does; a World
+    /// Partition root, whose cells are found under its path, does not).
+    /// Move a world package to another path of the same length: every name
+    /// that contains the old package path (the package itself, its World
+    /// Partition cells under `<path>/_Generated_/`, soft references into its
+    /// own persistent level) is rewritten in place, the name equal to the old
+    /// leaf becomes the new leaf, and the exports named after the leaf get
+    /// their public hash recomputed. Cells then point at packages that do not
+    /// exist, so they never stream — which is the point when the world is a
+    /// donor whose persistent level (settings, scenario actor, player starts)
+    /// is wanted without its geometry.
+    pub fn rename_world(&mut self, new_path: &str) -> Result<Vec<String>, Error> {
+        let old_path = self.name();
+        if old_path.len() != new_path.len() {
+            return Err(Error::Layout("a world rename is same-length only"));
+        }
+        let old_leaf = old_path.rsplit('/').next().unwrap_or("").to_string();
+        let new_leaf = new_path.rsplit('/').next().unwrap_or("").to_string();
+        if old_leaf.is_empty() || new_leaf.is_empty() || old_leaf.len() != new_leaf.len() {
+            return Err(Error::Layout("a world rename keeps the leaf length"));
+        }
+        let mut log = Vec::new();
+        let mut rewritten = 0usize;
+        for i in 0..self.names.names.len() {
+            let before = self.names.names[i].clone();
+            let after = if before.contains(&old_path) {
+                before.replace(&old_path, new_path)
+            } else if before == old_leaf {
+                new_leaf.clone()
+            } else {
+                continue;
+            };
+            self.names.hashes[i] = name_hash(&after);
+            self.names.names[i] = after;
+            rewritten += 1;
+        }
+        log.push(format!("package {old_path} -> {new_path} ({rewritten} names rewritten)"));
+        self.name_index = self.names.intern(new_path);
+        self.name_number = 0;
+        for i in 0..self.export_map.len() {
+            let e = self.export_map[i];
+            if e.name_number == 0
+                && e.public_export_hash != 0
+                && self.names.names.get(e.name_index as usize) == Some(&new_leaf)
+            {
+                self.export_map[i].public_export_hash = public_export_hash(&new_leaf);
+                log.push(format!("export {i} {old_leaf} -> {new_leaf} (public hash recomputed)"));
+            }
+        }
+        Ok(log)
+    }
+
+    pub fn rename_package(&mut self, new_path: &str) -> Result<Vec<String>, Error> {
+        let old_path = self.name();
+        let old_leaf = old_path.rsplit('/').next().unwrap_or("").to_string();
+        let new_leaf = new_path.rsplit('/').next().unwrap_or("").to_string();
+        if old_leaf.is_empty() || new_leaf.is_empty() {
+            return Err(Error::Layout("a package path needs a leaf"));
+        }
+        let mut log = Vec::new();
+        let new_path_index = self.names.intern(new_path);
+        let new_leaf_index = self.names.intern(&new_leaf);
+        self.name_index = new_path_index;
+        self.name_number = 0;
+        log.push(format!("package {old_path} -> {new_path}"));
+        for i in 0..self.export_map.len() {
+            let e = self.export_map[i];
+            if e.name_number == 0 && self.names.names.get(e.name_index as usize) == Some(&old_leaf)
+            {
+                self.export_map[i].name_index = new_leaf_index;
+                if e.public_export_hash != 0 {
+                    self.export_map[i].public_export_hash = public_export_hash(&new_leaf);
+                }
+                log.push(format!(
+                    "export {i} {old_leaf} -> {new_leaf}{}",
+                    if e.public_export_hash != 0 {
+                        " (public hash recomputed)"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+        }
+        Ok(log)
+    }
+
     pub fn mapped_name(&self, index: u32, number: u32) -> String {
         let base = self
             .names

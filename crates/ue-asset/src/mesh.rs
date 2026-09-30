@@ -60,6 +60,11 @@ pub struct StaticMeshData {
     /// Why there is no Nanite geometry, when the mesh looked like it had
     /// some.
     pub nanite_note: Option<String>,
+    /// Byte span of `FStaticMeshRenderData`'s LOD array within the export —
+    /// from the LOD count through the last LOD's `FStaticMeshBuffersSize`.
+    /// Rewriting a mesh's geometry replaces exactly this range and leaves the
+    /// properties before it and the Nanite/bounds tail after it alone.
+    pub lod_span: Option<(usize, usize)>,
 }
 
 impl StaticMeshData {
@@ -194,6 +199,7 @@ pub fn parse_static_mesh_with_bulk_map(
     w.skip(sockets as usize * 4)?;
 
     // FStaticMeshRenderData: LOD array.
+    let lod_array_start = w.pos;
     let lod_count = w.u32()?;
     if lod_count > 16 {
         return Err(Error::Format(format!("{lod_count} LODs is implausible")));
@@ -288,6 +294,8 @@ pub fn parse_static_mesh_with_bulk_map(
         let (_serialized, _depth_only, _reversed) = (w.u32()?, w.u32()?, w.u32()?);
         out.lods.push(lod);
     }
+
+    out.lod_span = Some((lod_array_start, w.pos));
 
     // After the LOD array: the count of inlined LODs, then the Nanite
     // resources. A mesh with none serializes an empty set; a mesh whose
@@ -546,6 +554,11 @@ pub struct SkeletalMeshData {
     /// Why there is no Nanite geometry, when the mesh looked like it had
     /// some.
     pub nanite_note: Option<String>,
+    /// Byte span of `FStaticMeshRenderData`'s LOD array within the export —
+    /// from the LOD count through the last LOD's `FStaticMeshBuffersSize`.
+    /// Rewriting a mesh's geometry replaces exactly this range and leaves the
+    /// properties before it and the Nanite/bounds tail after it alone.
+    pub lod_span: Option<(usize, usize)>,
 }
 
 impl SkeletalMeshData {

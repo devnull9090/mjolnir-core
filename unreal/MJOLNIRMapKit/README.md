@@ -216,3 +216,52 @@ lookups; the stub `.pak` beside it is what makes the game discover it (both
 verified against this game — [`docs/iostore_packaging.md`](../../docs/iostore_packaging.md)).
 The container carries its own `ContainerHeader`, so the new package is
 registered in the game's package store when it mounts.
+
+## Cooked actors do not survive a campaign world override (2026-09-08)
+
+Overriding a campaign world (`/Game/Levels/Halo1/Solo/B40/B40`) with a cooked
+world works **only while the level is bare**. The moment the cook carries an
+actor, the game dies during the level load, after
+`BlamCampaignFlowGameSubsystem:SetAndBeginCampaign` and before the map comes
+up, with no UE4SS crash dump.
+
+Measured, one variable at a time, all else identical:
+
+| cooked world | result |
+|---|---|
+| bare canvas: 5 exports, 0 imported packages | loads |
+| canvas + one `StaticMeshActor` -> our imported Blood Gulch mesh | crash on load |
+| canvas + one `StaticMeshActor` -> shipped `/Engine/BasicShapes/Cube` | crash on load |
+
+### Two separate failures, from the crash reports
+
+`%LOCALAPPDATA%\Meteorite\Saved\Crashes\*\CrashContext.runtime-xml` names
+each one. They are different, so they are two independent problems:
+
+* **the cooked actor** --
+  `ObjectSerializationError: /Game/Levels/Halo1/Solo/B40/B40 - StaticMeshComponent
+  ...StaticMeshActor_0.StaticMeshComponent0: Bad export index 201463809/7`.
+  The shipped-cube control gives this too, so it is the component, not the
+  asset. Same family as the `UCapsuleComponent` and
+  `UDirectionalLightComponent` mismatches already recorded here; read the
+  older "floor works" note as applying to the standalone test level, not to a
+  campaign override.
+* **the cooked mesh asset** --
+  `LowLevelFatalError [ContainerHelpers.cpp:8] Trying to resize TArray to an
+  invalid size of 2147483650` (`0x80000002`, a garbage element count).
+
+The second was isolated without any actor at all, by adding the mesh's
+`FPackageId` to the world's `FFilePackageStoreEntry` import list so the loader
+pulls the package in as a dependency
+(`cargo run -p ue-iostore --example relink_container`). The same rebuilt
+container with the edge left out loads B40 normally, so the rebuild is sound
+and the mesh package is what kills it.
+
+The game is `5.5.4-1121610+++Meteorite+Rel-i343-Meteorite-2607-CU4`. Stock
+UE 5.5 writes `UStaticMesh` render data the fork reads differently.
+
+What this leaves: cooking stock UE assets for this game does not work today,
+for actors or for meshes. Getting Blood Gulch on screen needs either a mesh
+written in the game's own serialisation (the `ue-asset` mesh/Nanite decoders
+are the start of that) or geometry built at runtime through the game's own
+classes.

@@ -214,7 +214,13 @@ Refused rather than approximated, in both cases:
   other faces should become, and rewriting one would silently discard them.
 - A classic texture that keeps **every** mip inline in its export has no bulk chunk to
   replace; the encoder handles it, but neither the command nor the editor can pack it
-  yet.
+  yet. A classic chain whose *tail* mips are inline — the usual case, everything below
+  128x128 — is fine: the command rewrites the export body too and packs the `.uasset`
+  beside the `.ubulk`, both at their shipped lengths.
+
+Several textures can go into one container: `--pair ASSET=IMAGE` repeats, with
+`flat-normal` in place of an image writing a flat (128,128) normal map — the way to
+quiet a host material's bump map when its colour map has been repainted.
 
 In the editor, an unsupported format is visible before you pick a file: *Replace…*
 is greyed out and the reason sits under the texture's path.

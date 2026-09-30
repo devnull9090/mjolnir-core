@@ -72,6 +72,37 @@ mjolnir level validate my_level.level.json
 mjolnir level bake my_level.level.json --install-test
 ```
 
+To ship the level as a **mission of its own** instead of an override of the
+canvas mission, add `--standalone <CODE>` (three characters): the bake writes
+the scenario as a new tag package under `/Solo/<CODE>/`, registers the
+codename (a cooked `DT_Scenarios` row carrying the level's title and
+description, plus the campaign's `ScenarioList` handle — the simulation
+builds its map registry from those tables at boot, see
+[new_scenario_loading.md](new_scenario_loading.md)), and installs the decor
+file as `<CODE>.level.json`. `--bsp INDEX=PAYLOAD` clones structure BSP
+`INDEX` of the canvas scenario under the codename too, with `PAYLOAD` as its
+body, so custom collision no longer overrides the shipped mission's BSP:
+
+```
+mjolnir level bake examples/levels/bloodgulch.level.json --standalone BGL     --bsp 8=<staging>/bloodgulch/collision/bsp_01_1_start.bin     --world <bare.umap> --install-test
+```
+
+`--world <bare.umap>` gives the map an Unreal world of its own (the MapKit's
+empty world, renamed under the codename) instead of running on the canvas
+mission's. That needs the MJOLNIRLevelLoader mod **with its native half**,
+`native/mjolnir_map_registry.dll` (built by `native/map_registry/build.ps1`,
+shipped by the mods release): the engine resolves a mission's world by its
+short name through the AssetRegistry, which only knows shipped packages, and
+the DLL answers for worlds found in the installed containers
+([new_scenario_loading.md](new_scenario_loading.md), "The world gate").
+Without it the launch bounces back to the menu; without `--world` the map
+runs on the canvas world and needs nothing native.
+
+Undo is deleting the six `pakchunk996-MJOLNIRREG-<CODE>_P.*` and
+`pakchunk997-MJOLNIRMAP-<CODE>_P.*` files. Two standalone maps installed at
+once each ship their own `DT_Scenarios` override, so only one registers; a
+merged registration container is the open item.
+
 `bake` clones shipped placements and re-points them (position, palette entry,
 a fresh unique id — never a novel string id, which the native parser rejects),
 grows palettes when a structure's tag isn't in them yet, rewrites the

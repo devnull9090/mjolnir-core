@@ -245,10 +245,21 @@ async function bridgeCall(op, body, timeoutMs = 15_000) {
   fs.renameSync(temporary, requestFile);
 
   const deadline = Date.now() + timeoutMs;
+  let nextProcessCheck = Date.now() + 2_000;
   while (Date.now() < deadline) {
     const message = readMessage(responseFile);
     if (message && Number(message.headers.id) === id) {
       return { ok: message.headers.ok === "1", body: message.body };
+    }
+    // A crashed game never answers; do not sit out the whole timeout for it.
+    if (Date.now() >= nextProcessCheck) {
+      nextProcessCheck = Date.now() + 2_000;
+      if (!(await gameProcess())) {
+        throw new Error(
+          `the game process is gone (it crashed or was closed) while waiting for the bridge. ` +
+            "Check Meteorite/Saved/Crashes for a report, then game_launch again."
+        );
+      }
     }
     await sleep(50);
   }

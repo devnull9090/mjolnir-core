@@ -19,9 +19,9 @@ use clap::{Args, Subcommand};
 
 use crate::index;
 use crate::Source;
-use std::collections::BTreeMap;
 use blam_tag::blockedit::{self, Op};
 use blam_tag::{Scalar, TagFile};
+use std::collections::BTreeMap;
 
 /// 1 Blam world unit in Unreal centimeters.
 const WU_CM: f64 = 304.8;
@@ -114,6 +114,31 @@ pub struct BakeArgs {
     /// still host the level; the codename is a new launchable scenario name.
     #[arg(long, value_name = "CODE")]
     pub standalone: Option<String>,
+    /// With `--standalone`: give structure BSP `INDEX` of the canvas
+    /// scenario its own tag under the codename's folder, carrying `PAYLOAD`
+    /// (a scenario_structure_bsp tag file, e.g. a collision transplant), and
+    /// point the baked scenario at it. The canvas mission's own BSP is then
+    /// untouched: no override container is needed for the geometry.
+    /// Repeatable.
+    #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
+    pub bsps: Vec<String>,
+    /// With `--standalone`: a cooked world package (`.umap`, plus a `.ubulk`
+    /// beside it when it has one) to ship as the map's own Unreal world,
+    /// renamed from the canvas mission's path to the codename's (same-length
+    /// surgery over every name, so a World Partition donor's cells point
+    /// nowhere and never stream), with the registration row pointing at it.
+    /// The canvas mission's own world is the donor that keeps the player
+    /// alive: its persistent level carries the BlamWorldSettings, the
+    /// BlamScenario actor and the player starts the game mode needs.
+    #[arg(long, value_name = "FILE")]
+    pub world: Option<PathBuf>,
+    /// With `--standalone`: point the registration row's `UnrealLevel` at
+    /// this shipped world instead (an object path such as
+    /// `/Game/Levels/Test/Testing_Clouds/Testing_Clouds.Testing_Clouds`),
+    /// without shipping a world package. A test-map world no mission uses
+    /// keeps the canvas mission's world out of the map.
+    #[arg(long, value_name = "OBJECT")]
+    pub world_object: Option<String>,
 }
 
 pub fn run(a: LevelArgs) -> Result<()> {
@@ -175,6 +200,19 @@ pub struct BlamSection {
     pub equipment: Vec<TypedPlacement>,
     #[serde(default)]
     pub objects: Vec<ObjectPlacement>,
+    /// Widen a structure BSP's world box (Halo wu). The scenario's boxes tile
+    /// the world and decide which BSP a point belongs to; transplanted terrain
+    /// larger than its host BSP falls "outside the world" past the old edge.
+    #[serde(default)]
+    pub world_bounds: Vec<WorldBounds>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldBounds {
+    pub bsp: usize,
+    pub min: [f64; 3],
+    pub max: [f64; 3],
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -192,6 +230,11 @@ pub struct Clear {
     pub equipment: bool,
     #[serde(default)]
     pub scripts: bool,
+    /// Any other root block to empty, by its name in the tag layout, e.g.
+    /// `"machines"` or `"scenario kill triggers"`. Named before the flags so a
+    /// file can strip a mission down to bare geometry in one list.
+    #[serde(default)]
+    pub blocks: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -236,8 +279,8 @@ struct PaletteMap {
 }
 
 fn load_level(path: &Path) -> Result<LevelFile> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let level: LevelFile =
         serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
     if level.schema_version != 1 {
@@ -289,10 +332,16 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     for o in &level.blam.objects {
         if o.group != "scenery" && o.group != "crates" {
-            bail!("objects[].group must be \"scenery\" or \"crates\", got {:?}", o.group);
+            bail!(
+                "objects[].group must be \"scenery\" or \"crates\", got {:?}",
+                o.group
+            );
         }
         if !o.tag.starts_with("objects\\") {
-            bail!("objects[].tag must be a tag path under objects\\, got {:?}", o.tag);
+            bail!(
+                "objects[].tag must be a tag path under objects\\, got {:?}",
+                o.tag
+            );
         }
     }
     if level.blam.player_starts.len() == 1 {
@@ -306,7 +355,10 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
         );
     }
     if level.blam.clear.scripts {
-        notes.push("clear.scripts is not implemented yet; the flag is ignored".to_string());
+        notes.push(
+            "clear.scripts replaces the mission's script with one startup script that fades in and hands the camera and input to the player"
+                .to_string(),
+        );
     }
     Ok(notes)
 }
@@ -358,6 +410,20 @@ fn abs_pos(origin: [f64; 3], rel: [f64; 3]) -> [f64; 3] {
 // Field patching on top of blockedit
 // -----------------------------------------------------------------------------
 
+/// The path a tag-reference field currently holds, without its group.
+fn reference_path(
+    l: &blam_tag::Layout,
+    file: &[u8],
+    block: &blam_tag::Block<'_>,
+    path: &str,
+) -> Result<String> {
+    let target = blam_tag::patch::resolve(l, file, block, path)?;
+    match &target.current {
+        Scalar::Reference { path: p, .. } if !p.is_empty() => Ok(p.clone()),
+        other => bail!("{path} is {} rather than a tag reference", other.display()),
+    }
+}
+
 /// Parse-and-set one field by path, mirroring what `mjolnir pack --set` does.
 fn apply_set(file: &mut Vec<u8>, path: &str, value: &str) -> Result<()> {
     let tag = TagFile::parse(file, Some(file.len()))?;
@@ -407,7 +473,12 @@ fn read_many(file: &[u8], paths: &[String]) -> Result<Vec<Option<Scalar>>> {
 /// set (verified on B40: donors from BSPs outside the play area never spawn).
 /// Cloning the *nearest* shipped placement inherits the BSP the level actually
 /// sits in, along with every other locality-sensitive field.
-fn nearest_donor(file: &[u8], block: &str, count: usize, origin_wu: (f64, f64, f64)) -> Result<usize> {
+fn nearest_donor(
+    file: &[u8],
+    block: &str,
+    count: usize,
+    origin_wu: (f64, f64, f64),
+) -> Result<usize> {
     let paths: Vec<String> = (0..count)
         .map(|i| format!("{block}[{i}].object data.position"))
         .collect();
@@ -488,7 +559,10 @@ fn selftest(a: SelftestArgs) -> Result<()> {
                 );
             }
             checked += 1;
-            println!("  ok  {:40} {:28} {} element(s)", entry.path, block, r.before);
+            println!(
+                "  ok  {:40} {:28} {} element(s)",
+                entry.path, block, r.before
+            );
         }
     }
     println!("\n{checked} no-op resizes, all byte-exact.");
@@ -540,7 +614,10 @@ impl Baker {
             let (out, _) = blockedit::resize(
                 &self.file,
                 "player starting locations",
-                &[Op::CloneAppend { donor, copies: extra }],
+                &[Op::CloneAppend {
+                    donor,
+                    copies: extra,
+                }],
             )?;
             self.file = out;
             for k in 0..extra {
@@ -552,11 +629,22 @@ impl Baker {
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, start.pos));
             let p = |f: &str| format!("player starting locations[{i}].{f}");
             apply_set(&mut self.file, &p("position"), &format!("({x}, {y}, {z})"))?;
-            apply_set(&mut self.file, &p("facing"), &format!("{}", ue_yaw_to_blam(start.yaw)))?;
+            apply_set(
+                &mut self.file,
+                &p("facing"),
+                &format!("{}", ue_yaw_to_blam(start.yaw)),
+            )?;
             apply_set(&mut self.file, &p("pitch"), "0")?;
             apply_set(&mut self.file, &p("insertion point index"), "#0")?;
-            apply_set(&mut self.file, &p("campaign player slot"), &format!("{}", j.min(3)))?;
-            println!("  start   [{i}] <- ({x:.3}, {y:.3}, {z:.3}) wu, slot {}", j.min(3));
+            apply_set(
+                &mut self.file,
+                &p("campaign player slot"),
+                &format!("{}", j.min(3)),
+            )?;
+            println!(
+                "  start   [{i}] <- ({x:.3}, {y:.3}, {z:.3}) wu, slot {}",
+                j.min(3)
+            );
         }
         Ok(())
     }
@@ -583,14 +671,13 @@ impl Baker {
             let tag_path = map
                 .get(&item.kind)
                 .with_context(|| format!("unknown type {:?}", item.kind))?;
-            let idx = palette_index(&self.file, palette, tag_path)?
-                .with_context(|| {
-                    format!(
-                        "{:?} ({tag_path}) is not in the canvas scenario's {palette:?} — \
+            let idx = palette_index(&self.file, palette, tag_path)?.with_context(|| {
+                format!(
+                    "{:?} ({tag_path}) is not in the canvas scenario's {palette:?} — \
                          v1 requires the palette to already carry it",
-                        item.kind
-                    )
-                })?;
+                    item.kind
+                )
+            })?;
             indices.push(idx);
         }
         let donor = nearest_donor(&self.file, block, before, ue_to_blam(self.origin))?;
@@ -598,14 +685,20 @@ impl Baker {
         let (out, _) = blockedit::resize(
             &self.file,
             block,
-            &[Op::CloneAppend { donor, copies: items.len() }],
+            &[Op::CloneAppend {
+                donor,
+                copies: items.len(),
+            }],
         )?;
         self.file = out;
-        *self.added.entry(match block {
-            "vehicles" => "vehicles",
-            "weapons" => "weapons",
-            _ => "equipment",
-        }).or_default() += items.len();
+        *self
+            .added
+            .entry(match block {
+                "vehicles" => "vehicles",
+                "weapons" => "weapons",
+                _ => "equipment",
+            })
+            .or_default() += items.len();
         for (j, (item, palette_idx)) in items.iter().zip(&indices).enumerate() {
             let i = before + j;
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, item.pos));
@@ -614,12 +707,24 @@ impl Baker {
             let p = |f: &str| format!("{block}[{i}].{f}");
             apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
             apply_set(&mut self.file, &p("name"), "none")?;
-            apply_set(&mut self.file, &p("object data.position"), &format!("({x}, {y}, {z})"))?;
-            apply_set(&mut self.file, &p("object data.rotation"), &format!("({yaw}, 0, 0)"))?;
+            apply_set(
+                &mut self.file,
+                &p("object data.position"),
+                &format!("({x}, {y}, {z})"),
+            )?;
+            apply_set(
+                &mut self.file,
+                &p("object data.rotation"),
+                &format!("({yaw}, 0, 0)"),
+            )?;
             // Bit 0 is "not automatically" (never spawns without a script);
             // bit 5 is "create at rest". Clones must actually spawn.
             apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
-            apply_set(&mut self.file, &p("object data.object id.unique id"), &format!("{uid}"))?;
+            apply_set(
+                &mut self.file,
+                &p("object data.object id.unique id"),
+                &format!("{uid}"),
+            )?;
             println!(
                 "  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu (palette #{palette_idx})",
                 item.kind
@@ -659,7 +764,10 @@ impl Baker {
                         let (out, _) = blockedit::resize(
                             &self.file,
                             palette,
-                            &[Op::CloneAppend { donor: 0, copies: 1 }],
+                            &[Op::CloneAppend {
+                                donor: 0,
+                                copies: 1,
+                            }],
                         )?;
                         self.file = out;
                         let i = palette_before + appended;
@@ -679,7 +787,10 @@ impl Baker {
             let (out, _) = blockedit::resize(
                 &self.file,
                 block,
-                &[Op::CloneAppend { donor, copies: of_group.len() }],
+                &[Op::CloneAppend {
+                    donor,
+                    copies: of_group.len(),
+                }],
             )?;
             self.file = out;
             for (j, (o, palette_idx)) in of_group.iter().zip(&indices).enumerate() {
@@ -690,13 +801,99 @@ impl Baker {
                 let p = |f: &str| format!("{block}[{i}].{f}");
                 apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
                 apply_set(&mut self.file, &p("name"), "none")?;
-                apply_set(&mut self.file, &p("object data.position"), &format!("({x}, {y}, {z})"))?;
-                apply_set(&mut self.file, &p("object data.rotation"), &format!("({yaw}, 0, 0)"))?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.position"),
+                    &format!("({x}, {y}, {z})"),
+                )?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.rotation"),
+                    &format!("({yaw}, 0, 0)"),
+                )?;
                 apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
-                apply_set(&mut self.file, &p("object data.object id.unique id"), &format!("{uid}"))?;
+                apply_set(
+                    &mut self.file,
+                    &p("object data.object id.unique id"),
+                    &format!("{uid}"),
+                )?;
                 println!("  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu", o.tag);
             }
         }
+        Ok(())
+    }
+
+    /// Replace the mission's whole script section with one startup script.
+    ///
+    /// Emptying the block would be simpler, but a Blam map boots with the
+    /// screen faded out, the HUD hidden and every player input faded to
+    /// nothing: the mission's own script is what hands those back. A map with
+    /// no script at all therefore loads black and frozen, with a live
+    /// simulation behind it — and `(player_enable_input true)` alone is not
+    /// the key. This engine's missions enter gameplay through
+    /// `f_insertion_fade_to_gameplay` (see any shipped scenario's
+    /// `global_scripts`): wait for the players to be active, then
+    /// `player_control_fade_in_all_input`, bring the HUD and screen back, and
+    /// raise the weapon; an outro cinematic locks with `player_disable_movement`
+    /// and `player_control_lock_gaze` as well, so those are released too. Without the input fade-in the player can look around
+    /// but not move, shoot or switch weapons, exactly as a cutscene holds
+    /// them. This writes the smallest script that does all of that. The wait
+    /// is bounded, so a level never hangs on a predicate this build might
+    /// never satisfy, and the weapon is lowered first the way the shipped
+    /// helper does — which also makes a stalled script visible: a lowered
+    /// weapon on a playable map means the wait never returned.
+    fn stub_scripts(&mut self) -> Result<()> {
+        const STUB: &str = "(script startup mjolnir_level_startup
+  (begin
+    (submit_incident_with_custom_string_id \"game_activity_begin\" \"mjolnir\")
+    (unit_lower_weapon player0 1)
+    (sleep_until (game_all_players_active) 1 (game_ticks_from_seconds 5.0))
+    (sleep 1)
+    (player_control_fade_in_all_input 1.0)
+    (chud_cinematic_fade 1.0 30)
+    (fade_in 0.0 0.0 0.0 30)
+    (camera_control false)
+    (player_enable_input true)
+    (player_disable_movement false)
+    (player_control_unlock_gaze player0)
+    (unit_raise_weapon player0 30)))
+";
+        let corpus_path = crate::resolve_data_path(Path::new("defs/hce/scripting.json"));
+        let corpus = blam_hsc::ScriptCorpus::load(&corpus_path).with_context(|| {
+            format!(
+                "clear.scripts needs the scripting corpus at {}; run `mjolnir scripting` first",
+                corpus_path.display()
+            )
+        })?;
+
+        let tag = TagFile::parse(&self.file, None)?;
+        let layout = tag.layout()?;
+        let block = tag.read_data(&layout)?;
+        let original = blam_hsc::read::read(&layout, &block, &self.file)?;
+
+        let compiled =
+            blam_hsc::Compiler::from_corpus(&corpus).compile(&[("mjolnir_level_startup", STUB)]);
+        if !compiled.ok() {
+            let first = compiled
+                .errors()
+                .next()
+                .map(|e| e.message.clone())
+                .unwrap_or_default();
+            bail!("the startup script did not compile: {first}");
+        }
+
+        let mut section = compiled.section;
+        section.shapes = original.shapes;
+        // The source text goes with it, so `mjolnir script --source` still
+        // shows what the level runs.
+        section.source_files = Vec::new();
+
+        self.file = blam_hsc::emit::rewrite(&section, &self.file)
+            .map_err(|e| anyhow::anyhow!("writing the startup script: {e}"))?;
+        println!(
+            "  clear   scripts: {} -> 1 script (startup: wait for players, fade input, HUD and screen in)",
+            original.scripts.len()
+        );
         Ok(())
     }
 
@@ -706,7 +903,11 @@ impl Baker {
         let added = self.added.clone();
         let mut wipe = |name: &str| -> Result<()> {
             let keep = added.get(name).copied().unwrap_or(0);
-            let op = if keep > 0 { Op::KeepLast { keep } } else { Op::Truncate { keep: 0 } };
+            let op = if keep > 0 {
+                Op::KeepLast { keep }
+            } else {
+                Op::Truncate { keep: 0 }
+            };
             let (out, r) = blockedit::resize(&self.file, name, &[op])?;
             self.file = out;
             println!("  clear   {name}: {} -> {} element(s)", r.before, r.after);
@@ -727,8 +928,12 @@ impl Baker {
         if clear.squads {
             wipe("squads")?;
         }
+        for name in &clear.blocks {
+            wipe(name)?;
+        }
+        drop(wipe);
         if clear.scripts {
-            println!("  clear   scripts: not implemented yet, ignored");
+            self.stub_scripts()?;
         }
         Ok(())
     }
@@ -767,11 +972,214 @@ fn bake(a: BakeArgs) -> Result<()> {
     // then the clears, which keep only what this bake appended. Clears never
     // touch player starts or the structure blocks.
     baker.player_starts(&level.blam.player_starts)?;
-    baker.typed("vehicles", "vehicle palette", &level.blam.vehicles, &map.vehicles)?;
-    baker.typed("weapons", "weapon palette", &level.blam.weapons, &map.weapons)?;
-    baker.typed("equipment", "equipment palette", &level.blam.equipment, &map.equipment)?;
+    baker.typed(
+        "vehicles",
+        "vehicle palette",
+        &level.blam.vehicles,
+        &map.vehicles,
+    )?;
+    baker.typed(
+        "weapons",
+        "weapon palette",
+        &level.blam.weapons,
+        &map.weapons,
+    )?;
+    baker.typed(
+        "equipment",
+        "equipment palette",
+        &level.blam.equipment,
+        &map.equipment,
+    )?;
     baker.objects(&level.blam.objects)?;
     baker.clears(&level.blam.clear)?;
+    for wb in &level.blam.world_bounds {
+        for (axis, name) in ["x", "y", "z"].iter().enumerate() {
+            apply_set(
+                &mut baker.file,
+                &format!("structure bsps[{}].world bounds {name}", wb.bsp),
+                &format!("({}, {})", wb.min[axis], wb.max[axis]),
+            )?;
+        }
+        println!(
+            "  bounds  structure bsps[{}] -> ({:.2}, {:.2}, {:.2}) .. ({:.2}, {:.2}, {:.2}) wu",
+            wb.bsp, wb.min[0], wb.min[1], wb.min[2], wb.max[0], wb.max[1], wb.max[2]
+        );
+    }
+
+    // Structure BSPs of the standalone map's own: each `--bsp` clones the
+    // referenced BSP tag and its lighting-info tag under the codename's
+    // folder — the BSP with the given body, the lighting info as shipped —
+    // and repoints the scenario's references. The clones are the shipped
+    // wrappers with the codename swapped into the package path (same-length
+    // surgery, like the scenario's own), which is what the simulation derives
+    // the tag path from; a wrapper rebuilt from scratch for this group loads
+    // but the map never starts. Ordinary new tags resolve by name the moment
+    // a reference names them, so the scenario package needs no import.
+    let mut extra_packages: Vec<blam_pack::NewPackage> = Vec::new();
+    if !a.bsps.is_empty() {
+        let code = a
+            .standalone
+            .as_deref()
+            .context("--bsp needs --standalone: a canvas override keeps the canvas BSPs")?
+            .to_uppercase();
+        let oodle = a.src.oodle_roots();
+        let old_seg = format!("\\{}\\", scen.to_lowercase());
+        let new_seg = format!("\\{}\\", code.to_lowercase());
+        ensure_same_len(&old_seg, &new_seg)?;
+        for spec in &a.bsps {
+            let (index, payload) = spec
+                .split_once('=')
+                .with_context(|| format!("--bsp takes INDEX=PAYLOAD, got {spec:?}"))?;
+            let index: usize = index
+                .parse()
+                .with_context(|| format!("--bsp index {index:?}"))?;
+            let new_body = std::fs::read(payload)
+                .with_context(|| format!("cannot read BSP payload {payload}"))?;
+            // (field, group directory, four-CC, replacement body)
+            let parts: [(String, &str, &str, Option<&[u8]>); 2] = [
+                (
+                    format!("structure bsps[{index}].structure bsp"),
+                    "scenario_structure_bsp",
+                    "sbsp",
+                    Some(&new_body),
+                ),
+                (
+                    format!("structure bsps[{index}].structure lighting_info"),
+                    "scenario_structure_lighting_info",
+                    "stli",
+                    None,
+                ),
+            ];
+            for (field, group, cc, body) in parts {
+                let current = {
+                    let tag = TagFile::parse(&baker.file, Some(baker.file.len()))?;
+                    let l = tag.layout()?;
+                    let block = tag.read_data(&l)?;
+                    reference_path(&l, &baker.file, &block, &field)?
+                };
+                let new_path = current.replace(&old_seg, &new_seg);
+                if new_path == current {
+                    bail!("{field} = {current:?} does not carry the canvas codename to replace");
+                }
+                let leaf = current.rsplit('\\').next().unwrap_or(&current).to_string();
+                let want = format!("/{}/_generated_/{leaf}-{group}", scen.to_lowercase());
+                let entries = by_group
+                    .get(group)
+                    .with_context(|| format!("no {group} tags"))?;
+                let donor_entry = entries
+                    .iter()
+                    .find(|e| e.path.to_ascii_lowercase().contains(&want))
+                    .copied()
+                    .with_context(|| format!("no shipped {group} tag package for {current}"))?;
+                let source = &idx.containers[donor_entry.container];
+                let uasset_chunk = source
+                    .chunks
+                    .iter()
+                    .find(|c| c.chunk_id == donor_entry.chunk.chunk_id && c.chunk_type == 1)
+                    .context("the tag has no package chunk beside its payload")?;
+                let donor_uasset = ue_iostore::read_chunk(source, uasset_chunk, None, &oodle)?;
+                let donor_body = idx.read(donor_entry, None, &oodle)?;
+                let body: Vec<u8> = body
+                    .map(<[u8]>::to_vec)
+                    .unwrap_or_else(|| donor_body.clone());
+                let (uasset_meta, ubulk_meta) =
+                    blam_pack::newtag::donor_chunk_meta(source, donor_entry.chunk.chunk_id)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                let donor_pkg = ue_asset::zen::Package::parse(&donor_uasset)
+                    .map_err(|e| anyhow::anyhow!("{group} donor package: {e}"))?;
+                let old_pkg = donor_pkg.name.clone();
+                let new_pkg = old_pkg.replace(
+                    &format!("/{}/", scen.to_uppercase()),
+                    &format!("/{}/", code),
+                );
+                ensure_same_len(&old_pkg, &new_pkg)?;
+                let uasset = crate::rename::clone_tag_uasset(
+                    &donor_uasset,
+                    &[(old_pkg.clone(), new_pkg.clone())],
+                    donor_body.len(),
+                    body.len(),
+                )?;
+                let imported: Vec<u64> = donor_pkg
+                    .imported_package_names
+                    .iter()
+                    .map(|n| ue_iostore::city::package_id(n))
+                    .collect();
+                println!(
+                    "  {cc}     [{index}] {current}\n        -> {new_path} ({} bytes)",
+                    body.len()
+                );
+                apply_set(&mut baker.file, &field, &format!("{cc}:{new_path}"))?;
+                extra_packages.push(blam_pack::NewPackage {
+                    package_name: new_pkg,
+                    uasset,
+                    ubulk: body,
+                    imported_package_ids: imported,
+                    uasset_meta,
+                    ubulk_meta,
+                });
+            }
+        }
+    }
+
+    // The map's own Unreal world, when one is given: the bare level renamed
+    // under the codename (a world with no cells refers to itself by nothing
+    // but its name) and added beside the scenario. The registration row then
+    // points its `UnrealLevel` at it instead of the canvas mission's world.
+    let mut world_object: Option<String> = a.world_object.clone();
+    if world_object.is_some() && a.standalone.is_none() {
+        bail!("--world-object needs --standalone");
+    }
+    if let Some(world_file) = &a.world {
+        let code = a
+            .standalone
+            .as_deref()
+            .context("--world needs --standalone: a canvas override keeps the canvas world")?
+            .to_uppercase();
+        let data = std::fs::read(world_file)
+            .with_context(|| format!("cannot read world {}", world_file.display()))?;
+        let mut zp = ue_asset::package::ZenPackage::parse(&data)
+            .map_err(|e| anyhow::anyhow!("world package: {e}"))?;
+        let old_pkg = zp.name();
+        let new_pkg = old_pkg.replace(
+            &format!("/{}/{}", scen.to_uppercase(), scen.to_uppercase()),
+            &format!("/{code}/{code}"),
+        );
+        if new_pkg == old_pkg {
+            bail!("world {old_pkg} is not under the canvas mission's path /{scen}/{scen}");
+        }
+        ensure_same_len(&old_pkg, &new_pkg)?;
+        for line in zp
+            .rename_world(&new_pkg)
+            .map_err(|e| anyhow::anyhow!("world rename: {e}"))?
+        {
+            println!("  world    {line}");
+        }
+        let imported: Vec<u64> = zp
+            .imported_package_names
+            .names
+            .iter()
+            .map(|n| ue_iostore::city::package_id(n))
+            .collect();
+        // A shipped world's bulk data (its textures) rides a `.ubulk` beside
+        // the `.umap`; the bare MapKit world has none.
+        let ubulk_file = world_file.with_extension("ubulk");
+        let ubulk = if ubulk_file.is_file() {
+            let b = std::fs::read(&ubulk_file)?;
+            println!("  world    bulk data {} ({} bytes)", ubulk_file.display(), b.len());
+            b
+        } else {
+            Vec::new()
+        };
+        extra_packages.push(blam_pack::NewPackage {
+            package_name: new_pkg.clone(),
+            uasset: zp.write(),
+            ubulk,
+            imported_package_ids: imported,
+            uasset_meta: Vec::new(),
+            ubulk_meta: Vec::new(),
+        });
+        world_object = Some(format!("{new_pkg}.{code}"));
+    }
 
     let file = baker.file;
 
@@ -824,10 +1232,16 @@ fn bake(a: BakeArgs) -> Result<()> {
             .to_string();
         let new_leaf = format!("{code}-scenario");
         ensure_same_len(&old_leaf, &new_leaf)?;
-        let new_pkg = format!(
-            "{}/{new_leaf}",
-            old_pkg.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
-        );
+        // The campaign flow derives the scenario tag's package path from the
+        // data-table row name — `.../Solo/<NAME>/_Generated_/<NAME>-scenario`
+        // — so the new package must sit in a folder named after the codename,
+        // not in the donor's. The folder segment is the donor's own codename
+        // (same length), so the rename stays same-length surgery.
+        let old_code = old_leaf.trim_end_matches("-scenario").to_string();
+        let old_dir = old_pkg.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let new_dir = old_dir.replace(&format!("/{old_code}/"), &format!("/{code}/"));
+        let new_pkg = format!("{new_dir}/{new_leaf}");
+        ensure_same_len(&old_pkg, &new_pkg)?;
         let imported: Vec<u64> = donor
             .imported_package_names
             .iter()
@@ -849,20 +1263,18 @@ fn bake(a: BakeArgs) -> Result<()> {
         )?;
 
         let container_name = format!("pakchunk997-MJOLNIRMAP-{code}");
-        let built = blam_pack::build_addition(
-            source,
-            &a.src.oodle_roots(),
-            &container_name,
-            &[blam_pack::NewPackage {
-                package_name: new_pkg,
-                uasset,
-                ubulk: file.clone(),
-                imported_package_ids: imported,
-                uasset_meta: meta_of(1),
-                ubulk_meta: meta_of(2),
-            }],
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
+        let mut packages = vec![blam_pack::NewPackage {
+            package_name: new_pkg,
+            uasset,
+            ubulk: file.clone(),
+            imported_package_ids: imported,
+            uasset_meta: meta_of(1),
+            ubulk_meta: meta_of(2),
+        }];
+        packages.append(&mut extra_packages);
+        let built =
+            blam_pack::build_addition(source, &a.src.oodle_roots(), &container_name, &packages)
+                .map_err(|e| anyhow::anyhow!(e))?;
         (built, format!("{container_name}_P"))
     } else {
         let built = blam_pack::build_override(
@@ -906,6 +1318,44 @@ fn bake(a: BakeArgs) -> Result<()> {
     println!("  wrote    {} ({} bytes)", utoc.display(), built.utoc.len());
     println!("  wrote    {} ({} bytes)", ucas.display(), built.ucas.len());
 
+    // A standalone codename also has to be registered: a cooked
+    // `DT_Scenarios` row and a `ScenarioList` handle, which is what the
+    // simulation's map registry is built from at boot
+    // (`blam_pack::scenario`). The scenario package alone launches nothing.
+    let mut undo = format!("the three {name}.* files");
+    if let Some(code) = &a.standalone {
+        let code = code.to_uppercase();
+        let oodle = a.src.oodle_roots();
+        let usmap = crate::mesh::usmap()?;
+        let scripts = crate::mesh::script_objects(&idx.containers, &oodle)?;
+        let reg = blam_pack::scenario::Registration {
+            code: code.clone(),
+            from: scen.to_uppercase(),
+            title: level.title.clone(),
+            description: level.description.clone(),
+            world: world_object.clone(),
+        };
+        let (built, reg_name, log) =
+            blam_pack::scenario::register(&idx.containers, &oodle, &usmap, &scripts, &reg)
+                .map_err(|e| anyhow::anyhow!(e))?;
+        for line in &log {
+            println!("  register {line}");
+        }
+        let utoc = out_dir.join(format!("{reg_name}.utoc"));
+        let ucas = out_dir.join(format!("{reg_name}.ucas"));
+        stage(&utoc, &built.utoc)?;
+        stage(&ucas, &built.ucas)?;
+        blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
+        println!("  wrote    {} ({} bytes)", utoc.display(), built.utoc.len());
+        println!("  wrote    {} ({} bytes)", ucas.display(), built.ucas.len());
+        if a.install_test {
+            let pak = out_dir.join(format!("{reg_name}.pak"));
+            std::fs::write(&pak, ue_iostore::pak::stub_for(&reg_name))?;
+            println!("  wrote    {} (stub)", pak.display());
+        }
+        undo = format!("the three {name}.* and three {reg_name}.* files");
+    }
+
     if a.install_test {
         // A .utoc/.ucas pair never mounts without a .pak sibling
         // (docs/iostore_packaging.md).
@@ -913,17 +1363,27 @@ fn bake(a: BakeArgs) -> Result<()> {
         std::fs::write(&pak, ue_iostore::pak::stub_for(&name))?;
         println!("  wrote    {} (stub)", pak.display());
 
+        // The loader keys a standalone map's decor by its codename, a
+        // canvas override's by the canvas scenario.
+        let file_key = a
+            .standalone
+            .as_ref()
+            .map(|c| c.to_uppercase())
+            .unwrap_or_else(|| scen.to_string());
         if let Some(loader_levels) = loader_levels_dir(&a.src.paks) {
             std::fs::create_dir_all(&loader_levels)?;
-            let dest = loader_levels.join(format!("{scen}.level.json"));
+            let dest = loader_levels.join(format!("{file_key}.level.json"));
             std::fs::copy(&a.file, &dest)?;
             println!("  wrote    {} (decor for the loader)", dest.display());
         } else {
             println!("  note: UE4SS Mods directory not found; decor file not installed");
         }
-        println!("\n  Launch {scen} through the game's own menu (mjolnir_mission does");
+        println!(
+            "
+  Launch {file_key} through the game's own menu (mjolnir_mission does"
+        );
         println!("  not cold-start the simulation on current builds).");
-        println!("  To undo: delete the three pakchunk998-MJOLNIRLEVEL-* files.");
+        println!("  To undo: delete {undo}.");
     } else {
         println!("\n  Install: copy both files plus a stub .pak sibling into the game's");
         println!("  Paks folder, or re-run with --install-test.");
@@ -944,7 +1404,8 @@ struct PackageIndex {
 
 impl PackageIndex {
     fn build(containers: &[ue_iostore::Container]) -> PackageIndex {
-        let mut entries: std::collections::HashMap<String, PackageSlot> = std::collections::HashMap::new();
+        let mut entries: std::collections::HashMap<String, PackageSlot> =
+            std::collections::HashMap::new();
         for (ci, c) in containers.iter().enumerate() {
             for (rel, chunk_index) in &c.files {
                 let full = c.full_path(rel);
@@ -955,9 +1416,11 @@ impl PackageIndex {
                     continue;
                 };
                 let is_bulk = full.ends_with(".ubulk");
-                let entry = entries
-                    .entry(name.to_ascii_lowercase())
-                    .or_insert((usize::MAX, usize::MAX, None));
+                let entry = entries.entry(name.to_ascii_lowercase()).or_insert((
+                    usize::MAX,
+                    usize::MAX,
+                    None,
+                ));
                 if is_bulk {
                     entry.2 = Some((ci, *chunk_index));
                 } else {
@@ -1060,7 +1523,12 @@ fn export(a: ExportArgs) -> Result<()> {
             "skips": cell.skips,
         });
         if !cell.missing.is_empty() {
-            let list: Vec<String> = cell.missing.iter().take(5).map(|(k, v)| format!("{k} ×{v}")).collect();
+            let list: Vec<String> = cell
+                .missing
+                .iter()
+                .take(5)
+                .map(|(k, v)| format!("{k} ×{v}"))
+                .collect();
             println!(
                 "  {} mesh(es) not readable, placements dropped: {}",
                 cell.missing.len(),
@@ -1091,9 +1559,15 @@ fn export(a: ExportArgs) -> Result<()> {
         },
     });
     if !a.dry_run {
-        std::fs::write(a.out.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
+        std::fs::write(
+            a.out.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest)?,
+        )?;
     }
-    let skips: Vec<String> = total_skips.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    let skips: Vec<String> = total_skips
+        .iter()
+        .map(|(k, v)| format!("{v} {k}"))
+        .collect();
     println!(
         "{} cells, {total_placements} placements ({total_instanced} instanced), {files} file(s){}",
         cells.len(),
@@ -1118,11 +1592,14 @@ fn ensure_same_len(old: &str, new: &str) -> Result<()> {
 /// UE4SS mods tree exists.
 fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
     let meteorite = paks.parent()?.parent()?;
-    let mods = meteorite.join("Binaries").join("Win64").join("ue4ss").join("Mods");
+    let mods = meteorite
+        .join("Binaries")
+        .join("Win64")
+        .join("ue4ss")
+        .join("Mods");
     if mods.is_dir() {
         Some(mods.join("MJOLNIRLevelLoader").join("levels"))
     } else {
         None
     }
 }
-

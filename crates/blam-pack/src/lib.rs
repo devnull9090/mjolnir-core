@@ -12,6 +12,7 @@
 //! caller names files.
 
 pub mod newtag;
+pub mod scenario;
 
 use std::path::{Path, PathBuf};
 
@@ -74,6 +75,30 @@ pub fn build_override(
     source: &Container,
     oodle: &[PathBuf],
     edits: &[ChunkEdit],
+) -> Result<Built, String> {
+    build_override_with_store(source, oodle, edits, &[])
+}
+
+/// [`build_override`], plus package-store entries of this container's own.
+///
+/// A cooked package resolves an import as `(imported package index, public
+/// export hash index)`, and the runtime turns that index into an `FPackageId`
+/// through the importing package's **store entry** — the container header's
+/// parallel copy of the asset header's imported-package list — not through the
+/// asset itself. Every shipped package agrees on the two lists (85,176 of
+/// 87,165 in `pakchunk0` byte for byte, the rest only where an FName number
+/// makes the name-derived id differ), so an override that adds an import to
+/// the asset alone indexes off the end of an array the game still sizes from
+/// the shipped entry, and the load faults.
+///
+/// A container's own header registers store entries for the packages it
+/// carries, and a `_P` mod container mounts last, so an entry here replaces
+/// the shipped one for the same package id.
+pub fn build_override_with_store(
+    source: &Container,
+    oodle: &[PathBuf],
+    edits: &[ChunkEdit],
+    store: &[(u64, Vec<u64>)],
 ) -> Result<Built, String> {
     if edits.is_empty() {
         return Err("nothing to pack".into());
@@ -153,6 +178,24 @@ pub fn build_override(
         });
     }
 
+    if !store.is_empty() {
+        let header =
+            ue_iostore::container_header::ContainerHeader::with_import_lists(CONTAINER_ID, store);
+        chunks.insert(
+            0,
+            ue_iostore::pack::Entry {
+                id: ChunkId {
+                    id: CONTAINER_ID,
+                    index: 0,
+                    pad: 0,
+                    kind: 6,
+                },
+                data: header.write(),
+                meta: Vec::new(),
+            },
+        );
+    }
+
     let built = ue_iostore::pack::build(&source_toc, CONTAINER_ID, &chunks);
     let expect = chunks.into_iter().map(|c| (c.id, c.data)).collect();
     Ok(Built {
@@ -179,6 +222,30 @@ pub struct NewPackage {
     /// Chunk meta records copied from the donor package's chunks.
     pub uasset_meta: Vec<u8>,
     pub ubulk_meta: Vec<u8>,
+}
+
+/// `PKG_ContainsMap` in a zen summary's package flags: the package is a world.
+pub const PKG_CONTAINS_MAP: u32 = 0x0002_0000;
+
+/// `FPackageObjectIndex` of `/Script/Engine.World`, the class of a world
+/// package's main export. Shipped mission worlds carry it without
+/// `PKG_ContainsMap` in their flags (B40's are `0x80002200`), while the
+/// MapKit's bare world has the flag; a world is either.
+pub const WORLD_CLASS_INDEX: u64 = 0x7b11_1682_9423_f7c1;
+
+/// Whether a cooked package is a world — named `.umap` in a directory index,
+/// which is how the map registry (native/map_registry) learns of it.
+pub fn is_world_package(uasset: &[u8]) -> bool {
+    let flags = uasset
+        .get(16..20)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .unwrap_or(0);
+    if flags & PKG_CONTAINS_MAP != 0 {
+        return true;
+    }
+    ue_asset::package::ZenPackage::parse(uasset)
+        .map(|zp| zp.export_map.iter().any(|e| e.class == WORLD_CLASS_INDEX))
+        .unwrap_or(false)
 }
 
 /// Build a container that ADDS packages rather than overriding chunks.
@@ -230,9 +297,34 @@ pub fn build_addition(
         data: header.write(),
         meta: Vec::new(),
     }];
+    // Name the files in a real directory index, the way UE staging does:
+    // mounted at the content root, each package under its own folder. A
+    // world is a `.umap` there (its summary carries PKG_ContainsMap), and a
+    // package without bulk data gets no `.ubulk` chunk at all — a shipped
+    // bare world has none, and a zero-length bulk chunk is not the same
+    // thing as no bulk chunk.
+    // The mount point and paths are the ones a UE-staged container carries
+    // (`../../../` + `Meteorite/Content/...`), not a content-root mount: the
+    // pak platform file registers directory-index entries as files, and that
+    // is what `FPackageName::DoesPackageExist` answers from for a package the
+    // asset registry has never heard of.
+    let mount = "../../../";
+    let mut files: Vec<(String, usize)> = Vec::new();
     let mut entries = Vec::new();
     for p in packages {
         let id = ue_iostore::city::package_id(&p.package_name);
+        let rel = if let Some(r) = p.package_name.strip_prefix("/Game/") {
+            format!("Meteorite/Content/{r}")
+        } else if let Some(r) = p.package_name.strip_prefix("/Engine/") {
+            format!("Engine/Content/{r}")
+        } else {
+            format!(
+                "Meteorite/Content/{}",
+                p.package_name.trim_start_matches('/')
+            )
+        };
+        let ext = if is_world_package(&p.uasset) { "umap" } else { "uasset" };
+        files.push((format!("{rel}.{ext}"), chunks.len()));
         chunks.push(ue_iostore::pack::Entry {
             id: ChunkId {
                 id,
@@ -243,16 +335,19 @@ pub fn build_addition(
             data: p.uasset.clone(),
             meta: p.uasset_meta.clone(),
         });
-        chunks.push(ue_iostore::pack::Entry {
-            id: ChunkId {
-                id,
-                index: 0,
-                pad: 0,
-                kind: 2,
-            },
-            data: p.ubulk.clone(),
-            meta: p.ubulk_meta.clone(),
-        });
+        if !p.ubulk.is_empty() {
+            files.push((format!("{rel}.ubulk"), chunks.len()));
+            chunks.push(ue_iostore::pack::Entry {
+                id: ChunkId {
+                    id,
+                    index: 0,
+                    pad: 0,
+                    kind: 2,
+                },
+                data: p.ubulk.clone(),
+                meta: p.ubulk_meta.clone(),
+            });
+        }
         entries.push(PackedEntry {
             label: p.package_name.clone(),
             id: ChunkId {
@@ -263,21 +358,6 @@ pub fn build_addition(
             },
             resized: false,
         });
-    }
-
-    // Name the files in a real directory index, the way UE staging does:
-    // mounted at the content root, each package under its own folder.
-    let mount = "../../../Meteorite/Content/";
-    let mut files: Vec<(String, usize)> = Vec::new();
-    for (i, p) in packages.iter().enumerate() {
-        let rel = p
-            .package_name
-            .strip_prefix("/Game/")
-            .unwrap_or(&p.package_name)
-            .trim_start_matches('/');
-        // Entry 0 is the header; each package contributes two chunks.
-        files.push((format!("{rel}.uasset"), 1 + i * 2));
-        files.push((format!("{rel}.ubulk"), 2 + i * 2));
     }
     let built =
         ue_iostore::pack::build_indexed(&source_toc, container_id, &chunks, Some((mount, &files)));

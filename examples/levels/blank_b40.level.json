@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "name": "blank_b40",
+  "title": "Blank canvas on B40",
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "blam": {
+    "clear": {
+      "squads": true,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "scenery",
+        "machines",
+        "terminals",
+        "controls",
+        "effect scenery",
+        "sound scenery",
+        "giants",
+        "squad groups",
+        "zones",
+        "actual cues",
+        "quick cues",
+        "trigger volumes",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points"
+      ]
+    }
+  },
+  "decor": [
+    {
+      "id": "floor",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        10210.0,
+        -10220.0,
+        14480.0
+      ],
+      "scale": [
+        60.0,
+        60.0,
+        1.0
+      ],
+      "tint": [
+        0.3,
+        0.32,
+        0.35,
+        1.0
+      ]
+    },
+    {
+      "id": "pillar_n",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        11410.0,
+        -10220.0,
+        14980.0
+      ],
+      "scale": [
+        2.0,
+        2.0,
+        8.0
+      ],
+      "tint": [
+        0.65,
+        0.25,
+        0.2,
+        1.0
+      ]
+    },
+    {
+      "id": "pillar_e",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        10210.0,
+        -9020.0,
+        14980.0
+      ],
+      "scale": [
+        2.0,
+        2.0,
+        8.0
+      ],
+      "tint": [
+        0.2,
+        0.55,
+        0.65,
+        1.0
+      ]
+    },
+    {
+      "id": "marker_ball",
+      "mesh": "/Engine/BasicShapes/Sphere.Sphere",
+      "pos": [
+        9310.0,
+        -11120.0,
+        14830.0
+      ],
+      "scale": [
+        3.0,
+        3.0,
+        3.0
+      ],
+      "tint": [
+        0.85,
+        0.75,
+        0.2,
+        1.0
+      ]
+    }
+  ],
+  "description": "B40 stripped to bare geometry: no AI, no vehicles, no weapons, no scripts. A spawn point, a sky and a few landmark shapes.",
+  "environment": {
+    "sun": {
+      "pitch": -42.0,
+      "yaw": 25.0,
+      "intensity": 8.0
+    },
+    "atmosphere": true,
+    "skylight": {
+      "intensity": 3.0
+    }
+  }
+}

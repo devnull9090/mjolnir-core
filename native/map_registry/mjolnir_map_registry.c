@@ -1,0 +1,488 @@
+// MJOLNIR Map Registry — a short-name resolver for maps the shipped
+// AssetRegistry does not know.
+//
+// Why this exists (docs/new_scenario_loading.md, "The world gate"):
+//
+//   The campaign flow starts a mission by travelling to the SHORT name of the
+//   row's Unreal world ("B40?SeamlessTravel?ScenarioName=B40..."). In
+//   UEngine::Browse, MakeSureMapNameIsValid turns a short name into a package
+//   path by asking the AssetRegistry for the first package with that name —
+//   IAssetRegistry::GetFirstPackageByName — and only a long path (one with a
+//   '/') goes to FPackageName::DoesPackageExist and the IoStore. The registry
+//   is loaded once at boot from Meteorite/AssetRegistry.bin, so a world that
+//   ships in a mod container is never found, and the travel is refused before
+//   any container is asked. Verified on CU4 with call-site probes: the flow's
+//   own tag gate passes, travel is requested, and the registry answers "none".
+//
+// What it does:
+//
+//   Wraps GetFirstPackageByName (virtual slot 30 of the IAssetRegistry the
+//   AssetRegistry module's Get() returns). When the registry misses, the name
+//   is looked up among the .umap files listed by the directory indexes of the
+//   .utoc containers in Meteorite/Content/Paks — the UE-style layout
+//   `mjolnir level bake --standalone --world` writes — and the package path is
+//   returned as an FName built the way the engine builds one. Shipped maps
+//   never reach the fallback, so nothing else changes.
+//
+// Everything here is CU4-specific (RVAs below, guarded by the PE timestamp).
+// Loaded by mods/MJOLNIRLevelLoader/Scripts/main.lua with package.loadlib.
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#define EXE_TIMESTAMP 0x8a03f777u
+
+// FModuleManager& FModuleManager::Get()
+#define RVA_MODULE_MANAGER_GET 0x36D29F0u
+// IModuleInterface* FModuleManager::GetModule(FName)
+#define RVA_MODULE_MANAGER_GET_MODULE 0x36D3540u
+// Hash of a name view, as the FName constructor wants it.
+#define RVA_NAME_HASH 0x3709650u
+// FName construction from a name view: (FName* out, view*, EFindName, hash)
+#define RVA_NAME_MAKE 0x36FCC60u
+
+// IModuleInterface: 8 virtuals; FAssetRegistryModule::Get() is the ninth.
+#define MODULE_SLOT_GET 8
+// IAssetRegistry::GetFirstPackageByName(FStringView) — FName returned
+// through a hidden pointer.
+#define REGISTRY_SLOT_FIRST_PACKAGE 30
+
+#define MAX_MAPS 8192
+#define MAX_PATH_CHARS 512
+
+typedef struct {
+    const wchar_t *data;
+    int32_t len;
+} string_view_t;
+
+typedef struct {
+    const wchar_t *ptr;
+    int32_t len;
+    uint8_t wide;
+    uint8_t pad[3];
+} name_view_t;
+
+typedef void *(__fastcall *first_pkg_fn)(void *self, uint64_t *out, const string_view_t *name);
+typedef void *(__fastcall *manager_get_fn)(void);
+typedef void *(__fastcall *get_module_fn)(void *manager, uint64_t name);
+typedef void *(__fastcall *module_get_fn)(void *module);
+typedef uint64_t(__fastcall *name_hash_fn)(const wchar_t *str, void *tail);
+typedef void(__fastcall *name_make_fn)(uint64_t *out, name_view_t *view, int find, uint64_t hash);
+
+typedef struct {
+    wchar_t leaf[128];
+    wchar_t package[MAX_PATH_CHARS];
+} map_entry_t;
+
+static CRITICAL_SECTION g_cs;
+static char g_log[MAX_PATH];
+static char g_paks[MAX_PATH];
+static uint8_t *g_base;
+static void **g_vtable;
+static first_pkg_fn g_orig;
+static int g_hooked;
+static map_entry_t g_maps[MAX_MAPS];
+static int g_nmaps;
+static long g_misses_logged;
+
+static void Log(const char *fmt, ...) {
+    va_list ap;
+    EnterCriticalSection(&g_cs);
+    FILE *f = NULL;
+    if (fopen_s(&f, g_log, "a") == 0 && f) {
+        va_start(ap, fmt);
+        vfprintf(f, fmt, ap);
+        va_end(ap);
+        fputc('\n', f);
+        fclose(f);
+    }
+    LeaveCriticalSection(&g_cs);
+}
+
+// ----------------------------------------------------------------- FName
+
+static uint64_t make_fname(const wchar_t *s) {
+    name_view_t v;
+    v.ptr = s;
+    v.len = (int32_t)wcslen(s);
+    v.wide = 0;
+    for (int32_t i = 0; i < v.len; i++)
+        if (s[i] >= 0x80) v.wide = 1;
+    memset(v.pad, 0, sizeof v.pad);
+    uint64_t hash = ((name_hash_fn)(g_base + RVA_NAME_HASH))(s, &v.len);
+    uint64_t out = 0;
+    ((name_make_fn)(g_base + RVA_NAME_MAKE))(&out, &v, 1, hash);
+    return out;
+}
+
+// ----------------------------------------------------------- the hook
+
+static void *__fastcall hooked_first_package(void *self, uint64_t *out, const string_view_t *name) {
+    void *r = g_orig(self, out, name);
+    if (out[0] != 0 || !name || name->len <= 0 || name->len >= 127) return r;
+    wchar_t leaf[128];
+    memcpy(leaf, name->data, (size_t)name->len * sizeof(wchar_t));
+    leaf[name->len] = 0;
+    EnterCriticalSection(&g_cs);
+    const wchar_t *package = NULL;
+    for (int i = 0; i < g_nmaps; i++) {
+        if (_wcsicmp(leaf, g_maps[i].leaf) == 0) {
+            package = g_maps[i].package;
+            break;
+        }
+    }
+    LeaveCriticalSection(&g_cs);
+    if (package) {
+        out[0] = make_fname(package);
+        Log("%ls -> %ls (container map)", leaf, package);
+    } else if (g_misses_logged < 50) {
+        InterlockedIncrement(&g_misses_logged);
+        Log("%ls -> not a shipped package and not in any container", leaf);
+    }
+    return r;
+}
+
+// --------------------------------------------- .utoc directory indexes
+
+typedef struct {
+    const uint8_t *p;
+    size_t len;
+    size_t pos;
+    int bad;
+} reader_t;
+
+static uint32_t rd_u32(reader_t *r) {
+    if (r->pos + 4 > r->len) {
+        r->bad = 1;
+        return 0;
+    }
+    uint32_t v;
+    memcpy(&v, r->p + r->pos, 4);
+    r->pos += 4;
+    return v;
+}
+
+// FString: i32 length counting the terminator; negative = UTF-16.
+static int rd_fstring(reader_t *r, wchar_t *out, size_t cap) {
+    int32_t n = (int32_t)rd_u32(r);
+    out[0] = 0;
+    if (r->bad) return 0;
+    if (n == 0) return 1;
+    if (n < 0) {
+        size_t chars = (size_t)(-n);
+        if (r->pos + chars * 2 > r->len) {
+            r->bad = 1;
+            return 0;
+        }
+        size_t copy = chars < cap ? chars : cap - 1;
+        memcpy(out, r->p + r->pos, copy * 2);
+        out[copy] = 0;
+        r->pos += chars * 2;
+    } else {
+        size_t chars = (size_t)n;
+        if (r->pos + chars > r->len) {
+            r->bad = 1;
+            return 0;
+        }
+        size_t copy = chars < cap ? chars : cap - 1;
+        for (size_t i = 0; i < copy; i++) out[i] = (wchar_t)r->p[r->pos + i];
+        out[copy] = 0;
+        r->pos += chars;
+    }
+    return 1;
+}
+
+static void add_map(const wchar_t *mount, const wchar_t *rel) {
+    // Only worlds, only under a content root we can name. World Partition
+    // cells (`<World>/_Generated_/<hash>.umap`, thousands per shipped
+    // container) are never a travel target.
+    size_t n = wcslen(rel);
+    if (n < 6 || _wcsicmp(rel + n - 5, L".umap") != 0) return;
+    if (wcsstr(rel, L"/_Generated_/") || _wcsnicmp(rel, L"_Generated_/", 12) == 0) return;
+    wchar_t full[MAX_PATH_CHARS];
+    if (swprintf(full, MAX_PATH_CHARS, L"%ls%ls", mount, rel) < 0) return;
+    const wchar_t *root = NULL;
+    const wchar_t *rest = NULL;
+    static const struct {
+        const wchar_t *prefix;
+        const wchar_t *root;
+    } ROOTS[] = {
+        {L"../../../Meteorite/Content/", L"/Game/"},
+        {L"../../../Engine/Content/", L"/Engine/"},
+    };
+    for (size_t i = 0; i < sizeof ROOTS / sizeof ROOTS[0]; i++) {
+        size_t pl = wcslen(ROOTS[i].prefix);
+        if (_wcsnicmp(full, ROOTS[i].prefix, pl) == 0) {
+            root = ROOTS[i].root;
+            rest = full + pl;
+            break;
+        }
+    }
+    if (!root) return;
+    wchar_t package[MAX_PATH_CHARS];
+    if (swprintf(package, MAX_PATH_CHARS, L"%ls%ls", root, rest) < 0) return;
+    package[wcslen(package) - 5] = 0; // drop .umap
+    const wchar_t *leaf = wcsrchr(package, L'/');
+    leaf = leaf ? leaf + 1 : package;
+    if (wcslen(leaf) >= 128) return;
+    for (int i = 0; i < g_nmaps; i++)
+        if (_wcsicmp(g_maps[i].package, package) == 0) return;
+    if (g_nmaps >= MAX_MAPS) {
+        static long warned;
+        if (InterlockedIncrement(&warned) == 1) Log("map table full at %d; %ls and later worlds not indexed", MAX_MAPS, package);
+        return;
+    }
+    wcscpy_s(g_maps[g_nmaps].leaf, 128, leaf);
+    wcscpy_s(g_maps[g_nmaps].package, MAX_PATH_CHARS, package);
+    g_nmaps++;
+}
+
+// FIoDirectoryIndexResource: mount point, directory entries {name, first
+// child, next sibling, first file}, file entries {name, next file, user data},
+// string table. Indexes are u32 with 0xffffffff for none.
+static int walk_directory_index(const uint8_t *blob, size_t len, const char *toc_name) {
+    reader_t r = {blob, len, 0, 0};
+    wchar_t mount[MAX_PATH_CHARS];
+    if (!rd_fstring(&r, mount, MAX_PATH_CHARS)) return 0;
+    uint32_t ndirs = rd_u32(&r);
+    if (r.bad || r.pos + (size_t)ndirs * 16 > len) return 0;
+    const uint8_t *dirs = blob + r.pos;
+    r.pos += (size_t)ndirs * 16;
+    uint32_t nfiles = rd_u32(&r);
+    if (r.bad || r.pos + (size_t)nfiles * 12 > len) return 0;
+    const uint8_t *files = blob + r.pos;
+    r.pos += (size_t)nfiles * 12;
+    uint32_t nstrings = rd_u32(&r);
+    if (r.bad || nstrings > 1000000) return 0;
+    wchar_t **strings = (wchar_t **)calloc(nstrings, sizeof(wchar_t *));
+    if (!strings) return 0;
+    for (uint32_t i = 0; i < nstrings; i++) {
+        wchar_t tmp[MAX_PATH_CHARS];
+        if (!rd_fstring(&r, tmp, MAX_PATH_CHARS)) break;
+        strings[i] = _wcsdup(tmp);
+    }
+    int added = 0;
+    if (!r.bad && ndirs > 0) {
+        // Iterative walk: (directory index, path prefix) pairs.
+        typedef struct {
+            uint32_t dir;
+            wchar_t prefix[MAX_PATH_CHARS];
+        } frame_t;
+        frame_t *stack = (frame_t *)calloc(ndirs + 1, sizeof(frame_t));
+        if (stack) {
+            int sp = 0;
+            stack[sp].dir = 0;
+            stack[sp].prefix[0] = 0;
+            sp++;
+            int before = g_nmaps;
+            while (sp > 0 && sp <= (int)ndirs) {
+                frame_t f = stack[--sp];
+                if (f.dir >= ndirs) continue;
+                uint32_t d[4];
+                memcpy(d, dirs + (size_t)f.dir * 16, 16);
+                wchar_t path[MAX_PATH_CHARS];
+                if (d[0] != 0xffffffffu && d[0] < nstrings && strings[d[0]])
+                    swprintf(path, MAX_PATH_CHARS, L"%ls%ls/", f.prefix, strings[d[0]]);
+                else
+                    wcscpy_s(path, MAX_PATH_CHARS, f.prefix);
+                uint32_t fi = d[3];
+                uint32_t guard = 0;
+                while (fi != 0xffffffffu && fi < nfiles && guard++ < nfiles) {
+                    uint32_t e[3];
+                    memcpy(e, files + (size_t)fi * 12, 12);
+                    if (e[0] != 0xffffffffu && e[0] < nstrings && strings[e[0]]) {
+                        wchar_t rel[MAX_PATH_CHARS];
+                        if (swprintf(rel, MAX_PATH_CHARS, L"%ls%ls", path, strings[e[0]]) >= 0) add_map(mount, rel);
+                    }
+                    fi = e[1];
+                }
+                if (d[2] != 0xffffffffu && sp <= (int)ndirs) {
+                    stack[sp].dir = d[2];
+                    wcscpy_s(stack[sp].prefix, MAX_PATH_CHARS, f.prefix);
+                    sp++;
+                }
+                if (d[1] != 0xffffffffu && sp <= (int)ndirs) {
+                    stack[sp].dir = d[1];
+                    wcscpy_s(stack[sp].prefix, MAX_PATH_CHARS, path);
+                    sp++;
+                }
+            }
+            added = g_nmaps - before;
+            free(stack);
+        }
+    }
+    for (uint32_t i = 0; i < nstrings; i++) free(strings[i]);
+    free(strings);
+    if (added) Log("%s: %d world(s) indexed", toc_name, added);
+    return added;
+}
+
+// FIoStoreTocHeader (version 3): the directory index follows the chunk ids,
+// offsets, compression blocks, method names and optional signatures.
+static void index_toc(const char *path, const char *name) {
+    FILE *f = NULL;
+    if (fopen_s(&f, path, "rb") != 0 || !f) return;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size < 144) {
+        fclose(f);
+        return;
+    }
+    uint8_t *blob = (uint8_t *)malloc((size_t)size);
+    if (!blob) {
+        fclose(f);
+        return;
+    }
+    size_t got = fread(blob, 1, (size_t)size, f);
+    fclose(f);
+    if (got != (size_t)size || memcmp(blob, "-==--==--==--==-", 16) != 0) {
+        free(blob);
+        return;
+    }
+    uint32_t u32[25];
+    memcpy(u32, blob, sizeof u32);
+    size_t header_size = u32[5];
+    size_t entry_count = u32[6];
+    size_t block_count = u32[7];
+    size_t block_entry_size = u32[8];
+    size_t method_count = u32[9];
+    size_t method_length = u32[10];
+    size_t dir_index_size = u32[12];
+    uint8_t version = blob[16];
+    uint8_t flags = blob[80];
+    size_t perfect_hash_seeds = u32[21];
+    size_t chunks_without_perfect_hash = u32[24];
+    // chunk ids (12 each), offsets (10 each), then from toc version 4 the
+    // perfect-hash seeds and from 5 the overflow list, then the blocks and
+    // the compression method names.
+    size_t pos = header_size + entry_count * 12 + entry_count * 10;
+    if (version >= 4) pos += perfect_hash_seeds * 4;
+    if (version >= 5) pos += chunks_without_perfect_hash * 4;
+    pos += block_count * block_entry_size + method_count * method_length;
+    if (flags & 0x04) { // signed
+        if (pos + 4 <= (size_t)size) {
+            uint32_t hash_size;
+            memcpy(&hash_size, blob + pos, 4);
+            pos += 4 + (size_t)hash_size * 2 + (size_t)hash_size * block_count;
+        }
+    }
+    if ((flags & 0x08) && !(flags & 0x02) && dir_index_size > 0 && pos + dir_index_size <= (size_t)size)
+        walk_directory_index(blob + pos, dir_index_size, name);
+    free(blob);
+}
+
+static void index_paks(void) {
+    char pattern[MAX_PATH];
+    if (snprintf(pattern, MAX_PATH, "%s*.utoc", g_paks) < 0) return;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        Log("no containers under %s", g_paks);
+        return;
+    }
+    int tocs = 0;
+    do {
+        char path[MAX_PATH];
+        if (snprintf(path, MAX_PATH, "%s%s", g_paks, fd.cFileName) > 0) {
+            index_toc(path, fd.cFileName);
+            tocs++;
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    Log("%d container(s) scanned, %d world(s) known", tocs, g_nmaps);
+}
+
+// --------------------------------------------------------------- setup
+
+static void init_paths(void) {
+    HMODULE me = NULL;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)&init_paths, &me);
+    GetModuleFileNameA(me, g_log, MAX_PATH);
+    char *p = strrchr(g_log, '\\');
+    if (p) *(p + 1) = 0;
+    strcat_s(g_log, MAX_PATH, "map_registry.log");
+
+    // <game>/Meteorite/Binaries/Win64/<exe> -> <game>/Meteorite/Content/Paks/
+    GetModuleFileNameA(NULL, g_paks, MAX_PATH);
+    for (int i = 0; i < 3; i++) {
+        p = strrchr(g_paks, '\\');
+        if (p) *p = 0;
+    }
+    strcat_s(g_paks, MAX_PATH, "\\Content\\Paks\\");
+}
+
+static int swap_slot(void **slot, void *expect, void *replacement) {
+    if (*slot != expect) return 0;
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof(void *), PAGE_READWRITE, &old)) return 0;
+    InterlockedExchangePointer(slot, replacement);
+    VirtualProtect(slot, sizeof(void *), old, &old);
+    return 1;
+}
+
+// Lua C function: returns 0 results. Idempotent.
+__declspec(dllexport) int mjolnir_map_registry_open(void *L) {
+    (void)L;
+    static int inited = 0;
+    if (!inited) {
+        InitializeCriticalSection(&g_cs);
+        init_paths();
+        inited = 1;
+    }
+    if (g_hooked) {
+        Log("already open");
+        return 0;
+    }
+    g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
+    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
+        Log("refused: exe timestamp %08x is not CU4 (%08x); the RVAs would be wrong", nt->FileHeader.TimeDateStamp,
+            EXE_TIMESTAMP);
+        return 0;
+    }
+    uint64_t module_name = make_fname(L"AssetRegistry");
+    void *manager = ((manager_get_fn)(g_base + RVA_MODULE_MANAGER_GET))();
+    void *module = manager ? ((get_module_fn)(g_base + RVA_MODULE_MANAGER_GET_MODULE))(manager, module_name) : NULL;
+    if (!module) {
+        Log("AssetRegistry module not found (manager %p)", manager);
+        return 0;
+    }
+    void **module_vt = *(void ***)module;
+    void *registry = ((module_get_fn)module_vt[MODULE_SLOT_GET])(module);
+    if (!registry) {
+        Log("AssetRegistry module has no registry");
+        return 0;
+    }
+    g_vtable = *(void ***)registry;
+    g_orig = (first_pkg_fn)g_vtable[REGISTRY_SLOT_FIRST_PACKAGE];
+    index_paks();
+    g_hooked = swap_slot(&g_vtable[REGISTRY_SLOT_FIRST_PACKAGE], (void *)g_orig, (void *)hooked_first_package);
+    Log("registry %p vtable rva %llx: GetFirstPackageByName %s", registry,
+        (unsigned long long)((uint8_t *)g_vtable - g_base), g_hooked ? "wrapped" : "NOT wrapped (slot changed?)");
+    return 0;
+}
+
+// Re-read the containers (a map installed while the game runs).
+__declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
+    (void)L;
+    if (!g_hooked) return 0;
+    EnterCriticalSection(&g_cs);
+    g_nmaps = 0;
+    LeaveCriticalSection(&g_cs);
+    index_paks();
+    return 0;
+}
+
+BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID reserved) {
+    (void)h;
+    (void)reason;
+    (void)reserved;
+    return TRUE;
+}
