@@ -3,7 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
+  BookOpen,
+  Gamepad2,
+  Map as MapIcon,
   Menu,
+  Package,
   X,
   Download,
   KeyRound,
@@ -17,10 +21,10 @@ import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
 
 const navLinks = [
-  { href: "/docs", label: "Docs" },
-  { href: "/mods", label: "Mods" },
-  { href: "/maps", label: "Maps" },
-  { href: "/games", label: "Games" },
+  { href: "/docs", label: "Docs", icon: BookOpen },
+  { href: "/mods", label: "Mods", icon: Package },
+  { href: "/maps", label: "Maps", icon: MapIcon },
+  { href: "/games", label: "Games", icon: Gamepad2 },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
   { href: "/blog", label: "Blog", icon: Newspaper },
@@ -63,10 +67,10 @@ export function MobileNav() {
 
   return (
     <>
-      {/* Hamburger button — visible only on mobile */}
+      {/* Hamburger button — below lg, where the desktop row does not fit */}
       <button
         onClick={() => setOpen(true)}
-        className="md:hidden p-2 -mr-2 text-text-muted hover:text-foreground transition-colors cursor-pointer"
+        className="lg:hidden p-2 -mr-2 text-text-muted hover:text-foreground transition-colors cursor-pointer"
         aria-label="Open navigation menu"
       >
         <Menu className="w-6 h-6" />
@@ -74,7 +78,7 @@ export function MobileNav() {
 
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm transition-opacity duration-300 md:hidden ${
+        className={`fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
           open ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={close}
@@ -83,7 +87,7 @@ export function MobileNav() {
 
       {/* Drawer panel */}
       <div
-        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-all duration-300 ease-out md:hidden flex flex-col ${
+        className={`fixed top-0 right-0 z-[70] h-full w-72 max-w-[85vw] bg-surface border-l border-border shadow-2xl transition-all duration-300 ease-out lg:hidden flex flex-col ${
           open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 invisible pointer-events-none"
         }`}
         role="dialog"
