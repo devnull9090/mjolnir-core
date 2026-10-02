@@ -34,7 +34,7 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant, client)
+local function runHUD(variant, client, variantFile)
     local time, scheduled, incidentHook, held = 5, nil, nil, true
     local written, commands = {}, {}
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
@@ -72,6 +72,9 @@ local function runHUD(variant, client)
             if path:match("last_match.txt$") and mode == "w" then
                 return { write = function(_, ...) for _, v in ipairs({ ... }) do written[#written + 1] = v end end,
                     close = function() end }
+            end
+            if path:match("variants[\\/][%w_]+%.mglo$") then
+                return variantFile and io.open(variantFile, "rb") or nil
             end
             if path:match("running.txt$") then return { read = function() return "DCN\t" .. variant .. "\tDanger Canyon" end, close = function() end } end
             return io.open(path, mode)
@@ -205,3 +208,23 @@ eq(model.winner(match("slayer", { player(0, nil, 0) })), "DRAW")
 eq(model.winner(match("ctf", {}, { [0] = 2, [1] = 2 })), "DRAW")
 eq(model.winner(match("ctf", {}, { [0] = 3, [1] = 1 })), "RED TEAM WINS")
 print("Multiplayer UI: grouping, full rosters, CTF, Team Slayer, delayed teams, switching, quitting, FFA, live score strip, final standings and results passed")
+
+-- The score to win comes from the variant the simulation loads, not a
+-- built-in number (fixtures written by `mjolnir megalo write`).
+local Variant = dofile("mods/MJOLNIRHud/Scripts/variant.lua")
+local function bytes(path)
+    local f = assert(io.open(path, "rb"))
+    local data = f:read("a")
+    f:close()
+    return data
+end
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/slayer_7.mglo")), 7)
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/ctf_2.mglo")), 2)       -- a string table of labels
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/tick_450.mglo")), 450)
+eq(Variant.scoreToWin("not a variant"), nil)
+eq(Variant.scoreToWin(nil), nil)
+local seven = runHUD("slayer", false, "tools/tests/fixtures/slayer_7.mglo")
+eq(seven.feed.ScoreTarget.text, "7")
+seven.hold(true)
+eq(seven.board.Subtitle.text, "DANGER CANYON   /   FIRST TO 7 KILLS")
+print("Multiplayer UI: the score to win comes from the variant")

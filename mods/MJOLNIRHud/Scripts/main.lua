@@ -30,6 +30,7 @@ end
 
 local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
+local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
@@ -646,12 +647,24 @@ local function sweepTags()
     end
 end
 
+--- The game type: the HUD's model of it, with the score to win read from the
+--- variant the simulation loads (MJOLNIRLevelLoader's variants/<mode>.mglo)
+--- rather than assumed.
+local function modeFor(variant)
+    local mode = {}
+    for k, v in pairs(MODES[variant] or MODES.slayer) do mode[k] = v end
+    local name = tostring(variant or ""):match("^[%w_]+$")
+    local toWin = name and Variant.scoreToWin(readFile(LOADER_DIR .. "\\variants\\" .. name .. ".mglo"))
+    if toWin and toWin > 0 then mode.toWin = toWin end
+    return mode
+end
+
 local function startMatch(running, world)
     Match = {
         code = running.code,
         variant = running.variant,
         title = running.title,
-        mode = MODES[running.variant] or MODES.slayer,
+        mode = modeFor(running.variant),
         players = {},
         feed = {},
         deaths = {},
