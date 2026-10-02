@@ -1622,6 +1622,15 @@ local function loadMegaloSwitch()
         -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
         -- type<TAB>title", or no file while no multiplayer map runs.
         os.remove(MOD_DIR .. "\\running.txt")
+        if not level and not code then
+            -- A travel that names no scenario: the way back to the frontend.
+            -- Leave the patches alone. Restoring them under a running Megalo
+            -- game froze every fireteam client on its way back to the menu
+            -- (two PCs, 2026-10-02); the next map start names its scenario
+            -- and switches either way.
+            switched.code = nil
+            return
+        end
         if not level then
             off()
             switched.code = nil
