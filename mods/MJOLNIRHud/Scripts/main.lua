@@ -304,6 +304,8 @@ HANDLERS.death = function(inc)
     if victim == LOCAL_PLAYER then
         Match.dead = true
         Match.respawnTicks = 0
+        Match.diedAt = inc.at
+        Match.lastRespawnTick = nil
     end
     boardDirty = true
 end
@@ -311,6 +313,7 @@ end
 HANDLERS.respawn_tick = function(inc)
     if inc.cause ~= LOCAL_PLAYER then return end
     Match.respawnTicks = (Match.respawnTicks or 0) + 1
+    Match.lastRespawnTick = inc.at
 end
 
 HANDLERS.respawn_final_tick = function(inc)
@@ -493,6 +496,14 @@ local function drawFeed()
         else
             setText(block, "")
         end
+    end
+    -- A fireteam client does not always get the respawn's final tick or its
+    -- spawn: the countdown stuck at "Respawn in 1" after the player was
+    -- back (two PCs, 2026-10-02). The ticks are a second apart and the
+    -- respawn takes five.
+    if Match.dead and ((Match.lastRespawnTick and t - Match.lastRespawnTick > 2.5) or
+            (Match.diedAt and t - Match.diedAt > 10)) then
+        Match.dead = false
     end
     local respawn = ""
     if Match.dead then

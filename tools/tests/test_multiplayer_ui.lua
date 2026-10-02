@@ -154,6 +154,14 @@ eq(ffa.feed.ScoreLeftValue.text, "1"); eq(ffa.feed.ScoreRightValue.text, "1")
 ffa.incident("Kill", 1, 2, 0) -- local player takes the lead
 eq(ffa.feed.ScoreLeftValue.text, "2"); eq(ffa.feed.ScoreRightValue.text, "2")
 eq(ffa.feed.ScoreTarget.text, "25")
+-- The respawn countdown clears even when the final tick and the spawn never
+-- reach a fireteam client.
+ffa.incident("death", -1, 1, 0)
+eq(ffa.feed.Respawn.text, "Respawning")
+for _ = 1, 3 do ffa.incident("respawn_tick", 1, -1, 0) end
+eq(ffa.feed.Respawn.text, "Respawn in 1")
+for _ = 1, 3 do ffa.poll() end
+eq(ffa.feed.Respawn.text, "")
 
 -- The end of the match: the final standings on every machine, without Tab;
 -- the results for the post-game screen; and, after the standings have been
@@ -166,7 +174,7 @@ eq(ffa.board.Subtitle.text, "SLAYER   /   DANGER CANYON")
 eq(ffa.board.BoardHint.text, "RETURNING TO THE LOBBY")
 local results = ffa.written()
 assert(results:find("^match\tDCN\tslayer\tDanger Canyon\tSLAYER\tBRAVO WINS\t1000\n"), results)
-assert(results:find("\nplayer\tBravo\t2\t2\t0\t%-\t1\n"), results)
+assert(results:find("\nplayer\tBravo\t2\t2\t1\t%-\t1\n"), results)
 ffa.incident("Kill", 2, 1, 0) -- the round the game resets behind the standings does not score
 eq(ffa.board.Score0.text, "2"); eq(ffa.board.Name0.text, "Bravo")
 eq(#ffa.commands, 0)

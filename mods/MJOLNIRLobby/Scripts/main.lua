@@ -1091,10 +1091,12 @@ local function postTick()
             nextVoteBroadcast = os.clock() + 1
             broadcastVote()
         end
-    elseif Post.screen and not alive(Post.screen) then
-        -- A client left the screen with Back: leave it closed for this vote.
-        Post.dismissed = v and v.id or Post.dismissed
+    elseif v and not v.chosen and not alive(Post.screen) and os.clock() - (Post.pushedAt or -10) >= 2 then
+        -- A client: the game pushes its own CLIENT LOBBY over ours on the
+        -- way in, so the vote goes back on top until it ends.
+        Post.pushedAt = os.clock()
         Post.screen = nil
+        if openPostGame() then log("post-game: the vote is on screen") end
     end
     drawPostGame()
 end
@@ -1126,7 +1128,10 @@ Net.on("vote", function(f)
     for c in (f[4] or ""):gmatch("(%d+)") do n[#n + 1] = tonumber(c) end
     v.counts = n
     v.chosen = tonumber(f[5] or "")
-    if not alive(Post.screen) then openPostGame() end
+    if not alive(Post.screen) and os.clock() - (Post.pushedAt or -10) >= 2 then
+        Post.pushedAt = os.clock()
+        if openPostGame() then log("post-game: the vote is on screen") end
+    end
     drawPostGame()
 end)
 
