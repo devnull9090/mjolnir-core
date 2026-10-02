@@ -562,6 +562,9 @@ mod imp {
         pub fn write(&self, _addr: u64, _data: &[u8]) -> Result<()> {
             Err(Error::Unsupported)
         }
+        pub fn write_code(&self, _addr: u64, _data: &[u8]) -> Result<()> {
+            Err(Error::Unsupported)
+        }
         pub fn writable_regions(&self) -> Result<Vec<Region>> {
             Err(Error::Unsupported)
         }

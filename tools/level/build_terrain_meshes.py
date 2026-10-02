@@ -55,7 +55,13 @@ def main():
         gltf, donor, package = mesh.split("=")
         leaf = package.rsplit("/", 1)[-1]
         uasset = os.path.join(a.out, f"{leaf}.uasset")
-        names = [m["name"] for m in json.load(open(gltf, encoding="utf-8"))["materials"]]
+        doc = json.load(open(gltf, encoding="utf-8"))
+        if k > 0 and not any(m.get("primitives") for m in doc.get("meshes", [])):
+            # An indoor map (Chill Out) has no sky, a map without glass or
+            # teleporter fields no translucent pieces: no mesh to build.
+            print(f"{leaf}: {os.path.basename(gltf)} is empty, skipped")
+            continue
+        names = [m["name"] for m in doc.get("materials", [])]
         slots = [by_pattern[n.lower() + "$"] for n in names if n.lower() + "$" in by_pattern]
         args = [exe("mesh_rewrite"), a.paks, donor, gltf, uasset, "--offset", a.offset, "--lightmap-uvs",
                 "--rename", package]
