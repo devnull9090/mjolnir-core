@@ -102,3 +102,49 @@ lobby.
 IAT: `PFMultiplayerJoinLobby` `0xa8bb5f8`, `PFMultiplayerCreateAndJoinLobby`
 `0xa8bb630`, `PFMultiplayerFindLobbies` `0xa8bb608`. Party connect `0x6f37900`.
 Steam command-line parser `0x6aab2a0`.
+
+## Raising the caps in game (2026-10-02, two PCs)
+
+MJOLNIRLobby's native half (`native/lobby`, `mjolnir_fireteam_open`) now does
+three things at startup, all found at runtime by import name or byte pattern:
+- hooks `PFMultiplayerCreateAndJoinLobby` (IAT) and raises `maxMemberCount`;
+- hooks `PartyCreateNewNetwork` (IAT) and raises the Party limits;
+- patches the presence session's two literal 4s (the unique 24-byte pattern
+  at exe RVA `0x6f2007b`).
+
+MJOLNIRLobby holds `GameSession.MaxPlayers` at 16. `native\fireteam.log`
+records each call:
+
+```text
+party: users 4 devices 4 users/device 2 devices/user 1 endpoints/device 3 (options 15)
+party: users 16 devices 16 users/device 4 endpoints/device 5
+lobby: maxMemberCount 4 -> 16
+```
+
+The incoming Party values match the shipped `[OnlineSubsystemPlayFab]`
+section (MaxUserCount 4, MaxDeviceCount 4, MaxUsersPerDeviceCount 2,
+MaxDevicesPerUserCount 1, MaxEndpointsPerDeviceCount 3), which confirms
+`PartyNetworkConfiguration`'s field order. Both calls happen at sign-in.
+A user `Saved/Config/Windows/Engine.ini` is deleted by the game at startup,
+so the ini route is closed.
+
+**Results:**
+- With the hooks and no local guests, PC 2 joins normally, so the hooks
+  break nothing.
+- With the host at FIRETEAM 4/4 (three `CreatePlayer` guests), PC 2's join
+  never reaches the host. Its `ClientTravel` to the Party address
+  (`0.0.0.0:5000`) times out after exactly 20 s, and it gets "CONNECTION LOST /
+  Disconnected from host". The host logs no connection, login or player
+  state.
+- Raising Party's users per device to 4 did not change that.
+
+So a fifth player is refused below Unreal's login, by a count of four. The
+likeliest owner is the simulation's network session in campaign mode,
+`k_maximum_campaign_players` = 4, behind
+`error_too_many_players_for_network_coop` (`0x50000a`). Its raise site is
+still unfound: no instruction loads the code as an immediate. The frontend's
+session runs the campaign engine, so the host may need its session
+configured as multiplayer, which holds 16 players.
+
+Removing a `CreatePlayer` guest with `GameplayStatics:RemovePlayer` crashed
+the game.
