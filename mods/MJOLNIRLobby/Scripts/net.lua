@@ -21,6 +21,9 @@ local PREFIX = "MJOLNIR|"
 local TYPE = "MJOLNIR"
 local handlers = {}
 local hooked = false
+-- The log notes each verb's traffic when it starts or changes, not every
+-- message: the vote is sent every second.
+local lastReceived, lastSent = {}, {}
 local log = function(msg) print("[MJOLNIR Lobby] " .. tostring(msg) .. "\n") end
 
 local function valid(o)
@@ -60,6 +63,11 @@ local function dispatch(text, sender)
     local verb = table.remove(fields, 1)
     local handler = handlers[verb]
     if not handler then return end
+    local now = os.clock()
+    if not lastReceived[verb] or now - lastReceived[verb] > 30 then
+        log("messages: " .. tostring(verb) .. " received" .. (sender and (" from " .. sender) or " from the host"))
+    end
+    lastReceived[verb] = now
     -- Off the RPC: screens must not be pushed from inside the call.
     ExecuteInGameThread(function()
         local ok, err = pcall(handler, fields, sender)
@@ -119,6 +127,10 @@ function Net.toClients(verb, ...)
             end)
             if ok then sent = sent + 1 end
         end
+    end
+    if lastSent[verb] ~= sent then
+        lastSent[verb] = sent
+        log(string.format("messages: %s to %d client(s)", verb, sent))
     end
     return sent
 end

@@ -268,6 +268,8 @@ local SELECTED_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1 }
 local Game = { map = nil, mode = nil }   -- what START GAME starts
 local Lobby, Select = nil, nil           -- the screens on the stack
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
+-- A fireteam client's view of the host's lobby (After a match, below).
+local clientLobby = { dismissed = false, at = nil }
 local screenEvents = false
 
 local function setText(block, text)
@@ -486,7 +488,11 @@ local LOBBY_EVENTS = {
         saveGame()
         drawLobby()
     end,
-    back = function() pcall(function() Lobby:DeactivateWidget() end) end,
+    back = function()
+        -- A fireteam client's BACK: the game's own menus until the next vote.
+        if not Net.isHost() then clientLobby.dismissed = true end
+        pcall(function() Lobby:DeactivateWidget() end)
+    end,
 }
 
 local SELECT_EVENTS = {
@@ -716,7 +722,6 @@ local Post = nil
 local seenResults = nil
 local postHooked = false
 local nextVoteBroadcast = 0
-local clientLobby = { pushed = false, dismissed = false }
 
 local function inFrontend()
     local ok, name = pcall(function() return UI.playerController():GetWorld():GetFName():ToString() end)
@@ -1149,15 +1154,23 @@ Net.on("lobby", function(f)
         drawLobby()
         return
     end
-    if clientLobby.pushed then
-        -- Our lobby was up and is gone: the client left it with Back.
-        clientLobby.pushed, clientLobby.dismissed = false, true
+    -- The game pushes its own CLIENT LOBBY over ours (on joining, and when
+    -- the host's lobby data changes), so ours goes back on top; only our
+    -- BACK button leaves it. A second or two between pushes.
+    if clientLobby.dismissed or os.clock() - (clientLobby.at or -10) < 2 then return end
+    clientLobby.at = os.clock()
+    if not ourScreens() then
+        log("client lobby: our screens are not installed")
+        clientLobby.dismissed = true
+        return
     end
-    if clientLobby.dismissed or not ourScreens() then return end
     local screen = pushScreen(LOBBY_CLASS)
     if screen then
-        clientLobby.pushed = true
         adoptLobby(screen)
+        log("client lobby: " .. tostring(f[1]) .. " / " .. tostring(f[2]) .. " from the host")
+    else
+        log("client lobby: could not push " .. LOBBY_CLASS)
+        clientLobby.dismissed = true
     end
 end)
 

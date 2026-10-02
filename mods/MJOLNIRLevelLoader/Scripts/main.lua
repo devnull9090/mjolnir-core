@@ -1380,8 +1380,11 @@ local function tick()
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
-        -- into the fade back to the menu at game end.
-        if worldName:find("SEAMLESSTRAVEL", 1, true) then return end
+        -- into the fade back to the menu at game end. Its name is
+        -- /Game/Levels/Test/SeamlessTravelTEst: compare case-blind (a
+        -- case-sensitive test missed it, and every return to the menu spent
+        -- seconds dressing it).
+        if string.upper(worldName):find("SEAMLESSTRAVEL", 1, true) then return end
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 
