@@ -224,6 +224,24 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
   or multiply. Subtract, min and max have no Unreal blend mode and fall back
   to alpha blending.
 
+Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
+Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
+
+- the reflection cube map, sampled along the view reflected about a normal
+  bent by two panning layers of the ripple map (the shader's ripple angle,
+  velocity and scale);
+- tinted and faded by the view angle, from the perpendicular brightness and
+  tint (looking straight down) to the parallel ones (grazing), on a steep
+  curve (`FresnelPower` 3);
+- the brightness is the opacity, scaled by the base map's alpha when the
+  shader's first water flag is set: the base map is a mask, never a colour.
+  Drawn as one, the sea was an opaque white sheet (2026-10-02).
+
+halo2ue's water parser read every field after the base map at the wrong
+offset (its tag lookup moves the reader), so brightness, tint, ripples and
+the reflection map all came out zero; it reads them at their fixed offsets
+now.
+
 **Colour reaching the screen unchanged.** Each material:
 
 1. decodes its result to linear;
