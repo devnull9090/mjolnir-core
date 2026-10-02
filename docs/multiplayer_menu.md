@@ -85,8 +85,15 @@ hides the main menu beneath, and Back (Escape, B) pops them
 (`bIsBackHandler`).
 
 - **The lobby:** the map and game type, a description of each, the players
-  (the frontend's player states), and START GAME, CHANGE MAP, GAME TYPE
-  (cycles the map's modes) and BACK. The last game hosted is remembered in
+  (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
+  MAP, GAME TYPE (cycles the map's modes) and BACK.
+  - INVITE FRIENDS opens the game's own Friends screen (`WBP_Roster_C`:
+    Platform and Cross-Platform friends, each with + Invite). It does this by
+    calling `BP_OnClicked` on one of the fireteam panel's INVITE + rows
+    (`WBP_SquadBlankListViewItem_C`). Those rows belong to the UI layout's
+    squad widget, alive under every screen. Back returns to the lobby.
+  - That screen also shows START CAMPAIGN, which starts the campaign, not
+    the lobby's map. The last game hosted is remembered in
   `MJOLNIRLobby\last_game.txt`.
 - **The map select:** every installed map in a scrolling list. Hovering a
   map previews its details and game types; clicking picks it. A game type

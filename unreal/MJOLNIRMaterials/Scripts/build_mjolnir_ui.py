@@ -292,7 +292,8 @@ def finish_screen(bp, name):
 
 
 def build_lobby():
-    """The host's lobby: the map and game type, the players, and START."""
+    """The host's lobby: the map and game type, the players, START and
+    INVITE FRIENDS (the game's own Friends screen, cross-platform)."""
     name = "WBP_MJOLNIRLobby"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     widget(bp, unreal.CanvasPanel, "Root")
@@ -302,7 +303,7 @@ def build_lobby():
     place(menu, (0.06, 0.30), (0.0, 0.0))
     widget(bp, unreal.VerticalBox, "Menu", "MenuSize")
     events = []
-    for key, label in (("Start", "START GAME"), ("ChangeMap", "CHANGE MAP"),
+    for key, label in (("Start", "START GAME"), ("Invite", "INVITE FRIENDS"), ("ChangeMap", "CHANGE MAP"),
                        ("GameType", "GAME TYPE"), ("Back", "BACK")):
         gap(menu_button(bp, key, label, "Menu"), bottom=14)
         events.append((key, "OnClicked", key.lower()))

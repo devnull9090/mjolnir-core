@@ -412,7 +412,22 @@ local function openMapSelect()
     pcall(function() Select.Select:SetFocus() end)
 end
 
+--- The game's own Friends screen (Platform and Cross-Platform friends, each
+--- with + Invite), as the fireteam panel's INVITE + rows open it: their
+--- click event, called on one of them. The rows belong to the UI layout's
+--- squad widget, alive under every screen.
+local function openFriends()
+    local row = UI.liveWidget("WBP_SquadBlankListViewItem_C", function() return true end)
+    if not row then
+        setText(Lobby.Status, "The fireteam panel is not loaded; invite from the main menu.")
+        return
+    end
+    local ok, err = pcall(function() row:BP_OnClicked() end)
+    if not ok then setText(Lobby.Status, "Could not open Friends: " .. tostring(err)) end
+end
+
 local LOBBY_EVENTS = {
+    invite = openFriends,
     start = function()
         if not (Game.map and Game.mode) then return end
         setText(Lobby.Status, "Starting " .. titleOf(Game.map) .. " - " .. Game.mode.name .. "...")
@@ -504,7 +519,7 @@ local function openLobby()
         rootScreen()
         return
     end
-    setText(Lobby.Status, "Invite friends to your fireteam from the main menu, then START GAME.")
+    setText(Lobby.Status, "INVITE FRIENDS brings them into your fireteam; START GAME when everyone is in.")
     drawLobby()
     pcall(function() Lobby.Start:SetFocus() end)
 end
