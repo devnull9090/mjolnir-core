@@ -14,7 +14,7 @@ export const MULTIPLAYER_IMAGES = {
 };
 
 export const MARKETING_DESCRIPTION =
-  "The multiplayer modding framework for Halo Campaign Evolved. Play Slayer and CTF on all 19 classic Halo CE maps, create custom content, and join the MJOLNIR community.";
+  "Multiplayer modding for Halo Campaign Evolved. Play Slayer and CTF on all 19 classic Halo CE maps, create custom content, and join the MJOLNIR community.";
 
 export function marketingMetadata(title: string, description: string, path: string): Metadata {
   const url = SITE_URL + path;
