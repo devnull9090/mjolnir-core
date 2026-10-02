@@ -346,6 +346,20 @@ end
 
 HANDLERS.player_rejoined = HANDLERS.player_joined
 
+--- The end of a round, and of the game: logged with every player's tally so
+--- the post-game screen has a record to compare against.
+local function logEnd(what)
+    local parts = {}
+    for index, p in pairs(Match.players) do
+        parts[#parts + 1] = string.format("%s %d/%d", tostring(nameOf(index) or index), p.kills, p.deaths)
+    end
+    table.sort(parts)
+    Log(what .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
+end
+
+HANDLERS.round_over = function() logEnd("round over") end
+HANDLERS.game_over = function() logEnd("game over") end
+
 HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     feedLine(nameOf(inc.cause) .. " quit", false)

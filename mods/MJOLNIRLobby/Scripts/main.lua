@@ -661,6 +661,34 @@ local function injectMainMenu()
     log("MULTIPLAYER added to the main menu (injected: pakchunk985-MJOLNIRMENU is not installed)")
 end
 
+--- The fireteam as the squad panel sees it, and the world, logged whenever
+--- either changes: the record of what a match end does to a fireteam
+--- (docs/two_pc_test.md, Phase 3).
+local lastFireteam = nil
+local function watchFireteam()
+    local vm = FindFirstOf("MeteoriteSquadLobbyViewModel")
+    local members = {}
+    local count = -1
+    if UI.valid(vm) then
+        pcall(function() count = vm:GetNumSquadMembers() end)
+        pcall(function()
+            vm.SquadMembers:ForEach(function(_, e)
+                local item = e:get()
+                if item.FireteamRowType == 0 then
+                    members[#members + 1] = item.EntryName:ToString()
+                end
+            end)
+        end)
+    end
+    local world = "?"
+    pcall(function() world = UI.playerController():GetWorld():GetFName():ToString() end)
+    local state = string.format("%s | fireteam %d [%s]", world, count, table.concat(members, ", "))
+    if state ~= lastFireteam then
+        lastFireteam = state
+        log("fireteam: " .. state)
+    end
+end
+
 local menuHook = false
 
 --- Keeps the lobby's player list current, and runs the fallback whenever a
@@ -672,6 +700,7 @@ local function watchMainMenu()
     local function poll()
         local ok, err = pcall(function()
             refreshLobby()
+            pcall(watchFireteam)
             local menu = liveMainMenu()
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
