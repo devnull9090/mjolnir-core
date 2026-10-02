@@ -24,6 +24,17 @@ pub struct Manifest {
     pub world_bounds: Bounds,
     #[serde(default)]
     pub materials: Vec<Material>,
+    /// Scenery collision `tools/level/merge_ce_collision.py` appended after
+    /// the BSP's own surfaces, which the BSP tree does not reach.
+    #[serde(default)]
+    pub scenery_surfaces: Option<ScenerySurfaces>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct ScenerySurfaces {
+    pub objects: usize,
+    /// How many of the last surfaces are scenery.
+    pub surfaces: usize,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -39,6 +50,16 @@ pub struct Material {
     pub shader_class: String,
     #[serde(default)]
     pub shader_path: String,
+    /// The CE shader's `material type` (0 dirt, 1 sand, 2 stone, 3 snow,
+    /// 4 wood, 5 metal hollow, 6 metal thin, 7 metal thick, ...).
+    #[serde(default)]
+    pub material_type: Option<u16>,
+    /// The game material to use instead of the one `material_type` maps to
+    /// (`tough_terrain_grass`): set by the staging tools where CE's one type
+    /// covers two surfaces (Blood Gulch's ground is "sand" with grass painted
+    /// in) or where there is no shader (scenery).
+    #[serde(default)]
+    pub game_material: Option<String>,
 }
 
 /// One bsp3d node: children are `-1` for none, or `0x8000_0000 | leaf`.

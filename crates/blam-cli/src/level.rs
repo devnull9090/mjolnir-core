@@ -51,6 +51,21 @@ pub enum LevelCommand {
     /// transform, instanced components expanded, plus a manifest of what was
     /// placed and what was skipped.
     Export(ExportArgs),
+    /// Convert a classic CE collision BSP (halo2ue's `collision_<N>.json`)
+    /// into a canvas structure BSP the simulation walks on, and write the
+    /// transform that places everything else on it.
+    Collision(crate::level_collision::CollisionArgs),
+    /// Rebuild the registration container and the multiplayer menu's map list
+    /// from every installed map: the map packs in `ue4ss/MJOLNIRMaps` and the
+    /// maps installed by `bake --install-test` (docs/map_distribution.md).
+    /// What the launcher runs after a map install or removal.
+    Register(RegisterArgs),
+}
+
+#[derive(Args)]
+pub struct RegisterArgs {
+    #[command(flatten)]
+    pub src: Source,
 }
 
 #[derive(Args)]
@@ -147,6 +162,8 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::Selftest(a) => selftest(a),
         LevelCommand::Bake(a) => bake(a),
         LevelCommand::Export(a) => export(a),
+        LevelCommand::Collision(a) => crate::level_collision::run(a),
+        LevelCommand::Register(a) => register(a),
     }
 }
 
@@ -167,6 +184,21 @@ pub struct LevelFile {
     #[serde(default)]
     pub description: Option<String>,
     pub canvas: Canvas,
+    /// A multiplayer map: the runtime loader starts it under the simulation's
+    /// Megalo engine instead of the campaign (docs/re/megalo_engine.md).
+    /// Opaque to the bake.
+    #[serde(default)]
+    pub multiplayer: bool,
+    /// The Megalo variant to run (`"slayer"`): MJOLNIRLevelLoader asks the
+    /// simulation to load it from `mjolnir.mglo` (`mjolnir megalo write`).
+    /// Opaque to the bake.
+    #[serde(default)]
+    pub variant: Option<String>,
+    /// The game types the multiplayer menu offers for the map (`["slayer"]`),
+    /// each a variant MJOLNIRLevelLoader has installed. Listed in the
+    /// `maps.json` an install writes; otherwise opaque to the bake.
+    #[serde(default)]
+    pub modes: Vec<String>,
     /// Sky and lighting, consumed by the runtime loader; opaque to the bake.
     #[serde(default)]
     pub environment: Option<serde_json::Value>,
@@ -176,6 +208,14 @@ pub struct LevelFile {
     pub decor: Vec<serde_json::Value>,
     #[serde(default)]
     pub markers: Vec<serde_json::Value>,
+    /// Capture the Flag's look (the flag mesh, its materials, the stands),
+    /// consumed by the runtime loader; opaque to the bake.
+    #[serde(default)]
+    pub ctf: Option<serde_json::Value>,
+    /// The CE health pack's look (mesh, transform, materials), which the
+    /// loader puts on the pack's actor; opaque to the bake.
+    #[serde(default)]
+    pub health_pack: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -205,6 +245,27 @@ pub struct BlamSection {
     /// larger than its host BSP falls "outside the world" past the old edge.
     #[serde(default)]
     pub world_bounds: Vec<WorldBounds>,
+    /// Any other scenario field, by its path in the tag layout, set to a
+    /// value in the form the inspector prints — e.g. `"type": "multiplayer"`.
+    /// Applied last.
+    #[serde(default)]
+    pub set: BTreeMap<String, String>,
+    /// Give the scenario a map variant palette listing every weapon, vehicle
+    /// and scenery tag the level places. Under a multiplayer (Megalo) engine
+    /// the simulation builds its map variant from the scenario's placements
+    /// and keeps only those whose object has multiplayer data AND whose tag
+    /// is in a `map variant palettes` entry; everything else with multiplayer
+    /// data is never created (docs/re/megalo_engine.md).
+    #[serde(default)]
+    pub map_variant: bool,
+    /// Load only these structure BSPs (scenario indices) in the starting zone
+    /// set. A standalone map built on its own BSP needs none of the canvas
+    /// mission's others, and any that stay active claim their own space:
+    /// their collision and their inside-the-world test apply wherever their
+    /// boxes reach. The zone set's PVS keeps its entries for these BSPs only
+    /// (they are stored one per BSP of the set, in index order).
+    #[serde(default)]
+    pub active_bsps: Vec<usize>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -253,6 +314,11 @@ pub struct TypedPlacement {
     pub pos: [f64; 3],
     #[serde(default)]
     pub yaw: f64,
+    /// Further fields of the placement, relative to its element, e.g.
+    /// `"permutation data.variant name": "rocket"` (the Warthog's rocket
+    /// turret).
+    #[serde(default)]
+    pub set: BTreeMap<String, String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -266,6 +332,10 @@ pub struct ObjectPlacement {
     pub rot: [f64; 3],
     #[serde(default)]
     pub name: Option<String>,
+    /// Further fields of the placement, relative to its element, e.g.
+    /// `"multiplayer data.owner team": "neutral"`.
+    #[serde(default)]
+    pub set: BTreeMap<String, String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -525,6 +595,14 @@ fn block_count(file: &[u8], block: &str) -> Result<usize> {
     Ok(r.before as usize)
 }
 
+/// The element count of the block at any path, nested ones included.
+fn block_count_at(file: &[u8], path: &str) -> Result<usize> {
+    let tag = TagFile::parse(file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let root = tag.read_data(&l)?;
+    Ok(blockedit::find_block(&l, file, &root, path)?.block.count as usize)
+}
+
 // -----------------------------------------------------------------------------
 // Selftest: no-op resizes must be byte-exact on every shipped scenario
 // -----------------------------------------------------------------------------
@@ -582,6 +660,120 @@ struct Baker {
 }
 
 impl Baker {
+    /// Append one default element to the block at `path`, returning its index.
+    fn add_element(&mut self, path: &str) -> Result<usize> {
+        let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let (out, _) = blam_tag::patch::edit_elements(
+            &l,
+            &self.file,
+            &block,
+            path,
+            blam_tag::patch::ElementOp::Add,
+        )?;
+        self.file = out;
+        Ok(block_count_at(&self.file, path)? - 1)
+    }
+
+    /// One `map variant palettes` element whose entries name `tags`
+    /// (`(group:path, model variant)`, how many are placed), one variant each.
+    /// A model variant ("rocket" for the rocket Warthog) gets an entry of its
+    /// own, or the map variant builds the tag's default.
+    fn map_variant_palette(&mut self, tags: &[((String, String), usize)]) -> Result<()> {
+        if tags.is_empty() {
+            return Ok(());
+        }
+        let p = self.add_element("map variant palettes")?;
+        for ((tag, variant), placed) in tags {
+            let entries = format!("map variant palettes[{p}].entries");
+            let e = self.add_element(&entries)?;
+            let variants = format!("{entries}[{e}].variants");
+            let v = self.add_element(&variants)?;
+            apply_set(&mut self.file, &format!("{variants}[{v}].object"), tag)
+                .with_context(|| format!("{variants}[{v}].object = {tag}"))?;
+            if !variant.is_empty() {
+                apply_set(
+                    &mut self.file,
+                    &format!("{variants}[{v}].variant name"),
+                    variant,
+                )
+                .with_context(|| format!("{variants}[{v}].variant name = {variant}"))?;
+            }
+            apply_set(
+                &mut self.file,
+                &format!("{entries}[{e}].maximum allowed"),
+                &format!("{}", (*placed).max(1)),
+            )?;
+            let shown = if variant.is_empty() {
+                String::new()
+            } else {
+                format!(" variant {variant:?}")
+            };
+            println!("  mapvar  palette[{p}] entry {e}: {tag}{shown} (max {placed})");
+        }
+        Ok(())
+    }
+
+    /// Trim the starting zone set (zone set 0) to `keep`, and its PVS with it.
+    fn active_bsps(&mut self, keep: &[usize]) -> Result<()> {
+        let flags = |file: &[u8], path: &str| -> Result<u32> {
+            match read_value(file, path)? {
+                Scalar::Int(v) => Ok(v as u32),
+                other => Ok(other
+                    .display()
+                    .rsplit_once("(0x")
+                    .and_then(|(_, h)| u32::from_str_radix(h.trim_end_matches(')'), 16).ok())
+                    .with_context(|| format!("{path} reads as {}", other.display()))?),
+            }
+        };
+        let before = flags(&self.file, "zone sets[0].bsp zone flags")?;
+        let mask: u32 = keep.iter().map(|b| 1u32 << b).sum();
+        if before & mask != mask {
+            bail!("zone set 0 ({before:#x}) does not load every BSP of {keep:?}");
+        }
+        let pvs = match read_value(&self.file, "zone sets[0].pvs index")? {
+            Scalar::BlockIndex(i) => i as usize,
+            other => bail!("zone sets[0].pvs index reads as {}", other.display()),
+        };
+        // The PVS stores one element per BSP of the set, in index order.
+        let members: Vec<usize> = (0..32).filter(|b| before & (1 << b) != 0).collect();
+        let slots: Vec<usize> = keep
+            .iter()
+            .map(|b| members.iter().position(|m| m == b).unwrap())
+            .collect();
+        let hex = format!("{mask:#x}");
+        apply_set(&mut self.file, "zone sets[0].bsp zone flags", &hex)?;
+        apply_set(&mut self.file, "zone sets[0].runtime bsp zone flags", &hex)?;
+        apply_set(
+            &mut self.file,
+            &format!("zone set pvs[{pvs}].structure bsp mask"),
+            &hex,
+        )?;
+        let mut edits = Vec::new();
+        for block in ["bsp checksums", "structure bsp pvs"] {
+            let path = format!("zone set pvs[{pvs}].{block}");
+            let mut elements = Vec::new();
+            let mut wrappers = Vec::new();
+            for &slot in &slots {
+                let (e, w) = blockedit::element_with_wrapper(&self.file, &path, slot)?;
+                elements.extend_from_slice(&e);
+                wrappers.push(w);
+            }
+            edits.push(blockedit::NestedReplace {
+                path,
+                count: slots.len() as u32,
+                elements,
+                wrappers: Some(wrappers),
+            });
+        }
+        self.file = blockedit::replace_nested(&self.file, &edits)?;
+        println!(
+            "  zones   zone set 0 loads BSP(s) {keep:?} only ({before:#x} -> {mask:#x}); pvs[{pvs}] keeps slot(s) {slots:?} of {members:?}"
+        );
+        Ok(())
+    }
+
     fn unique_id(&mut self) -> i64 {
         let id = self.next_unique;
         self.next_unique += 1;
@@ -662,22 +854,50 @@ impl Baker {
             return Ok(());
         }
         let before = block_count(&self.file, block)?;
-        if before == 0 {
-            bail!("the canvas scenario's {block:?} block is empty — no donor to clone");
+        let palette_before = block_count(&self.file, palette)?;
+        if before == 0 || palette_before == 0 {
+            bail!(
+                "the canvas scenario's {block:?} block or its palette is empty — no donor to clone"
+            );
         }
-        // Resolve every palette index before touching anything.
+        let ref_group = match block {
+            "vehicles" => "vehi",
+            "weapons" => "weap",
+            _ => "eqip",
+        };
+        // Resolve every palette index before touching anything. A type the
+        // canvas palette does not carry (the shotgun, the fuel rod: B40 has
+        // neither) gets an entry of its own, cloned from entry 0 and
+        // re-pointed, as the structures lane does for scenery.
         let mut indices = Vec::new();
+        let mut appended = 0usize;
         for item in items {
             let tag_path = map
                 .get(&item.kind)
                 .with_context(|| format!("unknown type {:?}", item.kind))?;
-            let idx = palette_index(&self.file, palette, tag_path)?.with_context(|| {
-                format!(
-                    "{:?} ({tag_path}) is not in the canvas scenario's {palette:?} — \
-                         v1 requires the palette to already carry it",
-                    item.kind
-                )
-            })?;
+            let idx = match palette_index(&self.file, palette, tag_path)? {
+                Some(i) => i,
+                None => {
+                    let (out, _) = blockedit::resize(
+                        &self.file,
+                        palette,
+                        &[Op::CloneAppend {
+                            donor: 0,
+                            copies: 1,
+                        }],
+                    )?;
+                    self.file = out;
+                    let i = palette_before + appended;
+                    apply_set(
+                        &mut self.file,
+                        &format!("{palette}[{i}].name"),
+                        &format!("{ref_group}:{tag_path}"),
+                    )?;
+                    println!("  palette {palette}[{i}] <- {tag_path}");
+                    appended += 1;
+                    i
+                }
+            };
             indices.push(idx);
         }
         let donor = nearest_donor(&self.file, block, before, ue_to_blam(self.origin))?;
@@ -725,9 +945,18 @@ impl Baker {
                 &p("object data.object id.unique id"),
                 &format!("{uid}"),
             )?;
+            for (field, value) in &item.set {
+                apply_set(&mut self.file, &p(field), value)
+                    .with_context(|| format!("{block}[{i}].{field} = {value}"))?;
+            }
             println!(
-                "  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu (palette #{palette_idx})",
-                item.kind
+                "  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu (palette #{palette_idx}){}",
+                item.kind,
+                if item.set.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {:?}", item.set)
+                }
             );
         }
         Ok(())
@@ -817,8 +1046,15 @@ impl Baker {
                     &p("object data.object id.unique id"),
                     &format!("{uid}"),
                 )?;
+                for (field, value) in &o.set {
+                    apply_set(&mut self.file, &p(field), value)
+                        .with_context(|| format!("{block}[{i}].{field} = {value:?}"))?;
+                }
                 println!("  {block:9} [{i}] {} at ({x:.3}, {y:.3}, {z:.3}) wu", o.tag);
             }
+            // So a clear of the canvas's own scenery keeps these, the way the
+            // typed lanes' appends are kept.
+            *self.added.entry(block).or_default() += of_group.len();
         }
         Ok(())
     }
@@ -992,6 +1228,46 @@ fn bake(a: BakeArgs) -> Result<()> {
     )?;
     baker.objects(&level.blam.objects)?;
     baker.clears(&level.blam.clear)?;
+    if level.blam.map_variant {
+        let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
+        // Equipment too: grenades, the overshield and camouflage are created
+        // only through the map variant as well (they never appeared on Blood
+        // Gulch while the palette listed vehicles and weapons alone).
+        for (items, table, group) in [
+            (&level.blam.vehicles, &map.vehicles, "vehi"),
+            (&level.blam.weapons, &map.weapons, "weap"),
+            (&level.blam.equipment, &map.equipment, "eqip"),
+        ] {
+            for item in items {
+                if let Some(path) = table.get(&item.kind) {
+                    let variant = item
+                        .set
+                        .get("permutation data.variant name")
+                        .cloned()
+                        .unwrap_or_default();
+                    *tags
+                        .entry((format!("{group}:{path}"), variant))
+                        .or_default() += 1;
+                }
+            }
+        }
+        for o in &level.blam.objects {
+            let group = if o.group == "scenery" { "scen" } else { "bloc" };
+            *tags
+                .entry((format!("{group}:{}", o.tag), String::new()))
+                .or_default() += 1;
+        }
+        let tags: Vec<((String, String), usize)> = tags.into_iter().collect();
+        baker.map_variant_palette(&tags)?;
+    }
+    if !level.blam.active_bsps.is_empty() {
+        baker.active_bsps(&level.blam.active_bsps)?;
+    }
+    for (path, value) in &level.blam.set {
+        apply_set(&mut baker.file, path, value)
+            .with_context(|| format!("blam.set {path:?} = {value:?}"))?;
+        println!("  set     {path} = {value}");
+    }
     for wb in &level.blam.world_bounds {
         for (axis, name) in ["x", "y", "z"].iter().enumerate() {
             apply_set(
@@ -1140,18 +1416,27 @@ fn bake(a: BakeArgs) -> Result<()> {
         let mut zp = ue_asset::package::ZenPackage::parse(&data)
             .map_err(|e| anyhow::anyhow!("world package: {e}"))?;
         let old_pkg = zp.name();
-        let new_pkg = old_pkg.replace(
-            &format!("/{}/{}", scen.to_uppercase(), scen.to_uppercase()),
-            &format!("/{code}/{code}"),
-        );
-        if new_pkg == old_pkg {
-            bail!("world {old_pkg} is not under the canvas mission's path /{scen}/{scen}");
+        // A world named for a mission sits at `/<X>/<X>`: the canvas
+        // mission's (a shipped donor) or an earlier map's (a bare world taken
+        // back out of a standalone bake). Either renames to the codename.
+        let (parent, leaf) = old_pkg.rsplit_once('/').unwrap_or(("", ""));
+        let own = parent.rsplit('/').next().unwrap_or("");
+        if leaf.is_empty() || !own.eq_ignore_ascii_case(leaf) {
+            bail!("world {old_pkg} is not at a mission's /<X>/<X> path (canvas /{scen}/{scen})");
         }
+        let new_pkg = format!("{}/{code}/{code}", &parent[..parent.len() - own.len() - 1]);
         ensure_same_len(&old_pkg, &new_pkg)?;
-        for line in zp
-            .rename_world(&new_pkg)
-            .map_err(|e| anyhow::anyhow!("world rename: {e}"))?
-        {
+        if new_pkg != old_pkg {
+            for line in zp
+                .rename_world(&new_pkg)
+                .map_err(|e| anyhow::anyhow!("world rename: {e}"))?
+            {
+                println!("  world    {line}");
+            }
+        } else {
+            println!("  world    {old_pkg} already carries the codename");
+        }
+        for line in blam_world_settings(&mut zp, &idx.containers, &a.src.oodle_roots())? {
             println!("  world    {line}");
         }
         let imported: Vec<u64> = zp
@@ -1165,7 +1450,11 @@ fn bake(a: BakeArgs) -> Result<()> {
         let ubulk_file = world_file.with_extension("ubulk");
         let ubulk = if ubulk_file.is_file() {
             let b = std::fs::read(&ubulk_file)?;
-            println!("  world    bulk data {} ({} bytes)", ubulk_file.display(), b.len());
+            println!(
+                "  world    bulk data {} ({} bytes)",
+                ubulk_file.display(),
+                b.len()
+            );
             b
         } else {
             Vec::new()
@@ -1335,8 +1624,67 @@ fn bake(a: BakeArgs) -> Result<()> {
             description: level.description.clone(),
             world: world_object.clone(),
         };
+        // The record also goes beside the bake's output: `mjolnir map pack`
+        // ships it in the map's pack, and the launcher registers the map from
+        // it (docs/map_distribution.md).
+        if !a.install_test {
+            let record = out_dir.join(format!("{code}.registration.json"));
+            std::fs::write(&record, serde_json::to_vec_pretty(&reg)?)?;
+            println!("  wrote    {}", record.display());
+        }
+        // Every installed map shares one registration container (the table
+        // and the campaign asset are single shipped packages), so the
+        // container is built from this map plus every map recorded beside the
+        // loader: neither an install nor a bake copied in by hand unregisters
+        // another map. Only an install records this one.
+        let mut regs = vec![reg.clone()];
+        if let Some(dir) = loader_registry_dir(&a.src.paks).filter(|d| a.install_test || d.is_dir())
+        {
+            if a.install_test {
+                std::fs::create_dir_all(&dir)?;
+                std::fs::write(
+                    dir.join(format!("{code}.json")),
+                    serde_json::to_vec_pretty(&reg)?,
+                )?;
+            }
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+                .collect();
+            files.sort();
+            for f in files {
+                let r: blam_pack::scenario::Registration =
+                    serde_json::from_slice(&std::fs::read(&f)?)
+                        .with_context(|| format!("registration record {}", f.display()))?;
+                if r.code != reg.code {
+                    regs.push(r);
+                }
+            }
+            regs.sort_by(|x, y| x.code.cmp(&y.code));
+            println!(
+                "  register {} map(s) recorded in {}: {}",
+                regs.len(),
+                dir.display(),
+                regs.iter()
+                    .map(|r| r.code.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            // Per-map registration containers from older bakes would
+            // shadow the shared one.
+            for e in std::fs::read_dir(&out_dir)?.filter_map(|e| e.ok()) {
+                let n = e.file_name().to_string_lossy().to_string();
+                if n.starts_with("pakchunk996-MJOLNIRREG-") {
+                    std::fs::remove_file(e.path())?;
+                    println!(
+                        "  removed  {n} (superseded by {})",
+                        blam_pack::scenario::CONTAINER
+                    );
+                }
+            }
+        }
         let (built, reg_name, log) =
-            blam_pack::scenario::register(&idx.containers, &oodle, &usmap, &scripts, &reg)
+            blam_pack::scenario::register(&idx.containers, &oodle, &usmap, &scripts, &regs)
                 .map_err(|e| anyhow::anyhow!(e))?;
         for line in &log {
             println!("  register {line}");
@@ -1375,6 +1723,9 @@ fn bake(a: BakeArgs) -> Result<()> {
             let dest = loader_levels.join(format!("{file_key}.level.json"));
             std::fs::copy(&a.file, &dest)?;
             println!("  wrote    {} (decor for the loader)", dest.display());
+            if a.standalone.is_some() {
+                write_maps_index(&a.src.paks)?;
+            }
         } else {
             println!("  note: UE4SS Mods directory not found; decor file not installed");
         }
@@ -1590,6 +1941,160 @@ fn ensure_same_len(old: &str, new: &str) -> Result<()> {
 
 /// `<paks>/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader/levels`, if the
 /// UE4SS mods tree exists.
+/// Make the world's settings a `BlamWorldSettings`, as every shipped level's
+/// are. The game creates some world subsystems only for a Blam world: on the
+/// bare MapKit world (plain `WorldSettings`) `HaloMaterialResponseWorldSubsystem`
+/// and `BlamMapGlueOuterSubsystem` never existed, and with them went bullet
+/// impacts, tracers and surface-dependent footsteps (2026-10-01, compared
+/// with B40's world). The export keeps its properties: unversioned slots
+/// number a class's own properties first, so each moves up by the
+/// subclass's count.
+fn blam_world_settings(
+    zp: &mut ue_asset::package::ZenPackage,
+    containers: &[ue_iostore::Container],
+    oodle: &[PathBuf],
+) -> Result<Vec<String>> {
+    use ue_asset::package::script_import_index;
+    let plain = script_import_index("/Script/Engine.WorldSettings");
+    let plain_cdo = script_import_index("/Script/Engine.Default__WorldSettings");
+    let blam = script_import_index("/Script/BlamEngine.BlamWorldSettings");
+    let blam_cdo = script_import_index("/Script/BlamEngine.Default__BlamWorldSettings");
+    if zp.export_map.iter().any(|e| e.class == blam) {
+        return Ok(vec!["settings are already BlamWorldSettings".into()]);
+    }
+    let Some(i) = zp.export_map.iter().position(|e| e.class == plain) else {
+        return Ok(vec![
+            "no WorldSettings export; settings left as they are".into()
+        ]);
+    };
+    let usmap = crate::mesh::usmap()?;
+    let scripts = crate::mesh::script_objects(containers, oodle)?;
+    let mut edit =
+        ue_asset::edit::open_export(zp, &usmap, &scripts, i).map_err(|e| anyhow::anyhow!(e))?;
+    let shift = usmap.total_slots("BlamWorldSettings") - usmap.total_slots("WorldSettings");
+    for (slot, _) in edit.block.values.iter_mut() {
+        *slot += shift;
+    }
+    edit.class = "BlamWorldSettings".into();
+    // The subsystems' gate (the glue engine subsystem's slot 93, CU4
+    // +0x7b93a50) requires a BlamWorldSettings whose DefaultScenario path is
+    // set; a shipped level points it at its BlamScenario actor. Ours names
+    // one in the persistent level by the same convention.
+    let world_pkg = zp.name();
+    let world_leaf = world_pkg.rsplit('/').next().unwrap_or_default().to_string();
+    let package = zp.names.intern(&world_pkg);
+    let asset = zp.names.intern(&world_leaf);
+    let default_scenario = slot_named(&usmap, "BlamWorldSettings", "DefaultScenario")?;
+    edit.block.set(
+        default_scenario,
+        ue_asset::props::Val::SoftObject {
+            package: ue_asset::props::Name {
+                index: package,
+                number: 0,
+            },
+            asset: ue_asset::props::Name {
+                index: asset,
+                number: 0,
+            },
+            sub: "PersistentLevel.BlamScenario".into(),
+        },
+    );
+    let e = &mut zp.export_map[i];
+    e.class = blam;
+    if e.template == plain_cdo {
+        e.template = blam_cdo;
+    }
+    for imp in zp.import_map.iter_mut() {
+        if *imp == plain {
+            *imp = blam;
+        } else if *imp == plain_cdo {
+            *imp = blam_cdo;
+        }
+    }
+    ue_asset::edit::write_export(zp, &usmap, &edit).map_err(|e| anyhow::anyhow!(e))?;
+    Ok(vec![format!(
+        "settings export {i} is now BlamWorldSettings ({} propert(ies) moved {shift} slot(s))",
+        edit.block.values.len()
+    )])
+}
+
+fn register(a: RegisterArgs) -> Result<()> {
+    let layout = blam_pack::maps::Layout::for_paks(&a.src.paks);
+    let usmap = crate::mesh::usmap()?;
+    let done = blam_pack::maps::rebuild(&layout, &a.src.oodle_roots(), &usmap)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    for line in &done.log {
+        println!("  {line}");
+    }
+    println!(
+        "{} map(s) registered{}",
+        done.maps.len(),
+        if done.maps.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", done.maps.join(", "))
+        }
+    );
+    Ok(())
+}
+
+/// The multiplayer menu's list of installed maps (MJOLNIRLobby reads it,
+/// since Lua cannot list a directory): every registered map's code, title,
+/// description and game types, the level file's `modes` or else its
+/// `variant`. Written beside the loader's `levels` directory as `maps.json`.
+fn write_maps_index(paks: &Path) -> Result<()> {
+    let (Some(registry), Some(levels)) = (loader_registry_dir(paks), loader_levels_dir(paks))
+    else {
+        return Ok(());
+    };
+    if !registry.is_dir() {
+        return Ok(());
+    }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&registry)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+        .collect();
+    files.sort();
+    let mut maps = Vec::new();
+    for f in files {
+        let reg: blam_pack::scenario::Registration = serde_json::from_slice(&std::fs::read(&f)?)
+            .with_context(|| format!("registration record {}", f.display()))?;
+        let level: Option<serde_json::Value> =
+            std::fs::read(levels.join(format!("{}.level.json", reg.code)))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok());
+        let modes = level
+            .as_ref()
+            .and_then(|l| l.get("modes").cloned())
+            .or_else(|| {
+                level
+                    .as_ref()
+                    .and_then(|l| l.get("variant"))
+                    .map(|v| serde_json::json!([v]))
+            })
+            .unwrap_or_else(|| serde_json::json!(["slayer"]));
+        maps.push(serde_json::json!({
+            "code": reg.code,
+            "title": reg.title,
+            "description": reg.description,
+            "modes": modes,
+        }));
+    }
+    let dest = levels.with_file_name("maps.json");
+    std::fs::write(&dest, serde_json::to_vec_pretty(&maps)?)?;
+    println!(
+        "  wrote    {} ({} map(s) for the multiplayer menu)",
+        dest.display(),
+        maps.len()
+    );
+    Ok(())
+}
+
+/// Where installed maps record their registrations (one JSON file each).
+fn loader_registry_dir(paks: &Path) -> Option<PathBuf> {
+    loader_levels_dir(paks).map(|l| l.with_file_name("registry"))
+}
+
 fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
     let meteorite = paks.parent()?.parent()?;
     let mods = meteorite
@@ -1602,4 +2107,22 @@ fn loader_levels_dir(paks: &Path) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// A property's unversioned slot in `class` (its own properties first, then
+/// each super's), by name.
+fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
+    let total = usmap.total_slots(class);
+    let mut slot = 0u16;
+    while slot < total {
+        if let Some((_, prop)) = usmap.resolve(class, slot) {
+            if prop.name == want {
+                return Ok(slot);
+            }
+            slot += prop.array_dim.max(1) as u16;
+        } else {
+            slot += 1;
+        }
+    }
+    bail!("{class} has no property {want}")
 }

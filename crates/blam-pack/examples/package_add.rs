@@ -19,18 +19,52 @@
 use std::path::PathBuf;
 
 fn main() {
-    let a: Vec<String> = std::env::args().skip(1).collect();
-    if a.len() < 4 {
+    let mut a: Vec<String> = std::env::args().skip(1).collect();
+    // `--name <container base>` (default pakchunk989-MJOLNIRMESH-Windows_P)
+    // and any number of `--package </Game/new/path>=<file.uasset>`: one
+    // container can carry several new packages (a converted map's meshes),
+    // each with its imports read from the package itself.
+    let mut container_name = "pakchunk989-MJOLNIRMESH-Windows_P".to_string();
+    if let Some(i) = a.iter().position(|x| x == "--name") {
+        container_name = a.get(i + 1).expect("--name needs a value").clone();
+        a.drain(i..i + 2);
+    }
+    let mut extra: Vec<(String, String)> = Vec::new();
+    while let Some(i) = a.iter().position(|x| x == "--package") {
+        let spec = a.get(i + 1).expect("--package needs path=file").clone();
+        let (path, file) = spec
+            .split_once('=')
+            .expect("--package takes </Game/path>=<file.uasset>");
+        extra.push((path.to_string(), file.to_string()));
+        a.drain(i..i + 2);
+    }
+    if a.len() < 2 || (extra.is_empty() && a.len() < 4) {
         eprintln!(
-            "usage: package_add <paks> <new package path> <package.uasset> <out dir> [imported path]..."
+            "usage: package_add <paks> <new package path> <package.uasset> <out dir> [imported path]...\n       package_add <paks> <out dir> [--name <container>] --package <path>=<uasset>..."
         );
         std::process::exit(2);
     }
-    let (paks, package_name, uasset_path, out_dir) = (&a[0], &a[1], &a[2], &a[3]);
-    let imported: Vec<String> = a[4..].to_vec();
+    let paks = &a[0];
+    let (packages, out_dir): (Vec<(String, String, Vec<String>)>, String) = if extra.is_empty() {
+        (
+            vec![(a[1].clone(), a[2].clone(), a[4..].to_vec())],
+            a[3].clone(),
+        )
+    } else {
+        let packages = extra
+            .into_iter()
+            .map(|(path, file)| {
+                let bytes = std::fs::read(&file).expect("read package");
+                let zp = ue_asset::package::ZenPackage::parse(&bytes)
+                    .expect("parse package for its imports");
+                let imports: Vec<String> = zp.imported_package_names.names.clone();
+                (path, file, imports)
+            })
+            .collect();
+        (packages, a[1].clone())
+    };
+    let out_dir = &out_dir;
     let oodle: Vec<PathBuf> = Vec::new();
-
-    let uasset = std::fs::read(uasset_path).expect("read package");
     let containers = ue_iostore::load_all(paks).expect("load containers");
     // Any shipped container works as the TOC template; the chunk ids here are
     // derived from the package name, not taken from an index.
@@ -44,36 +78,36 @@ fn main() {
         })
         .expect("no pakchunk0 to use as a TOC template");
 
-    let imported_package_ids: Vec<u64> = imported
-        .iter()
-        .map(|p| ue_iostore::city::package_id(p))
-        .collect();
-    println!("adding {package_name}");
-    println!(
-        "  id {:#018x}, {} byte(s), {} import(s)",
-        ue_iostore::city::package_id(package_name),
-        uasset.len(),
-        imported.len()
-    );
-    for (p, id) in imported.iter().zip(&imported_package_ids) {
-        println!("    imports {p} -> {id:#018x}");
-    }
-
-    let container_name = "pakchunk989-MJOLNIRMESH-Windows_P";
-    let built = blam_pack::build_addition(
-        source,
-        &oodle,
-        container_name,
-        &[blam_pack::NewPackage {
+    let mut new_packages = Vec::new();
+    for (package_name, uasset_path, imported) in &packages {
+        let uasset = std::fs::read(uasset_path).expect("read package");
+        let imported_package_ids: Vec<u64> = imported
+            .iter()
+            .map(|p| ue_iostore::city::package_id(p))
+            .collect();
+        println!("adding {package_name}");
+        println!(
+            "  id {:#018x}, {} byte(s), {} import(s)",
+            ue_iostore::city::package_id(package_name),
+            uasset.len(),
+            imported.len()
+        );
+        for (p, id) in imported.iter().zip(&imported_package_ids) {
+            println!("    imports {p} -> {id:#018x}");
+        }
+        new_packages.push(blam_pack::NewPackage {
             package_name: package_name.clone(),
             uasset,
             ubulk: Vec::new(),
             imported_package_ids,
             uasset_meta: Vec::new(),
             ubulk_meta: Vec::new(),
-        }],
-    )
-    .expect("build addition");
+        });
+    }
+
+    let container_name = container_name.as_str();
+    let built = blam_pack::build_addition(source, &oodle, container_name, &new_packages)
+        .expect("build addition");
 
     std::fs::create_dir_all(out_dir).expect("create out dir");
     let utoc = PathBuf::from(format!("{out_dir}/{container_name}.utoc"));
@@ -90,5 +124,7 @@ fn main() {
     }
     println!("  wrote {}", utoc.display());
     println!("  wrote {}", ucas.display());
-    println!("  copy a small shipped .pak beside them as {container_name}.pak, then install all three.");
+    println!(
+        "  copy a small shipped .pak beside them as {container_name}.pak, then install all three."
+    );
 }

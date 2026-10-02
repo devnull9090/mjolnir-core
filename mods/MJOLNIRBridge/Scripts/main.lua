@@ -130,15 +130,24 @@ local function describe(value)
     return safeName(value) or tostring(value)
 end
 
+-- After a world change FindFirstOf can still return the previous world's
+-- controller, valid until garbage collection but no longer viewing anything,
+-- so a controller that owns a local player wins.
 local function playerController()
-    local ok, controller = pcall(FindFirstOf, "PlayerController")
-    if ok and controller and controller:IsValid() then return controller end
+    local fallback = nil
     local okAll, all = pcall(FindAllOf, "PlayerController")
     if okAll and all then
         for _, candidate in ipairs(all) do
-            if candidate and candidate:IsValid() then return candidate end
+            if candidate and candidate:IsValid() then
+                local okPlayer, player = pcall(function() return candidate.Player end)
+                if okPlayer and player and player:IsValid() then return candidate end
+                fallback = fallback or candidate
+            end
         end
     end
+    if fallback then return fallback end
+    local ok, controller = pcall(FindFirstOf, "PlayerController")
+    if ok and controller and controller:IsValid() then return controller end
     return nil
 end
 

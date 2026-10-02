@@ -29,6 +29,7 @@ pub const CAMPAIGN: &str = "/Game/Blueprints/Campaign/DA_FirstPlayableCampaign";
 const ROW_STRUCT: &str = "BlamScenarioDataTableRow";
 
 /// What to register.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Registration {
     /// Three-character codename, e.g. `PG1`.
     pub code: String,
@@ -42,6 +43,28 @@ pub struct Registration {
     /// The world the row's `UnrealLevel` points at, as an object path
     /// (`/Game/Levels/Halo1/Solo/BGL/BGL.BGL`); the donor's when `None`.
     pub world: Option<String>,
+}
+
+/// A stable `FGuid` for a codename: two FNV-1a 64 hashes over a namespaced
+/// name, so the same map keeps its GUID across bakes and no two codenames
+/// share one.
+pub fn map_guid(code: &str) -> [u8; 16] {
+    let fnv = |seed: u64| {
+        let mut h = seed;
+        for b in format!("MJOLNIR map {}", code.to_uppercase()).bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    };
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&fnv(0xcbf29ce484222325).to_le_bytes());
+    out[8..].copy_from_slice(&fnv(0x84222325cbf29ce4).to_le_bytes());
+    out
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// An `FText` that carries its own string: flags `CultureInvariant`, history
@@ -100,16 +123,25 @@ fn locate(
     Err(format!("{path} is not in any container"))
 }
 
-/// Build the registration container. Returns it with its container name
-/// (`pakchunk996-MJOLNIRREG-<CODE>_P`) and a log of what changed.
+/// The one registration container every installed map shares: both
+/// packages it overrides are single shipped assets, so two maps' containers
+/// would shadow each other and only one map would start.
+pub const CONTAINER: &str = "pakchunk996-MJOLNIRREG_P";
+
+/// Build the registration container for every map in `regs`, as one
+/// override of the table and the campaign asset. Returns it with its
+/// container name ([`CONTAINER`]) and a log of what changed.
 pub fn register(
     containers: &[Container],
     oodle: &[PathBuf],
     usmap: &Usmap,
     scripts: &ScriptObjects,
-    reg: &Registration,
+    regs: &[Registration],
 ) -> Result<(Built, String, Vec<String>), String> {
     let mut log = Vec::new();
+    if regs.is_empty() {
+        return Err("nothing to register".into());
+    }
 
     // ---- DT_Scenarios: clone the donor row under the new name ---------------
     let (ci_table, table_chunk, table_data) = locate(containers, oodle, TABLE)?;
@@ -127,58 +159,87 @@ pub fn register(
     }
     let row_name =
         |r: &ue_asset::datatable::Row, names: &[String]| names[r.name.index as usize].clone();
-    let names = zp.names.names.clone();
-    if rows.iter().any(|r| row_name(r, &names) == reg.code) {
-        return Err(format!("{TABLE} already has a row named {}", reg.code));
-    }
-    let donor = rows
-        .iter()
-        .find(|r| row_name(r, &names) == reg.from)
-        .ok_or_else(|| format!("{TABLE} has no row named {}", reg.from))?
-        .clone();
-    let mut block = donor.block.clone();
-    block.set(
-        find_slot(usmap, ROW_STRUCT, "ScenarioName")?,
-        Val::Str(reg.code.clone()),
-    );
-    if let Some(t) = &reg.title {
+    let shipped_rows = rows.len();
+    for reg in regs {
+        let names = zp.names.names.clone();
+        if rows.iter().any(|r| row_name(r, &names) == reg.code) {
+            return Err(format!("{TABLE} already has a row named {}", reg.code));
+        }
+        let donor = rows[..shipped_rows]
+            .iter()
+            .find(|r| row_name(r, &names) == reg.from)
+            .ok_or_else(|| format!("{TABLE} has no row named {}", reg.from))?
+            .clone();
+        let mut block = donor.block.clone();
         block.set(
-            find_slot(usmap, ROW_STRUCT, "MissionTitle")?,
-            Val::Text(invariant_text(t)),
+            find_slot(usmap, ROW_STRUCT, "ScenarioName")?,
+            Val::Str(reg.code.clone()),
         );
-    }
-    if let Some(d) = &reg.description {
-        block.set(
-            find_slot(usmap, ROW_STRUCT, "MissionDescription")?,
-            Val::Text(invariant_text(d)),
-        );
-    }
-    if let Some(world) = &reg.world {
-        let (package, asset) = world.rsplit_once('.').ok_or_else(|| {
-            format!("world {world:?} is not an object path (/Game/Path/Leaf.Leaf)")
-        })?;
-        let package = zp.names.intern(package);
-        let asset = zp.names.intern(asset);
-        block.set(
-            find_slot(usmap, ROW_STRUCT, "UnrealLevel")?,
-            Val::SoftObject {
-                package: Name {
-                    index: package,
-                    number: 0,
+        // A map of its own needs a MapGuid of its own. Two rows carrying the
+        // donor's GUID start the donor: with BGL and GPH both cloned from B40,
+        // MISSION SELECT's Blood Gulch loaded B40's scenario and objects under
+        // Blood Gulch's world (2026-09-30).
+        let guid_slot = find_slot(usmap, ROW_STRUCT, "MapGuid")?;
+        log.push(format!(
+            "row {}: MapGuid {} (donor {}: {})",
+            reg.code,
+            hex(&map_guid(&reg.code)),
+            reg.from,
+            match block.get(guid_slot) {
+                Some(Val::Native(b)) => hex(b),
+                Some(Val::Zeroed) | None => "zero".into(),
+                Some(other) => format!("{other:?}"),
+            }
+        ));
+        block.set(guid_slot, Val::Native(map_guid(&reg.code).to_vec()));
+        if let Some(t) = &reg.title {
+            block.set(
+                find_slot(usmap, ROW_STRUCT, "MissionTitle")?,
+                Val::Text(invariant_text(t)),
+            );
+        }
+        if let Some(d) = &reg.description {
+            block.set(
+                find_slot(usmap, ROW_STRUCT, "MissionDescription")?,
+                Val::Text(invariant_text(d)),
+            );
+        }
+        if let Some(world) = &reg.world {
+            let (package, asset) = world.rsplit_once('.').ok_or_else(|| {
+                format!("world {world:?} is not an object path (/Game/Path/Leaf.Leaf)")
+            })?;
+            let package = zp.names.intern(package);
+            let asset = zp.names.intern(asset);
+            block.set(
+                find_slot(usmap, ROW_STRUCT, "UnrealLevel")?,
+                Val::SoftObject {
+                    package: Name {
+                        index: package,
+                        number: 0,
+                    },
+                    asset: Name {
+                        index: asset,
+                        number: 0,
+                    },
+                    sub: String::new(),
                 },
-                asset: Name {
-                    index: asset,
-                    number: 0,
-                },
-                sub: String::new(),
-            },
-        );
+            );
+        }
+        let index = zp.names.intern(&reg.code);
+        rows.push(ue_asset::datatable::Row {
+            name: Name { index, number: 0 },
+            block,
+        });
+        log.push(format!(
+            "row {} cloned from {} in {TABLE}{}",
+            reg.code,
+            reg.from,
+            reg.world
+                .as_ref()
+                .map(|w| format!(", UnrealLevel = {w}"))
+                .unwrap_or_default()
+        ));
     }
-    let index = zp.names.intern(&reg.code);
-    rows.push(ue_asset::datatable::Row {
-        name: Name { index, number: 0 },
-        block,
-    });
     let mut tail = ue_asset::datatable::encode(usmap, ROW_STRUCT, &rows)?;
     tail.extend_from_slice(&remainder);
     let mut bytes = edit
@@ -189,16 +250,11 @@ pub fn register(
     zp.set_export_bytes(0, bytes).map_err(|e| e.to_string())?;
     let table_out = zp.write();
     log.push(format!(
-        "row {} cloned from {} in {TABLE} ({} rows; {} -> {} bytes){}",
-        reg.code,
-        reg.from,
+        "{TABLE}: {} rows ({} added; {} -> {} bytes)",
         rows.len(),
+        regs.len(),
         table_data.len(),
-        table_out.len(),
-        reg.world
-            .as_ref()
-            .map(|w| format!(", UnrealLevel = {w}"))
-            .unwrap_or_default()
+        table_out.len()
     ));
 
     // ---- the campaign asset: one more ScenarioList handle ------------------
@@ -213,23 +269,29 @@ pub fn register(
         Some(Val::Array(items)) => items.clone(),
         other => return Err(format!("ScenarioList is {other:?}")),
     };
-    let mut handle = match items.last().cloned() {
+    let template = match items.last().cloned() {
         Some(Val::Struct(b)) => b,
         other => return Err(format!("the last ScenarioList entry is {other:?}")),
     };
-    let index = zp.names.intern(&reg.code);
-    handle.set(
-        find_slot(usmap, "DataTableRowHandle", "RowName")?,
-        Val::Name(Name { index, number: 0 }),
-    );
-    items.push(Val::Struct(handle));
+    for reg in regs {
+        let mut handle = template.clone();
+        let index = zp.names.intern(&reg.code);
+        handle.set(
+            find_slot(usmap, "DataTableRowHandle", "RowName")?,
+            Val::Name(Name { index, number: 0 }),
+        );
+        items.push(Val::Struct(handle));
+    }
     let count = items.len();
     edit.block.set(list_slot, Val::Array(items));
     ue_asset::edit::write_export(&mut zp, usmap, &edit)?;
     let camp_out = zp.write();
     log.push(format!(
-        "ScenarioList handle {{DT_Scenarios, {}}} on {CAMPAIGN} ({count} entries)",
-        reg.code
+        "ScenarioList handles {{DT_Scenarios, {}}} on {CAMPAIGN} ({count} entries)",
+        regs.iter()
+            .map(|r| r.code.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
 
     let built = build_override(
@@ -250,5 +312,5 @@ pub fn register(
             },
         ],
     )?;
-    Ok((built, format!("pakchunk996-MJOLNIRREG-{}_P", reg.code), log))
+    Ok((built, CONTAINER.to_string(), log))
 }

@@ -16,12 +16,12 @@ on:
 jobs:
   # The native mods. Their DLLs are never committed (docs/contributing_code_mods.md:
   # no prebuilt binaries in the tree), so they are built here from the C in
-  # native/blam_console and native/map_registry, on the same runner image
+  # native/blam_console, native/map_registry and native/lobby, on the same runner image
   # every time, with a reproducible link — a reviewer can rebuild one and get
   # the same hash the job prints. The release job below takes the artifacts
   # from this job, not from anywhere else.
   build-native:
-    name: Build native (Blam console + map registry DLLs)
+    name: Build native (Blam console + map registry + lobby DLLs)
     if: github.ref_type == 'tag'
     runs-on: windows-latest
     steps:
@@ -39,10 +39,14 @@ jobs:
         shell: pwsh
         run: .\native\map_registry\build.ps1
 
+      - name: Build mjolnir_lobby.dll
+        shell: pwsh
+        run: .\native\lobby\build.ps1
+
       - name: Record the hashes
         shell: pwsh
         run: |
-          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll")) {
+          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll", "mods\MJOLNIRLobby\native\mjolnir_lobby.dll")) {
             $hash = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
             "$(Split-Path -Leaf $dll) sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           }
@@ -57,6 +61,12 @@ jobs:
         with:
           name: mjolnir_map_registry
           path: mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_lobby
+          path: mods/MJOLNIRLobby/native/mjolnir_lobby.dll
           if-no-files-found: error
 
   release:
@@ -81,10 +91,16 @@ jobs:
           name: mjolnir_map_registry
           path: mods/MJOLNIRLevelLoader/native
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: mjolnir_lobby
+          path: mods/MJOLNIRLobby/native
+
       - name: Check the native halves are in place
         run: |
           for dll in mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
-                     mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll; do
+                     mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll \
+                     mods/MJOLNIRLobby/native/mjolnir_lobby.dll; do
             test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
             sha256sum "$dll"
           done

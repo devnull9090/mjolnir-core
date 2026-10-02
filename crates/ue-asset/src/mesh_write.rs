@@ -44,6 +44,15 @@ pub struct Geometry {
     pub normals: Vec<f32>,
     /// uv per vertex. Empty means all zero.
     pub uvs: Vec<f32>,
+    /// A second uv channel per vertex (a lightmap's own layout, say). Empty
+    /// writes a single channel.
+    pub uvs1: Vec<f32>,
+    /// xyzw per vertex: the tangent and the bitangent's sign (glTF's
+    /// convention). Empty derives tangents from the first uv channel.
+    pub tangents: Vec<f32>,
+    /// RGBA per vertex, written as the mesh's vertex colours. Empty writes
+    /// none.
+    pub colors: Vec<u8>,
     /// Triangle list.
     pub indices: Vec<u32>,
     /// `(material_index, first_index, triangle_count)`. Empty means one
@@ -84,6 +93,7 @@ fn f32le(out: &mut Vec<u8>, v: f32) {
 }
 
 /// IEEE binary16, matching the `half` decoder the reader uses.
+#[cfg(test)]
 fn to_half(v: f32) -> u16 {
     let bits = v.to_bits();
     let sign = ((bits >> 16) & 0x8000) as u16;
@@ -177,6 +187,120 @@ fn empty_index_buffer(out: &mut Vec<u8>) {
     u32le(out, 0); // bShouldExpandTo32Bit
 }
 
+/// Per-vertex `(tangent, normal, bitangent sign)`: the tangent follows the
+/// direction U grows in across each triangle (accumulated per vertex, then
+/// made perpendicular to the normal), which is what a tangent-space normal map
+/// authored on those UVs needs. A vertex with no usable UV gradient gets any
+/// perpendicular tangent.
+pub fn tangent_frames(geo: &Geometry) -> Vec<([f32; 3], [f32; 3], f32)> {
+    let verts = geo.vertices();
+    let normal = |i: usize| -> [f32; 3] {
+        if geo.normals.len() >= (i + 1) * 3 {
+            [
+                geo.normals[i * 3],
+                geo.normals[i * 3 + 1],
+                geo.normals[i * 3 + 2],
+            ]
+        } else {
+            [0.0, 0.0, 1.0]
+        }
+    };
+    let pos = |i: usize| {
+        [
+            geo.positions[i * 3],
+            geo.positions[i * 3 + 1],
+            geo.positions[i * 3 + 2],
+        ]
+    };
+    let uv = |i: usize| -> [f32; 2] {
+        if geo.uvs.len() >= (i + 1) * 2 {
+            [geo.uvs[i * 2], geo.uvs[i * 2 + 1]]
+        } else {
+            [0.0, 0.0]
+        }
+    };
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let mut tan = vec![[0.0f32; 3]; verts];
+    let mut bit = vec![[0.0f32; 3]; verts];
+    let given = geo.tangents.len() >= verts * 4;
+    for tri in geo.indices.chunks_exact(3).filter(|_| !given) {
+        let (a, b, c) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        let (e1, e2) = (sub(pos(b), pos(a)), sub(pos(c), pos(a)));
+        let (ua, ub, uc) = (uv(a), uv(b), uv(c));
+        let (du1, dv1) = (ub[0] - ua[0], ub[1] - ua[1]);
+        let (du2, dv2) = (uc[0] - ua[0], uc[1] - ua[1]);
+        let det = du1 * dv2 - du2 * dv1;
+        if det.abs() < 1e-12 {
+            continue;
+        }
+        let r = 1.0 / det;
+        let t = [
+            (e1[0] * dv2 - e2[0] * dv1) * r,
+            (e1[1] * dv2 - e2[1] * dv1) * r,
+            (e1[2] * dv2 - e2[2] * dv1) * r,
+        ];
+        let bt = [
+            (e2[0] * du1 - e1[0] * du2) * r,
+            (e2[1] * du1 - e1[1] * du2) * r,
+            (e2[2] * du1 - e1[2] * du2) * r,
+        ];
+        for &v in &[a, b, c] {
+            for k in 0..3 {
+                tan[v][k] += t[k];
+                bit[v][k] += bt[k];
+            }
+        }
+    }
+    (0..verts)
+        .map(|i| {
+            let n = normal(i);
+            let t = if given {
+                [
+                    geo.tangents[i * 4],
+                    geo.tangents[i * 4 + 1],
+                    geo.tangents[i * 4 + 2],
+                ]
+            } else {
+                tan[i]
+            };
+            // Gram-Schmidt against the normal.
+            let d = dot(n, t);
+            let mut o = [t[0] - n[0] * d, t[1] - n[1] * d, t[2] - n[2] * d];
+            let mut len = dot(o, o).sqrt();
+            if len < 1e-6 {
+                let up = if n[2].abs() > 0.9 {
+                    [1.0f32, 0.0, 0.0]
+                } else {
+                    [0.0f32, 0.0, 1.0]
+                };
+                o = cross(up, n);
+                len = dot(o, o).sqrt().max(1e-6);
+            }
+            let o = [o[0] / len, o[1] / len, o[2] / len];
+            let sign = if given {
+                if geo.tangents[i * 4 + 3] < 0.0 {
+                    -1.0
+                } else {
+                    1.0
+                }
+            } else if dot(cross(n, o), bit[i]) < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            (o, n, sign)
+        })
+        .collect()
+}
+
 /// Serialise the LOD array: a single inlined LOD carrying `geo`.
 fn write_lod_array(geo: &Geometry, flags: DonorFlags) -> Vec<u8> {
     let verts = geo.vertices();
@@ -219,59 +343,57 @@ fn write_lod_array(geo: &Geometry, flags: DonorFlags) -> Vec<u8> {
         }
     }
 
-    // FStaticMeshVertexBuffer: one UV channel, half UVs, packed tangents.
+    // FStaticMeshVertexBuffer: full-precision UVs (a material that tiles a
+    // detail map a hundred times over the base UVs turns half-precision
+    // rounding into visible steps), one or two channels, packed tangents.
+    let channels: u32 = if geo.uvs1.is_empty() { 1 } else { 2 };
     u16le(&mut out, 0);
-    u32le(&mut out, 1); // NumTexCoords
+    u32le(&mut out, channels); // NumTexCoords
     u32le(&mut out, verts as u32);
-    u32le(&mut out, 0); // full-precision UVs off
+    u32le(&mut out, 1); // full-precision UVs
     u32le(&mut out, 0); // high-precision tangents off
     u32le(&mut out, 8); // tangent element size
     u32le(&mut out, verts as u32);
-    for i in 0..verts {
-        let n = if geo.normals.len() >= (i + 1) * 3 {
-            [
-                geo.normals[i * 3],
-                geo.normals[i * 3 + 1],
-                geo.normals[i * 3 + 2],
-            ]
-        } else {
-            [0.0, 0.0, 1.0]
-        };
-        // A tangent perpendicular to the normal; any consistent choice works
-        // for flat-shaded terrain, and the reader only takes the normal back.
-        let up = if n[2].abs() > 0.9 {
-            [1.0f32, 0.0, 0.0]
-        } else {
-            [0.0f32, 0.0, 1.0]
-        };
-        let mut t = [
-            up[1] * n[2] - up[2] * n[1],
-            up[2] * n[0] - up[0] * n[2],
-            up[0] * n[1] - up[1] * n[0],
-        ];
-        let len = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt().max(1e-6);
-        for c in t.iter_mut() {
-            *c /= len;
-        }
+    let frames = tangent_frames(geo);
+    for (t, n, sign) in &frames {
         out.extend_from_slice(&[pack_i8(t[0]), pack_i8(t[1]), pack_i8(t[2]), 127]);
-        out.extend_from_slice(&[pack_i8(n[0]), pack_i8(n[1]), pack_i8(n[2]), 127]);
+        let w = if *sign < 0.0 { pack_i8(-1.0) } else { 127 };
+        out.extend_from_slice(&[pack_i8(n[0]), pack_i8(n[1]), pack_i8(n[2]), w]);
     }
-    u32le(&mut out, 4); // texcoord element size (half2)
-    u32le(&mut out, verts as u32);
-    for i in 0..verts {
-        let (u, v) = if geo.uvs.len() >= (i + 1) * 2 {
-            (geo.uvs[i * 2], geo.uvs[i * 2 + 1])
+    u32le(&mut out, 8); // texcoord element size: one float2
+    u32le(&mut out, verts as u32 * channels);
+    let uv = |set: &[f32], i: usize| -> (f32, f32) {
+        if set.len() >= (i + 1) * 2 {
+            (set[i * 2], set[i * 2 + 1])
         } else {
             (0.0, 0.0)
-        };
-        out.extend_from_slice(&to_half(u).to_le_bytes());
-        out.extend_from_slice(&to_half(v).to_le_bytes());
+        }
+    };
+    for i in 0..verts {
+        let (u, v) = uv(&geo.uvs, i);
+        f32le(&mut out, u);
+        f32le(&mut out, v);
+        if channels == 2 {
+            let (u, v) = uv(&geo.uvs1, i);
+            f32le(&mut out, u);
+            f32le(&mut out, v);
+        }
     }
 
-    // FColorVertexBuffer: empty.
+    // FColorVertexBuffer: empty, or one FColor per vertex (stored B, G, R, A).
     u16le(&mut out, 0);
-    u32le(&mut out, flags.color_stride);
-    u32le(&mut out, 0);
+    if geo.colors.len() >= verts * 4 && verts > 0 {
+        u32le(&mut out, 4);
+        u32le(&mut out, verts as u32);
+        u32le(&mut out, 4);
+        u32le(&mut out, verts as u32);
+        for c in geo.colors.chunks_exact(4).take(verts) {
+            out.extend_from_slice(&[c[2], c[1], c[0], c[3]]);
+        }
+    } else {
+        u32le(&mut out, flags.color_stride);
+        u32le(&mut out, 0);
+    }
 
     // FRawStaticIndexBuffer: 16-bit when the vertex count allows.
     let wide = verts > u16::MAX as usize;
@@ -327,11 +449,7 @@ fn write_lod_array(geo: &Geometry, flags: DonorFlags) -> Vec<u8> {
 /// Replace a shipped mesh export's geometry, keeping every other byte.
 ///
 /// Returns the new export bytes. The caller repacks them into the package.
-pub fn rewrite_static_mesh(
-    ctx: &Ctx<'_>,
-    export: &[u8],
-    geo: &Geometry,
-) -> Result<Vec<u8>, Error> {
+pub fn rewrite_static_mesh(ctx: &Ctx<'_>, export: &[u8], geo: &Geometry) -> Result<Vec<u8>, Error> {
     if geo.positions.len() % 3 != 0 {
         return Err(Error::Format("positions are not a multiple of 3".into()));
     }

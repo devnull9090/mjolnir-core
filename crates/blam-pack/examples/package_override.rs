@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! cargo run -p blam-pack --example package_override -- \
-//!     <paks> <package path substring> <patched .uasset> <out dir> //!     [imported /Game or /Engine package path]...
+//!     <paks> <package path substring> <patched .uasset> <out dir> //!     [--name <container base>] [imported /Game or /Engine package path]...
 //! ```
 //!
 //! The imported paths, when given, are written into a package-store entry for
@@ -22,7 +22,14 @@
 use std::path::PathBuf;
 
 fn main() {
-    let a: Vec<String> = std::env::args().skip(1).collect();
+    let mut a: Vec<String> = std::env::args().skip(1).collect();
+    // `--name <container base>`: two overrides installed side by side need
+    // containers of their own (default pakchunk989-MJOLNIRMESH-Windows_P).
+    let mut container_name = "pakchunk989-MJOLNIRMESH-Windows_P".to_string();
+    if let Some(i) = a.iter().position(|x| x == "--name") {
+        container_name = a.get(i + 1).expect("--name needs a value").clone();
+        a.drain(i..i + 2);
+    }
     if a.len() < 4 {
         eprintln!("usage: package_override <paks> <package substring> <patched.uasset> <out dir>");
         std::process::exit(2);
@@ -95,7 +102,7 @@ fn main() {
     .expect("build override");
 
     std::fs::create_dir_all(out_dir).expect("create out dir");
-    let name = "pakchunk989-MJOLNIRMESH-Windows_P";
+    let name = container_name.as_str();
     let utoc = PathBuf::from(format!("{out_dir}/{name}.utoc"));
     let ucas = PathBuf::from(format!("{out_dir}/{name}.ucas"));
     std::fs::write(&utoc, &built.utoc).expect("write utoc");

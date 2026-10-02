@@ -24,7 +24,17 @@
 //   returned as an FName built the way the engine builds one. Shipped maps
 //   never reach the fallback, so nothing else changes.
 //
-// Everything here is CU4-specific (RVAs below, guarded by the PE timestamp).
+// It also switches the simulation's game engine for converted multiplayer
+// maps (mjolnir_megalo_on / _off; docs/re/megalo_engine.md): six byte patches
+// in HaloSimulation_tag_release.dll that make the next map load start Reach's
+// Megalo engine instead of the campaign, drop the map-variant requirement the
+// campaign flow cannot meet, keep the map variant across the start-up zone
+// switch, and let the variant file loader read a file at all
+// (mjolnir_megalo_variant installs the game mode it reads). Each site is checked for the exact shipped or patched bytes first,
+// so a different build is refused rather than corrupted.
+//
+// Everything here is CU4-specific (RVAs below, guarded by the PE timestamp or
+// the bytes themselves).
 // Loaded by mods/MJOLNIRLevelLoader/Scripts/main.lua with package.loadlib.
 
 #define WIN32_LEAN_AND_MEAN
@@ -426,15 +436,19 @@ static int swap_slot(void **slot, void *expect, void *replacement) {
     return 1;
 }
 
-// Lua C function: returns 0 results. Idempotent.
-__declspec(dllexport) int mjolnir_map_registry_open(void *L) {
-    (void)L;
+static void ensure_init(void) {
     static int inited = 0;
     if (!inited) {
         InitializeCriticalSection(&g_cs);
         init_paths();
         inited = 1;
     }
+}
+
+// Lua C function: returns 0 results. Idempotent.
+__declspec(dllexport) int mjolnir_map_registry_open(void *L) {
+    (void)L;
+    ensure_init();
     if (g_hooked) {
         Log("already open");
         return 0;
@@ -477,6 +491,170 @@ __declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
     g_nmaps = 0;
     LeaveCriticalSection(&g_cs);
     index_paks();
+    return 0;
+}
+
+// ------------------------------------------------------- the Megalo switch
+
+typedef struct {
+    uint32_t rva;
+    uint32_t len;
+    uint8_t shipped[16];
+    uint8_t patched[16];
+    const char *what;
+} code_patch_t;
+
+// HaloSimulation_tag_release.dll, CU4. Mirrors `mjolnir live engine
+// --launch-engine 2 --map-variant-gate skip --map-variant-reset skip`.
+static const code_patch_t MEGALO[] = {
+    // Load-map handler 0xf650: `mov r8d, 3` feeds 0x21c4f0(&variant, 3); the
+    // campaign fields are copied in only for engine 3, and the launch mode
+    // is derived from the engine, so this constant is the whole switch.
+    {0xf6db, 6, {0x41, 0xb8, 0x03, 0x00, 0x00, 0x00}, {0x41, 0xb8, 0x02, 0x00, 0x00, 0x00},
+     "map load asks for the Megalo engine"},
+    // Session readiness 0x55a2a0: required-parameter mask for multiplayer
+    // session modes, `movabs rax, 0x8001813e0`; bit 20 is the map variant.
+    {0x55af56, 10, {0x48, 0xb8, 0xe0, 0x13, 0x18, 0x00, 0x08, 0x00, 0x00, 0x00},
+     {0x48, 0xb8, 0xe0, 0x13, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00}, "session readiness: map variant not required"},
+    // Options from session 0x55e1c0: a missing map variant no longer fails.
+    {0x55e8c7, 2, {0x74, 0x31}, {0x74, 0x34}, "options builder: no map variant is not a failure"},
+    // In-game parameter check 0x45b160, its own copy of the mask.
+    {0x45b1a3, 10, {0x48, 0xb8, 0xe0, 0x13, 0x18, 0x00, 0x08, 0x00, 0x00, 0x00},
+     {0x48, 0xb8, 0xe0, 0x13, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00}, "in-game parameter check: map variant not required"},
+    // Game-engine zone-set handler 0x2ad2d0: always take its early exit, so
+    // the start-up zone switch does not delete and reset the map variant.
+    {0x2ad2e2, 2, {0x74, 0x36}, {0xeb, 0x36}, "zone-set switch: map variant kept"},
+    // Variant file reader 0x3f8a00: after closing the file it asks its size
+    // again (0x74f410), by handle when the Unreal host supplies the file
+    // system, and close has already set the handle to -1, so every `.mglo`
+    // is dropped undecoded. Report the 0x5000-byte buffer instead: the
+    // decoder stops where the variant's grammar ends and only checks it
+    // read no more bits than that.
+    {0x3f8a8d, 15,
+     {0x48, 0x8d, 0x95, 0x08, 0x50, 0x00, 0x00, 0x48, 0x8b, 0xcb, 0xe8, 0x74, 0x69, 0x35, 0x00},
+     {0xc7, 0x85, 0x08, 0x50, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0xb0, 0x01, 0x0f, 0x1f, 0x00},
+     "variant file reader: size from the buffer, not the closed handle"},
+};
+
+static int set_megalo(int on) {
+    ensure_init();
+    uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) {
+        Log("megalo: the simulation DLL is not loaded");
+        return 0;
+    }
+    const size_t n = sizeof(MEGALO) / sizeof(MEGALO[0]);
+    for (size_t i = 0; i < n; i++) {
+        const code_patch_t *p = &MEGALO[i];
+        uint8_t *at = sim + p->rva;
+        if (memcmp(at, p->shipped, p->len) != 0 && memcmp(at, p->patched, p->len) != 0) {
+            Log("megalo: refused, +%x holds neither the CU4 bytes nor the patch (%s)", p->rva, p->what);
+            return 0;
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        const code_patch_t *p = &MEGALO[i];
+        uint8_t *at = sim + p->rva;
+        const uint8_t *want = on ? p->patched : p->shipped;
+        if (memcmp(at, want, p->len) == 0) continue;
+        DWORD old;
+        if (!VirtualProtect(at, p->len, PAGE_EXECUTE_READWRITE, &old)) {
+            Log("megalo: VirtualProtect failed at +%x", p->rva);
+            return 0;
+        }
+        memcpy(at, want, p->len);
+        VirtualProtect(at, p->len, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), at, p->len);
+    }
+    Log("megalo: %s (%zu sites)", on ? "ON: the next map load starts the Megalo engine" : "off: shipped bytes", n);
+    return 1;
+}
+
+// The variant file loader (docs/re/megalo_engine.md, "A variant from a file"):
+// at each round reset, with the Megalo engine running, the simulation reads
+// `<name>.mglo` from `<root>\<sub>\` and decodes it into the live variant, when
+// this buffer holds a name. The root and sub-directory live in a path struct
+// the Unreal host fills on first use (`%LOCALAPPDATA%\Meteorite\Saved\BlamData\`
+// and `HotReload` on CU4); before that they read empty, so those are the
+// fallbacks.
+#define RVA_MGLO_NAME 0x152a7c0u
+#define RVA_MGLO_PATHS 0xc79d40u
+#define MGLO_NAME "mjolnir"
+
+// A printable ASCII string of at most `cap` bytes at `at`, or "" if it is not one.
+static void ascii_at(const uint8_t *at, size_t cap, char *out, size_t out_cap) {
+    size_t n = 0;
+    for (; n < cap && n + 1 < out_cap && at[n] >= 0x20 && at[n] < 0x7f; n++) out[n] = (char)at[n];
+    out[(n < cap && at[n] == 0) ? n : 0] = 0;
+}
+
+// `<root>\<sub>\`, created if missing; 0 if there is no root to be had.
+static int mglo_dir(uint8_t *sim, char *dir, size_t cap) {
+    char root[0x101], sub[0x101];
+    ascii_at(sim + RVA_MGLO_PATHS + 8, 0x100, root, sizeof root);
+    ascii_at(sim + RVA_MGLO_PATHS + 0x10c, 0x100, sub, sizeof sub);
+    if (!root[0]) {
+        char local[MAX_PATH];
+        DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, MAX_PATH);
+        if (!n || n >= MAX_PATH) return 0;
+        snprintf(root, sizeof root, "%s\\Meteorite\\Saved\\BlamData\\", local);
+    }
+    if (!sub[0]) strcpy_s(sub, sizeof sub, "HotReload");
+    snprintf(dir, cap, "%s%s%s\\", root, root[strlen(root) - 1] == '\\' ? "" : "\\", sub);
+    // Every level of the path, so a fresh install without BlamData works too.
+    for (char *p = dir + 3; *p; p++) {
+        if (*p != '\\') continue;
+        *p = 0;
+        CreateDirectoryA(dir, NULL);
+        *p = '\\';
+    }
+    return 1;
+}
+
+// Lua C functions: 0 results. Call before the mission starts (the load-map
+// event reads the first patch).
+__declspec(dllexport) int mjolnir_megalo_on(void *L) {
+    (void)L;
+    set_megalo(1);
+    return 0;
+}
+
+// Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
+// from its `variants\` folder) as `mjolnir.mglo` in the loader's directory, and
+// ask the simulation to read it at the next round reset.
+__declspec(dllexport) int mjolnir_megalo_variant(void *L) {
+    (void)L;
+    ensure_init();
+    uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    char staged[MAX_PATH], dir[MAX_PATH], target[MAX_PATH];
+    strcpy_s(staged, sizeof staged, g_log);
+    char *slash = strrchr(staged, '\\');
+    if (slash) *(slash + 1) = 0;
+    strcat_s(staged, sizeof staged, "variant.mglo");
+    if (!mglo_dir(sim, dir, sizeof dir)) {
+        Log("megalo: no variant directory (LOCALAPPDATA unset); the default variant runs");
+        return 0;
+    }
+    snprintf(target, sizeof target, "%s%s.mglo", dir, MGLO_NAME);
+    if (!CopyFileA(staged, target, FALSE)) {
+        Log("megalo: could not copy %s to %s (error %lu); the default variant runs", staged, target,
+            GetLastError());
+        return 0;
+    }
+    static const char name[] = MGLO_NAME;
+    char *buffer = (char *)(sim + RVA_MGLO_NAME);
+    DWORD old;
+    if (!VirtualProtect(buffer, sizeof(name), PAGE_READWRITE, &old)) return 0;
+    memcpy(buffer, name, sizeof(name));
+    VirtualProtect(buffer, sizeof(name), old, &old);
+    Log("megalo: %s installed; the next round reset loads it", target);
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_megalo_off(void *L) {
+    (void)L;
+    set_megalo(0);
     return 0;
 }
 

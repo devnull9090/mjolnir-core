@@ -4,14 +4,15 @@
 //! ```text
 //! cargo run -p ue-asset --example mesh_rewrite -- \
 //!     <paks> <donor path substring> <mesh.gltf> <out.uasset> //!     [--selftest] [--offset x,y,z] [--rename /Game/Path/SM_Name] \
-//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]...
+//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]... [--lightmap-uvs]
 //! ```
 //!
 //! `--material` groups the glTF's own materials into numbered slots: every
 //! primitive whose material name contains one of the patterns gets that slot's
 //! index in its render-data section, and the tool prints the slot-to-material
 //! table for the level file to apply at spawn. A pattern of `*` claims slot 0,
-//! the donor's own, so unmatched primitives get it too.
+//! the donor's own, so unmatched primitives get it too. A pattern ending in
+//! `$` must match the end of the name (`shader__lm1$` leaves `shader__lm13`).
 //!
 //! The materials themselves are assigned to the *component*, not baked into
 //! the mesh: `--asset-imports` additionally writes them into the package as
@@ -24,6 +25,10 @@
 //! because overriding a shipped mesh replaces every use of it in the game;
 //! a renamed clone is placed by nothing and can be added alongside with
 //! `blam-pack --example package_add`.
+//!
+//! `--lightmap-uvs` writes the glTF's `TEXCOORD_1` as a second UV channel
+//! (a CE BSP's lightmap layout, which its materials sample for the baked
+//! lighting); UVs are always written at full precision.
 //!
 //! `--selftest` rewrites the donor with the donor's *own* geometry first and
 //! checks it survives a parse, which separates "the writer is wrong" from
@@ -175,6 +180,9 @@ fn main() {
             positions: lod.positions.clone(),
             normals: lod.normals.clone(),
             uvs: lod.uvs.clone(),
+            uvs1: Vec::new(),
+            tangents: Vec::new(),
+            colors: Vec::new(),
             indices: lod.indices.clone(),
             sections: lod
                 .sections
@@ -209,6 +217,7 @@ fn main() {
         index: u32,
     }
     let asset_imports = a.iter().any(|s| s == "--asset-imports");
+    let lightmap_uvs = a.iter().any(|s| s == "--lightmap-uvs");
     let mut specs: Vec<MatSpec> = Vec::new();
     let mut next_slot = 1u32;
     for (i, arg) in a.iter().enumerate() {
@@ -259,7 +268,7 @@ fn main() {
             if sp
                 .patterns
                 .iter()
-                .any(|p| p != "*" && name.contains(p.as_str()))
+                .any(|p| p != "*" && pattern_matches(p, &name))
             {
                 return sp.index;
             }
@@ -268,6 +277,8 @@ fn main() {
     };
 
     let mut geo = Geometry::default();
+    let mut tangents: Vec<f32> = Vec::new();
+    let mut incident: Vec<f32> = Vec::new();
     let mut slot_tris: std::collections::BTreeMap<u32, u32> = Default::default();
     for mesh in doc["meshes"].as_array().unwrap_or(&vec![]) {
         for prim in mesh["primitives"].as_array().unwrap_or(&vec![]) {
@@ -286,6 +297,28 @@ fn main() {
                 geo.uvs.extend(accessor_floats(&doc, &bin, t as usize, 2));
             } else {
                 geo.uvs.extend(std::iter::repeat(0.0).take(count * 2));
+            }
+            // The bump frame and the baked light's direction, when the glTF
+            // carries them (halo2ue does for a CE BSP): kept per vertex so the
+            // material can dot a bump normal with the incident direction.
+            if lightmap_uvs {
+                match prim["attributes"]["TANGENT"].as_u64() {
+                    Some(t) => tangents.extend(accessor_floats(&doc, &bin, t as usize, 4)),
+                    None => tangents.extend(std::iter::repeat(0.0).take(count * 4)),
+                }
+                match prim["attributes"]["_INCIDENT"].as_u64() {
+                    Some(t) => incident.extend(accessor_floats(&doc, &bin, t as usize, 3)),
+                    None => incident.extend(std::iter::repeat(0.0).take(count * 3)),
+                }
+            }
+            // The second channel (a CE BSP's lightmap layout) when asked for;
+            // primitives without one get zeros so the channels stay aligned.
+            if lightmap_uvs {
+                if let Some(t) = prim["attributes"]["TEXCOORD_1"].as_u64() {
+                    geo.uvs1.extend(accessor_floats(&doc, &bin, t as usize, 2));
+                } else {
+                    geo.uvs1.extend(std::iter::repeat(0.0).take(count * 2));
+                }
             }
             let first = geo.indices.len() as u32;
             let idx = accessor_indices(&doc, &bin, prim["indices"].as_u64().unwrap() as usize);
@@ -386,6 +419,45 @@ fn main() {
         swapped.extend_from_slice(&[n[0], n[2], n[1]]);
     }
     geo.normals = swapped;
+    // The same swap for the bump frame. Exchanging two axes is a mirror, so the
+    // bitangent's sign flips with it.
+    if tangents.len() == geo.vertices() * 4
+        && tangents
+            .chunks_exact(4)
+            .any(|t| t[0] != 0.0 || t[1] != 0.0 || t[2] != 0.0)
+    {
+        geo.tangents = tangents
+            .chunks_exact(4)
+            .flat_map(|t| [t[0], t[2], t[1], -t[3]])
+            .collect();
+    }
+    // The incident direction, re-expressed in each vertex's own tangent frame
+    // (x along the tangent, y the bitangent, z the normal) and packed into the
+    // vertex colour, so a material reads it straight against a tangent-space
+    // bump normal. CE looks the direction up through a normalisation cube, so
+    // rgb holds the unit vector; alpha holds its length (at most ~1), which is
+    // the best reading of the bumped lightmap pass's mix(1, N.L, v0.a) weight.
+    if incident.len() == geo.vertices() * 3 {
+        let frames = ue_asset::mesh_write::tangent_frames(&geo);
+        let pack = |v: f32| ((v.clamp(-1.0, 1.0) * 0.5 + 0.5) * 255.0).round() as u8;
+        geo.colors = incident
+            .chunks_exact(3)
+            .zip(&frames)
+            .flat_map(|(d, (t, n, sign))| {
+                let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                let k = if len > 1e-6 { 1.0 / len } else { 0.0 };
+                let d = [d[0] * k, d[2] * k, d[1] * k];
+                let b = [
+                    (n[1] * t[2] - n[2] * t[1]) * sign,
+                    (n[2] * t[0] - n[0] * t[2]) * sign,
+                    (n[0] * t[1] - n[1] * t[0]) * sign,
+                ];
+                let dot = |a: [f32; 3]| a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
+                let weight = (len.clamp(0.0, 1.0) * 255.0).round() as u8;
+                [pack(dot(*t)), pack(dot(b)), pack(dot(*n)), weight]
+            })
+            .collect();
+    }
     // The donor's bounds are a box AND a sphere, and the engine culls against
     // both, so report the radius the normalised geometry actually needs.
     let mut radius = 0.0f32;
@@ -639,5 +711,14 @@ fn main() {
     println!("  wrote {out_path}");
     if !ok {
         std::process::exit(1);
+    }
+}
+
+/// Whether a `--material` pattern claims a glTF material name: a substring
+/// match, anchored to the end of the name when the pattern ends in `$`.
+fn pattern_matches(pattern: &str, name: &str) -> bool {
+    match pattern.strip_suffix('$') {
+        Some(tail) => name.ends_with(tail),
+        None => name.contains(pattern),
     }
 }

@@ -11,6 +11,7 @@
 //! chunk wins; that convention is the caller's to honour, since only the
 //! caller names files.
 
+pub mod maps;
 pub mod newtag;
 pub mod scenario;
 
@@ -323,7 +324,11 @@ pub fn build_addition(
                 p.package_name.trim_start_matches('/')
             )
         };
-        let ext = if is_world_package(&p.uasset) { "umap" } else { "uasset" };
+        let ext = if is_world_package(&p.uasset) {
+            "umap"
+        } else {
+            "uasset"
+        };
         files.push((format!("{rel}.{ext}"), chunks.len()));
         chunks.push(ue_iostore::pack::Entry {
             id: ChunkId {

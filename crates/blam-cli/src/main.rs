@@ -18,14 +18,17 @@ mod extract;
 mod hsc;
 mod index;
 mod level;
+mod level_collision;
 mod live;
+mod map;
+mod megalo;
 mod mesh;
-mod ue;
 mod newtag;
 mod rename;
-mod zenrt;
 mod tagdiff;
 mod texture;
+mod ue;
+mod zenrt;
 
 /// Find a data file that ships alongside the binary.
 ///
@@ -172,6 +175,11 @@ enum Command {
     /// Validate, self-test, and bake .level.json custom levels.
     #[command(subcommand_help_heading = "Level")]
     Level(level::LevelArgs),
+    /// Write and read Megalo game variants: the multiplayer rules the
+    /// simulation can load from a `.mglo` file.
+    Megalo(megalo::MegaloArgs),
+    /// Package a converted map for the mod hub (docs/map_distribution.md).
+    Map(map::MapArgs),
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
@@ -442,6 +450,11 @@ struct PackArgs {
     /// A field to change, as `path=value`. Repeatable.
     #[arg(long = "set", value_name = "PATH=VALUE")]
     sets: Vec<String>,
+    /// Insert a copy of a block element directly after it, as
+    /// `block path[i]` (`object types[17]` appends to an 18-element block).
+    /// Runs before `--set`, so the copy can be edited. Repeatable.
+    #[arg(long = "duplicate", value_name = "BLOCK[I]")]
+    duplicates: Vec<String>,
     /// Replace the tag's payload wholesale with this file (a complete tag
     /// payload written by another tool, e.g. an sbsp transplant), before any
     /// `--set` is applied.
@@ -560,6 +573,8 @@ fn main() -> Result<()> {
         Command::Compile(a) => compile(a),
         Command::Texture(a) => texture::run(a),
         Command::Level(a) => level::run(a),
+        Command::Megalo(a) => megalo::run(a),
+        Command::Map(a) => map::run(a),
         Command::Mesh(a) => mesh::run(a),
         Command::Ue(a) => ue::run(a),
         Command::Packageid(a) => container::run_packageid(a),
@@ -1160,6 +1175,25 @@ fn pack(a: PackArgs) -> Result<()> {
         }
         None => original.clone(),
     };
+    for spec in &a.duplicates {
+        let (block_path, index) = spec
+            .strip_suffix(']')
+            .and_then(|s| s.rsplit_once('['))
+            .and_then(|(p, i)| Some((p, i.parse::<usize>().ok()?)))
+            .with_context(|| format!("--duplicate takes `block path[i]`, got {spec:?}"))?;
+        let tag = TagFile::parse(&file, Some(file.len()))?;
+        let l = tag.layout()?;
+        let block = tag.read_data(&l)?;
+        let (out, _) = blam_tag::patch::edit_elements(
+            &l,
+            &file,
+            &block,
+            block_path,
+            blam_tag::patch::ElementOp::Duplicate(index),
+        )?;
+        println!("  edit     {block_path}: element {index} duplicated");
+        file = out;
+    }
     file = apply_sets(&file, &a.sets)?;
 
     if file.len() == original.len() {
@@ -1233,9 +1267,14 @@ fn pack(a: PackArgs) -> Result<()> {
     // container our own reader cannot use is not worth putting in front of the
     // game.
     let check = ue_iostore::load_container(&utoc)?;
+    // A resized payload also carries its package's header chunk; read the
+    // tag's own.
+    let edited = &built.entries[0].id;
     let chunk = check
         .chunks
-        .first()
+        .iter()
+        .find(|c| c.chunk_id == edited.id && c.chunk_type == edited.kind)
+        .or(check.chunks.first())
         .context("the container we just wrote has no chunks")?;
     let bytes = ue_iostore::read_chunk(&check, chunk, None, &a.src.oodle_roots())?;
     let tag = TagFile::parse(&bytes, Some(bytes.len()))?;
@@ -1507,41 +1546,40 @@ fn poke(a: PokeArgs) -> Result<()> {
     // The simulation's own tag table names every loaded tag and its root, so
     // on a known build the tag is found by a pointer-chase; the sweep is the
     // fallback for a build without a profile.
-    let (base, segments) =
-        match live::locate_via_table(&process, tag.header.group.0, &entry.path)? {
-            Some(hit) => {
-                println!(
-                    "  located  root at 0x{:X} via the tag table (handle 0x{:08X}, {})",
-                    hit.root, hit.handle, hit.profile
-                );
-                (hit.root - root_off as u64, Some(hit.segments))
-            }
-            None => {
-                let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
-                println!(
-                    "  located  payload at 0x{:X}  ({} independent runs agree, best of {} \
+    let (base, segments) = match live::locate_via_table(&process, tag.header.group.0, &entry.path)?
+    {
+        Some(hit) => {
+            println!(
+                "  located  root at 0x{:X} via the tag table (handle 0x{:08X}, {})",
+                hit.root, hit.handle, hit.profile
+            );
+            (hit.root - root_off as u64, Some(hit.segments))
+        }
+        None => {
+            let at = blam_live::find(&process, &file, &shape, std::slice::from_ref(&span))?;
+            println!(
+                "  located  payload at 0x{:X}  ({} independent runs agree, best of {} \
                      candidate(s), {:.1} GB scanned)",
-                    at.base,
-                    at.agreeing_runs,
-                    at.candidates,
-                    at.scanned as f64 / 1e9
-                );
-                println!(
-                    "           {:.0}% of the root element's scalar bytes match the file; the \
+                at.base,
+                at.agreeing_runs,
+                at.candidates,
+                at.scanned as f64 / 1e9
+            );
+            println!(
+                "           {:.0}% of the root element's scalar bytes match the file; the \
                      engine rewrites the references around them",
-                    at.match_fraction * 100.0
-                );
-                (at.base, None)
-            }
-        };
+                at.match_fraction * 100.0
+            );
+            (at.base, None)
+        }
+    };
 
     let address = if hops.is_empty() {
         base + span.start as u64
     } else {
         let arena = match &segments {
             Some(segments) => {
-                let header =
-                    blam_live::read_block_header(&process, base + hops[0].header as u64)?;
+                let header = blam_live::read_block_header(&process, base + hops[0].header as u64)?;
                 segments.arena_for(header.words).context(
                     "the first block header on the way to the field points into a segment \
                      the game has not mapped",
@@ -1559,7 +1597,10 @@ fn poke(a: PokeArgs) -> Result<()> {
         if hops.is_empty() {
             String::new()
         } else {
-            format!("  (inside a block element, {} hop(s) from the root)", hops.len())
+            format!(
+                "  (inside a block element, {} hop(s) from the root)",
+                hops.len()
+            )
         }
     );
 
@@ -2014,13 +2055,18 @@ fn script(a: ScriptArgs) -> Result<()> {
                 .trim_end_matches(".ubulk")
                 .trim_end_matches("-scenario");
             let dir = root.join(leaf);
-            std::fs::create_dir_all(&dir)
-                .with_context(|| format!("creating {}", dir.display()))?;
+            std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             for file in &hs.source_files {
                 let safe: String = file
                     .name
                     .chars()
-                    .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == '_' || c == '-' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect();
                 let dest = dir.join(format!("{safe}.hsc"));
                 std::fs::write(&dest, file.text().as_bytes())

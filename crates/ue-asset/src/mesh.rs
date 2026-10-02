@@ -209,7 +209,9 @@ pub fn parse_static_mesh_with_bulk_map(
         let mut lod = Lod::default();
         let _strip = w.u16()?;
         let section_count = w.u32()?;
-        if section_count > 256 {
+        // A converted CE map has a section per (shader, lightmap page):
+        // Ice Fields has 277.
+        if section_count > 4096 {
             return Err(Error::Format(format!(
                 "{section_count} sections is implausible"
             )));

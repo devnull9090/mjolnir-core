@@ -20,6 +20,8 @@ blam-tag = { path = "../blam-tag" }
 blam-hsc = { path = "../blam-hsc" }
 blam-pack = { path = "../blam-pack" }
 blam-live = { path = "../blam-live" }
+blam-sbsp = { path = "../blam-sbsp" }
+blam-megalo = { path = "../blam-megalo" }
 ue-asset = { path = "../ue-asset" }
 ue-iostore = { path = "../ue-iostore" }
 ue-texture = { path = "../ue-texture" }
@@ -27,3 +29,6 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `map pack` writes the hub's `.mjolnir` archive (a zip): deflate only, so
+# the shipped CLI does not take on the other codecs' dependencies.
+zip = { version = "2", default-features = false, features = ["deflate-miniz"] }

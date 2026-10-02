@@ -10,10 +10,12 @@
 //! than a tag assembled from nothing.
 
 pub mod ce;
+pub mod convert;
 pub mod mopp;
 pub mod pack16;
-pub mod transplant;
+pub mod raytest;
 pub mod split;
+pub mod transplant;
 pub mod unpack16;
 pub mod validate;
 

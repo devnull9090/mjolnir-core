@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "comment": "Classic Halo CE tag paths (as halo2ue's placement.json names them, forward slashes) -> the level file's friendly type names (defs/level/palette-map.json). Each value is a list tried in order; the first type the canvas scenario's palette carries wins, and an empty list drops the placement. Custom-map tags are listed so a conversion reports them as dropped on purpose rather than unknown. Used by tools/level/gen_ce_level.py.",
+  "vehicles": {
+    "vehicles/warthog/mp_warthog": ["warthog"],
+    "vehicles/rwarthog/rwarthog": ["warthog"],
+    "vehicles/ghost/ghost_mp": ["ghost"],
+    "vehicles/scorpion/scorpion_mp": ["scorpion"],
+    "vehicles/banshee/banshee_mp": ["banshee"],
+    "vehicles/c gun turret/c gun turret_mp": ["shade"],
+    "vehicles/sscorpion/scorpion_mp": ["scorpion"],
+    "vehicles/fr_ghost/fr_ghost": ["ghost"],
+    "vehicles/coldsnap_hogs/g_warthog": ["warthog"],
+    "vehicles/coldsnap_hogs/mp_warthog": ["warthog"],
+    "vehicles/coldsnap_hogs/mwarthog": ["warthog"],
+    "vehicles/coldsnap_hogs/swarthog": ["warthog"],
+    "vehicles/spelican/spelican": ["pelican"],
+    "vehicles/jet2/jet2_v2": [],
+    "vehicles/fighterbomber/fighterbomber_mp": [],
+    "mechs/mythos/mythos": [],
+    "mechs/nirvash/nirvash rifle": []
+  },
+  "weapons": {
+    "weapons/assault rifle/assault rifle": ["assault_rifle"],
+    "weapons/assault rifle/assault rifle test": ["assault_rifle"],
+    "weapons/pistol/pistol": ["magnum"],
+    "weapons/plasma rifle/plasma rifle": ["plasma_rifle"],
+    "weapons/plasma pistol/plasma pistol": ["plasma_pistol"],
+    "weapons/needler/mp_needler": ["needler"],
+    "weapons/sniper rifle/sniper rifle": ["sniper_rifle"],
+    "weapons/sniper/sniper": ["sniper_rifle"],
+    "weapons/rocket launcher/rocket launcher": ["rocket_launcher"],
+    "weapons/shotgun/shotgun": ["shotgun", "assault_rifle"],
+    "weapons/flamethrower/flamethrower": ["flamethrower"],
+    "weapons/plasma_cannon/plasma_cannon": ["fuel_rod_gun"]
+  },
+  "equipment": {
+    "weapons/frag grenade/frag grenade": ["frag_grenade"],
+    "weapons/plasma grenade/plasma grenade": ["plasma_grenade"],
+    "powerups/active camouflage": ["active_camouflage"],
+    "powerups/over shield": ["overshield"],
+    "powerups/sniper rifle ammo/sniper rifle ammo": ["sniper_rifle_ammo"],
+    "powerups/health pack": ["health_pack"],
+    "powerups/flamethrower ammo/flamethrower ammo": []
+  },
+  "markers": {
+    "CtfFlag": "ctf_flag",
+    "CtfVehicle": "ctf_vehicle",
+    "OddballSpawn": "oddball",
+    "HillFlag": "hill",
+    "RaceTrack": "race_track",
+    "RaceVehicle": "race_vehicle",
+    "VegasBank": "vegas_bank",
+    "TeleportFrom": "teleport_from",
+    "TeleportTo": "teleport_to"
+  }
+}

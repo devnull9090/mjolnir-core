@@ -247,9 +247,184 @@ pub fn translate(c: &mut Collision, delta: [f32; 3]) {
     }
 }
 
+/// The effective normal each 2D node's lines live under: its owning 3D
+/// plane's normal, negated when the 2D reference that reaches it is.
+fn node_normals(c: &Collision) -> Vec<Option<[f32; 3]>> {
+    let mut owner = vec![None; c.bsp2d_nodes.len()];
+    for r in &c.bsp2d_references {
+        let Some(plane) = c.planes.get((r.plane as u32 & 0x7fff_ffff) as usize) else {
+            continue;
+        };
+        let n = if (r.plane as u32) & 0x8000_0000 != 0 {
+            [-plane.n[0], -plane.n[1], -plane.n[2]]
+        } else {
+            plane.n
+        };
+        let mut stack = vec![r.node];
+        while let Some(child) = stack.pop() {
+            if child == -1 || (child as u32) & 0x8000_0000 != 0 {
+                continue;
+            }
+            let i = child as usize;
+            if i >= owner.len() || owner[i].is_some() {
+                continue;
+            }
+            owner[i] = Some(n);
+            stack.push(c.bsp2d_nodes[i].left);
+            stack.push(c.bsp2d_nodes[i].right);
+        }
+    }
+    owner
+}
+
+/// Place a BSP in the world by an instance frame: `world = pos + scale *
+/// (x*forward + y*left + z*up)`, for frames whose axes are each a signed world
+/// axis (quarter-turn rotations, mirrors), which is what shipped instances
+/// use. Exact, like [`translate`]: vertices and 3D planes transform, and each
+/// 2D split line is rewritten for its plane's new projection. Under such a
+/// frame local axis k becomes world axis `perm[k]` with sign `sign[k]`, so a
+/// line `a*p[u] + b*p[v] = c` keeps its sides with its coefficients permuted
+/// and signed and `c` scaled and shifted by the position.
+pub fn transform(
+    c: &mut Collision,
+    forward: [f32; 3],
+    left: [f32; 3],
+    up: [f32; 3],
+    scale: f32,
+    pos: [f32; 3],
+) -> Result<(), Error> {
+    let axes = [forward, left, up];
+    let mut perm = [0usize; 3];
+    let mut sign = [0f32; 3];
+    for k in 0..3 {
+        let (j, v) = (0..3)
+            .map(|j| (j, axes[k][j]))
+            .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+            .unwrap();
+        if (v.abs() - 1.0).abs() > 1e-4 || (0..3).any(|o| o != j && axes[k][o].abs() > 1e-4) {
+            return Err(Error::Other(format!(
+                "frame axis {k} {:?} is not a signed world axis",
+                axes[k]
+            )));
+        }
+        perm[k] = j;
+        sign[k] = v.signum();
+    }
+    let rot = |p: [f32; 3]| {
+        let mut w = [0f32; 3];
+        for k in 0..3 {
+            w[perm[k]] += sign[k] * p[k];
+        }
+        w
+    };
+    let normals = node_normals(c);
+    for (i, node) in c.bsp2d_nodes.iter_mut().enumerate() {
+        let Some(n) = normals[i] else { continue };
+        let (u, v) = projection_axes(n);
+        let (u2, v2) = projection_axes(rot(n));
+        let (a, b, d) = (node.plane[0], node.plane[1], node.plane[2]);
+        let (au, bv) = (a * sign[u], b * sign[v]);
+        let (a2, b2) = if perm[u] == u2 && perm[v] == v2 {
+            (au, bv)
+        } else if perm[u] == v2 && perm[v] == u2 {
+            (bv, au)
+        } else {
+            return Err(Error::Other(format!(
+                "2D node {i}: projection axes do not map"
+            )));
+        };
+        node.plane = [a2, b2, d * scale + au * pos[perm[u]] + bv * pos[perm[v]]];
+    }
+    for v in &mut c.vertices {
+        let w = rot(v.point);
+        v.point = [
+            pos[0] + scale * w[0],
+            pos[1] + scale * w[1],
+            pos[2] + scale * w[2],
+        ];
+    }
+    for p in &mut c.planes {
+        let n = rot(p.n);
+        p.d = scale * p.d + n[0] * pos[0] + n[1] * pos[1] + n[2] * pos[2];
+        p.n = n;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One plane (z = 1), one 2D split on it (x = 0.5 in its projection), and
+    /// four vertices on the plane either side of the split.
+    fn split_square() -> Collision {
+        use crate::ce::{Bsp2dNode, Bsp2dReference, Plane, Vertex};
+        let v = |x: f32, y: f32| Vertex {
+            point: [x, y, 1.0],
+            first_edge: 0,
+        };
+        Collision {
+            planes: vec![Plane {
+                n: [0.0, 0.0, 1.0],
+                d: 1.0,
+            }],
+            bsp2d_references: vec![Bsp2dReference { plane: 0, node: 0 }],
+            bsp2d_nodes: vec![Bsp2dNode {
+                plane: [1.0, 0.0, 0.5],
+                left: 0x8000_0000u32 as i32,
+                right: 0x8000_0001u32 as i32,
+            }],
+            vertices: vec![v(0.0, 0.0), v(1.0, 0.0), v(1.0, 1.0), v(0.0, 1.0)],
+            ..Default::default()
+        }
+    }
+
+    fn sides(c: &Collision) -> Vec<bool> {
+        let n = &c.bsp2d_nodes[0];
+        let (u, v) = projection_axes(c.planes[0].n);
+        c.vertices
+            .iter()
+            .map(|x| n.plane[0] * x.point[u] + n.plane[1] * x.point[v] - n.plane[2] > 0.0)
+            .collect()
+    }
+
+    /// A frame transform keeps every vertex on its side of every 2D split and
+    /// on its plane, for quarter turns about each axis and mirrors, scaled and
+    /// moved — the frames shipped instances use.
+    #[test]
+    fn transform_keeps_2d_sides_and_planes() {
+        let before = sides(&split_square());
+        let frames: [([f32; 3], [f32; 3], [f32; 3]); 4] = [
+            ([0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), // quarter turn about z (instance 763)
+            ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]), // quarter turn about x
+            ([0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]), // quarter turn about y
+            ([-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), // mirror in x
+        ];
+        for (f, l, u) in frames {
+            let mut c = split_square();
+            transform(&mut c, f, l, u, 0.328_084, [44.8, 67.14, 48.17]).unwrap();
+            assert_eq!(sides(&c), before, "frame {f:?} {l:?} {u:?}");
+            let p = &c.planes[0];
+            for v in &c.vertices {
+                let d = p.n[0] * v.point[0] + p.n[1] * v.point[1] + p.n[2] * v.point[2] - p.d;
+                assert!(d.abs() < 1e-4, "vertex {:?} is {d} off its plane", v.point);
+            }
+        }
+    }
+
+    #[test]
+    fn transform_refuses_a_frame_that_is_not_axis_aligned() {
+        let mut c = split_square();
+        let r = transform(
+            &mut c,
+            [0.7071, 0.7071, 0.0],
+            [-0.7071, 0.7071, 0.0],
+            [0.0, 0.0, 1.0],
+            1.0,
+            [0.0; 3],
+        );
+        assert!(r.is_err());
+    }
 
     #[test]
     fn node_packing_matches_chasm_old() {

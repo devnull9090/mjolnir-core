@@ -388,3 +388,195 @@ Build recipe that stands:
     group_mopp      c.bin d.bin 58 --cluster
     (move instances 593 779 646 545 503 314 to z -500 with `mjolnir tag-file`)
     mjolnir pack --group scenario_structure_bsp --tag Solo/B40/_Generated_/BSP_01_1_Start --payload d.bin
+
+## One command, and what the live pawn showed (2026-09-30)
+
+`mjolnir level collision <collision_N.json> --out <bsp>` now runs the whole
+recipe ([`blam_sbsp::convert`](../crates/blam-sbsp/src/convert.rs)): it reads
+the canvas BSP and `BSP_03_1_Chasm_old` from the shipped containers, centres
+the terrain on the canvas anchor (or `--anchor` / `--delta`), transplants it
+into definition 159 behind instance 763, recompiles the definition, group and
+cluster MOPPs, parks every canvas instance under the footprint and every other
+instance of definition 159 (764 shares it), and writes `<bsp>.transform.json`
+for `tools/level/gen_ce_level.py`. With the old hand-typed numbers it
+reproduces the September Blood Gulch payload exactly, apart from the rounding
+of those numbers. 21 of the 23 halo2ue exports convert offline; Coldsnap's two
+BSPs exceed 32,767 surfaces after the fan split and need two definitions.
+MOPPs past 64 KB (Infinity, 135 KB) now reach their far subtree through a
+24-bit jump (`07`).
+
+`examples/ray_probe.rs` ([`raytest`](../crates/blam-sbsp/src/raytest.rs))
+traces rays from every walkable floor point down and sideways through a tree
+and compares with brute-force polygon hits. The staged CE tables, the packed
+16-bit tables, the definition and the shell all give **zero misses**, with
+identical counts: the transcoder is faithful and the tables have no holes.
+
+Hang 'Em High on B40 (codename HEH), six launches, read with
+`mjolnir live objects` and Blam `object_get_bsp`:
+
+- **A point outside the canvas shell's inside test freezes everything.**
+  `object_get_bsp (player_get 0)` returned -1; no object was simulated (the
+  player could not be killed or pushed, pickups sat at their exact placement
+  heights). B40's shell calls roughly x 1.6..89.6, y 23.4..115.4 inside
+  (`examples/shell_inside.rs`); HEH's first spawn (y 21.4) and **the
+  2026-09-09 Blood Gulch spawn (y -6.5) are both outside**. So "it stands"
+  in September was a frozen pawn, and the definition route has never held a
+  simulated one.
+- Putting the CE tree into the shell as well (`transplant_shell`, pass-through
+  supernode + Chasm_old kd companions) makes the pawn simulated: it falls,
+  dies below the terrain's lowest point and respawns.
+- **An instance's Havok shape keeps copies** of its definition's mopp header —
+  `mopp data size`, `code info copy`, `havok w code info copy` — and of its
+  scale (`mopp scale`, 0.328084 on definition 159's instances). The converter
+  now writes all four (`sync_instance_mopp_copies`, `mopp scale`).
+- Player starts in CE sit exactly on the floor (50.110 over 50.109); the
+  generator now lifts them 1 wu.
+- **Still falling**, with the header copies and scale synced, the start
+  lifted, and — the discriminating run — B40's own shell kept and the terrain
+  placed inside it (`--anchor 45.6 69.4 43.65 --keep-canvas-shell`): the pawn
+  is simulated and drops straight through the terrain. Parking B40's instances
+  under the footprint removes the floor the body used to stop on at z 5, so
+  instance Havok shapes *are* the collision path; the transplanted instance
+  just is not in it.
+
+Offline, the whole broadphase answers at the spawn
+(`examples/havok_path.rs`: cluster → group 58 → instance 763 → 147
+surfaces). Next: bisect with a **no-op control** — definition 159's own
+tables round-tripped through the same pipeline, pawn dropped on it — then add
+one change at a time (MOPP recompile, frame reset, bounds, group and cluster
+trees) until the floor disappears.
+
+### The bisect, with a live Megalo pawn (2026-09-30, later)
+
+With the Megalo spawn working on B40's floor (`re/megalo_engine.md`), a
+control build — definition 159's MOPP recompiled from its own shipped
+surfaces with `examples/control_mopp.rs`, instance 763's shape header synced,
+the other floors under the spawn (545, 593, 779) parked, nothing else changed —
+**holds the pawn** at (33.50, 33.53, 47.85). So the MOPP compiler, the header
+sync and host 763 are all fine.
+
+What the converted build changes on top is the frame, bounds and broadphase —
+and it misses the **`instance kd hierarchy`**: a collision kd-tree (15,293
+nodes, a 19,116-entry spatial hash, and `in use masks` with one entry per shell
+supernode — 2,009, exactly B40's count) whose nodes list the collidable
+instances (`collidable headers`: instance index, `1 << (index % 32)` dword
+mask, bsp mask). Instance 763 is listed only in the nodes around its old box,
+so terrain moved away from it is never tested; and a shell replaced by one
+pass-through supernode no longer matches the hierarchy at all. The converter
+has to rebuild it to match the shell it ships.
+
+### What the pawn actually stands on (2026-09-30, last)
+
+Two more controls overturn the model this document has been working under:
+
+- Definition 159's own geometry, through the whole converter at its shipped
+  place (`examples/control_world.rs`): the pawn stands. Moved +20 wu: it
+  falls. Blam's own queries were then traced live at the new spot (point →
+  BSP 8 cluster 0 → kd root node 15, which lists 763 → 763's record, box and
+  sphere): all correct.
+- The passing control again **with 763 itself parked at z -500**: the pawn
+  **still stands**, at (31.53, 33.46, 48.18).
+
+So no pawn has ever stood on a definition's collision, the 2026-09-09 result
+included. Havok movement stands on the BSP's cooked **`structure_physics`**
+static shape: a 561,889-byte MOPP over 34,890 keys (contiguous from
+`0x34000000`, not the 19 shell surfaces, and not the instances' 239,840 /
+89,491 definition surfaces), next to the resource's `meshes` block (183
+`global_mesh` elements: the 182 definitions plus one). Parking instances does
+move what the pawn rests on elsewhere, so instance data feeds that shape
+somehow, but not through the definitions' collision BSPs.
+
+Next: identify the `structure_physics` shape (the Havok shape type, how a key
+resolves to a triangle, where the triangles live — `meshes`, the resource's
+per-mesh parts, the instance transforms) and compile the CE terrain into it;
+`blam_sbsp::mopp` already compiles valid trees.
+
+## It stands, for real (2026-09-30, night)
+
+`convert::rebuild_structure_mopp` recompiles the BSP's static Havok body,
+`structure_physics.mopp code block`. Its terminals are keys resolved by
+`getChildShape` (`0x3cf720`): `key >> 29` = 1 one world-shell surface
+(`0x20000000 | k << 26 | surface`), 2 a whole instance under its frame
+(`0x40000000 | instance`), 3 one definition surface under an instance's frame
+(`0x60000000 | surface << 16 | instance`, surface < 8192). B40's start BSP
+ships 19 / 776 / 34,095 of them, and nothing rebuilds the tree at load. The
+converter keeps every shell key and every key of an instance it neither parks
+nor replaces (boxed from the geometry as it now is), drops the rest, and adds
+one type-3 key per host surface (one type-2 key past 8,191).
+
+- Control: definition 159 moved +20 wu with the rebuilt tree — **the pawn
+  stands** at (32.02, 55.27, 47.85).
+- **Hang 'Em High**, converted with `mjolnir level collision --anchor 45.6 69.4
+  43.65 --keep-canvas-shell`, generated with `tools/level/gen_ce_level.py`
+  (spawn-point scenery, map variant palette), launched under Megalo: the
+  player spawns at a CE start and **stands on the terrain** at (52.88, 62.90,
+  44.95); all 17 map weapons rest on it at their CE heights (44.95 placed →
+  44.98). 19 shell + 20,603 kept + 2,050 new keys, 14,268 dropped, 205,578 B.
+
+Still open: the canvas shell's inside region limits where a terrain can sit
+(B40: about x 1.6..89.6, y 23.4..115.4) — Blood Gulch is bigger, so the shell
+has to be replaced (the CE tree plus a matching kd hierarchy, case A); terrain
+visuals; collision materials.
+
+## A BSP of our own: Blood Gulch without B40's geometry (2026-09-30, late)
+
+`mjolnir level collision <collision_N.json> --out <bsp> --own-bsp [--delta dx dy dz]`
+builds the structure BSP from `BSP_03_1_Chasm_old` — a small shipped BSP with
+one kd supernode, one cluster and one instance — instead of B40's start BSP
+(`convert::convert_own`): the CE tree goes into its world shell (the inside
+test, with its own kd companion tables widened) and into definition 0 behind
+instance 0 (seeded with a MOPP element cloned from the static body's, since it
+ships none), and `structure_physics` is rebuilt with one surface key per CE
+surface. Only the package wrapper is still a shipped tag's (a rebuilt BSP
+wrapper does not start); none of the canvas mission's geometry remains, and
+there is no region or size limit.
+
+Two things learned on the way:
+
+- A static body of **shell keys alone** (type 1, one per CE shell surface) did
+  not hold anything. The instance-surface keys (type 3) are what work.
+- The map must stay inside the level's overall extent. Lifted 800 wu above
+  B40, objects fell and vehicles were flung hundreds of wu (Havok's world
+  extent, presumably). What also matters is that no **active** canvas BSP's
+  world box covers the map (B40's start zone set activates BSPs 4, 8, 11, 12,
+  15, 16); Blood Gulch was moved by (334.1, -509.8, 0) into a corner only
+  inactive BSPs cover.
+
+Result, under Megalo on the canvas's Unreal world: the player spawns at a CE
+start and stands at (377.15, -600.41, 0.17); **all 28 vehicles rest on Blood
+Gulch** at the CE bases' heights (z 0..4). 1.18 MB payload, 5,305 surfaces.
+
+Next: trim the standalone scenario to this one BSP and zone set (then the
+coordinates can stay CE's own), the terrain mesh, and the bare world.
+
+## Scenery behind instances of its own (2026-10-01)
+
+A definition's tables are 16-bit (surfaces 32,767, planes 65,535, edges and
+vertices 65,534), and `merge_ce_collision.py` adds every scenery triangle as
+a standalone surface with its own plane, three edges and three vertices. The
+forested maps overflow one definition on scenery alone: Timberland 31,950
+scenery surfaces, Danger Canyon 43,646, Infinity 58,464 (planes first).
+
+When the merged collision does not fit, `mjolnir level collision --own-bsp`
+splits the scenery tail off (`split::split_standalone`, using the manifest's
+`scenery_surfaces` count) into pieces of 8,192 surfaces, so every surface keeps
+a type-3 key of its own. Each piece gets a copy of definition 0 and instance 0
+(`convert::add_scenery_instances`): its tables behind an identity frame at the
+host's position, a one-node tree with the same empty leaf on both sides
+(every point open space; Blam queries never reached scenery surfaces anyway),
+its MOPP and the instance's copies of
+it, the instance's own index in its collision shape, a place in group 0, and a
+collidable header at every kd root. The group, cluster and structure trees are
+then rebuilt over all of the instances. The BSP itself stays in the shell and
+definition 0. Maps that fit are built exactly as before.
+
+Timberland (4 scenery instances), Danger Canyon (6), Death Island (3) and
+Infinity (8) build this way.
+
+A child of "none" in a bsp3d node is **solid**, not empty. The first version
+gave each piece a node with "none" on both sides, so every point of the map
+was inside solid scenery: a player was killed by the guardians
+(`guardian_kill`) the moment they moved, and teleporters refused to exit into
+it (`teleporter_blocked`). Danger Canyon, 2026-10-01; one empty leaf fixed
+both. Coldsnap does not: its BSP alone has 35,173
+surfaces, which would need the tree itself split.

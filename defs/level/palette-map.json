@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "comment": "Friendly type names for level.json -> Blam tag paths, plus what each shipped scenario's palettes already contain (surveyed 2026-08-19 on the current build). v1 bake requires the resolved tag to be present in the canvas scenario's palette; cross-map palette grafts are experimental.",
+  "comment": "Friendly type names for level.json -> Blam tag paths, plus what each shipped scenario's palettes already contain (surveyed 2026-08-19 on the current build). The bake gives a type the canvas palette lacks an entry of its own (cloned and re-pointed); scenario_palettes records what each canvas carries already.",
   "vehicles": {
     "warthog": "objects\\vehicles\\human\\warthog\\warthog",
     "ghost": "objects\\vehicles\\covenant\\ghost\\ghost",
@@ -23,7 +23,9 @@
     "rocket_launcher": "objects\\weapons\\support_high\\rocket_launcher\\rocket_launcher",
     "energy_sword": "objects\\weapons\\melee\\energy_sword\\energy_sword",
     "beam_rifle": "objects\\weapons\\rifle\\beam_rifle\\beam_rifle",
-    "skull": "objects\\weapons\\multiplayer\\skull\\skull"
+    "skull": "objects\\weapons\\multiplayer\\skull\\skull",
+    "shotgun": "objects\\weapons\\rifle\\shotgun\\shotgun",
+    "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon"
   },
   "equipment": {
     "frag_grenade": "objects\\weapons\\grenade\\frag_grenade\\frag_grenade",

@@ -66,4 +66,10 @@ native/blam_console/obj/
 # Built by native/map_registry/build.ps1; never committed
 mods/MJOLNIRLevelLoader/native/*.dll
 mods/MJOLNIRLevelLoader/native/*.log
+mods/MJOLNIRLevelLoader/native/*.mglo
+mods/MJOLNIRLevelLoader/variants/
 native/map_registry/obj/
+# Built by native/lobby/build.ps1; never committed
+mods/MJOLNIRLobby/native/*.dll
+mods/MJOLNIRLobby/native/*.txt
+native/lobby/obj/

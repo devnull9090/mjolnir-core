@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "MJOLNIR Fork Layouts",
+	"Description": "Recreates Halo: Campaign Evolved's renderer contract (343's UE 5.5.4 fork) in the stock editor before shaders compile, so materials cooked here bind and draw in the game: uniform buffer layouts (Config/ForkUniformBuffers.json, tools/ue/ub_dump.py) and the GPU-scene primitive layout.",
+	"Category": "MJOLNIR",
+	"CreatedBy": "MJOLNIR",
+	"CanContainContent": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "MjolnirForkShaders",
+			"Type": "Editor",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "MjolnirForkLayouts",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	]
+}

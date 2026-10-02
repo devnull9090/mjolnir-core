@@ -6,6 +6,7 @@
 //! ```text
 //! cargo run -p blam-pack --example scenario_register -- \
 //!     <paks> <CODE> <out dir> [--from B40] [--title "text"] [--description "text"]
+//!     <paks> - <out dir> --registry <MJOLNIRLevelLoader/registry>
 //! ```
 //!
 //! See `blam_pack::scenario` for why the row has to be cooked.
@@ -43,15 +44,35 @@ fn main() {
     )
     .expect("parse scripts");
 
-    let reg = blam_pack::scenario::Registration {
-        code: code.clone(),
-        from: flag(&a, "--from").unwrap_or_else(|| "B40".into()),
-        title: flag(&a, "--title"),
-        description: flag(&a, "--description"),
-        world: flag(&a, "--world"),
+    // `--registry <dir>` rebuilds the shared container from every installed
+    // map's record (MJOLNIRLevelLoader/registry/*.json, as `level bake
+    // --install-test` writes them); <CODE> is then ignored.
+    let regs: Vec<blam_pack::scenario::Registration> = match flag(&a, "--registry") {
+        Some(dir) => {
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+                .expect("read registry dir")
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+                .collect();
+            files.sort();
+            files
+                .iter()
+                .map(|f| {
+                    serde_json::from_slice(&std::fs::read(f).expect("read record"))
+                        .expect("parse record")
+                })
+                .collect()
+        }
+        None => vec![blam_pack::scenario::Registration {
+            code: code.clone(),
+            from: flag(&a, "--from").unwrap_or_else(|| "B40".into()),
+            title: flag(&a, "--title"),
+            description: flag(&a, "--description"),
+            world: flag(&a, "--world"),
+        }],
     };
     let (built, name, log) =
-        blam_pack::scenario::register(&containers, &oodle, &usmap, &scripts, &reg)
+        blam_pack::scenario::register(&containers, &oodle, &usmap, &scripts, &regs)
             .unwrap_or_else(|e| panic!("{e}"));
     for line in &log {
         println!("  {line}");

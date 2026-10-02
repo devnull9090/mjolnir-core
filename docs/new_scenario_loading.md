@@ -435,3 +435,36 @@ is a synthesized minimal world: the bare package plus those three actor
 kinds copied from a shipped level (`native tail` bytes included), which is
 zen export surgery `newtag::build` does not do yet. If both play, the bare
 world is the product and the donor route can go.
+
+## Several maps: each row needs its own `MapGuid` (2026-09-30)
+
+With two maps registered side by side (one shared `pakchunk996-MJOLNIRREG_P`,
+rows `BGL` and `GPH`, both cloned from `B40`), MISSION SELECT's Blood Gulch
+started **B40's scenario** under Blood Gulch's world: the objects in play were
+B40's Banshees, Ghosts and Shades instead of Blood Gulch's Warthogs, and the
+Spartan stood at B40's start (25.6, -18.8, -15.6), outside Blood Gulch's
+world bounds and below its terrain. With one cloned row the same duplicate
+GUID had gone unnoticed.
+
+Both clones carried the donor row's `MapGuid` (`+64`, B40's is
+`56e460734f534340a0ee2f8645c232cd`). `blam_pack::scenario::register` now gives
+each row a stable GUID of its own (`map_guid`: two FNV-1a 64 hashes of the
+codename), and Blood Gulch starts its own scenario again: Warthogs, the
+Spartan on the red base at (42.1, -75.1, 1.7).
+`scenario_register <paks> - <out> --registry <MJOLNIRLevelLoader/registry>`
+rebuilds the shared container from the installed maps' records without a
+re-bake.
+
+Two launch routes that do not work, for the record:
+
+- A bare `SetAndBeginCampaign` from script (above) leaves the simulation with
+  no game, for shipped missions too: `(list_count (players))` is 0, the
+  Unreal pawn appears at the origin after about 50 s, and further
+  `SetAndBeginCampaign` calls are ignored.
+- The debug menu's TEST MAPS page (`WBP_TestMapDebugMenu_C:LaunchCampaignMap`)
+  starts the map and then crashes about 35 s later in a destructor releasing a
+  dangling member (`HaloCampaignEvolved.exe+0x714deba`, read of `-1`), every
+  time.
+
+CAMPAIGN > NEW GAME > MISSION SELECT > RALLY POINT > SKULLS > START is the
+route that starts the simulation.

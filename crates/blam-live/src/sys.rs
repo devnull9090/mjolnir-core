@@ -268,10 +268,8 @@ mod imp {
         /// statically resolved RVA is only an address once added to this base.
         pub fn module(&self, name: &str) -> Result<(u64, u64)> {
             unsafe {
-                let snap = CreateToolhelp32Snapshot(
-                    TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-                    self.pid,
-                );
+                let snap =
+                    CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.pid);
                 if snap == -1 {
                     return Err(Error::NotRunning(name.to_string()));
                 }
@@ -302,10 +300,8 @@ mod imp {
         /// file's hash selects the profile whose RVAs apply to this image.
         pub fn module_info(&self, name: &str) -> Result<ModuleInfo> {
             unsafe {
-                let snap = CreateToolhelp32Snapshot(
-                    TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-                    self.pid,
-                );
+                let snap =
+                    CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.pid);
                 if snap == -1 {
                     return Err(Error::NotRunning(name.to_string()));
                 }
@@ -407,6 +403,46 @@ mod imp {
                 });
             }
             Ok(got)
+        }
+
+        /// Patch code: like [`Process::write`], but the page stays executable
+        /// throughout. `write` drops a page to read/write for the duration,
+        /// which would fault any thread running on a code page meanwhile.
+        pub fn write_code(&self, addr: u64, data: &[u8]) -> Result<()> {
+            const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+            let mut old = 0u32;
+            let lifted = unsafe {
+                VirtualProtectEx(
+                    self.handle,
+                    addr as usize,
+                    data.len(),
+                    PAGE_EXECUTE_READWRITE,
+                    &mut old,
+                )
+            };
+            let mut put = 0usize;
+            let ok = unsafe {
+                WriteProcessMemory(
+                    self.handle,
+                    addr as usize,
+                    data.as_ptr(),
+                    data.len(),
+                    &mut put,
+                )
+            };
+            let err = io::Error::last_os_error();
+            if lifted != 0 {
+                let mut back = 0u32;
+                unsafe { VirtualProtectEx(self.handle, addr as usize, data.len(), old, &mut back) };
+            }
+            if ok == 0 || put != data.len() {
+                return Err(Error::Write {
+                    addr,
+                    len: data.len(),
+                    source: err,
+                });
+            }
+            Ok(())
         }
 
         /// Write bytes, lifting page protection for the duration if needed.

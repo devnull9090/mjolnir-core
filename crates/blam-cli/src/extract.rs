@@ -49,7 +49,7 @@ pub struct ExtractArgs {
 }
 
 /// Whether a container is a mod's rather than the game's own.
-fn is_override(c: &Container) -> bool {
+pub(crate) fn is_override(c: &Container) -> bool {
     let name = c
         .utoc_path
         .file_name()

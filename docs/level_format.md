@@ -165,6 +165,30 @@ and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and c
 `player_enable_input` leaves the player able to look around but not move, shoot or switch
 weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
+### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.map_variant`
+
+- `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo
+  wu. Sets a structure BSP's box in the scenario; the boxes decide which BSP a
+  point belongs to, and a point outside every box is outside the world.
+- `set`: `{ "field path": "value" }` for any other scenario field, in the form
+  the inspector prints (`"type": "multiplayer"`). Applied last.
+- `active_bsps`: `[8]` makes the starting zone set (zone set 0) load only these
+  BSPs, and trims its PVS to match. A map on its own BSP needs this: every other
+  canvas BSP left active claims its own space.
+- `map_variant`: `true` adds a `map variant palettes` entry for every weapon,
+  vehicle and scenery tag the level places. Under a multiplayer (Megalo)
+  engine, objects whose tags carry multiplayer data exist only through the map
+  variant, which the simulation builds from the palette-listed placements.
+
+A `blam.objects` element also takes `set`: fields of the placement, relative to
+its element (`"multiplayer data.owner team": "neutral"`).
+
+### `multiplayer`
+
+Top-level `"multiplayer": true` asks MJOLNIRLevelLoader to start the level
+under the simulation's Megalo engine rather than the campaign
+([re/megalo_engine.md](re/megalo_engine.md)). The bake ignores it.
+
 ### `decor`
 
 `mesh` is a full UE object path: `/Engine/BasicShapes/*` or any shipped `SM_` package

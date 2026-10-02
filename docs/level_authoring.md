@@ -5,6 +5,11 @@ author a level in Blender, place vehicles and weapons like Sapien's scenario
 editor, bake it like Tool, and play it in the real game. This guide walks the
 whole loop. The file format reference is [level_format.md](level_format.md).
 
+> **Converting a classic CE map?** That no longer needs a canvas's geometry:
+> `tools/level/convert_ce_map.sh` builds the map its own structure BSP and a
+> standalone multiplayer scenario in one command. See
+> [ce_map_conversion.md](ce_map_conversion.md).
+
 ## What a custom level is (and isn't) — read this first
 
 A v1 custom level is a **map variant**: it runs on top of one of the 13

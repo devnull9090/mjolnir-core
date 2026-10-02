@@ -67,7 +67,12 @@ pub enum Node {
     /// computed from the running box, so the pair of bytes is not a plain
     /// coordinate; the shape (left child follows, right child at a one-byte
     /// jump) matches [`Node::Split`].
-    Diagonal { kind: u8, a: u8, b: u8, right: usize },
+    Diagonal {
+        kind: u8,
+        a: u8,
+        b: u8,
+        right: usize,
+    },
     /// Set one of the machine's four scratch properties.
     Property { slot: u8, value: u32 },
     /// Jump to an absolute offset in another code chunk.
@@ -94,7 +99,10 @@ pub enum Error {
 
 fn need(code: &[u8], at: usize, n: usize) -> Result<(), Error> {
     if at + n > code.len() {
-        return Err(Error::Truncated { at, len: code.len() });
+        return Err(Error::Truncated {
+            at,
+            len: code.len(),
+        });
     }
     Ok(())
 }
@@ -123,7 +131,10 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
         }
         0x06 => {
             need(code, at, 3)?;
-            d(3, Node::Jump(((code[at + 1] as usize) << 8) | code[at + 2] as usize))
+            d(
+                3,
+                Node::Jump(((code[at + 1] as usize) << 8) | code[at + 2] as usize),
+            )
         }
         0x07 => {
             need(code, at, 4)?;
@@ -142,7 +153,10 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
         }
         0x0a => {
             need(code, at, 3)?;
-            d(3, Node::Reindex(((code[at + 1] as u32) << 8) | code[at + 2] as u32))
+            d(
+                3,
+                Node::Reindex(((code[at + 1] as u32) << 8) | code[at + 2] as u32),
+            )
         }
         0x0b => {
             need(code, at, 5)?;
@@ -216,7 +230,11 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
             need(code, at, 3)?;
             d(
                 3,
-                Node::Clip { axis: op - 0x26, lo: code[at + 1], hi: code[at + 2] },
+                Node::Clip {
+                    axis: op - 0x26,
+                    lo: code[at + 1],
+                    hi: code[at + 2],
+                },
             )
         }
         // Wide slab test against a 24-bit range.
@@ -224,7 +242,11 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
             need(code, at, 7)?;
             d(
                 7,
-                Node::Clip { axis: op - 0x29, lo: code[at + 1], hi: code[at + 4] },
+                Node::Clip {
+                    axis: op - 0x29,
+                    lo: code[at + 1],
+                    hi: code[at + 4],
+                },
             )
         }
         0x30..=0x4f => d(1, Node::Terminal((op - 0x30) as u32)),
@@ -234,7 +256,10 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
         }
         0x51 => {
             need(code, at, 3)?;
-            d(3, Node::Terminal(((code[at + 1] as u32) << 8) | code[at + 2] as u32))
+            d(
+                3,
+                Node::Terminal(((code[at + 1] as u32) << 8) | code[at + 2] as u32),
+            )
         }
         0x52 => {
             need(code, at, 4)?;
@@ -261,7 +286,13 @@ pub fn node_at(code: &[u8], at: usize) -> Result<Decoded, Error> {
         }
         0x60..=0x63 => {
             need(code, at, 2)?;
-            d(2, Node::Property { slot: op - 0x60, value: code[at + 1] as u32 })
+            d(
+                2,
+                Node::Property {
+                    slot: op - 0x60,
+                    value: code[at + 1] as u32,
+                },
+            )
         }
         0x64..=0x67 => {
             need(code, at, 3)?;
@@ -427,7 +458,11 @@ impl Frame {
     fn start(q: &Query) -> Frame {
         Frame {
             lo: [q.lo[0] >> 16, q.lo[1] >> 16, q.lo[2] >> 16],
-            hi: [(q.hi[0] >> 16) + 1, (q.hi[1] >> 16) + 1, (q.hi[2] >> 16) + 1],
+            hi: [
+                (q.hi[0] >> 16) + 1,
+                (q.hi[1] >> 16) + 1,
+                (q.hi[2] >> 16) + 1,
+            ],
             off: [0; 3],
             shift: 0,
         }
@@ -551,7 +586,7 @@ fn query_at(
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
-    #[error("a subtree is {0} bytes, past the 16-bit jump a split node can encode")]
+    #[error("a subtree is {0} bytes, past the 24-bit jump a split node can reach")]
     JumpOverflow(usize),
     #[error("nothing to build a tree from")]
     Empty,
@@ -640,7 +675,25 @@ fn emit(prims: &mut [(u32, Aabb)]) -> Result<Vec<u8>, BuildError> {
         }
         Ok([(n >> 8) as u8, n as u8])
     };
-    let mut out = Vec::with_capacity(7 + left.len() + right.len());
+    let mut out = Vec::with_capacity(8 + left.len() + right.len());
+    if left.len().min(right.len()) > 0xffff {
+        // Both subtrees are past a 16-bit jump (the top levels of a tree over
+        // tens of thousands of surfaces). The four-byte split's left child is
+        // a 24-bit jump (`07`) over the right subtree to the left one:
+        //
+        //   +0  1x lmax rmin 04   right child = +8
+        //   +4  07 <right.len() as u24>    -> +8 + right.len()
+        //   +8  right subtree, then left subtree
+        if right.len() > 0xff_ffff {
+            return Err(BuildError::JumpOverflow(right.len()));
+        }
+        let n = right.len();
+        out.extend_from_slice(&[0x10 + axis as u8, left_max, right_min, 4]);
+        out.extend_from_slice(&[0x07, (n >> 16) as u8, (n >> 8) as u8, n as u8]);
+        out.extend_from_slice(&right);
+        out.extend_from_slice(&left);
+        return Ok(out);
+    }
     if left.len() <= right.len() {
         let rj = jump16(left.len())?;
         out.extend_from_slice(&[op, left_max, right_min, 0, 0, rj[0], rj[1]]);
@@ -691,7 +744,10 @@ impl Quant {
     /// A world-space box as the machine's 24-bit fixed-point query, including
     /// the one-unit slack `hkpMoppObbVirtualMachine`'s setup adds.
     pub fn query_box(&self, lo: [f32; 3], hi: [f32; 3]) -> Query {
-        let mut q = Query { lo: [0; 3], hi: [0; 3] };
+        let mut q = Query {
+            lo: [0; 3],
+            hi: [0; 3],
+        };
         for k in 0..3 {
             q.lo[k] = ((lo[k] - self.offset[k]) * self.scale) as i32 - 1;
             q.hi[k] = ((hi[k] - self.offset[k]) * self.scale) as i32 + 1;
@@ -710,8 +766,16 @@ impl Quant {
             }
         }
         Aabb {
-            lo: [self.byte(lo[0], 0), self.byte(lo[1], 1), self.byte(lo[2], 2)],
-            hi: [self.byte(hi[0], 0), self.byte(hi[1], 1), self.byte(hi[2], 2)],
+            lo: [
+                self.byte(lo[0], 0),
+                self.byte(lo[1], 1),
+                self.byte(lo[2], 2),
+            ],
+            hi: [
+                self.byte(hi[0], 0),
+                self.byte(hi[1], 1),
+                self.byte(hi[2], 2),
+            ],
         }
     }
 }
@@ -758,22 +822,43 @@ mod tests {
     fn decodes_the_node_forms() {
         assert_eq!(node_at(&[0x00], 0).unwrap().node, Node::Return);
         assert_eq!(node_at(&[0x35], 0).unwrap().node, Node::Terminal(5));
-        assert_eq!(node_at(&[0x50, 0x7f], 0).unwrap().node, Node::Terminal(0x7f));
+        assert_eq!(
+            node_at(&[0x50, 0x7f], 0).unwrap().node,
+            Node::Terminal(0x7f)
+        );
         assert_eq!(
             node_at(&[0x51, 0x12, 0x34], 0).unwrap().node,
             Node::Terminal(0x1234)
         );
         assert_eq!(
             node_at(&[0x11, 0x40, 0x30, 0x08], 0).unwrap().node,
-            Node::Split { axis: 1, left_max: 0x40, right_min: 0x30, left: 0, right: 8 }
+            Node::Split {
+                axis: 1,
+                left_max: 0x40,
+                right_min: 0x30,
+                left: 0,
+                right: 8
+            }
         );
         assert_eq!(
-            node_at(&[0x24, 0x40, 0x30, 0x00, 0x04, 0x01, 0x00], 0).unwrap().node,
-            Node::Split { axis: 1, left_max: 0x40, right_min: 0x30, left: 4, right: 256 }
+            node_at(&[0x24, 0x40, 0x30, 0x00, 0x04, 0x01, 0x00], 0)
+                .unwrap()
+                .node,
+            Node::Split {
+                axis: 1,
+                left_max: 0x40,
+                right_min: 0x30,
+                left: 4,
+                right: 256
+            }
         );
         assert_eq!(
             node_at(&[0x28, 0x10, 0x90], 0).unwrap().node,
-            Node::Clip { axis: 2, lo: 0x10, hi: 0x90 }
+            Node::Clip {
+                axis: 2,
+                lo: 0x10,
+                hi: 0x90
+            }
         );
     }
 
@@ -805,7 +890,9 @@ mod tests {
         let mut seed = 12345u64;
         for i in 0..n {
             let mut next = || {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 ((seed >> 33) % 240) as u8
             };
             let (x, y, z) = (next(), next(), next());
@@ -826,7 +913,11 @@ mod tests {
         for n in [1u32, 2, 5, 33, 300, 2000] {
             let prims = spread(n);
             let code = build(&prims).unwrap();
-            let mut ids: Vec<u32> = terminals(&code).unwrap().into_iter().map(|(i, _)| i).collect();
+            let mut ids: Vec<u32> = terminals(&code)
+                .unwrap()
+                .into_iter()
+                .map(|(i, _)| i)
+                .collect();
             ids.sort_unstable();
             let want: Vec<u32> = (0..n).collect();
             assert_eq!(ids, want, "{n} primitives");
@@ -855,6 +946,36 @@ mod tests {
         }
     }
 
+    /// Trees over tens of thousands of surfaces (Infinity: 18,477) have top
+    /// subtrees past a 16-bit jump; they are reached through a 24-bit jump
+    /// (`07`) instead, and must still answer every primitive.
+    #[test]
+    fn subtrees_past_a_16_bit_jump_are_reached_through_a_24_bit_one() {
+        let prims = spread(40_000);
+        let code = build(&prims).unwrap();
+        assert!(
+            code.len() > 0x2_0000,
+            "tree of {} bytes is too small to need it",
+            code.len()
+        );
+        let mut jump24 = 0;
+        walk(&code, 0, &mut |d, _| {
+            if code[d.at] == 0x07 {
+                jump24 += 1;
+            }
+        })
+        .unwrap();
+        assert!(jump24 > 0, "no 24-bit jump in a {}-byte tree", code.len());
+        for (id, b) in prims.iter().step_by(7) {
+            let lo = [b.lo[0] as i32 - 1, b.lo[1] as i32 - 1, b.lo[2] as i32 - 1];
+            let hi = [b.hi[0] as i32 + 1, b.hi[1] as i32 + 1, b.hi[2] as i32 + 1];
+            assert!(
+                query_bytes(&code, lo, hi).unwrap().contains(id),
+                "{id} lost"
+            );
+        }
+    }
+
     /// A query far outside the geometry returns nothing, so the tree is not
     /// merely answering everything.
     #[test]
@@ -863,7 +984,11 @@ mod tests {
         let code = build(&prims).unwrap();
         let got = query_bytes(&code, [250, 250, 250], [255, 255, 255]).unwrap();
         let all: usize = prims.len();
-        assert!(got.len() < all / 4, "{} of {all} hits far outside", got.len());
+        assert!(
+            got.len() < all / 4,
+            "{} of {all} hits far outside",
+            got.len()
+        );
     }
 
     #[test]
