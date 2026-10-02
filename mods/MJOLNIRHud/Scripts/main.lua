@@ -48,8 +48,9 @@ local FADE_SECONDS = 1
 --- together, in no promised order.
 local DEATH_GRACE = 0.4
 
---- The host's first local player. A networked client's index is not exposed
---- to scripts yet (as in MJOLNIRLevelLoader).
+--- The local player's absolute index: 0 on the host, the joiner's own slot on
+--- a fireteam client. Refreshed each tick from the local controller's
+--- BlamPlayerStateComponent (refreshLocalPlayer).
 local LOCAL_PLAYER = 0
 
 -- ESlateVisibility
@@ -113,6 +114,13 @@ end
 
 local function now()
     return os.clock()
+end
+
+local function refreshLocalPlayer()
+    local ok, index = pcall(function()
+        return playerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
+    end)
+    if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
 end
 
 --- "World /Game/Levels/Halo1/Solo/BGL/BGL.BGL" -> "BGL".
@@ -525,6 +533,7 @@ local function tick()
     end
     hookIncidents()
     ensureWidgets()
+    refreshLocalPlayer()
     drain()
     drawFeed()
     local held = boardHeld(pc)

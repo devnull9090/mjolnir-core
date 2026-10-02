@@ -1023,10 +1023,21 @@ local RunningVariant = nil
 -- lap_complete is a health pack taken (blam_megalo::powerups): CE played its
 -- pickup sound to the player who took it.
 local PERSONAL = { teleporter_used = true, respawn_tick = true, respawn_final_tick = true, lap_complete = true }
---- The local player's absolute index in the engine's player table. The host's
---- first local player is 0; a networked client's index is not exposed to
---- scripts yet.
+--- The local player's absolute index in the engine's player table: 0 on the
+--- host, the joiner's own slot on a fireteam client (1 for the first). Read
+--- from the first local player's BlamPlayerStateComponent before events are
+--- played; with 0 assumed, a client heard the host's respawn countdown
+--- (silently, as it was not theirs) and never its own (two PCs, 2026-10-01).
 local LOCAL_PLAYER = 0
+
+local function refreshLocalPlayer()
+    local ok, index = pcall(function()
+        local any = getPlayerController()
+        local pc = StaticFindObject("/Script/Engine.Default__GameplayStatics"):GetPlayerController(any, 0)
+        return pc.PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
+    end)
+    if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
+end
 --- The engine raises no game-start event on a converted map (only
 --- player_spawn), so CE's announcement plays at the local player's first
 --- spawn, by game type.
@@ -1133,6 +1144,7 @@ end
 --- Play what the hook queued; runs on the game thread, outside any hook.
 local function drainEvents()
     if #EventQueue == 0 then return end
+    refreshLocalPlayer()
     local queued = EventQueue
     EventQueue = {}
     for _, e in ipairs(queued) do
@@ -1380,6 +1392,7 @@ local function tick()
         -- The opening spawn raises no player_spawn (only respawns do), so
         -- the game type is announced once the player is in the world.
         if next(EventWaves) and #EventQueue < 32 then
+            refreshLocalPlayer()
             EventQueue[#EventQueue + 1] = { "player_spawn", LOCAL_PLAYER }
         end
     end
@@ -1539,51 +1552,81 @@ local function loadMegaloSwitch()
         Log("multiplayer switch: not in this build of the native DLL")
         return
     end
+    --- Switch for the map about to load: the host's campaign flow names it
+    --- (SetAndBeginCampaign), a client in the host's fireteam learns it from
+    --- the travel the host sends (ClientTravel, `...?ScenarioName=BGL...`).
+    --- A client never sees SetAndBeginCampaign: without this its simulation
+    --- stayed in the campaign engine and its screen black (two PCs,
+    --- 2026-10-01).
+    local switched = { code = nil, at = -1000 }
+    local function switchFor(code, pending, how)
+        local level = multiplayerLevel(code)
+        -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
+        -- type<TAB>title", or no file while no multiplayer map runs.
+        os.remove(MOD_DIR .. "\\running.txt")
+        if not level then
+            off()
+            switched.code = nil
+            return
+        end
+        on()
+        switched.code, switched.at = code, os.clock()
+        Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine (" .. how .. ")")
+        -- The game type: the host's choice from the multiplayer menu; a
+        -- client has only the map's default (the host's choice does not
+        -- travel yet).
+        local chosen = pending or level.variant
+        RunningVariant = chosen
+        local running = io.open(MOD_DIR .. "\\running.txt", "w")
+        if running then
+            running:write(tostring(code), "\t", tostring(chosen or ""), "\t",
+                tostring(level.title or level.name or code), "\n")
+            running:close()
+        end
+        if chosen and variant then
+            local name = tostring(chosen)
+            local bytes = readFile(MOD_DIR .. "\\variants\\" .. name .. ".mglo")
+            local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
+            if staged then
+                staged:write(bytes)
+                staged:close()
+                variant()
+                Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
+            else
+                Log("multiplayer switch: no variants\\" .. name .. ".mglo; the default variant runs")
+            end
+        end
+    end
+
     local hooked = pcall(function()
         RegisterHook("/Script/BlamEngine.BlamCampaignFlowGameSubsystem:SetAndBeginCampaign",
             function(_, _, scenario)
                 local code
                 pcall(function() code = string.upper(scenario:get():ToString()) end)
-                local level = multiplayerLevel(code)
                 -- A game type chosen in the multiplayer menu (MJOLNIRLobby)
                 -- arrives as pending_variant.txt; it is used once.
                 local pending = readFile(MOD_DIR .. "\\pending_variant.txt")
                 if pending then os.remove(MOD_DIR .. "\\pending_variant.txt") end
                 pending = pending and pending:match("^%s*([%w_]+)%s*$")
-                -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
-                -- type<TAB>title", or no file while no multiplayer map runs.
-                os.remove(MOD_DIR .. "\\running.txt")
-                if level then
-                    on()
-                    Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine")
-                    local chosen = pending or level.variant
-                    RunningVariant = chosen
-                    local running = io.open(MOD_DIR .. "\\running.txt", "w")
-                    if running then
-                        running:write(tostring(code), "\t", tostring(chosen or ""), "\t",
-                            tostring(level.title or level.name or code), "\n")
-                        running:close()
-                    end
-                    if chosen and variant then
-                        local name = tostring(chosen)
-                        local bytes = readFile(MOD_DIR .. "\\variants\\" .. name .. ".mglo")
-                        local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
-                        if staged then
-                            staged:write(bytes)
-                            staged:close()
-                            variant()
-                            Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
-                        else
-                            Log("multiplayer switch: no variants\\" .. name .. ".mglo; the default variant runs")
-                        end
-                    end
-                else
-                    off()
-                end
+                switchFor(code, pending, "host")
             end)
+    end)
+    local clientHooked = pcall(function()
+        RegisterHook("/Script/Engine.PlayerController:ClientTravelInternal", function(_, url)
+            local okU, target = pcall(function() return url:get():ToString() end)
+            if not okU or type(target) ~= "string" then return end
+            local code = target:match("[?&]ScenarioName=([%w_]+)")
+            code = code and string.upper(code)
+            -- The host's own SetAndBeginCampaign has already switched for
+            -- this map; anything else (a client, or a travel back to the
+            -- frontend, which names no scenario) decides here.
+            if code and switched.code == code and os.clock() - switched.at < 60 then return end
+            switchFor(code, nil, "client travel")
+        end)
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"
         or "multiplayer switch: could not hook SetAndBeginCampaign")
+    if not clientHooked then Log("multiplayer switch: could not hook ClientTravelInternal (fireteam clients)") end
 end
 
 local function initialize()
