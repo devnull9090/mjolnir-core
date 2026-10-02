@@ -195,6 +195,13 @@ def main():
                 vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
             if blend == 7:
                 sc["Premultiply"] = 1.0
+            if not any(entry["textures"].get(f"Map{i}") for i in range(len(stages))):
+                # No bitmap on any stage (Danger Canyon's white_light: a null
+                # reference). CE draws nothing there; the master's default
+                # white map made it a solid white box. A zero tint adds
+                # nothing, and the additive master keeps it out of the alpha.
+                entry["parent"] = master("M_CE_TransparentAdd")
+                vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
         elif cls == "swat":
             # shader_transparent_water (M_CE_Water): the reflection cube seen
             # through rippling, view-tinted water. Its base map is a mask,

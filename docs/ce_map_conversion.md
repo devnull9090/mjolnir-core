@@ -138,8 +138,18 @@ material even though the surfaces carry theirs. Untested.
 `tools/level/merge_ce_scene.py` puts everything static into the BSP's glTF.
 
 - **Scenery:** every scenery placement's model goes in at its CE position and
-  rotation. CE lights an object from the lightmap under it, so each
-  placement's vertices take the lightmap UV of the BSP point below its origin.
+  rotation, lit as CE lights objects. An object has no lightmap of its own:
+  CE samples the ground under its bounding sphere's centre and four points
+  0.7071 of its radius out, averages the lightmap colour L, the incident
+  direction and the floor's base colour, and lights the object with an
+  ambient of 0.4 L + 0.03, a light of colour L from the incident direction,
+  and a bounce of the floor colour (times L's brightness) off the ground,
+  which lights the faces that look down. The merge writes each placement's
+  brightest lighting as one texel of `object_lighting.png` (materials
+  `<shader>__lmobj`) and gives each vertex an incident direction whose dot
+  with its normal is that vertex's share, so the environment master's
+  bumped-lightmap term (full weight) shades it. Without it, Longest's dark
+  steel barricades drew as flat black shapes.
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -222,7 +232,11 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
   blend by alpha);
 - the result is drawn with the shader's framebuffer blend: alpha blend, add,
   or multiply. Subtract, min and max have no Unreal blend mode and fall back
-  to alpha blending.
+  to alpha blending;
+- a shader with no bitmap on any stage (Danger Canyon's and Ice Fields'
+  light shaders reference none) draws nothing, as in CE: it is added at a
+  zero tint. Drawn with the master's default white map, it was a solid
+  white box.
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
@@ -479,8 +493,9 @@ seconds after the loading screen are dark.
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
   every 40 ms). Dynamic lights
   (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
-  lit by its lightmaps as in CE. Scenery takes the lightmap colour under its
-  origin; CE's per-object directional terms are not reproduced. One converted
+  lit by its lightmaps as in CE. Scenery has CE's object lighting (ambient,
+  dominant light and floor bounce) but not its tint on object reflections,
+  its shadow colour, or point lights. One converted
   map installed at a time: its meshes override the two donor shapes.
 - **Scenery collision** stops players and vehicles, not projectiles.
 - **Approximations in the materials.** CE's noise, jitter and wander
