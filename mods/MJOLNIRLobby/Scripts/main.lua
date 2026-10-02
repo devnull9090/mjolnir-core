@@ -877,21 +877,21 @@ local function drawResults()
         for _, p in ipairs(r.players) do rows[#rows + 1] = { player = p } end
     end
     for i = 0, RESULT_ROWS - 1 do
-        local entry, row = rows[i + 1], s["Row" .. i]
-        setShown(row, entry ~= nil)
-        if entry then
-            local p = entry.player
-            local tint = entry.team and entry.team ~= "Unassigned" and TEAM_TINT[entry.team] or nil
-            local heading = (entry.team == "Unassigned" and "AWAITING ASSIGNMENT" or
-                string.upper(entry.team or "") .. " TEAM") .. "  /  " .. tostring(entry.count)
+        local item, row = rows[i + 1], s["Row" .. i]
+        setShown(row, item ~= nil)
+        if item then
+            local p = item.player
+            local tint = item.team and item.team ~= "Unassigned" and TEAM_TINT[item.team] or nil
+            local heading = (item.team == "Unassigned" and "AWAITING ASSIGNMENT" or
+                string.upper(item.team or "") .. " TEAM") .. "  /  " .. tostring(item.count)
             setText(s["Name" .. i], p and p.name or heading)
             setText(s["Marker" .. i], p and p.you and "YOU" or "")
-            setText(s["Score" .. i], p and p.score or (entry.total and tostring(entry.total) or ""))
+            setText(s["Score" .. i], p and p.score or (item.total and tostring(item.total) or ""))
             setText(s["Kills" .. i], p and p.kills or "")
             setText(s["Deaths" .. i], p and p.deaths or "")
             local color
             if not p then
-                local t = TEAM_TINT[entry.team] or TEAM_TINT.Unassigned
+                local t = TEAM_TINT[item.team] or TEAM_TINT.Unassigned
                 color = { R = t.R, G = t.G, B = t.B, A = 0.24 }
             elseif tint then
                 color = { R = tint.R, G = tint.G, B = tint.B, A = p.you and 0.20 or 0.06 }
@@ -903,9 +903,9 @@ local function drawResults()
             pcall(function()
                 row:SetBrushColor(color)
                 row.Slot:SetPadding({ Left = 0, Top = p and 2 or 12, Right = 0, Bottom = 0 })
-                s["Stripe" .. i]:SetBrushColor(tint or (not p and TEAM_TINT[entry.team]) or
+                s["Stripe" .. i]:SetBrushColor(tint or (not p and TEAM_TINT[item.team]) or
                     (p and p.you and GOLD) or { R = 1, G = 1, B = 1, A = 0.06 })
-                s["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = (not p and (TEAM_TINT[entry.team] or WHITE)) or WHITE,
+                s["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = (not p and (TEAM_TINT[item.team] or WHITE)) or WHITE,
                     ColorUseRule = 0 })
             end)
         end
