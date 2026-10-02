@@ -617,6 +617,15 @@ fn write_content_header(w: &mut BitWriter, title: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// The base variant's map options (`o+0x2fc`), Reach's order: grenades on
+/// map (bit 0), shortcuts (1), armor abilities (2), powerups (3), turrets
+/// (4), indestructible vehicles (5). The map variant's object creation
+/// (`0x5ee0d0`) refuses a multiplayer object of type grenade, equipment,
+/// powerup or turret whose bit is clear, so at 0 no placed grenade,
+/// overshield or camouflage appeared. With these bits Danger Canyon had all
+/// 23 of its placed grenades, overshield and camouflage in play (2026-10-01).
+const MAP_FLAGS: u8 = 0b01_1111;
+
 fn write_base(w: &mut BitWriter, teams: bool, initial_spawn_delay: u8) -> Result<(), Error> {
     write_content_header(w, "MJOLNIR")?;
     w.bool(false);
@@ -644,8 +653,9 @@ fn write_base(w: &mut BitWriter, teams: bool, initial_spawn_delay: u8) -> Result
     // social
     put(w, 0, 2)?;
     zeros(w, &[1, 1, 1, 1, 1])?;
-    // map: base traits, weapon and vehicle sets -2 ("as placed"), powerups
-    put(w, 0, 6)?;
+    // map: what the map variant may place, base traits, weapon and vehicle
+    // sets -2 ("as placed"), powerups
+    put(w, MAP_FLAGS as u64, 6)?;
     write_traits(w)?;
     put(w, 0xfe, 8)?;
     put(w, 0xfe, 8)?;
@@ -1772,8 +1782,9 @@ pub(crate) mod tests {
 
     /// Length and a rolling hash of the installed `slayer.mglo`
     /// (`megalo write --mode slayer --score 25`) from before the operand
-    /// support grew.
-    const SLAYER_FINGERPRINT: (usize, u32) = (1131, 0xa685_d97e);
+    /// support grew, with the map options' item flags set ([`MAP_FLAGS`];
+    /// 0xa685_d97e before).
+    const SLAYER_FINGERPRINT: (usize, u32) = (1131, 0xa122_35a1);
 
     #[test]
     fn the_stream_starts_with_the_version_word() {

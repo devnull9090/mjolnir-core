@@ -173,6 +173,14 @@ it took, beyond the four launch patches above:
    variant, which new-map builds from the scenario's placements (`0x32cc00`
    → `0x32e0c0`) keeping only tags listed in `map variant palettes`
    (`0x32cd50`). `level bake` writes one when `blam.map_variant` is true.
+   Creation (`0x32f450` → `0x5ee0d0`) also checks the game options' map
+   options byte (`[TLS+0x60]+0x18f0`, the base variant's `u6` at `o+0x2fc`):
+   a multiplayer object of type grenade (2) needs bit 0, equipment (5) bit 2,
+   powerup (4) bit 3, turret (10) bit 4, and a shortcut placement bit 1. Bit 5
+   makes vehicles indestructible (`0x66ee40`). Our variants set `0x1f`
+   (`MAP_FLAGS`); at 0, no placed grenade, overshield or camouflage appeared.
+   `cargo run -p blam-live --example mapvar_probe` reads the byte and the
+   variant's entries by type.
 3. **Keep the variant.** The game engine's zone-set handler (`0x2ad2d0`)
    deletes the variant's objects and resets it after load:
    `--map-variant-reset skip` (`0x2ad2e2` `74 36` → `EB 36`).

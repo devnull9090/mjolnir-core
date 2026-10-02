@@ -106,7 +106,11 @@ collision="$out/collision_scene.json"
 # coordinates fall outside the canvas's space.
 delta_args=()
 [ -n "${DELTA:-}" ] && delta_args=(--delta $DELTA)
-"$mjolnir" level collision "$collision" --out "$out/$name.sbsp" --own-bsp "${delta_args[@]}"
+# The map's BSP is its scenario's only one (BSP 0); the bake trims the
+# canvas's others away (blam.single_bsp). CANVAS_BSPS=1 keeps them all.
+bsp_args=(--bsp-index 0)
+[ "${CANVAS_BSPS:-0}" = "1" ] && bsp_args=()
+"$mjolnir" level collision "$collision" --out "$out/$name.sbsp" --own-bsp "${bsp_args[@]}" "${delta_args[@]}"
 
 echo "== 3/6 terrain mesh and materials"
 delta="$(python -c "import json,sys; d=json.load(open(sys.argv[1]))['delta']; print(f'{d[0]*304.8},{-d[1]*304.8},{d[2]*304.8}')" "$out/$name.sbsp.transform.json")"

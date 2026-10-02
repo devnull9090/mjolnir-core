@@ -361,6 +361,40 @@ pub fn element_with_wrapper(
     Ok((element.to_vec(), crate::write::element_wrapper(children)))
 }
 
+/// Keep only the listed elements of each block, in the order listed (an
+/// index may repeat), wherever the blocks sit in the tree. The elements keep
+/// their bytes and their variable-length children; one parse serves every
+/// block. The paths must not nest inside one another.
+pub fn select(file: &[u8], keep: &[(String, Vec<usize>)]) -> Result<Vec<u8>, Error> {
+    let tag = crate::TagFile::parse(file, None).map_err(|_| Error::NoData)?;
+    let layout = tag.layout().map_err(|_| Error::NoData)?;
+    let root = tag.read_data(&layout).map_err(|_| Error::NoData)?;
+    let mut replacements = Vec::with_capacity(keep.len());
+    for (path, indices) in keep {
+        let found = find_block(&layout, file, &root, path)?;
+        let block = found.block;
+        let mut elements = Vec::new();
+        let mut wrappers = Vec::new();
+        for &i in indices {
+            let element = block.element(i).ok_or(Error::IndexOutOfRange {
+                at: path.clone(),
+                index: i,
+                count: block.count,
+            })?;
+            elements.extend_from_slice(element);
+            let children = block.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+            wrappers.push(crate::write::element_wrapper(children));
+        }
+        replacements.push(NestedReplace {
+            path: path.clone(),
+            count: indices.len() as u32,
+            elements,
+            wrappers: Some(wrappers),
+        });
+    }
+    replace_nested(file, &replacements)
+}
+
 /// Replace whole blocks anywhere in the tree, returning the new tag file.
 ///
 /// Each block's `tgbl` content is rebuilt from the given elements, its header

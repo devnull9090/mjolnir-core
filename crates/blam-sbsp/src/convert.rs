@@ -1011,6 +1011,71 @@ pub fn add_to_kd_roots(
     Ok((out, roots))
 }
 
+/// Give the BSP a new index in its scenario: every kd hierarchy header (its
+/// `bsp index` and `bsp mask`) and every instance's collision shape
+/// (`structure_bsp_index`) names `bsp_index`. A BSP built from a donor
+/// carries the donor's index in its own headers. Returns how many headers
+/// and shapes changed.
+pub fn retarget_bsp(file: &[u8], bsp_index: u8) -> Result<(Vec<u8>, usize), Error> {
+    const NODES: &str = "instance kd hierarchy.nodes";
+    let mut changed = 0;
+    let mut edits = Vec::new();
+    with_tag(file, |layout, root| {
+        let nodes = find_block(layout, file, root, NODES)?.block.count as usize;
+        for n in 0..nodes {
+            for list in ["collidable headers", "render only headers"] {
+                let path = format!("{NODES}[{n}].{list}");
+                let found = find_block(layout, file, root, &path)?;
+                let size = found.block.element_size as usize;
+                let mut elements = found.block.elements.to_vec();
+                let mut dirty = false;
+                // [cull flags, bsp index, instance (u16), instance mask (u32), bsp mask (u32)]
+                for h in elements.chunks_mut(size) {
+                    let mask = (1u32 << bsp_index).to_le_bytes();
+                    if h[1] != bsp_index || h[8..12] != mask {
+                        h[1] = bsp_index;
+                        h[8..12].copy_from_slice(&mask);
+                        changed += 1;
+                        dirty = true;
+                    }
+                }
+                if dirty {
+                    edits.push(NestedReplace {
+                        path,
+                        count: found.block.count,
+                        elements,
+                        wrappers: None,
+                    });
+                }
+            }
+        }
+        Ok(())
+    })?;
+    let mut out = replace_nested(file, &edits)?;
+    // Every instance's physics and its shapes (an instance with no physics
+    // has none).
+    let shapes: Vec<String> = with_tag(&out, |layout, root| {
+        let mut shapes = Vec::new();
+        let instances = find_block(layout, &out, root, INSTANCES)?.block.count as usize;
+        for i in 0..instances {
+            let physics = format!("{INSTANCES}[{i}].physics");
+            for p in 0..find_block(layout, &out, root, &physics)?.block.count as usize {
+                let shape = format!("{physics}[{p}].collision geometry shape");
+                for s in 0..find_block(layout, &out, root, &shape)?.block.count as usize {
+                    shapes.push(format!("{shape}[{s}].structure_bsp_index"));
+                }
+            }
+        }
+        Ok(shapes)
+    })?;
+    for path in shapes {
+        out = set_scalar(&out, &path, &bsp_index.to_string())?;
+        changed += 1;
+    }
+    check_walks(&out)?;
+    Ok((out, changed))
+}
+
 /// What [`rebuild_structure_mopp`] kept, dropped and added.
 #[derive(Debug, Clone, Default)]
 pub struct StructureMopp {

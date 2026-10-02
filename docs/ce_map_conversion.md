@@ -65,8 +65,31 @@ cluster and one instance, of which only the file format is kept
   key per CE surface. This is what players, vehicles and items stand on;
   nothing rebuilds it at load.
 
-The map keeps its CE coordinates. The generated level loads only this BSP in
-its starting zone set, so none of the canvas mission's BSPs claims its space.
+The map keeps its CE coordinates. It is built for **index 0**
+(`level collision --bsp-index 0`): every kd hierarchy header and instance
+shape names the BSP's index, and the donor's own say 7.
+
+**A scenario of its own.** The scenario is still cloned from B40's, but the
+bake leaves none of B40 in it (`blam.single_bsp`, applied after `--bsp 8=`
+has pointed slot 8 at the map's BSP):
+
+- `structure bsps`, `ai pathfinding data`, `scenario cluster data` and each
+  PVS's and audibility's per-BSP mappings keep slot 8's element, now index 0.
+  The cluster data's BSP reference names the map's own BSP.
+- Only zone set 0 stays, with its PVS and audibility entries. Its masks,
+  each PVS cluster's bit vectors and its seam cluster references name BSP 0
+  alone.
+- The designs (B40's soft ceilings), the soft ceilings and both seams
+  references are cleared, as are B40's other insertion points and their 36
+  player starts.
+- Every placement's origin BSP is 0 and it may attach to BSP 0.
+- B40's mission content goes with the rest of the clears: crates (on BSP 0
+  they would spawn in the map), device groups, object names, cutscene flags,
+  cinematics, AI objectives, reference frames, UI objectives, AI hints and the
+  script point sets (the last two name B40's BSPs by index).
+
+The baked scenario shrinks from 7.1 MB to about 0.27 MB. `CANVAS_BSPS=1
+convert_ce_map.sh` keeps the canvas's BSPs (index 8, `blam.active_bsps` only).
 
 **Scenery collision.** The game ships no Blam rocks or trees whose collision a
 placement could borrow, so `tools/level/merge_ce_collision.py` adds the
@@ -300,7 +323,9 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   (none ships).
 - **Map variant palette** (`blam.map_variant`). Objects with multiplayer data
   exist only through the map variant, which is built from the placements whose
-  tags a palette lists. A model variant gets an entry of its own.
+  tags a palette lists. A model variant gets an entry of its own. Grenades,
+  the overshield and camouflage also need the game variant's map options
+  (grenades, equipment and powerups on map), which `megalo write` sets.
 - **Vehicles:** every vehicle the CE scenario places (`--game-type all`), as
   CE's "all vehicles" sets did. Most Ghosts, Banshees, Scorpions and rocket
   Warthogs are in no game type's default set (spawn flags `0xf00`), so a
@@ -335,8 +360,8 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
 - **The post-process volume** (`environment.post`): fixed exposure, no local
   exposure, no filmic curve. The CE materials then show CE's colours
   ([re/fork_renderer.md](re/fork_renderer.md)).
-- `"multiplayer": true`, `blam.active_bsps`, the scenario `type` set to
-  multiplayer.
+- `"multiplayer": true`, `blam.active_bsps`, `blam.single_bsp`, the scenario
+  `type` set to multiplayer.
 
 ### Capture the Flag
 

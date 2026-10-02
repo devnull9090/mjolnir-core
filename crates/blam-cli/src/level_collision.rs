@@ -98,6 +98,11 @@ pub struct CollisionArgs {
     /// flung vehicles hundreds of wu and nothing held.
     #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
     pub lift: f32,
+    /// With `--own-bsp`: build the BSP for this index in the baked scenario
+    /// instead of the canvas slot it is cloned into. `0` goes with the bake's
+    /// `blam.single_bsp`, which leaves the map's BSP the scenario's only one.
+    #[arg(long, requires = "own_bsp")]
+    pub bsp_index: Option<u8>,
 }
 
 /// What `level collision` wrote, for the steps that place things on top.
@@ -109,6 +114,9 @@ struct Transform {
     bsp_tag: String,
     /// The canvas scenario's index for this BSP: `level bake --bsp INDEX=`.
     bsp_index: usize,
+    /// The index the BSP is built for in the baked scenario: `bsp_index`,
+    /// or 0 for a scenario trimmed to this BSP alone (`blam.single_bsp`).
+    scenario_bsp_index: usize,
     /// The terrain's box in canvas world space: `blam.world_bounds`.
     world_bounds: Bounds,
     host: HostOut,
@@ -204,15 +212,23 @@ pub fn run(a: CollisionArgs) -> Result<()> {
                 scenery.len()
             );
         }
+        let scenario_bsp = a.bsp_index.unwrap_or(canvas.bsp_index as u8);
         let (mut out, r) = convert::convert_own(
             &donor,
             collision,
             scenery,
             delta,
-            canvas.bsp_index as u8,
+            scenario_bsp,
             !materials.is_empty(),
         )
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if a.bsp_index.is_some() {
+            // The donor's own headers and shapes still name its index.
+            let (o, n) =
+                convert::retarget_bsp(&out, scenario_bsp).map_err(|e| anyhow::anyhow!("{e}"))?;
+            out = o;
+            println!("  bsp      built for scenario index {scenario_bsp} ({n} kd header(s) and shape(s) set)");
+        }
         if !r.scenery.instances.is_empty() {
             println!(
                 "  scenery  {} surface(s) behind instance(s) {:?}",
@@ -253,6 +269,7 @@ pub fn run(a: CollisionArgs) -> Result<()> {
             canvas: canvas.scenario.to_string(),
             bsp_tag: canvas.bsp_tag.to_string(),
             bsp_index: canvas.bsp_index,
+            scenario_bsp_index: scenario_bsp as usize,
             world_bounds: Bounds {
                 min: b.min,
                 max: b.max,
@@ -394,6 +411,7 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         canvas: canvas.scenario.to_string(),
         bsp_tag: canvas.bsp_tag.to_string(),
         bsp_index: canvas.bsp_index,
+        scenario_bsp_index: canvas.bsp_index,
         world_bounds: Bounds {
             min: b.min,
             max: b.max,

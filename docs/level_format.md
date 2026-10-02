@@ -165,7 +165,7 @@ and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and c
 `player_enable_input` leaves the player able to look around but not move, shoot or switch
 weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
-### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.map_variant`
+### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`
 
 - `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo
   wu. Sets a structure BSP's box in the scenario; the boxes decide which BSP a
@@ -174,7 +174,15 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
   the inspector prints (`"type": "multiplayer"`). Applied last.
 - `active_bsps`: `[8]` makes the starting zone set (zone set 0) load only these
   BSPs, and trims its PVS to match. A map on its own BSP needs this: every other
-  canvas BSP left active claims its own space.
+  canvas BSP left active claims its own space. Each kept BSP's PVS clusters
+  keep their bit vectors and seam cluster references for the kept BSPs only.
+- `single_bsp`: `8` (the BSP `active_bsps` lists) makes that BSP the
+  scenario's only one, at index 0. The bake applies it after `--bsp`, so
+  `--bsp` and `world_bounds` still name the canvas index. The per-BSP tables
+  keep its element; only zone set 0 and its PVS and audibility entries stay;
+  the designs, soft ceilings, seams, other insertion points and their player
+  starts go; and every placement's origin BSP becomes 0. The BSP tag must be
+  built for index 0 (`level collision --own-bsp --bsp-index 0`).
 - `map_variant`: `true` adds a `map variant palettes` entry for every weapon,
   vehicle and scenery tag the level places. Under a multiplayer (Megalo)
   engine, objects whose tags carry multiplayer data exist only through the map

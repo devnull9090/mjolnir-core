@@ -154,6 +154,10 @@ pub struct BakeArgs {
     /// keeps the canvas mission's world out of the map.
     #[arg(long, value_name = "OBJECT")]
     pub world_object: Option<String>,
+    /// Also write the baked scenario tag payload here, for `mjolnir
+    /// tag-file` to read.
+    #[arg(long, value_name = "FILE")]
+    pub write_tag: Option<PathBuf>,
 }
 
 pub fn run(a: LevelArgs) -> Result<()> {
@@ -266,6 +270,14 @@ pub struct BlamSection {
     /// (they are stored one per BSP of the set, in index order).
     #[serde(default)]
     pub active_bsps: Vec<usize>,
+    /// Make this structure BSP (a scenario index, the one `active_bsps`
+    /// lists) the scenario's only one, at index 0, and drop the canvas
+    /// mission's zone sets, designs, seams and other insertion points with
+    /// the rest of its BSPs. Applied after `--bsp`, so `--bsp` and
+    /// `world_bounds` still name the canvas index. The BSP's own tag must be
+    /// built for index 0 (`level collision --bsp-index 0`).
+    #[serde(default)]
+    pub single_bsp: Option<usize>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -607,6 +619,22 @@ fn block_count_at(file: &[u8], path: &str) -> Result<usize> {
 // Selftest: no-op resizes must be byte-exact on every shipped scenario
 // -----------------------------------------------------------------------------
 
+/// Root blocks of placed objects, each element with an `object data`.
+const OBJECT_BLOCKS: [&str; 12] = [
+    "scenery",
+    "bipeds",
+    "vehicles",
+    "equipment",
+    "weapons",
+    "machines",
+    "terminals",
+    "controls",
+    "sound scenery",
+    "giants",
+    "effect scenery",
+    "crates",
+];
+
 const PLACEMENT_BLOCKS: [&str; 8] = [
     "player starting locations",
     "vehicles",
@@ -768,8 +796,279 @@ impl Baker {
             });
         }
         self.file = blockedit::replace_nested(&self.file, &edits)?;
+
+        // Inside each kept BSP's PVS, every cluster holds one bit vector per
+        // BSP of the set, and its seam cluster mappings name clusters of any
+        // BSP of the set: keep the kept BSPs' only.
+        let mut refs = Vec::new();
+        let mut bits = Vec::new();
+        {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let root = tag.read_data(&l)?;
+            let count = |path: &str| -> Result<usize> {
+                Ok(blockedit::find_block(&l, &self.file, &root, path)?
+                    .block
+                    .count as usize)
+            };
+            for j in 0..slots.len() {
+                let base = format!("zone set pvs[{pvs}].structure bsp pvs[{j}]");
+                for which in ["cluster pvs", "cluster pvs doors closed"] {
+                    for c in 0..count(&format!("{base}.{which}"))? {
+                        let path = format!("{base}.{which}[{c}].cluster pvs bit vectors");
+                        if count(&path)? == members.len() {
+                            bits.push((path, slots.clone()));
+                        }
+                    }
+                }
+                let mappings = format!("{base}.bsp cluster mapings");
+                for c in 0..count(&mappings)? {
+                    for list in ["root clusters", "attached clusters", "connected clusters"] {
+                        let path = format!("{mappings}[{c}].{list}");
+                        let found = blockedit::find_block(&l, &self.file, &root, &path)?;
+                        let mut elements = Vec::new();
+                        let mut kept = 0u32;
+                        for i in 0..found.block.count as usize {
+                            let e = found.block.element(i).context("cluster reference")?;
+                            // [bsp index (char), cluster index (byte)]
+                            if keep.contains(&(e[0] as i8 as usize)) {
+                                elements.extend_from_slice(e);
+                                kept += 1;
+                            }
+                        }
+                        refs.push(blockedit::NestedReplace {
+                            path,
+                            count: kept,
+                            elements,
+                            wrappers: None,
+                        });
+                    }
+                }
+            }
+        }
+        self.file = blockedit::replace_nested(&self.file, &refs)?;
+        self.file = blockedit::select(&self.file, &bits)?;
         println!(
-            "  zones   zone set 0 loads BSP(s) {keep:?} only ({before:#x} -> {mask:#x}); pvs[{pvs}] keeps slot(s) {slots:?} of {members:?}"
+            "  zones   zone set 0 loads BSP(s) {keep:?} only ({before:#x} -> {mask:#x}); pvs[{pvs}] keeps slot(s) {slots:?} of {members:?} ({} cluster bit vector list(s), {} seam cluster list(s))",
+            bits.len(),
+            refs.len()
+        );
+        Ok(())
+    }
+
+    /// Make structure BSP `keep` the scenario's only one, at index 0: the
+    /// map is new, not the canvas mission with BSPs switched off. Runs after
+    /// [`Self::active_bsps`] has trimmed zone set 0 to `keep` and after the
+    /// `--bsp` clones are pointed at, so every earlier step uses the canvas
+    /// index.
+    ///
+    /// The per-BSP tables (`structure bsps`, `ai pathfinding data`,
+    /// `scenario cluster data`, and each PVS's and audibility's per-BSP
+    /// mappings) keep `keep`'s element; only zone set 0 and its PVS and
+    /// audibility entries stay; every reference to a BSP by index or mask
+    /// becomes 0; and the canvas's designs, soft ceilings, seams, other
+    /// insertion points and their player starts go. The structure BSP itself
+    /// must be built for index 0 (`level collision --bsp-index 0`).
+    fn single_bsp(&mut self, keep: usize) -> Result<()> {
+        let flags = |file: &[u8], path: &str| -> Result<u32> {
+            match read_value(file, path)? {
+                Scalar::Flags { raw, .. } => Ok(raw as u32),
+                Scalar::Int(v) => Ok(v as u32),
+                other => bail!("{path} reads as {}", other.display()),
+            }
+        };
+        let index = |file: &[u8], path: &str| -> Result<i64> {
+            match read_value(file, path)? {
+                Scalar::BlockIndex(i) => Ok(i),
+                other => bail!("{path} reads as {}", other.display()),
+            }
+        };
+        let zones = flags(&self.file, "zone sets[0].bsp zone flags")?;
+        if zones != 1 << keep {
+            bail!("single_bsp {keep}: zone set 0 loads {zones:#x}; list only BSP {keep} in active_bsps");
+        }
+        let pvs = index(&self.file, "zone sets[0].pvs index")?;
+        let audibility = index(&self.file, "zone sets[0].audibility index")?;
+        if pvs < 0 {
+            bail!("zone set 0 has no PVS");
+        }
+        let bsps = block_count(&self.file, "structure bsps")?;
+        if keep >= bsps {
+            bail!("single_bsp {keep}: the scenario has {bsps} structure BSP(s)");
+        }
+        let sbsp = {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let block = tag.read_data(&l)?;
+            reference_path(
+                &l,
+                &self.file,
+                &block,
+                &format!("structure bsps[{keep}].structure bsp"),
+            )?
+        };
+
+        // Per-BSP tables, where they hold one element per structure BSP.
+        let mut per_bsp: Vec<String> = vec![
+            "structure bsps".into(),
+            "ai pathfinding data".into(),
+            "scenario cluster data".into(),
+            format!("zone set pvs[{pvs}].portal=>device mapping"),
+        ];
+        if audibility >= 0 {
+            per_bsp.push(format!(
+                "zone set audibility[{audibility}].game portal to door occluder mapping"
+            ));
+            per_bsp.push(format!(
+                "zone set audibility[{audibility}].bsp cluster to room bounds"
+            ));
+        }
+        let mut select: Vec<(String, Vec<usize>)> = Vec::new();
+        for path in per_bsp {
+            match block_count_at(&self.file, &path)? {
+                n if n == bsps => select.push((path, vec![keep])),
+                0 => {}
+                n => println!("  single  {path}: {n} element(s) for {bsps} BSP(s), left alone"),
+            }
+        }
+        // The canvas mission's other insertion points, and the player starts
+        // that belong to them.
+        let starts = block_count(&self.file, "player starting locations")?;
+        let paths: Vec<String> = (0..starts)
+            .map(|i| format!("player starting locations[{i}].insertion point index"))
+            .collect();
+        let own: Vec<usize> = read_many(&self.file, &paths)?
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| matches!(v, Some(Scalar::BlockIndex(0))))
+            .map(|(i, _)| i)
+            .collect();
+        let dropped_starts = starts - own.len();
+        select.push(("player starting locations".into(), own));
+        if block_count(&self.file, "insertion points")? > 0 {
+            select.push(("insertion points".into(), vec![0]));
+        }
+        for path in ["structure designs", "soft ceilings"] {
+            select.push((path.into(), Vec::new()));
+        }
+        self.file = blockedit::select(&self.file, &select)?;
+        // The zone set tables hold the per-BSP mappings above, so they go second.
+        let mut zones = vec![
+            ("zone sets".to_string(), vec![0]),
+            ("zone set pvs".to_string(), vec![pvs as usize]),
+        ];
+        if audibility >= 0 {
+            zones.push(("zone set audibility".to_string(), vec![audibility as usize]));
+        }
+        self.file = blockedit::select(&self.file, &zones)?;
+        apply_set(&mut self.file, "zone sets[0].pvs index", "#0")?;
+        if audibility >= 0 {
+            apply_set(&mut self.file, "zone sets[0].audibility index", "#0")?;
+        }
+        for path in [
+            "zone sets[0].bsp zone flags",
+            "zone sets[0].runtime bsp zone flags",
+            "zone set pvs[0].structure bsp mask",
+        ] {
+            apply_set(&mut self.file, path, "0x1")?;
+        }
+        for path in [
+            "zone sets[0].structure design zone flags",
+            "zone sets[0].sruntime tructure design zone flags",
+        ] {
+            apply_set(&mut self.file, path, "0x0")?;
+        }
+        apply_set(
+            &mut self.file,
+            "scenario cluster data[0].bsp",
+            &format!("sbsp:{sbsp}"),
+        )?;
+        for path in ["structure seams", "local structure seams"] {
+            apply_set(&mut self.file, path, "none")?;
+        }
+
+        // Seam cluster references in the kept PVS name the kept BSP only
+        // (active_bsps); renumber them.
+        let mut refs = Vec::new();
+        {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let root = tag.read_data(&l)?;
+            let pvs_bsps = "zone set pvs[0].structure bsp pvs";
+            let n = blockedit::find_block(&l, &self.file, &root, pvs_bsps)?
+                .block
+                .count;
+            for j in 0..n {
+                let mappings = format!("{pvs_bsps}[{j}].bsp cluster mapings");
+                let m = blockedit::find_block(&l, &self.file, &root, &mappings)?
+                    .block
+                    .count;
+                for c in 0..m {
+                    for list in ["root clusters", "attached clusters", "connected clusters"] {
+                        let path = format!("{mappings}[{c}].{list}");
+                        let found = blockedit::find_block(&l, &self.file, &root, &path)?;
+                        let mut elements = found.block.elements.to_vec();
+                        for e in elements.chunks_mut(found.block.element_size as usize) {
+                            if e[0] as usize == keep {
+                                e[0] = 0;
+                            }
+                        }
+                        refs.push(blockedit::NestedReplace {
+                            path,
+                            count: found.block.count,
+                            elements,
+                            wrappers: None,
+                        });
+                    }
+                }
+            }
+        }
+        self.file = blockedit::replace_nested(&self.file, &refs)?;
+
+        // Every placement: its origin BSP is 0 and it may attach to BSP 0.
+        let mut placed = 0;
+        let mut writes: Vec<(usize, Vec<u8>)> = Vec::new();
+        {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let root = tag.read_data(&l)?;
+            for block in OBJECT_BLOCKS {
+                let Ok(found) = blockedit::find_block(&l, &self.file, &root, block) else {
+                    continue;
+                };
+                for i in 0..found.block.count as usize {
+                    let at = |f: &str| {
+                        blam_tag::patch::resolve(
+                            &l,
+                            &self.file,
+                            &root,
+                            &format!("{block}[{i}].object data.{f}"),
+                        )
+                        .with_context(|| format!("{block}[{i}]"))
+                    };
+                    let origin = at("object id.origin bsp index")?;
+                    writes.push((origin.file_offset, 0u16.to_le_bytes().to_vec()));
+                    let attach = at("can attach to bsp flags")?;
+                    let old = match attach.current {
+                        Scalar::Flags { raw, .. } => raw as u32,
+                        _ => 0,
+                    };
+                    writes.push((
+                        attach.file_offset,
+                        (1u32 | old & 0x8000_0000).to_le_bytes().to_vec(),
+                    ));
+                    let manual = at("manual bsp flags")?;
+                    writes.push((manual.file_offset, 0u32.to_le_bytes().to_vec()));
+                    placed += 1;
+                }
+            }
+        }
+        for (offset, bytes) in writes {
+            self.file[offset..offset + bytes.len()].copy_from_slice(&bytes);
+        }
+        println!(
+            "  single  structure BSP {keep} is now the only one (of {bsps}), at index 0: zone set 0, pvs[{pvs}] and audibility[{audibility}] kept; designs, soft ceilings and seams cleared; {} other insertion point start(s) dropped; {placed} placement(s) on BSP 0",
+            dropped_starts
         );
         Ok(())
     }
@@ -1397,6 +1696,10 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
     }
 
+    if let Some(keep) = level.blam.single_bsp {
+        baker.single_bsp(keep)?;
+    }
+
     // The map's own Unreal world, when one is given: the bare level renamed
     // under the codename (a world with no cells refers to itself by nothing
     // but its name) and added beside the scenario. The registration row then
@@ -1485,6 +1788,10 @@ fn bake(a: BakeArgs) -> Result<()> {
         original.len(),
         file.len()
     );
+    if let Some(p) = &a.write_tag {
+        std::fs::write(p, &file).with_context(|| format!("writing {}", p.display()))?;
+        println!("  tag      wrote {}", p.display());
+    }
 
     let source = &idx.containers[entry.container];
     let (built, name) = if let Some(code) = &a.standalone {

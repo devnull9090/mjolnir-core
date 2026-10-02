@@ -72,6 +72,16 @@ VEHICLE_LIFT = {"banshee": 0.3, "scorpion": 0.3}
 NO_CANVAS_DESIGNS = {"zone sets[0].structure design zone flags": "0x0",
                      "zone sets[0].sruntime tructure design zone flags": "0x0"}
 
+# A scenario trimmed to the map's own BSP (blam.single_bsp) drops the rest of
+# the canvas mission too: placed beside BSP 0, its crates would spawn in the
+# map, and its AI, cinematics and objectives name squads, zones and objects
+# the bake has already cleared; its AI hints and script point sets name its
+# other BSPs by index.
+CANVAS_MISSION_BLOCKS = ["crates", "device groups", "object names", "cutscene flags",
+                         "cinematics", "ai objectives", "reference frames",
+                         "user interface objectives block", "ai user hint data",
+                         "scripting data"]
+
 # Respawn times, in seconds, of what CE left at its default (0 on the
 # placement and on its item collection), and of every vehicle. A map variant
 # object with spawn time 0 never came back: Blood Gulch's Banshees, once gone,
@@ -524,6 +534,7 @@ def main():
             item["set"] = {"multiplayer data.spawn time": str(spawn_seconds(e) or DEFAULT_RESPAWN)}
             (weapons if section == "weapons" else equipment).append(item)
 
+    single_bsp = bool(t.get("own_bsp")) and t.get("scenario_bsp_index") == 0
     wb = t["world_bounds"]
     lo_z, hi_z = CANVASES[canvas]["shipped_z"]
     if t.get("own_bsp"):
@@ -664,7 +675,9 @@ def main():
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {
-            "clear": blank["blam"]["clear"],
+            "clear": ({**blank["blam"]["clear"],
+                       "blocks": blank["blam"]["clear"].get("blocks", []) + CANVAS_MISSION_BLOCKS}
+                      if single_bsp else blank["blam"]["clear"]),
             "player_starts": starts,
             "vehicles": vehicles,
             "weapons": weapons,
@@ -683,6 +696,10 @@ def main():
             # A map on its own BSP loads that BSP alone: every other canvas
             # BSP the starting zone set keeps active claims its own space.
             "active_bsps": [t["bsp_index"]] if t.get("own_bsp") else [],
+            # A BSP built for index 0 (`level collision --bsp-index 0`) is
+            # the scenario's only one: the bake drops the canvas mission's
+            # other BSPs, zone sets, designs and seams.
+            **({"single_bsp": t["bsp_index"]} if single_bsp else {}),
         },
         "markers": markers,
         "decor": decor,
