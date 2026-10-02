@@ -37,6 +37,8 @@ local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
+local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
+local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
 
@@ -295,8 +297,9 @@ local function pushScreen(classPath)
     local cls = loadClass(classPath)
     if not (UI.valid(layout) and cls) then return nil end
     local ok, screen = pcall(function() return layout.ContentStack:BP_AddWidget(cls) end)
-    if ok and UI.valid(screen) then return screen end
-    return nil
+    if not (ok and UI.valid(screen)) then return nil end
+    setText(screen.Watermark, BuildLine.text(MODS_DIR))
+    return screen
 end
 
 local function alive(screen)
@@ -565,6 +568,7 @@ end
 local function adoptLobby(screen)
     if not UI.valid(screen) then return end
     Lobby = screen
+    setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
     local host = Net.isHost()
     if host then
         if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end

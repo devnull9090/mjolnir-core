@@ -31,6 +31,7 @@ end
 local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
+local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
@@ -690,7 +691,10 @@ local function ensureWidgets()
     if now() < nextWidgetTry then return end
     nextWidgetTry = now() + 1
     widgetTries = widgetTries + 1
-    if not (Feed and Feed:IsValid()) then Feed = createWidget(FEED_CLASS, 40) end
+    if not (Feed and Feed:IsValid()) then
+        Feed = createWidget(FEED_CLASS, 40)
+        if Feed then setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)) end
+    end
     if not (Board and Board:IsValid()) then
         Board = createWidget(BOARD_CLASS, 45)
         if Board then setVisible(Board, false) end

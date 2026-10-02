@@ -135,6 +135,18 @@ def shadowed(block):
     block.set_shadow_color_and_opacity(unreal.LinearColor(0.0, 0.0, 0.0, 0.85))
 
 
+def watermark(bp):
+    """`Watermark`, the build line at the bottom centre of every MJOLNIR
+    screen and of the HUD (mod versions and the game build, filled from
+    Lua), so a screenshot or a stream shows what was running."""
+    line = widget(bp, unreal.TextBlock, "Watermark", "Root")
+    place(line, (0.5, 1.0), (0.5, 1.0), (0.0, -10.0))
+    text_style(line, "MJOLNIR MULTIPLAYER", 14, (0.62, 0.74, 0.82, 0.55))
+    line.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(line)
+    line.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+
 def finish(bp, name):
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile")
@@ -164,10 +176,10 @@ def build_kill_feed():
     respawn.set_editor_property("justification", unreal.TextJustify.CENTER)
     shadowed(respawn)
 
-    # Persistent match score, in the safe space above the native shield bar.
-    # Lua uses Red / Blue for teams, YOU / LEADER for free-for-all.
-    strip = panel(bp, "MatchScore", "Root", alpha=0.80, padding=(16, 8, 16, 10))
-    place(strip, (0.5, 0.025), (0.5, 0.0))
+    # Persistent match score, pinned to the top edge above the native shield
+    # bar. Lua uses Red / Blue for teams, YOU / LEADER for free-for-all.
+    strip = panel(bp, "MatchScore", "Root", alpha=0.55, padding=(16, 8, 16, 10))
+    place(strip, (0.5, 0.0), (0.5, 0.0))
     widget(bp, unreal.HorizontalBox, "ScoreSides", "MatchScore")
     for side, label, color in (("Left", "RED", RED), ("Target", "TO WIN", GREY), ("Right", "BLUE", BLUE)):
         sized(bp, "Score" + side + "Size", "ScoreSides", width=80 if side == "Target" else 170)
@@ -187,6 +199,7 @@ def build_kill_feed():
                        "Score" + side + "Stack")
         text_style(value, "0", 18 if side == "Target" else 30, GREY if side == "Target" else WHITE)
         value.set_editor_property("justification", unreal.TextJustify.CENTER)
+    watermark(bp)
     finish(bp, name)
 
 
@@ -361,6 +374,7 @@ def screen_header(bp, title, subtitle):
 
 
 def footer(bp):
+    watermark(bp)
     foot = sized(bp, "FooterSize", "Root", width=2250)
     place(foot, (0.06, 0.88), (0, 0))
     widget(bp, unreal.VerticalBox, "Footer", "FooterSize")

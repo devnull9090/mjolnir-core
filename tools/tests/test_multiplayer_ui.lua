@@ -228,3 +228,11 @@ eq(seven.feed.ScoreTarget.text, "7")
 seven.hold(true)
 eq(seven.board.Subtitle.text, "DANGER CANYON   /   FIRST TO 7 KILLS")
 print("Multiplayer UI: the score to win comes from the variant")
+
+-- The build line names the game update and its changelist.
+local BuildLine = dofile("mods/MJOLNIRHud/Scripts/buildline.lua")
+eq(BuildLine.game("5.5.4-1121610+++Meteorite+Rel-i343-Meteorite-2607-CU4"), "CU4 1121610")
+eq(BuildLine.game("5.5.4-1112544+++Meteorite+Rel-i343-Meteorite-2607-CU3"), "CU3 1112544")
+eq(BuildLine.game("5.5.4-1200000+++Meteorite+Main"), "1200000")
+eq(BuildLine.game(nil), nil)
+print("Multiplayer UI: the build line")
