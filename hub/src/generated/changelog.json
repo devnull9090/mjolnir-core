@@ -76,6 +76,39 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.9.0",
+      "tag": "mods-v0.9.0",
+      "title": "Post-game and next-map voting",
+      "date": "2026-10-02",
+      "summary": "Matches end with final standings, then everyone returns to the lobby together and votes on the next game. Nobody is dropped from the fireteam anymore.",
+      "body": "### Added\n\n- **The end of a match.** When someone reaches the score to win, the\n  scoreboard shows the final standings on every screen, and a few seconds\n  later the host takes the whole fireteam back to the lobby. Before, the\n  game sent every guest to their own main menu and out of the fireteam.\n- **A post-game screen** with the final standings and a 20-second vote on\n  the next game: the same game again, or one of three other maps. Every\n  player votes. The host can start the leading game right away, or go to the\n  lobby to pick by hand. With no votes, the next map in the list plays.\n- **Players who join see the host's lobby**, with the host's map and game\n  type, instead of the game's CLIENT LOBBY screen.\n- **A build line** at the bottom of the HUD and the multiplayer screens\n  shows the mod versions and the game build, for screenshots and bug\n  reports.\n- **Slayer and Capture the Flag game types now ship with MJOLNIRLevelLoader.**\n  Earlier releases left them out.\n\n### Changed\n\n- **MJOLNIRHud 0.3.0:** TO WIN shows the game type's real score to win. The\n  match score sits at the top edge of the screen and is more transparent.\n  The respawn countdown no longer gets stuck on a guest's screen.\n- **MJOLNIRLobby 0.2.0:** the post-game screen, the vote and the guests'\n  lobby view.\n- **MJOLNIRLevelLoader 0.1.3:** the return to the menu no longer freezes\n  guests, and no longer loads the old map's scenery on the way.\n\nUpdate the CE runtime from the launcher's Multiplayer page (1.0.4) for the\npost-game screen, the build line and the new match score position. Without\nit, a match still ends together in the lobby, without the vote.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "The end of a match. When someone reaches the score to win, the scoreboard shows the final standings on every screen, and a few seconds later the host takes the whole fireteam back to the lobby. Before, the game sent every guest to their own main menu and out of the fireteam.",
+            "A post-game screen with the final standings and a 20-second vote on the next game: the same game again, or one of three other maps. Every player votes. The host can start the leading game right away, or go to the lobby to pick by hand. With no votes, the next map in the list plays.",
+            "Players who join see the host's lobby, with the host's map and game type, instead of the game's CLIENT LOBBY screen.",
+            "A build line at the bottom of the HUD and the multiplayer screens shows the mod versions and the game build, for screenshots and bug reports.",
+            "Slayer and Capture the Flag game types now ship with MJOLNIRLevelLoader. Earlier releases left them out."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRHud 0.3.0: TO WIN shows the game type's real score to win. The match score sits at the top edge of the screen and is more transparent. The respawn countdown no longer gets stuck on a guest's screen.",
+            "MJOLNIRLobby 0.2.0: the post-game screen, the vote and the guests' lobby view.",
+            "MJOLNIRLevelLoader 0.1.3: the return to the menu no longer freezes guests, and no longer loads the old map's scenery on the way."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.9.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.9.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.9.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.8.1",
       "tag": "mods-v0.8.1",
       "title": "MULTIPLAYER is part of the main menu",

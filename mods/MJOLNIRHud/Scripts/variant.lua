@@ -12,13 +12,14 @@ local Variant = {}
 local function reader(bytes)
     local r = { at = 0, bits = #bytes * 8 }
 
-    --- `n` bits as an unsigned number (n <= 32).
+    --- `n` bits as an unsigned number (n <= 32). Plain arithmetic, no
+    --- bitwise operators: the release lint reads mods as LuaJIT + 5.2.
     function r.read(n)
         if r.at + n > r.bits then error("truncated") end
         local v = 0
         for _ = 1, n do
-            local byte = bytes:byte(r.at // 8 + 1)
-            v = v * 2 + ((byte >> (7 - r.at % 8)) & 1)
+            local byte = bytes:byte(math.floor(r.at / 8) + 1)
+            v = v * 2 + math.floor(byte / 2 ^ (7 - r.at % 8)) % 2
             r.at = r.at + 1
         end
         return v
