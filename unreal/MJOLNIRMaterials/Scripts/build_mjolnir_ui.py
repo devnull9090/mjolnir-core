@@ -9,6 +9,9 @@ Writes, under /Game/MJOLNIR/UI:
                      MJ_Event("hello_clicked"), an empty function Lua hooks.
   WBP_MJOLNIRKillFeed    the multiplayer kill feed and respawn countdown
   WBP_MJOLNIRScoreboard  the multiplayer scoreboard
+  WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
+                         players, START GAME
+  WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
@@ -54,7 +57,7 @@ def build_hello():
     name = "WBP_MJOLNIRHello"
     if eal.does_asset_exist(f"{ROOT}/{name}"):
         eal.delete_asset(f"{ROOT}/{name}")
-    bp = ui.create_widget_blueprint(ROOT, name)
+    bp = ui.create_widget_blueprint(ROOT, name, None)
     if bp is None:
         fail(f"could not create {name}")
 
@@ -87,10 +90,10 @@ def build_hello():
     unreal.log(f"MJOLNIR UI: {ROOT}/{name} built")
 
 
-def fresh_widget(name):
+def fresh_widget(name, parent=None):
     if eal.does_asset_exist(f"{ROOT}/{name}"):
         eal.delete_asset(f"{ROOT}/{name}")
-    bp = ui.create_widget_blueprint(ROOT, name)
+    bp = ui.create_widget_blueprint(ROOT, name, parent)
     if bp is None:
         fail(f"could not create {name}")
     return bp
@@ -194,6 +197,209 @@ def build_scoreboard():
     finish(bp, name)
 
 
+# --- Menu screens ------------------------------------------------------------
+#
+# Screens are CommonActivatableWidgets, pushed by MJOLNIRLobby onto the game's
+# own menu stack (the UI layout's ContentStack): the stack hides the screen
+# beneath, and Back (Escape, the gamepad's B) pops ours, as on any shipped
+# screen. Every button's click calls MJ_Event(<event>), which Lua hooks;
+# map buttons also call MJ_Event("hover:<i>") when hovered.
+
+ACCENT = (0.55, 0.85, 1.0, 1.0)
+GREY = (0.72, 0.76, 0.8, 1.0)
+MAP_BUTTONS = 32
+MODE_BUTTONS = 5
+ROSTER_ROWS = 8
+
+
+def stretch(w):
+    slot = w.get_editor_property("slot")
+    slot.set_anchors(unreal.Anchors(minimum=unreal.Vector2D(0, 0), maximum=unreal.Vector2D(1, 1)))
+    slot.set_offsets(unreal.Margin(0, 0, 0, 0))
+
+
+def sized(bp, name, parent, width=None, height=None):
+    box = widget(bp, unreal.SizeBox, name, parent)
+    if width:
+        box.set_width_override(width)
+    if height:
+        box.set_height_override(height)
+    return box
+
+
+def panel(bp, name, parent, alpha=0.78, padding=(32, 28, 32, 28)):
+    border = widget(bp, unreal.Border, name, parent)
+    border.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.02, 0.05, alpha))
+    border.set_editor_property("padding", unreal.Margin(*padding))
+    return border
+
+
+def wrapped(block):
+    block.set_editor_property("auto_wrap_text", True)
+
+
+def gap(w, top=0, bottom=0):
+    w.get_editor_property("slot").set_padding(unreal.Margin(0, top, 0, bottom))
+
+
+def button_style(button):
+    style = button.get_editor_property("widget_style")
+    for state, rgba in (("normal", (0.06, 0.14, 0.2, 0.85)), ("hovered", (0.16, 0.42, 0.56, 0.95)),
+                        ("pressed", (0.32, 0.68, 0.86, 1.0)), ("disabled", (0.05, 0.06, 0.07, 0.6))):
+        brush = style.get_editor_property(state)
+        brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
+        style.set_editor_property(state, brush)
+    style.set_editor_property("normal_padding", unreal.Margin(24, 12, 24, 12))
+    style.set_editor_property("pressed_padding", unreal.Margin(24, 13, 24, 11))
+    button.set_editor_property("widget_style", style)
+
+
+def menu_button(bp, name, label, parent, size=30):
+    """A button with a text label (`<name>Label`), returned with its events
+    still to bind (bind_events, after the tree is compiled)."""
+    button = widget(bp, unreal.Button, name, parent)
+    button_style(button)
+    text_style(widget(bp, unreal.TextBlock, f"{name}Label", name), label, size)
+    return button
+
+
+def bind_events(bp, events):
+    """events: (widget name, delegate, MJ_Event argument)."""
+    for name, delegate, argument in events:
+        if not ui.bind_event_to_function(bp, name, delegate, "MJ_Event", argument):
+            fail(f"{name}.{delegate}")
+
+
+def screen_header(bp, title, subtitle):
+    shade = widget(bp, unreal.Border, "Shade", "Root")
+    shade.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.01, 0.03, 0.55))
+    stretch(shade)
+    head = widget(bp, unreal.VerticalBox, "Header", "Root")
+    place(head, (0.06, 0.07), (0.0, 0.0))
+    text_style(widget(bp, unreal.TextBlock, "Title", "Header"), title, 64, ACCENT)
+    text_style(widget(bp, unreal.TextBlock, "Subtitle", "Header"), subtitle, 28, GREY)
+
+
+def finish_screen(bp, name):
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile")
+    # Back pops the screen off the stack (CommonActivatableWidget's default
+    # back action deactivates it).
+    cdo = unreal.get_default_object(bp.generated_class())
+    cdo.set_editor_property("is_back_handler", True)
+    eal.save_loaded_asset(bp)
+    unreal.log(f"MJOLNIR UI: {ROOT}/{name} built")
+
+
+def build_lobby():
+    """The host's lobby: the map and game type, the players, and START."""
+    name = "WBP_MJOLNIRLobby"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    widget(bp, unreal.CanvasPanel, "Root")
+    screen_header(bp, "MULTIPLAYER", "CUSTOM GAME")
+
+    menu = sized(bp, "MenuSize", "Root", width=560)
+    place(menu, (0.06, 0.30), (0.0, 0.0))
+    widget(bp, unreal.VerticalBox, "Menu", "MenuSize")
+    events = []
+    for key, label in (("Start", "START GAME"), ("ChangeMap", "CHANGE MAP"),
+                       ("GameType", "GAME TYPE"), ("Back", "BACK")):
+        gap(menu_button(bp, key, label, "Menu"), bottom=14)
+        events.append((key, "OnClicked", key.lower()))
+
+    card = panel(bp, "Card", "Root")
+    place(card, (0.30, 0.30), (0.0, 0.0))
+    sized(bp, "CardSize", "Card", width=1080)
+    widget(bp, unreal.VerticalBox, "CardStack", "CardSize")
+    text_style(widget(bp, unreal.TextBlock, "MapTitle", "CardStack"), "BLOOD GULCH", 56)
+    mode = widget(bp, unreal.TextBlock, "ModeTitle", "CardStack")
+    text_style(mode, "SLAYER", 34, ACCENT)
+    gap(mode, bottom=18)
+    description = widget(bp, unreal.TextBlock, "MapDescription", "CardStack")
+    text_style(description, "", 26)
+    wrapped(description)
+    gap(description, bottom=18)
+    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", "CardStack")
+    text_style(mode_description, "", 24, GREY)
+    wrapped(mode_description)
+
+    roster = panel(bp, "Roster", "Root")
+    place(roster, (0.94, 0.30), (1.0, 0.0))
+    sized(bp, "RosterSize", "Roster", width=520)
+    widget(bp, unreal.VerticalBox, "RosterStack", "RosterSize")
+    heading = widget(bp, unreal.TextBlock, "PlayersHeading", "RosterStack")
+    text_style(heading, "PLAYERS", 28, ACCENT)
+    gap(heading, bottom=12)
+    for i in range(ROSTER_ROWS):
+        row = widget(bp, unreal.TextBlock, f"Player{i}", "RosterStack")
+        text_style(row, "", 28)
+        gap(row, bottom=6)
+
+    status = widget(bp, unreal.TextBlock, "Status", "Root")
+    place(status, (0.06, 0.88), (0.0, 0.0))
+    text_style(status, "", 26, GREY)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
+def build_map_select():
+    """Every installed map, its details and game types, and SELECT."""
+    name = "WBP_MJOLNIRMapSelect"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    widget(bp, unreal.CanvasPanel, "Root")
+    screen_header(bp, "SELECT MAP", "CUSTOM GAME")
+
+    list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
+    place(list_panel, (0.06, 0.22), (0.0, 0.0))
+    sized(bp, "ListSize", "ListPanel", width=620, height=1340)
+    widget(bp, unreal.ScrollBox, "MapList", "ListSize")
+    events = []
+    for i in range(MAP_BUTTONS):
+        gap(menu_button(bp, f"Map{i}", "", "MapList", size=28), bottom=8)
+        events += [(f"Map{i}", "OnClicked", f"map:{i}"), (f"Map{i}", "OnHovered", f"hover:{i}")]
+
+    details = panel(bp, "Details", "Root")
+    place(details, (0.30, 0.22), (0.0, 0.0))
+    sized(bp, "DetailsSize", "Details", width=1500)
+    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
+    text_style(widget(bp, unreal.TextBlock, "MapTitle", "DetailsStack"), "", 60)
+    description = widget(bp, unreal.TextBlock, "MapDescription", "DetailsStack")
+    text_style(description, "", 28)
+    wrapped(description)
+    gap(description, top=8, bottom=30)
+    heading = widget(bp, unreal.TextBlock, "ModesHeading", "DetailsStack")
+    text_style(heading, "GAME TYPE", 28, ACCENT)
+    gap(heading, bottom=12)
+    widget(bp, unreal.HorizontalBox, "Modes", "DetailsStack")
+    for i in range(MODE_BUTTONS):
+        button = menu_button(bp, f"Mode{i}", "", "Modes", size=26)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+        events.append((f"Mode{i}", "OnClicked", f"mode:{i}"))
+    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", "DetailsStack")
+    text_style(mode_description, "", 26, GREY)
+    wrapped(mode_description)
+    gap(mode_description, top=16)
+
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "Root")
+    place(actions, (0.30, 0.86), (0.0, 0.0))
+    for key, label in (("Select", "SELECT"), ("Back", "BACK")):
+        button = menu_button(bp, key, label, "Actions")
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
+        events.append((key, "OnClicked", key.lower()))
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
 def build_label():
     full = f"{ROOT}/PAL_MJOLNIR_UI"
     if eal.does_asset_exist(full):
@@ -211,5 +417,7 @@ def build_label():
 build_hello()
 build_kill_feed()
 build_scoreboard()
+build_lobby()
+build_map_select()
 build_label()
 unreal.log("MJOLNIR UI built")

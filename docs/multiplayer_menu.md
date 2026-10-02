@@ -1,10 +1,15 @@
 # The multiplayer menu (MJOLNIRLobby)
 
-**Status:** 2026-10-01. MULTIPLAYER on the main menu, HOST GAME → map → game
-type → lobby → START GAME, verified in game on CU4: Gephyrophobia started
-under the Megalo engine with the Slayer variant, the player spawned, all 16
-teleporter pads were present, and the campaign save stayed byte for byte the
-same. FIND GAMES and JOIN PRIVATE (Steam lobbies) are not built yet.
+**Status:** 2026-10-01. MULTIPLAYER on the main menu opens MJOLNIR's own lobby
+and map select screens ("Our own screens" below). Verified in game on CU4:
+- CHANGE MAP, picking Danger Canyon and Capture the Flag, SELECT, GAME TYPE
+  and Back all worked.
+- START GAME started Danger Canyon under the Megalo engine, with the
+  multiplayer HUD up.
+
+Earlier, the campaign-menu screens (now the fallback) started Gephyrophobia
+the same way, and the campaign save stayed byte for byte the same. Finding
+and joining other players' games is not built yet.
 
 Code: `mods/MJOLNIRLobby` (Lua) and `native/lobby` (its native half,
 `mjolnir_lobby.dll`).
@@ -69,7 +74,34 @@ checkpoints. `CoreSave_0/1.sav` and `Progress.sav` were compared against a
 backup after a launch, after spawning and play, and after quitting: all
 three unchanged. The menu therefore skips that popup.
 
-## Screens from the game's widgets
+## Our own screens
+
+`WBP_MJOLNIRLobby` and `WBP_MJOLNIRMapSelect` are MJOLNIR's own Widget
+Blueprints, cooked into `pakchunk984-MJOLNIRUI`
+(`unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py`,
+[custom_ui.md](custom_ui.md)). They derive from `CommonActivatableWidget`, so
+`ContentStack:BP_AddWidget` pushes them like any shipped screen: the stack
+hides the main menu beneath, and Back (Escape, B) pops them
+(`bIsBackHandler`).
+
+- **The lobby:** the map and game type, a description of each, the players
+  (the frontend's player states), and START GAME, CHANGE MAP, GAME TYPE
+  (cycles the map's modes) and BACK. The last game hosted is remembered in
+  `MJOLNIRLobby\last_game.txt`.
+- **The map select:** every installed map in a scrolling list. Hovering a
+  map previews its details and game types; clicking picks it. A game type
+  button picks the mode, and SELECT returns to the lobby with both.
+
+Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
+`changemap`, `gametype`, `back`, `select`, `map:<i>`, `hover:<i>`,
+`mode:<i>`. Lua hooks it and handles the event off the click, in
+`ExecuteInGameThread`. No native delegate binding is involved; that is
+still needed only for the MULTIPLAYER button injected into the main menu.
+
+Without the UI container, MULTIPLAYER falls back to the campaign-menu
+screens described next.
+
+## Screens from the game's widgets (fallback)
 
 A screen is a `WBP_CampaignMenu_C` (header, sub-header, a
 `HaloUIButtonContainer`, a description and the fireteam panel) pushed with
@@ -140,8 +172,14 @@ parameters) crashed the game inside UE4SS's argument marshalling.
 
 ## Next
 
-- **Steam lobbies.** Steam is live in the process (`steam_api64` v1.57), and
-  its flat API can be called from the native half. Pieces:
+- **A lobby service of our own** (Cloudflare, beside the hub), since Game Pass
+  and Store players have no Steam. Planned shape: a game list, join codes, the
+  member list and chat, as a D1-backed polled API first. Live chat may move to
+  a Durable Object. The open question is the hand-off: how a client joins the
+  host's PlayFab session.
+- **Steam lobbies**, for Steam players only. Steam is live in the process
+  (`steam_api64` v1.57), and its flat API can be called from the native half.
+  Pieces:
   - FIND GAMES: a lobby list.
   - JOIN PRIVATE: friends-only and invite lobbies.
   - The friends list's Join Game: `GameLobbyJoinRequested`, `+connect_lobby`.

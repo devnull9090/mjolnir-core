@@ -11,6 +11,7 @@
 #include "MjolnirUIBuilderLibrary.generated.h"
 
 class UWidget;
+class UUserWidget;
 class UWidgetBlueprint;
 
 UCLASS()
@@ -19,9 +20,13 @@ class MJOLNIRUIBUILDER_API UMjolnirUIBuilderLibrary : public UBlueprintFunctionL
 	GENERATED_BODY()
 
 public:
-	/** A new Widget Blueprint (parent UserWidget) at PackagePath/Name, replacing any already there. */
+	/**
+	 * A new Widget Blueprint at PackagePath/Name. ParentClass is UserWidget
+	 * when unset; a screen for the game's menu stack uses
+	 * CommonActivatableWidget.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|UI")
-	static UWidgetBlueprint* CreateWidgetBlueprint(const FString& PackagePath, const FString& Name);
+	static UWidgetBlueprint* CreateWidgetBlueprint(const FString& PackagePath, const FString& Name, TSubclassOf<UUserWidget> ParentClass);
 
 	/**
 	 * Add a widget of WidgetClass named Name under the panel named Parent, or as

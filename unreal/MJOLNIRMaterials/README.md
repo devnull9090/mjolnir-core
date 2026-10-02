@@ -44,7 +44,21 @@ for viewing materials in the editor.
    Copy-Item "$env:TEMP\MjolnirForkLayoutsBuild\Binaries" unreal\MJOLNIRMaterials\Plugins\MjolnirForkLayouts -Recurse -Force
    ```
 
-3. After a game update, re-dump the uniform buffers with the game running
+3. Build the project's editor and Shipping targets once. The project enables
+   CommonUI (MJOLNIR's menu screens derive from `CommonActivatableWidget`),
+   which makes UAT treat it as a code project: the cook needs both target
+   receipts. Both builds take under a minute (the engine plugins come
+   precompiled):
+
+   ```powershell
+   $bat = "C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles\Build.bat"
+   & $bat MeteoriteEditor Win64 Development -Project="$PWD\unreal\MJOLNIRMaterials\Meteorite.uproject" -WaitMutex
+   & $bat Meteorite Win64 Shipping -Project="$PWD\unreal\MJOLNIRMaterials\Meteorite.uproject" -WaitMutex
+   ```
+
+   The editor build also compiles both project plugins.
+
+4. After a game update, re-dump the uniform buffers with the game running
    (`tools/ue/ub_dump.py HaloCampaignEvolved.exe HaloCampaignEvolved.exe
    unreal/MJOLNIRMaterials/Config/ForkUniformBuffers.json`) and check the
    cook log line `fork layouts: … 0 do not`.

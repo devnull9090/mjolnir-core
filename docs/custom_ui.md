@@ -99,6 +99,22 @@ w:SetVisibility(1)                          -- Collapsed; never RemoveFromParent
 - `PlayerController:SetMouseLocation` places the cursor in viewport pixels
   (3840×2160 here), which is how the click was tested.
 
+## Screens on the game's menu stack
+
+A widget whose parent is `CommonActivatableWidget` (the project enables
+CommonUI for it) can be pushed onto the game's own menu stack with
+`WBP_MeteoriteUILayout_C.ContentStack:BP_AddWidget(cls)`. That gives it
+everything a shipped screen has:
+- the screen beneath is hidden;
+- Back (Escape, the gamepad's B) pops it, with `bIsBackHandler` set on the
+  class defaults (`finish_screen`);
+- `DeactivateWidget()` pops it from Lua.
+
+`WBP_MJOLNIRLobby` and `WBP_MJOLNIRMapSelect` work this way
+([multiplayer_menu.md](multiplayer_menu.md)). Their buttons use stock
+`Button` styling (tinted brushes): the game's own CommonUI buttons can't be
+cooked.
+
 ## Next
 
 - Text input for chat. `EditableTextBox.OnTextCommitted` goes through

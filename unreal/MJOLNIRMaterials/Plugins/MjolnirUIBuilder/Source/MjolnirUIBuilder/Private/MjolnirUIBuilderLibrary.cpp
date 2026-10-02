@@ -63,11 +63,12 @@ namespace
 	}
 }
 
-UWidgetBlueprint* UMjolnirUIBuilderLibrary::CreateWidgetBlueprint(const FString& PackagePath, const FString& Name)
+UWidgetBlueprint* UMjolnirUIBuilderLibrary::CreateWidgetBlueprint(const FString& PackagePath, const FString& Name, TSubclassOf<UUserWidget> ParentClass)
 {
 	UPackage* Package = CreatePackage(*(PackagePath / Name));
+	UClass* Parent = ParentClass ? ParentClass.Get() : UUserWidget::StaticClass();
 	UBlueprint* Blueprint = FKismetEditorUtilities::CreateBlueprint(
-		UUserWidget::StaticClass(), Package, FName(*Name), BPTYPE_Normal,
+		Parent, Package, FName(*Name), BPTYPE_Normal,
 		UWidgetBlueprint::StaticClass(), UWidgetBlueprintGeneratedClass::StaticClass(), NAME_None);
 	UWidgetBlueprint* Widget = Cast<UWidgetBlueprint>(Blueprint);
 	if (!Widget)
