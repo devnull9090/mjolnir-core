@@ -16,8 +16,11 @@ jobs:
       - name: Install luacheck
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq luarocks > /dev/null 2>&1
+          sudo apt-get install -y -qq luarocks lua5.4 > /dev/null 2>&1
           sudo luarocks install luacheck > /dev/null 2>&1 || true
+
+      - name: Test multiplayer HUD and team presentation
+        run: lua5.4 tools/tests/test_multiplayer_ui.lua
 
       - name: Lint Lua scripts
         run: |

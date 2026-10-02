@@ -7,10 +7,17 @@ MJOLNIR's own cooked widgets ([custom_ui.md](custom_ui.md)):
 - **`WBP_MJOLNIRKillFeed`**: six lines at the left of the screen, newest at
   the bottom, each fading out after six seconds. Lines that name the local
   player are gold. It also shows the respawn countdown in the middle.
+  A persistent score strip sits at the top center above the native shield
+  bar: Red/Blue scores for team modes, or YOU/LEADER for free-for-all,
+  including the score to win. The local team is marked `/ YOU`. Opening
+  the full scoreboard hides the strip until Tab/View is released.
 - **`WBP_MJOLNIRScoreboard`**: shown while **Tab** (or the gamepad's View
   button) is held. It has the game type and map, the score to win (or the
-  team scores in CTF), and up to 16 players with score, kills and deaths. The
-  rows are sorted by score, and the local player's row is highlighted.
+  team scores in CTF and Team Slayer), and up to 16 players with score, kills
+  and deaths. Team games have separate Red and Blue sections, with team
+  totals and player counts; players without a reported team appear under
+  Awaiting assignment. Each section is sorted by score. A gold YOU marker
+  identifies the local player in addition to the row highlight.
 
 The console opens on `~` only. `MJOLNIRConsoleEnabler` takes Tab out of
 `InputSettings.ConsoleKeys`, as Halo CE on PC had it.
@@ -78,11 +85,40 @@ the incidents, by the rules of the variants MJOLNIR writes
 - **Slayer:** a point per `Kill` of another player; suicides cost nothing.
 - **CTF:** a point to the team per `flag_scored`. The captured flag's team
   arrives as the incident's value, so the point goes to the other team.
+- **Team Slayer presentation:** shows kills in the score column and totals
+  the observed kill incidents by the killer's reported team. Points stay
+  with the team that earned them when a player switches or leaves. The
+  Team Slayer variant still needs to be installed to offer this mode.
+
+The team reader accepts only Red and Blue from the simulation's
+`BlamGameTeam`. It retries a spawn's biped each second because team
+assignment can arrive after the spawn incident. Kill/death actors also
+refresh known teams. No player index or roster order implies a team.
+
+The HUD still tallies incidents observed during this session; it cannot
+recover earlier scores for a late join. This presentation does not add a
+replicated authoritative score reader.
+
+## Building and checking
+
+Install the rebuilt UI chunk and the updated Lobby/Hud Lua scripts together;
+the scoreboard now has 19 visual rows (16 players and three possible team
+headings). `Scripts/scoreboard.lua` must accompany the HUD's `main.lua`.
+See [custom_ui.md](custom_ui.md) for the build and cook commands.
+
+`tools/tests/test_multiplayer_ui.lua` exercises grouping, a full and uneven
+roster, sorting, CTF captures, Team Slayer kills, delayed assignment,
+switching teams, leaving, the live score strip (including tied/leaving
+leaders), and holding/releasing the board. Run from the root
+with Lua 5.4 or Python with lupa:
+
+```powershell
+python -c "from lupa import LuaRuntime; LuaRuntime().execute(open('tools/tests/test_multiplayer_ui.lua').read())"
+```
 
 ## Not done yet
 
 - Split screen: the widgets go on the whole viewport, not on each player's
   half.
-- Team colours and team rows in the scoreboard.
 - Medals.
 - The game's fonts.

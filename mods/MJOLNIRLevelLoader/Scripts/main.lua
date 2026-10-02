@@ -1214,7 +1214,7 @@ end
 --- instance of the armour material in its team's colour, as a new biped
 --- appears (every spawn is a new actor), and again a moment later for armour
 --- pieces attached after it.
-local TEAM_GAMES = { ctf = true }
+local TEAM_GAMES = { ctf = true, team_slayer = true }
 local TEAM_ARMOR = {
     Red = { R = 1.0, G = 0.0, B = 0.0, A = 1 },
     Blue = { R = 0.03, G = 0.15, B = 1.0, A = 1 },

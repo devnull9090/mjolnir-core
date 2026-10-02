@@ -87,6 +87,12 @@ hides the main menu beneath, and Back (Escape, B) pops them
 - **The lobby:** the map and game type, a description of each, the players
   (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
   MAP, GAME TYPE (cycles the map's modes) and BACK.
+  - Team modes (CTF and Team Slayer) show separate Red/Blue roster sections.
+    These reflect the game's team assignments, with an Awaiting assignment
+    section when the frontend has no simulation team yet. No local team
+    choices or fabricated alternating assignments are written to the game.
+    Free-for-all uses one list. The roster supports up to 16 players and
+    scrolls without moving the surrounding controls.
   - INVITE FRIENDS opens the game's own Friends screen (`WBP_Roster_C`:
     Platform and Cross-Platform friends, each with + Invite). It does this by
     calling `BP_OnClicked` on one of the fireteam panel's INVITE + rows
@@ -107,6 +113,12 @@ still needed only for the MULTIPLAYER button injected into the main menu.
 
 Without the UI container, MULTIPLAYER falls back to the campaign-menu
 screens described next.
+
+The custom screens use a 2560×1440 design canvas fitted as a whole to the
+viewport, keeping columns together at lower resolutions and ultrawide
+aspect ratios. Flat translucent navy panels, fine cyan rules, regular
+weight type and gold primary actions share the scoreboard's visual style.
+The game's animated background and CommonUI menu stack remain in use.
 
 ## Screens from the game's widgets (fallback)
 
