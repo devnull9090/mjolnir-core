@@ -22,6 +22,10 @@
 #   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P
 #                                    spawn point and teleporter scenery
 #                                    (build_spawn_point.sh)
+#   pakchunk985-MJOLNIRMENU_P        the main menu with its own MULTIPLAYER
+#                                    button, which opens the lobby in chunk 984
+#                                    (`mjolnir ue menu-button`; rebuild after
+#                                    every game update: it replaces the menu)
 #
 # Every map converted into the same Unreal project also cooks into chunk 988
 # when it predates per-map chunks (/Game/MJOLNIR/Levels); a map with a code of
@@ -86,9 +90,10 @@ MSYS2_ARG_CONV_EXCL="/Game" "$examples/package_add" "$HCE_PAKS" "$(cygpath -m "$
   --name pakchunk990-MJOLNIRHPMESH_P \
   --package "/Game/MJOLNIR/CE/Powerups/SM_CE_HealthPack=$(cygpath -m "$out/mesh/SM_CE_HealthPack.uasset")" | tail -1
 
-echo "== 5/5 the multiplayer scenery and the CTF tags"
+echo "== 5/5 the multiplayer scenery, the CTF tags and the main menu's MULTIPLAYER button"
 MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out" > "$out/spawn_point.log"
 MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
+"$mjolnir" ue menu-button --out-dir "$(cygpath -m "$out")" | tail -1
 rm -f "$out"/*.pak
 ls "$out"/*.utoc
 echo "done: $out"

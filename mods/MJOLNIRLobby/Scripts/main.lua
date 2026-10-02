@@ -520,9 +520,15 @@ local function hookScreenEvents()
     if screenEvents then return true end
     local ok = pcall(function()
         for _, spec in ipairs({ { LOBBY_CLASS, true }, { SELECT_CLASS, false } }) do
-            RegisterHook(spec[1] .. ":MJ_Event", function(_, name)
+            RegisterHook(spec[1] .. ":MJ_Event", function(self, name)
                 local okE, event = pcall(function() return name:get():ToString() end)
                 if not okE then return end
+                -- The main menu pushes the lobby itself: the screen that
+                -- sent the event is the lobby on screen.
+                if spec[2] then
+                    local okS, screen = pcall(function() return self:get() end)
+                    if okS and UI.valid(screen) then Lobby = screen end
+                end
                 -- Off the click: pushing and popping screens inside the
                 -- button's own handler is not safe.
                 ExecuteInGameThread(function()
@@ -536,24 +542,53 @@ local function hookScreenEvents()
     return ok
 end
 
---- MULTIPLAYER: our lobby, or the campaign-menu screens without the UI
---- container.
+--- Our screens' classes loaded and their events hooked.
+local function ourScreens()
+    return loadClass(LOBBY_CLASS) ~= nil and loadClass(SELECT_CLASS) ~= nil and hookScreenEvents()
+end
+
+--- Fill a lobby that is on the stack: one openLobby pushed, or the one the
+--- main menu's own MULTIPLAYER button pushed.
+local function adoptLobby(screen)
+    if not UI.valid(screen) then return end
+    Lobby = screen
+    if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
+    setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
+    drawLobby()
+    pcall(function() Lobby.Start:SetFocus() end)
+end
+
+--- MULTIPLAYER from script (the console command, the injected fallback
+--- button): our lobby, or the campaign-menu screens without the UI container.
 local function openLobby()
-    if not (loadClass(LOBBY_CLASS) and loadClass(SELECT_CLASS) and hookScreenEvents()) then
+    if not ourScreens() then
         log("MJOLNIR UI not installed (pakchunk984-MJOLNIRUI): the campaign-menu screens instead")
         rootScreen()
         return
     end
-    if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
-    Lobby = pushScreen(LOBBY_CLASS)
-    if not Lobby then
+    local screen = pushScreen(LOBBY_CLASS)
+    if not screen then
         log("lobby: could not push " .. LOBBY_CLASS)
         rootScreen()
         return
     end
-    setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
-    drawLobby()
-    pcall(function() Lobby.Start:SetFocus() end)
+    adoptLobby(screen)
+end
+
+--- The main menu's own MULTIPLAYER button (pakchunk985-MJOLNIRMENU) pushes
+--- the lobby without us: fill each new lobby as it is built. The widget is
+--- constructed before its tree is, so the fill waits a moment.
+local function watchNewLobbies()
+    if not ourScreens() then return false end
+    local ok, err = pcall(function()
+        NotifyOnNewObject(LOBBY_CLASS, function(screen)
+            local okN, name = pcall(function() return screen:GetFName():ToString() end)
+            if not okN or name:find("^Default__") then return end
+            ExecuteInGameThreadWithDelay(100, function() adoptLobby(screen) end)
+        end)
+    end)
+    if not ok then log("cannot watch for new lobbies: " .. tostring(err)) end
+    return ok
 end
 
 --- Keep the lobby's player list current while it is up.
@@ -564,21 +599,37 @@ end
 -------------------------------------------------------------------------------
 -- The main-menu entry
 -------------------------------------------------------------------------------
+--
+-- MULTIPLAYER is the main menu's own button when the runtime pack's
+-- pakchunk985-MJOLNIRMENU is installed: `mjolnir ue menu-button` adds it to
+-- WBP_MainMenu after the (hidden) Remix button, with the menu's styling, and
+-- its click pushes WBP_MJOLNIRLobby itself (docs/multiplayer_menu.md).
+-- Nothing here has to run for it to appear; watchNewLobbies fills the lobby.
+--
+-- Without that container the menu has no such button, and the old route
+-- takes over: a button of the main menu's kind made from Lua and put in
+-- Remix's slot, its click bound through the native half (Scripts/ui.lua).
 
 local MAIN_MENU = "/Game/UI/Frontend/MainMenu/Widgets/WBP_MainMenu.WBP_MainMenu_C"
 local entry = { menu = nil, button = nil }
+local nativeSeen = nil
 
---- Put MULTIPLAYER in the main menu's button column, in the slot of the
---- hidden Remix button (between CAMPAIGN and PLAY CO-OP).
 --- The main menu on screen. FindFirstOf could hand back the previous
 --- frontend's menu, whose Slate widgets are gone (UI.liveWidget).
 local function liveMainMenu()
     return UI.liveWidget("WBP_MainMenu_C", function(w) return w:IsVisible() end)
 end
 
+--- The menu's own MULTIPLAYER button (pakchunk985-MJOLNIRMENU).
+local function nativeEntry(menu)
+    local ok, button = pcall(function() return menu.MultiplayerButton end)
+    return ok and UI.valid(button)
+end
+
+--- The fallback: MULTIPLAYER in the slot of the hidden Remix button.
 local function injectMainMenu()
     local menu = liveMainMenu()
-    if not UI.valid(menu) then return end
+    if not UI.valid(menu) or nativeEntry(menu) then return end
     if entry.menu == UI.addressOf(menu) and entry.button and UI.valid(entry.button.widget) then
         UI.label(entry.button, "MULTIPLAYER")
         return
@@ -607,22 +658,29 @@ local function injectMainMenu()
         UI.label(button, "MULTIPLAYER")
         pcall(function() button.widget:SetVisibility(0) end)
     end)
-    log("MULTIPLAYER added to the main menu")
+    log("MULTIPLAYER added to the main menu (injected: pakchunk985-MJOLNIRMENU is not installed)")
 end
 
 local menuHook = false
 
---- The main menu exists only at the frontend, and is rebuilt each time the
---- game returns there; a light poll puts MULTIPLAYER back whenever a main
---- menu is up without it. The poll reschedules itself on the game thread:
---- LoopAsync handing work to ExecuteInGameThread can deadlock on the game
---- thread's lock (it froze the game in MJOLNIRLevelLoader, 2026-10-01).
+--- Keeps the lobby's player list current, and runs the fallback whenever a
+--- main menu is up without its own MULTIPLAYER button. The poll reschedules
+--- itself on the game thread: LoopAsync handing work to ExecuteInGameThread
+--- can deadlock on the game thread's lock (it froze the game in
+--- MJOLNIRLevelLoader, 2026-10-01).
 local function watchMainMenu()
     local function poll()
         local ok, err = pcall(function()
             refreshLobby()
             local menu = liveMainMenu()
             if not UI.valid(menu) then return end
+            if nativeEntry(menu) then
+                if nativeSeen ~= UI.addressOf(menu) then
+                    nativeSeen = UI.addressOf(menu)
+                    log("MULTIPLAYER is on the main menu (its own button)")
+                end
+                return
+            end
             if not menuHook then
                 menuHook = pcall(function()
                     RegisterHook(MAIN_MENU .. ":BP_OnActivated", function()
@@ -642,6 +700,7 @@ end
 
 local function initialize()
     UI.init(MOD_DIR)
+    watchNewLobbies()
     watchMainMenu()
     RegisterConsoleCommandHandler("mjolnir_lobby", function()
         openLobby()

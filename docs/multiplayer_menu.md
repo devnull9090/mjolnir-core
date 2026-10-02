@@ -108,8 +108,8 @@ hides the main menu beneath, and Back (Escape, B) pops them
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
 `changemap`, `gametype`, `back`, `select`, `map:<i>`, `hover:<i>`,
 `mode:<i>`. Lua hooks it and handles the event off the click, in
-`ExecuteInGameThread`. No native delegate binding is involved; that is
-still needed only for the MULTIPLAYER button injected into the main menu.
+`ExecuteInGameThread`. No native delegate binding is involved. Only the
+injected fallback MULTIPLAYER button still needs it (next section).
 
 Without the UI container, MULTIPLAYER falls back to the campaign-menu
 screens described next.
@@ -119,6 +119,69 @@ viewport, keeping columns together at lower resolutions and ultrawide
 aspect ratios. Flat translucent navy panels, fine cyan rules, regular
 weight type and gold primary actions share the scoreboard's visual style.
 The game's animated background and CommonUI menu stack remain in use.
+
+## The main menu's own MULTIPLAYER button
+
+Verified on CU4, 2026-10-02. MULTIPLAYER is a real button of `WBP_MainMenu`,
+cooked into the menu's package:
+- It sits after the hidden Remix button, between CAMPAIGN and PLAY CO-OP.
+- It is there the first time the menu shows.
+- It has the menu's own styling, focus, keyboard and gamepad navigation, and
+  Back.
+- Its click pushes `WBP_MJOLNIRLobby` itself, through the call the menu uses
+  for Customization (`HaloUIManagerSubsystem.PushStreamableContentToLayerFullscreen`).
+- Remix keeps its slot, its click and its unlock rule.
+
+Lua only fills the lobby once it exists (`NotifyOnNewObject` on the lobby
+class) and handles its events, as above.
+
+```bash
+mjolnir ue menu-button --out-dir <dir>      # writes pakchunk985-MJOLNIRMENU_P
+```
+
+`tools/level/build_ce_runtime.sh` builds it into the CE runtime pack, beside
+the lobby's own container (chunk 984). The defaults are the main menu,
+`MultiplayerButton`, "MULTIPLAYER", after `RemixButton`, opening
+`/Game/MJOLNIR/UI/WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C`.
+`ue_asset::menu_button` does the work, and finds everything by name.
+
+**What a new button takes** (all in the one package):
+
+| | added | copied from |
+|---|---|---|
+| the button | a new export in the widget tree, its label changed from the string table entry `Menus/main_item_remixmenu` to the text "MULTIPLAYER" | `RemixButton` |
+| its slot | a new `HaloUIButtonContainerSlot` export, listed in `MainButtonContainer.Slots` right after Remix's | Remix's slot |
+| the click function | a new `BndEvt__…MultiplayerButton…` export, added to the class's Children and FuncMap; it enters the ubergraph at the new block | Remix's click stub |
+| the binding | a `ComponentDelegateBindings` row: `MultiplayerButton.OnButtonBaseClicked` → that function | Remix's row |
+| the variable | an `ObjectProperty` named `MultiplayerButton`, last among the class's own properties | `RemixButton`'s |
+| the push | a block before the ubergraph's `EX_EndOfScript`: player controller, push, pop | the Customization push |
+
+New exports go at the end of the export map, and the block at the end of
+the ubergraph, so no package index, jump or entry point moves. Each new
+export gets a dependency bundle like its template's. Its create and
+serialize commands sit beside the template's in the export bundle.
+
+**The class default object has to move too.** An unversioned property
+header numbers a class's own properties first and its supers' after them.
+The new variable is own slot 35, so every inherited value of
+`Default__WBP_MainMenu_C` moves up one slot: its header's skip before slot 87
+goes from 53 to 54. Without that the CDO reads garbage, and the game
+crashed as the frontend built the menu.
+
+**Rebuild after every game update.** The container replaces the whole
+`WBP_MainMenu` package. A stale copy would hide the updated menu, so the
+runtime pack has to be rebuilt from the new build. The command refuses when
+something it looks for is gone, rather than guessing.
+
+**Without the container** (an older runtime pack), the main menu has no
+`MultiplayerButton`, and MJOLNIRLobby falls back to injecting its own button
+into Remix's slot (next section). The log says which one is in use:
+`MULTIPLAYER is on the main menu (its own button)`, or `... (injected: ...)`.
+
+`mjolnir ue disasm --package <pkg> --export <name|index>` prints a
+Blueprint function's bytecode (`ue_asset::kismet`). That's how the Remix
+gate (`UpdateButtonsEnabled`: `IsRemixMenuUnlocked`) and the pushes were
+found.
 
 ## Screens from the game's widgets (fallback)
 
@@ -138,8 +201,9 @@ main menu's kind.
   button is selected and ignores the next press.
 - **Re-activation.** The campaign menu's activation resets its own buttons
   and texts, so `BP_OnActivated` re-applies the screen.
-- **Main menu entry.** MULTIPLAYER takes the slot of the hidden Remix button
-  on the main menu.
+- **Main menu entry.** Without pakchunk985-MJOLNIRMENU, the injected
+  MULTIPLAYER takes the slot of the hidden Remix button. A light poll puts
+  it back on each new main menu.
 - **Loading classes.** UE4SS's `LoadAsset` needs the asset's object path
   (`/Game/.../WBP_CampaignMenu.WBP_CampaignMenu`). Neither the bare package
   nor the `_C` class path works. The frontend loads most screen classes only

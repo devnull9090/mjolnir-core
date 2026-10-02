@@ -33,6 +33,56 @@ pub enum UeCommand {
     /// Decode and re-encode every export of the packages matching a
     /// substring, counting the ones that come back byte for byte.
     Roundtrip(RoundtripArgs),
+    /// Add a button to a menu widget (the main menu by default) that opens
+    /// one of our screens, and write the menu into an override container.
+    MenuButton(MenuButtonArgs),
+    /// Print a Blueprint function's bytecode, statement by statement.
+    Disasm(DisasmArgs),
+}
+
+#[derive(Args)]
+pub struct MenuButtonArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The menu widget's package.
+    #[arg(long, default_value = "ui/Frontend/MainMenu/Widgets/WBP_MainMenu")]
+    pub package: String,
+    /// The new button's name (also its class variable's).
+    #[arg(long, default_value = "MultiplayerButton")]
+    pub name: String,
+    /// Its label.
+    #[arg(long, default_value = "MULTIPLAYER")]
+    pub label: String,
+    /// The button to copy; the new one goes right after it.
+    #[arg(long, default_value = "RemixButton")]
+    pub template: String,
+    /// The widget class the button opens.
+    #[arg(
+        long,
+        default_value = "/Game/MJOLNIR/UI/WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C"
+    )]
+    pub opens: String,
+    /// A substring of the class path in the menu's own push to copy.
+    #[arg(long, default_value = "WBP_CustomizationCategoryMenu")]
+    pub push_like: String,
+    /// Directory to write the container into.
+    #[arg(long, default_value = ".")]
+    pub out_dir: PathBuf,
+    /// Container name (`_P` is added when missing).
+    #[arg(long, default_value = "pakchunk985-MJOLNIRMENU_P")]
+    pub container: String,
+}
+
+#[derive(Args)]
+pub struct DisasmArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The package, as `/Game/...` or a substring of its path.
+    #[arg(long)]
+    pub package: String,
+    /// The function export, by index or name.
+    #[arg(long)]
+    pub export: String,
 }
 
 #[derive(Args)]
@@ -93,6 +143,8 @@ pub fn run(a: UeArgs) -> Result<()> {
         UeCommand::Get(a) => get(a),
         UeCommand::Set(a) => set(a),
         UeCommand::Roundtrip(a) => roundtrip(a),
+        UeCommand::MenuButton(a) => menu_button(a),
+        UeCommand::Disasm(a) => disasm(a),
     }
 }
 
@@ -251,42 +303,170 @@ fn set(a: SetArgs) -> Result<()> {
         }
     }
 
-    let source = &containers[ci];
+    write_override(
+        &containers[ci],
+        &oodle,
+        chunk,
+        &name,
+        data.len(),
+        patched,
+        &a.out_dir,
+        &a.name,
+    )
+}
+
+/// Put a rewritten package into an override container (`_P`), read it back
+/// through its perfect hash, and write the stub `.pak` beside it.
+#[allow(clippy::too_many_arguments)]
+fn write_override(
+    source: &ue_iostore::Container,
+    oodle: &[PathBuf],
+    chunk: ue_iostore::ChunkEntry,
+    name: &str,
+    original_len: usize,
+    patched: Vec<u8>,
+    out_dir: &std::path::Path,
+    container_name: &str,
+) -> Result<()> {
+    let patched_len = patched.len();
     let built = blam_pack::build_override(
         source,
-        &oodle,
+        oodle,
         &[blam_pack::ChunkEdit {
             label: format!("{name}.uasset"),
             chunk,
-            original_len: data.len(),
+            // A cooked Unreal package has no Blam `BinaryBlobSize` to keep in
+            // step: declaring the patched length keeps the packer on the
+            // plain-replacement path (package_override.rs).
+            original_len: patched_len,
             patched,
         }],
     )
     .map_err(|e| anyhow::anyhow!(e))?;
-    let mut container = a.name.clone();
+    let mut container = container_name.to_string();
     if !container.ends_with("_P") {
         container.push_str("_P");
     }
-    std::fs::create_dir_all(&a.out_dir)?;
-    let utoc = a.out_dir.join(format!("{container}.utoc"));
-    let ucas = a.out_dir.join(format!("{container}.ucas"));
+    std::fs::create_dir_all(out_dir)?;
+    let utoc = out_dir.join(format!("{container}.utoc"));
+    let ucas = out_dir.join(format!("{container}.ucas"));
     std::fs::write(&utoc, &built.utoc)?;
     std::fs::write(&ucas, &built.ucas)?;
-    blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
+    blam_pack::verify_written(&utoc, oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
     std::fs::write(
-        a.out_dir.join(format!("{container}.pak")),
+        out_dir.join(format!("{container}.pak")),
         ue_iostore::pak::stub_for(&container),
     )?;
     println!(
-        "  wrote {} ({} -> {} bytes in the package)",
-        utoc.display(),
-        data.len(),
-        built
-            .entries
-            .first()
-            .map(|_| pkg.write().len())
-            .unwrap_or(0)
+        "  wrote {} ({original_len} -> {patched_len} bytes in the package)",
+        utoc.display()
     );
+    Ok(())
+}
+
+fn menu_button(a: MenuButtonArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let (ci, chunk, name) = locate(&containers, &a.package)?;
+    let data = ue_iostore::read_chunk(&containers[ci], &chunk, None, &oodle)?;
+    let mut pkg = ue_asset::package::ZenPackage::parse(&data)?;
+    let usmap = crate::mesh::usmap()?;
+    let scripts = crate::mesh::script_objects(&containers, &oodle)?;
+    let spec = ue_asset::menu_button::MenuButton {
+        name: &a.name,
+        label: &a.label,
+        template: &a.template,
+        opens: &a.opens,
+        push_like: &a.push_like,
+    };
+    let added = ue_asset::menu_button::add_menu_button(&mut pkg, &usmap, &scripts, &spec)
+        .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+    println!("{name}");
+    println!(
+        "  {} after {} (container index {}), labelled {:?}",
+        a.name, a.template, added.position, a.label
+    );
+    println!(
+        "  exports {} (click), {} (slot), {} (button); the click enters the ubergraph at {}",
+        added.function, added.slot, added.button, added.entry
+    );
+    println!("  opens {}", a.opens);
+    let patched = pkg.write();
+    ue_asset::package::ZenPackage::parse(&patched)?;
+    write_override(
+        &containers[ci],
+        &oodle,
+        chunk,
+        &name,
+        data.len(),
+        patched,
+        &a.out_dir,
+        &a.container,
+    )
+}
+
+/// Export names and `/Script` import leaves, for the disassembly.
+struct PkgNames<'a> {
+    pkg: &'a ue_asset::package::ZenPackage,
+    scripts: &'a ue_asset::zen::ScriptObjects,
+}
+
+impl ue_asset::kismet::Names for PkgNames<'_> {
+    fn name(&self, index: u32, number: u32) -> String {
+        self.pkg.mapped_name(index, number)
+    }
+    fn object(&self, index: i32) -> String {
+        if index > 0 {
+            let e = &self.pkg.export_map[(index - 1) as usize];
+            self.pkg.mapped_name(e.name_index, e.name_number)
+        } else if index < 0 {
+            let id = self
+                .pkg
+                .import_map
+                .get((-index - 1) as usize)
+                .copied()
+                .unwrap_or(u64::MAX);
+            self.scripts
+                .leaf(ue_asset::zen::ObjectIndex(id))
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("import{}", -index - 1))
+        } else {
+            "null".into()
+        }
+    }
+}
+
+fn disasm(a: DisasmArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let (ci, chunk, name) = locate(&containers, &a.package)?;
+    let data = ue_iostore::read_chunk(&containers[ci], &chunk, None, &oodle)?;
+    let pkg = ue_asset::package::ZenPackage::parse(&data)?;
+    let scripts = crate::mesh::script_objects(&containers, &oodle)?;
+    let index = match a.export.parse::<usize>() {
+        Ok(i) => i,
+        Err(_) => (0..pkg.export_map.len())
+            .find(|&i| {
+                let e = &pkg.export_map[i];
+                pkg.mapped_name(e.name_index, e.name_number) == a.export
+            })
+            .with_context(|| format!("no export named {}", a.export))?,
+    };
+    let bytes = pkg.export_bytes(index).context("export out of range")?;
+    let names = PkgNames {
+        pkg: &pkg,
+        scripts: &scripts,
+    };
+    let script = ue_asset::kismet::script(bytes, &names)
+        .map_err(|e| anyhow::anyhow!("{name} export {index}: {e}"))?;
+    println!(
+        "{name} export {index}: {} statement(s), {} bytes in memory",
+        script.stmts.len(),
+        script.memory_size
+    );
+    for s in &script.stmts {
+        println!("{:6}: {}", s.offset, s.text);
+    }
     Ok(())
 }
 
