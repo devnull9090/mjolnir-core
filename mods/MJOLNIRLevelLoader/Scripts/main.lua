@@ -1362,6 +1362,10 @@ local function tick()
         EventWaves = {}
         SilentIncidents = {}
         Current.worldName = worldName
+        -- The seamless-travel transition world still answers with the
+        -- scenario it is leaving; dressing it spawned the old map's terrain
+        -- into the fade back to the menu at game end.
+        if worldName:find("SEAMLESSTRAVEL", 1, true) then return end
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 

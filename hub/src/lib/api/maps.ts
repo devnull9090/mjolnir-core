@@ -11,6 +11,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { ApiEnv } from "./bindings";
 import { requireModerator } from "./account";
 import { audit } from "./moderation";
+import { mediaUrl } from "./community";
 import { ErrorSchema } from "./schemas";
 
 const MapSchema = z
@@ -24,6 +25,8 @@ const MapSchema = z
     owner: z.string(),
     download_count: z.number(),
     rating_mean: z.number().nullable(),
+    /** The first approved screenshot in the map's gallery, for its card. */
+    cover_url: z.string().nullable(),
     /** The latest published release, the one to install. */
     release: z
       .object({
@@ -56,6 +59,7 @@ function toMap(r: MapRow): z.infer<typeof MapSchema> {
     owner: r.owner as string,
     download_count: (r.download_count as number) ?? 0,
     rating_mean: (r.rating_mean as number) ?? null,
+    cover_url: r.cover_id ? mediaUrl(r.cover_id as string) : null,
     release: r.release_id
       ? {
           id: r.release_id as string,
@@ -73,7 +77,10 @@ const MAP_SELECT = `
   SELECT ml.code, ml.title, ml.modes, ml.official, m.slug, m.summary, m.download_count,
          m.rating_mean, COALESCE(u.display_name, u.discord_username) AS owner,
          r.id AS release_id, r.version AS release_version, r.file_size AS release_size,
-         r.sha256 AS release_sha256, r.created_at AS release_created_at
+         r.sha256 AS release_sha256, r.created_at AS release_created_at,
+         (SELECT md.id FROM media md
+          WHERE md.mod_id = m.id AND md.status = 'approved' AND md.kind <> 'video'
+          ORDER BY md.position, md.created_at LIMIT 1) AS cover_id
   FROM map_listings ml
   JOIN mods m ON m.id = ml.mod_id AND m.status = 'published'
   JOIN users u ON u.id = m.owner_id

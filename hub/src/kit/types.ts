@@ -338,6 +338,8 @@ export interface MapListing {
   owner: string;
   download_count: number;
   rating_mean: number | null;
+  /** The first approved screenshot in the map's gallery (a hub-relative URL). */
+  cover_url: string | null;
   /** The latest published release, the one to install. */
   release: {
     id: string;

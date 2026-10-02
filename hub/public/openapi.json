@@ -1923,6 +1923,12 @@
               "null"
             ]
           },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "release": {
             "type": [
               "object",
@@ -1970,6 +1976,7 @@
           "owner",
           "download_count",
           "rating_mean",
+          "cover_url",
           "release"
         ]
       },

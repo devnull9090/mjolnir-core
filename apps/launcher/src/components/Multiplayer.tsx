@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { GAME_TYPE_NAMES, type MapListing } from "@mjolnir/hub-kit";
-import { hubClient } from "../hub/client";
+import { HUB_SITE, hubClient } from "../hub/client";
 import type { Library } from "../hub/library";
 
 interface InstallProgress {
@@ -153,8 +153,19 @@ export default function Multiplayer({ library }: { library: Library }) {
             return (
               <div
                 key={m.code}
-                className="bg-surface-secondary border border-border-subtle rounded-xl p-3"
+                className="bg-surface-secondary border border-border-subtle rounded-xl overflow-hidden"
               >
+                {m.cover_url ? (
+                  <img
+                    src={`${HUB_SITE}${m.cover_url}`}
+                    alt={m.title}
+                    loading="lazy"
+                    className="w-full aspect-video object-cover bg-surface-hover"
+                  />
+                ) : (
+                  <div className="w-full aspect-video bg-surface-hover" />
+                )}
+                <div className="p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold truncate">{m.title}</span>
                   <span
@@ -172,6 +183,7 @@ export default function Multiplayer({ library }: { library: Library }) {
                 <p className="text-xs text-text-secondary mt-1">
                   {m.modes.map((mode) => GAME_TYPE_NAMES[mode] ?? mode).join(" · ")}
                 </p>
+                </div>
               </div>
             );
           })}

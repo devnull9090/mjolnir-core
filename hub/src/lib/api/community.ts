@@ -163,7 +163,7 @@ async function recomputeRating(c: Ctx, modId: string) {
     .run();
 }
 
-function mediaUrl(id: string): string {
+export function mediaUrl(id: string): string {
   return `/api/v1/media/${id}`;
 }
 

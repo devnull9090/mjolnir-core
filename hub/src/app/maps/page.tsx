@@ -26,8 +26,20 @@ function MapCard({ map }: { map: MapListing }) {
   return (
     <Link
       href={`/mods/${map.slug}`}
-      className="group block bg-surface border border-border rounded-xl p-4 hover:border-gold/40 transition-colors"
+      className="group block bg-surface border border-border rounded-xl overflow-hidden hover:border-gold/40 transition-colors"
     >
+      {map.cover_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={map.cover_url}
+          alt={`${map.title} in Halo Campaign Evolved`}
+          loading="lazy"
+          className="w-full aspect-video object-cover bg-surface-raised"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-surface-raised" />
+      )}
+      <div className="p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-foreground truncate">{map.title}</span>
         <span className="text-[11px] font-mono text-text-dim">{map.code}</span>
@@ -49,6 +61,7 @@ function MapCard({ map }: { map: MapListing }) {
         {map.release ? <span>v{map.release.version}</span> : <span>no release yet</span>}
         {map.release?.file_size ? <span>{sizeOf(map.release.file_size)}</span> : null}
         {!map.official && <span className="truncate">by {map.owner}</span>}
+      </div>
       </div>
     </Link>
   );
