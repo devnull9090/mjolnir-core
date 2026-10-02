@@ -3,7 +3,7 @@
 //! names under `/Game`.
 //!
 //! ```text
-//! cargo run -p ue-asset --example mesh_probe -- <paks> <path substring> [--all]
+//! cargo run -p ue-asset --example mesh_probe -- <paks> <path substring> [--all] [--uvs]
 //! ```
 //!
 //! `--all` reports every match rather than the first, which is how a donor for
@@ -19,6 +19,7 @@ fn main() {
         std::process::exit(2);
     }
     let all = a.iter().any(|s| s == "--all");
+    let uvs = a.iter().any(|s| s == "--uvs");
     let (paks, want) = (&a[0], a[1].to_ascii_lowercase());
     let oodle: Vec<std::path::PathBuf> = Vec::new();
 
@@ -113,6 +114,28 @@ fn main() {
                             let v = f64::from_le_bytes(tail[o..o + 8].try_into().unwrap());
                             if v.is_finite() && v != 0.0 && v.abs() > 0.01 && v.abs() < 1.0e7 {
                                 println!("    double @+{o:#06x} = {v}");
+                            }
+                        }
+                    }
+                    if uvs {
+                        // Each section's first-channel UV range, read through
+                        // its indices: what the material's texture lookups see.
+                        if let Some(lod) = m.lods.first() {
+                            let stride = lod.uvs.len() / (lod.positions.len() / 3).max(1);
+                            for s in &lod.sections {
+                                let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+                                let first = s.first_index as usize;
+                                for &v in &lod.indices[first..first + s.num_triangles as usize * 3] {
+                                    for k in 0..2 {
+                                        let x = lod.uvs[v as usize * stride + k];
+                                        lo[k] = lo[k].min(x);
+                                        hi[k] = hi[k].max(x);
+                                    }
+                                }
+                                println!(
+                                    "  section mat {} ({} tri): uv0 {:.3},{:.3} .. {:.3},{:.3}",
+                                    s.material_index, s.num_triangles, lo[0], lo[1], hi[0], hi[1]
+                                );
                             }
                         }
                     }

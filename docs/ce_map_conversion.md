@@ -138,8 +138,26 @@ material even though the surfaces carry theirs. Untested.
 `tools/level/merge_ce_scene.py` puts everything static into the BSP's glTF.
 
 - **Scenery:** every scenery placement's model goes in at its CE position and
-  rotation. CE lights an object from the lightmap under it, so each
-  placement's vertices take the lightmap UV of the BSP point below its origin.
+  rotation, lit as CE lights objects. An object has no lightmap of its own:
+  CE samples the ground under its bounding sphere's centre and four points
+  0.7071 of its radius out, averages the lightmap colour L, the incident
+  direction and the floor's base colour, and lights the object with an
+  ambient of 0.4 L + 0.03, a light of colour L from the incident direction,
+  and a bounce of the floor colour (times L's brightness) off the ground,
+  which lights the faces that look down. The merge writes each placement's
+  brightest lighting as one texel of `object_lighting.png` (materials
+  `<shader>__lmobj`) and gives each vertex an incident direction whose dot
+  with its normal is that vertex's share, so the environment master's
+  bumped-lightmap term (full weight) shades it. Without it, Longest's dark
+  steel barricades drew as flat black shapes.
+  The page has eight columns of the same blocks: the light, CE's reflection
+  tint for the object (`clamp(3D + 0.5) × clamp(2L + 0.25)`, times
+  `clamp(1.5 × brightness + 0.25)`), then the object's change colours A–D.
+  A change colour comes from the tag's permutations as CE picks it: the
+  weights are running cut-offs against a value drawn from the placement's
+  position, and the colour is a blend between the permutation's bounds.
+  The draw is our own hash, so the mix of colours matches CE but a given
+  crate's colour may not.
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -213,6 +231,25 @@ gamma space as the hardware did.
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
 
+Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
+use the same master with `ModelShader` on, for the terms that differ:
+
+- the multipurpose map's masks, in the PC order: red auxiliary, green
+  self-illumination, blue reflection, alpha change colour;
+- the detail map applies where the detail mask says (none, or one of those
+  four masks, plain or inverted);
+- the object's change colour (from the object lighting page) tints its light
+  where the change-colour mask is set; this is where Covenant crates get
+  their white, teal, red or purple panels;
+- the reflection is the cube map's colour as it is, times the tint and
+  brightness between parallel and perpendicular, masked by the reflection
+  mask, faded between the falloff and cutoff distances, and scaled by the
+  object's reflection tint;
+- "detail after reflection" (flag bit 0) applies the detail function to the
+  lit, reflected colour instead of the base map;
+- self-illumination animates between its lower and upper colour, masked by
+  green.
+
 Transparent chicago shaders (lights, the teleporter field) work like this:
 
 - up to four maps, each with its own UV scale, offset, rotation and
@@ -222,7 +259,11 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
   blend by alpha);
 - the result is drawn with the shader's framebuffer blend: alpha blend, add,
   or multiply. Subtract, min and max have no Unreal blend mode and fall back
-  to alpha blending.
+  to alpha blending;
+- a shader with no bitmap on any stage (Danger Canyon's and Ice Fields'
+  light shaders reference none) draws nothing, as in CE: it is added at a
+  zero tint. Drawn with the master's default white map, it was a solid
+  white box.
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
@@ -282,6 +323,10 @@ own.
    extracts:
    - the **sound scenery** (halo2ue's `sound_scenery` placements), such as
      the teleporter hum;
+   - the **looping sounds placed objects carry** as attachments (halo2ue's
+     `sounds` on an entry), each an emitter at its marker: the Covenant
+     shield generator's and uplink's hum, the teleporters' loop, Wizard's
+     klaxons, the beam emitters;
    - the **background sound**, the looping sounds the BSP block depends on;
    - each looping sound's **tracks** and detail sounds.
 
@@ -479,8 +524,10 @@ seconds after the loading screen are dark.
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
   every 40 ms). Dynamic lights
   (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
-  lit by its lightmaps as in CE. Scenery takes the lightmap colour under its
-  origin; CE's per-object directional terms are not reproduced. One converted
+  lit by its lightmaps as in CE. Scenery has CE's object lighting (ambient,
+  dominant light, floor bounce, reflection tint) but not its shadow colour
+  or point lights; a self-illumination colour that takes a change colour
+  does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
 - **Scenery collision** stops players and vehicles, not projectiles.
 - **Approximations in the materials.** CE's noise, jitter and wander

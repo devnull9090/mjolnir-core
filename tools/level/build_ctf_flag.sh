@@ -36,7 +36,9 @@ out="${1:-$HCE_PAKS}"
 mjolnir="${MJOLNIR:-target/release/mjolnir}"
 stub_for() {
   local stub
-  stub=$(ls "$HCE_PAKS"/pakchunk997-MJOLNIRMAP-*_P.pak 2>/dev/null | head -1)
+  # None installed is fine (the stub only matters when $out is Paks); under
+  # pipefail a bare failing ls here ended the whole build.
+  stub=$(ls "$HCE_PAKS"/pakchunk997-MJOLNIRMAP-*_P.pak 2>/dev/null | head -1 || true)
   [ -n "$stub" ] && [ "$out" = "$HCE_PAKS" ] && cp -f "$stub" "$HCE_PAKS/$1_P.pak"
   return 0
 }

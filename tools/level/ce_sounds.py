@@ -27,11 +27,13 @@ joined into one file.
 
 Background sounds are the lsnd tags the BSP block references (it sits before
 the tag data). Sound scenery comes from the staging's placement.json
-(`kind: sound_scenery`, halo2ue).
+(`kind: sound_scenery`, halo2ue), and so do the looping sounds placed objects
+carry as attachments (an entry's `sounds`), each an emitter at its marker.
 
 Writes `<out>/sounds/*.wav|.ogg` and `<out>/sounds.json`.
 """
 import json
+import math
 import os
 import struct
 import sys
@@ -319,6 +321,19 @@ def extract_events(sounds_path, out):
     print(f"{len(sounds)} sound(s), {len(events)} event(s) -> {os.path.join(out, 'sounds.json')}, events.json")
 
 
+def object_rotation(yaw, pitch, roll):
+    """CE object rotation, row-major (as gen_ce_level.py has it)."""
+    cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch),
+                              math.cos(roll), math.sin(roll))
+    rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
+    ry = [[cp, 0, -sp], [0, 1, 0], [sp, 0, cp]]
+    rx = [[1, 0, 0], [0, cr, -sr], [0, sr, cr]]
+
+    def mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    return mul(mul(rz, ry), rx)
+
+
 def main():
     if len(sys.argv) == 4 and sys.argv[1] == "--events":
         return extract_events(sys.argv[2], sys.argv[3])
@@ -329,6 +344,18 @@ def main():
     placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
     emitters = [{"pos": e["pos"], "rot": e.get("rot", [0, 0, 0]), "sound": e.get("sound") or e["asset"]}
                 for e in placement["entries"] if e.get("kind") == "sound_scenery"]
+    # Looping sounds placed objects carry (halo2ue's `sounds`: the Covenant
+    # shield generator's and uplink's hum, the teleporters' loop, klaxons),
+    # at the attachment's marker.
+    for e in placement["entries"]:
+        if e.get("kind") == "sound_scenery":
+            continue
+        r = object_rotation(*(e.get("rot") or [0, 0, 0]))
+        for s in e.get("sounds") or []:
+            o = s.get("offset") or [0, 0, 0]
+            pos = [e["pos"][k] + sum(r[k][j] * o[j] for j in range(3)) for k in range(3)]
+            emitters.append({"pos": pos, "rot": e.get("rot", [0, 0, 0]), "sound": s["sound"],
+                             "attached_to": e.get("asset")})
     background = m.background_sounds()
 
     loops = {}

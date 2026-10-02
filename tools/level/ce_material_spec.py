@@ -101,6 +101,41 @@ def cook_chunk(code):
     return 10000 + int(code, 36)
 
 
+def model_shader(entry, s, texture):
+    """shader_model's own terms on the environment master (ModelShader): the
+    multipurpose map's masks (PC order: r auxiliary, g self-illumination,
+    b reflection, a change colour), the detail mask, "detail after
+    reflection" (flag bit 0), the object's change colour, the animated
+    self-illumination colour and the reflection's distance fade. The
+    reflection's tints and brightnesses come through the shared specular and
+    reflection fields."""
+    model = s.get("model") or {}
+    sc, vec = entry["scalars"], entry["vectors"]
+    sc["ModelShader"] = 1.0
+    multi = texture(model.get("multipurpose"))
+    if multi:
+        entry["textures"]["Multipurpose"] = multi
+        sc["HasMulti"] = 1.0
+    sc["DetailMask"] = float(model.get("detail_mask", 0))
+    sc["DetailAfter"] = 1.0 if s.get("shader_flags", 0) & 1 else 0.0
+    source = model.get("change_color_source", 0)
+    if 1 <= source <= 4:
+        sc["ModelCC"] = 1.0
+        # Columns 2-5 of the object lighting page hold change colours A-D.
+        sc["CCOffset"] = (1 + source) / 8.0
+    si = model.get("self_illum") or {}
+    lower, upper = si.get("lower") or [0, 0, 0], si.get("upper") or [0, 0, 0]
+    if multi and (any(lower) or any(upper)):
+        sc["HasModelSelfIllum"] = 1.0
+        vec["SelfOff1"] = list(lower) + [1.0]
+        vec["SelfOn1"] = list(upper) + [1.0]
+        vec["SelfAnim1"] = [si.get("function", 0), si.get("period", 1.0), 0.0, 0.0]
+    if model.get("reflection_cutoff"):
+        # World units to centimetres, as the master's pixel depth reads.
+        sc["ReflFalloff"] = model.get("reflection_falloff", 0.0) * 304.8
+        sc["ReflCutoff"] = model["reflection_cutoff"] * 304.8
+
+
 def main():
     args = sys.argv[1:]
     code = None
@@ -195,6 +230,13 @@ def main():
                 vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
             if blend == 7:
                 sc["Premultiply"] = 1.0
+            if not any(entry["textures"].get(f"Map{i}") for i in range(len(stages))):
+                # No bitmap on any stage (Danger Canyon's white_light: a null
+                # reference). CE draws nothing there; the master's default
+                # white map made it a solid white box. A zero tint adds
+                # nothing, and the additive master keeps it out of the alpha.
+                entry["parent"] = master("M_CE_TransparentAdd")
+                vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
         elif cls == "swat":
             # shader_transparent_water (M_CE_Water): the reflection cube seen
             # through rippling, view-tinted water. Its base map is a mask,
@@ -284,6 +326,12 @@ def main():
                 # A flat cube map, or a bumped type without a usable bump map.
                 flat = refl.get("type") == 1 or not maps["Bump"] or flags & 2
                 sc["ReflectFlat"] = 1.0 if flat else 0.0
+            if cls == "soso":
+                model_shader(entry, s, texture)
+        if halo.get("lightmap_index") == "objects":
+            # A placed object: its light, reflection tint and change colours
+            # are its block of the object lighting page (merge_ce_scene.py).
+            entry["scalars"]["ObjectPage"] = 1.0
         if not halo.get("sky"):
             # CE fogs the level, not its sky.
             entry["scalars"].update(fog.get("scalars", {}))
