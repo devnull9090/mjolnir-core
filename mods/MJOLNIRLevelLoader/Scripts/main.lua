@@ -1538,6 +1538,14 @@ local function multiplayerLevel(code)
     return nil
 end
 
+--- Game type by insertion point index. A converted map keeps one copy of its
+--- insertion point per slot (`level bake`, single_bsp), MJOLNIRLobby starts a
+--- game type at its slot's insertion point, and the host's travel carries
+--- the index to every fireteam client (`?InsertionPointIndex=1` is CTF), the
+--- one choice of the host's that reaches them. Keep in step with
+--- MJOLNIRLobby's GAME_TYPE_SLOTS.
+local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball" }
+
 local function loadMegaloSwitch()
     if not package or not package.loadlib then return end
     local dll = MOD_DIR .. "\\native\\mjolnir_map_registry.dll"
@@ -1621,7 +1629,10 @@ local function loadMegaloSwitch()
             -- this map; anything else (a client, or a travel back to the
             -- frontend, which names no scenario) decides here.
             if code and switched.code == code and os.clock() - switched.at < 60 then return end
-            switchFor(code, nil, "client travel")
+            -- The game type travels as the insertion point index: the lobby
+            -- starts game type N at insertion point N (GAME_TYPE_SLOTS).
+            local slot = tonumber(target:match("[?&]InsertionPointIndex=(%d+)") or "")
+            switchFor(code, slot and GAME_TYPE_SLOTS[slot], "client travel")
         end)
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"

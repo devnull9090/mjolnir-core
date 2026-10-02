@@ -45,13 +45,16 @@ local CAMPAIGN_MODE = 0      -- E_CampaignMode: the campaign's scenario list and
 local DIFFICULTY_NORMAL = 1
 
 -- The game types, in menu order. A mode is offered for a map when the map
--- lists it and its variant file is installed.
+-- lists it and its variant file is installed. `slot` is the insertion point
+-- a game of this type starts at: the host's travel carries the index to
+-- every fireteam client, whose loader reads the game type from it (keep in
+-- step with MJOLNIRLevelLoader's GAME_TYPE_SLOTS).
 local MODES = {
-    { id = "slayer", name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
-    { id = "team_slayer", name = "TEAM SLAYER", description = "Red against Blue. Kills score for your team." },
-    { id = "koth", name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
-    { id = "oddball", name = "ODDBALL", description = "Hold the skull to score." },
-    { id = "ctf", name = "CAPTURE THE FLAG", description = "Take the enemy flag to your base." },
+    { id = "slayer", slot = 0, name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
+    { id = "team_slayer", slot = 2, name = "TEAM SLAYER", description = "Red against Blue. Kills score for your team." },
+    { id = "koth", slot = 3, name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
+    { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
+    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", description = "Take the enemy flag to your base." },
 }
 
 local function readFile(path)
@@ -136,7 +139,7 @@ local function startGame(map, mode)
     if not UI.valid(setup) then return false, "no campaign setup" end
     helpers:SelectedMission(pc, setup, table_, row, pc, {})
     helpers:SelectedDifficulty(pc, setup, DIFFICULTY_NORMAL, pc)
-    helpers:SelectedInsertionPoint(pc, setup, 0, pc)
+    helpers:SelectedInsertionPoint(pc, setup, mode.slot or 0, pc)
     helpers:SetClientLobbyMission(table_, row, pc)
     helpers:SetClientLobbyDifficulty(DIFFICULTY_NORMAL, pc)
 

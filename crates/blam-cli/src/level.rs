@@ -619,6 +619,11 @@ fn block_count_at(file: &[u8], path: &str) -> Result<usize> {
 // Selftest: no-op resizes must be byte-exact on every shipped scenario
 // -----------------------------------------------------------------------------
 
+/// Insertion points a single-BSP scenario keeps, all copies of its first: one
+/// per game type MJOLNIRLobby can start (slot order in
+/// mods/MJOLNIRLevelLoader `GAME_TYPE_SLOTS`).
+const GAME_TYPE_SLOTS: usize = 8;
+
 /// Root blocks of placed objects, each element with an `object data`.
 const OBJECT_BLOCKS: [&str; 12] = [
     "scenery",
@@ -945,8 +950,13 @@ impl Baker {
             .collect();
         let dropped_starts = starts - own.len();
         select.push(("player starting locations".into(), own));
+        // The map's one insertion point, copied once per game type slot: the
+        // insertion point index is the one number the host's travel carries
+        // to fireteam clients (`?InsertionPointIndex=N`), so MJOLNIRLobby
+        // starts game type N at insertion point N and every machine's loader
+        // reads the game type from it (docs/multiplayer_menu.md).
         if block_count(&self.file, "insertion points")? > 0 {
-            select.push(("insertion points".into(), vec![0]));
+            select.push(("insertion points".into(), vec![0; GAME_TYPE_SLOTS]));
         }
         for path in ["structure designs", "soft ceilings"] {
             select.push((path.into(), Vec::new()));
