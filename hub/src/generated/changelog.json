@@ -76,6 +76,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.7.1",
+      "tag": "mods-v0.7.1",
+      "title": "Base beacons pulse again",
+      "date": "2026-10-02",
+      "summary": "The glowing beacons at the bases on Danger Canyon, Blood Gulch and the big outdoor maps pulse as they did in Halo: Combat Evolved instead of shining steadily.",
+      "body": "### Fixed\n\n- **MJOLNIRLevelLoader 0.1.1** animates the glow of lights that classic maps\n  drive with an object function: Danger Canyon's base beacons pulse once a\n  second again, as do the beacons on Blood Gulch, Sidewinder, Ice Fields,\n  Timberland, Death Island and Infinity. Install the updated maps from the\n  launcher's Multiplayer page to get it.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "MJOLNIRLevelLoader 0.1.1 animates the glow of lights that classic maps drive with an object function: Danger Canyon's base beacons pulse once a second again, as do the beacons on Blood Gulch, Sidewinder, Ice Fields, Timberland, Death Island and Infinity. Install the updated maps from the launcher's Multiplayer page to get it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.7.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.7.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.7.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.7.0",
       "tag": "mods-v0.7.0",
       "title": "Classic Halo CE multiplayer, in alpha",

@@ -228,7 +228,7 @@ def flare_decor(placement, texture_root, to_ue):
                     continue
                 s = round(radius_cm / SPHERE_RADIUS_CM, 4)
                 t = asset_name("T_", os.path.splitext(refl["bitmap"])[0])
-                out.append({
+                entry = {
                     "id": f"flare_{len(out)}",
                     "mesh": FLARE_MESH,
                     "pos": to_ue(pos),
@@ -240,7 +240,15 @@ def flare_decor(placement, texture_root, to_ue):
                         "vectors": {"Tint": [round(c, 4) for c in rgb] + [1.0]},
                         "scalars": {"Brightness": round(FLARE_GAIN * max(refl.get("brightness") or [1.0]), 4)},
                     }],
-                })
+                }
+                # The light scaled by an object function (the beacons' 1 s
+                # cosine): MJOLNIRLevelLoader scales the flare's brightness by
+                # the same periodic function every frame.
+                pulse = light.get("pulse")
+                if pulse and pulse.get("function", 0) >= 2 and pulse.get("period", 0) > 0:
+                    entry["pulse"] = {"param": "Brightness", "function": pulse["function"],
+                                      "period": pulse["period"]}
+                out.append(entry)
     return out
 
 

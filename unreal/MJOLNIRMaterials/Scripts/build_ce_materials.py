@@ -236,12 +236,16 @@ class Graph:
 # period), diagonal wave (and variable), slide (and variable), noise,
 # jitter, wander, spark. The variable-period forms use their nominal period,
 # and noise, jitter and wander a smooth value noise at different rates.
+# Spark rises over the first 15% of the period and decays over the rest:
+# a hard on/off blip made Gephyrophobia's energy ropes flash every 5 s where
+# CE's pulse (2026-10-02).
 WAVE = r"""
 #define CE_HASH(n) frac(sin(n) * 43758.5453)
 #define CE_VNOISE(x) lerp(CE_HASH(floor(x)), CE_HASH(floor(x) + 1.0), smoothstep(0.0, 1.0, frac(x)))
 #define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 - 0.5 * cos(6.2831853 * (x)) \
     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0) \
-    : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x) : (frac(x) < 0.1 ? 1.0 : 0.0))
+    : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x) \
+    : (frac(x) < 0.15 ? smoothstep(0.0, 0.15, frac(x)) : 1.0 - smoothstep(0.15, 1.0, frac(x))))
 #define CE_PHASE(anim, t) ((anim).y > 0.0 ? (t) / (anim).y + (anim).z : (anim).z)
 """
 

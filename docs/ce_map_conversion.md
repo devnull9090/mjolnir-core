@@ -473,7 +473,11 @@ seconds after the loading screen are dark.
 
 ## Limits
 
-- **Visuals.** No decals, lens flares or weather yet. Dynamic lights
+- **Visuals.** No decals or weather yet. A light a placed object carries
+  (the base beacons) is drawn as its lens flare only, never as a light, and
+  the flare's brightness follows the object function that scales the light
+  (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
+  every 40 ms). Dynamic lights
   (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
   lit by its lightmaps as in CE. Scenery takes the lightmap colour under its
   origin; CE's per-object directional terms are not reproduced. One converted

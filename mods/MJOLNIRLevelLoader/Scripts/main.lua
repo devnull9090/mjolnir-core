@@ -176,6 +176,9 @@ local Current = {
     -- Set once the game type has been announced (see playEvent).
     announced = false,
     fileMissing = false,
+    -- Decor whose material follows a CE periodic function (a beacon's flare
+    -- pulsing with its light): { mid, param, base, fn, period }.
+    pulses = {},
 }
 
 local function resetState()
@@ -193,6 +196,7 @@ local function resetState()
     Current.packDressed = false
     Current.tinted = {}
     Current.fileMissing = false
+    Current.pulses = {}
 end
 
 local function clearActors()
@@ -520,6 +524,18 @@ local function spawnDecorItem(world, origin, item)
         local nApplied, nFailed = applyMaterials(actor.StaticMeshComponent, item.materials, world, tostring(item.id))
         Log(string.format("decor '%s': %d material(s) applied, %d failed",
             tostring(item.id), nApplied, nFailed))
+        local pulse = item.pulse
+        if type(pulse) == "table" and type(pulse.param) == "string" then
+            local first = item.materials[1]
+            local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
+            local okM, mid = pcall(function() return actor.StaticMeshComponent:GetMaterial(0) end)
+            if okM and mid and mid:IsValid() and base then
+                Current.pulses[#Current.pulses + 1] = {
+                    mid = mid, param = FName(pulse.param), base = base,
+                    fn = pulse["function"] or 2, period = pulse.period or 1.0,
+                }
+            end
+        end
     end
     return actor
 end
@@ -1417,8 +1433,38 @@ local function every(ms, name, fn)
     ExecuteInGameThreadWithDelay(ms, run)
 end
 
+--- CE's periodic functions, 0..1, as the shaders evaluate them
+--- (build_ce_materials.py WAVE): one, zero, cosine, diagonal wave, slide,
+--- and a smooth stand-in for the noise family.
+local function ceWave(fn, x)
+    if fn < 0.5 then return 1.0 elseif fn < 1.5 then return 0.0
+    elseif fn < 3.5 then return 0.5 - 0.5 * math.cos(2 * math.pi * x)
+    elseif fn < 5.5 then return 1.0 - math.abs(2.0 * (x % 1.0) - 1.0)
+    elseif fn < 7.5 then return x % 1.0
+    end
+    return 0.5 + 0.5 * math.sin(2 * math.pi * x) * math.sin(5.1 * x)
+end
+
+local KismetSystem = nil
+
+--- Every pulsing decor material, at the game's time.
+local function updatePulses()
+    if #Current.pulses == 0 then return end
+    local world = getWorld()
+    if not world then return end
+    KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local t = KismetSystem:GetGameTimeInSeconds(world)
+    for _, p in ipairs(Current.pulses) do
+        if p.mid:IsValid() then
+            p.mid:SetScalarParameterValue(p.param, p.base * ceWave(p.fn, t / p.period))
+        end
+    end
+end
+
 local function watch()
     every(1500, "tick", tick)
+    -- A 1 s cosine needs ~25 updates a second to read as smooth.
+    every(40, "pulses", updatePulses)
     -- Event sounds wait at most a tenth of a second (respawn ticks are a
     -- second apart).
     every(100, "event sounds", drainEvents)
