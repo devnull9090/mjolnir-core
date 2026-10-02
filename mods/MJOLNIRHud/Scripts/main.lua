@@ -1,8 +1,9 @@
 -- MJOLNIR HUD
 --
 -- The multiplayer HUD for the classic CE maps MJOLNIRLevelLoader runs under
--- the simulation's Megalo engine: a kill feed, the respawn countdown, and a
--- scoreboard while Tab (or the gamepad's View button) is held.
+-- the simulation's Megalo engine: a kill feed, the respawn countdown, a
+-- scoreboard while Tab (or the gamepad's View button) is held, and name tags
+-- over teammates only (none in free for all).
 --
 -- The widgets are MJOLNIR's own, cooked into pakchunk984-MJOLNIRUI
 -- (unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py, docs/custom_ui.md):
@@ -290,8 +291,22 @@ HANDLERS.respawn_final_tick = function(inc)
     Match.dead = false
 end
 
+--- "EBlamMultiplayerTeam::Red" -> "Red", from a Spartan biped (as
+--- MJOLNIRLevelLoader colours armour).
+local function bipedTeam(actor)
+    local ok, team = pcall(function()
+        return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
+    end)
+    if ok then return team end
+    return nil
+end
+
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
+    -- The spawn names the player's new biped, which knows its team.
+    if type(inc.cause) == "number" and inc.cause >= 0 and inc.biped then
+        stats(inc.cause).team = bipedTeam(inc.biped) or stats(inc.cause).team
+    end
     refreshNames()
     boardDirty = true
 end
@@ -345,6 +360,9 @@ local function hookIncidents()
                     at = now(),
                 }
                 pcall(function() entry.modifier = i.DamageReportingInfo.Modifier end)
+                if entry.name == "player_spawn" then
+                    pcall(function() entry.biped = i.CauseObjectActor end)
+                end
                 pcall(function() entry.damage = i.DamageReportingInfo.Type.TagName:ToString() end)
                 Queue[#Queue + 1] = entry
             end)
@@ -467,6 +485,56 @@ end
 -- The poll
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- Name tags
+--------------------------------------------------------------------------------
+-- The co-op HUD draws every other fireteam member's name over their head
+-- (WBP_NavpointWidgetPlayer_C; PlayerNameValue is the name), enemies
+-- included. Free for all: no tags. Team games: teammates only, as in Halo.
+-- Collapsing a tag sticks; the widget does not show itself again. New tags
+-- are caught as they are made, and a sweep each second covers the rest
+-- (and a tag whose name or team was not known yet).
+
+local NAVPOINT_CLASS = "/Game/UI/Hud/Navpoints/WBP_NavpointWidgetPlayer.WBP_NavpointWidgetPlayer_C"
+local NAVPOINT_SHOWN = 4 -- SelfHitTestInvisible, as the HUD makes it
+local nextTagSweep = 0
+local tagWatch = false
+
+local function teamOfName(name)
+    for _, p in pairs(Match.players) do
+        if p.name == name then return p.team end
+    end
+    return nil
+end
+
+local function applyTag(tag)
+    if not Match then return end
+    local show = false
+    if Match.mode.teams then
+        local okN, name = pcall(function() return tag.PlayerNameValue:GetText():ToString() end)
+        local mine = Match.players[LOCAL_PLAYER] and Match.players[LOCAL_PLAYER].team
+        show = okN and mine ~= nil and teamOfName(name) == mine
+    end
+    pcall(function() tag:SetVisibility(show and NAVPOINT_SHOWN or COLLAPSED) end)
+end
+
+local function sweepTags()
+    if now() < nextTagSweep then return end
+    nextTagSweep = now() + 1
+    for _, tag in ipairs(FindAllOf("WBP_NavpointWidgetPlayer_C") or {}) do
+        if tag:IsValid() then applyTag(tag) end
+    end
+    if not tagWatch then
+        tagWatch = pcall(function()
+            NotifyOnNewObject(NAVPOINT_CLASS, function(tag)
+                ExecuteInGameThreadWithDelay(50, function()
+                    if tag:IsValid() then applyTag(tag) end
+                end)
+            end)
+        end)
+    end
+end
+
 local function startMatch(running, world)
     Match = {
         code = running.code,
@@ -535,6 +603,7 @@ local function tick()
     ensureWidgets()
     refreshLocalPlayer()
     drain()
+    sweepTags()
     drawFeed()
     local held = boardHeld(pc)
     if held ~= boardShown then
