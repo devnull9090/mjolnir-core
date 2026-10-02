@@ -15,6 +15,7 @@ It answers, in order:
    the main menu and the second player is out of the fireteam. Which way of
    ending a game causes it ([re/megalo_engine.md](re/megalo_engine.md),
    "Rounds, the end of a game, and the next map")?
+4. Does the post-game screen and vote work across the fireteam?
 
 ## Setup
 
@@ -123,3 +124,30 @@ restarts the game.
 | A keeps PC 2 | The return to the menu is harmless. The post-game screen and vote can live on the frontend, and START GAME carries on |
 | A drops PC 2, and B or C keeps it | The end-of-game return leaves the session. End games ourselves through the path that keeps it |
 | All three drop PC 2 | Any return to the menu breaks the fireteam. The next map has to start from inside the match (today that starts no game, see the Megalo notes) |
+
+## Phase 4: the post-game screen and the vote
+
+Phase 3 found the kick (the game's own return) and the fix (a seamless
+return). Phase 4 tests the whole flow built on it
+([multiplayer_postgame.md](multiplayer_postgame.md)). The bundle's Slayer
+ends at **3 kills**, and its CTF at **1 capture**; both have 31 rounds, so
+the game never ends on its own.
+
+1. **Both:** PC 2 joins PC 1's fireteam. Once PC 1 opens MULTIPLAYER, PC 2
+   should show our lobby (the host's map and game type, no START GAME)
+   instead of CLIENT LOBBY.
+2. **PC 1:** start Blood Gulch, Slayer.
+3. **Play to 3 kills.** **Expect on both:** the final standings with the
+   winner, "RETURNING TO THE LOBBY", and about 7 s later both on the
+   POST-GAME screen with the same four options.
+4. **PC 2:** vote for an option. **Expect:** its count goes up on both
+   screens, and the footer reads "1 OF 2 VOTED".
+5. **PC 1:** vote, or press START NOW. **Expect:** both screens show
+   "NEXT / <map / game type>", and a moment later both travel into it.
+6. **Once more:** play to 3 kills, and on the post-game screen PC 1 presses
+   LOBBY. **Expect:** the vote closes on both, PC 1 is in the lobby, and PC 2
+   is back in our lobby view.
+
+**Record:** where it stops, and both UE4SS.logs. The lines to look for are
+`[MJOLNIR Hud] round over`, `final standings shown`,
+`[MJOLNIR Lobby] post-game: ...` and `fireteam: ...`.

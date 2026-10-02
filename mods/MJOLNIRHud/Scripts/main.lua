@@ -42,6 +42,14 @@ local BOARD_CLASS = UI_ROOT .. "WBP_MJOLNIRScoreboard.WBP_MJOLNIRScoreboard_C"
 local INCIDENT_EVENT = "/Game/Blueprints/BPC_MeteoriteIncidentHandlerComponent.BPC_MeteoriteIncidentHandlerComponent_C:OnIncident_Event"
 
 local POLL_MS = 100
+--- The end of a match: the final standings stay up this long before the host
+--- takes the fireteam back to the lobby (docs/multiplayer_postgame.md).
+local FINAL_SECONDS = 7
+--- The menu, reached by a seamless server travel: the fireteam clients follow
+--- the host still connected. The game's own return at a game's end sends
+--- each client to its own menu, out of the fireteam.
+local LOBBY_TRAVEL = "servertravel /Game/Levels/UI/Frontend/Frontend"
+local RESULTS_FILE = MOD_DIR .. "\\last_match.txt"
 local FEED_LINES = 6     -- WBP_MJOLNIRKillFeed's Line0..Line5
 local SCORE_ROWS = 19    -- 16 players plus Red, Blue and unassigned headings
 local FEED_SECONDS = 6
@@ -346,19 +354,38 @@ end
 
 HANDLERS.player_rejoined = HANDLERS.player_joined
 
---- The end of a round, and of the game: logged with every player's tally so
---- the post-game screen has a record to compare against.
-local function logEnd(what)
+--- The end of the match. MJOLNIR's variants give a match one round of 31,
+--- so the first `round_over` is the end (the game would reset the round in
+--- place). `game_over` comes from a variant of one round, whose end the game
+--- would follow with its own return to the menu: the host travels at once to
+--- beat it. Either way every machine freezes its tallies, shows the final
+--- standings and writes them for the post-game screen; the host then takes
+--- the fireteam back to the lobby with a seamless travel.
+local function finishMatch(how)
+    if Match.over then return end
+    refreshNames()
     local parts = {}
     for index, p in pairs(Match.players) do
         parts[#parts + 1] = string.format("%s %d/%d", tostring(nameOf(index) or index), p.kills, p.deaths)
     end
     table.sort(parts)
-    Log(what .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
+    Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
+    Match.over = { at = now(), winner = Scoreboard.winner(Match) }
+    local f = io.open(RESULTS_FILE, "w")
+    if f then
+        f:write(Scoreboard.results(Match, LOCAL_PLAYER, os.time()))
+        f:close()
+    end
+    local host = false
+    pcall(function() host = playerController():GetWorld().AuthorityGameMode:IsValid() end)
+    if host then
+        Match.travelAt = now() + (how == "game over" and 0 or FINAL_SECONDS)
+    end
+    boardDirty = true
 end
 
-HANDLERS.round_over = function() logEnd("round over") end
-HANDLERS.game_over = function() logEnd("game over") end
+HANDLERS.round_over = function() finishMatch("round over") end
+HANDLERS.game_over = function() finishMatch("game over") end
 
 HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
@@ -406,7 +433,9 @@ local function drain()
     local queued = Queue
     Queue = {}
     for _, inc in ipairs(queued) do
-        local handler = Match and HANDLERS[inc.name]
+        -- After the end the tallies are final: the round the game resets in
+        -- place behind the standings must not score.
+        local handler = Match and not Match.over and HANDLERS[inc.name]
         if handler then
             for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
                 local index, biped = actor[1], actor[2]
@@ -503,9 +532,17 @@ end
 local function drawBoard()
     if not (Board and Board:IsValid()) then return end
     local mode = Match.mode
-    setText(Board.Title, mode.title)
-    setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
-        string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
+    if Match.over then
+        -- The final standings: who won, over the game type and map.
+        setText(Board.BoardLabel, "MULTIPLAYER  /  FINAL STANDINGS")
+        setText(Board.Title, Match.over.winner)
+        setText(Board.Subtitle, mode.title .. "   /   " .. string.upper(Match.title or Match.code))
+        setText(Board.BoardHint, "RETURNING TO THE LOBBY")
+    else
+        setText(Board.Title, mode.title)
+        setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
+            string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
+    end
     setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or "SCORE")
     refreshNames()
     local totals = Scoreboard.totals(Match)
@@ -675,7 +712,14 @@ local function tick()
     drain()
     sweepTags()
     drawFeed()
-    local held = boardHeld(pc)
+    local held = boardHeld(pc) or Match.over ~= nil
+    if Match.travelAt and now() >= Match.travelAt then
+        Match.travelAt = nil
+        Log("final standings shown: taking the fireteam back to the lobby")
+        pcall(function()
+            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):ExecuteConsoleCommand(world, LOBBY_TRAVEL, pc)
+        end)
+    end
     if held ~= boardShown then
         boardShown = held
         if held then boardDirty = true end

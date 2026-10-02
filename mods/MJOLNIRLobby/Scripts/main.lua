@@ -36,6 +36,7 @@ end
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
+local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
 
@@ -365,7 +366,11 @@ local function drawLobby()
     setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
     setText(Lobby.MatchFormat, teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
     setText(Lobby.TeamHint, teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
-    pcall(function() Lobby.Start:SetIsEnabled(map ~= nil and mode ~= nil) end)
+    -- A fireteam client sees the host's choice; only the host changes it or
+    -- starts the game.
+    local host = Net.isHost()
+    pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
+    for _, key in ipairs({ "Start", "ChangeMap", "GameType" }) do setShown(Lobby[key], host) end
     for _, group in ipairs({ "FFA", "Red", "Blue", "Unassigned" }) do
         local members = {}
         for _, player in ipairs(roster) do
@@ -461,14 +466,16 @@ end
 local LOBBY_EVENTS = {
     invite = openFriends,
     start = function()
-        if not (Game.map and Game.mode) then return end
+        if not (Game.map and Game.mode and Net.isHost()) then return end
         setText(Lobby.Status, "Starting " .. titleOf(Game.map) .. " - " .. Game.mode.name .. "...")
         local ok, err = startGame(Game.map, Game.mode)
         if not ok then setText(Lobby.Status, "Could not start: " .. tostring(err)) end
     end,
-    changemap = openMapSelect,
+    changemap = function()
+        if Net.isHost() then openMapSelect() end
+    end,
     gametype = function()
-        if not Game.map then return end
+        if not (Game.map and Net.isHost()) then return end
         local modes = modesFor(Game.map)
         if #modes == 0 then return end
         local next_ = 1
@@ -552,10 +559,17 @@ end
 local function adoptLobby(screen)
     if not UI.valid(screen) then return end
     Lobby = screen
-    if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
-    setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
+    local host = Net.isHost()
+    if host then
+        if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
+        setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
+    else
+        -- A fireteam client: the host's map and game type arrive as
+        -- "lobby" messages (After a match, below).
+        setText(Lobby.Status, "THE HOST PICKS THE MAP AND GAME TYPE   /   THE GAME STARTS WHEN THE HOST IS READY")
+    end
     drawLobby()
-    pcall(function() Lobby.Start:SetFocus() end)
+    pcall(function() (host and Lobby.Start or Lobby.Invite):SetFocus() end)
 end
 
 --- MULTIPLAYER from script (the console command, the injected fallback
@@ -661,6 +675,508 @@ local function injectMainMenu()
     log("MULTIPLAYER added to the main menu (injected: pakchunk985-MJOLNIRMENU is not installed)")
 end
 
+-------------------------------------------------------------------------------
+-- After a match: the post-game screen and the vote
+-------------------------------------------------------------------------------
+--
+-- At a match's end MJOLNIRHud writes the final standings (its
+-- last_match.txt) and the host travels back to the frontend seamlessly, so
+-- the fireteam arrives still connected (docs/multiplayer_postgame.md). The
+-- host then opens WBP_MJOLNIRPostGame and starts a vote on the next game:
+-- the same game again and up to three others. Every member votes on its own
+-- copy of the screen, through Scripts/net.lua:
+--
+--   host -> clients  vote|<id>|<seconds left>|<options>|<counts>|<chosen>,
+--                    the whole vote, each second; cancel|<id>;
+--                    lobby|<code>|<mode>, the lobby's map and game type
+--   client -> host   ballot|<id>|<option>
+--
+-- When the time runs out, or the host presses START NOW, the host starts the
+-- leading game exactly as START GAME would, and the fireteam follows it into
+-- the map. LOBBY (or Back) ends the vote and opens the lobby to pick by hand.
+-- Each machine shows its own standings: every one counted the same
+-- incidents.
+
+local POSTGAME_CLASS = UI_ROOT .. "WBP_MJOLNIRPostGame.WBP_MJOLNIRPostGame_C"
+local RESULTS = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRHud\\last_match.txt"
+local VOTE_OPTIONS = 4
+local RESULT_ROWS = 18
+local VOTE_SECONDS = 20
+local RESULTS_FRESH = 180   -- seconds; older standings are a previous session's
+local GOLD = { R = 1.0, G = 0.80, B = 0.35, A = 1 }
+local TEAM_TINT = {
+    Red = { R = 1, G = 0.32, B = 0.28, A = 1 },
+    Blue = { R = 0.3, G = 0.65, B = 1, A = 1 },
+    Unassigned = { R = 0.5, G = 0.66, B = 0.74, A = 1 },
+}
+
+--- { screen, results, vote = { id, options, ballots, counts, mine, chosen,
+--- left, endsAt, host }, dismissed = vote id }, or nil.
+local Post = nil
+local seenResults = nil
+local postHooked = false
+local nextVoteBroadcast = 0
+local clientLobby = { pushed = false, dismissed = false }
+
+local function inFrontend()
+    local ok, name = pcall(function() return UI.playerController():GetWorld():GetFName():ToString() end)
+    return ok and name == "Frontend"
+end
+
+local function localName()
+    local ok, name = pcall(function() return UI.playerController().PlayerState:GetPlayerName():ToString() end)
+    return ok and name or nil
+end
+
+local function mapByCode(code)
+    for _, map in ipairs(installedMaps()) do
+        if map.code == code then return map end
+    end
+    return nil
+end
+
+local function modeById(map, id)
+    for _, mode in ipairs(map and modesFor(map) or {}) do
+        if mode.id == id then return mode end
+    end
+    return nil
+end
+
+--- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
+--- endedAt, teams = { {team, total} }, players = { {name, score, kills,
+--- deaths, team, you} } } in standing order (scoreboard.lua, Board.results).
+local function readResults()
+    local raw = readFile(RESULTS)
+    if not raw then return nil end
+    local r = { teams = {}, players = {} }
+    for line in raw:gmatch("[^\r\n]+") do
+        local f = {}
+        for value in (line .. "\t"):gmatch("([^\t]*)\t") do f[#f + 1] = value end
+        if f[1] == "match" then
+            r.code, r.variant, r.title, r.modeTitle, r.winner = f[2], f[3], f[4], f[5], f[6]
+            r.endedAt = tonumber(f[7])
+        elseif f[1] == "team" then
+            r.teams[#r.teams + 1] = { team = f[2], total = tonumber(f[3]) or 0 }
+        elseif f[1] == "player" then
+            r.players[#r.players + 1] = { name = f[2], score = f[3], kills = f[4], deaths = f[5],
+                team = f[6] ~= "-" and f[6] or nil, you = f[7] == "1" }
+        end
+    end
+    return r.code and r or nil
+end
+
+--- The vote's options: the game just played, then other maps in a random
+--- order (with the same game type where the map has it), then the played
+--- map's other game types.
+local function voteOptions(results)
+    local options, seen = {}, {}
+    local function add(map, mode, again)
+        if not (map and mode) or #options >= VOTE_OPTIONS then return end
+        local key = map.code .. ":" .. mode.id
+        if seen[key] then return end
+        seen[key] = true
+        options[#options + 1] = { code = map.code, mode = mode.id, again = again }
+    end
+    local last = results and mapByCode(results.code)
+    add(last, last and modeById(last, results.variant), true)
+    local others = {}
+    for _, map in ipairs(installedMaps()) do
+        if not last or map.code ~= last.code then others[#others + 1] = map end
+    end
+    for i = #others, 2, -1 do
+        local j = math.random(i)
+        others[i], others[j] = others[j], others[i]
+    end
+    for _, map in ipairs(others) do
+        add(map, modeById(map, results and results.variant) or modesFor(map)[1])
+    end
+    for _, mode in ipairs(last and modesFor(last) or {}) do add(last, mode) end
+    return options
+end
+
+local function encodeOptions(options)
+    local parts = {}
+    for _, o in ipairs(options) do parts[#parts + 1] = o.code .. ":" .. o.mode .. ":" .. (o.again and "1" or "0") end
+    return table.concat(parts, ";")
+end
+
+local function decodeOptions(text)
+    local options = {}
+    for code, mode, again in (text or ""):gmatch("([%w_]+):([%w_]+):([01])") do
+        options[#options + 1] = { code = code, mode = mode, again = again == "1" }
+    end
+    return options
+end
+
+local function optionLabel(o)
+    local map = mapByCode(o.code)
+    local mode = modeById(map, o.mode)
+    local label = (map and titleOf(map) or o.code) .. "  /  " .. (mode and mode.name or string.upper(o.mode))
+    return o.again and ("AGAIN  /  " .. label) or label
+end
+
+local function counts(v)
+    if v.counts then return v.counts end
+    local n = {}
+    for i = 1, #v.options do n[i] = 0 end
+    for _, choice in pairs(v.ballots or {}) do
+        if n[choice] then n[choice] = n[choice] + 1 end
+    end
+    return n
+end
+
+local function broadcastVote()
+    local v = Post and Post.vote
+    if not (v and v.host) then return end
+    Net.toClients("vote", v.id, math.max(0, math.ceil(v.left or 0)), encodeOptions(v.options),
+        table.concat(counts(v), ","), v.chosen or "")
+end
+
+local function drawResults()
+    local s, r = Post.screen, Post.results
+    if not r then
+        setText(s.Winner, "MATCH OVER")
+        setText(s.Summary, "")
+        for i = 0, RESULT_ROWS - 1 do setShown(s["Row" .. i], false) end
+        return
+    end
+    setText(s.Winner, r.winner or "")
+    local summary = (r.modeTitle or "") .. "   /   " .. string.upper(r.title or r.code or "")
+    if #r.teams > 0 then
+        local totals = {}
+        for _, t in ipairs(r.teams) do totals[#totals + 1] = string.upper(t.team) .. " " .. tostring(t.total) end
+        summary = summary .. "   /   " .. table.concat(totals, "  -  ")
+    end
+    setText(s.Summary, summary)
+    setText(s.ScoreH, r.variant == "ctf" and "CAPTURES" or "SCORE")
+    local rows = {}
+    if #r.teams > 0 then
+        local groups = {}
+        for _, t in ipairs(r.teams) do groups[#groups + 1] = { team = t.team, total = t.total } end
+        groups[#groups + 1] = { team = "Unassigned" }
+        for _, g in ipairs(groups) do
+            local members = {}
+            for _, p in ipairs(r.players) do
+                if (p.team or "Unassigned") == g.team then members[#members + 1] = p end
+            end
+            if g.team ~= "Unassigned" or #members > 0 then
+                rows[#rows + 1] = { team = g.team, total = g.total, count = #members }
+                for _, p in ipairs(members) do rows[#rows + 1] = { player = p, team = g.team } end
+            end
+        end
+    else
+        for _, p in ipairs(r.players) do rows[#rows + 1] = { player = p } end
+    end
+    for i = 0, RESULT_ROWS - 1 do
+        local entry, row = rows[i + 1], s["Row" .. i]
+        setShown(row, entry ~= nil)
+        if entry then
+            local p = entry.player
+            local tint = entry.team and entry.team ~= "Unassigned" and TEAM_TINT[entry.team] or nil
+            local heading = (entry.team == "Unassigned" and "AWAITING ASSIGNMENT" or
+                string.upper(entry.team or "") .. " TEAM") .. "  /  " .. tostring(entry.count)
+            setText(s["Name" .. i], p and p.name or heading)
+            setText(s["Marker" .. i], p and p.you and "YOU" or "")
+            setText(s["Score" .. i], p and p.score or (entry.total and tostring(entry.total) or ""))
+            setText(s["Kills" .. i], p and p.kills or "")
+            setText(s["Deaths" .. i], p and p.deaths or "")
+            local color
+            if not p then
+                local t = TEAM_TINT[entry.team] or TEAM_TINT.Unassigned
+                color = { R = t.R, G = t.G, B = t.B, A = 0.24 }
+            elseif tint then
+                color = { R = tint.R, G = tint.G, B = tint.B, A = p.you and 0.20 or 0.06 }
+            elseif p.you then
+                color = { R = 1.0, G = 0.85, B = 0.35, A = 0.18 }
+            else
+                color = { R = 1, G = 1, B = 1, A = (i % 2 == 0) and 0.06 or 0.02 }
+            end
+            pcall(function()
+                row:SetBrushColor(color)
+                row.Slot:SetPadding({ Left = 0, Top = p and 2 or 12, Right = 0, Bottom = 0 })
+                s["Stripe" .. i]:SetBrushColor(tint or (not p and TEAM_TINT[entry.team]) or
+                    (p and p.you and GOLD) or { R = 1, G = 1, B = 1, A = 0.06 })
+                s["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = (not p and (TEAM_TINT[entry.team] or WHITE)) or WHITE,
+                    ColorUseRule = 0 })
+            end)
+        end
+    end
+end
+
+local function drawVote()
+    local s, v = Post.screen, Post.vote
+    local host = Net.isHost()
+    setShown(s.Start, host)
+    setShown(s.Lobby, host)
+    if not v then
+        setText(s.VoteTimer, host and "NO OTHER GAMES INSTALLED" or "WAITING FOR THE HOST")
+        for i = 0, VOTE_OPTIONS - 1 do setShown(s["VoteRow" .. i], false) end
+        setText(s.VoteHint, "")
+        return
+    end
+    local n = counts(v)
+    local voted = 0
+    for i = 0, VOTE_OPTIONS - 1 do
+        local o = v.options[i + 1]
+        setShown(s["VoteRow" .. i], o ~= nil)
+        if o then
+            voted = voted + (n[i + 1] or 0)
+            setText(s["Vote" .. i .. "Label"], optionLabel(o))
+            setText(s["VoteCount" .. i], (n[i + 1] or 0) > 0 and tostring(n[i + 1]) or "")
+            local mine, chosen = v.mine == i + 1, v.chosen == i + 1
+            pcall(function()
+                s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
+                s["Vote" .. i .. "Label"]:SetColorAndOpacity({
+                    SpecifiedColor = chosen and GOLD or (mine and ACCENT or WHITE), ColorUseRule = 0 })
+                s["Vote" .. i]:SetIsEnabled(v.chosen == nil)
+            end)
+        end
+    end
+    if v.chosen and v.options[v.chosen] then
+        setText(s.VoteTimer, "NEXT  /  " .. optionLabel(v.options[v.chosen]))
+    else
+        setText(s.VoteTimer, string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0))))
+    end
+    setText(s.VoteHint, host and
+        "Everyone in the fireteam votes. START NOW plays the leading game; LOBBY ends the vote so you can pick by hand." or
+        "Vote for the next game. The host starts it when voting ends.")
+    pcall(function()
+        s.Start:SetIsEnabled(v.chosen == nil)
+        s.Lobby:SetIsEnabled(v.chosen == nil)
+    end)
+    local players = math.max(#rosterPlayers(), voted)
+    setText(s.Status, v.chosen and "STARTING THE NEXT GAME   /   THE FIRETEAM TRAVELS TOGETHER" or
+        string.format("%d OF %d VOTED", voted, players))
+end
+
+local function drawPostGame()
+    if not (Post and alive(Post.screen)) then return end
+    drawResults()
+    drawVote()
+end
+
+local function hookPostGame()
+    if postHooked then return true end
+    postHooked = pcall(function()
+        RegisterHook(POSTGAME_CLASS .. ":MJ_Event", function(_, name)
+            local okE, event = pcall(function() return name:get():ToString() end)
+            if not okE then return end
+            ExecuteInGameThread(function()
+                local okH, err = pcall(function()
+                    local v = Post and Post.vote
+                    local index = tonumber(event:match("^vote:(%d+)$") or "")
+                    if index and v and not v.chosen and v.options[index + 1] then
+                        v.mine = index + 1
+                        Net.toHost("ballot", v.id, index + 1)
+                        drawPostGame()
+                    elseif event == "start" and v and v.host then
+                        v.left = 0
+                        v.endsAt = os.clock()
+                    elseif event == "lobby" and Net.isHost() then
+                        Post.cancel = true
+                    end
+                end)
+                if not okH then log("post-game event " .. event .. ": " .. tostring(err)) end
+            end)
+        end)
+    end)
+    return postHooked
+end
+
+local function openPostGame()
+    if alive(Post.screen) then return Post.screen end
+    if not hookPostGame() then return nil end
+    Post.screen = pushScreen(POSTGAME_CLASS)
+    if not Post.screen then
+        log("post-game: could not push " .. POSTGAME_CLASS)
+        return nil
+    end
+    pcall(function() Post.screen.Vote0:SetFocus() end)
+    drawPostGame()
+    return Post.screen
+end
+
+local function closePostGame()
+    if Post and alive(Post.screen) then
+        pcall(function() Post.screen:DeactivateWidget() end)
+    end
+end
+
+--- The host: the vote's end. The most votes wins, the earlier option on a
+--- tie; with no votes at all the rotation moves on to the second option.
+local function decide()
+    local v = Post.vote
+    if v.chosen then return end
+    local pick, best = nil, 0
+    for i, c in ipairs(counts(v)) do
+        if c > best then pick, best = i, c end
+    end
+    pick = pick or (v.options[2] and 2 or 1)
+    v.chosen = pick
+    broadcastVote()
+    drawPostGame()
+    local o = v.options[pick]
+    local map = mapByCode(o.code)
+    local mode = modeById(map, o.mode)
+    if not (map and mode) then
+        log("post-game: " .. tostring(o.code) .. " / " .. tostring(o.mode) .. " is not installed")
+        return
+    end
+    Game.map, Game.mode = map, mode
+    saveGame()
+    log(string.format("post-game: the fireteam voted for %s (%s)", map.code, mode.id))
+    -- A moment for the outcome to reach every screen before the countdown.
+    ExecuteInGameThreadWithDelay(1500, function()
+        local ok, err = startGame(map, mode)
+        if not ok and Post and alive(Post.screen) then setText(Post.screen.Status, "Could not start: " .. tostring(err)) end
+    end)
+end
+
+--- The host, back from a match with fresh standings: the post-game screen
+--- and a new vote.
+local function hostPostGame()
+    if Post or not inFrontend() or not Net.isHost() then return end
+    local r = readResults()
+    if not r or r.endedAt == seenResults or os.time() - (r.endedAt or 0) > RESULTS_FRESH then return end
+    if not UI.valid(liveMainMenu()) then return end
+    seenResults = r.endedAt
+    if not loadClass(POSTGAME_CLASS) then
+        log("post-game screen not installed (an older pakchunk984-MJOLNIRUI): the lobby instead")
+        openLobby()
+        return
+    end
+    Post = { results = r }
+    local options = voteOptions(r)
+    if #options > 0 then
+        Post.vote = { id = tostring(r.endedAt) .. "-" .. tostring(math.random(1000, 9999)), options = options,
+            ballots = {}, host = true, left = VOTE_SECONDS, endsAt = os.clock() + VOTE_SECONDS }
+    end
+    if not openPostGame() then
+        Post = nil
+        openLobby()
+        return
+    end
+    broadcastVote()
+    log(string.format("post-game: %s, %d option(s) to vote on", tostring(r.winner), #options))
+end
+
+--- Every 250 ms: the host's vote clock and broadcasts, and the end of the
+--- post-game when its screen goes away or the world changes.
+local function postTick()
+    if not Post then return end
+    if not inFrontend() then
+        Post = nil
+        return
+    end
+    local v = Post.vote
+    if v and v.host then
+        if Post.cancel or (not alive(Post.screen) and not v.chosen) then
+            -- LOBBY, or Back: no vote; the lobby to pick by hand.
+            Net.toClients("cancel", v.id)
+            closePostGame()
+            Post = { dismissed = v.id }
+            openLobby()
+            return
+        end
+        if not v.chosen then
+            v.left = v.endsAt - os.clock()
+            if v.left <= 0 then decide() end
+        end
+        if os.clock() >= nextVoteBroadcast then
+            nextVoteBroadcast = os.clock() + 1
+            broadcastVote()
+        end
+    elseif Post.screen and not alive(Post.screen) then
+        -- A client left the screen with Back: leave it closed for this vote.
+        Post.dismissed = v and v.id or Post.dismissed
+        Post.screen = nil
+    end
+    drawPostGame()
+end
+
+Net.on("ballot", function(f, sender)
+    local v = Post and Post.vote
+    local choice = tonumber(f[2] or "")
+    if not (v and v.host and v.id == f[1] and not v.chosen and choice and v.options[choice]) then return end
+    v.ballots[sender or "?"] = choice
+    if sender == localName() then v.mine = choice end
+    broadcastVote()
+    drawPostGame()
+end)
+
+Net.on("vote", function(f)
+    if Net.isHost() or not inFrontend() then return end
+    local id = f[1]
+    if Post and Post.dismissed == id then return end
+    Post = Post or {}
+    if not (Post.vote and Post.vote.id == id) then
+        local r = readResults()
+        Post.results = r and os.time() - (r.endedAt or 0) <= RESULTS_FRESH and r or nil
+        Post.vote = { id = id }
+    end
+    local v = Post.vote
+    v.left = tonumber(f[2] or "") or 0
+    v.options = decodeOptions(f[3])
+    local n = {}
+    for c in (f[4] or ""):gmatch("(%d+)") do n[#n + 1] = tonumber(c) end
+    v.counts = n
+    v.chosen = tonumber(f[5] or "")
+    if not alive(Post.screen) then openPostGame() end
+    drawPostGame()
+end)
+
+Net.on("cancel", function(f)
+    if Net.isHost() or not (Post and Post.vote and Post.vote.id == f[1]) then return end
+    closePostGame()
+    Post = { dismissed = f[1] }
+    clientLobby.dismissed = false
+end)
+
+--- A fireteam client, while the host is in our lobby: our lobby in place of
+--- the game's CLIENT LOBBY, showing the host's map and game type.
+Net.on("lobby", function(f)
+    if Net.isHost() or not inFrontend() then return end
+    local map = mapByCode(f[1]) or { code = f[1], title = f[1], description = "This map is not installed on this PC." }
+    local mode = modeById(map, f[2])
+    if not mode then
+        for _, m in ipairs(MODES) do
+            if m.id == f[2] then mode = m end
+        end
+    end
+    Game.map, Game.mode = map, mode
+    if Post and alive(Post.screen) then return end
+    if alive(Lobby) then
+        drawLobby()
+        return
+    end
+    if clientLobby.pushed then
+        -- Our lobby was up and is gone: the client left it with Back.
+        clientLobby.pushed, clientLobby.dismissed = false, true
+    end
+    if clientLobby.dismissed or not ourScreens() then return end
+    local screen = pushScreen(LOBBY_CLASS)
+    if screen then
+        clientLobby.pushed = true
+        adoptLobby(screen)
+    end
+end)
+
+--- The host: the lobby's map and game type to the fireteam, while the lobby
+--- is up.
+local function broadcastLobby()
+    if not (alive(Lobby) and Game.map and Game.mode and inFrontend() and Net.isHost()) then return end
+    Net.toClients("lobby", Game.map.code, Game.mode.id)
+end
+
+local function watchPostGame()
+    local function poll()
+        local ok, err = pcall(postTick)
+        if not ok then log("post-game: " .. tostring(err)) end
+        ExecuteInGameThreadWithDelay(250, poll)
+    end
+    ExecuteInGameThreadWithDelay(250, poll)
+end
+
 --- The fireteam as the squad panel sees it, and the world, logged whenever
 --- either changes: the record of what a match end does to a fireteam
 --- (docs/two_pc_test.md, Phase 3).
@@ -701,6 +1217,8 @@ local function watchMainMenu()
         local ok, err = pcall(function()
             refreshLobby()
             pcall(watchFireteam)
+            pcall(hostPostGame)
+            pcall(broadcastLobby)
             local menu = liveMainMenu()
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
@@ -730,7 +1248,10 @@ end
 local function initialize()
     UI.init(MOD_DIR)
     watchNewLobbies()
+    Net.hook()
+    math.randomseed(os.time())
     watchMainMenu()
+    watchPostGame()
     RegisterConsoleCommandHandler("mjolnir_lobby", function()
         openLobby()
         return true

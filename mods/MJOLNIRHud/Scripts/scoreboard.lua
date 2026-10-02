@@ -80,4 +80,49 @@ function Board.rows(players, mode, totals)
     return rows
 end
 
+--- Who won: "RED TEAM WINS", "<name> WINS", or "DRAW" when the lead is
+--- shared (or nobody scored).
+function Board.winner(match)
+    if match.mode.teams then
+        local totals = Board.totals(match)
+        if totals.Red == totals.Blue then return "DRAW" end
+        return (totals.Red > totals.Blue and "RED" or "BLUE") .. " TEAM WINS"
+    end
+    local rows = Board.rows(match.players, match.mode)
+    local first, second = rows[1] and rows[1].player, rows[2] and rows[2].player
+    if not first or Board.score(first, match.mode) == 0 then return "DRAW" end
+    if second and Board.score(second, match.mode) == Board.score(first, match.mode) then return "DRAW" end
+    return string.upper(first.name or ("Player " .. tostring(first.index + 1))) .. " WINS"
+end
+
+local function field(value)
+    return (tostring(value == nil and "" or value):gsub("[\t\r\n]", " "))
+end
+
+--- The finished match as tab-separated lines, for the post-game screen on
+--- the menu (MJOLNIRLobby reads them back):
+---   match  <code> <variant> <title> <mode title> <winner> <ended at>
+---   team   <Red|Blue> <total>
+---   player <name> <score> <kills> <deaths> <team or -> <1 if local>
+--- Players in standing order.
+function Board.results(match, localPlayer, endedAt)
+    local lines = { table.concat({ "match", field(match.code), field(match.variant), field(match.title),
+        field(match.mode.title), field(Board.winner(match)), field(endedAt) }, "\t") }
+    if match.mode.teams then
+        local totals = Board.totals(match)
+        for _, team in ipairs({ "Red", "Blue" }) do
+            lines[#lines + 1] = table.concat({ "team", team, field(totals[team]) }, "\t")
+        end
+    end
+    for _, row in ipairs(Board.rows(match.players, match.mode, Board.totals(match))) do
+        local p = row.player
+        if p then
+            lines[#lines + 1] = table.concat({ "player", field(p.name or ("Player " .. tostring(p.index + 1))),
+                field(Board.score(p, match.mode)), field(p.kills), field(p.deaths),
+                field(Board.team(p.team) or "-"), p.index == localPlayer and "1" or "0" }, "\t")
+        end
+    end
+    return table.concat(lines, "\n") .. "\n"
+end
+
 return Board

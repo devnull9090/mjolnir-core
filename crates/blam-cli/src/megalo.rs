@@ -45,8 +45,13 @@ pub struct WriteArgs {
     #[arg(long)]
     pub score: Option<u16>,
     /// Rounds in a game (1..=31). An end of round before the last resets
-    /// the round in place; the last ends the game.
-    #[arg(long, default_value_t = 1)]
+    /// the round in place; the last ends the game, and the game's own return
+    /// to the menu then drops every fireteam client. MJOLNIR's matches are
+    /// one round: at its end MJOLNIRHud shows the final standings and the
+    /// host takes the fireteam back to the lobby itself, so the default
+    /// keeps the game from ever ending on its own
+    /// (docs/multiplayer_postgame.md).
+    #[arg(long, default_value_t = 31)]
     pub rounds: u8,
     /// CTF: the flag's index in `multiplayer_object_type_list` (the entry
     /// tools/level/build_ctf_flag.sh adds).
