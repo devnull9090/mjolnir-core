@@ -7,6 +7,7 @@ import Header from "./components/Header";
 import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
 import Settings from "./components/Settings";
 import Tools from "./components/Tools";
+import Multiplayer from "./components/Multiplayer";
 import Browse from "./components/Browse";
 import Updates from "./components/Updates";
 import { ModDetail } from "./components/hub/ModDetail";
@@ -19,9 +20,9 @@ import { useWhatsNew } from "./updates/useWhatsNew";
 /**
  * Three views answer three different questions, and nothing answers two:
  * My Mods is what is installed, Browse Hub is what exists, Updates is what
- * is out of date. Tools and Settings sit outside that loop.
+ * is out of date. Multiplayer, Tools and Settings sit outside that loop.
  */
-export type View = "mods" | "tools" | "browse" | "updates" | "settings";
+export type View = "mods" | "multiplayer" | "tools" | "browse" | "updates" | "settings";
 
 function App() {
   const updater = useUpdater();
@@ -108,6 +109,7 @@ function AppBody({
                   onGoToBrowse={() => goTo("browse")}
                 />
               )}
+              {activeView === "multiplayer" && <Multiplayer library={library} />}
               {activeView === "tools" && <Tools />}
               {activeView === "browse" && <Browse library={library} onOpenMod={showMod} />}
               {activeView === "updates" && <Updates updates={updates} />}

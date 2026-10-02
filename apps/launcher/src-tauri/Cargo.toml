@@ -31,6 +31,10 @@ mjolnir-sign = { path = "../../../crates/mjolnir-sign" }
 # Writes the stub `.pak` beside each installed container (`pak::stub_for`);
 # the reader side is unused here.
 ue-iostore = { path = "../../../crates/ue-iostore" }
+# Builds the map registration container from the player's own game files
+# (src/maps.rs); the same code as `mjolnir level register`.
+blam-pack = { path = "../../../crates/blam-pack" }
+ue-asset = { path = "../../../crates/ue-asset" }
 hex = "0.4"
 zip = "2"
 # Verifies the code-mods release manifest against the pinned public key

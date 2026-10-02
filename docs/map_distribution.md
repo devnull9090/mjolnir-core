@@ -1,10 +1,13 @@
 # Distributing converted maps
 
-**Status:** 2026-10-01. Format v1 is proven with Blood Gulch: a pack built by
+**Status:** 2026-10-02. Format v1 is proven with Blood Gulch: a pack built by
 `mjolnir map pack`, installed as the launcher will install it and registered
-by `mjolnir level register`, plays CTF. Phase 1 is done. Of Phases 2 and 4,
-`map pack` and `build_ce_runtime.sh` are done. The hub, the tag editor's
-publishing and the launcher remain: see [Phases](#phases).
+by `mjolnir level register`, plays CTF. Phases 1 to 3 are done: the hub takes
+map packs with a review queue, and the launcher installs them with their
+dependencies and registers them (`apps/launcher/src-tauri/src/maps.rs`). Of
+Phase 4, `map pack`, `map runtime` and `build_ce_runtime.sh` are done; the
+packs are not published yet. The tag editor's map publishing remains: see
+[Phases](#phases).
 
 Converted Halo CE maps ([ce_map_conversion.md](ce_map_conversion.md)) reach
 players the way texture swaps and tag edits do. Each map is baked ahead of
@@ -104,6 +107,8 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds it:
 | `pakchunk990-MJOLNIRCTFMESH_P` | the CE flag mesh (`/Game/MJOLNIR/CTF/SM_CE_Flag`) |
 | `pakchunk990-MJOLNIRFLAG_P`, `-STAND_P`, `-MOTL_P` | the CTF flag weapon, its stand, and the object-type-list override that adds the flag |
 | `pakchunk994-MJOLNIRSPAWN_P`, `993-MJOLNIRTELES_P`, `992-MJOLNIRTELER_P` | the spawn point and both teleporter ends |
+| `pakchunk990-MJOLNIRHPACK_P`, `-HPSPOT_P`, `-HPMESH_P` | the health pack, its spawn spot and its mesh |
+| `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
 
 A map's ambient sounds are not shared. They cook into the map's own chunk,
 under `/Game/MJOLNIR/Maps/<CODE>/Sounds`, so a map ships only the sounds it
@@ -111,7 +116,8 @@ plays.
 
 Its containers are content containers, so they install like any content
 mod. Its version moves when a shared piece changes; maps depend on a
-compatible range.
+compatible range. `mjolnir map runtime <out dir> --version X --sign`
+packages the builder's output as the `mjolnir-ce-runtime` content mod.
 
 ## Installing
 
@@ -123,6 +129,13 @@ compatible range.
 | Map data (`map/`) | `Binaries/<Win64\|WinGDK>/ue4ss/MJOLNIRMaps/<CODE>/` |
 | The map list | `ue4ss/MJOLNIRMaps/maps.json`, generated |
 | The registration container | `Paks/pakchunk996-MJOLNIRREG_P.{utoc,ucas,pak}`, generated |
+
+A container that carries a shader library keeps its own chunk number in
+the name the launcher gives it (`pakchunk988-MJOLNIRHUB-…`), not a load
+order number. UE opens a mounted pak's shader library by the number it
+reads off the file name (`ShaderCodeLibrary.cpp`, `OnPakFileMounted`), so
+the CE material masters renamed to `pakchunk9NN` would mount without
+their shaders.
 
 Map data lives **outside** `Mods/MJOLNIRLevelLoader`. The launcher digests
 each code mod's folder to detect tampering, so files written into the loader's
@@ -148,15 +161,33 @@ enable or disable. The build is `mjolnir level register`:
    (`blam_pack::scenario::register`);
 3. write `pakchunk996-MJOLNIRREG_P` and `maps.json`.
 
-The launcher links `blam-pack` for this, so it never runs the CLI. On a game
-update, the next launch rebuilds the container from the new build's tables.
+The launcher links `blam-pack` for this, so it never runs the CLI. It
+rebuilds only when the set of enabled maps or the game build changed since
+the last rebuild, which it records in `MJOLNIRMaps/.mjolnirhub-registered.json`.
+The game build is a fingerprint of the shipped containers' names, sizes and
+times. Launching the game checks it, so a game update gets a new
+registration before the game reads the old one. A rebuild takes under a
+second. A registration built by hand (`mjolnir level register`, no record)
+is left alone until the launcher has a map to register.
+
+Map folders the launcher writes carry a `.mjolnirhub` marker. It removes
+only those. Uninstalling UE4SS from the launcher also removes the
+registration container it built.
 
 ### Dependencies
 
-Installing a map installs, or asks to enable, what it depends on: the CE
-runtime pack (a hub dependency) and the MJOLNIRLevelLoader and MJOLNIRLobby
-code mods (implied by type `map`). The launcher refuses to enable a map
-whose dependencies are missing, and says which.
+Installing a map installs what it depends on first. Its manifest's `deps`
+come from the hub (the CE runtime pack; its newest release, as the version
+range is not enforced yet). The code mods are implied by type `map`:
+MJOLNIRCore, MJOLNIRLevelLoader, MJOLNIRLobby and MJOLNIRHud. Each is
+installed when missing, updated when the launcher installed it and nobody
+edited it, and switched on in `mods.txt`. A map whose code another
+installed map holds is refused.
+
+**Install multiplayer** (the launcher's Multiplayer page,
+`hub::install_multiplayer`) runs this for every official map (`GET
+/maps?official=1`), then materializes and registers once. Maps already at
+their newest release are skipped, so running it again is an update.
 
 ## Publishing
 
@@ -164,12 +195,13 @@ whose dependencies are missing, and says which.
 
 ```bash
 tools/level/convert_ce_map.sh maps/bloodgulch.map BGL out/bgl
-mjolnir map pack out/bgl --code BGL --version 1.0.0
+mjolnir map pack out/bgl --code BGL --version 1.0.0 --sign
 ```
 
 - `map pack` collects the conversion's containers (`*-<CODE>_P`), its level
   file and its registration record into the archive, and writes the
-  manifest. The archive is unsigned.
+  manifest. `--sign` signs it with this machine's device key (the tag
+  editor's, under DPAPI), which the hub requires.
 - The tag editor publishes it, as it publishes content mods: it signs the
   archive with the publisher's device key, then creates or updates the hub
   mod and uploads the release (`POST /mods`, `POST /mods/{slug}/releases`,
@@ -206,8 +238,8 @@ Content releases keep auto-publishing.
    container and `maps.json` from the records there.
 2. **Map packs.** `mjolnir map pack`; the tag editor's map publishing; the
    hub's `map` type, scanner rules and review queue.
-3. **The launcher.** It installs maps, resolves dependencies, and builds the
-   registration container on every change.
+3. **The launcher (done).** It installs maps, resolves dependencies, and
+   builds the registration container on every change.
 4. **The CE runtime pack, and our maps.** The shared containers move into the
    runtime pack, and each map's textures and sounds cook into a chunk of its
    own. Then we publish Blood Gulch, Gephyrophobia and the rest of the stock

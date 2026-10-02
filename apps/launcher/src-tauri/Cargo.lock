@@ -351,6 +351,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-defs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "blam-pack"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
+ "serde",
+ "serde_json",
+ "ue-asset",
+ "ue-iostore",
+]
+
+[[package]]
+name = "blam-tag"
+version = "0.1.0"
+dependencies = [
+ "blam-defs",
+ "serde",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2493,6 +2522,7 @@ dependencies = [
 name = "mjolnir-launcher"
 version = "0.8.2"
 dependencies = [
+ "blam-pack",
  "dirs",
  "ed25519-dalek",
  "hex",
@@ -2506,6 +2536,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
+ "ue-asset",
  "ue-iostore",
  "zip 2.4.2",
 ]
@@ -5074,6 +5105,14 @@ dependencies = [
  "memoffset",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ue-asset"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
+ "ue-iostore",
 ]
 
 [[package]]

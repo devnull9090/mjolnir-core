@@ -12,6 +12,9 @@
 #                                    library, the cooked CTF flag textures, the
 #                                    event sounds (one cook of
 #                                    unreal/MJOLNIRMaterials, chunk 988)
+#   pakchunk984-MJOLNIRUI-Windows    the multiplayer screens and HUD widgets
+#                                    (Scripts/build_mjolnir_ui.py, same cook,
+#                                    chunk 984; docs/custom_ui.md)
 #   pakchunk990-MJOLNIRCTFMESH_P     the CE flag mesh (/Game/MJOLNIR/CTF)
 #   pakchunk990-MJOLNIRFLAG_P, -STAND_P, -MOTL_P   the CTF flag, its stand,
 #                                    and the object type list that adds it
@@ -44,17 +47,19 @@ python "$here/ce_flag_textures.py" "$staging" "$out/ctf_textures"
 echo "== 2/5 the event sounds"
 python "$here/ce_sounds.py" --events "$maps/sounds.map" "$out/events"
 
-echo "== 3/5 masters, flag textures and event sounds, cooked into chunk 988"
+echo "== 3/5 masters, flag textures and event sounds (chunk 988) and the UI (chunk 984)"
 run() { powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script "$1" | grep -E "editor exit|MJOLNIR"; }
 run Scripts/build_ce_materials.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/ctf_textures")" \
   MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/CE/CTF" run Scripts/build_ce_textures.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")" \
   MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Sounds/Events" run Scripts/build_ce_sounds.py
+run Scripts/build_mjolnir_ui.py
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
 staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
 for e in utoc ucas; do
   cp -f "$staged/pakchunk988-Windows.$e" "$out/pakchunk988-MJOLNIRMAT-Windows.$e"
+  cp -f "$staged/pakchunk984-Windows.$e" "$out/pakchunk984-MJOLNIRUI-Windows.$e"
 done
 
 echo "== 4/5 the flag mesh"
@@ -87,3 +92,4 @@ MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
 rm -f "$out"/*.pak
 ls "$out"/*.utoc
 echo "done: $out"
+echo "package it: mjolnir map runtime $out --version <x.y.z> --sign"

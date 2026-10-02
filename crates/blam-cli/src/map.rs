@@ -23,6 +23,37 @@ pub struct MapArgs {
 pub enum MapCommand {
     /// Package a converted map as a `.mjolnir` map pack.
     Pack(PackArgs),
+    /// Package the CE runtime pack (tools/level/build_ce_runtime.sh's output)
+    /// as the `.mjolnir` content mod every map pack depends on.
+    Runtime(RuntimeArgs),
+}
+
+#[derive(Args)]
+pub struct RuntimeArgs {
+    /// The folder of runtime containers (`.utoc`/`.ucas` pairs).
+    pub dir: PathBuf,
+    /// The release version (semver).
+    #[arg(long)]
+    pub version: String,
+    /// The archive to write; `mjolnir-ce-runtime-<version>.mjolnir` in the
+    /// current folder by default.
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    #[command(flatten)]
+    pub signing: Signing,
+}
+
+/// How an archive is signed. The hub refuses unsigned uploads.
+#[derive(Args)]
+pub struct Signing {
+    /// Sign the archive with this machine's device key, the one the tag
+    /// editor created and registered on the hub.
+    #[arg(long, conflicts_with = "sign_seed")]
+    pub sign: bool,
+    /// Sign with the key in this seed file (32 raw bytes or 64 hex
+    /// characters) instead. Register its public key on the hub first.
+    #[arg(long, value_name = "FILE")]
+    pub sign_seed: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -54,23 +85,20 @@ pub struct PackArgs {
     /// by default.
     #[arg(long)]
     pub out: Option<PathBuf>,
-    /// Sign the archive with this machine's device key, the one the tag
-    /// editor created and registered on the hub (which refuses unsigned
-    /// uploads).
-    #[arg(long, conflicts_with = "sign_seed")]
-    pub sign: bool,
-    /// Sign with the key in this seed file (32 raw bytes or 64 hex
-    /// characters) instead. Register its public key on the hub first.
-    #[arg(long, value_name = "FILE")]
-    pub sign_seed: Option<PathBuf>,
+    #[command(flatten)]
+    pub signing: Signing,
 }
 
 /// The CE runtime pack every converted map depends on.
 pub const RUNTIME_SLUG: &str = "mjolnir-ce-runtime";
 
+const RUNTIME_SUMMARY: &str = "What every classic CE map shares: the CE materials, the CTF \
+    flag, health packs, spawn points, teleporters, event sounds and the multiplayer screens.";
+
 pub fn run(a: MapArgs) -> Result<()> {
     match a.command {
         MapCommand::Pack(p) => pack(p),
+        MapCommand::Runtime(r) => runtime(r),
     }
 }
 
@@ -248,32 +276,91 @@ fn pack(a: PackArgs) -> Result<()> {
         members.push(("docs/README.md".into(), std::fs::read(readme)?));
     }
 
-    // The signature covers every other member's digest; it is built from the
-    // same list that is zipped, so the two cannot drift.
-    let signer = if a.sign {
+    let out = a
+        .out
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("{slug}-{}.mjolnir", a.version)));
+    write_archive(members, &slug, &a.version, &a.signing, &out)?;
+    println!(
+        "  {slug} {}: map {code} \"{title}\", modes {modes}",
+        a.version
+    );
+    Ok(())
+}
+
+/// The CE runtime pack: every container in the folder, as a content mod.
+fn runtime(a: RuntimeArgs) -> Result<()> {
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "name": "MJOLNIR CE runtime",
+        "version": a.version,
+        "type": "content",
+        "summary": RUNTIME_SUMMARY,
+    });
+    let mut members: Vec<(String, Vec<u8>)> =
+        vec![("mjolnir.json".into(), serde_json::to_vec_pretty(&manifest)?)];
+    let mut utocs: Vec<PathBuf> = std::fs::read_dir(&a.dir)
+        .with_context(|| format!("reading {}", a.dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "utoc"))
+        .collect();
+    utocs.sort();
+    if utocs.is_empty() {
+        bail!(
+            "no containers in {}: run tools/level/build_ce_runtime.sh first",
+            a.dir.display()
+        );
+    }
+    for utoc in utocs {
+        let ucas = utoc.with_extension("ucas");
+        if !ucas.is_file() {
+            bail!("{} has no .ucas beside it", utoc.display());
+        }
+        for path in [utoc, ucas] {
+            let file = path.file_name().unwrap().to_string_lossy().to_string();
+            members.push((format!("content/{file}"), std::fs::read(&path)?));
+        }
+    }
+    let out = a
+        .out
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("{RUNTIME_SLUG}-{}.mjolnir", a.version)));
+    write_archive(members, RUNTIME_SLUG, &a.version, &a.signing, &out)
+}
+
+/// Sign (when asked) and zip an archive's members. The signature covers
+/// every other member's digest, built from the same list that is zipped, so
+/// the two cannot drift.
+fn write_archive(
+    mut members: Vec<(String, Vec<u8>)>,
+    slug: &str,
+    version: &str,
+    signing: &Signing,
+    out: &Path,
+) -> Result<()> {
+    let signer = if signing.sign {
         Some(crate::signkey::device_identity()?)
-    } else if let Some(seed) = &a.sign_seed {
+    } else if let Some(seed) = &signing.sign_seed {
         Some(crate::signkey::seed_file_identity(seed)?)
     } else {
         None
     };
     if let Some(identity) = &signer {
-        let refs: Vec<(String, &[u8])> =
-            members.iter().map(|(p, b)| (p.clone(), b.as_slice())).collect();
-        let signed_at = signed_at_now();
+        let refs: Vec<(String, &[u8])> = members
+            .iter()
+            .map(|(p, b)| (p.clone(), b.as_slice()))
+            .collect();
         let envelope = identity
-            .sign_members(&slug, &a.version, None, &signed_at, &refs)
+            .sign_members(slug, version, None, &signed_at_now(), &refs)
             .map_err(|e| anyhow::anyhow!("signing: {e}"))?;
         println!("  signed   key {}", identity.fingerprint());
-        members.push((mjolnir_sign::SIGNATURE_MEMBER.to_string(), envelope.into_bytes()));
+        members.push((
+            mjolnir_sign::SIGNATURE_MEMBER.to_string(),
+            envelope.into_bytes(),
+        ));
     }
 
-    let out = a
-        .out
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(format!("{slug}-{}.mjolnir", a.version)));
-    let file =
-        std::fs::File::create(&out).with_context(|| format!("creating {}", out.display()))?;
+    let file = std::fs::File::create(out).with_context(|| format!("creating {}", out.display()))?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
@@ -285,16 +372,10 @@ fn pack(a: PackArgs) -> Result<()> {
         println!("  member   {path} ({} bytes)", bytes.len());
     }
     zip.finish()?;
-    let size = std::fs::metadata(&out)?.len();
-    println!(
-        "wrote {} ({size} bytes, {total} unpacked): {slug} {} — map {code} \"{title}\", modes {modes}",
-        out.display(),
-        a.version
-    );
+    let size = std::fs::metadata(out)?.len();
+    println!("wrote {} ({size} bytes, {total} unpacked)", out.display());
     if signer.is_none() {
-        println!(
-            "unsigned: the hub refuses unsigned uploads; pass --sign to sign with this machine's              device key"
-        );
+        println!("unsigned: the hub refuses unsigned uploads; pass --sign to sign with this machine's device key");
     }
     Ok(())
 }
