@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { getDocNotes } from "@/lib/docs";
+import { getDocNotes, getGuides } from "@/lib/docs";
+import { MULTIPLAYER_PATH } from "@/lib/marketing";
 import { getLastModified, getProducts, getReleases } from "@/lib/changelog";
 import { getAllTags, getBlogLastModified, getPosts } from "@/lib/blog";
 import { getTagGroups } from "@/lib/tags";
@@ -99,6 +100,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly",
       priority: 1,
     },
+    {
+      url: baseUrl + MULTIPLAYER_PATH,
+      changeFrequency: "weekly",
+      priority: 0.9,
+    },
+    ...["maps", "games"].map((path) => ({
+      url: baseUrl + "/" + path,
+      changeFrequency: "daily" as const,
+      priority: 0.8,
+    })),
+    ...getGuides().map((guide) => ({
+      url: baseUrl + "/docs/guides/" + guide.slug,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
     {
       url: `${baseUrl}/docs/tags`,
       lastModified: new Date(),

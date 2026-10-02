@@ -24,14 +24,13 @@ export function AlphaBanner() {
         <span className="text-gold font-semibold">Alpha</span>
         <span className="text-text-muted hidden sm:inline">—</span>
         <span className="text-text-muted">
-          MJOLNIR Core is under active development.
+          Classic Halo multiplayer is here.
         </span>
         <Link
-          href="https://discord.gg/9gxYZsByW9"
-          target="_blank"
-          className="hidden sm:inline text-gold hover:underline font-medium"
+          href="/multiplayer"
+          className="text-gold hover:underline font-medium"
         >
-          Join the alpha →
+          Play the alpha →
         </Link>
       </div>
     </div>
@@ -51,12 +50,11 @@ export function Navbar() {
           <span className="text-xs text-text-muted font-medium">CORE</span>
         </Link>
 
-        {/* Desktop links, from lg: below that the menu holds everything (at
-            md the row ran into itself). Changelog joins at xl; it is always in
-            the menu and the footer. Discord and GitHub are icons only. */}
+        {/* Changelog stays in the mobile menu and footer to leave room for
+            the multiplayer landing page at desktop widths. */}
         <div className="hidden lg:flex items-center gap-4 xl:gap-5">
-          <Link href="/docs" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Docs
+          <Link href="/multiplayer" className="text-sm text-gold hover:text-foreground transition-colors">
+            Multiplayer
           </Link>
           <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Mods
@@ -70,8 +68,8 @@ export function Navbar() {
           <Link href="/tools" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Tools
           </Link>
-          <Link href="/changelog" className="hidden xl:block text-sm text-text-muted hover:text-foreground transition-colors">
-            Changelog
+          <Link href="/docs" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Docs
           </Link>
           <Link href="/blog" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Blog

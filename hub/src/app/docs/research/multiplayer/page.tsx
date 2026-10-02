@@ -28,6 +28,12 @@ const rootMaps = [
 export default function MultiplayerResearchPage() {
   return (
     <main className="mx-auto max-w-4xl">
+      <aside className="mb-8 border border-gold/30 bg-gold/5 p-5 text-sm leading-7">
+        <strong className="text-gold">Looking to play multiplayer?</strong>{" "}
+        The multiplayer alpha now includes all 19 classic Halo CE maps with Slayer and CTF.{" "}
+        <Link href="/multiplayer" className="font-semibold text-gold underline">Get setup steps and multiplayer FAQs.</Link>{" "}
+        The investigation below records the earlier CU2 research.
+      </aside>
       <header className="border-b border-border pb-9">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <EvidenceBadge level="Observed" />

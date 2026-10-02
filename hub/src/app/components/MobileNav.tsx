@@ -21,6 +21,7 @@ import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
 
 const navLinks = [
+  { href: "/multiplayer", label: "Multiplayer", icon: Gamepad2 },
   { href: "/docs", label: "Docs", icon: BookOpen },
   { href: "/mods", label: "Mods", icon: Package },
   { href: "/maps", label: "Maps", icon: MapIcon },

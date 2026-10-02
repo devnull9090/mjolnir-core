@@ -13,9 +13,12 @@ function MjolnirIcon({ className = "w-8 h-8" }: { className?: string }) {
 
 const columns: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
-    title: "Product",
+    title: "Play",
     links: [
+      { href: "/multiplayer", label: "Multiplayer" },
       { href: "/download", label: "Download" },
+      { href: "/maps", label: "Classic & Custom Maps" },
+      { href: "/games", label: "Games" },
       { href: "/mods", label: "Mods" },
       { href: "/tools", label: "Tools" },
       { href: "/changelog", label: "Changelog" },
@@ -24,6 +27,7 @@ const columns: { title: string; links: { href: string; label: string; external?:
   {
     title: "Developers",
     links: [
+      { href: "/docs/guides/level-authoring", label: "Make a Map" },
       { href: "/docs", label: "Docs" },
       { href: "/docs/tags", label: "Tag Reference" },
       { href: "/docs/console", label: "Console Commands" },
@@ -35,6 +39,8 @@ const columns: { title: string; links: { href: string; label: string; external?:
     title: "Community",
     links: [
       { href: "https://discord.gg/9gxYZsByW9", label: "Discord", external: true },
+      { href: "/multiplayer#faq", label: "Multiplayer FAQ" },
+      { href: "/blog", label: "Blog" },
       {
         href: "https://github.com/devnull9090/mjolnir-core/issues",
         label: "Issues",
@@ -56,8 +62,9 @@ export function Footer() {
               <span className="text-xs text-text-muted font-medium">CORE</span>
             </div>
             <p className="mt-3 text-sm leading-6 text-text-dim">
-              The open-source modding framework and community platform for Halo Campaign
-              Evolved. MIT licensed, built in the open.
+              The multiplayer modding framework for Halo Campaign Evolved.
+              Classic maps, custom content, and a community to play and create with.
+              Free and open source.
             </p>
             <div className="mt-4 flex items-center gap-4">
               <Link

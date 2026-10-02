@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -13,33 +12,27 @@ import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
 import { GitHubIcon } from "../components/icons";
 import ChecksumViewer from "./ChecksumViewer";
+import { PlaySteps } from "../components/MultiplayerMarketing";
+import { marketingMetadata } from "@/lib/marketing";
 
-export const metadata: Metadata = {
-  title: "Download | MJOLNIR Core",
-  description:
-    "Download the MJOLNIR Launcher for Halo Campaign Evolved — one-click installs for signed mods and tools, with SHA-256 checksums to verify every build.",
-  alternates: { canonical: "https://mjolnircore.com/download" },
-  openGraph: {
-    title: "Download the MJOLNIR Launcher",
-    description:
-      "One-click mod management for Halo Campaign Evolved. Auto-detects your game, verifies every download.",
-    url: "https://mjolnircore.com/download",
-    siteName: "MJOLNIR Core",
-    type: "website",
-  },
-};
+export const metadata = marketingMetadata(
+  "Download the Campaign Evolved Multiplayer Launcher | MJOLNIR",
+  "Get MJOLNIR for Halo Campaign Evolved multiplayer. Install all 19 classic Halo CE maps, Slayer, CTF, mods, and creator tools from one Windows launcher.",
+  "/download",
+);
 
 export default function DownloadPage() {
   return (
     <>
       <Navbar />
 
-      <main className="pt-32 md:pt-36 pb-24 px-4 sm:px-6 max-w-4xl mx-auto">
+      <main className="marketing pt-40 md:pt-44 pb-24 px-4 sm:px-6 max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-3xl sm:text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
           <p className="text-text-muted text-lg max-w-xl mx-auto">
-            One-click mod management for Halo Campaign Evolved. Auto-detects your game, installs mods, and launches via Steam.
+            Your way into Campaign Evolved multiplayer. Install all 19 classic Halo CE maps,
+            multiplayer mods, and creator tools from one launcher.
           </p>
         </div>
 
@@ -75,6 +68,14 @@ export default function DownloadPage() {
             </Link>
           </div>
         </div>
+
+        <section className="mb-10 border border-gold/25 bg-surface p-5 sm:p-8">
+          <p className="marketing-eyebrow">Installed? Bring your friends.</p>
+          <h2 className="mb-7 mt-3 text-2xl font-bold">Set up Campaign Evolved multiplayer</h2>
+          <PlaySteps />
+          <p className="mt-6 text-sm leading-7 text-text-muted">Multiplayer is in alpha with up to four players. Tested on Steam; Game Pass is not yet verified. Each player needs their own copy of the game and the same maps.</p>
+          <Link href="/multiplayer#faq" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-gold hover:underline">Multiplayer setup &amp; FAQs <ArrowRight className="size-4" /></Link>
+        </section>
 
         {/* Hash Verification */}
         <div className="rounded-2xl bg-surface-raised border border-border p-5 sm:p-8 mb-8">
