@@ -1,5 +1,5 @@
 //! List every file in the shipped containers whose path contains one of the
-//! given substrings (case-insensitive).
+//! given substrings (case-insensitive), with the container that holds it.
 //!
 //!     cargo run --release -p ue-iostore --example find_files -- <Paks dir> <needle>...
 use std::env;
@@ -18,7 +18,12 @@ fn main() {
             let full = c.full_path(path);
             let lower = full.to_lowercase();
             if needles.iter().any(|n| lower.contains(n)) {
-                hits.push(full);
+                let container = c
+                    .utoc_path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                hits.push(format!("{full}\t{container}"));
             }
         }
     }

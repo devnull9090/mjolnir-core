@@ -66,3 +66,9 @@ bash tools/ue/install_cook.sh                                                   
 
 `Content/` is build output: every level built so far stays in it, so one
 container carries them all.
+
+## Widgets
+
+The project also builds MJOLNIR's own Widget Blueprints (`/Game/MJOLNIR/UI`,
+chunk 984) with `Scripts/build_mjolnir_ui.py` and the editor-only
+`Plugins/MjolnirUIBuilder`. See [docs/custom_ui.md](../../docs/custom_ui.md).
