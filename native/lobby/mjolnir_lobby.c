@@ -163,11 +163,9 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
                      c[1], c[2], c[3], c[4], c[5]);
         c[0] = at_least(c[0], fireteam_size);
         c[1] = at_least(c[1], fireteam_size);
-        /* Split screen: up to four local players on one PC. The ini allows two,
-           with three endpoints (one per user and one spare). */
-        c[2] = at_least(c[2], 4);
-        c[4] = at_least(c[4], c[2] + 1);
-        fireteam_log("party: users %u devices %u users/device %u endpoints/device %u", c[0], c[1], c[2], c[4]);
+        /* The per-device limits stay as shipped: raising users/device to 4 and
+           endpoints/device to 5 made every remote join time out, guests or not. */
+        fireteam_log("party: users %u devices %u", c[0], c[1]);
     }
     return real_create_network(handle, user, config, region_count, regions, invitation, context, descriptor, applied);
 }

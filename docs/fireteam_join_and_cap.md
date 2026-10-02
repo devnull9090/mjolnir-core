@@ -117,7 +117,7 @@ records each call:
 
 ```text
 party: users 4 devices 4 users/device 2 devices/user 1 endpoints/device 3 (options 15)
-party: users 16 devices 16 users/device 4 endpoints/device 5
+party: users 16 devices 16
 lobby: maxMemberCount 4 -> 16
 ```
 
@@ -129,22 +129,50 @@ A user `Saved/Config/Windows/Engine.ini` is deleted by the game at startup,
 so the ini route is closed.
 
 **Results:**
-- With the hooks and no local guests, PC 2 joins normally, so the hooks
-  break nothing.
-- With the host at FIRETEAM 4/4 (three `CreatePlayer` guests), PC 2's join
-  never reaches the host. Its `ClientTravel` to the Party address
-  (`0.0.0.0:5000`) times out after exactly 20 s, and it gets "CONNECTION LOST /
-  Disconnected from host". The host logs no connection, login or player
-  state.
-- Raising Party's users per device to 4 did not change that.
+- **More than four players join.** PC 2 joined a host that already had three
+  `CreatePlayer` guests: five players in `GameState.PlayerArray`, five
+  player states, one `PlayFabNetConnection`.
+- **Keep Party's per-device limits as shipped.** Raising users/device to 4
+  and endpoints/device to 5 made every remote join time out, with or without
+  guests: `ClientTravel` to the Party address (`0.0.0.0:5000`) gives up after
+  exactly 20 s with "CONNECTION LOST / Disconnected from host", although the
+  lobby join, the Party connect, authentication and endpoint creation all
+  return 0 on the client and the host's lobby sees the member arrive.
+- The host has no net driver at the frontend. It creates a
+  `PlayFabNetDriver` when the first remote player arrives.
+- **Local guests added before the first remote player block that join**
+  (the same 20 s timeout). Guests added after a remote player has joined do
+  not block later joins, up to four local players. `CreatePlayer` guests
+  never pass through `UBlamOnlineSessionSubsystem::AddSplitscreenPlayerToSession`;
+  the game's own `HaloOnlineGameInstance:LoginSplitScreenPlayer` does nothing
+  without a second input device.
+- **More than two local players on one PC freeze a match at its start**:
+  black screen on every machine, nothing responds, `player_spawn` still
+  fires. This happens offline too (host plus two guests, no remote player),
+  so it is a splitscreen limit, not the fireteam's. Host, one guest and one
+  remote player play Slayer normally.
+- CTF with three players raised `game_over` (cause -1) about 15 s in; Slayer
+  did not.
 
-So a fifth player is refused below Unreal's login, by a count of four. The
-likeliest owner is the simulation's network session in campaign mode,
-`k_maximum_campaign_players` = 4, behind
-`error_too_many_players_for_network_coop` (`0x50000a`). Its raise site is
-still unfound: no instruction loads the code as an immediate. The frontend's
-session runs the campaign engine, so the host may need its session
-configured as multiplayer, which holds 16 players.
+So a five-player match needs five machines, or a fix for three local players
+on one; two PCs reach four players at most (two per machine).
+
+### The FIRETEAM panel
+
+`MeteoriteSquadLobbyViewModel.SquadMembers` always holds four slots: the
+players, then blank INVITE + rows. A fifth player gets no row and the header
+reads "n/4". MJOLNIRLobby's `squadpanel.lua` rebuilds the difference after
+the panel's own `BackingDataChanged` and `UpdateHeader`: a row for every
+player in the game state, one INVITE + row while there is room, and
+"Fireteam n/16".
+- A row's widget class travels with its item in a native field. The list's
+  `EntryWidgetClass` is only the fallback, read whenever the list builds the
+  row, so a fresh item gets whichever class happens to be set by then.
+  Player rows are therefore constructed with one of the view model's own
+  player items as the template, which carries the class.
+- An added row's `MeteoritePlayerViewModel` holds the name, platform and
+  player state. `CanKickFromFireteam` returns true on it, so its menu offers
+  Kick.
 
 Removing a `CreatePlayer` guest with `GameplayStatics:RemovePlayer` crashed
 the game.
