@@ -233,9 +233,12 @@ Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
 - tinted and faded by the view angle, from the perpendicular brightness and
   tint (looking straight down) to the parallel ones (grazing), on a steep
   curve (`FresnelPower` 3);
-- the brightness is the opacity, scaled by the base map's alpha when the
-  shader's first water flag is set: the base map is a mask, never a colour.
-  Drawn as one, the sea was an opaque white sheet (2026-10-02).
+- added over what is under the water, scaled by the brightness and, when
+  the shader's first water flag is set, by the base map's alpha: the base
+  map is a mask, never a colour (drawn as one, the sea was an opaque white
+  sheet, 2026-10-02). Brightness is not opacity: Battle Creek's water is 1.0
+  at every angle and its creek bed still shows. The second flag (the base
+  map's colour tints the background) has no additive form and is not drawn.
 
 halo2ue's water parser read every field after the base map at the wrong
 offset (its tag lookup moves the reader), so brightness, tint, ripples and

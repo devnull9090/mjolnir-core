@@ -12,7 +12,7 @@ Writes, under /Game/MJOLNIR/CE:
   M_CE_TransparentAlpha   ... alpha blended
   M_CE_TransparentMul     ... multiplied into the frame
   M_CE_Water              shader_transparent_water: a rippling, view-tinted
-                          reflection, alpha blended
+                          reflection, added into the frame
   T_CE_White, T_CE_Grey, T_CE_Flat, T_CE_BlackCube   what an absent map samples
 and PAL_MJOLNIR_CE, _Sounds and _Levels, the labels that put those folders in chunk 988:
 the cook's container is pakchunk988, and its shader library is named after
@@ -602,10 +602,13 @@ def build_transparent(name, blend, defaults):
 # surface, tinted and faded by the view angle (a steep curve: CE water stays
 # tinted and see-through until close to grazing). Looking straight down the
 # surface takes the perpendicular brightness and tint (Death Island's sea:
-# 0.1, mostly see-through), at a grazing angle the parallel ones (1.0, a
-# mirror). Brightness is the opacity; with water flag 0 ("base map alpha
-# modulates reflection") the base map's alpha scales it, which is how CE
-# fades water at its edges. Water planes are horizontal, so the two ripple
+# 0.1, a faint sheen), at a grazing angle the parallel ones (1.0, a mirror).
+# The reflection is added over what is under the water, scaled by the
+# brightness, and with water flag 0 ("base map alpha modulates reflection")
+# by the base map's alpha. Brightness is not opacity: Battle Creek's water is
+# 1.0 at every angle and its creek bed still shows. Flag 1 ("base map colour
+# modulates background") has no additive equivalent and is not drawn. Water
+# planes are horizontal, so the two ripple
 # layers bend a world-up normal directly.
 WATER_UV_CODE = r"""
 float a = Angle + Layer * 1.5708;
@@ -629,25 +632,23 @@ float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
 float t = pow(1.0 - saturate(abs(dot(N, E))), FresnelPower);
 float brightness = lerp(PerpBrightness, ParaBrightness, t);
 float3 tint = lerp(PerpTint.rgb, ParaTint.rgb, t);
-float alpha = saturate(brightness) * (AlphaFromBase > 0.5 ? Base.a : 1.0);
-float3 frame = Cube.rgb * tint;
+float3 frame = Cube.rgb * tint * brightness * (AlphaFromBase > 0.5 ? Base.a : 1.0);
 if (FogDensity > 0.0)
 {
     float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
-    frame = lerp(frame, FogColor.rgb, f);
-    alpha = lerp(alpha, 1.0, f);
+    frame *= 1.0 - f;
 }
 frame = max(frame, 0.0) / DisplayGain;
 float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
-return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
+return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, 1.0);
 """
 
 
 def build_water(defaults):
     m = fresh(ROOT, "M_CE_Water", unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
-    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("used_with_static_lighting", False)
     g = Graph(m)
@@ -682,7 +683,6 @@ def build_water(defaults):
                  description="CE shader_transparent_water")
     mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
                                   unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    mel.connect_material_property(g.mask(c, a=True), "", unreal.MaterialProperty.MP_OPACITY)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
