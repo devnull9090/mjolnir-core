@@ -109,6 +109,7 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds it:
 | `pakchunk994-MJOLNIRSPAWN_P`, `993-MJOLNIRTELES_P`, `992-MJOLNIRTELER_P` | the spawn point and both teleporter ends |
 | `pakchunk990-MJOLNIRHPACK_P`, `-HPSPOT_P`, `-HPMESH_P` | the health pack, its spawn spot and its mesh |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
+| `pakchunk985-MJOLNIRMENU_P` | the main menu with its own MULTIPLAYER button ([multiplayer_menu.md](multiplayer_menu.md)). It replaces the shipped menu, so it is rebuilt for every game update |
 
 A map's ambient sounds are not shared. They cook into the map's own chunk,
 under `/Game/MJOLNIR/Maps/<CODE>/Sounds`, so a map ships only the sounds it

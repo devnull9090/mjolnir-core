@@ -135,7 +135,7 @@ pub fn write_export(pkg: &mut ZenPackage, usmap: &Usmap, edit: &ExportEdit) -> R
 
 /// A property's schema slot within `class` (supers included), with its
 /// type, by name; a fixed array's n-th element is `name[n]`.
-fn slot_of(usmap: &Usmap, class: &str, name: &str) -> Option<(u16, PropType, u8)> {
+pub(crate) fn slot_of(usmap: &Usmap, class: &str, name: &str) -> Option<(u16, PropType, u8)> {
     let total = usmap.total_slots(class);
     let mut slot = 0u16;
     while slot < total {
