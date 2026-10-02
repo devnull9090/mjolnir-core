@@ -11,6 +11,8 @@ Writes, under /Game/MJOLNIR/CE:
   M_CE_TransparentAdd     shader_transparent_chicago(_extended), drawn additively
   M_CE_TransparentAlpha   ... alpha blended
   M_CE_TransparentMul     ... multiplied into the frame
+  M_CE_Water              shader_transparent_water: a rippling, view-tinted
+                          reflection, added into the frame
   T_CE_White, T_CE_Grey, T_CE_Flat, T_CE_BlackCube   what an absent map samples
 and PAL_MJOLNIR_CE, _Sounds and _Levels, the labels that put those folders in chunk 988:
 the cook's container is pakchunk988, and its shader library is named after
@@ -234,12 +236,16 @@ class Graph:
 # period), diagonal wave (and variable), slide (and variable), noise,
 # jitter, wander, spark. The variable-period forms use their nominal period,
 # and noise, jitter and wander a smooth value noise at different rates.
+# Spark rises over the first 35% of the period and decays over the rest:
+# a hard on/off blip made Gephyrophobia's energy ropes flash every 5 s where
+# CE's pulse (2026-10-02).
 WAVE = r"""
 #define CE_HASH(n) frac(sin(n) * 43758.5453)
 #define CE_VNOISE(x) lerp(CE_HASH(floor(x)), CE_HASH(floor(x) + 1.0), smoothstep(0.0, 1.0, frac(x)))
 #define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 - 0.5 * cos(6.2831853 * (x)) \
     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0) \
-    : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x) : (frac(x) < 0.1 ? 1.0 : 0.0))
+    : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x) \
+    : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
 #define CE_PHASE(anim, t) ((anim).y > 0.0 ? (t) / (anim).y + (anim).z : (anim).z)
 """
 
@@ -596,6 +602,95 @@ def build_transparent(name, blend, defaults):
     eal.save_loaded_asset(m)
 
 
+# shader_transparent_water: the reflection cube map seen through a rippling
+# surface, tinted and faded by the view angle (a steep curve: CE water stays
+# tinted and see-through until close to grazing). Looking straight down the
+# surface takes the perpendicular brightness and tint (Death Island's sea:
+# 0.1, a faint sheen), at a grazing angle the parallel ones (1.0, a mirror).
+# The reflection is added over what is under the water, scaled by the
+# brightness, and with water flag 0 ("base map alpha modulates reflection")
+# by the base map's alpha. Brightness is not opacity: Battle Creek's water is
+# 1.0 at every angle and its creek bed still shows. Flag 1 ("base map colour
+# modulates background") has no additive equivalent and is not drawn. Water
+# planes are horizontal, so the two ripple
+# layers bend a world-up normal directly.
+WATER_UV_CODE = r"""
+float a = Angle + Layer * 1.5708;
+float2 dir = float2(cos(a), sin(a));
+return UV * (Layer > 0.5 ? 0.5 : 1.0) * Repeat + dir * Velocity * Time;
+"""
+
+WATER_NORMAL_CODE = r"""
+float2 r = (R0.rg * 2.0 - 1.0) + (R1.rg * 2.0 - 1.0) * 0.5;
+return normalize(float3(r * Strength, 1.0));
+"""
+
+WATER_REFLECT_CODE = r"""
+float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
+float3 R = 2.0 * dot(N, E) * N - E;
+return float3(R.x, -R.y, R.z);
+"""
+
+WATER_CODE = r"""
+float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
+float t = pow(1.0 - saturate(abs(dot(N, E))), FresnelPower);
+float brightness = lerp(PerpBrightness, ParaBrightness, t);
+float3 tint = lerp(PerpTint.rgb, ParaTint.rgb, t);
+float3 frame = Cube.rgb * tint * brightness * (AlphaFromBase > 0.5 ? Base.a : 1.0);
+if (FogDensity > 0.0)
+{
+    float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+    frame *= 1.0 - f;
+}
+frame = max(frame, 0.0) / DisplayGain;
+float3 lo = frame / 12.92;
+float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, 1.0);
+"""
+
+
+def build_water(defaults):
+    m = fresh(ROOT, "M_CE_Water", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    uv0 = g.uv(0)
+    time = g.node(unreal.MaterialExpressionTime)
+    angle = g.scalar("RippleAngle", 0.0)
+    velocity = g.scalar("RippleVelocity", 0.0)
+    repeat = g.scalar("RippleRepeat", 1.0)
+    ripples = []
+    for layer in (0.0, 1.0):
+        uv = g.custom(WATER_UV_CODE, [("UV", uv0, ""), ("Time", time, ""), ("Angle", angle, ""),
+                                      ("Velocity", velocity, ""), ("Repeat", repeat, ""),
+                                      ("Layer", g.node(unreal.MaterialExpressionConstant, x=-1800, r=layer), "")],
+                      output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="CE ripple uv")
+        ripples.append(g.texture("Ripple", defaults["T_CE_Flat"], uv))
+    n = g.custom(WATER_NORMAL_CODE, [("R0", ripples[0], "RGBA"), ("R1", ripples[1], "RGBA"),
+                                     ("Strength", g.scalar("RippleStrength", 0.08), "")],
+                 description="CE ripple normal")
+    cam = g.node(unreal.MaterialExpressionCameraVectorWS)
+    direction = g.custom(WATER_REFLECT_CODE, [("Cam", cam, ""), ("N", n, "")], description="CE water reflection")
+    cube = g.cube("ReflectionCube", defaults["T_CE_BlackCube"], direction)
+    base = g.texture("Base", defaults["T_CE_White"], uv0)
+    inputs = [("Cam", cam, ""), ("N", n, ""), ("Cube", cube, "RGB"), ("Base", base, "RGBA"),
+              ("PerpBrightness", g.scalar("PerpBrightness", 0.3), ""),
+              ("ParaBrightness", g.scalar("ParaBrightness", 1.0), ""),
+              ("PerpTint", g.vector("PerpTint"), ""), ("ParaTint", g.vector("ParaTint"), ""),
+              ("AlphaFromBase", g.scalar("AlphaFromBase", 0.0), ""),
+              ("FresnelPower", g.scalar("FresnelPower", 3.0), ""),
+              ("Exposure", g.scalar("Exposure", 1.0), ""), ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), "")]
+    inputs += fog_inputs(g)
+    c = g.custom(WATER_CODE, inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                 description="CE shader_transparent_water")
+    mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
+                                  unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 # A CE lens flare (a light's glow, e.g. a base beacon's): the flare bitmap
 # drawn facing the camera, added into the frame. The loader puts it on
 # /Engine/BasicShapes/Sphere at the light's marker, scaled to the flare's
@@ -676,5 +771,6 @@ build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=Tr
 build_transparent("M_CE_TransparentAdd", unreal.BlendMode.BLEND_ADDITIVE, defaults)
 build_transparent("M_CE_TransparentAlpha", unreal.BlendMode.BLEND_TRANSLUCENT, defaults)
 build_transparent("M_CE_TransparentMul", unreal.BlendMode.BLEND_MODULATE, defaults)
+build_water(defaults)
 build_flare(defaults)
 unreal.log("MJOLNIR CE materials built")

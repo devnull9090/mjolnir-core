@@ -21,7 +21,7 @@ with the material of its CE shader:
 
 Writes a self-contained glTF (one .bin beside it) with the BSP's attributes
 on every primitive: POSITION, NORMAL, TANGENT, TEXCOORD_0, TEXCOORD_1 and
-_INCIDENT. With --translucent, the transparent (chicago) shaders' sections go
+_INCIDENT. With --translucent, the transparent (chicago, water) shaders' sections go
 to a second glTF: Unreal only puts a mesh in its translucency pass when the
 mesh's own material slots ask for it, and a rewritten mesh keeps its donor's
 single slot.
@@ -36,7 +36,7 @@ import sys
 import numpy as np
 
 WU_TO_M = 3.048
-TRANSPARENT = ("schi", "scex")
+TRANSPARENT = ("schi", "scex", "swat")
 
 
 def load_gltf(path):
@@ -182,7 +182,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("staging")
     ap.add_argument("out")
-    ap.add_argument("--translucent", help="write the transparent shaders' sections (schi, scex: the sky, "
+    ap.add_argument("--translucent", help="write the transparent shaders' sections (schi, scex, swat: the sky, "
                                           "lights, teleporter fields) here instead, as a mesh of their own")
     ap.add_argument("--sky", help="write the sky's sections here instead, as a mesh of their own (with "
                                   "--translucent: the sky is kilometres across, and sharing one normalised mesh "

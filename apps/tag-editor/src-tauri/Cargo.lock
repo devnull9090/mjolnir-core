@@ -383,6 +383,8 @@ name = "blam-pack"
 version = "0.1.0"
 dependencies = [
  "blam-tag",
+ "serde",
+ "serde_json",
  "ue-asset",
  "ue-iostore",
 ]

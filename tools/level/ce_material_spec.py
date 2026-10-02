@@ -195,6 +195,27 @@ def main():
                 vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
             if blend == 7:
                 sc["Premultiply"] = 1.0
+        elif cls == "swat":
+            # shader_transparent_water (M_CE_Water): the reflection cube seen
+            # through rippling, view-tinted water. Its base map is a mask,
+            # never a colour: drawn as one, the sea was an opaque white sheet.
+            w = s.get("water") or {}
+            entry["parent"] = master("M_CE_Water")
+            sc, vec = entry["scalars"], entry["vectors"]
+            maps = {"Base": texture(s.get("base_map")), "Ripple": texture(w.get("ripple_map"))}
+            entry["textures"] = {k: v for k, v in maps.items() if v}
+            cube_map = cube((s.get("reflection") or {}).get("cube_map"))
+            if cube_map:
+                entry["textures"]["ReflectionCube"] = cube_map
+            sc["PerpBrightness"] = w.get("view_perp_brightness", 0.3)
+            sc["ParaBrightness"] = w.get("view_para_brightness", 1.0)
+            vec["PerpTint"] = list(w.get("view_perp_tint") or [1, 1, 1]) + [1.0]
+            vec["ParaTint"] = list(w.get("view_para_tint") or [1, 1, 1]) + [1.0]
+            sc["RippleAngle"] = w.get("ripple_animation_angle", 0.0)
+            sc["RippleVelocity"] = w.get("ripple_animation_velocity", 0.0)
+            sc["RippleRepeat"] = w.get("ripple_scale") or 1.0
+            # Water flag 0: "base map alpha modulates reflection".
+            sc["AlphaFromBase"] = 1.0 if w.get("flags", 0) & 1 and s.get("base_map_has_alpha") else 0.0
         else:
             flags = s.get("shader_flags", 0)
             if cls == "senv":

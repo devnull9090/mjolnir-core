@@ -224,6 +224,27 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
   or multiply. Subtract, min and max have no Unreal blend mode and fall back
   to alpha blending.
 
+Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
+Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
+
+- the reflection cube map, sampled along the view reflected about a normal
+  bent by two panning layers of the ripple map (the shader's ripple angle,
+  velocity and scale);
+- tinted and faded by the view angle, from the perpendicular brightness and
+  tint (looking straight down) to the parallel ones (grazing), on a steep
+  curve (`FresnelPower` 3);
+- added over what is under the water, scaled by the brightness and, when
+  the shader's first water flag is set, by the base map's alpha: the base
+  map is a mask, never a colour (drawn as one, the sea was an opaque white
+  sheet, 2026-10-02). Brightness is not opacity: Battle Creek's water is 1.0
+  at every angle and its creek bed still shows. The second flag (the base
+  map's colour tints the background) has no additive form and is not drawn.
+
+halo2ue's water parser read every field after the base map at the wrong
+offset (its tag lookup moves the reader), so brightness, tint, ripples and
+the reflection map all came out zero; it reads them at their fixed offsets
+now.
+
 **Colour reaching the screen unchanged.** Each material:
 
 1. decodes its result to linear;
@@ -452,7 +473,11 @@ seconds after the loading screen are dark.
 
 ## Limits
 
-- **Visuals.** No decals, lens flares or weather yet. Dynamic lights
+- **Visuals.** No decals or weather yet. A light a placed object carries
+  (the base beacons) is drawn as its lens flare only, never as a light, and
+  the flare's brightness follows the object function that scales the light
+  (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
+  every 40 ms). Dynamic lights
   (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
   lit by its lightmaps as in CE. Scenery takes the lightmap colour under its
   origin; CE's per-object directional terms are not reproduced. One converted
