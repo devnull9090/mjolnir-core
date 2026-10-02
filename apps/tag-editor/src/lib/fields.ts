@@ -1,4 +1,5 @@
 import type { NodeView } from "./api";
+import { fieldPath } from "./paths";
 
 /** Types with no editable value of their own. */
 export const NOT_EDITABLE = new Set([
@@ -13,6 +14,42 @@ export const NOT_EDITABLE = new Set([
   "custom",
   "terminator X",
 ]);
+
+/** Why a `runtime …` field is read-only. */
+export const RUNTIME_NOTE = "Recomputed by the game when the tag loads";
+
+/** Whether the inspector lets this field be edited. */
+export function isEditable(node: NodeView): boolean {
+  return !NOT_EDITABLE.has(node.type) && node.size > 0 && !node.runtime;
+}
+
+/**
+ * The warning for a live change to a field the running game does not read:
+ * it reads the runtime copies computed from it when the tag loaded. `null`
+ * when the field feeds nothing.
+ */
+export function staleLiveNote(node: NodeView | null): string | null {
+  if (!node || node.feeds.length === 0) return null;
+  return (
+    `the running game reads ${node.feeds.join(", ")}, computed from this ` +
+    "when the tag loaded, so it will not change until the tag reloads " +
+    "(restart the mission). The edit itself is recorded, and a rebuild or " +
+    "test install carries it."
+  );
+}
+
+/** The node a field path names, walking the tree the way paths are built. */
+export function nodeAtPath(nodes: NodeView[], path: string, base = ""): NodeView | null {
+  for (const n of nodes) {
+    const here = fieldPath(base, n.name, n.kind);
+    if (here === path) return n;
+    if (path.startsWith(here) && (path[here.length] === "." || path[here.length] === "[")) {
+      const found = nodeAtPath(n.children, path, here);
+      if (found) return found;
+    }
+  }
+  return null;
+}
 
 /** Types whose value lives in a trailing section, so changing one resizes the
  *  tag rather than overwriting bytes. Editable, but worth flagging. */

@@ -65,11 +65,82 @@ impl std::fmt::Display for DatumHandle {
     }
 }
 
-/// What a node *is*, as opposed to what it evaluates to.
+/// Node `+6`: a bitfield saying what a node is, as opposed to what it
+/// evaluates to.
 ///
-/// The numbering is the engine's, and matches the Reach-era values Assembly
-/// documents. Halo Campaign Evolved shares the numbering even though its
-/// function opcodes are entirely its own.
+/// The shipped definitions call this half-word `flags`, and it decodes as one:
+/// every value in the campaign's live nodes is a combination of these bits,
+/// and only five combinations occur — see [`ExpressionType`]. Reading it as an
+/// enum worked because nothing else shows up, but it made `13` a kind of its
+/// own when it is *primitive, variable, permanent*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct NodeFlags(pub u16);
+
+impl NodeFlags {
+    /// A leaf: a literal, a name, or a variable read. Clear on a call.
+    pub const PRIMITIVE: u16 = 1 << 0;
+    /// On a call, `opcode` indexes the scenario's `scripts` rather than the
+    /// engine's function table.
+    pub const SCRIPT_INDEX: u16 = 1 << 1;
+    /// On a leaf, a read of a global or parameter rather than a literal.
+    pub const VARIABLE: u16 = 1 << 2;
+    /// Set on every live node the campaign ships.
+    pub const PERMANENT: u16 = 1 << 3;
+    /// Set only on parameter reads: the one bit Halo Campaign Evolved adds to
+    /// the Reach-era set, and what separates a parameter from a global.
+    pub const PARAMETER: u16 = 1 << 4;
+
+    const KNOWN: u16 =
+        Self::PRIMITIVE | Self::SCRIPT_INDEX | Self::VARIABLE | Self::PERMANENT | Self::PARAMETER;
+
+    pub fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub fn contains(self, bits: u16) -> bool {
+        self.0 & bits == bits
+    }
+
+    /// What these flags make a node.
+    pub fn kind(self) -> ExpressionType {
+        if self.0 & !Self::KNOWN != 0 {
+            return ExpressionType::Other(self.0);
+        }
+        let kind = if !self.contains(Self::PRIMITIVE) {
+            if self.contains(Self::SCRIPT_INDEX) {
+                ExpressionType::ScriptReference
+            } else {
+                ExpressionType::Group
+            }
+        } else if self.contains(Self::PARAMETER) {
+            ExpressionType::ParameterReference
+        } else if self.contains(Self::VARIABLE) {
+            ExpressionType::GlobalsReference
+        } else {
+            ExpressionType::Expression
+        };
+        // A combination the campaign never ships, such as a leaf with the
+        // script bit, is carried as itself rather than rounded to a near miss.
+        if kind.flags() == self {
+            kind
+        } else {
+            ExpressionType::Other(self.0)
+        }
+    }
+}
+
+/// The kinds of node the flag combinations in [`NodeFlags`] describe.
+///
+/// Each is one fixed combination, and these five are the only ones that occur
+/// in the shipped campaign:
+///
+/// | Kind | Flags | Value |
+/// |---|---|---:|
+/// | Group | permanent | 8 |
+/// | Expression | permanent, primitive | 9 |
+/// | Script reference | permanent, script index | 10 |
+/// | Globals reference | permanent, variable, primitive | 13 |
+/// | Parameter reference | parameter, permanent, variable, primitive | 29 |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpressionType {
     /// A call: `data` points at the first child, which names the callee.
@@ -78,36 +149,29 @@ pub enum ExpressionType {
     Expression,
     /// A call to a script in this scenario; `opcode` indexes `scripts`.
     ScriptReference,
-    /// A read of a scenario global; `opcode` indexes `globals`.
+    /// A read of a scenario global; `data` indexes `globals`.
     GlobalsReference,
     /// A read of the enclosing script's parameter.
     ParameterReference,
-    /// A value the engine uses that this crate does not model yet. Carried
-    /// through rather than dropped, so a round-trip stays lossless.
+    /// A flag combination this crate does not model. Carried through rather
+    /// than dropped, so a round-trip stays lossless.
     Other(u16),
 }
 
 impl ExpressionType {
-    pub fn from_raw(v: u16) -> Self {
-        match v {
-            8 => ExpressionType::Group,
-            9 => ExpressionType::Expression,
-            10 => ExpressionType::ScriptReference,
-            13 => ExpressionType::GlobalsReference,
-            29 => ExpressionType::ParameterReference,
-            other => ExpressionType::Other(other),
-        }
-    }
-
-    pub fn to_raw(self) -> u16 {
-        match self {
-            ExpressionType::Group => 8,
-            ExpressionType::Expression => 9,
-            ExpressionType::ScriptReference => 10,
-            ExpressionType::GlobalsReference => 13,
-            ExpressionType::ParameterReference => 29,
+    /// The flags a node of this kind carries.
+    pub fn flags(self) -> NodeFlags {
+        use NodeFlags as F;
+        NodeFlags(match self {
+            ExpressionType::Group => F::PERMANENT,
+            ExpressionType::Expression => F::PERMANENT | F::PRIMITIVE,
+            ExpressionType::ScriptReference => F::PERMANENT | F::SCRIPT_INDEX,
+            ExpressionType::GlobalsReference => F::PERMANENT | F::VARIABLE | F::PRIMITIVE,
+            ExpressionType::ParameterReference => {
+                F::PARAMETER | F::PERMANENT | F::VARIABLE | F::PRIMITIVE
+            }
             ExpressionType::Other(v) => v,
-        }
+        })
     }
 
     /// Whether `data` holds a handle to this node's first child rather than a
@@ -117,6 +181,12 @@ impl ExpressionType {
             self,
             ExpressionType::Group | ExpressionType::ScriptReference
         )
+    }
+}
+
+impl From<ExpressionType> for NodeFlags {
+    fn from(t: ExpressionType) -> Self {
+        t.flags()
     }
 }
 
@@ -130,7 +200,9 @@ pub struct Expression {
     pub opcode: u16,
     /// Index into the scenario's value-type enum: what this evaluates to.
     pub value_type: u16,
-    pub expression_type: ExpressionType,
+    /// What the node is. See [`NodeFlags`], and [`Expression::kind`] for the
+    /// classification most readers want.
+    pub flags: NodeFlags,
     /// The next sibling in the enclosing call's argument list.
     pub next: DatumHandle,
     /// Byte offset into `script string data` of this node's name or string
@@ -158,7 +230,7 @@ impl Expression {
             generation: u16at(0),
             opcode: u16at(2),
             value_type: u16at(4),
-            expression_type: ExpressionType::from_raw(u16at(6)),
+            flags: NodeFlags(u16at(6)),
             next: DatumHandle(u32at(8)),
             string_offset: u32at(12),
             data: u32at(16),
@@ -174,7 +246,7 @@ impl Expression {
         out[0..2].copy_from_slice(&self.generation.to_le_bytes());
         out[2..4].copy_from_slice(&self.opcode.to_le_bytes());
         out[4..6].copy_from_slice(&self.value_type.to_le_bytes());
-        out[6..8].copy_from_slice(&self.expression_type.to_raw().to_le_bytes());
+        out[6..8].copy_from_slice(&self.flags.bits().to_le_bytes());
         out[8..12].copy_from_slice(&self.next.0.to_le_bytes());
         out[12..16].copy_from_slice(&self.string_offset.to_le_bytes());
         out[16..20].copy_from_slice(&self.data.to_le_bytes());
@@ -185,14 +257,17 @@ impl Expression {
 
     /// A slot no expression occupies.
     pub fn is_free(&self) -> bool {
-        self.opcode == FREE_FILL
-            && self.value_type == FREE_FILL
-            && self.expression_type == ExpressionType::Other(FREE_FILL)
+        self.opcode == FREE_FILL && self.value_type == FREE_FILL && self.flags.bits() == FREE_FILL
+    }
+
+    /// What kind of node this is, from its flags.
+    pub fn kind(&self) -> ExpressionType {
+        self.flags.kind()
     }
 
     /// The handle of this node's first child, if it has children.
     pub fn first_child(&self) -> Option<DatumHandle> {
-        if !self.expression_type.has_children() {
+        if !self.kind().has_children() {
             return None;
         }
         let h = DatumHandle(self.data);
@@ -260,7 +335,7 @@ mod tests {
         let e = Expression::parse(&A30_GROUP).unwrap();
         assert_eq!(e.generation, 0xe377);
         assert_eq!(e.opcode, 0x019c);
-        assert_eq!(e.expression_type, ExpressionType::Group);
+        assert_eq!(e.kind(), ExpressionType::Group);
         assert_eq!(e.next, DatumHandle::new(8, 0xe37b));
         assert_eq!(e.string_offset, 256);
         assert_eq!(e.line, 5);
@@ -305,9 +380,31 @@ mod tests {
     }
 
     #[test]
-    fn an_unmodelled_expression_type_survives_a_round_trip() {
-        let t = ExpressionType::from_raw(41);
-        assert_eq!(t, ExpressionType::Other(41));
-        assert_eq!(t.to_raw(), 41);
+    fn an_unmodelled_flag_combination_survives_a_round_trip() {
+        // A leaf with the script bit never ships; it must not be rounded to
+        // the nearest kind that does.
+        let odd = NodeFlags(NodeFlags::PERMANENT | NodeFlags::PRIMITIVE | NodeFlags::SCRIPT_INDEX);
+        assert_eq!(odd.kind(), ExpressionType::Other(11));
+        assert_eq!(odd.kind().flags(), odd);
+        assert_eq!(NodeFlags(41).kind(), ExpressionType::Other(41));
+    }
+
+    /// The five values the shipped campaign carries decode as the flag
+    /// combinations they are, and each kind encodes back to its value.
+    #[test]
+    fn the_shipped_values_are_flag_combinations() {
+        for (raw, kind) in [
+            (8, ExpressionType::Group),
+            (9, ExpressionType::Expression),
+            (10, ExpressionType::ScriptReference),
+            (13, ExpressionType::GlobalsReference),
+            (29, ExpressionType::ParameterReference),
+        ] {
+            assert_eq!(NodeFlags(raw).kind(), kind, "{raw}");
+            assert_eq!(kind.flags().bits(), raw, "{kind:?}");
+            assert!(NodeFlags(raw).contains(NodeFlags::PERMANENT));
+        }
+        assert!(NodeFlags(29).contains(NodeFlags::PARAMETER | NodeFlags::VARIABLE));
+        assert!(!NodeFlags(13).contains(NodeFlags::PARAMETER));
     }
 }

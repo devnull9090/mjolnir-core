@@ -3,7 +3,7 @@ import { degreesToRadiansText, isAngleType, radiansToDegreesText } from "../lib/
 import { fieldPath } from "../lib/paths";
 import { useEditor } from "../stores/editor-store";
 import type { NodeView } from "../lib/api";
-import { NOT_EDITABLE, RESIZES, editableText, keepTail } from "../lib/fields";
+import { RESIZES, RUNTIME_NOTE, editableText, isEditable, keepTail } from "../lib/fields";
 import { useTabUi } from "../lib/tab-ui";
 import { scheduleSaveSession } from "../lib/session";
 import { copyText } from "../lib/clipboard";
@@ -31,7 +31,7 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
   const [failed, setFailed] = useState<string | null>(null);
 
   const isEdited = edited.includes(path);
-  const canEdit = !NOT_EDITABLE.has(node.type) && node.size > 0;
+  const canEdit = isEditable(node);
   const empty = node.value === "";
   // Angles convert at the edge: shown in degrees when asked, stored in radians.
   const degreesOn = useEditor((s) => s.degrees);
@@ -99,7 +99,9 @@ function Leaf({ node, path }: { node: NodeView; path: string }) {
             setEditing(true);
           }}
           title={
-            !canEdit
+            node.runtime
+              ? `${node.value}\n\n${RUNTIME_NOTE}, so it is read-only`
+              : !canEdit
               ? `${node.value}\n\n${node.type} values are not editable`
               : node.type === "tag reference"
                 ? `${node.value}\n\nClick to edit. Written as group:path, or none. Resizes the tag.`

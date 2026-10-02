@@ -454,6 +454,18 @@ pub enum ParseError {
     Unsupported { type_name: String },
 }
 
+/// A real typed by a person: a finite `f32` or nothing.
+///
+/// Rust's float parser also takes `NaN`, `inf`, `-inf` and `infinity`, and a
+/// literal too large for an `f32` (`1e39`) comes back as infinity. None of
+/// those is a value a tag should be given — the engine divides by and compares
+/// these fields without expecting either — so text that would produce one is
+/// invalid. Decoding is unaffected: a non-finite value already in a tag still
+/// reads, displays and writes back unchanged.
+fn finite(text: &str) -> Option<f32> {
+    text.parse::<f32>().ok().filter(|v| v.is_finite())
+}
+
 /// [`parse`], by type name.
 pub fn parse_as(type_name: &str, text: &str, options: &[&str]) -> Result<Scalar, ParseError> {
     let t = text.trim();
@@ -532,16 +544,14 @@ pub fn parse_as(type_name: &str, text: &str, options: &[&str]) -> Result<Scalar,
             Scalar::Flags { raw, set }
         }
 
-        "real" | "real fraction" | "angle" => {
-            Scalar::Real(t.parse::<f32>().map_err(|_| invalid())?)
-        }
+        "real" | "real fraction" | "angle" => Scalar::Real(finite(t).ok_or_else(invalid)?),
         "real bounds" | "angle bounds" | "fraction bounds" | "real point 2d"
         | "real vector 2d" | "real euler angles 2d" | "real point 3d" | "real vector 3d"
         | "real euler angles 3d" | "real rgb color" | "real plane 2d" | "real argb color"
         | "real plane 3d" | "real quaternion" => Scalar::Reals(
             parts(t)
                 .iter()
-                .map(|p| p.parse::<f32>().map_err(|_| invalid()))
+                .map(|p| finite(p).ok_or_else(invalid))
                 .collect::<Result<_, _>>()?,
         ),
 
@@ -1023,6 +1033,49 @@ mod tests {
             Err(WriteError::Short { want: 4, got: 2, .. })
         ));
         assert_eq!(buf, [0, 0]);
+    }
+
+    #[test]
+    fn non_finite_reals_are_refused() {
+        for text in [
+            "NaN", "nan", "inf", "-inf", "+inf", "infinity", "-Infinity", "1e39", "-1e39",
+        ] {
+            for t in ["real", "real fraction", "angle"] {
+                assert!(
+                    matches!(parse_as(t, text, &[]), Err(ParseError::Invalid { .. })),
+                    "{t} accepted {text:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_non_finite_component_refuses_the_whole_vector() {
+        for text in ["1, NaN, 3", "(inf, 0, 0)", "0 0 -infinity", "1e39, 2"] {
+            let t = if text.starts_with("1e39") { "real bounds" } else { "real point 3d" };
+            assert!(
+                matches!(parse_as(t, text, &[]), Err(ParseError::Invalid { .. })),
+                "{t} accepted {text:?}"
+            );
+        }
+        // Finite values in every spelling the display and the CLI use still parse.
+        assert_eq!(
+            parse_as("real point 3d", "(1, -2.5, 3e2)", &[]),
+            Ok(Scalar::Reals(vec![1.0, -2.5, 300.0]))
+        );
+        assert_eq!(parse_as("real", "-0.25", &[]), Ok(Scalar::Real(-0.25)));
+        assert_eq!(parse_as("angle", "3.4028235e38", &[]), Ok(Scalar::Real(f32::MAX)));
+    }
+
+    #[test]
+    fn a_non_finite_value_already_in_a_tag_still_round_trips() {
+        // Refusing NaN as *input* must not stop a tag that holds one from
+        // being read and written back byte for byte.
+        let nan = 0x7FC0_0001u32.to_le_bytes();
+        let v = decode("real", &nan, none);
+        let mut out = [0u8; 4];
+        encode("real", &v, &mut out).unwrap();
+        assert_eq!(out, nan);
     }
 
     #[test]

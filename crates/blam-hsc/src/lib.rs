@@ -29,7 +29,7 @@ pub use corpus::{CorpusBuilder, FunctionDef, ScriptCorpus};
 pub use decompile::Decompiler;
 pub use expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 pub use parse::{Declaration, Vocabulary};
-pub use read::{Global, Script, ScriptSection, SourceFile};
+pub use read::{Global, ScenarioNames, Script, ScriptSection, SourceFile};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -49,6 +49,13 @@ pub enum Error {
     Rewrite(String),
     #[error("the block shapes are not known; read the section from a tag first")]
     UnknownShapes,
+    #[error("the {what} name `{name}` is {len} bytes; the field holds {max}")]
+    NameTooLong {
+        what: &'static str,
+        name: String,
+        len: usize,
+        max: usize,
+    },
     #[error("{count} {what} exceed the {max} the definitions allow")]
     TooManyElements {
         what: &'static str,

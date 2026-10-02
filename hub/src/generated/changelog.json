@@ -146,6 +146,35 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.21.0",
+      "tag": "tag-editor-v0.21.0",
+      "title": "Runtime fields are read-only, and live mode says when a poke cannot show",
+      "date": "2026-09-29",
+      "summary": "Fields the game recomputes at load are read-only, live mode warns when a poke lands on a value the game does not read, and NaN or out-of-range block indices are refused.",
+      "body": "Some tag fields are not read by the game at all. The engine recomputes a\n`runtime …` copy from them when the tag loads, and the simulation reads only\nthat copy. This release shows which fields those are, and stops edits that\ncould only do harm.\n\n### Added\n\n- **Runtime fields are read-only.** A field named `runtime …`, such as a\n  barrel's `runtime rate of fire acceleration rate`, a biped's `runtime crouch\n  transition velocity` or a trigger volume's `runtime sector bounds`, is\n  greyed out with *Recomputed by the game when the tag loads*. An edit to one\n  would only be overwritten at load. There are 239 such fields across 30\n  groups. Blocks and structs named `runtime` are not included; the\n  multiplayer globals' `runtime` block is ordinary authored data.\n- **Live mode warns when a poke cannot show.** Some fields have a runtime copy,\n  and the running game reads that copy instead. Examples are a barrel's\n  rate-of-fire `acceleration time` and `deceleration time`, a biped's\n  `crouch transition time`, the ground physics' slope angles, recharge times\n  and a weapon's power-on time. After a live poke to one of these, the live bar\n  names the runtime field in amber. It says the game will not change until the\n  tag loads again, with a mission restart or a rebuild. The edit is still\n  recorded.\n\n### Fixed\n\n- A real field accepted `NaN`, `inf`, `-inf`, `infinity` and values too large\n  for a 32-bit float (`1e39`), and wrote them into the tag. They are now\n  refused, both in the editor and on the command line.\n- A block index can now be set only to `none` or to an element of the block\n  it points into, when the definition says which block that is. The barrel's\n  `magazine` indexes the weapon's `magazines`. The value a field already holds\n  is always accepted, so reverting a field or pasting an element still works.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Runtime fields are read-only. A field named runtime …, such as a barrel's runtime rate of fire acceleration rate, a biped's runtime crouch transition velocity or a trigger volume's runtime sector bounds, is greyed out with Recomputed by the game when the tag loads. An edit to one would only be overwritten at load. There are 239 such fields across 30 groups. Blocks and structs named runtime are not included; the multiplayer globals' runtime block is ordinary authored data.",
+            "Live mode warns when a poke cannot show. Some fields have a runtime copy, and the running game reads that copy instead. Examples are a barrel's rate-of-fire acceleration time and deceleration time, a biped's crouch transition time, the ground physics' slope angles, recharge times and a weapon's power-on time. After a live poke to one of these, the live bar names the runtime field in amber. It says the game will not change until the tag loads again, with a mission restart or a rebuild. The edit is still recorded."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A real field accepted NaN, inf, -inf, infinity and values too large for a 32-bit float (1e39), and wrote them into the tag. They are now refused, both in the editor and on the command line.",
+            "A block index can now be set only to none or to an element of the block it points into, when the definition says which block that is. The barrel's magazine indexes the weapon's magazines. The value a field already holds is always accepted, so reverting a field or pasting an element still works."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.21.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.21.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.21.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.20.1",
       "tag": "tag-editor-v0.20.1",
       "title": "The Script, World and Model views keep the way back",

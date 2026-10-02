@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use blam_tag::data::{field_writes, Block, Value};
 use blam_tag::layout::Layout;
 
-use crate::expr::{DatumHandle, Expression, ValueTypes, DATUM_SIZE};
+use crate::expr::{DatumHandle, Expression, ExpressionType, ValueTypes, DATUM_SIZE};
 use crate::Error;
 
 /// One entry of the scenario's `scripts` block.
@@ -184,6 +184,38 @@ impl ScriptSection {
         std::str::from_utf8(&rest[..end]).unwrap_or("")
     }
 
+    /// Whether a node's `+0xC` is a byte offset into the source files rather
+    /// than into the string blob.
+    ///
+    /// A call records where its `(` is, and a number, boolean or `void` leaf
+    /// where its token is — it has no string to point at. Names, strings,
+    /// variable reads and the node naming a callee point into the blob.
+    pub fn offset_is_source(&self, e: &Expression) -> bool {
+        match e.kind() {
+            ExpressionType::Group | ExpressionType::ScriptReference => true,
+            ExpressionType::Expression => matches!(
+                self.value_types.name_of(e.value_type),
+                Some("boolean" | "real" | "short" | "long" | "void")
+            ),
+            _ => false,
+        }
+    }
+
+    /// The string a node names, or `None` for one whose `+0xC` points into
+    /// the source instead.
+    pub fn text_of(&self, e: &Expression) -> Option<&str> {
+        (!self.offset_is_source(e)).then(|| self.string_at(e.string_offset))
+    }
+
+    /// The source files end to end, each with its NUL: what a source offset
+    /// indexes.
+    pub fn source_text(&self) -> Vec<u8> {
+        self.source_files
+            .iter()
+            .flat_map(|f| f.source.iter().copied())
+            .collect()
+    }
+
     /// Walk a call's arguments: its first child, then each `next` in turn.
     ///
     /// The chain is followed with a step budget because a corrupt or
@@ -244,6 +276,198 @@ fn options_of(layout: &Layout<'_>, struct_name: &str, field_name: &str) -> Value
     ValueTypes::default()
 }
 
+/// The names a scenario gives the things its scripts refer to by name.
+///
+/// A literal like `tv_first_to_cave` or `sq_marines` is compiled to the index
+/// of the element it names — see [`crate::compile`] — so resolving one needs
+/// the scenario it will run in. Each list is kept in element order, because the
+/// position is what the node stores.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScenarioNames {
+    /// Root blocks, and the point sets under `scripting data`, by field name.
+    blocks: BTreeMap<String, Vec<String>>,
+    /// Blocks nested one per parent element, keyed `parent/child`: the points
+    /// of each point set, the spawn points of each squad.
+    nested: BTreeMap<String, Vec<Vec<String>>>,
+}
+
+/// Whether two names are the same name.
+///
+/// Case never matters, and a `string id` name has its hyphens folded to
+/// underscores when it is registered: `tv_checkpoint_bridge_a_pre-gold` in
+/// `b40`'s source names the trigger volume stored as `..._pre_gold`, and the
+/// shipped node carries that volume's index.
+pub fn same_name(a: &str, b: &str) -> bool {
+    let fold = |c: u8| match c {
+        b'-' => b'_',
+        c => c.to_ascii_lowercase(),
+    };
+    a.len() == b.len() && a.bytes().zip(b.bytes()).all(|(x, y)| fold(x) == fold(y))
+}
+
+impl ScenarioNames {
+    pub fn new(
+        blocks: BTreeMap<String, Vec<String>>,
+        nested: BTreeMap<String, Vec<Vec<String>>>,
+    ) -> Self {
+        ScenarioNames { blocks, nested }
+    }
+
+    /// The names in one block, in element order.
+    pub fn block(&self, name: &str) -> Option<&[String]> {
+        self.blocks.get(name).map(Vec::as_slice)
+    }
+
+    /// The element of `block` called `name`.
+    pub fn index_of(&self, block: &str, name: &str) -> Option<usize> {
+        self.block(block)?.iter().position(|n| same_name(n, name))
+    }
+
+    /// A nested block's names, one list per parent element.
+    pub fn nested(&self, path: &str) -> Option<&[Vec<String>]> {
+        self.nested.get(path).map(Vec::as_slice)
+    }
+
+    /// The element called `name` of the `child` block inside element `parent`
+    /// of the block `path` names, as `point sets/points`.
+    pub fn nested_index_of(&self, path: &str, parent: usize, name: &str) -> Option<usize> {
+        self.nested
+            .get(path)?
+            .get(parent)?
+            .iter()
+            .position(|n| same_name(n, name))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+}
+
+/// Where a block element's `name` field lives: its inline offset, its type,
+/// and which of the element's values it pairs with if it writes one.
+fn name_field<'a>(layout: &Layout<'a>, b: &Block<'_>) -> Option<(usize, &'a str, Option<usize>)> {
+    let run = layout.struct_run(b.struct_index)?;
+    let range = layout.struct_ranges().get(run).cloned()?;
+    let mut offset = 0usize;
+    let mut slot = 0usize;
+    for index in range {
+        let field = layout.fields[index];
+        let writes = field_writes(layout, &field);
+        if layout.string_at(field.name_offset) == Some("name") {
+            return Some((offset, layout.type_name_of(&field), writes.then_some(slot)));
+        }
+        offset += layout.field_size(&field)? as usize;
+        if writes {
+            slot += 1;
+        }
+    }
+    None
+}
+
+/// The `name` of every element of a block whose elements have one.
+///
+/// Walks the element struct the way [`blam_tag::view`] does, summing field
+/// sizes for the inline offset and pairing writing fields with their values,
+/// so a `string` name is read inline and a `string id` one from its section.
+fn element_names(layout: &Layout<'_>, b: &Block<'_>) -> Option<Vec<String>> {
+    let (offset, type_name, slot) = name_field(layout, b)?;
+    let mut out = Vec::with_capacity(b.count as usize);
+    for i in 0..b.count as usize {
+        let name = match (type_name, slot) {
+            ("string id", Some(slot)) => b
+                .children
+                .get(i)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|v| !matches!(v, Value::Phantom))
+                .nth(slot)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            ("string" | "long string", _) => {
+                fixed_string(b.element(i)?.get(offset..).unwrap_or(&[]))
+            }
+            _ => return None,
+        };
+        out.push(name);
+    }
+    Some(out)
+}
+
+/// For each element of `parent`, the names in the block `path` reaches.
+///
+/// `path` is field names separated by `/`, descending through inline structs:
+/// a squad's cells are `designer/cells`.
+fn nested_names(layout: &Layout<'_>, parent: &Block<'_>, path: &str) -> Vec<Vec<String>> {
+    let Some(run) = layout.struct_run(parent.struct_index) else {
+        return Vec::new();
+    };
+    (0..parent.count as usize)
+        .map(|i| {
+            let values = parent.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+            let mut fields = run_fields(layout, run, values);
+            let mut steps = path.split('/').peekable();
+            while let Some(step) = steps.next() {
+                let Some((field, value)) = fields
+                    .iter()
+                    .find(|(f, _)| layout.string_at(f.name_offset) == Some(step))
+                else {
+                    break;
+                };
+                match (value, steps.peek()) {
+                    (Value::Block(b), None) => return element_names(layout, b).unwrap_or_default(),
+                    (Value::Struct { children }, Some(_)) => {
+                        let Some(inner) = layout.struct_run(field.aux as usize) else {
+                            break;
+                        };
+                        fields = run_fields(layout, inner, children);
+                    }
+                    _ => break,
+                }
+            }
+            Vec::new()
+        })
+        .collect()
+}
+
+/// Every named block at the scenario's root, the point sets under `scripting
+/// data`, and the points and spawn points nested a level further down.
+pub fn names(layout: &Layout<'_>, block: &Block<'_>) -> ScenarioNames {
+    let mut blocks = BTreeMap::new();
+    let mut nested = BTreeMap::new();
+    let root = top_level(layout, block);
+    for (field, value) in &root {
+        let Value::Block(b) = value else { continue };
+        if let Some(names) = element_names(layout, b) {
+            blocks.insert(field.to_string(), names);
+        }
+    }
+    for (parent, child) in [
+        ("squads", "spawn points"),
+        ("squads", "designer/cells"),
+        ("squads", "templated/cells"),
+        ("ai objectives", "tasks"),
+    ] {
+        if let Some(b) = as_block(root.get(parent).copied()) {
+            nested.insert(format!("{parent}/{child}"), nested_names(layout, b, child));
+        }
+    }
+    // Point sets are the one scripted kind held a level down.
+    if let Some(data) = as_block(root.get("scripting data").copied()).filter(|d| d.count > 0) {
+        if let Some(sets) = as_block(top_level(layout, data).get("point sets").copied()) {
+            if let Some(names) = element_names(layout, sets) {
+                blocks.insert("point sets".to_string(), names);
+            }
+            nested.insert(
+                "point sets/points".to_string(),
+                nested_names(layout, sets, "points"),
+            );
+        }
+    }
+    ScenarioNames::new(blocks, nested)
+}
+
 /// The root block's top-level fields, by name.
 ///
 /// Values arrive in the order the writing fields are declared, with phantom
@@ -254,15 +478,40 @@ fn top_level<'a, 'b>(
     layout: &Layout<'a>,
     block: &'b Block<'a>,
 ) -> BTreeMap<&'a str, &'b Value<'a>> {
-    let mut out = BTreeMap::new();
+    element_fields(layout, block, 0).into_iter().collect()
+}
+
+/// One element's section-backed fields, paired the same way, in declaration
+/// order.
+fn element_fields<'a, 'b>(
+    layout: &Layout<'a>,
+    block: &'b Block<'a>,
+    element: usize,
+) -> Vec<(&'a str, &'b Value<'a>)> {
     let Some(run) = layout.struct_run(block.struct_index) else {
-        return out;
+        return Vec::new();
     };
+    let values = block
+        .children
+        .get(element)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    run_fields(layout, run, values)
+        .into_iter()
+        .filter_map(|(f, v)| Some((layout.string_at(f.name_offset)?, v)))
+        .collect()
+}
+
+/// A struct run's writing fields paired with the values they wrote.
+fn run_fields<'b, 'a>(
+    layout: &Layout<'a>,
+    run: usize,
+    values: &'b [Value<'a>],
+) -> Vec<(blam_tag::FieldEntry, &'b Value<'a>)> {
+    let mut out = Vec::new();
     let Some(range) = layout.struct_ranges().get(run).cloned() else {
         return out;
     };
-    let values = block.children.first().map(Vec::as_slice).unwrap_or(&[]);
-
     let mut next = 0usize;
     for index in range {
         let field = layout.fields[index];
@@ -272,8 +521,8 @@ fn top_level<'a, 'b>(
         while matches!(values.get(next), Some(Value::Phantom)) {
             next += 1;
         }
-        if let (Some(name), Some(value)) = (layout.string_at(field.name_offset), values.get(next)) {
-            out.insert(name, value);
+        if let Some(value) = values.get(next) {
+            out.push((field, value));
         }
         next += 1;
     }
@@ -544,7 +793,7 @@ mod tests {
             generation,
             opcode: 0,
             value_type: 0,
-            expression_type: ty,
+            flags: ty.flags(),
             next,
             string_offset: 0,
             data,
@@ -638,6 +887,27 @@ mod tests {
         assert_eq!(s.string_at(6), "if");
         // Past the end reads as absent rather than panicking.
         assert_eq!(s.string_at(999), "");
+    }
+
+    #[test]
+    fn a_name_matches_regardless_of_case_or_a_folded_hyphen() {
+        assert!(same_name("tv_Pre-Gold", "tv_pre_gold"));
+        assert!(!same_name("tv_pre_gold", "tv_pre_gol"));
+        let names = ScenarioNames::new(
+            [(
+                "trigger volumes".to_string(),
+                vec!["a".into(), "tv_pre_gold".into()],
+            )]
+            .into(),
+            [(
+                "point sets/points".to_string(),
+                vec![vec!["p0".into(), "p1".into()]],
+            )]
+            .into(),
+        );
+        assert_eq!(names.index_of("trigger volumes", "TV_pre-gold"), Some(1));
+        assert_eq!(names.nested_index_of("point sets/points", 0, "p1"), Some(1));
+        assert_eq!(names.nested_index_of("point sets/points", 1, "p1"), None);
     }
 
     #[test]

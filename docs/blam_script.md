@@ -61,6 +61,15 @@ Seven fields of `scenario_block_struct`, all in one run at `0x3c8`:
 Plus `script string data`, a `data` field holding the string blob every node's
 `string_offset` points into (35–68 KB per scenario).
 
+**The blob ends with a 0x1000-byte reserve.** In all thirteen shipped scenarios the
+last string ends exactly 4,096 bytes before the blob does, and those bytes hold
+leftovers — non-zero in every one of the thirteen — rather than strings. It is room the
+engine keeps for strings it adds at runtime, such as a line typed at the console, so
+a writer that packs the blob tight hands those writes whatever follows it. The
+compiler appends the same 4,096 bytes, as zeros
+(`blam_hsc::emit::STRING_DATA_RESERVE`), and `mjolnir script --rebuild-check` checks
+the blob, reserve included, reads back unchanged.
+
 ## The expression datum
 
 `hs syntax datums` is a Blam **datum array**, not a list: nodes address each other by
@@ -71,9 +80,9 @@ handle, and freed slots stay in place. 24 bytes each:
 | `0x00` | 2 | generation | Pairs with the array index to form this node's handle |
 | `0x02` | 2 | opcode | Engine function, script index, or global index |
 | `0x04` | 2 | value type | Indexes the scenario's own value-type enum |
-| `0x06` | 2 | expression type | See below |
+| `0x06` | 2 | flags | What the node is; a bitfield, see below |
 | `0x08` | 4 | next | Handle of the next sibling |
-| `0x0c` | 4 | string offset | Into `script string data` |
+| `0x0c` | 4 | string or source offset | Into `script string data` for a name, string or variable read; into the source files for a call or a number (below) |
 | `0x10` | 4 | data | First child for a call; the literal payload otherwise |
 | `0x14` | 2 | line number | 1-based, in the source file it came from |
 | `0x16` | 2 | — | The definitions call it `HMM`; zero in every shipped datum |
@@ -89,15 +98,27 @@ it does: an ABA counter for a slab allocator, nothing to do with cryptography.
 A **free slot** reads as `0xBA` fill with a zeroed generation. 56,415 of the campaign's
 272,190 slots are free; walking the array without checking would decode garbage.
 
-**Expression types** use the Reach-era numbering, even though the opcodes do not:
+**The flags** at `0x06` are a bitfield — the definitions name the field `flags` — not
+an enum, though only five combinations ever occur:
 
-| Value | Meaning |
-|---:|---|
-| 8 | Group — a call. `data` points at the child that names the callee |
-| 9 | Expression — a leaf: either that name, or a literal |
-| 10 | Script reference — a call to a script in this scenario; `opcode` indexes `scripts` |
-| 13 | Globals reference — `opcode` indexes `globals` |
-| 29 | Parameter reference |
+| Bit | Name | Set on |
+|---:|---|---|
+| 1 | primitive | every leaf; clear on a call |
+| 2 | script index | a call whose `opcode` indexes `scripts` |
+| 4 | variable | a global or parameter read |
+| 8 | permanent | every live node shipped |
+| 16 | parameter | parameter reads only — the one bit not in the Reach-era set |
+
+| Value | Bits | Kind |
+|---:|---|---|
+| 8 | permanent | Group — a call. `data` points at the child that names the callee |
+| 9 | permanent, primitive | Expression — a leaf: either that name, or a literal |
+| 10 | permanent, script index | Script reference — a call to a script in this scenario |
+| 13 | permanent, variable, primitive | Globals reference — `data` indexes `globals` |
+| 29 | parameter, permanent, variable, primitive | Parameter reference |
+
+`blam_hsc::expr::NodeFlags` holds the raw bits, and `ExpressionType` is the
+classification of the five; any other combination is carried through untouched.
 
 ## Recovering the opcode table
 
@@ -113,13 +134,33 @@ each. **Signatures are inferred from use, not read from the engine**: a function
 campaign never calls is absent, and 46 of the 483 rest on a single call site. The file
 carries those counts so a consumer can tell the difference.
 
-Two things the tree does not preserve:
+### Source offsets, and `cond`
 
-- **`cond` does not survive compilation.** It is desugared to nested `if` before any
-  node is emitted, so no opcode exists for it even though the source files use it
-  freely. 205 scripts decompile to `if` where the source said `cond`.
-- **Special forms are not marked.** The value-type enum has a `special_form` entry, but
-  no node in any of the 272,190 shipped datums carries it.
+`+0x0c` is only a string offset on a node that has a string. On a call, and on a
+number, boolean or `void` leaf, it is a **byte offset into the scenario's source files
+taken end to end** in block order, each file followed by its NUL. The definitions name
+the field `source_offset`, and the data agrees: all 72,611 call nodes across the
+thirteen scenarios land on a `(`, and all 24,531 numeric and boolean literals that are
+not a `cond`'s trailing else land on their own token.
+
+That is what makes `cond` recoverable. It has no opcode — it is desugared to nested `if`
+before any node is emitted — but every `if` and `begin` the desugaring makes, and the
+literal it adds as the last clause's else, record the offset of the `cond` itself: 1,162
+`if`s across the campaign point at the text `(cond`. The decompiler puts one back
+wherever an `if` does, provided the shape matches exactly:
+
+```
+(if test1 (begin body1…) (if test2 (begin body2…) <zero of the cond's type>))
+```
+
+Every shipped `cond` ends in that zero: a `void` leaf in 207 of 230, a boolean or short
+`0` in the rest. The compiler writes the same shape and the same offsets, so a compiled
+tree decompiles back to `cond` too. Without the source files — a stripped scenario — a
+`cond` still renders as the `if`s it is.
+
+One thing the tree does not preserve: **special forms are not marked.** The value-type
+enum has a `special_form` entry, but no node in any of the 272,190 shipped datums
+carries it.
 
 ### Quoting
 
@@ -153,19 +194,21 @@ that keeps it reads a stray token at the end of every file.
 
 ## How well the decompiler does
 
-`mjolnir script --verify` decompiles all 6,827 campaign scripts and compares each
+`mjolnir script --verify` decompiles all 6,829 campaign scripts and compares each
 against the source the same scenario carries, as token streams — comments cannot come
-back, and the compiler coerces `-1` to `-1.0` and accepts `0` for `false`.
+back, and the compiler coerces `-1` to `-1.0` and accepts `0` for `false`. On CU4:
 
 | Outcome | Scripts |
 |---|---:|
-| Token-for-token match | 6,284 (92.0%) |
-| Differ only because the source used `cond` | 205 |
-| No source block to compare against | 150 |
+| Token-for-token match | 6,463 (94.6%) |
+| Source used `cond`, and still differs | 27 |
+| No source block to compare against | 151 |
 | Genuinely differ | 188 |
 
-**Every one of the 188 is a quoting disagreement** — same text, quoted on one side and
-bare on the other. Nothing else is unexplained.
+Before `cond` was recovered the second row was 205. The 27 left are scripts that use
+`cond` *and* have a quoting disagreement: with quotes ignored, all 27 match. **Every one
+of the 188 is a quoting disagreement** too — same text, quoted on one side and bare on
+the other. Nothing else is unexplained.
 
 ## The compiler
 
@@ -184,8 +227,11 @@ deliberately the compiler's own:
   2,806 distinct strings in `a30` — and this interns instead.
 
 Everything the engine reads is reproduced: expression types, opcodes, value types,
-sibling chains, and the rule that a call's first child names it and carries the same
-opcode. Rules confirmed against the shipped data rather than assumed:
+sibling chains, source offsets, and the rule that a call's first child names it and
+carries the same opcode. Compiling `a30`'s own source and walking each script against
+the shipped tree, all 5,845 call nodes and all 1,937 numeric, boolean and `void` leaves
+carry the shipped source offset. Rules confirmed against the shipped data rather than
+assumed:
 
 | Node | `opcode` | `data` |
 |---|---|---|
@@ -193,7 +239,7 @@ opcode. Rules confirmed against the shipped data rather than assumed:
 | Script reference | index into `scripts` | handle of the first child |
 | Globals reference | the value type | index into `globals` |
 | Parameter reference | the value type | the parameter's index |
-| Literal | its own value type | the packed value |
+| Literal | its own value type | the packed value, or what a name resolves to |
 
 The type of a literal is chosen by asking the position what it usually holds and then
 checking the token can actually be that. Taking the position's commonest type alone gets
@@ -202,6 +248,51 @@ real cases wrong: the corpus says `set` usually takes a `boolean`, which compile
 compiled `0.6` to `0`. Candidates are now tried commonest-first and the first one that
 fits the token wins.
 
+### Name literals
+
+A literal carries two types. `value type` (`+4`) is what the position takes; `opcode`
+(`+2`) is what the literal itself is. They differ where a name converts: 626 shipped
+`object_name` literals sit in `object` positions, 563 `player` literals in `unit`
+positions, 194 `ai` literals in `object` positions. And a name's `data` is not zero but
+the index of what it names, which is why the compiler needs the scenario it is compiling
+for (`Compiler::with_names`, fed by `blam_hsc::read::names`). Each encoding below was
+measured by looking every shipped literal's string up in the block it names, across all
+thirteen scenarios, and is resolved only because it agreed on every node:
+
+| Kind | Block | `data` |
+|---|---|---|
+| `object_name`, `unit_name`, `vehicle_name`, `device_name` | `object names` | `0xFFFF0000 \| index` |
+| `trigger_volume`, `cutscene_flag`, `cutscene_title`, `zone_set`, `insertion_point`, `starting_profile`, `user_interface_objective` | the block of that name | `0xFFFF0000 \| index` |
+| `script`, `ai_command_script` | `scripts` | `0xFFFF0000 \| index` |
+| `folder` | `editor folders` | `index` |
+| `player` | — | `n` for `player<n>` |
+| `point_reference` | `point sets`, then its `points` | `set << 16 \| point`, point `0xFFFF` for a whole set |
+| `ai` | `squads`, `squad groups`, a squad's `spawn points` and `designer/cells` | top three bits `001` squad, `010` group, `100` spawn point, `111` cell; a member carries its squad in the rest of the high half |
+| `string` | — | its own offset into the string blob |
+
+String-id names fold `-` to `_` when registered, so `tv_checkpoint_bridge_a_pre-gold`
+finds the volume stored as `..._pre_gold`. A number is written over a word of `0xFF` only
+as wide as its type — 11,681 of 11,683 shorts read `0xFFFF____`, 6,123 of 6,144 booleans
+`0xFFFFFF__`, the exceptions all a `cond`'s trailing zero — and the compiler does the same.
+
+Compiling each scenario's own source against its own names, every literal of these kinds
+whose two types agree with the shipped node also agrees on `data`: 3,408 trigger volumes,
+2,459 object names of the four kinds, 5,211 `ai`, 1,934 point references, 2,718 scripts
+and the rest. Where they differ it is the position's type that was chosen differently, a
+separate and older question.
+
+**Not resolved**, because shipped data did not establish the encoding: tag references
+(`sound`, `effect`, `damage`, `animation_graph`, `object_definition`,
+`cinematic_definition` — runtime tag handles), `string_id`, `ai_line`,
+`unit_seat_mapping`, `device_group` (the high half varies per element), the engine's enum
+cases (`team`, `game_difficulty`, `skull`, `actor_combat_status`, `model_state`), and
+`ai` literals naming an objective's task (20 nodes, one literal, whose index is not the
+task's position). These keep `data` zero, as before. A name that should resolve and does
+not is a warning. Across the campaign 860 fire, and in `a30` 63 of its 69 are engine
+globals such as `ai_current_actor` that the compiler does not know and so compiles as
+literals — the same, older gap that makes a shipped `Globals reference` come back as a
+literal.
+
 ### How well it does
 
 `mjolnir script --recompile` compiles each scenario's own source files, decompiles the
@@ -209,15 +300,15 @@ result, and compares against the source that went in:
 
 | Outcome | Scripts |
 |---|---:|
-| Token-for-token match | 6,284 (94.1%) |
-| Differ only because the source used `cond` | 205 |
+| Token-for-token match | 6,463 (96.8%) |
+| Source used `cond`, and still differs | 27 |
 | Differ | 188 |
 | Compile errors | 0 |
 
-Again **all 188 are the quoting disagreement**, which is a decompiler rendering question,
+Again **all 215 are the quoting disagreement**, which is a decompiler rendering question,
 not a compiler one. The check that separates the two is the fixpoint: compiling the
 decompiled output a second time must produce the same tree, since both trees are the
-compiler's own. **All 13 scenarios reach it.** 78 literals across the whole campaign had
+compiler's own. **All of them reach it** (14 of 14 on CU4). 78 literals across the whole campaign had
 no usable type from either the position or the token, and are reported as warnings.
 
 ## Writing it back
@@ -242,6 +333,11 @@ Two facts the shipped data forced, neither of them obvious:
 - **Nothing outside the script section indexes the datum array.** AI task fragments
   (`script_fragment_block`) and performance lines reference scripts *by name* and carry
   their own source text, so rebuilding the tree cannot dangle them.
+
+Globals, parameters and source files are named in a fixed 32-byte `string`, so a name
+is at most 31 bytes. A longer one is a compile error against its line, and an error from
+the writer as a backstop — never a truncation, which would write two long names sharing
+their first 31 bytes as the same name.
 
 `mjolnir script --rewrite-check` writes each shipped section back unmodified and asserts
 the tag comes out byte for byte identical: **13 of 13**. That is the check that the
@@ -280,8 +376,9 @@ make it the mod's source of truth.
 
 ## Not done yet
 
-**The 188 quoting disagreements.** Both round-trip directions hit exactly this one class.
-It is the only thing standing between them and 100%.
+**The quoting disagreements** — 188, plus 27 in scripts that use `cond`. Both
+round-trip directions hit exactly this one class. It is the only thing standing between
+them and 100%.
 
 **Preserving source-less scripts through a rebuild.** They could be decompiled and
 appended, but the decompiler is at 92% and injecting output that might be subtly wrong is

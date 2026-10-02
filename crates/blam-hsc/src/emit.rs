@@ -44,6 +44,16 @@ pub struct SectionBytes {
 /// The `tgst` section header, which the block writer emits per element.
 const SECTION_HEADER: usize = 12;
 
+/// Bytes past its last string that `script string data` keeps free.
+///
+/// In all thirteen shipped scenarios the last string ends exactly `0x1000`
+/// bytes before the blob does, and the tail holds leftover bytes rather than
+/// strings — room the engine keeps to write strings into at runtime, such as
+/// a line typed at the console. A blob packed tight would put those writes
+/// over whatever follows it, so a compiled blob keeps the same reserve. It is
+/// written as zeros: nothing reads it back, and the leftovers mean nothing.
+pub const STRING_DATA_RESERVE: usize = 0x1000;
+
 fn section(out: &mut Vec<u8>, magic: &str, version: u32, content: &[u8]) {
     out.extend(magic.bytes().rev());
     out.extend_from_slice(&version.to_le_bytes());
@@ -70,16 +80,32 @@ fn check_count(count: usize, shape: &BlockShape, what: &'static str) -> Result<(
     Ok(())
 }
 
-/// A NUL-padded fixed-width name, truncated to fit rather than overrunning the
-/// field and corrupting whatever follows it.
-fn fixed_name(name: &str, width: usize) -> Vec<u8> {
-    let mut out = vec![0u8; width];
+/// Width of the fixed `string` field a global, parameter or source file is
+/// named in.
+pub const NAME_WIDTH: usize = 32;
+
+/// The longest name that fits: one byte is kept for the terminator, so a name
+/// that fills the field still reads back as a terminated string.
+pub const MAX_NAME_LEN: usize = NAME_WIDTH - 1;
+
+/// A NUL-padded fixed-width name.
+///
+/// A name too long for the field is an error, not a truncation: two long names
+/// sharing their first 31 bytes would otherwise both be written as the same
+/// name, and the engine resolves a global by it.
+fn fixed_name(name: &str, what: &'static str) -> Result<Vec<u8>, Error> {
     let bytes = name.as_bytes();
-    // One byte is kept for the terminator so a name that exactly fills the
-    // field still reads back as a terminated string.
-    let n = bytes.len().min(width.saturating_sub(1));
-    out[..n].copy_from_slice(&bytes[..n]);
-    out
+    if bytes.len() > MAX_NAME_LEN {
+        return Err(Error::NameTooLong {
+            what,
+            name: name.to_string(),
+            len: bytes.len(),
+            max: MAX_NAME_LEN,
+        });
+    }
+    let mut out = vec![0u8; NAME_WIDTH];
+    out[..bytes.len()].copy_from_slice(bytes);
+    Ok(out)
 }
 
 /// Serialise the whole script section.
@@ -132,7 +158,7 @@ fn source_files(s: &ScriptSection, shapes: &Shapes) -> Result<Vec<u8>, Error> {
         out.resize(start + width, 0);
         let e = &mut out[start..];
         // name(32) | source: data(20) | external references: block(12) | flags
-        e[..32].copy_from_slice(&fixed_name(&f.name, 32));
+        e[..NAME_WIDTH].copy_from_slice(&fixed_name(&f.name, "source file")?);
         e[32..36].copy_from_slice(&(f.source.len() as u32).to_le_bytes());
         // A `data` field's inline bytes carry a null handle where the runtime
         // pointer goes; the shipped tags all hold `0xFFFFFFFF` there.
@@ -186,7 +212,7 @@ fn globals(s: &ScriptSection, shape: &BlockShape) -> Result<Vec<u8>, Error> {
         let e = &mut out[start..];
         // A `string` field is inline and fixed-width; the layout puts the type
         // at 32 and the initializer handle at 36.
-        e[..32].copy_from_slice(&fixed_name(&g.name, 32));
+        e[..NAME_WIDTH].copy_from_slice(&fixed_name(&g.name, "global")?);
         e[32..34].copy_from_slice(&g.value_type.to_le_bytes());
         e[36..40].copy_from_slice(&g.initializer.0.to_le_bytes());
     }
@@ -259,7 +285,7 @@ fn parameters(params: &[crate::read::Parameter], shape: &BlockShape) -> Result<V
         let start = out.len();
         out.resize(start + width, 0);
         let e = &mut out[start..];
-        e[..32].copy_from_slice(&fixed_name(&p.name, 32));
+        e[..NAME_WIDTH].copy_from_slice(&fixed_name(&p.name, "parameter")?);
         e[32..34].copy_from_slice(&p.value_type.to_le_bytes());
     }
     if shape.has_element_sections() {
@@ -384,7 +410,7 @@ mod tests {
                 generation: 0xE373,
                 opcode: 0,
                 value_type: 4,
-                expression_type: ExpressionType::Group,
+                flags: ExpressionType::Group.flags(),
                 next: DatumHandle::NULL,
                 string_offset: 0,
                 data: 0,
@@ -512,21 +538,39 @@ mod tests {
         assert_eq!(&params[44..47], b"who");
     }
 
-    #[test]
-    fn a_name_too_long_for_its_field_is_truncated_not_overrun() {
-        let long = "x".repeat(200);
-        let s = section_with(
+    fn global_named(name: String) -> ScriptSection {
+        section_with(
             Vec::new(),
             vec![Global {
-                name: long,
+                name,
                 value_type: 5,
                 initializer: DatumHandle::NULL,
             }],
-        );
-        let out = emit(&s, &shapes()).unwrap();
+        )
+    }
+
+    #[test]
+    fn a_name_that_fills_its_field_is_written_terminated() {
+        let out = emit(&global_named("x".repeat(31)), &shapes()).unwrap();
         let element = &out.blocks[2].content[8..48];
-        assert_eq!(element[31], 0, "still terminated inside the field");
         assert_eq!(&element[..31], "x".repeat(31).as_bytes());
+        assert_eq!(element[31], 0, "still terminated inside the field");
+    }
+
+    #[test]
+    fn a_name_too_long_for_its_field_is_an_error_not_a_truncation() {
+        // Truncating would write both of these as the same 31 bytes.
+        for name in ["x".repeat(32) + "_a", "x".repeat(32) + "_b"] {
+            assert!(matches!(
+                emit(&global_named(name), &shapes()),
+                Err(Error::NameTooLong {
+                    what: "global",
+                    len: 34,
+                    max: 31,
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]

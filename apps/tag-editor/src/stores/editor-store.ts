@@ -37,6 +37,7 @@ import {
 import { copyText } from "../lib/clipboard";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/mock";
+import { nodeAtPath, staleLiveNote } from "../lib/fields";
 import {
   loadStoredSession,
   markSessionRestored,
@@ -201,6 +202,10 @@ type EditorState = {
   livePoking: boolean;
   /** What the last poke did, or why it could not. */
   liveNote: string | null;
+  /** Set when the last poke landed on a field the running game does not
+   *  read — it reads a runtime copy computed at load — so nothing visible
+   *  changes until the tag reloads. */
+  liveStale: string | null;
   /**
    * The last census: every tag found loaded in the running game, in one sweep
    * of its memory. Locating them all at once costs what locating one used to,
@@ -492,6 +497,7 @@ export const useEditor = create<EditorState>((set, get) => {
       lastEdit: null,
       // The note belongs to the tag that was open; the toggle does not.
       liveNote: null,
+      liveStale: null,
       editError: null,
     });
     let tag: TagView;
@@ -1049,6 +1055,7 @@ export const useEditor = create<EditorState>((set, get) => {
     liveOn: false,
     livePoking: false,
     liveNote: null,
+    liveStale: null,
     liveLoaded: [],
     liveLoadedSet: new Set<number>(),
     liveScanning: false,
@@ -1535,7 +1542,7 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     setLiveOn(on) {
-      set({ liveOn: on, liveNote: null });
+      set({ liveOn: on, liveNote: null, liveStale: null });
       if (on) {
         void get().refreshLive();
         // The level is one object-table read away; say it now rather than
@@ -1665,14 +1672,19 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     async pokeLive(index, path, value) {
-      set({ livePoking: true, liveNote: null });
+      set({ livePoking: true, liveNote: null, liveStale: null });
       try {
         const poked = await api.livePoke(index, path, value);
+        // The tag was re-read after the edit, so its tree is the one poked —
+        // unless the user has already moved to another tab.
+        const tag = get().selectedTag === index ? get().tag : null;
+        const stale = tag ? staleLiveNote(nodeAtPath(tag.fields, path)) : null;
         set({
           livePoking: false,
           liveNote: poked.scanned
             ? `live: found the tag at ${poked.base} and set ${path}`
             : `live: set ${path}`,
+          liveStale: stale ? `${path}: ${stale}` : null,
         });
         void get().refreshLive();
       } catch (e) {

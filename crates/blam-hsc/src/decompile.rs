@@ -4,11 +4,14 @@
 //! the callee, so the tree names itself — the opcode corpus is for the
 //! compiler, which has to go the other way.
 //!
-//! Two things cannot come back, because the tree never held them:
+//! Comments cannot come back, because the tree never held them: roughly a
+//! fifth of the shipped source is comment lines.
 //!
-//! - **Comments.** Roughly a fifth of the shipped source is comment lines.
-//! - **`cond`.** The compiler desugars it into nested `if` before emitting any
-//!   node, so a `cond` in the original reappears as `if`.
+//! `cond` can, where the scenario still carries its source. The compiler
+//! desugars it into nested `if` before emitting any node, but every `if` and
+//! `begin` it makes records the source offset of the `cond` itself, so an `if`
+//! whose offset lands on the text `(cond` is put back as one. Without the
+//! source files — a stripped scenario — a `cond` renders as the `if`s it is.
 //!
 //! Line breaks *do* come back. Every node records the source line it came
 //! from, so laying arguments out by line number reproduces the original shape
@@ -16,22 +19,21 @@
 //!
 //! # How good is it
 //!
-//! `mjolnir script --verify` decompiles all 6,827 scripts in the shipped
+//! `mjolnir script --verify` decompiles all 6,829 scripts in the shipped
 //! campaign and compares each against the source the same scenario carries.
-//! As of the build named in `defs/hce/scripting.json`:
+//! On CU4:
 //!
 //! | Outcome | Scripts |
 //! |---|---:|
-//! | Token-for-token match | 6,241 (91.4%) |
-//! | Differ only because the source used `cond` | 205 |
-//! | No source block to compare against | 150 |
-//! | Genuinely differ | 231 |
+//! | Token-for-token match | 6,463 (94.6%) |
+//! | Source used `cond`, and still differs | 27 |
+//! | No source block to compare against | 151 |
+//! | Genuinely differ | 188 |
 //!
-//! Of the 231, 186 are a literal quoted on one side and bare on the other.
+//! All 215 that differ are a literal quoted on one side and bare on the other.
 //! Quoting is not recorded anywhere in the tag — see
 //! [`crate::corpus::QuotedEvidence`] — so it is inferred, and the inference is
-//! not perfect. The remaining 45 are unexplained and worth investigating before
-//! anyone relies on decompiled output for a scenario whose source was stripped.
+//! not perfect.
 //!
 //! None of this affects reading a shipped scenario in an editor: the original
 //! source is right there in the tag, and that is what gets shown. The
@@ -101,6 +103,8 @@ pub struct Decompiler<'a> {
     section: &'a ScriptSection,
     options: Options,
     corpus: Option<&'a crate::corpus::ScriptCorpus>,
+    /// The source files end to end, which a call's source offset indexes.
+    source: Vec<u8>,
 }
 
 impl<'a> Decompiler<'a> {
@@ -109,6 +113,7 @@ impl<'a> Decompiler<'a> {
             section,
             options: Options::default(),
             corpus: None,
+            source: section.source_text(),
         }
     }
 
@@ -117,6 +122,7 @@ impl<'a> Decompiler<'a> {
             section,
             options,
             corpus: None,
+            source: section.source_text(),
         }
     }
 
@@ -130,6 +136,7 @@ impl<'a> Decompiler<'a> {
             section,
             options: Options::default().with_corpus(corpus),
             corpus: Some(corpus),
+            source: section.source_text(),
         }
     }
 
@@ -233,7 +240,7 @@ impl<'a> Decompiler<'a> {
     /// The statements of a `begin` that wraps a whole script body, if this node
     /// is one.
     fn implicit_begin(&self, node: &Expression) -> Option<Vec<DatumHandle>> {
-        if node.expression_type != ExpressionType::Group {
+        if node.kind() != ExpressionType::Group {
             return None;
         }
         if self.section.callee_name(node)? != "begin" {
@@ -252,7 +259,7 @@ impl<'a> Decompiler<'a> {
         }
         let node = self.section.get(handle)?;
 
-        match node.expression_type {
+        match node.kind() {
             ExpressionType::Group | ExpressionType::ScriptReference => self.call(node, depth),
             // A global or parameter read is just its name.
             ExpressionType::GlobalsReference | ExpressionType::ParameterReference => {
@@ -289,6 +296,9 @@ impl<'a> Decompiler<'a> {
 
     /// `(name arg arg)`, laid out by the line numbers the nodes carry.
     fn call(&self, node: &Expression, depth: u32) -> Option<String> {
+        if let Some(cond) = self.cond(node, depth) {
+            return Some(cond);
+        }
         let chain = self.section.arguments(node);
         let (name_handle, args) = chain.split_first()?;
         let name_node = self.section.get(*name_handle)?;
@@ -310,7 +320,7 @@ impl<'a> Decompiler<'a> {
 
         // A script call's opcode indexes the scenario's scripts, not the engine
         // function table, so it must not be used to look up argument rules.
-        let opcode = (node.expression_type == ExpressionType::Group).then_some(node.opcode);
+        let opcode = (node.kind() == ExpressionType::Group).then_some(node.opcode);
 
         for (position, handle) in args.iter().enumerate() {
             let Some(arg) = self.section.get(*handle) else {
@@ -336,6 +346,87 @@ impl<'a> Decompiler<'a> {
             out.push('\n');
             out.push_str(&self.options.indent.repeat(depth as usize));
         }
+        out.push(')');
+        Some(out)
+    }
+
+    /// A chain of `if`s the compiler made from a `cond`, put back as one.
+    ///
+    /// The shape has to match exactly, or this renders nothing and the `if`s
+    /// render as themselves: `(if test (begin body…) <next>)` with the `begin`
+    /// and each nested `if` at the `cond`'s own offset, ending either with no
+    /// else or with the literal the compiler supplies as one, at that offset
+    /// too.
+    fn cond(&self, node: &Expression, depth: u32) -> Option<String> {
+        if node.kind() != ExpressionType::Group || self.section.callee_name(node) != Some("if") {
+            return None;
+        }
+        let at = node.string_offset;
+        let text = self.source.get(at as usize..)?;
+        let delimited = text
+            .get(5)
+            .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, b'(' | b')' | b';'));
+        if !text.starts_with(b"(cond") || !delimited {
+            return None;
+        }
+
+        let mut clauses = Vec::new();
+        let mut cur = node;
+        loop {
+            let args = self.section.arguments(cur);
+            if !(3..=4).contains(&args.len()) {
+                return None;
+            }
+            let begin = self.section.get(args[2])?;
+            if begin.kind() != ExpressionType::Group
+                || begin.string_offset != at
+                || self.section.callee_name(begin) != Some("begin")
+            {
+                return None;
+            }
+            clauses.push((cur.opcode, args[1], begin));
+            let Some(otherwise) = args.get(3) else { break };
+            let next = self.section.get(*otherwise)?;
+            if next.string_offset != at {
+                return None;
+            }
+            match next.kind() {
+                ExpressionType::Group if self.section.callee_name(next) == Some("if") => cur = next,
+                ExpressionType::Expression => break,
+                _ => return None,
+            }
+        }
+
+        let indent = &self.options.indent;
+        let mut out = String::from("(cond");
+        for (if_opcode, test, begin) in clauses {
+            out.push('\n');
+            out.push_str(&indent.repeat(depth as usize + 1));
+            out.push('(');
+            let at_test = At {
+                opcode: Some(if_opcode),
+                position: 0,
+            };
+            out.push_str(
+                &self
+                    .render(test, depth + 2, at_test)
+                    .unwrap_or_else(|| NONE.to_string()),
+            );
+            // The `begin`'s first child names it; the rest are the clause body.
+            for (position, h) in self.section.arguments(begin).iter().enumerate().skip(1) {
+                let at_body = At {
+                    opcode: Some(begin.opcode),
+                    position: position - 1,
+                };
+                if let Some(stmt) = self.render(*h, depth + 2, at_body) {
+                    out.push(' ');
+                    out.push_str(&stmt);
+                }
+            }
+            out.push(')');
+        }
+        out.push('\n');
+        out.push_str(&indent.repeat(depth as usize));
         out.push(')');
         Some(out)
     }
@@ -516,7 +607,7 @@ mod tests {
                 generation,
                 opcode: 0,
                 value_type,
-                expression_type: ty,
+                flags: ty.flags(),
                 next: DatumHandle::NULL,
                 string_offset,
                 data,
