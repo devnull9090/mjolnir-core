@@ -88,7 +88,8 @@ map). Author around your own origin in Blender; move the whole level by editing 
     { "id": "banner_l",
       "mesh": "/Engine/BasicShapes/Cube.Cube",
       "pos": [0, -2000, 300], "rot": [0, 0, 0], "scale": [0.2, 6, 4],
-      "tint": [0.8, 0.2, 0.2, 1.0] }
+      "tint": [0.8, 0.2, 0.2, 1.0],
+      "materials": ["", "/Game/.../MI_Ground.MI_Ground"] }   // slot 0, slot 1, ...
   ],
 
   "markers": [                       // named points for future game modes; spawns nothing today
@@ -151,9 +152,50 @@ for an arena level. The bake runs its placement passes **first** and the clears 
 clone still has a shipped donor to copy from; the clear then keeps only the
 elements this bake appended (`Op::KeepLast`) and drops the mission's prefix.
 `clear` empties the relevant placement blocks (counts set to zero or
-elements disabled) and `scripts: true` swaps the scenario's HSC source for a neutral stub
+elements disabled) and `scripts: true` swaps the scenario's HSC source for one startup script
 (mechanism proven — script sections already resize through `blam-tag::write::Edits`). Expect
 per-mission iteration on how much clearing a mission tolerates before something native asserts.
+
+That startup script is not optional dressing. A Blam map boots faded to black with the HUD
+hidden and **every player input faded out**; the mission's own script hands them back, and this
+engine's missions do it through `f_insertion_fade_to_gameplay` (decompile any shipped scenario
+with `mjolnir script --tag B40 --decompile`): wait for `(game_all_players_active)`, then
+`(player_control_fade_in_all_input 1.0)`, `(chud_cinematic_fade 1.0 30)`, `(fade_in 0 0 0 30)`
+and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and calls
+`player_enable_input` leaves the player able to look around but not move, shoot or switch
+weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
+
+### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`
+
+- `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo
+  wu. Sets a structure BSP's box in the scenario; the boxes decide which BSP a
+  point belongs to, and a point outside every box is outside the world.
+- `set`: `{ "field path": "value" }` for any other scenario field, in the form
+  the inspector prints (`"type": "multiplayer"`). Applied last.
+- `active_bsps`: `[8]` makes the starting zone set (zone set 0) load only these
+  BSPs, and trims its PVS to match. A map on its own BSP needs this: every other
+  canvas BSP left active claims its own space. Each kept BSP's PVS clusters
+  keep their bit vectors and seam cluster references for the kept BSPs only.
+- `single_bsp`: `8` (the BSP `active_bsps` lists) makes that BSP the
+  scenario's only one, at index 0. The bake applies it after `--bsp`, so
+  `--bsp` and `world_bounds` still name the canvas index. The per-BSP tables
+  keep its element; only zone set 0 and its PVS and audibility entries stay;
+  the designs, soft ceilings, seams, other insertion points and their player
+  starts go; and every placement's origin BSP becomes 0. The BSP tag must be
+  built for index 0 (`level collision --own-bsp --bsp-index 0`).
+- `map_variant`: `true` adds a `map variant palettes` entry for every weapon,
+  vehicle and scenery tag the level places. Under a multiplayer (Megalo)
+  engine, objects whose tags carry multiplayer data exist only through the map
+  variant, which the simulation builds from the palette-listed placements.
+
+A `blam.objects` element also takes `set`: fields of the placement, relative to
+its element (`"multiplayer data.owner team": "neutral"`).
+
+### `multiplayer`
+
+Top-level `"multiplayer": true` asks MJOLNIRLevelLoader to start the level
+under the simulation's Megalo engine rather than the campaign
+([re/megalo_engine.md](re/megalo_engine.md)). The bake ignores it.
 
 ### `decor`
 
@@ -162,6 +204,14 @@ per-mission iteration on how much clearing a mission tolerates before something 
 (the `SetStaticMesh`-refuses-when-Static edge is handled) and applies `tint` through a dynamic
 material instance when the base material exposes a color parameter (BasicShapeMaterial does;
 WorldGridMaterial does not). Decor never blocks anything — do not fake floors or walls with it.
+
+`materials` assigns shipped material instances per material slot, in order, an empty entry
+leaving a slot alone. They go on the **component**, not the mesh: a mesh whose geometry was
+written into a donor package (see [ue_mesh_write.md](ue_mesh_write.md)) still reports the
+donor's single slot however many the package declares, while `SetMaterial` grows the
+component's override list to as many sections as the render data names. That is what makes a
+transplanted mesh come out textured rather than default grey — Blood Gulch's terrain is one
+decor entry with three. `mesh_rewrite --material` prints the list to paste here.
 
 ### `markers`
 

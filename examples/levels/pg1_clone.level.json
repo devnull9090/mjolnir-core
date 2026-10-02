@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "pg1_clone",
+  "title": "PG1 clone of B40",
+  "canvas": { "scenario": "B40", "origin": [0, 0, 0] },
+  "blam": { "clear": { "squads": false, "bipeds": false, "weapons": false, "vehicles": false, "scripts": false } },
+  "decor": []
+}

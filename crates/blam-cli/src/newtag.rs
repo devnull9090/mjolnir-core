@@ -39,6 +39,13 @@ pub struct NewTagArgs {
     /// A field to change in the new tag's body, as `path=value`. Repeatable.
     #[arg(long = "set")]
     sets: Vec<String>,
+    /// Replace a whole block of the new tag with another shipped tag's block
+    /// (elements and their wrappers), as `TARGET_PATH=GROUP:TAG:SOURCE_PATH`,
+    /// e.g. `object.multiplayer object=weapon:assault_rifle-weapon:item.object.multiplayer object`.
+    /// Grafts run before `--set`, so the grafted elements can be edited.
+    /// Repeatable.
+    #[arg(long = "graft")]
+    grafts: Vec<String>,
     /// The Unreal asset the new tag is bound to, as a package path
     /// (`/Game/Blueprints/.../BP_Thing`); default: the donor's. Object groups
     /// and `effect` bind to the Blueprint's class, sound-like groups to the
@@ -80,7 +87,52 @@ pub fn run(a: NewTagArgs) -> Result<()> {
     println!("donor    {}", donor_entry.path);
     println!("  body   {} bytes", original.len());
 
-    let file = crate::apply_sets(&original, &a.sets)?;
+    let mut grafted = original.clone();
+    for spec in &a.grafts {
+        let (target, source) = spec.split_once('=').with_context(|| {
+            format!("--graft takes TARGET_PATH=GROUP:TAG:SOURCE_PATH, got {spec:?}")
+        })?;
+        let mut parts = source.splitn(3, ':');
+        let (Some(group), Some(tag), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
+            bail!("--graft source must be GROUP:TAG:SOURCE_PATH, got {source:?}");
+        };
+        let from = by_group
+            .get(group)
+            .and_then(|es| es.iter().find(|e| e.path.contains(tag)))
+            .copied()
+            .with_context(|| format!("no {group} tag matching {tag:?}"))?;
+        let bytes = idx.read(from, None, &a.src.oodle_roots())?;
+        let count = {
+            let t = TagFile::parse(&bytes, Some(bytes.len()))?;
+            let l = t.layout()?;
+            let root = t.read_data(&l)?;
+            blam_tag::blockedit::find_block(&l, &bytes, &root, path)?
+                .block
+                .count as usize
+        };
+        let mut elements = Vec::new();
+        let mut wrappers = Vec::new();
+        for i in 0..count {
+            let (e, w) = blam_tag::blockedit::element_with_wrapper(&bytes, path, i)?;
+            elements.extend_from_slice(&e);
+            wrappers.push(w);
+        }
+        grafted = blam_tag::blockedit::replace_nested(
+            &grafted,
+            &[blam_tag::blockedit::NestedReplace {
+                path: target.to_string(),
+                count: count as u32,
+                elements,
+                wrappers: Some(wrappers),
+            }],
+        )?;
+        println!(
+            "  graft  {target} <- {count} element(s) of {} {path}",
+            from.path
+        );
+    }
+    let file = crate::apply_sets(&grafted, &a.sets)?;
     let tag = TagFile::parse(&file, Some(file.len()))?;
     let l = tag.layout()?;
     let block = tag.read_data(&l)?;
@@ -124,28 +176,7 @@ pub fn run(a: NewTagArgs) -> Result<()> {
 
     // The preload list: every tag the body references that exists in this
     // installation, by four-CC and path.
-    let cc_to_group = group_directories(&idx, &a.src.oodle_roots())?;
-    let by_lower: HashMap<String, String> = idx
-        .containers
-        .iter()
-        .flat_map(|c| c.files.keys())
-        .filter(|p| p.ends_with(".ubulk"))
-        .map(|p| {
-            let full = p
-                .trim_start_matches("../")
-                .replace("Meteorite/Content/", "/Game/");
-            let full = full.trim_end_matches(".ubulk").to_string();
-            (full.to_ascii_lowercase(), full)
-        })
-        .collect();
-    let resolve = |cc: &str, path: &str| -> Option<String> {
-        let group = cc_to_group.get(cc)?;
-        let want = format!(
-            "/game/tags/{}-{group}",
-            path.replace('\\', "/").to_ascii_lowercase()
-        );
-        by_lower.get(&want).cloned()
-    };
+    let resolve = body_ref_resolver(&idx, &a.src.oodle_roots())?;
 
     let built_tag = blam_pack::newtag::build(
         &blam_pack::newtag::NewTag {
@@ -261,4 +292,36 @@ fn group_directories(idx: &index::Index, oodle: &[PathBuf]) -> Result<HashMap<St
         }
     }
     Ok(out)
+}
+
+/// A resolver from one body reference — four-CC and backslash path — to the
+/// package name of the tag it points at in this installation, or `None` when
+/// nothing shipped answers. What `blam_pack::newtag::build` wants for the
+/// preload list; shared by `new-tag` and the standalone level bake.
+pub(crate) fn body_ref_resolver(
+    idx: &index::Index,
+    oodle: &[PathBuf],
+) -> Result<impl Fn(&str, &str) -> Option<String>> {
+    let cc_to_group = group_directories(idx, oodle)?;
+    let by_lower: HashMap<String, String> = idx
+        .containers
+        .iter()
+        .flat_map(|c| c.files.keys())
+        .filter(|p| p.ends_with(".ubulk"))
+        .map(|p| {
+            let full = p
+                .trim_start_matches("../")
+                .replace("Meteorite/Content/", "/Game/");
+            let full = full.trim_end_matches(".ubulk").to_string();
+            (full.to_ascii_lowercase(), full)
+        })
+        .collect();
+    Ok(move |cc: &str, path: &str| -> Option<String> {
+        let group = cc_to_group.get(cc)?;
+        let want = format!(
+            "/game/tags/{}-{group}",
+            path.replace('\\', "/").to_ascii_lowercase()
+        );
+        by_lower.get(&want).cloned()
+    })
 }

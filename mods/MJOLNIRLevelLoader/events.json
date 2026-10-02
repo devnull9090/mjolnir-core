@@ -1,0 +1,89 @@
+{
+ "10_in_a_row": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_running_riot_v0.sound_dialog_multiplayer1_running_riot_v0"
+ ],
+ "5_in_a_row": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_killing_spree_v0.sound_dialog_multiplayer1_killing_spree_v0"
+ ],
+ "ball_game_start": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_oddball_v0.sound_dialog_multiplayer1_oddball_v0"
+ ],
+ "ball_spawned": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_play_ball_v0.sound_dialog_multiplayer1_play_ball_v0"
+ ],
+ "ctf_game_start": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_capture_the_flag_v0.sound_dialog_multiplayer1_capture_the_flag_v0"
+ ],
+ "flag_grabbed:0": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_blue_team_has_the_flag_v0.sound_dialog_multiplayer1_blue_team_has_the_flag_v0"
+ ],
+ "flag_grabbed:1": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_red_team_has_the_flag_v0.sound_dialog_multiplayer1_red_team_has_the_flag_v0"
+ ],
+ "flag_recovered:0": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_red_team_flag_returned_v0.sound_dialog_multiplayer1_red_team_flag_returned_v0"
+ ],
+ "flag_recovered:1": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_blue_team_flag_returned_v0.sound_dialog_multiplayer1_blue_team_flag_returned_v0"
+ ],
+ "flag_reset:0": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_red_team_flag_returned_v0.sound_dialog_multiplayer1_red_team_flag_returned_v0"
+ ],
+ "flag_reset:1": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_blue_team_flag_returned_v0.sound_dialog_multiplayer1_blue_team_flag_returned_v0"
+ ],
+ "flag_scored:0": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_blue_team_score_v0.sound_dialog_multiplayer1_blue_team_score_v0"
+ ],
+ "flag_scored:1": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_red_team_score_v0.sound_dialog_multiplayer1_red_team_score_v0"
+ ],
+ "game_over": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_game_over_v0.sound_dialog_multiplayer1_game_over_v0"
+ ],
+ "half_minute_win": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_30_seconds_to_win_v0.sound_dialog_multiplayer1_30_seconds_to_win_v0"
+ ],
+ "hill_contested": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_hill_contested_v0.sound_dialog_multiplayer1_hill_contested_v0"
+ ],
+ "hill_controlled": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_hill_controlled_v0.sound_dialog_multiplayer1_hill_controlled_v0"
+ ],
+ "hill_moved": [
+  "/Game/MJOLNIR/Sounds/Events/sound_sfx_ui_hill_move_v0.sound_sfx_ui_hill_move_v0"
+ ],
+ "koth_game_start": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_king_of_the_hill_v0.sound_dialog_multiplayer1_king_of_the_hill_v0"
+ ],
+ "multikill_x2": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_double_kill_v0.sound_dialog_multiplayer1_double_kill_v0"
+ ],
+ "multikill_x3": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_triple_kill_v0.sound_dialog_multiplayer1_triple_kill_v0"
+ ],
+ "multikill_x4": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_killtacular_v0.sound_dialog_multiplayer1_killtacular_v0"
+ ],
+ "one_minute_win": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_one_minute_to_win_v0.sound_dialog_multiplayer1_one_minute_to_win_v0"
+ ],
+ "race_game_start": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_race_v0.sound_dialog_multiplayer1_race_v0"
+ ],
+ "lap_complete": [
+  "/Game/MJOLNIR/Sounds/Events/sound_sfx_ui_pickup_health_v0.sound_sfx_ui_pickup_health_v0"
+ ],
+ "respawn_final_tick": [
+  "/Game/MJOLNIR/Sounds/Events/sound_sfx_ui_player_respawn_v0.sound_sfx_ui_player_respawn_v0"
+ ],
+ "respawn_tick": [
+  "/Game/MJOLNIR/Sounds/Events/sound_sfx_ui_countdown_for_respawn_v0.sound_sfx_ui_countdown_for_respawn_v0"
+ ],
+ "slayer_start": [
+  "/Game/MJOLNIR/Sounds/Events/sound_dialog_multiplayer1_slayer_v0.sound_dialog_multiplayer1_slayer_v0"
+ ],
+ "teleporter_used": [
+  "/Game/MJOLNIR/Sounds/Events/sound_sfx_ui_teleporter_activate_v0.sound_sfx_ui_teleporter_activate_v0"
+ ]
+}

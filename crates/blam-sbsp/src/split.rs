@@ -1,0 +1,429 @@
+//! Fan-split collision polygons with more than `max` vertices.
+//!
+//! Every shipped Meteorite definition is triangles and quads (surveyed on
+//! `BSP_01_1_Start`: 3,152 + 53, 398 + 26, 46 + 6); classic CE collision
+//! carries convex polygons of up to eight. With correct 2D data the simulation
+//! reaches those surfaces and dies, so they are split before packing. The
+//! winged-edge tables are rewired for the pieces, and each 2D leaf that named
+//! the polygon becomes a chain of 2D nodes along the fan's diagonals so a
+//! point in the old polygon still resolves to exactly one piece.
+
+use crate::ce::{Bsp2dNode, Bsp3dNode, Collision, Edge, Leaf, Surface, Vertex};
+use crate::pack16::projection_axes;
+use crate::Error;
+
+const SURFACE_FLAG: u32 = 0x8000_0000;
+
+/// One polygon as the walker sees it: vertex indices and the edge index that
+/// carries each step, in loop order.
+struct Loop {
+    verts: Vec<i32>,
+    edges: Vec<usize>,
+}
+
+fn walk(c: &Collision, s: usize) -> Option<Loop> {
+    let surface = c.surfaces.get(s)?;
+    if surface.first_edge < 0 {
+        return None;
+    }
+    let first = surface.first_edge as usize;
+    let mut e = first;
+    let mut verts = Vec::new();
+    let mut edges = Vec::new();
+    for _ in 0..256 {
+        let edge = c.edges.get(e)?;
+        let (v, next) = if edge.left == s as i32 {
+            (edge.start, edge.forward)
+        } else {
+            (edge.end, edge.reverse)
+        };
+        verts.push(v);
+        edges.push(e);
+        if next < 0 {
+            return None;
+        }
+        e = next as usize;
+        if e == first {
+            break;
+        }
+    }
+    Some(Loop { verts, edges })
+}
+
+/// Set the next-edge pointer on the side of `edge` that `owner` traverses.
+fn set_next(edge: &mut Edge, owner: i32, next: i32, old_owner: i32) {
+    if edge.left == old_owner {
+        edge.left = owner;
+        edge.forward = next;
+    } else {
+        edge.right = owner;
+        edge.reverse = next;
+    }
+}
+
+/// Split every polygon with more than `max` vertices. Returns how many were
+/// split and how many 2D references/leaves were rewritten.
+pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
+    let mut split_count = 0;
+    let mut rewired = 0;
+    let original_surfaces = c.surfaces.len();
+
+    for s in 0..original_surfaces {
+        let Some(lp) = walk(c, s) else { continue };
+        let n = lp.verts.len();
+        if n <= max {
+            continue;
+        }
+        split_count += 1;
+        let template: Surface = c.surfaces[s];
+        let v = &lp.verts;
+        let e = &lp.edges;
+
+        // Piece k (k = 1..=n-2) is (v0, v_k, v_{k+1}); piece 1 keeps index s.
+        let mut piece: Vec<i32> = vec![s as i32];
+        for _ in 2..=(n - 2) {
+            piece.push(c.surfaces.len() as i32);
+            c.surfaces.push(template);
+        }
+        // Diagonal k (k = 2..=n-2) runs v0 -> v_k; piece k has it on the left,
+        // piece k-1 on the right.
+        let mut diag: Vec<i32> = vec![-1, -1]; // index by k
+        for k in 2..=(n - 2) {
+            diag.push(c.edges.len() as i32);
+            c.edges.push(Edge {
+                start: v[0],
+                end: v[k],
+                forward: -1,
+                reverse: -1,
+                left: piece[k - 1],
+                right: piece[k - 2],
+            });
+        }
+        let first_edge_of = |k: usize| -> i32 {
+            if k == 1 {
+                e[0] as i32
+            } else {
+                diag[k]
+            }
+        };
+        let closing_edge_of = |k: usize| -> i32 {
+            if k == n - 2 {
+                e[n - 1] as i32
+            } else {
+                diag[k + 1]
+            }
+        };
+
+        for k in 1..=(n - 2) {
+            let p = piece[k - 1];
+            let (a, b, cl) = (first_edge_of(k), e[k] as i32, closing_edge_of(k));
+            // a -> b -> cl -> a around piece k.
+            if k == 1 {
+                let old = s as i32;
+                set_next(&mut c.edges[a as usize], p, b, old);
+            } else {
+                // Diagonal a is traversed start->end by piece k: its left side.
+                c.edges[a as usize].forward = b;
+            }
+            set_next(&mut c.edges[b as usize], p, cl, s as i32);
+            if k == n - 2 {
+                set_next(&mut c.edges[cl as usize], p, a, s as i32);
+            } else {
+                // Diagonal cl is traversed end->start by piece k: its right side.
+                c.edges[cl as usize].reverse = a;
+            }
+            c.surfaces[p as usize].first_edge = a;
+        }
+
+        // The 2D side: a chain of split lines along the diagonals, in the
+        // parent plane's projection.
+        let plane_index = (template.plane as u32 & 0x7fff) as usize;
+        let (u, w) = projection_axes(c.planes[plane_index].n);
+        let proj = |vi: i32| -> [f32; 2] {
+            let p = c.vertices[vi as usize].point;
+            [p[u], p[w]]
+        };
+        let p0 = proj(v[0]);
+        // Build from the far end so each node's "rest" child already exists.
+        let mut rest: i32 = (SURFACE_FLAG | piece[n - 3] as u32) as i32; // last piece
+        for k in (2..=(n - 2)).rev() {
+            let pk = proj(v[k]);
+            let dir = [pk[0] - p0[0], pk[1] - p0[1]];
+            let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-9);
+            let nrm = [dir[1] / len, -dir[0] / len];
+            let d = nrm[0] * p0[0] + nrm[1] * p0[1];
+            let near = (SURFACE_FLAG | piece[k - 2] as u32) as i32; // piece k-1
+            let far_vertex = proj(v[k - 1]);
+            let side = nrm[0] * far_vertex[0] + nrm[1] * far_vertex[1] - d;
+            // Right child is the positive side of the line.
+            let (left, right) = if side > 0.0 {
+                (rest, near)
+            } else {
+                (near, rest)
+            };
+            let node = c.bsp2d_nodes.len() as i32;
+            c.bsp2d_nodes.push(Bsp2dNode {
+                plane: [nrm[0], nrm[1], d],
+                left,
+                right,
+            });
+            rest = node;
+        }
+        let root = rest;
+        let target = (SURFACE_FLAG | s as u32) as i32;
+        for r in &mut c.bsp2d_references {
+            if r.node == target {
+                r.node = root;
+                rewired += 1;
+            }
+        }
+        // 2D nodes that pointed at the old surface (only the nodes that
+        // existed before this split can).
+        let new_from = c.bsp2d_nodes.len() - (n - 3);
+        for node in c.bsp2d_nodes[..new_from].iter_mut() {
+            if node.left == target {
+                node.left = root;
+                rewired += 1;
+            }
+            if node.right == target {
+                node.right = root;
+                rewired += 1;
+            }
+        }
+    }
+    (split_count, rewired)
+}
+
+/// Move the standalone surfaces `first..` out of `c` into collisions of at
+/// most `max` surfaces each.
+///
+/// They are the scenery `tools/level/merge_ce_collision.py` appends after a
+/// staged BSP's own surfaces: polygons the BSP tree never reaches, each with
+/// its own plane, edge ring and vertices, appended after the BSP's. Havok
+/// reaches them through a MOPP over the surfaces, so a piece needs no real
+/// tree: one node with the same empty leaf on both sides, so every point is
+/// open space. (A child of "none" is solid: pieces built that way put the
+/// whole map inside solid scenery, and every player who moved was killed by
+/// the guardians, Danger Canyon 2026-10-01.) What stays in `c`
+/// is the BSP as staged, its tables cut back to what its own tree and
+/// surfaces use. Fails if the surfaces are not such a tail.
+/// Leaf 0 as a bsp3d child (`0x8000_0000 | leaf`).
+const EMPTY_LEAF: i32 = i32::MIN;
+
+pub fn split_standalone(
+    c: &mut Collision,
+    first: usize,
+    max: usize,
+) -> Result<Vec<Collision>, Error> {
+    let total = c.surfaces.len();
+    if first > total || max == 0 {
+        return Err(Error::Staging(format!(
+            "no standalone surfaces from {first} of {total}"
+        )));
+    }
+    let mut loops = Vec::with_capacity(total - first);
+    for s in first..total {
+        let l = walk(c, s).ok_or_else(|| {
+            Error::Staging(format!("standalone surface {s} has no closed edge ring"))
+        })?;
+        loops.push(l);
+    }
+
+    // Where the tail starts in each table: the lowest index any standalone
+    // surface uses.
+    let plane_of = |p: i32| (p as u32 & 0x7fff_ffff) as usize;
+    let cut_planes = c.surfaces[first..]
+        .iter()
+        .map(|s| plane_of(s.plane))
+        .min()
+        .unwrap_or(c.planes.len());
+    let cut_edges = loops
+        .iter()
+        .flat_map(|l| l.edges.iter().copied())
+        .min()
+        .unwrap_or(c.edges.len());
+    let cut_vertices = loops
+        .iter()
+        .flat_map(|l| l.verts.iter().map(|&v| v as usize))
+        .min()
+        .unwrap_or(c.vertices.len());
+
+    let mut pieces: Vec<Collision> = Vec::new();
+    for (k, (s, l)) in c.surfaces[first..].iter().zip(&loops).enumerate() {
+        if k % max == 0 {
+            pieces.push(Collision {
+                bsp3d_nodes: vec![Bsp3dNode {
+                    plane: 0,
+                    back: EMPTY_LEAF,
+                    front: EMPTY_LEAF,
+                }],
+                leaves: vec![Leaf {
+                    flags: 0,
+                    reference_count: 0,
+                    first_reference: 0,
+                }],
+                ..Default::default()
+            });
+        }
+        let piece = pieces.last_mut().unwrap();
+        let surface = piece.surfaces.len() as i32;
+        let plane = piece.planes.len() as i32;
+        piece.planes.push(c.planes[plane_of(s.plane)]);
+        let (v0, e0, n) = (
+            piece.vertices.len() as i32,
+            piece.edges.len() as i32,
+            l.verts.len() as i32,
+        );
+        for (j, &v) in l.verts.iter().enumerate() {
+            piece.vertices.push(Vertex {
+                point: c.vertices[v as usize].point,
+                first_edge: e0 + j as i32,
+            });
+        }
+        for j in 0..n {
+            // A ring walked from the surface's left, as the merge writes it.
+            piece.edges.push(Edge {
+                start: v0 + j,
+                end: v0 + (j + 1) % n,
+                forward: e0 + (j + 1) % n,
+                reverse: -1,
+                left: surface,
+                right: -1,
+            });
+        }
+        piece.surfaces.push(Surface {
+            plane: plane | (s.plane & i32::MIN),
+            first_edge: e0,
+            ..*s
+        });
+    }
+
+    // What the BSP itself uses must sit below the cuts.
+    let max_plane = c
+        .bsp3d_nodes
+        .iter()
+        .map(|n| plane_of(n.plane))
+        .chain(c.bsp2d_references.iter().map(|r| plane_of(r.plane)))
+        .chain(c.surfaces[..first].iter().map(|s| plane_of(s.plane)))
+        .max();
+    let max_edge = c.surfaces[..first]
+        .iter()
+        .map(|s| s.first_edge.max(0) as usize)
+        .chain(
+            c.edges[..cut_edges.min(c.edges.len())]
+                .iter()
+                .flat_map(|e| [e.forward, e.reverse])
+                .filter(|&e| e >= 0)
+                .map(|e| e as usize),
+        )
+        .max();
+    let max_vertex = c.edges[..cut_edges.min(c.edges.len())]
+        .iter()
+        .flat_map(|e| [e.start, e.end])
+        .filter(|&v| v >= 0)
+        .map(|v| v as usize)
+        .max();
+    if max_plane.is_some_and(|p| p >= cut_planes)
+        || max_edge.is_some_and(|e| e >= cut_edges)
+        || max_vertex.is_some_and(|v| v >= cut_vertices)
+    {
+        return Err(Error::Staging(format!(
+            "surfaces {first}..{total} are not a standalone tail (planes from {cut_planes}, edges from {cut_edges}, vertices from {cut_vertices})"
+        )));
+    }
+    c.surfaces.truncate(first);
+    c.planes.truncate(cut_planes);
+    c.edges.truncate(cut_edges);
+    c.vertices.truncate(cut_vertices);
+    Ok(pieces)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ce::Plane;
+
+    /// A one-triangle BSP with two standalone triangles after it.
+    fn with_tail() -> Collision {
+        let mut c = Collision::default();
+        for k in 0..3 {
+            let base = c.vertices.len() as i32;
+            let e0 = c.edges.len() as i32;
+            let s = c.surfaces.len() as i32;
+            c.planes.push(Plane {
+                n: [0.0, 0.0, 1.0],
+                d: k as f32,
+            });
+            for j in 0..3 {
+                c.vertices.push(Vertex {
+                    point: [j as f32, (j % 2) as f32, k as f32],
+                    first_edge: e0 + j,
+                });
+                c.edges.push(Edge {
+                    start: base + j,
+                    end: base + (j + 1) % 3,
+                    forward: e0 + (j + 1) % 3,
+                    reverse: -1,
+                    left: s,
+                    right: -1,
+                });
+            }
+            c.surfaces.push(Surface {
+                plane: k,
+                first_edge: e0,
+                flags: 1,
+                breakable: -1,
+                material: k as i16,
+            });
+        }
+        c.bsp3d_nodes.push(Bsp3dNode {
+            plane: 0,
+            back: -1,
+            front: -1,
+        });
+        c
+    }
+
+    #[test]
+    fn the_tail_moves_out_in_pieces() {
+        let mut c = with_tail();
+        let pieces = split_standalone(&mut c, 1, 1).unwrap();
+        assert_eq!(
+            (
+                c.surfaces.len(),
+                c.planes.len(),
+                c.edges.len(),
+                c.vertices.len()
+            ),
+            (1, 1, 3, 3)
+        );
+        assert_eq!(pieces.len(), 2);
+        let p = &pieces[1];
+        assert_eq!(
+            (
+                p.surfaces.len(),
+                p.planes.len(),
+                p.edges.len(),
+                p.vertices.len()
+            ),
+            (1, 1, 3, 3)
+        );
+        assert_eq!(p.surfaces[0].material, 2);
+        assert_eq!(p.planes[0].d, 2.0);
+        assert_eq!(p.vertices[0].point, [0.0, 0.0, 2.0]);
+        // Open space on both sides of the one node: never solid.
+        assert_eq!(
+            (p.bsp3d_nodes[0].back, p.bsp3d_nodes[0].front),
+            (EMPTY_LEAF, EMPTY_LEAF)
+        );
+        assert_eq!((p.leaves.len(), p.leaves[0].reference_count), (1, 0));
+        assert!(p.fits_16bit().is_ok());
+    }
+
+    #[test]
+    fn surfaces_the_tree_uses_are_not_a_tail() {
+        let mut c = with_tail();
+        c.bsp3d_nodes[0].plane = 2;
+        assert!(split_standalone(&mut c, 1, 8).is_err());
+    }
+}

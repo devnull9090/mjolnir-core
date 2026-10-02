@@ -1,0 +1,10 @@
+[package]
+name = "blam-megalo"
+description = "Write and read Megalo game variants (the multiplayer rules engine the simulation still carries) as the simulation's decoder reads them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true

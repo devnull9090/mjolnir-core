@@ -60,6 +60,31 @@ enum LiveCommand {
     Players,
     /// The simulation's data arrays: every table it keeps per game, with how full each is.
     Arrays,
+    /// Which game engine the simulation is running: campaign, Megalo
+    /// (multiplayer), Forge or Firefight (docs/re/megalo_engine.md). CU4 only.
+    Engine {
+        /// Patch which engine the next map load asks for (the one constant in
+        /// the load-map handler that is always 3, campaign): 2 is Megalo, 3
+        /// puts it back. In memory only; a restart undoes it. Apply at the
+        /// menu, then start a mission.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=4))]
+        launch_engine: Option<u8>,
+        /// The multiplayer session launch requires a map variant, which the
+        /// campaign flow never provides, so a Megalo launch is abandoned
+        /// with "no map selected". `skip` drops that requirement (and the
+        /// options builder's matching check) on the multiplayer branches
+        /// only; `keep` restores the shipped bytes. In memory only.
+        #[arg(long, value_parser = ["skip", "keep"])]
+        map_variant_gate: Option<String>,
+        /// The game engine's zone-set handler deletes every map-variant object
+        /// and resets the map variant to default, and nothing rebuilds it;
+        /// a campaign-style launch switches zone sets right after the map
+        /// loads, so a multiplayer map loses its weapons and spawn points.
+        /// `skip` bypasses the reset (safe for single-BSP maps); `keep`
+        /// restores the shipped bytes. In memory only.
+        #[arg(long, value_parser = ["skip", "keep"])]
+        map_variant_reset: Option<String>,
+    },
     /// The string ids the running game has registered.
     StringIds {
         /// Look one name up (in any spelling the engine would accept).
@@ -144,6 +169,17 @@ pub fn run(a: LiveArgs) -> Result<()> {
             objects(&process, attached, group, filter, tsv)
         }
         LiveCommand::Players => players(&process, attached),
+        LiveCommand::Engine {
+            launch_engine,
+            map_variant_gate,
+            map_variant_reset,
+        } => engine(
+            &process,
+            attached,
+            launch_engine,
+            map_variant_gate.as_deref(),
+            map_variant_reset.as_deref(),
+        ),
         LiveCommand::Arrays => unreachable!("handled before attaching"),
         LiveCommand::StringIds { find, out } => string_ids(&process, attached, find, out),
     }
@@ -221,6 +257,8 @@ fn objects(
             None
         };
         let [x, y, z] = o.position;
+        // Facing in degrees about z, from the forward vector (Blam axes).
+        let yaw = o.forward[1].atan2(o.forward[0]).to_degrees();
         let parent = o
             .parent
             .map(|p| format!("0x{p:08X}"))
@@ -230,12 +268,13 @@ fn objects(
             .map(|i| format!("player {i}"))
             .unwrap_or_default();
         out.push_str(&format!(
-            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\n",
+            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\n",
             o.index,
             o.handle,
             o.kind.name(),
             percent(o.health(), o.max_body),
             percent(shield, o.max_shield),
+            o.datum,
         ));
         rows += 1;
     }
@@ -265,6 +304,190 @@ fn objects(
     Ok(())
 }
 
+/// Where the game-engine layer keeps its state, on the CU4 tag module
+/// (docs/re/megalo_engine.md). Static reading only until this command.
+mod engine_cu4 {
+    /// The sim thread's TLS block holds a pointer to the game-engine globals here.
+    pub const TLS_ENGINE_GLOBALS: u64 = 0x38;
+    /// The running engine's index in the globals.
+    pub const ENGINE_INDEX: u64 = 0x846c;
+    /// `game_engines[5]`: slot 0 empty, then one engine object per index.
+    pub const ENGINE_TABLE: u64 = 0xbd5210;
+    /// In the load-map handler (`0xf650`): `mov r8d, 3` feeding
+    /// `0x21c4f0(&variant, has_campaign_variant ? 3 : 0)`. The immediate is
+    /// at `+2`. The campaign fields are only copied in when the variant's
+    /// engine is 3, and the game mode after it is derived from the engine, so
+    /// this one constant is a self-consistent switch.
+    pub const LAUNCH_ENGINE_MOV: u64 = 0xf6db;
+    pub const LAUNCH_ENGINE_BYTES: [u8; 6] = [0x41, 0xb8, 0x03, 0x00, 0x00, 0x00];
+    /// The map-variant gate on a multiplayer session launch: (RVA, shipped
+    /// bytes, skipping bytes, what it is).
+    pub const MAP_VARIANT_GATE: [(u64, &[u8], &[u8], &str); 3] = [
+        // Session readiness (0x55a2a0), required-parameter mask for session
+        // modes 3/4: `movabs rax, 0x8001813e0`; bit 20 is the map variant
+        // ("no map selected"). 0x8000813e0 drops it and the map/game
+        // compatibility checks behind it; the engine-matches-mode bit stays.
+        (
+            0x55af56,
+            &[0x48, 0xb8, 0xe0, 0x13, 0x18, 0x00, 0x08, 0x00, 0x00, 0x00],
+            &[0x48, 0xb8, 0xe0, 0x13, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00],
+            "session readiness: map variant not required",
+        ),
+        // Options from session (0x55e1c0): `je 0x55e8fa` clears the ok flag
+        // when there is no map variant; `je 0x55e8fd` steps past the clear.
+        (
+            0x55e8c7,
+            &[0x74, 0x31],
+            &[0x74, 0x34],
+            "options builder: no map variant is not a failure",
+        ),
+        // In-game session step (0x55c730) checks the required parameters again
+        // through 0x45b160, with its own copy of the mask, before building the
+        // options; the same bit-20 edit. The third copy (0x55d2ff) is a resync
+        // that only runs once a game exists and fills the map variant in, so it
+        // is left alone.
+        (
+            0x45b1a3,
+            &[0x48, 0xb8, 0xe0, 0x13, 0x18, 0x00, 0x08, 0x00, 0x00, 0x00],
+            &[0x48, 0xb8, 0xe0, 0x13, 0x08, 0x00, 0x08, 0x00, 0x00, 0x00],
+            "in-game parameter check: map variant not required",
+        ),
+    ];
+    /// The game engine's zone-set handler (`0x2ad2d0`): `je 0x2ad31a` skips
+    /// the map-variant object delete (`0x32c820`) and reset
+    /// (`0x32baf0(mv, -1)`) when there is no engine; `jmp` always skips them,
+    /// keeping the handler's enter/exit counter balanced.
+    pub const MAP_VARIANT_RESET: [(u64, &[u8], &[u8], &str); 1] = [(
+        0x2ad2e2,
+        &[0x74, 0x36],
+        &[0xeb, 0x36],
+        "zone-set switch: map variant kept",
+    )];
+    /// (index, name, engine object RVA, vtable RVA).
+    pub const ENGINES: [(u32, &str, u64, u64); 4] = [
+        (1, "sandbox (Forge)", 0xbd52d0, 0x85d740),
+        (2, "Megalo (multiplayer)", 0xc7a7b8, 0x85dae8),
+        (3, "campaign", 0x9cbdc0, 0x855b48),
+        (4, "survival (Firefight)", 0x9b1f78, 0x845388),
+    ];
+}
+
+fn engine(
+    process: &blam_live::Process,
+    attached: tagtable::Attached,
+    launch: Option<u8>,
+    gate: Option<&str>,
+    reset: Option<&str>,
+) -> Result<()> {
+    use blam_live::tagtable::Memory;
+    use engine_cu4::*;
+    if !attached.profile.label.contains("CU4") {
+        anyhow::bail!(
+            "the engine offsets are CU4's; this tag module is {}",
+            attached.profile.label
+        );
+    }
+    let base = attached.base;
+    let mov = base + LAUNCH_ENGINE_MOV;
+    let now = process.read(mov, 6)?;
+    let mut expect = LAUNCH_ENGINE_BYTES;
+    let launch_now = now[2];
+    expect[2] = launch_now;
+    if now != expect || !(1..=4).contains(&launch_now) {
+        anyhow::bail!(
+            "the load-map handler's bytes at +{LAUNCH_ENGINE_MOV:#x} are {} — not the CU4 `mov r8d, <engine>`",
+            now.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+        );
+    }
+    if let Some(n) = launch {
+        process.write_code(mov + 2, &[n])?;
+        println!("next map load asks for engine {n} (was {launch_now})");
+    } else {
+        println!(
+            "next map load asks for engine {launch_now}{}",
+            if launch_now == 3 {
+                " (as shipped)"
+            } else {
+                " (PATCHED)"
+            }
+        );
+    }
+    let sets = [
+        (&MAP_VARIANT_GATE[..], gate, "map-variant gate"),
+        (&MAP_VARIANT_RESET[..], reset, "map-variant reset"),
+    ];
+    for (patches, choice, label) in sets {
+        for (rva, shipped, skipping, what) in patches.iter().copied() {
+            let now = process.read(base + rva, shipped.len())?;
+            let state = if now == shipped {
+                "kept (as shipped)"
+            } else if now == skipping {
+                "SKIPPED"
+            } else {
+                anyhow::bail!(
+                    "bytes at +{rva:#x} are neither the shipped nor the patched form: {now:02x?}"
+                );
+            };
+            match choice {
+                Some("skip") if now != skipping => {
+                    process.write_code(base + rva, skipping)?;
+                    println!("{label} +{rva:#x}: skipped ({what})");
+                }
+                Some("keep") if now != shipped => {
+                    process.write_code(base + rva, shipped)?;
+                    println!("{label} +{rva:#x}: restored ({what})");
+                }
+                _ => println!("{label} +{rva:#x}: {state} ({what})"),
+            }
+        }
+    }
+    let gs = GameState::attach(process)?;
+    println!("sim thread {} TLS block {:#x}", gs.tid, gs.block);
+    // The table is static: check it first, so a wrong reading of the globals
+    // cannot be mistaken for a wrong table.
+    for (i, name, object, vtable) in ENGINES {
+        let at = process.u64(base + ENGINE_TABLE + 8 * u64::from(i))?;
+        let vt = process.u64(at).unwrap_or(0);
+        println!(
+            "  table[{i}] {:#x} (expect +{:#x}: {}), vtable +{:#x} (expect +{:#x}: {})  {name}",
+            at.wrapping_sub(base),
+            object,
+            if at == base + object {
+                "ok"
+            } else {
+                "MISMATCH"
+            },
+            vt.wrapping_sub(base),
+            vtable,
+            if vt == base + vtable {
+                "ok"
+            } else {
+                "MISMATCH"
+            },
+        );
+    }
+    let globals = process.u64(gs.block + TLS_ENGINE_GLOBALS)?;
+    println!("game engine globals {globals:#x}");
+    if globals == 0 {
+        println!("  none allocated (no game in progress)");
+        return Ok(());
+    }
+    let index = process.u32(globals + ENGINE_INDEX)?;
+    let name = ENGINES
+        .iter()
+        .find(|e| e.0 == index)
+        .map_or("none", |e| e.1);
+    println!("engine index {index}: {name}");
+    if let Some(m) = gs.array("megalo_objects") {
+        let m = gs.fresh(process, &m.name).unwrap_or_else(|_| m.clone());
+        println!(
+            "megalo_objects: valid {}, {} of {} in use",
+            m.valid, m.used, m.maximum
+        );
+    }
+    Ok(())
+}
+
 fn players(process: &blam_live::Process, attached: tagtable::Attached) -> Result<()> {
     let gs = GameState::attach(process)?;
     let table = TagTable::open(process, attached.base, attached.profile)?;
@@ -280,14 +503,15 @@ fn players(process: &blam_live::Process, attached: tagtable::Attached) -> Result
                 let name = tags.get(&o.tag).map_or("?", |t| t.name.as_str());
                 let [x, y, z] = o.position;
                 println!(
-                    "player {}\t0x{:08X}\tunit 0x{:08X}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}",
-                    p.index, p.handle, o.handle
+                    "player {}\t0x{:08X}\tteam {}\tunit 0x{:08X}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}",
+                    p.index, p.handle, p.team, o.handle
                 );
             }
             None => println!(
-                "player {}\t0x{:08X}\tno unit{}",
+                "player {}\t0x{:08X}\tteam {}\tno unit{}",
                 p.index,
                 p.handle,
+                p.team,
                 p.unit
                     .map(|u| format!(" (0x{u:08X} is not in play)"))
                     .unwrap_or_default()

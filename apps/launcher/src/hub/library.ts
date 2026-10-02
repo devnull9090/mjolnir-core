@@ -29,6 +29,8 @@ export interface InstalledMod {
   /** Key changed / signature disappeared / key revoked — worth keeping
    *  in front of the user. */
   signature_notice?: string | null;
+  /** The scenario codename when this is a map pack. */
+  map_code?: string | null;
 }
 
 export interface ProfileEntry {

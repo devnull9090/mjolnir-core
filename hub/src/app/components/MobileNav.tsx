@@ -19,6 +19,8 @@ import { useHub } from "./HubKit";
 const navLinks = [
   { href: "/docs", label: "Docs" },
   { href: "/mods", label: "Mods" },
+  { href: "/maps", label: "Maps" },
+  { href: "/games", label: "Games" },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
   { href: "/blog", label: "Blog", icon: Newspaper },

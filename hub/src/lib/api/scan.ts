@@ -115,7 +115,8 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
   let changes: DeclaredChanges | null = null;
   const rawChanges = files["changes.json"];
   if (!rawChanges) {
-    warn(
+    // A map pack adds a map; it edits nothing, so it has no change list.
+    if (manifest?.type !== "map") warn(
       "no_changes",
       "No changes.json: the mod page cannot show players what this release edits. " +
         "Export from a current tag editor to include the declared change list.",
@@ -174,6 +175,33 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
   for (const [name] of Object.entries(files)) {
     if (name.endsWith(".ucas") && !files[name.slice(0, -"ucas".length) + "utoc"]) {
       err("orphan_ucas", `${name} has no matching .utoc.`);
+    }
+  }
+
+  // A map pack: the loader's level file and the map's registration row,
+  // and containers named for the map (docs/map_distribution.md).
+  if (manifest?.type === "map" && manifest.map) {
+    const code = manifest.map.code;
+    for (const name of ["map/level.json", "map/registration.json"]) {
+      const raw = files[name];
+      if (!raw) {
+        err("map_file_missing", `A map pack carries ${name}.`);
+        continue;
+      }
+      try {
+        JSON.parse(new TextDecoder().decode(raw));
+      } catch {
+        err("bad_map_file", `${name} is not valid JSON.`);
+      }
+    }
+    for (const name of utocs) {
+      if (!name.includes(`-${code}_P.`)) {
+        warn(
+          "foreign_container",
+          `${name} is not named for ${code}; shared content belongs in the runtime pack ` +
+            "(mjolnir-ce-runtime), not in a map.",
+        );
+      }
     }
   }
 

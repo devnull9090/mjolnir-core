@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""Merge a staged CE map's scenery and sky into its BSP render mesh.
+
+    merge_ce_scene.py <staging dir> <out.gltf> [--sky-radius 4000]
+
+The converted terrain is one mesh (tools/level/convert_ce_map.sh, step 3), so
+the scenery the scenario places and the sky draw as more sections of it, each
+with the material of its CE shader:
+
+- every scenery and light fixture placement's model (`models/*.gltf`), moved
+  to its CE position and rotation. CE lights an object from the lightmap of the surface
+  under it, so each placement's vertices get, as their lightmap UV, the UV of
+  the BSP point straight below its origin, and its material is the shader on
+  that lightmap page (`<shader>__lm<page>`); the incident direction is left
+  zero, which leaves the bumped-lightmap term at 1;
+- the scenario's first sky model (`*__sky.gltf`; the BSP draws the first
+  of the skies a scenario lists), its origin (the viewer) put at the map's
+  centre and scaled until its nearest layer is `--sky-radius` metres away,
+  so the map sits well inside it;
+  its sections are named `<shader>__sky` and carry no lightmap or fog.
+
+Writes a self-contained glTF (one .bin beside it) with the BSP's attributes
+on every primitive: POSITION, NORMAL, TANGENT, TEXCOORD_0, TEXCOORD_1 and
+_INCIDENT. With --translucent, the transparent (chicago) shaders' sections go
+to a second glTF: Unreal only puts a mesh in its translucency pass when the
+mesh's own material slots ask for it, and a rewritten mesh keeps its donor's
+single slot.
+"""
+import argparse
+import json
+import math
+import os
+import struct
+import sys
+
+import numpy as np
+
+WU_TO_M = 3.048
+TRANSPARENT = ("schi", "scex")
+
+
+def load_gltf(path):
+    g = json.load(open(path, encoding="utf-8"))
+    buf = open(os.path.join(os.path.dirname(path), g["buffers"][0]["uri"]), "rb").read()
+    return g, buf
+
+
+def accessor(g, buf, i):
+    a = g["accessors"][i]
+    bv = g["bufferViews"][a["bufferView"]]
+    n = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[a["type"]]
+    dtype = {5126: np.float32, 5125: np.uint32, 5123: np.uint16, 5121: np.uint8}[a["componentType"]]
+    off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+    stride = bv.get("byteStride", 0)
+    count = a["count"]
+    item = np.dtype(dtype).itemsize * n
+    if stride and stride != item:
+        raw = np.frombuffer(buf, np.uint8, count * stride, off).reshape(count, stride)[:, :item]
+        out = raw.copy().view(dtype).reshape(count, n)
+    else:
+        out = np.frombuffer(buf, dtype, count * n, off).reshape(count, n)
+    return out.astype(np.float64) if dtype == np.float32 else out.astype(np.uint32)
+
+
+def primitives(g, buf):
+    """Every primitive of every mesh, with its node transform applied, as
+    dicts of numpy arrays plus its material's name and extras."""
+    out = []
+    for node in g["nodes"]:
+        if "mesh" not in node:
+            continue
+        m = np.eye(4)
+        if "matrix" in node:
+            m = np.array(node["matrix"]).reshape(4, 4).T
+        else:
+            t = node.get("translation", [0, 0, 0])
+            r = node.get("rotation", [0, 0, 0, 1])
+            s = node.get("scale", [1, 1, 1])
+            x, y, z, w = r
+            rot = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+            m[:3, :3] = rot * np.array(s)
+            m[:3, 3] = t
+        for p in g["meshes"][node["mesh"]]["primitives"]:
+            at = p["attributes"]
+            pos = accessor(g, buf, at["POSITION"])
+            pos = pos @ m[:3, :3].T + m[:3, 3]
+            nrm = accessor(g, buf, at["NORMAL"]) @ m[:3, :3].T if "NORMAL" in at else np.tile([0, 1, 0], (len(pos), 1))
+            nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-9)
+            mat = g["materials"][p["material"]] if "material" in p else {"name": "none"}
+            out.append({
+                "pos": pos, "nrm": nrm,
+                "uv0": accessor(g, buf, at["TEXCOORD_0"]) if "TEXCOORD_0" in at else np.zeros((len(pos), 2)),
+                "uv1": accessor(g, buf, at["TEXCOORD_1"]) if "TEXCOORD_1" in at else None,
+                "tan": accessor(g, buf, at["TANGENT"]) if "TANGENT" in at else None,
+                "inc": accessor(g, buf, at["_INCIDENT"]) if "_INCIDENT" in at else None,
+                "idx": accessor(g, buf, p["indices"]).reshape(-1),
+                "material": mat["name"], "extras": mat.get("extras", {}),
+            })
+    return out
+
+
+def ce_to_gltf(v):
+    """CE world units (x, y, z) to glTF metres (x, z, -y)."""
+    v = np.asarray(v, dtype=np.float64)
+    return np.stack([v[..., 0], v[..., 2], -v[..., 1]], axis=-1) * WU_TO_M
+
+
+def ce_rotation(yaw, pitch, roll):
+    """CE's object rotation (yaw about z, then pitch, then roll), as a matrix
+    acting on glTF-space vectors."""
+    cy, sy, cp, sp, cr, sr = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch), math.cos(roll), math.sin(roll)
+    rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
+    ry = np.array([[cp, 0, -sp], [0, 1, 0], [sp, 0, cp]])
+    rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
+    r_ce = rz @ ry @ rx
+    # glTF (x, y, z) = CE (x, z, -y)
+    swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
+    return swap @ r_ce @ swap.T
+
+
+def tangents_for(nrm):
+    """Any unit tangent perpendicular to each normal, handedness +1."""
+    ref = np.where(np.abs(nrm[:, 1:2]) < 0.9, np.array([[0, 1, 0]]), np.array([[1, 0, 0]]))
+    t = np.cross(ref, nrm)
+    t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-9)
+    return np.hstack([t, np.ones((len(t), 1))])
+
+
+class Ground:
+    """Lightmap lookups on the BSP: what lies straight below a point."""
+
+    def __init__(self, bsp_prims):
+        tris, uvs, pages = [], [], []
+        for p in bsp_prims:
+            page = p["extras"].get("halo", {}).get("lightmap_index")
+            if p["uv1"] is None or page is None or not p["extras"].get("halo", {}).get("lightmap_texture"):
+                continue
+            ix = p["idx"].reshape(-1, 3)
+            tris.append(p["pos"][ix])
+            uvs.append(p["uv1"][ix])
+            pages += [page] * len(ix)
+        self.tris = np.concatenate(tris)
+        self.uvs = np.concatenate(uvs)
+        self.pages = np.array(pages)
+
+    def below(self, point):
+        """(page, lightmap uv) of the highest BSP surface under `point`
+        (glTF metres, y up), or None."""
+        a, b, c = self.tris[:, 0], self.tris[:, 1], self.tris[:, 2]
+        # Barycentric coordinates in the horizontal (x, z) plane.
+        v0, v1 = b - a, c - a
+        v2 = np.array([point[0], 0, point[2]]) - a * np.array([1, 0, 1])
+        d00 = v0[:, 0] ** 2 + v0[:, 2] ** 2
+        d01 = v0[:, 0] * v1[:, 0] + v0[:, 2] * v1[:, 2]
+        d11 = v1[:, 0] ** 2 + v1[:, 2] ** 2
+        d20 = v2[:, 0] * v0[:, 0] + v2[:, 2] * v0[:, 2]
+        d21 = v2[:, 0] * v1[:, 0] + v2[:, 2] * v1[:, 2]
+        den = d00 * d11 - d01 * d01
+        ok = np.abs(den) > 1e-12
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v = (d11 * d20 - d01 * d21) / den
+            w = (d00 * d21 - d01 * d20) / den
+            u = 1 - v - w
+        inside = ok & (u >= -1e-4) & (v >= -1e-4) & (w >= -1e-4)
+        if not inside.any():
+            return None
+        with np.errstate(invalid="ignore"):
+            h = u * a[:, 1] + v * b[:, 1] + w * c[:, 1]
+        # The highest surface at or a little above the origin (objects sit
+        # on the ground; a roof far above does not light them).
+        cand = inside & (h <= point[1] + 0.5)
+        if not cand.any():
+            cand = inside
+        i = np.where(cand)[0][np.argmax(h[cand])]
+        uv = u[i] * self.uvs[i, 0] + v[i] * self.uvs[i, 1] + w[i] * self.uvs[i, 2]
+        return int(self.pages[i]), uv
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("staging")
+    ap.add_argument("out")
+    ap.add_argument("--translucent", help="write the transparent shaders' sections (schi, scex: the sky, "
+                                          "lights, teleporter fields) here instead, as a mesh of their own")
+    ap.add_argument("--sky", help="write the sky's sections here instead, as a mesh of their own (with "
+                                  "--translucent: the sky is kilometres across, and sharing one normalised mesh "
+                                  "with the map's transparent pieces cost those centimetres of precision)")
+    ap.add_argument("--sky-radius", type=float, default=3000.0,
+                    help="metres from the map centre to the sky's nearest layer (default 3000)")
+    a = ap.parse_args()
+
+    bsp_g, bsp_buf = load_gltf(os.path.join(a.staging, "bsp", "bsp_0.gltf"))
+    bsp = primitives(bsp_g, bsp_buf)
+    ground = Ground(bsp)
+    lightmap_pages = {}
+    for p in bsp:
+        h = p["extras"].get("halo", {})
+        if h.get("lightmap_texture"):
+            lightmap_pages[h["lightmap_index"]] = h["lightmap_texture"]
+
+    placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
+    out = list(bsp)
+    placed, unlit = 0, 0
+    cache = {}
+    skies_seen = 0
+    for e in placement["entries"]:
+        if e.get("kind") not in ("scenery", "light_fixture", "sky") or not e.get("model"):
+            continue
+        if e["kind"] == "sky":
+            # A scenario can list several skies (Gephyrophobia: its night
+            # sky, then dusk three times); its BSP draws the first.
+            skies_seen += 1
+            if skies_seen > 1:
+                continue
+        path = os.path.join(a.staging, e["model"])
+        if not os.path.exists(path):
+            print(f"  missing {e['model']}", file=sys.stderr)
+            continue
+        if path not in cache:
+            cache[path] = primitives(*load_gltf(path))
+        if e["kind"] in ("scenery", "light_fixture"):
+            r = ce_rotation(*e.get("rot", [0, 0, 0]))
+            t = ce_to_gltf(e["pos"])
+            hit = ground.below(t)
+            for p in cache[path]:
+                pos = p["pos"] @ r.T + t
+                nrm = p["nrm"] @ r.T
+                n = len(pos)
+                q = {"pos": pos, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
+                     "tan": tangents_for(nrm), "inc": np.zeros((n, 3))}
+                if hit:
+                    page, uv = hit
+                    q["uv1"] = np.tile(uv, (n, 1))
+                    q["material"] = f"{p['material']}__lm{page}"
+                    q["extras"] = {"halo": {**p["extras"].get("halo", {}), "lightmap_index": page,
+                                            "lightmap_texture": lightmap_pages.get(page)}}
+                else:
+                    unlit += 1
+                    q["uv1"] = np.zeros((n, 2))
+                    q["material"] = f"{p['material']}__nolm"
+                    q["extras"] = {"halo": {**p["extras"].get("halo", {}), "lightmap_index": None,
+                                            "lightmap_texture": None}}
+                out.append(q)
+            placed += 1
+        else:
+            prims = cache[path]
+            allpos = np.concatenate([p["pos"] for p in prims])
+            # A CE sky is modelled around the viewer at its origin, hundreds
+            # of kilometres out; it is scaled about that origin, so every
+            # layer keeps its distance relative to the others.
+            centre = np.zeros(3)
+            nearest = np.min(np.linalg.norm(allpos, axis=1))
+            scale = a.sky_radius / max(nearest, 1e-3)
+            bsp_pos = np.concatenate([p["pos"] for p in bsp])
+            map_centre = (bsp_pos.max(0) + bsp_pos.min(0)) / 2
+            # First in the mesh: translucent sections of one mesh draw in
+            # section order, and the sky must be under everything in front
+            # of it (the teleporter fields, the lights).
+            for k, p in enumerate(prims):
+                n = len(p["pos"])
+                out.insert(k, {"pos": (p["pos"] - centre) * scale + map_centre, "nrm": p["nrm"], "uv0": p["uv0"],
+                            "idx": p["idx"], "tan": tangents_for(p["nrm"]), "inc": np.zeros((n, 3)),
+                            "uv1": np.zeros((n, 2)), "material": f"{p['material']}__sky",
+                            "extras": {"halo": {**p["extras"].get("halo", {}), "lightmap_index": None,
+                                                "lightmap_texture": None, "sky": True}}})
+            print(f"  sky {os.path.basename(path)}: scale {scale:.4f}, nearest layer {a.sky_radius:.0f} m, "
+                  f"farthest {np.max(np.linalg.norm(allpos, axis=1)) * scale:.0f} m")
+
+    if a.translucent:
+        # A mesh enters Unreal's translucency pass only if its own material
+        # slots ask for it, and a rewritten mesh keeps its donor's one slot:
+        # transparent sections must be a mesh of their own, whose slot 0 is
+        # one of them (the sky first, so it draws under the rest).
+        clear = [p for p in out if p["extras"].get("halo", {}).get("shader_class") in TRANSPARENT]
+        out = [p for p in out if p["extras"].get("halo", {}).get("shader_class") not in TRANSPARENT]
+        if a.sky:
+            # The sky is kilometres across: normalised into one donor shape
+            # together, the map's teleporter fields and light strips lost
+            # their precision and sat off their walls (Danger Canyon,
+            # 2026-10-01). It is a mesh of its own, drawn first by its
+            # translucency sort priority instead of its section order.
+            is_sky = lambda p: p["extras"].get("halo", {}).get("sky")
+            sky = [p for p in clear if is_sky(p)] + [p for p in out if is_sky(p)]
+            clear = [p for p in clear if not is_sky(p)]
+            out = [p for p in out if not is_sky(p)]
+            write_gltf(sky, a.sky)
+            print(f"  {len(sky)} sky primitive(s) -> {a.sky}")
+        write_gltf(clear, a.translucent)
+        print(f"  {len(clear)} transparent primitive(s) -> {a.translucent}")
+    write_gltf(out, a.out)
+    print(f"{len(bsp)} BSP section(s) + {placed} scenery placement(s) ({unlit} with no ground below) "
+          f"-> {len(out)} primitive(s) in {a.out}")
+
+
+def write_gltf(prims, path):
+    materials, mat_index = [], {}
+    blob = bytearray()
+    views, accessors, meshes_prims = [], [], []
+
+    def add(arr, kind, comp, target=None):
+        arr = np.ascontiguousarray(arr)
+        while len(blob) % 4:
+            blob.append(0)
+        off = len(blob)
+        blob.extend(arr.tobytes())
+        view = {"buffer": 0, "byteOffset": off, "byteLength": arr.nbytes}
+        if target:
+            view["target"] = target
+        views.append(view)
+        acc = {"bufferView": len(views) - 1, "componentType": comp, "count": len(arr), "type": kind}
+        if kind == "VEC3" and comp == 5126:
+            acc["min"] = arr.min(0).tolist()
+            acc["max"] = arr.max(0).tolist()
+        accessors.append(acc)
+        return len(accessors) - 1
+
+    for p in prims:
+        name = p["material"]
+        if name not in mat_index:
+            mat_index[name] = len(materials)
+            materials.append({"name": name, "extras": p.get("extras", {})})
+        f32 = lambda x: np.asarray(x, dtype=np.float32)
+        attrs = {
+            "POSITION": add(f32(p["pos"]), "VEC3", 5126, 34962),
+            "NORMAL": add(f32(p["nrm"]), "VEC3", 5126, 34962),
+            "TANGENT": add(f32(p["tan"]), "VEC4", 5126, 34962),
+            "TEXCOORD_0": add(f32(p["uv0"]), "VEC2", 5126, 34962),
+            "TEXCOORD_1": add(f32(p["uv1"]), "VEC2", 5126, 34962),
+            "_INCIDENT": add(f32(p["inc"]), "VEC3", 5126, 34962),
+        }
+        idx = add(np.asarray(p["idx"], dtype=np.uint32), "SCALAR", 5125, 34963)
+        meshes_prims.append({"attributes": attrs, "indices": idx, "material": mat_index[name], "mode": 4})
+
+    bin_name = os.path.splitext(os.path.basename(path))[0] + ".bin"
+    with open(os.path.join(os.path.dirname(os.path.abspath(path)), bin_name), "wb") as f:
+        f.write(blob)
+    g = {
+        "asset": {"version": "2.0", "generator": "merge_ce_scene.py"},
+        "scene": 0, "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0, "name": "scene"}],
+        "meshes": [{"name": "scene", "primitives": meshes_prims}],
+        "materials": materials,
+        "buffers": [{"uri": bin_name, "byteLength": len(blob)}],
+        "bufferViews": views,
+        "accessors": accessors,
+    }
+    json.dump(g, open(path, "w", encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    main()

@@ -7,6 +7,10 @@
     "blender": {
       "command": "uvx",
       "args": ["blender-mcp"]
+    },
+    "ghidra": {
+      "command": "bridge-mcp-ghidra",
+      "args": []
     }
   }
 }

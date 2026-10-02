@@ -484,6 +484,149 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
+  // ── Release review (community maps) ─────────────────────────────────
+
+  const QueuedReleaseSchema = z
+    .object({
+      release_id: z.string(),
+      state: z.enum(["pending", "approved", "rejected"]),
+      reason: z.string().nullable(),
+      mod_slug: z.string(),
+      mod_name: z.string(),
+      version: z.string(),
+      map_code: z.string().nullable(),
+      map_title: z.string().nullable(),
+      file_size: z.number().nullable(),
+      uploader: z.string(),
+      created_at: z.string(),
+    })
+    .openapi("QueuedRelease");
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/moderation/releases",
+      tags: ["moderation"],
+      summary: "The release review queue: community maps awaiting a moderator",
+      request: {
+        query: z.object({
+          state: z.enum(["pending", "approved", "rejected"]).default("pending"),
+        }),
+      },
+      responses: {
+        200: {
+          description: "Releases, oldest first.",
+          content: { "application/json": { schema: z.object({ releases: z.array(QueuedReleaseSchema) }) } },
+        },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      await requireModerator(c);
+      const { state } = c.req.valid("query");
+      const rows = await c.env.DB.prepare(
+        `SELECT rv.release_id, rv.state, rv.reason, rv.created_at, r.version, r.file_size,
+                m.slug AS mod_slug, m.name AS mod_name, ml.code AS map_code, ml.title AS map_title,
+                COALESCE(u.display_name, u.discord_username) AS uploader
+         FROM release_reviews rv
+         JOIN mod_releases r ON r.id = rv.release_id
+         JOIN mods m ON m.id = r.mod_id
+         LEFT JOIN map_listings ml ON ml.mod_id = m.id
+         JOIN users u ON u.id = COALESCE(r.published_by, m.owner_id)
+         WHERE rv.state = ?1 ORDER BY rv.created_at LIMIT 200`,
+      )
+        .bind(state)
+        .all();
+      return c.json(
+        {
+          releases: rows.results.map((r) => ({
+            release_id: r.release_id as string,
+            state: r.state as "pending" | "approved" | "rejected",
+            reason: (r.reason as string) ?? null,
+            mod_slug: r.mod_slug as string,
+            mod_name: r.mod_name as string,
+            version: r.version as string,
+            map_code: (r.map_code as string) ?? null,
+            map_title: (r.map_title as string) ?? null,
+            file_size: (r.file_size as number) ?? null,
+            uploader: r.uploader as string,
+            created_at: r.created_at as string,
+          })),
+        },
+        200,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/moderation/releases/{id}",
+      tags: ["moderation"],
+      summary: "Approve or reject a release awaiting review (moderators)",
+      description:
+        "Approval publishes the release, and its mod with it if this is the " +
+        "mod's first. Rejection marks it rejected with the reason, which the " +
+        "author sees on the release.",
+      request: {
+        params: z.object({ id: z.string() }),
+        body: {
+          content: {
+            "application/json": {
+              schema: z
+                .object({
+                  action: z.enum(["approve", "reject"]),
+                  reason: z.string().max(500).optional(),
+                })
+                .openapi("ReleaseDecision"),
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "Decided.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such pending review.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const auth = await requireModerator(c);
+      const { id } = c.req.valid("param");
+      const { action, reason } = c.req.valid("json");
+      const pending = await c.env.DB.prepare(
+        `SELECT r.mod_id FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
+         WHERE rv.release_id = ?1 AND rv.state = 'pending' AND r.status = 'pending'`,
+      )
+        .bind(id)
+        .first<{ mod_id: string }>();
+      if (!pending) return c.json({ error: "not_found" }, 404);
+      const approve = action === "approve";
+      const statements = [
+        c.env.DB.prepare(
+          `UPDATE release_reviews SET state = ?2, reason = ?3, reviewed_by = ?4,
+             reviewed_at = datetime('now') WHERE release_id = ?1`,
+        ).bind(id, approve ? "approved" : "rejected", reason ?? null, auth.user.id),
+        c.env.DB.prepare(`UPDATE mod_releases SET status = ?2 WHERE id = ?1`).bind(
+          id,
+          approve ? "published" : "rejected",
+        ),
+      ];
+      if (approve) {
+        statements.push(
+          c.env.DB.prepare(
+            `UPDATE mods SET status = 'published', updated_at = datetime('now')
+             WHERE id = ?1 AND status = 'draft'`,
+          ).bind(pending.mod_id),
+        );
+      }
+      await c.env.DB.batch(statements);
+      await audit(c, auth.user.id, `release_${action}`, "release", id, reason);
+      return c.json({ ok: true }, 200);
+    },
+  );
+
   // ── Yank ────────────────────────────────────────────────────────────
 
   app.openapi(

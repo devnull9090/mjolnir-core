@@ -193,13 +193,272 @@ pub fn resize(file: &[u8], block_name: &str, ops: &[Op]) -> Result<(Vec<u8>, Res
     ))
 }
 
+// -----------------------------------------------------------------------------
+// Nested blocks
+// -----------------------------------------------------------------------------
+
+/// A block located by path, with where its parent keeps the inline copy of its
+/// element count.
+pub struct Found<'t, 'a> {
+    pub block: &'t Block<'a>,
+    /// File offset of the four inline count bytes inside the parent element.
+    pub count_at: usize,
+}
+
+/// Walk a field path — `resource interface.raw_resources[0].raw_items.collision
+/// bsp[0].vertices` — to the block it names, at any depth.
+///
+/// Segments name fields of the current struct run; a `block` segment with an
+/// index steps into that element, a `struct` segment steps into the inlined
+/// struct, and the final segment must be a block. Offsets are accumulated the
+/// way the view walk does, so the located inline bytes are the ones the writer
+/// copies through and [`Edits::inline`] can fix.
+pub fn find_block<'t, 'a>(
+    layout: &crate::Layout<'a>,
+    file: &[u8],
+    root: &'t Block<'a>,
+    path: &str,
+) -> Result<Found<'t, 'a>, Error> {
+    let segments = crate::patch::segments(path);
+    if segments.is_empty() {
+        return Err(Error::NoSuchField {
+            segment: path.to_string(),
+            at: "the root struct".to_string(),
+        });
+    }
+    let mut run = layout.struct_run(root.struct_index).ok_or(Error::NoData)?;
+    let mut bytes: &[u8] = root.element(0).unwrap_or(&[]);
+    let mut values: &[Value<'a>] = root.children.first().map(Vec::as_slice).unwrap_or(&[]);
+    let mut at = "the root struct".to_string();
+
+    for (si, (name, index)) in segments.iter().enumerate() {
+        let last = si + 1 == segments.len();
+        let range = layout
+            .struct_ranges()
+            .get(run)
+            .cloned()
+            .ok_or(Error::NoData)?;
+        let mut offset = 0u32;
+        let mut next_value = 0usize;
+        let mut hit: Option<(crate::layout::FieldEntry, u32, u32, Option<&Value<'a>>)> = None;
+        for i in range {
+            let field = layout.fields[i];
+            let size = layout.field_size(&field).unwrap_or(0);
+            let value = if crate::data::field_writes(layout, &field) {
+                while matches!(values.get(next_value), Some(Value::Phantom)) {
+                    next_value += 1;
+                }
+                let v = values.get(next_value);
+                next_value += 1;
+                v
+            } else {
+                None
+            };
+            if layout.string_at(field.name_offset).unwrap_or("") == name.as_str() {
+                hit = Some((field, offset, size, value));
+                break;
+            }
+            offset += size;
+        }
+        let Some((field, offset, size, value)) = hit else {
+            return Err(Error::NoSuchField {
+                segment: name.clone(),
+                at,
+            });
+        };
+        match layout.type_name_of(&field) {
+            "block" => {
+                let Some(Value::Block(inner)) = value else {
+                    return Err(Error::NotAValue { at: name.clone() });
+                };
+                if last {
+                    if index.is_some() {
+                        return Err(Error::NotIndexable { at: name.clone() });
+                    }
+                    let slice = bytes
+                        .get(offset as usize..(offset + size) as usize)
+                        .unwrap_or(&[]);
+                    if slice.len() < 4 {
+                        return Err(Error::NotAValue { at: name.clone() });
+                    }
+                    return Ok(Found {
+                        block: inner,
+                        count_at: offset_within(file, slice),
+                    });
+                }
+                let i = index.ok_or_else(|| Error::NotIndexable { at: name.clone() })?;
+                let element = inner.element(i).ok_or(Error::IndexOutOfRange {
+                    at: name.clone(),
+                    index: i,
+                    count: inner.count,
+                })?;
+                run = layout.struct_run(inner.struct_index).ok_or(Error::NoData)?;
+                bytes = element;
+                values = inner.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+                at = format!("{name}[{i}]");
+            }
+            "struct" => {
+                if last || index.is_some() {
+                    return Err(Error::NotIndexable { at: name.clone() });
+                }
+                let children: &[Value<'a>] = match value {
+                    Some(Value::Struct { children }) => children.as_slice(),
+                    _ => &[],
+                };
+                run = layout.struct_run(field.aux as usize).ok_or(Error::NoData)?;
+                bytes = bytes
+                    .get(offset as usize..(offset + size) as usize)
+                    .unwrap_or(&[]);
+                values = children;
+                at = name.clone();
+            }
+            _ => {
+                return Err(Error::NotIndexable { at: name.clone() });
+            }
+        }
+    }
+    unreachable!("the last segment returns or errors")
+}
+
+/// One block's new content, wherever it sits in the tree.
+#[derive(Debug, Clone)]
+pub struct NestedReplace {
+    /// Field path to the block, as [`find_block`] takes it.
+    pub path: String,
+    /// New element count; `elements` must be exactly `count * element_size`
+    /// bytes.
+    pub count: u32,
+    pub elements: Vec<u8>,
+    /// Per-element `tgst` wrapper content, for blocks whose header flag word is
+    /// `0`. `None` writes an empty wrapper per element, which is right for
+    /// elements with no variable-length fields; a block whose elements carry
+    /// tag references or string ids needs wrappers cloned from a donor via
+    /// [`element_with_wrapper`].
+    pub wrappers: Option<Vec<Vec<u8>>>,
+}
+
+/// The packed bytes and `tgst` wrapper content of one element, for cloning.
+pub fn element_with_wrapper(
+    file: &[u8],
+    path: &str,
+    index: usize,
+) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    let tag = crate::TagFile::parse(file, None).map_err(|_| Error::NoData)?;
+    let layout = tag.layout().map_err(|_| Error::NoData)?;
+    let root = tag.read_data(&layout).map_err(|_| Error::NoData)?;
+    let found = find_block(&layout, file, &root, path)?;
+    let element = found.block.element(index).ok_or(Error::IndexOutOfRange {
+        at: path.to_string(),
+        index,
+        count: found.block.count,
+    })?;
+    let children = found
+        .block
+        .children
+        .get(index)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    Ok((element.to_vec(), crate::write::element_wrapper(children)))
+}
+
+/// Keep only the listed elements of each block, in the order listed (an
+/// index may repeat), wherever the blocks sit in the tree. The elements keep
+/// their bytes and their variable-length children; one parse serves every
+/// block. The paths must not nest inside one another.
+pub fn select(file: &[u8], keep: &[(String, Vec<usize>)]) -> Result<Vec<u8>, Error> {
+    let tag = crate::TagFile::parse(file, None).map_err(|_| Error::NoData)?;
+    let layout = tag.layout().map_err(|_| Error::NoData)?;
+    let root = tag.read_data(&layout).map_err(|_| Error::NoData)?;
+    let mut replacements = Vec::with_capacity(keep.len());
+    for (path, indices) in keep {
+        let found = find_block(&layout, file, &root, path)?;
+        let block = found.block;
+        let mut elements = Vec::new();
+        let mut wrappers = Vec::new();
+        for &i in indices {
+            let element = block.element(i).ok_or(Error::IndexOutOfRange {
+                at: path.clone(),
+                index: i,
+                count: block.count,
+            })?;
+            elements.extend_from_slice(element);
+            let children = block.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+            wrappers.push(crate::write::element_wrapper(children));
+        }
+        replacements.push(NestedReplace {
+            path: path.clone(),
+            count: indices.len() as u32,
+            elements,
+            wrappers: Some(wrappers),
+        });
+    }
+    replace_nested(file, &replacements)
+}
+
+/// Replace whole blocks anywhere in the tree, returning the new tag file.
+///
+/// Each block's `tgbl` content is rebuilt from the given elements, its header
+/// flag word kept, and the parent's inline count fixed — the same two-place
+/// bookkeeping [`resize`] does for root blocks. Applying no replacements
+/// reproduces the file byte for byte.
+pub fn replace_nested(file: &[u8], replacements: &[NestedReplace]) -> Result<Vec<u8>, Error> {
+    let tag = crate::TagFile::parse(file, None).map_err(|_| Error::NoData)?;
+    let layout = tag.layout().map_err(|_| Error::NoData)?;
+    let root = tag.read_data(&layout).map_err(|_| Error::NoData)?;
+
+    let mut edits = Edits::new(file);
+    for r in replacements {
+        let found = find_block(&layout, file, &root, &r.path)?;
+        let block = found.block;
+        let expect = r.count as usize * block.element_size as usize;
+        if r.elements.len() != expect {
+            return Err(Error::NotAValue {
+                at: format!(
+                    "{}: {} element bytes for {} elements of {}",
+                    r.path,
+                    r.elements.len(),
+                    r.count,
+                    block.element_size
+                ),
+            });
+        }
+        let mut content = Vec::with_capacity(8 + r.elements.len());
+        content.extend_from_slice(&r.count.to_le_bytes());
+        content.extend_from_slice(&block.flags.to_le_bytes());
+        content.extend_from_slice(&r.elements);
+        if block.flags == 0 {
+            for i in 0..r.count as usize {
+                let wrapper: &[u8] = match &r.wrappers {
+                    Some(w) => w.get(i).map(Vec::as_slice).unwrap_or(&[]),
+                    None => &[],
+                };
+                crate::write::section_into(&mut content, "tgst", wrapper.len() as u32, wrapper);
+            }
+        }
+        edits
+            .blocks
+            .insert(offset_within(file, block.elements), content);
+        edits
+            .inline
+            .insert(found.count_at, r.count.to_le_bytes().to_vec());
+    }
+    crate::patch::rewrite(file, &edits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn an_order_appends_clones_of_the_donor() {
-        let order = element_order(3, &[Op::CloneAppend { donor: 1, copies: 2 }]).unwrap();
+        let order = element_order(
+            3,
+            &[Op::CloneAppend {
+                donor: 1,
+                copies: 2,
+            }],
+        )
+        .unwrap();
         assert_eq!(order, vec![0, 1, 2, 1, 1]);
     }
 
@@ -215,7 +474,10 @@ mod tests {
             2,
             &[
                 Op::Truncate { keep: 1 },
-                Op::CloneAppend { donor: 0, copies: 2 },
+                Op::CloneAppend {
+                    donor: 0,
+                    copies: 2,
+                },
             ],
         )
         .unwrap();
@@ -224,7 +486,14 @@ mod tests {
 
     #[test]
     fn a_bad_donor_is_an_error() {
-        assert!(element_order(2, &[Op::CloneAppend { donor: 5, copies: 1 }]).is_err());
+        assert!(element_order(
+            2,
+            &[Op::CloneAppend {
+                donor: 5,
+                copies: 1
+            }]
+        )
+        .is_err());
     }
 
     #[test]
@@ -232,7 +501,10 @@ mod tests {
         let order = element_order(
             3,
             &[
-                Op::CloneAppend { donor: 1, copies: 2 },
+                Op::CloneAppend {
+                    donor: 1,
+                    copies: 2,
+                },
                 Op::KeepLast { keep: 2 },
             ],
         )

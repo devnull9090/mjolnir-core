@@ -125,6 +125,15 @@
             "minItems": 4,
             "maxItems": 4,
             "items": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "materials": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(|/(Engine|Game)/.+)$"
+            }
           }
         }
       }
@@ -142,6 +151,27 @@
           "yaw": { "$ref": "#/$defs/degrees" }
         }
       }
+    },
+    "multiplayer": {
+      "type": "boolean",
+      "description": "Start the map under the Megalo engine (MJOLNIRLevelLoader's native half)."
+    },
+    "variant": {
+      "type": "string",
+      "description": "The game type a map starts with when none is chosen, a variants/<name>.mglo the loader ships."
+    },
+    "modes": {
+      "type": "array",
+      "description": "The game types the multiplayer menu offers for the map.",
+      "items": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" }
+    },
+    "ctf": {
+      "type": "object",
+      "description": "Capture the Flag's look for the loader: the flag mesh, its team materials, the stands."
+    },
+    "health_pack": {
+      "type": "object",
+      "description": "The CE health pack's look for the loader: mesh, pos and scale on the pack's actor, materials."
     }
   },
   "$defs": {
@@ -166,7 +196,12 @@
       "properties": {
         "type": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
         "pos": { "$ref": "#/$defs/vec3" },
-        "yaw": { "$ref": "#/$defs/degrees" }
+        "yaw": { "$ref": "#/$defs/degrees" },
+        "set": {
+          "type": "object",
+          "description": "Further fields of the placement, relative to its element, e.g. the Warthog's rocket turret: {\"permutation data.variant name\": \"rocket\"}",
+          "additionalProperties": { "type": "string" }
+        }
       }
     }
   }

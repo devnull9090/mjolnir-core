@@ -134,7 +134,8 @@
                 "mods:read",
                 "mods:write",
                 "ratings:write",
-                "comments:write"
+                "comments:write",
+                "lobbies:write"
               ]
             },
             "description": "What approval will grant — echoed back so a client can show it too."
@@ -176,7 +177,8 @@
                 "mods:read",
                 "mods:write",
                 "ratings:write",
-                "comments:write"
+                "comments:write",
+                "lobbies:write"
               ]
             },
             "description": "What the key carries. Sent with the key so a client can check it got what it asked for instead of failing later at the write."
@@ -1282,7 +1284,8 @@
                 "mods:read",
                 "mods:write",
                 "ratings:write",
-                "comments:write"
+                "comments:write",
+                "lobbies:write"
               ]
             }
           },
@@ -1349,7 +1352,8 @@
                 "mods:read",
                 "mods:write",
                 "ratings:write",
-                "comments:write"
+                "comments:write",
+                "lobbies:write"
               ]
             },
             "minItems": 1,
@@ -1607,6 +1611,93 @@
           "action"
         ]
       },
+      "QueuedRelease": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mod_slug": {
+            "type": "string"
+          },
+          "mod_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "map_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_size": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "uploader": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "release_id",
+          "state",
+          "reason",
+          "mod_slug",
+          "mod_name",
+          "version",
+          "map_code",
+          "map_title",
+          "file_size",
+          "uploader",
+          "created_at"
+        ]
+      },
+      "ReleaseDecision": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
       "AdminUserList": {
         "type": "object",
         "properties": {
@@ -1791,6 +1882,302 @@
           "set_version",
           "mods_synced",
           "releases_created"
+        ]
+      },
+      "MapListing": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "official": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "download_count": {
+            "type": "number"
+          },
+          "rating_mean": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "file_size": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version",
+              "file_size",
+              "sha256",
+              "created_at"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "modes",
+          "official",
+          "slug",
+          "summary",
+          "owner",
+          "download_count",
+          "rating_mean",
+          "cover_url",
+          "release"
+        ]
+      },
+      "MapOfficial": {
+        "type": "object",
+        "properties": {
+          "official": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "official"
+        ]
+      },
+      "LobbyCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "map_code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{3}$"
+          },
+          "game_type": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,24}$"
+          },
+          "players": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16,
+            "default": 1
+          },
+          "max_players": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16,
+            "default": 4
+          },
+          "client_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "game_build": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "steam",
+              "gamepass",
+              "other"
+            ]
+          },
+          "connection_string": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "name",
+          "map_code",
+          "game_type",
+          "client_version",
+          "connection_string"
+        ]
+      },
+      "LobbyHeartbeat": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "players": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "max_players": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "map_code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{3}$"
+          },
+          "game_type": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,24}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_game",
+              "full"
+            ]
+          },
+          "connection_string": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "Lobby": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "map_code": {
+            "type": "string"
+          },
+          "map_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "game_type": {
+            "type": "string"
+          },
+          "players": {
+            "type": "number"
+          },
+          "max_players": {
+            "type": "number"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_game",
+              "full"
+            ]
+          },
+          "client_version": {
+            "type": "string"
+          },
+          "platform": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "colo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ping_ms": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "host",
+          "map_code",
+          "map_title",
+          "game_type",
+          "players",
+          "max_players",
+          "state",
+          "client_version",
+          "platform",
+          "colo",
+          "country",
+          "ping_ms",
+          "created_at"
         ]
       }
     },
@@ -2000,7 +2387,8 @@
                         "mods:read",
                         "mods:write",
                         "ratings:write",
-                        "comments:write"
+                        "comments:write",
+                        "lobbies:write"
                       ]
                     },
                     "minItems": 1,
@@ -2154,7 +2542,8 @@
                           "mods:read",
                           "mods:write",
                           "ratings:write",
-                          "comments:write"
+                          "comments:write",
+                          "lobbies:write"
                         ]
                       }
                     }
@@ -2257,7 +2646,8 @@
                           "mods:read",
                           "mods:write",
                           "ratings:write",
-                          "comments:write"
+                          "comments:write",
+                          "lobbies:write"
                         ]
                       }
                     },
@@ -4551,6 +4941,151 @@
         }
       }
     },
+    "/api/v1/moderation/releases": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "The release review queue: community maps awaiting a moderator",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "default": "pending"
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Releases, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "releases": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/QueuedRelease"
+                      }
+                    }
+                  },
+                  "required": [
+                    "releases"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/releases/{id}": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Approve or reject a release awaiting review (moderators)",
+        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author sees on the release.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pending review.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/releases/{id}/yank": {
       "post": {
         "tags": [
@@ -4756,6 +5291,560 @@
           },
           "502": {
             "description": "Manifest unreachable, unparseable, or its signature failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/maps": {
+      "get": {
+        "tags": [
+          "maps"
+        ],
+        "summary": "Every published map: the official classics first, then community maps",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ]
+            },
+            "required": false,
+            "name": "official",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,24}$"
+            },
+            "required": false,
+            "name": "mode",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Maps, official first, then by title.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "maps": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MapListing"
+                      }
+                    }
+                  },
+                  "required": [
+                    "maps"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/maps/{code}/official": {
+      "put": {
+        "tags": [
+          "maps",
+          "moderation"
+        ],
+        "summary": "Mark a map as one of the official classics, or not (moderators)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]{3}$"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapOfficial"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No map has this code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/maps/{code}": {
+      "get": {
+        "tags": [
+          "maps"
+        ],
+        "summary": "One map by its codename",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]{3}$"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The map.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapListing"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No published map has this code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lobbies": {
+      "post": {
+        "tags": [
+          "lobbies"
+        ],
+        "summary": "List a game in the lobby browser",
+        "description": "Registers the caller's game and returns a per-lobby token the host proves on every heartbeat and on removal. A host has one listed game: registering again replaces the previous one. Needs the `lobbies:write` scope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LobbyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Listed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "heartbeat_seconds": {
+                      "type": "number"
+                    },
+                    "stale_seconds": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "token",
+                    "heartbeat_seconds",
+                    "stale_seconds"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many games listed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "lobbies"
+        ],
+        "summary": "Find games: by map, game type, version and room, nearest first",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{3}$"
+            },
+            "required": false,
+            "name": "map",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,24}$"
+            },
+            "required": false,
+            "name": "game_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "required": false,
+            "name": "version",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
+              "default": "0"
+            },
+            "required": false,
+            "name": "has_space",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "required": false,
+            "name": "max_ping",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live games, sorted by estimated ping then players.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lobbies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Lobby"
+                      }
+                    }
+                  },
+                  "required": [
+                    "lobbies"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lobbies/{id}/heartbeat": {
+      "post": {
+        "tags": [
+          "lobbies"
+        ],
+        "summary": "Keep a listed game alive, and update what changed",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LobbyHeartbeat"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Alive.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such game, or not its host.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Heartbeating too fast.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lobbies/{id}": {
+      "delete": {
+        "tags": [
+          "lobbies"
+        ],
+        "summary": "Take a game out of the lobby browser",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such game, or not its host.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lobbies/{id}/join": {
+      "get": {
+        "tags": [
+          "lobbies"
+        ],
+        "summary": "The connection string to join a listed game (signed in)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Join with this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connection_string": {
+                      "type": "string"
+                    },
+                    "map_code": {
+                      "type": "string"
+                    },
+                    "game_type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "connection_string",
+                    "map_code",
+                    "game_type"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Gone, or not live.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many joins.",
             "content": {
               "application/json": {
                 "schema": {

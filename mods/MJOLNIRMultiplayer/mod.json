@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "summary": "Campaign-flow mission launching (mjolnir_mission), debug menu access, listen-server experiments, and player admin commands.",
   "category": "multiplayer"
 }

@@ -59,6 +59,12 @@ export function Navbar() {
           <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Mods
           </Link>
+          <Link href="/maps" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Maps
+          </Link>
+          <Link href="/games" className="hidden lg:block text-sm text-text-muted hover:text-foreground transition-colors">
+            Games
+          </Link>
           <Link href="/tools" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Tools
           </Link>

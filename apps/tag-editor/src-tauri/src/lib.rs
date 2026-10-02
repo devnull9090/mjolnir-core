@@ -2509,6 +2509,7 @@ fn read_mesh(index: usize, state: State<'_, AppState>) -> Result<tauri::ipc::Res
                 nanite: sk.nanite,
                 nanite_report: sk.nanite_report,
                 nanite_note: sk.nanite_note,
+                lod_span: sk.lod_span,
             }
         } else {
             ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, ubulk.as_deref(), &bulk_map)

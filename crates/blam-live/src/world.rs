@@ -76,6 +76,7 @@ const MODEL_SHIELD_SECTION: u64 = 0xf0;
 
 /// The unit the player controls: what `player_get` returns.
 const PLAYER_UNIT: usize = 0x28;
+const PLAYER_TEAM: usize = 0xad;
 
 /// What an object is, from its header entry. The codes are Reach's; the ones
 /// marked were seen on CU4 with a tag of the matching group, the rest follow
@@ -208,6 +209,9 @@ pub struct LivePlayer {
     pub handle: u32,
     /// The unit this player controls, if any.
     pub unit: Option<u32>,
+    /// The player's team (0 red, 1 blue, ... 8 neutral; -1 none). A player
+    /// with no team never spawns (HaloSimulation CU4 `0x2ae6f0`).
+    pub team: i8,
 }
 
 fn handle(v: u32) -> Option<u32> {
@@ -327,6 +331,7 @@ pub fn players(m: &impl Memory, gs: &GameState) -> Result<Vec<LivePlayer>> {
             index: p.index,
             handle: p.handle(),
             unit: handle(u32_at(&p.bytes, PLAYER_UNIT)),
+            team: p.bytes[PLAYER_TEAM] as i8,
         })
         .collect())
 }
@@ -457,6 +462,7 @@ mod tests {
         let mut p = vec![0u8; 0x4b0];
         p[0..2].copy_from_slice(&0xEC70u16.to_le_bytes());
         p[PLAYER_UNIT..PLAYER_UNIT + 4].copy_from_slice(&0xE295_0001u32.to_le_bytes());
+        p[PLAYER_TEAM] = 1;
         m.put(PLAYERS + 0x70, &p);
 
         let gs = GameState::locate(&m, &[ThreadInfo { tid: 7, teb: TEB }], 92, 0x650).unwrap();
@@ -491,7 +497,8 @@ mod tests {
             [LivePlayer {
                 index: 0,
                 handle: 0xEC70_0000,
-                unit: Some(0xE295_0001)
+                unit: Some(0xE295_0001),
+                team: 1,
             }]
         );
     }

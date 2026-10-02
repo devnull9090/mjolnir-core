@@ -1294,6 +1294,7 @@ mod tests {
                         nanite,
                         nanite_report: report,
                         nanite_note: note,
+                        lod_span: None,
                     };
                     checked += 1;
                     checked_kind += 1;

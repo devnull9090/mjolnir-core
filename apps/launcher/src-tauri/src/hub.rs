@@ -93,6 +93,10 @@ pub struct InstalledHubMod {
     /// key changed, disappeared, or was revoked. None when all is well.
     #[serde(default)]
     pub signature_notice: Option<String>,
+    /// The scenario codename when this is a map pack; its `map/` data sits
+    /// in the release cache beside the containers.
+    #[serde(default)]
+    pub map_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -175,7 +179,7 @@ fn http() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| format!("HTTP client error: {e}"))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
@@ -191,6 +195,26 @@ fn sanitize(slug: &str) -> String {
 /// number wins" assumption described in the module docs.
 fn order_number(index: usize) -> usize {
     900 + index.min(99)
+}
+
+/// The chunk number a container has to keep in its file name, when it has
+/// one to keep. UE opens a mounted pak's shader library by the number it
+/// reads off the file name (`pakchunk988…` opens
+/// `ShaderArchive-Meteorite_Chunk988-…`; ShaderCodeLibrary.cpp,
+/// `OnPakFileMounted`), so a container carrying a shader library renamed to
+/// its load-order number would mount with none of its shaders. The CE
+/// runtime pack's material masters are one. Everything else takes its
+/// number from the load order.
+fn shader_chunk(stem: &str, utoc: &Path) -> Option<usize> {
+    let digits: String = stem
+        .strip_prefix("pakchunk")?
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let number: usize = digits.parse().ok()?;
+    let toc = ue_iostore::toc::Toc::read(utoc).ok()?;
+    // Chunk type 8 is ShaderCodeLibrary (ue_iostore::chunk_type_name).
+    toc.chunk_ids.iter().any(|c| c.kind == 8).then_some(number)
 }
 
 /// Make the Paks directory agree with the active profile: remove every
@@ -214,10 +238,6 @@ fn materialize(state: &HubState) -> Result<(), String> {
         .ok_or("Active profile missing")?;
 
     let mounted: Vec<&ProfileEntry> = profile.entries.iter().filter(|e| e.enabled).collect();
-    if mounted.is_empty() {
-        return Ok(());
-    }
-
     for (i, entry) in mounted.iter().enumerate() {
         let inst = state
             .installed
@@ -226,11 +246,9 @@ fn materialize(state: &HubState) -> Result<(), String> {
             .ok_or_else(|| format!("{} is in the profile but not installed", entry.slug))?;
         let release_cache = cache_dir().join(&inst.release_id);
         for (j, container) in inst.containers.iter().enumerate() {
-            let base = format!(
-                "pakchunk{}-{MARKER}-{}-{j}_P",
-                order_number(i),
-                sanitize(&inst.slug),
-            );
+            let number = shader_chunk(container, &release_cache.join(format!("{container}.utoc")))
+                .unwrap_or_else(|| order_number(i));
+            let base = format!("pakchunk{number}-{MARKER}-{}-{j}_P", sanitize(&inst.slug));
             fs::copy(
                 release_cache.join(format!("{container}.utoc")),
                 paks.join(format!("{base}.utoc")),
@@ -250,7 +268,42 @@ fn materialize(state: &HubState) -> Result<(), String> {
             .map_err(|e| format!("{}: {e}", inst.slug))?;
         }
     }
+
+    sync_maps(state, &paks)
+}
+
+/// The enabled maps' data in `MJOLNIRMaps`, and the registration that lists
+/// them (`maps::sync`).
+fn sync_maps(state: &HubState, paks: &Path) -> Result<(), String> {
+    let profile = state
+        .profiles
+        .iter()
+        .find(|p| p.name == state.active)
+        .ok_or("Active profile missing")?;
+    let maps: Vec<crate::maps::Enabled> = profile
+        .entries
+        .iter()
+        .filter(|e| e.enabled)
+        .filter_map(|entry| state.installed.iter().find(|m| m.slug == entry.slug))
+        .filter_map(|inst| {
+            inst.map_code.as_ref().map(|code| crate::maps::Enabled {
+                code: code.clone(),
+                data: cache_dir().join(&inst.release_id).join("map"),
+            })
+        })
+        .collect();
+    crate::maps::sync(paks, &maps).map_err(|e| format!("Registering maps: {e}"))?;
     Ok(())
+}
+
+/// Bring the registration up to date without touching the containers: what
+/// a launch runs, so a game update never leaves installed maps unregistered.
+pub fn refresh_maps() -> Result<(), String> {
+    let state = load_state();
+    if !state.installed.iter().any(|m| m.map_code.is_some()) {
+        return Ok(());
+    }
+    sync_maps(&state, &paks_dir()?)
 }
 
 // ─── Hub browsing & install ─────────────────────────────────────────────
@@ -413,13 +466,82 @@ fn check_release_signature(sha256_hex: &str, signature_b64: &str) -> Result<(), 
 /// hub described: the archive is hashed against the release record, and any
 /// signature the release carries is checked against the pinned key.
 pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, String> {
+    install_one(&slug, release_id, 0)?;
+    let state = load_state();
+    materialize(&state)?;
+    Ok(state)
+}
+
+/// How far dependencies may chain. A map needs the CE runtime pack, which
+/// needs nothing; anything deeper is a loop or a mistake.
+const MAX_DEP_DEPTH: usize = 3;
+
+/// The code mods a map plays through: the loader that starts it, the lobby
+/// that offers it, the HUD, and the library they all load. A map pack names
+/// none of them; its type implies them (docs/map_distribution.md).
+const MAP_CODE_MODS: &[&str] = &[
+    "MJOLNIRCore",
+    "MJOLNIRLevelLoader",
+    "MJOLNIRLobby",
+    "MJOLNIRHud",
+];
+
+/// A map pack's own part, read from the archive.
+struct MapData {
+    code: String,
+    level: Vec<u8>,
+    registration: Vec<u8>,
+}
+
+fn read_map(
+    manifest: &serde_json::Value,
+    members: &[(String, Vec<u8>)],
+) -> Result<MapData, String> {
+    let code = manifest
+        .pointer("/map/code")
+        .and_then(|v| v.as_str())
+        .ok_or("The map pack's mjolnir.json has no map.code")?
+        .to_string();
+    if !crate::maps::valid_code(&code) {
+        return Err(format!("{code:?} is not a map code"));
+    }
+    let member = |path: &str| {
+        members
+            .iter()
+            .find(|(p, _)| p == path)
+            .map(|(_, b)| b.clone())
+            .ok_or_else(|| format!("The map pack has no {path}"))
+    };
+    let level = member("map/level.json")?;
+    let registration = member("map/registration.json")?;
+    let record: blam_pack::scenario::Registration =
+        serde_json::from_slice(&registration).map_err(|e| format!("map/registration.json: {e}"))?;
+    if record.code != code {
+        return Err(format!(
+            "map/registration.json registers {}, but the pack is {code}",
+            record.code
+        ));
+    }
+    serde_json::from_slice::<serde_json::Value>(&level)
+        .map_err(|e| format!("map/level.json: {e}"))?;
+    Ok(MapData {
+        code,
+        level,
+        registration,
+    })
+}
+
+/// Install (or update) one mod into the cache and the state, with whatever
+/// it depends on. Materializing is the caller's, once, after everything.
+fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(), String> {
     let client = http()?;
     let api = hub_api();
+    let slug = slug.to_string();
 
     let mod_page = get_json(&format!("{api}/mods/{slug}"))?;
     let name = mod_page["name"].as_str().unwrap_or(&slug).to_string();
     let mod_type = mod_page["type"].as_str().unwrap_or("content");
-    if mod_type != "content" {
+    if mod_type != "content" && mod_type != "map" {
         return Err(format!(
             "{name} is a {mod_type} mod — it executes code, so it installs from the \
              signed set under Code mods, not from a hub archive."
@@ -515,6 +637,50 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
         None => None,
     };
 
+    // A map pack's own data, and everything it depends on, before any of it
+    // is recorded: a map never mounts without the runtime pack and the code
+    // mods that start it.
+    let manifest: serde_json::Value = members
+        .iter()
+        .find(|(p, _)| p == "mjolnir.json")
+        .and_then(|(_, b)| serde_json::from_slice(b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let map = if mod_type == "map" {
+        let map = read_map(&manifest, &members)?;
+        if let Some(other) = load_state()
+            .installed
+            .iter()
+            .find(|m| m.slug != slug && m.map_code.as_deref() == Some(map.code.as_str()))
+        {
+            return Err(format!(
+                "{} already uses the map code {}. Uninstall it first.",
+                other.name, map.code
+            ));
+        }
+        Some(map)
+    } else {
+        None
+    };
+    for dep in manifest["deps"].as_array().into_iter().flatten() {
+        let Some(dep_slug) = dep["slug"].as_str() else {
+            continue;
+        };
+        if load_state().installed.iter().any(|m| m.slug == dep_slug) {
+            continue;
+        }
+        if depth + 1 >= MAX_DEP_DEPTH {
+            return Err(format!(
+                "{name}: dependencies nest too deeply at {dep_slug}"
+            ));
+        }
+        install_one(dep_slug, None, depth + 1)
+            .map_err(|e| format!("{name} needs {dep_slug}: {e}"))?;
+    }
+    if map.is_some() {
+        ensure_code_mods(MAP_CODE_MODS)
+            .map_err(|e| format!("{name} needs the multiplayer mods: {e}"))?;
+    }
+
     // Unpack the containers into this release's cache.
     let release_cache = cache_dir().join(&release.id);
     let _ = fs::remove_dir_all(&release_cache);
@@ -541,6 +707,17 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
         return Err("Archive holds no containers under content/".into());
     }
     containers.sort();
+    if let Some(map) = &map {
+        let dir = release_cache.join("map");
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (file, data) in [
+            ("level.json", &map.level),
+            ("registration.json", &map.registration),
+        ] {
+            fs::write(dir.join(file), data).map_err(|e| e.to_string())?;
+            container_hashes.insert(format!("map/{file}"), sha256_hex(data));
+        }
+    }
 
     // Trust observations. None block the install; all stay attached to the
     // entry so the library keeps them in front of the user.
@@ -606,6 +783,7 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
         } else {
             Some(notices.join(" "))
         },
+        map_code: map.map(|m| m.code),
     });
     let active = state.active.clone();
     for profile in &mut state.profiles {
@@ -616,9 +794,7 @@ pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, Str
             });
         }
     }
-    save_state(&state)?;
-    materialize(&state)?;
-    Ok(state)
+    save_state(&state)
 }
 
 fn now_unix() -> u64 {
@@ -1333,8 +1509,7 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
-    let mods_dir =
-        crate::find_game_install().map(|(p, _)| crate::mods_dir(&p));
+    let mods_dir = crate::find_game_install().map(|(p, _)| crate::mods_dir(&p));
     let versions = load_installed_versions();
     let mods = manifest
         .mods
@@ -1539,6 +1714,98 @@ pub fn code_mods_install_defaults() -> Result<Vec<String>, String> {
     Ok(installed)
 }
 
+/// Make sure these code mods are installed, current and switched on: what a
+/// map needs before it can start. A mod missing from disk is installed; one
+/// the launcher installed and nobody edited is brought up to date (a map
+/// built today may need today's loader); one the player edited is left as
+/// it is. Returns the ids it installed or updated.
+fn ensure_code_mods(ids: &[&str]) -> Result<Vec<String>, String> {
+    let status = code_mods_status()?;
+    require_signed(&status)?;
+    let mods_dir = code_mods_dir()?;
+    let mut changed = Vec::new();
+    for id in ids {
+        let row = status
+            .mods
+            .iter()
+            .find(|r| r.entry.id == *id)
+            .ok_or_else(|| format!("{id} is not in the signed set yet"))?;
+        let stale = row.update_available && row.integrity == Integrity::Verified;
+        if row.integrity == Integrity::NotInstalled || stale {
+            install_entry(&row.entry, &mods_dir)?;
+            changed.push(id.to_string());
+        }
+        crate::toggle_mod(id.to_string(), true)?;
+    }
+    Ok(changed)
+}
+
+// ─── Multiplayer: everything in one go ──────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct MultiplayerInstall {
+    /// Maps installed or updated by this run, by title.
+    pub installed: Vec<String>,
+    /// Maps already current.
+    pub current: Vec<String>,
+    /// Maps that failed, with why. The rest still install.
+    pub failed: Vec<String>,
+    pub state: HubState,
+}
+
+/// Install every official map (the classic CE set) with what they need: the
+/// CE runtime pack, the multiplayer code mods, the registration. Maps already
+/// at their newest release are skipped, so running it again is an update.
+/// `progress` hears each step and how far along the run is (0 to 1).
+pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerInstall, String> {
+    progress("Checking the multiplayer mods", 0.0);
+    ensure_code_mods(MAP_CODE_MODS)?;
+
+    let listing = get_json(&format!("{}/maps?official=1", hub_api()))?;
+    let maps = listing["maps"].as_array().cloned().unwrap_or_default();
+    if maps.is_empty() {
+        return Err("The hub lists no official maps yet.".into());
+    }
+
+    let mut result = MultiplayerInstall {
+        installed: Vec::new(),
+        current: Vec::new(),
+        failed: Vec::new(),
+        state: HubState::default(),
+    };
+    let total = maps.len() as f32;
+    for (i, map) in maps.iter().enumerate() {
+        let title = map["title"].as_str().unwrap_or("?").to_string();
+        let (Some(slug), Some(release)) = (map["slug"].as_str(), map["release"]["id"].as_str())
+        else {
+            result.failed.push(format!("{title}: no published release"));
+            continue;
+        };
+        let have = load_state()
+            .installed
+            .iter()
+            .any(|m| m.slug == slug && m.release_id == release);
+        if have {
+            result.current.push(title);
+            continue;
+        }
+        progress(&format!("Installing {title}"), i as f32 / (total + 1.0));
+        match install_one(slug, Some(release.to_string()), 0) {
+            Ok(()) => result.installed.push(title),
+            Err(e) => result.failed.push(format!("{title}: {e}")),
+        }
+    }
+
+    progress("Registering the maps with the game", total / (total + 1.0));
+    let state = load_state();
+    // A map that was installed before but switched off in this profile is
+    // what the player chose; only maps not in the profile at all are added.
+    materialize(&state)?;
+    result.state = state;
+    progress("Done", 1.0);
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1718,6 +1985,64 @@ mod tests {
             999,
             "clamped, never colliding with shipped chunks"
         );
+    }
+
+    #[test]
+    fn a_map_pack_reads_only_when_its_parts_agree() {
+        let manifest = serde_json::json!({"type": "map", "map": {"code": "BGL"}});
+        let reg = |code: &str| {
+            serde_json::to_vec(&serde_json::json!({"code": code, "from": "B40"})).unwrap()
+        };
+        let members = |code: &str| {
+            vec![
+                (
+                    "map/level.json".to_string(),
+                    b"{\"title\":\"Blood Gulch\"}".to_vec(),
+                ),
+                ("map/registration.json".to_string(), reg(code)),
+            ]
+        };
+
+        let map = read_map(&manifest, &members("BGL")).expect("a well-formed pack reads");
+        assert_eq!(map.code, "BGL");
+
+        let err = read_map(&manifest, &members("DCN"))
+            .err()
+            .expect("codes disagree");
+        assert!(err.contains("registers DCN"), "{err}");
+        let err = read_map(&manifest, &members("BGL")[..1])
+            .err()
+            .expect("no registration");
+        assert!(err.contains("map/registration.json"), "{err}");
+        let bad = serde_json::json!({"map": {"code": "../x"}});
+        assert!(
+            read_map(&bad, &members("BGL")).is_err(),
+            "a code is never a path"
+        );
+        assert!(read_map(&serde_json::json!({}), &members("BGL")).is_err());
+    }
+
+    #[test]
+    fn only_a_pakchunk_name_can_keep_its_number() {
+        let nowhere = Path::new("does-not-exist.utoc");
+        assert_eq!(shader_chunk("MJOLNIRMAP-BGL_P", nowhere), None);
+        assert_eq!(shader_chunk("pakchunkX-MJOLNIR", nowhere), None);
+        // A pakchunk name whose index cannot be read keeps nothing either.
+        assert_eq!(
+            shader_chunk("pakchunk988-MJOLNIRMAT-Windows", nowhere),
+            None
+        );
+    }
+
+    /// MJOLNIR_TEST_SHADER_UTOC=C:/haloce/ce_runtime/pakchunk988-MJOLNIRMAT-Windows.utoc
+    ///   cargo test a_shader_library_keeps -- --ignored
+    #[test]
+    #[ignore = "needs a cooked container with a shader library (see doc comment)"]
+    fn a_shader_library_keeps_its_chunk_number() {
+        let utoc = std::env::var("MJOLNIR_TEST_SHADER_UTOC").expect("MJOLNIR_TEST_SHADER_UTOC");
+        let path = Path::new(&utoc);
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        assert_eq!(shader_chunk(&stem, path), Some(988));
     }
 
     #[test]

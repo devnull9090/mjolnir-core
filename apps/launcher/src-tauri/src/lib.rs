@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 mod changelog;
 mod hub;
+mod maps;
 mod tools;
 
 // ─── Runtime bundle ─────────────────────────────────────────────────────
@@ -343,10 +344,13 @@ pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
         }
     }
 
-    // Try reading Steam's libraryfolders.vdf for custom paths
-    let vdf_path = r"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf";
-    if Path::new(vdf_path).exists() {
-        if let Ok(content) = fs::read_to_string(vdf_path) {
+    // Every Steam library, from libraryfolders.vdf in Steam's own folder (the
+    // registry knows where Steam is, which need not be Program Files).
+    let mut steam_roots: Vec<PathBuf> = steam_install_dir().into_iter().collect();
+    steam_roots.push(PathBuf::from(r"C:\Program Files (x86)\Steam"));
+    for root in steam_roots {
+        let vdf_path = root.join("steamapps").join("libraryfolders.vdf");
+        if let Ok(content) = fs::read_to_string(&vdf_path) {
             for line in content.lines() {
                 let trimmed = line.trim();
                 if trimmed.starts_with("\"path\"") {
@@ -391,6 +395,35 @@ pub(crate) fn find_game_install() -> Option<(PathBuf, String)> {
     }
 
     None
+}
+
+/// Where Steam is installed, from the registry (`HKCU\Software\Valve\Steam`,
+/// `SteamPath`). Read through `reg.exe` rather than a registry crate.
+fn steam_install_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new("reg")
+            .args(["query", r"HKCU\Software\Valve\Steam", "/v", "SteamPath"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+        steam_path_from_reg(&String::from_utf8_lossy(&out.stdout))
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// `SteamPath    REG_SZ    c:/program files (x86)/steam` → that folder.
+fn steam_path_from_reg(output: &str) -> Option<PathBuf> {
+    output.lines().find_map(|line| {
+        let (_, value) = line.split_once("REG_SZ")?;
+        let value = value.trim();
+        (!value.is_empty()).then(|| PathBuf::from(value))
+    })
 }
 
 /// The install root at or just inside a game folder. The Xbox app keeps the
@@ -726,6 +759,13 @@ fn set_install_path(path: Option<String>) -> Result<InstallStatus, String> {
 fn launch_game() -> Result<(), String> {
     let settings = get_settings();
 
+    // A game update replaces the tables the map registration was built from;
+    // rebuild it before the game reads them. A failure costs the converted
+    // maps, not the launch, so it is reported and the game starts anyway.
+    if let Err(e) = hub::refresh_maps() {
+        eprintln!("map registration: {e}");
+    }
+
     match settings.launch_method.as_str() {
         "exe" => {
             if let Some(exe_path) = &settings.custom_exe_path {
@@ -1018,6 +1058,20 @@ async fn hub_install(slug: String, release_id: Option<String>) -> Result<hub::Hu
     tauri::async_runtime::spawn_blocking(move || hub::install(slug, release_id))
         .await
         .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// Every official map, the CE runtime pack and the multiplayer mods, with
+/// progress on the same `install-progress` event the runtime install uses
+/// (stage `multiplayer`).
+#[tauri::command]
+async fn hub_install_multiplayer(app: AppHandle) -> Result<hub::MultiplayerInstall, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hub::install_multiplayer(&|message, fraction| {
+            emit_progress(&app, "multiplayer", message, fraction * 100.0)
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
 }
 
 #[tauri::command]
@@ -1460,6 +1514,12 @@ fn uninstall_modpack() -> Result<(), String> {
             .map_err(|e| format!("Failed to remove dwmapi.dll.disabled: {}", e))?;
     }
 
+    // The map registration this launcher built lists maps whose data lives
+    // in ue4ss; take it with them.
+    if let Some((install, _)) = find_game_install() {
+        maps::forget(&install.join("Meteorite/Content/Paks"));
+    }
+
     // Remove ue4ss directory
     let ue4ss_dir = bin_dir.join("ue4ss");
     if ue4ss_dir.exists() {
@@ -1506,6 +1566,7 @@ pub fn run() {
             uninstall_tool,
             hub_api,
             hub_install,
+            hub_install_multiplayer,
             hub_uninstall,
             hub_state,
             hub_set_order,
@@ -1656,6 +1717,13 @@ mod tests {
         assert_eq!(resolve_install_root(r"Z:\nothing\here"), None);
 
         let _ = fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn steams_folder_reads_off_reg_query_output() {
+        let out = "\r\nHKEY_CURRENT_USER\\Software\\Valve\\Steam\r\n    SteamPath    REG_SZ    d:/games/steam\r\n";
+        assert_eq!(steam_path_from_reg(out), Some(PathBuf::from("d:/games/steam")));
+        assert_eq!(steam_path_from_reg("ERROR: The system was unable to find"), None);
     }
 
     #[test]

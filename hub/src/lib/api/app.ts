@@ -20,6 +20,8 @@ import { registerModerationRoutes } from "./moderation";
 import { registerAdminRoutes } from "./admin";
 import { registerProfileRoutes } from "./profiles";
 import { registerCodeSyncRoutes } from "./codesync";
+import { registerLobbyRoutes } from "./lobby";
+import { registerMapRoutes } from "./maps";
 import {
   ErrorSchema,
   HealthSchema,
@@ -428,6 +430,9 @@ registerProfileRoutes(app);
 // ── Signed code-mod mirror ────────────────────────────────────────────
 
 registerCodeSyncRoutes(app);
+// Maps and the multiplayer lobby browser (docs/multiplayer_release_plan.md).
+registerMapRoutes(app);
+registerLobbyRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

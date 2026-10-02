@@ -16,7 +16,14 @@ import { authenticate, sha256Hex } from "./auth";
 import { ErrorSchema } from "./schemas";
 import { fingerprintOf } from "./signing";
 
-export const KNOWN_SCOPES = ["mods:read", "mods:write", "ratings:write", "comments:write"] as const;
+export const KNOWN_SCOPES = [
+  "mods:read",
+  "mods:write",
+  "ratings:write",
+  "comments:write",
+  // Hosting multiplayer games in the lobby browser (lobby.ts).
+  "lobbies:write",
+] as const;
 const MAX_KEYS_PER_USER = 20;
 const MAX_SIGNING_KEYS_PER_USER = 10;
 
