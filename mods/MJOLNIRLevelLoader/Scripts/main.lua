@@ -517,9 +517,9 @@ local function spawnDecorItem(world, origin, item)
         Log("tint failed for '" .. tostring(item.id) .. "' (mesh has no Color param?)")
     end
     if item.materials then
-        local applied, failed = applyMaterials(actor.StaticMeshComponent, item.materials, world, tostring(item.id))
+        local nApplied, nFailed = applyMaterials(actor.StaticMeshComponent, item.materials, world, tostring(item.id))
         Log(string.format("decor '%s': %d material(s) applied, %d failed",
-            tostring(item.id), applied, failed))
+            tostring(item.id), nApplied, nFailed))
     end
     return actor
 end
