@@ -990,7 +990,16 @@ end
 
 local function openPostGame()
     if alive(Post.screen) then return Post.screen end
-    if not hookPostGame() then return nil end
+    -- The hook needs the class loaded. The host loads it before its own
+    -- screen; a fireteam client's first sight of it is this vote.
+    if not loadClass(POSTGAME_CLASS) then
+        log("post-game: " .. POSTGAME_CLASS .. " is not installed (an older pakchunk984-MJOLNIRUI)")
+        return nil
+    end
+    if not hookPostGame() then
+        log("post-game: could not hook the screen's events")
+        return nil
+    end
     Post.screen = pushScreen(POSTGAME_CLASS)
     if not Post.screen then
         log("post-game: could not push " .. POSTGAME_CLASS)
