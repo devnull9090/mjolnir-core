@@ -323,6 +323,10 @@ own.
    extracts:
    - the **sound scenery** (halo2ue's `sound_scenery` placements), such as
      the teleporter hum;
+   - the **looping sounds placed objects carry** as attachments (halo2ue's
+     `sounds` on an entry), each an emitter at its marker: the Covenant
+     shield generator's and uplink's hum, the teleporters' loop, Wizard's
+     klaxons, the beam emitters;
    - the **background sound**, the looping sounds the BSP block depends on;
    - each looping sound's **tracks** and detail sounds.
 
