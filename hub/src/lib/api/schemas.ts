@@ -137,6 +137,19 @@ export const ModSchema = z
   .openapi("Mod");
 
 export const ModDetailSchema = ModSchema.extend({
+  // A map pack is content-tier data (its trust tier in the database stays
+  // `content`), but the launcher installs it differently: its level data
+  // goes where the game's level loader reads it, and the game's map
+  // registration is rebuilt to list it. Launchers read that from `type`.
+  type: z.enum(["content", "script", "native", "map"]).openapi({
+    description:
+      "`map` for a map pack (a content-tier mod with a map listing); otherwise the trust tier, " +
+      "as on the list endpoints.",
+  }),
+  map_code: z.string().nullable().openapi({
+    description: "The map's three-character codename, for a map pack.",
+    example: "BGL",
+  }),
   description_md: z.string().nullable().openapi({
     description: "Full mod page body, Markdown.",
   }),

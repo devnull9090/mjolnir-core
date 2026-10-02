@@ -317,6 +317,24 @@
           {
             "type": "object",
             "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "script",
+                  "native",
+                  "map"
+                ],
+                "description": "`map` for a map pack (a content-tier mod with a map listing); otherwise the trust tier, as on the list endpoints."
+              },
+              "map_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The map's three-character codename, for a map pack.",
+                "example": "BGL"
+              },
               "description_md": {
                 "type": [
                   "string",
@@ -326,6 +344,7 @@
               }
             },
             "required": [
+              "map_code",
               "description_md"
             ]
           }

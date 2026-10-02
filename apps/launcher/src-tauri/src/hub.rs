@@ -645,7 +645,12 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         .find(|(p, _)| p == "mjolnir.json")
         .and_then(|(_, b)| serde_json::from_slice(b).ok())
         .unwrap_or(serde_json::Value::Null);
-    let map = if mod_type == "map" {
+    // The archive's own manifest decides too: the hub kept map packs at the
+    // `content` trust tier, and launchers that went by the mod page's type
+    // alone installed the official maps as plain content (no level data, no
+    // registration), so they never started (2026-10-02).
+    let is_map = mod_type == "map" || manifest["type"].as_str() == Some("map");
+    let map = if is_map {
         let map = read_map(&manifest, &members)?;
         if let Some(other) = load_state()
             .installed
