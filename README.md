@@ -7,7 +7,7 @@
 <h1 align="center">MJOLNIR Core</h1>
 
 <p align="center">
-  <strong>The Open-Source Modding Framework & Platform for Halo Campaign Evolved</strong>
+  <strong>The Multiplayer Modding Framework for Halo Campaign Evolved</strong>
 </p>
 
 <p align="center">
@@ -26,6 +26,16 @@
 </p>
 
 ---
+
+MJOLNIR brings classic competitive multiplayer to Halo Campaign Evolved: all
+**19 original Halo: Combat Evolved multiplayer maps**, **Slayer and Capture the
+Flag**, and a framework for custom maps and content. The lobby also supports
+Team Slayer, King of the Hill, and Oddball when the installed map and game variant
+support them.
+
+[Get multiplayer and read the FAQ](https://mjolnircore.com/multiplayer), download
+the launcher, and join the community to play or create. The current alpha supports
+up to four players and is tested on Windows with the Steam version of the game.
 
 ## Repository Structure
 

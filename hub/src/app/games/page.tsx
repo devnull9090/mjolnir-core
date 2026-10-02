@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { Metadata } from "next";
 import { Users } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
@@ -8,11 +7,13 @@ import { Footer } from "../components/Footer";
 import { listLobbies } from "@/lib/api/lobby";
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES } from "@/kit/types";
+import { marketingMetadata } from "@/lib/marketing";
 
-export const metadata: Metadata = {
-  title: "Games | MJOLNIR Core",
-  description: "Multiplayer games on classic Halo CE maps, live now. Join from the game's FIND GAMES screen.",
-};
+export const metadata = marketingMetadata(
+  "Halo Campaign Evolved Multiplayer Games | MJOLNIR Core",
+  "Find reported Campaign Evolved multiplayer lobbies on classic Halo CE maps. Get MJOLNIR, install the maps, and connect with the community.",
+  "/games",
+);
 
 // Live data: never cached.
 export const dynamic = "force-dynamic";
@@ -59,13 +60,14 @@ export default async function GamesPage({
     <>
       <Navbar />
 
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
+      <main className="marketing pt-40 md:pt-44 pb-16 px-6 max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-4xl font-black text-foreground mb-3">Games</h1>
+          <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer games</h1>
           <p className="text-text-muted text-lg max-w-2xl">
             Multiplayer games on the classic maps, live now. Join from the game: MULTIPLAYER, then
             FIND GAMES. Ping is an estimate from where you and the host are.
           </p>
+          <Link href="/multiplayer" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">Get multiplayer &amp; find your fireteam →</Link>
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">

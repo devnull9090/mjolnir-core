@@ -147,3 +147,88 @@ body > * {
   background: var(--color-text-dim);
 }
 
+/* Multiplayer marketing uses the hub palette with a quieter, editorial layout. */
+.marketing {
+  --color-text-muted: #a1abb8;
+}
+
+.marketing-eyebrow {
+  color: var(--color-gold);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1.8;
+  text-transform: uppercase;
+}
+
+.marketing-button-primary,
+.marketing-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 48px;
+  padding: 0.9rem 1.3rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.5;
+  transition: background-color 160ms, border-color 160ms, color 160ms;
+}
+
+.marketing-button-primary {
+  background: var(--color-gold);
+  color: var(--color-background);
+}
+
+.marketing-button-primary:hover {
+  background: #e8bd59;
+}
+
+.marketing-button-secondary {
+  border-color: #ffffff40;
+  background: #06080f70;
+  color: #e5e7eb;
+}
+
+.marketing-button-secondary:hover {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.marketing :is(a, summary):focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 5px;
+}
+
+.marketing-hero-image {
+  object-position: center 45%;
+}
+
+.marketing-hero-shade {
+  background: linear-gradient(90deg, #06080ff5 0%, #06080fcc 35%, #06080f20 100%),
+              linear-gradient(0deg, #06080f 0%, transparent 45%, #06080f55 100%);
+}
+
+.marketing-community {
+  background: radial-gradient(ellipse at 90% 100%, #d4a84316, transparent 65%), var(--color-surface);
+}
+
+@media (max-width: 767px) {
+  .marketing-hero-shade {
+    background: linear-gradient(90deg, #06080fe6, #06080f99),
+                linear-gradient(0deg, #06080f, transparent 70%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing *,
+  .marketing *::before,
+  .marketing *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+

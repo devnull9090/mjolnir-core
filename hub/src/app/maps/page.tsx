@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { Metadata } from "next";
 import { Map as MapIcon, Upload } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
@@ -8,12 +7,13 @@ import { Footer } from "../components/Footer";
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES } from "@/kit/types";
 import type { MapListing } from "@/kit/types";
+import { marketingMetadata } from "@/lib/marketing";
 
-export const metadata: Metadata = {
-  title: "Maps | MJOLNIR Core",
-  description:
-    "The classic Halo: Combat Evolved multiplayer maps, rebuilt for Halo Campaign Evolved, and maps from the community.",
-};
+export const metadata = marketingMetadata(
+  "Halo Campaign Evolved Multiplayer Maps | MJOLNIR Core",
+  "Play all 19 original Halo CE multiplayer maps in Campaign Evolved with MJOLNIR. Browse Blood Gulch, Sidewinder, and community maps with supported game modes.",
+  "/maps",
+);
 
 const MODES = ["all", "slayer", "ctf", "team_slayer", "koth", "oddball"];
 
@@ -84,15 +84,17 @@ export default async function MapsPage({
     <>
       <Navbar />
 
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
+      <main className="marketing pt-40 md:pt-44 pb-16 px-6 max-w-6xl mx-auto">
         <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-4xl font-black text-foreground mb-3">Maps</h1>
+            <p className="marketing-eyebrow mb-3">Classic battlegrounds. Community creations.</p>
+            <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer maps</h1>
             <p className="text-text-muted text-lg max-w-2xl">
-              The classic Halo: Combat Evolved multiplayer maps, rebuilt for Halo Campaign
-              Evolved, and maps from the community. The launcher installs them, and everything
-              they need, in one click.
+              All 19 original Halo: Combat Evolved multiplayer maps, rebuilt for Campaign
+              Evolved, plus a home for custom maps from the community. The launcher installs
+              each map and everything it needs.
             </p>
+            <Link href="/multiplayer#setup" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">New here? Set up Campaign Evolved multiplayer →</Link>
           </div>
           <Link
             href="/docs/notes/map-distribution"
