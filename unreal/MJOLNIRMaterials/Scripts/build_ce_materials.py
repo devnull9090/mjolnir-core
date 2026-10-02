@@ -308,6 +308,20 @@ float Pa = HasPrimary > 0.5 ? Primary.a : 1.0;
 float Qa = HasSecondary > 0.5 ? Secondary.a : 1.0;
 float pick = Type > 0.5 ? Base.a : Qa;
 float3 D = lerp(Q, P, pick);
+// shader_model (ModelShader): the multipurpose map's masks, in the PC
+// order: r auxiliary, g self-illumination, b reflection, a change colour.
+// Without a map nothing is masked off the reflection and nothing else is on.
+float4 MP = HasMulti > 0.5 ? Multi : float4(0.0, 0.0, 1.0, 0.0);
+bool model = ModelShader > 0.5;
+if (model)
+{
+    // The detail mask: none, then reflection, self-illumination, change
+    // colour and auxiliary, each inverted and plain.
+    float dm = DetailMask;
+    float mk = dm < 0.5 ? 1.0 : dm < 1.5 ? 1.0 - MP.b : dm < 2.5 ? MP.b : dm < 3.5 ? 1.0 - MP.g
+        : dm < 4.5 ? MP.g : dm < 5.5 ? 1.0 - MP.a : dm < 6.5 ? MP.a : dm < 7.5 ? 1.0 - MP.r : MP.r;
+    D = lerp(neutralD.xxx, P, mk);
+}
 float3 B = Base.rgb;
 float3 R = Func < 0.5 ? 2.0 * B * D : (Func < 1.5 ? B * D : B + 2.0 * D - 1.0);
 R = saturate(R);
@@ -334,8 +348,17 @@ if (HasSelfIllum > 0.5)
     float band = saturate(1.0 - abs(SelfIllum.a - plasma) * 8.0);
     S = SelfIllum.r * primary + SelfIllum.g * secondary + SelfIllum.b * (SelfOn2 * band + SelfOff2);
 }
-float3 light = saturate(lm * MaterialColor * bumpTerm + S);
-float3 frame = light * T;
+if (model && HasModelSelfIllum > 0.5)
+    S = MP.g * lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)));
+float3 lit = lm * MaterialColor * bumpTerm + S;
+// An object's change colour tints its light (self-illumination included)
+// where the multipurpose map's alpha says.
+if (model && ModelCC > 0.5)
+    lit *= lerp(1.0.xxx, ObjCC.rgb, MP.a);
+float3 light = saturate(lit);
+// "Detail after reflection" leaves the detail for last.
+bool detailAfter = model && DetailAfter > 0.5;
+float3 frame = light * (detailAfter ? B : T);
 
 float frameAlpha = (HasBump > 0.5 ? Bump.a : 1.0) * specMask;
 float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
@@ -362,9 +385,26 @@ if (HasReflection > 0.5)
     float3 c8 = c * c; c8 *= c8; c8 *= c8;
     float3 refl = lerp(c8, c, lerp(SpecParallel, SpecPerpendicular, v)) * lerp(ReflPara, ReflPerp, v);
     if (bumpIsMask && HasBump > 0.5) refl *= Bump.rgb;
-    frame += saturate(refl) * frameAlpha;
+    float reflMask = frameAlpha;
+    if (model)
+    {
+        // shader_model: the cube colour as it is, times the tint and
+        // brightness between parallel and perpendicular, masked by the
+        // multipurpose map, faded out between the falloff and cutoff
+        // distances.
+        refl = c * lerp(SpecParallel * ReflPara, SpecPerpendicular * ReflPerp, v);
+        reflMask = MP.b;
+        if (ReflCutoff > 0.0)
+            reflMask *= saturate((Depth - ReflCutoff) / min(ReflFalloff - ReflCutoff, -1.0));
+    }
+    // A placed object's reflection takes the light around it (CE's
+    // per-object reflection tint, in the object lighting page).
+    if (ObjectPage > 0.5) refl *= ObjTint.rgb;
+    frame += saturate(refl) * reflMask;
 }
 frame = saturate(frame);
+if (detailAfter)
+    frame = saturate(Func < 0.5 ? 2.0 * frame * D : (Func < 1.5 ? frame * D : frame + 2.0 * D - 1.0));
 if (FogDensity > 0.0)
 {
     float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
@@ -502,6 +542,19 @@ def build_environment(name, masked, defaults, two_sided=False):
     micro = g.texture("Micro", grey, g.uv(0, "MicroScale"))
     bump = g.texture("Bump", flat, g.uv(0, "BumpScale"))
     lightmap = g.texture("Lightmap", white, g.uv(1))
+    # A placed object's lightmap is its block of the object lighting page
+    # (tools/level/merge_ce_scene.py): its light in the first of eight
+    # columns, its reflection tint in the second, change colours A-D in the
+    # third to sixth. These read the same texture beside the first.
+    obj_tint = g.texture("Lightmap", white, g.custom("return UV + float2(0.125, 0.0);", [("UV", g.uv(1), "")],
+                                                      output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                                                      description="object reflection tint"))
+    obj_cc = g.texture("Lightmap", white, g.custom("return UV + float2(CCOffset, 0.0);",
+                                                    [("UV", g.uv(1), ""), ("CCOffset", g.scalar("CCOffset", 0.25), "")],
+                                                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                                                    description="object change colour"))
+    # shader_model's multipurpose map (read only with HasMulti).
+    multi = g.texture("Multipurpose", white, uv0)
     self_illum = g.texture("SelfIllumMap", white, g.uv(0, "SelfIllumScale"))
     vc = g.node(unreal.MaterialExpressionVertexColor)
     cam = g.node(unreal.MaterialExpressionCameraVectorWS)
@@ -528,6 +581,7 @@ def build_environment(name, masked, defaults, two_sided=False):
         ("Base", base, "RGBA"), ("Primary", primary, "RGBA"), ("Secondary", secondary, "RGBA"),
         ("Micro", micro, "RGBA"), ("Bump", bump, "RGBA"), ("Lightmap", lightmap, "RGBA"),
         ("SelfIllum", self_illum, "RGBA"), ("Incident", vc, ""), ("IncidentWeight", vc, "A"),
+        ("Multi", multi, "RGBA"), ("ObjTint", obj_tint, "RGBA"), ("ObjCC", obj_cc, "RGBA"),
         ("Eye", eye, ""), ("Cam", cam, ""), ("BumpN", bump_n, ""), ("BumpW", bump_w, ""),
         ("VertexN", vertex_n, ""), ("Cube", cube, "RGB"), ("Time", time, ""),
         ("HasBump", has_bump, ""), ("BumpIsSpecMask", bump_is_mask, ""), ("ReflectFlat", reflect_flat, ""),
@@ -537,7 +591,10 @@ def build_environment(name, masked, defaults, two_sided=False):
                            ("HasSecondary", 0.0), ("HasMicro", 0.0), ("HasLightmap", 0.0),
                            ("HasSelfIllum", 0.0), ("SpecLightmap", 0.0), ("ExtraShiny", 0.0),
                            ("Overbright", 0.0), ("SpecBrightness", 0.0), ("HasReflection", 0.0),
-                           ("ReflPerp", 0.0), ("ReflPara", 0.0)):
+                           ("ReflPerp", 0.0), ("ReflPara", 0.0), ("HasMulti", 0.0), ("ModelShader", 0.0),
+                           ("DetailMask", 0.0), ("DetailAfter", 0.0), ("ModelCC", 0.0),
+                           ("HasModelSelfIllum", 0.0), ("ObjectPage", 0.0), ("ReflFalloff", 0.0),
+                           ("ReflCutoff", 0.0)):
         inputs.append((pname, g.scalar(pname, default), ""))
     for pname, default in (("MaterialColor", (1, 1, 1, 1)), ("SpecParallel", (1, 1, 1, 1)),
                            ("SpecPerpendicular", (1, 1, 1, 1)),

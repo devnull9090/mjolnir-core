@@ -150,6 +150,14 @@ material even though the surfaces carry theirs. Untested.
   with its normal is that vertex's share, so the environment master's
   bumped-lightmap term (full weight) shades it. Without it, Longest's dark
   steel barricades drew as flat black shapes.
+  The page has eight columns of the same blocks: the light, CE's reflection
+  tint for the object (`clamp(3D + 0.5) × clamp(2L + 0.25)`, times
+  `clamp(1.5 × brightness + 0.25)`), then the object's change colours A–D.
+  A change colour comes from the tag's permutations as CE picks it: the
+  weights are running cut-offs against a value drawn from the placement's
+  position, and the colour is a blend between the permutation's bounds.
+  The draw is our own hash, so the mix of colours matches CE but a given
+  crate's colour may not.
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -222,6 +230,25 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+
+Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
+use the same master with `ModelShader` on, for the terms that differ:
+
+- the multipurpose map's masks, in the PC order: red auxiliary, green
+  self-illumination, blue reflection, alpha change colour;
+- the detail map applies where the detail mask says (none, or one of those
+  four masks, plain or inverted);
+- the object's change colour (from the object lighting page) tints its light
+  where the change-colour mask is set; this is where Covenant crates get
+  their white, teal, red or purple panels;
+- the reflection is the cube map's colour as it is, times the tint and
+  brightness between parallel and perpendicular, masked by the reflection
+  mask, faded between the falloff and cutoff distances, and scaled by the
+  object's reflection tint;
+- "detail after reflection" (flag bit 0) applies the detail function to the
+  lit, reflected colour instead of the base map;
+- self-illumination animates between its lower and upper colour, masked by
+  green.
 
 Transparent chicago shaders (lights, the teleporter field) work like this:
 
@@ -494,8 +521,9 @@ seconds after the loading screen are dark.
   every 40 ms). Dynamic lights
   (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
   lit by its lightmaps as in CE. Scenery has CE's object lighting (ambient,
-  dominant light and floor bounce) but not its tint on object reflections,
-  its shadow colour, or point lights. One converted
+  dominant light, floor bounce, reflection tint) but not its shadow colour
+  or point lights; a self-illumination colour that takes a change colour
+  does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
 - **Scenery collision** stops players and vehicles, not projectiles.
 - **Approximations in the materials.** CE's noise, jitter and wander

@@ -16,7 +16,8 @@ with the material of its CE shader:
   brightest lighting, and each vertex an incident direction whose dot with
   the vertex normal is that vertex's share of it, which the environment
   master's bumped-lightmap term, lm * sat(N.L) at full weight, multiplies
-  back out;
+  back out. The page's other columns hold each placement's reflection tint
+  and change colours A-D (`change_colors`), which object shaders read;
 - the scenario's first sky model (`*__sky.gltf`; the BSP draws the first
   of the skies a scenario lists), its origin (the viewer) put at the map's
   centre and scaled until its nearest layer is `--sky-radius` metres away,
@@ -207,7 +208,7 @@ class Ground:
 DEFAULT_OBJECT_LIGHTING = (np.full(3, 0.2), [
     (np.ones(3), np.array([0.57735, 0.57735, -0.57735])),
     (np.array([0.4, 0.4, 0.5]), np.array([0.0, -1.0, 0.0])),
-])
+], np.ones(3))
 
 
 def object_lighting(ground, centre, radius, texel, base_colour):
@@ -217,8 +218,10 @@ def object_lighting(ground, centre, radius, texel, base_colour):
     ambient of 0.4 L + 0.03, a light of the lightmap colour L from the
     incident direction, and a bounce of the ground's base colour times L's
     brightness, travelling up off the ground (so it lights what faces down).
-    Returns (ambient, [(colour, direction towards the light), ...]), or None
-    when nothing lies below.
+    Returns (ambient, [(colour, direction towards the light), ...], reflection
+    tint), or None when nothing lies below. The tint is what CE scales an
+    object's reflection by: clamp(3 D + 0.5) * clamp(2 L + 0.25) in colour,
+    times clamp(1.5 brightness + 0.25).
 
     CE baked its lightmaps with the objects in place, so the ground straight
     under a large one is its own shadow, as it is in CE."""
@@ -234,16 +237,40 @@ def object_lighting(ground, centre, radius, texel, base_colour):
     up = np.sum([h["normal"] for h in hits], axis=0)
     up /= max(np.linalg.norm(up), 1e-12)
     brightness = float(light @ np.array([0.299, 0.587, 0.114]))
-    return 0.4 * light + 0.03, [(light, towards), (floor * brightness, -up)]
+    tint = np.clip(3.0 * floor + 0.5, 0.0, 1.0) * np.clip(2.0 * light + 0.25, 0.0, 1.0)
+    tint *= min(1.0, 1.5 * brightness + 0.25)
+    return 0.4 * light + 0.03, [(light, towards), (floor * brightness, -up)], tint
 
 
 def light_vertices(nrm, lighting):
     """Each vertex's CE lighting colour: the ambient plus every light by its
     cosine on the vertex normal."""
-    ambient, lights = lighting
+    ambient, lights, _ = lighting
     out = np.tile(ambient, (len(nrm), 1))
     for colour, towards in lights:
         out += np.clip(nrm @ towards, 0.0, None)[:, None] * colour[None, :]
+    return out
+
+
+def change_colors(entry):
+    """A placement's four change colours (A-D), from its tag's permutations
+    (halo2ue's `change_colors`): per slot, the first permutation whose weight
+    reaches a value drawn from the placement's position (the weights are
+    running cut-offs, as in CE), at a blend between its bounds drawn the same
+    way. Our own hash of the position, not CE's, so the mix matches CE's and
+    a given crate's colour may not. Unclaimed and missing slots are white."""
+    out = [np.ones(3) for _ in range(4)]
+    x, y, z = (float(v) for v in entry.get("pos", (0.0, 0.0, 0.0)))
+    for k, slot in enumerate((entry.get("change_colors") or [])[:4]):
+        def draw(salt):
+            v = math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + 17.17 * k + salt) * 43758.5453
+            return v - math.floor(v)
+        pick, blend = draw(0.0), draw(5.31)
+        for perm in slot.get("permutations") or []:
+            if perm["weight"] >= pick:
+                lo, hi = np.array(perm["lower"], dtype=float), np.array(perm["upper"], dtype=float)
+                out[k] = np.clip(lo + (hi - lo) * blend, 0.0, 1.0)
+                break
     return out
 
 
@@ -307,7 +334,10 @@ def main():
 
     # One 4x4 block of the object lighting page per placement, sampled at its
     # centre so the bilinear filter only ever mixes the block's own texels.
-    BLOCK, PER_ROW = 4, 16
+    # The page is eight columns of such blocks, the same block in each: the
+    # placement's light, its reflection tint, then its change colours A-D
+    # (the environment master reads them at fixed offsets of 1/8).
+    BLOCK, PER_ROW, COLUMNS = 4, 16, 8
     object_texels, object_prims = [], []
 
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
@@ -360,7 +390,7 @@ def main():
                 q["inc"] = share * q["nrm"] + np.sqrt(1.0 - share * share) * q["tan"][:, :3]
                 q["block"] = len(object_texels)
                 out.append(q)
-            object_texels.append(peak)
+            object_texels.append([peak, lighting[2]] + change_colors(e))
             object_prims += prims
             placed += 1
         else:
@@ -388,13 +418,16 @@ def main():
                   f"farthest {np.max(np.linalg.norm(allpos, axis=1)) * scale:.0f} m")
 
     if object_texels:
-        wid = BLOCK * PER_ROW
+        column = BLOCK * PER_ROW
+        wid = column * COLUMNS
         rows = -(-len(object_texels) // PER_ROW)
         hgt = 1 << max(2, (rows * BLOCK - 1).bit_length())
         page = np.zeros((hgt, wid, 3), dtype=np.uint8)
-        for k, colour in enumerate(object_texels):
+        for k, colours in enumerate(object_texels):
             y, x = divmod(k, PER_ROW)
-            page[y * BLOCK:(y + 1) * BLOCK, x * BLOCK:(x + 1) * BLOCK] = np.round(colour * 255.0)
+            for c, colour in enumerate(colours):
+                x0 = c * column + x * BLOCK
+                page[y * BLOCK:(y + 1) * BLOCK, x0:x0 + BLOCK] = np.round(np.clip(colour, 0.0, 1.0) * 255.0)
         Image.fromarray(page, "RGB").save(os.path.join(a.staging, "textures", OBJECT_LIGHTING_PAGE))
         for q in object_prims:
             y, x = divmod(q.pop("block"), PER_ROW)
