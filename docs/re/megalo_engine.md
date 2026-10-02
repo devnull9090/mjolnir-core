@@ -267,3 +267,52 @@ score-to-win and end-round kinds.
 **Still inferred:** the kill bit of condition 3 (Reach's death-type order,
 `1 << 2`) and the killer lookup (action 29); scoring a kill needs a second
 player. The base-option defaults this encoder writes load without complaint.
+
+## Rounds, the end of a game, and the next map (2026-10-02, in game)
+
+One player, converted Blood Gulch, CU4, from the multiplayer menu.
+
+**Rounds reset in place.** The base variant's rounds (`u5` at `o+0x2bb`) are
+`Variant::rounds` and `mjolnir megalo write --rounds N`. With
+`--mode tick --score 450 --rounds 3`, the incidents were:
+
+```text
+11:15:48 player_spawn   11:15:56 round_over
+11:16:03 player_spawn   11:16:11 round_over
+11:16:17 player_spawn   11:16:25 game_over
+```
+
+An end of round with rounds left respawns everyone on the same map, with no
+travel. At the last round the sim raises `game_over`, and about 15 s later
+the host is back at the frontend (seen there at 11:16:41). `round_over` and
+`game_over` reach `BPC_MeteoriteIncidentHandlerComponent_C:OnIncident_Event`
+with cause and effect -1. A hook on that function registers only once the
+class is loaded, so arm it in a map, not at the frontend.
+
+**The next map from inside a map does not start a game.** Both routes fail:
+- `BPFL_CampaignMenuHelpers.StartCountdown` called in a map does nothing. The
+  countdown lives on `BP_FrontendGameState`.
+- `BlamCampaignFlowGameSubsystem:SetAndBeginCampaign(CurrentCampaign, "GPH",
+  options)` returns true, and the UE world travels to GPH. The loader
+  switches it to Megalo and stages the variant, and the pawn is possessed.
+  But the sim holds 1 player with no unit and 0 objects, not even scenery,
+  and the screen stays black. `live engine` shows engine 2. `mapvar_probe`
+  shows a populated map variant (54 spawn points). No Blam error
+  (`GetLastBlamErrorName` = None).
+- The failure is the same whether `GameVariant` is the flow subsystem's
+  live variant or a fresh `BlamGameEngineCampaignVariant`.
+  `RestartLevel()` on the broken GPH changes nothing.
+- The control, GPH started from the menu, had 203 objects and a Spartan.
+
+The frontend's own start (`BP_FrontendGameState` export 4 → helpers export
+29, `LaunchCampaign`) builds exactly these options. Its only extra is
+`SetPerPlayerTraits` per player on a newly spawned variant. So the
+difference is native: the CU3 campaign's in-mission switch (A15 → A30)
+worked, but a Megalo game in progress blocks the next one. This is
+unexplained.
+
+`BlamCampaignFlowGameSubsystem`'s reflected functions: `SetAndBeginCampaign`,
+`SetActiveCampaign`, `RevertToLastSave`, `RestartLevel`, `LeaveGame`
+(returns to the frontend), `GetLastBlamErrorName`, `EndCampaign`,
+`BeginCampaign`, `AcknowledgeLastBlamError`. `BlamOnlineSessionSubsystem`
+reflects no properties.

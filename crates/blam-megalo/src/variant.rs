@@ -344,6 +344,9 @@ pub struct Variant {
     /// camera time, 0..=15). The script's first tick runs before it ends, so
     /// spawn points the script sets up are ready for it.
     pub initial_spawn_delay: u8,
+    /// Rounds in a game (1..=31, the misc options' u5 at `o+0x2bb`). The
+    /// game ends after the last; an earlier `EndRound` resets the round.
+    pub rounds: u8,
     pub conditions: Vec<Condition>,
     pub actions: Vec<Action>,
     pub triggers: Vec<Trigger>,
@@ -365,6 +368,7 @@ impl Variant {
             score_to_win,
             teams: false,
             initial_spawn_delay: 0,
+            rounds: 1,
             conditions: Vec::new(),
             actions: Vec::new(),
             triggers: Vec::new(),
@@ -626,15 +630,20 @@ fn write_content_header(w: &mut BitWriter, title: &str) -> Result<(), Error> {
 /// 23 of its placed grenades, overshield and camouflage in play (2026-10-01).
 const MAP_FLAGS: u8 = 0b01_1111;
 
-fn write_base(w: &mut BitWriter, teams: bool, initial_spawn_delay: u8) -> Result<(), Error> {
+fn write_base(
+    w: &mut BitWriter,
+    teams: bool,
+    initial_spawn_delay: u8,
+    rounds: u8,
+) -> Result<(), Error> {
     write_content_header(w, "MJOLNIR")?;
     w.bool(false);
-    // misc: teams on/off and 3 flags, no time limit, one round, u4, no
+    // misc: teams on/off and 3 flags, no time limit, the rounds, u4, no
     // sudden death, no grace
     w.bool(teams);
     zeros(w, &[1, 1, 1])?;
     put(w, 0, 8)?;
-    put(w, 1, 5)?;
+    put(w, rounds as u64, 5)?;
     put(w, 0, 4)?;
     put(w, 0, 7)?;
     put(w, 0, 5)?;
@@ -1020,10 +1029,16 @@ impl Variant {
                 });
             }
         }
+        if !(1..=31).contains(&self.rounds) {
+            return Err(Error::TooWide {
+                value: self.rounds as i64,
+                bits: 5,
+            });
+        }
         let mut w = BitWriter::new();
         put(&mut w, VERSION as u64, 32)?;
         put(&mut w, 0, 32)?;
-        write_base(&mut w, self.teams, self.initial_spawn_delay)?;
+        write_base(&mut w, self.teams, self.initial_spawn_delay, self.rounds)?;
         put(&mut w, 0, 5)?; // player traits
         put(&mut w, 0, 5)?; // user options
         write_strings(&mut w, &self.strings, 7, 15, 15)?; // main string table
@@ -1230,13 +1245,15 @@ fn read_content_header(r: &mut BitReader) -> Result<(), Error> {
     Ok(())
 }
 
-/// The base section; returns whether teams are on and the initial spawn
-/// delay.
-fn read_base(r: &mut BitReader) -> Result<(bool, u8), Error> {
+/// The base section; returns whether teams are on, the initial spawn delay
+/// and the rounds.
+fn read_base(r: &mut BitReader) -> Result<(bool, u8, u8), Error> {
     read_content_header(r)?;
     r.bool()?;
     let teams = r.bool()?;
-    skip(r, &[1, 1, 1, 8, 5, 4, 7, 5])?;
+    skip(r, &[1, 1, 1, 8])?;
+    let rounds = get(r, 5)? as u8;
+    skip(r, &[4, 7, 5])?;
     skip(r, &[1, 1, 1, 1, 6, 7, 8, 8, 8, 4])?;
     let initial_spawn_delay = get(r, 4)? as u8;
     r.read(6)?;
@@ -1264,7 +1281,7 @@ fn read_base(r: &mut BitReader) -> Result<(bool, u8), Error> {
         }
         skip(r, &[8, 8, 8, 4])?;
     }
-    Ok((teams, initial_spawn_delay))
+    Ok((teams, initial_spawn_delay, rounds))
 }
 
 fn read_player(r: &mut BitReader) -> Result<Player, Error> {
@@ -1601,7 +1618,7 @@ impl Variant {
             return Err(Error::Unsupported(format!("encoding version {version:#x}")));
         }
         r.read(32)?;
-        let (teams, initial_spawn_delay) = read_base(&mut r)?;
+        let (teams, initial_spawn_delay, rounds) = read_base(&mut r)?;
         if get(&mut r, 5)? != 0 || get(&mut r, 5)? != 0 {
             return Err(Error::Unsupported("player traits or user options".into()));
         }
@@ -1719,6 +1736,7 @@ impl Variant {
             score_to_win,
             teams,
             initial_spawn_delay,
+            rounds,
             conditions,
             actions,
             triggers,

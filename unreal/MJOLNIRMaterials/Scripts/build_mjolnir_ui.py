@@ -12,6 +12,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
   WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
+  WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
+                         the next game (MJOLNIRLobby)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
@@ -133,6 +135,18 @@ def shadowed(block):
     block.set_shadow_color_and_opacity(unreal.LinearColor(0.0, 0.0, 0.0, 0.85))
 
 
+def watermark(bp):
+    """`Watermark`, the build line at the bottom centre of every MJOLNIR
+    screen and of the HUD (mod versions and the game build, filled from
+    Lua), so a screenshot or a stream shows what was running."""
+    line = widget(bp, unreal.TextBlock, "Watermark", "Root")
+    place(line, (0.5, 1.0), (0.5, 1.0), (0.0, -10.0))
+    text_style(line, "MJOLNIR MULTIPLAYER", 14, (0.62, 0.74, 0.82, 0.55))
+    line.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(line)
+    line.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+
 def finish(bp, name):
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile")
@@ -162,10 +176,10 @@ def build_kill_feed():
     respawn.set_editor_property("justification", unreal.TextJustify.CENTER)
     shadowed(respawn)
 
-    # Persistent match score, in the safe space above the native shield bar.
-    # Lua uses Red / Blue for teams, YOU / LEADER for free-for-all.
-    strip = panel(bp, "MatchScore", "Root", alpha=0.80, padding=(16, 8, 16, 10))
-    place(strip, (0.5, 0.025), (0.5, 0.0))
+    # Persistent match score, pinned to the top edge above the native shield
+    # bar. Lua uses Red / Blue for teams, YOU / LEADER for free-for-all.
+    strip = panel(bp, "MatchScore", "Root", alpha=0.55, padding=(16, 8, 16, 10))
+    place(strip, (0.5, 0.0), (0.5, 0.0))
     widget(bp, unreal.HorizontalBox, "ScoreSides", "MatchScore")
     for side, label, color in (("Left", "RED", RED), ("Target", "TO WIN", GREY), ("Right", "BLUE", BLUE)):
         sized(bp, "Score" + side + "Size", "ScoreSides", width=80 if side == "Target" else 170)
@@ -185,6 +199,7 @@ def build_kill_feed():
                        "Score" + side + "Stack")
         text_style(value, "0", 18 if side == "Target" else 30, GREY if side == "Target" else WHITE)
         value.set_editor_property("justification", unreal.TextJustify.CENTER)
+    watermark(bp)
     finish(bp, name)
 
 
@@ -359,6 +374,7 @@ def screen_header(bp, title, subtitle):
 
 
 def footer(bp):
+    watermark(bp)
     foot = sized(bp, "FooterSize", "Root", width=2250)
     place(foot, (0.06, 0.88), (0, 0))
     widget(bp, unreal.VerticalBox, "Footer", "FooterSize")
@@ -520,6 +536,96 @@ def build_map_select():
     finish_screen(bp, name)
 
 
+VOTE_OPTIONS = 4
+RESULT_ROWS = 18  # sixteen players and the two team headings
+
+
+def build_post_game():
+    """After a match, on the menu: the final standings, and the vote on the
+    next game. Every fireteam member votes; the host can start the leader
+    at once or go back to the lobby (docs/multiplayer_postgame.md)."""
+    name = "WBP_MJOLNIRPostGame"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    screen_canvas(bp)
+    screen_header(bp, "POST-GAME", "CUSTOM GAME")
+
+    results = panel(bp, "Results", "Root")
+    place(results, (0.06, 0.28), (0.0, 0.0))
+    sized(bp, "ResultsSize", "Results", width=1280)
+    widget(bp, unreal.VerticalBox, "ResultsStack", "ResultsSize")
+    gap(rule(bp, "ResultsRule", "ResultsStack", ACCENT, 2), bottom=24)
+    kicker = widget(bp, unreal.TextBlock, "ResultsKicker", "ResultsStack")
+    text_style(kicker, "FINAL STANDINGS", 18, ACCENT)
+    gap(kicker, bottom=12)
+    winner = widget(bp, unreal.TextBlock, "Winner", "ResultsStack")
+    text_style(winner, "", 46, WHITE)
+    wrapped(winner)
+    summary = widget(bp, unreal.TextBlock, "Summary", "ResultsStack")
+    text_style(summary, "", 24, GREY)
+    wrapped(summary)
+    gap(summary, top=10, bottom=26)
+    gap(rule(bp, "TableRule", "ResultsStack"), bottom=14)
+    header = widget(bp, unreal.HorizontalBox, "TableHeader", "ResultsStack")
+    header.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 16, 10))
+    columns(bp, "TableHeader", "H", 18, True)
+    sized(bp, "RowsSize", "ResultsStack", height=470)
+    widget(bp, unreal.ScrollBox, "Rows", "RowsSize")
+    for i in range(RESULT_ROWS):
+        row = widget(bp, unreal.Border, f"Row{i}", "Rows")
+        row.set_editor_property("padding", unreal.Margin(0))
+        row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        widget(bp, unreal.HorizontalBox, f"RowLayout{i}", f"Row{i}")
+        sized(bp, f"StripeSize{i}", f"RowLayout{i}", width=3)
+        widget(bp, unreal.Border, f"Stripe{i}", f"StripeSize{i}")
+        content = widget(bp, unreal.HorizontalBox, f"Cols{i}", f"RowLayout{i}")
+        content.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
+        content.get_editor_property("slot").set_padding(unreal.Margin(13, 5, 16, 5))
+        columns(bp, f"Cols{i}", str(i), 24, False)
+
+    vote = panel(bp, "Vote", "Root")
+    place(vote, (0.94, 0.28), (1.0, 0.0))
+    sized(bp, "VoteSize", "Vote", width=780)
+    widget(bp, unreal.VerticalBox, "VoteStack", "VoteSize")
+    gap(rule(bp, "VoteRule", "VoteStack", ACCENT, 2), bottom=24)
+    heading = widget(bp, unreal.TextBlock, "VoteKicker", "VoteStack")
+    text_style(heading, "NEXT GAME", 18, ACCENT)
+    gap(heading, bottom=12)
+    timer = widget(bp, unreal.TextBlock, "VoteTimer", "VoteStack")
+    text_style(timer, "VOTE", 34, WHITE)
+    wrapped(timer)
+    gap(timer, bottom=22)
+    events = []
+    for i in range(VOTE_OPTIONS):
+        line = widget(bp, unreal.HorizontalBox, f"VoteRow{i}", "VoteStack")
+        gap(line, bottom=8)
+        button = menu_button(bp, f"Vote{i}", "", line.get_name(), size=26)
+        button.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
+        count_size = sized(bp, f"VoteCountSize{i}", line.get_name(), width=110)
+        count_size.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+        count = widget(bp, unreal.TextBlock, f"VoteCount{i}", count_size.get_name())
+        text_style(count, "", 26, GOLD)
+        count.set_editor_property("justification", unreal.TextJustify.RIGHT)
+        events.append((f"Vote{i}", "OnClicked", f"vote:{i}"))
+    hint = widget(bp, unreal.TextBlock, "VoteHint", "VoteStack")
+    text_style(hint, "", 21, GREY)
+    wrapped(hint)
+    gap(hint, top=14, bottom=26)
+    gap(rule(bp, "ActionsRule", "VoteStack"), bottom=18)
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "VoteStack")
+    for key, label, event in (("Start", "START NOW", "start"), ("Lobby", "LOBBY", "lobby")):
+        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", event))
+    footer(bp)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
 def build_label():
     full = f"{ROOT}/PAL_MJOLNIR_UI"
     if eal.does_asset_exist(full):
@@ -539,5 +645,6 @@ build_kill_feed()
 build_scoreboard()
 build_lobby()
 build_map_select()
+build_post_game()
 build_label()
 unreal.log("MJOLNIR UI built")

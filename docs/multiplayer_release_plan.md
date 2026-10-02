@@ -50,11 +50,15 @@ from `work/halo-ce-map-conversion-f72214`. Status as of 2026-10-01.
      probe each other.
    - A native piece hands a chosen game's connection string to the game's
      own join path.
-6. **End of game and map rotation:**
-   - hook the Megalo game end (score to win);
-   - a post-game screen with a map vote;
-   - the host starts the next travel (map and game type ride on it as for
-     any travel).
+6. **End of game and map rotation:** built 2026-10-02, solo-verified, two
+   PCs next ([multiplayer_postgame.md](multiplayer_postgame.md)):
+   - a match is the first of 31 rounds, so the game never runs its own
+     return to the menu, which drops every client from the fireteam;
+   - final standings in the map, then the host's seamless travel back to
+     the menu with the fireteam still connected;
+   - a post-game screen with the standings and a vote on the next game;
+     the host starts the winner;
+   - fireteam clients see our lobby instead of CLIENT LOBBY.
 7. **The player cap toward 16**, after Phase 2:
    - the lobby size;
    - the presence session's literal 4;
