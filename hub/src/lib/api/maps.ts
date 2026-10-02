@@ -82,6 +82,33 @@ const MAP_SELECT = `
     WHERE r2.mod_id = m.id AND r2.status = 'published'
     ORDER BY r2.created_at DESC LIMIT 1)`;
 
+type Db = ApiEnv["Bindings"]["DB"];
+
+/** Published maps, official first then by title; the API's and the page's. */
+export async function listMaps(
+  db: Db,
+  query: { official?: boolean; mode?: string } = {},
+): Promise<z.infer<typeof MapSchema>[]> {
+  const clauses: string[] = [];
+  const binds: unknown[] = [];
+  if (query.official !== undefined) {
+    binds.push(query.official ? 1 : 0);
+    clauses.push(`ml.official = ?${binds.length}`);
+  }
+  if (query.mode) {
+    binds.push(`%"${query.mode}"%`);
+    clauses.push(`ml.modes LIKE ?${binds.length}`);
+  }
+  const rows = await db
+    .prepare(
+      `${MAP_SELECT} ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
+       ORDER BY ml.official DESC, ml.title LIMIT 500`,
+    )
+    .bind(...binds)
+    .all();
+  return rows.results.map(toMap);
+}
+
 export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
   app.openapi(
     createRoute({
@@ -104,23 +131,11 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { official, mode } = c.req.valid("query");
-      const clauses: string[] = [];
-      const binds: unknown[] = [];
-      if (official !== undefined) {
-        binds.push(Number(official));
-        clauses.push(`ml.official = ?${binds.length}`);
-      }
-      if (mode) {
-        binds.push(`%"${mode}"%`);
-        clauses.push(`ml.modes LIKE ?${binds.length}`);
-      }
-      const rows = await c.env.DB.prepare(
-        `${MAP_SELECT} ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
-         ORDER BY ml.official DESC, ml.title LIMIT 500`,
-      )
-        .bind(...binds)
-        .all();
-      return c.json({ maps: rows.results.map(toMap) }, 200);
+      const maps = await listMaps(c.env.DB, {
+        official: official === undefined ? undefined : official === "1",
+        mode,
+      });
+      return c.json({ maps }, 200);
     },
   );
 

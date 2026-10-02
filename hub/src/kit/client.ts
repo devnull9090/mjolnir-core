@@ -17,6 +17,9 @@ import type {
   DevicePoll,
   DeviceStart,
   HiddenMod,
+  Lobby,
+  LobbyQuery,
+  MapListing,
   Media,
   MediaOwner,
   MediaStatus,
@@ -24,6 +27,7 @@ import type {
   ModList,
   ModListQuery,
   QueuedMedia,
+  QueuedRelease,
   RatingSummary,
   Release,
   ReleaseChanges,
@@ -236,6 +240,46 @@ export class HubClient {
     return this.absolute(`${PREFIX}/releases/${encodeURIComponent(id)}/download`);
   }
 
+  // ── Maps ────────────────────────────────────────────────────────────
+
+  async listMaps(query: { official?: boolean; mode?: string } = {}): Promise<MapListing[]> {
+    const r = await this.call<{ maps: MapListing[] }>({
+      method: "GET",
+      path: "/maps",
+      query: {
+        official: query.official === undefined ? undefined : query.official ? "1" : "0",
+        mode: query.mode,
+      },
+    });
+    return r.maps;
+  }
+
+  getMap(code: string): Promise<MapListing> {
+    return this.call({ method: "GET", path: `/maps/${encodeURIComponent(code)}` });
+  }
+
+  // ── Lobbies ─────────────────────────────────────────────────────────
+
+  async listLobbies(query: LobbyQuery = {}): Promise<Lobby[]> {
+    const r = await this.call<{ lobbies: Lobby[] }>({
+      method: "GET",
+      path: "/lobbies",
+      query: {
+        map: query.map,
+        game_type: query.game_type,
+        version: query.version,
+        has_space: query.has_space ? "1" : undefined,
+        max_ping: query.max_ping === undefined ? undefined : String(query.max_ping),
+      },
+    });
+    return r.lobbies;
+  }
+
+  /** What joining a listed game takes. Signed in. */
+  joinLobby(id: string): Promise<{ connection_string: string; map_code: string; game_type: string }> {
+    return this.call({ method: "GET", path: `/lobbies/${encodeURIComponent(id)}/join` });
+  }
+
   async listMedia(owner: MediaOwner): Promise<Media[]> {
     const r = await this.call<{ media: Media[] }>({
       method: "GET",
@@ -357,6 +401,24 @@ export class HubClient {
       method: "POST",
       path: `/moderation/media/${encodeURIComponent(id)}`,
       body: { action },
+    });
+  }
+
+  /** Community releases (maps) awaiting review. Moderators only. */
+  async listReleaseReviews(state: QueuedRelease["state"] = "pending"): Promise<QueuedRelease[]> {
+    const r = await this.call<{ releases: QueuedRelease[] }>({
+      method: "GET",
+      path: "/moderation/releases",
+      query: { state },
+    });
+    return r.releases;
+  }
+
+  decideRelease(id: string, action: "approve" | "reject", reason?: string): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/releases/${encodeURIComponent(id)}`,
+      body: { action, reason: reason || undefined },
     });
   }
 

@@ -144,6 +144,79 @@ function sweep(c: Ctx) {
   );
 }
 
+type Db = ApiEnv["Bindings"]["DB"];
+type LobbyListQuery = {
+  map?: string;
+  game_type?: string;
+  version?: string;
+  has_space?: boolean;
+  max_ping?: number;
+};
+
+/**
+ * Live games, nearest first, for a caller at `me`; the API's and the
+ * page's.
+ */
+export async function listLobbies(
+  db: Db,
+  q: LobbyListQuery,
+  me: { latitude: number | null; longitude: number | null },
+): Promise<z.infer<typeof LobbySchema>[]> {
+  const clauses = [`l.last_heartbeat >= datetime('now', ?1)`];
+  const binds: unknown[] = [`-${STALE_SECONDS} seconds`];
+  if (q.map) {
+    binds.push(q.map);
+    clauses.push(`l.map_code = ?${binds.length}`);
+  }
+  if (q.game_type) {
+    binds.push(q.game_type);
+    clauses.push(`l.game_type = ?${binds.length}`);
+  }
+  if (q.version) {
+    binds.push(q.version);
+    clauses.push(`l.client_version = ?${binds.length}`);
+  }
+  if (q.has_space) clauses.push(`l.players < l.max_players AND l.state <> 'full'`);
+  const rows = await db
+    .prepare(
+      `SELECT l.*, COALESCE(u.display_name, u.discord_username) AS host, ml.title AS map_title
+       FROM lobbies l
+       JOIN users u ON u.id = l.host_user_id
+       LEFT JOIN map_listings ml ON ml.code = l.map_code
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY l.created_at DESC LIMIT ${MAX_LISTED}`,
+    )
+    .bind(...binds)
+    .all();
+  return rows.results
+    .map((r) => ({
+      id: r.id as string,
+      name: r.name as string,
+      host: r.host as string,
+      map_code: r.map_code as string,
+      map_title: (r.map_title as string) ?? null,
+      game_type: r.game_type as string,
+      players: r.players as number,
+      max_players: r.max_players as number,
+      state: r.state as (typeof STATES)[number],
+      client_version: r.client_version as string,
+      platform: (r.platform as string) ?? null,
+      colo: (r.colo as string) ?? null,
+      country: (r.country as string) ?? null,
+      ping_ms: estimatePingMs(me, {
+        latitude: (r.latitude as number) ?? null,
+        longitude: (r.longitude as number) ?? null,
+      }),
+      created_at: r.created_at as string,
+    }))
+    .filter((l) => q.max_ping === undefined || (l.ping_ms !== null && l.ping_ms <= q.max_ping))
+    .sort(
+      (a, b) =>
+        (a.ping_ms ?? Number.MAX_SAFE_INTEGER) - (b.ping_ms ?? Number.MAX_SAFE_INTEGER) ||
+        b.players - a.players,
+    );
+}
+
 export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
   // ── Register ────────────────────────────────────────────────────────
 
@@ -320,59 +393,11 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const q = c.req.valid("query");
-      const clauses = [`l.last_heartbeat >= datetime('now', ?1)`];
-      const binds: unknown[] = [`-${STALE_SECONDS} seconds`];
-      if (q.map) {
-        binds.push(q.map);
-        clauses.push(`l.map_code = ?${binds.length}`);
-      }
-      if (q.game_type) {
-        binds.push(q.game_type);
-        clauses.push(`l.game_type = ?${binds.length}`);
-      }
-      if (q.version) {
-        binds.push(q.version);
-        clauses.push(`l.client_version = ?${binds.length}`);
-      }
-      if (q.has_space === "1") clauses.push(`l.players < l.max_players AND l.state <> 'full'`);
-      const rows = await c.env.DB.prepare(
-        `SELECT l.*, COALESCE(u.display_name, u.discord_username) AS host, ml.title AS map_title
-         FROM lobbies l
-         JOIN users u ON u.id = l.host_user_id
-         LEFT JOIN map_listings ml ON ml.code = l.map_code
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY l.created_at DESC LIMIT ${MAX_LISTED}`,
-      )
-        .bind(...binds)
-        .all();
-      const me = whereFrom(c);
-      const lobbies = rows.results
-        .map((r) => ({
-          id: r.id as string,
-          name: r.name as string,
-          host: r.host as string,
-          map_code: r.map_code as string,
-          map_title: (r.map_title as string) ?? null,
-          game_type: r.game_type as string,
-          players: r.players as number,
-          max_players: r.max_players as number,
-          state: r.state as (typeof STATES)[number],
-          client_version: r.client_version as string,
-          platform: (r.platform as string) ?? null,
-          colo: (r.colo as string) ?? null,
-          country: (r.country as string) ?? null,
-          ping_ms: estimatePingMs(me, {
-            latitude: (r.latitude as number) ?? null,
-            longitude: (r.longitude as number) ?? null,
-          }),
-          created_at: r.created_at as string,
-        }))
-        .filter((l) => q.max_ping === undefined || (l.ping_ms !== null && l.ping_ms <= q.max_ping))
-        .sort(
-          (a, b) =>
-            (a.ping_ms ?? Number.MAX_SAFE_INTEGER) - (b.ping_ms ?? Number.MAX_SAFE_INTEGER) ||
-            b.players - a.players,
-        );
+      const lobbies = await listLobbies(
+        c.env.DB,
+        { ...q, has_space: q.has_space === "1" },
+        whereFrom(c),
+      );
       sweep(c);
       return c.json({ lobbies }, 200);
     },

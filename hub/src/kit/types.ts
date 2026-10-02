@@ -324,3 +324,80 @@ export interface DevicePoll {
   key?: string;
   user?: User;
 }
+
+// ── Maps and lobbies (docs/multiplayer_release_plan.md) ──────────────
+
+/** A map in the catalog: an official classic or a community map. */
+export interface MapListing {
+  code: string;
+  title: string;
+  modes: string[];
+  official: boolean;
+  slug: string;
+  summary: string | null;
+  owner: string;
+  download_count: number;
+  rating_mean: number | null;
+  /** The latest published release, the one to install. */
+  release: {
+    id: string;
+    version: string;
+    file_size: number | null;
+    sha256: string | null;
+    created_at: string;
+  } | null;
+}
+
+/** A community release waiting for a moderator. */
+export interface QueuedRelease {
+  release_id: string;
+  state: "pending" | "approved" | "rejected";
+  reason: string | null;
+  mod_slug: string;
+  mod_name: string;
+  version: string;
+  map_code: string | null;
+  map_title: string | null;
+  file_size: number | null;
+  uploader: string;
+  created_at: string;
+}
+
+export type LobbyState = "open" | "in_game" | "full";
+
+/** A game in the lobby browser. */
+export interface Lobby {
+  id: string;
+  name: string;
+  host: string;
+  map_code: string;
+  map_title: string | null;
+  game_type: string;
+  players: number;
+  max_players: number;
+  state: LobbyState;
+  client_version: string;
+  platform: string | null;
+  colo: string | null;
+  country: string | null;
+  /** Estimated round trip from the caller in ms, or null without locations. */
+  ping_ms: number | null;
+  created_at: string;
+}
+
+export interface LobbyQuery {
+  map?: string;
+  game_type?: string;
+  version?: string;
+  has_space?: boolean;
+  max_ping?: number;
+}
+
+/** The display names of the game types MJOLNIR's variants implement. */
+export const GAME_TYPE_NAMES: Record<string, string> = {
+  slayer: "Slayer",
+  team_slayer: "Team Slayer",
+  ctf: "Capture the Flag",
+  koth: "King of the Hill",
+  oddball: "Oddball",
+};
