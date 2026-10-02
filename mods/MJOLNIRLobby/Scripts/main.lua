@@ -51,10 +51,10 @@ local DIFFICULTY_NORMAL = 1
 -- step with MJOLNIRLevelLoader's GAME_TYPE_SLOTS).
 local MODES = {
     { id = "slayer", slot = 0, name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
-    { id = "team_slayer", slot = 2, name = "TEAM SLAYER", description = "Red against Blue. Kills score for your team." },
+    { id = "team_slayer", slot = 2, name = "TEAM SLAYER", teams = true, description = "Red against Blue. Kills score for your team." },
     { id = "koth", slot = 3, name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
     { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
-    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", description = "Take the enemy flag to your base." },
+    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base." },
 }
 
 local function readFile(path)
@@ -256,13 +256,13 @@ local LOBBY_CLASS = UI_ROOT .. "WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C"
 local SELECT_CLASS = UI_ROOT .. "WBP_MJOLNIRMapSelect.WBP_MJOLNIRMapSelect_C"
 local MAP_BUTTONS = 32
 local MODE_BUTTONS = 5
-local ROSTER_ROWS = 8
+local ROSTER_ROWS = 16
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
 local ACCENT = { R = 0.55, G = 0.85, B = 1.0, A = 1 }
 local NORMAL_BACKGROUND = { R = 1, G = 1, B = 1, A = 1 }
-local SELECTED_BACKGROUND = { R = 2.2, G = 2.2, B = 2.2, A = 1 }
+local SELECTED_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1 }
 
 local Game = { map = nil, mode = nil }   -- what START GAME starts
 local Lobby, Select = nil, nil           -- the screens on the stack
@@ -331,16 +331,25 @@ local function saveGame()
 end
 
 --- The players in the fireteam: the frontend's player states.
-local function rosterNames()
-    local names = {}
+local function rosterPlayers()
+    local roster = {}
     pcall(function()
         local players = UI.playerController():GetWorld().GameState.PlayerArray
         players:ForEach(function(_, element)
-            local okN, name = pcall(function() return element:get():GetPlayerName():ToString() end)
-            if okN and name and name ~= "" then names[#names + 1] = name end
+            local ps = element:get()
+            local okN, name = pcall(function() return ps:GetPlayerName():ToString() end)
+            if okN and name and name ~= "" then
+                -- The frontend often has no simulation pawn yet. Leave the
+                -- team unknown until the game actually supplies one.
+                local okT, team = pcall(function()
+                    return ps:GetPawn().BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
+                end)
+                roster[#roster + 1] = { name = name,
+                    team = okT and (team == "Red" or team == "Blue") and team or "Unassigned" }
+            end
         end)
     end)
-    return names
+    return roster
 end
 
 local function drawLobby()
@@ -351,9 +360,28 @@ local function drawLobby()
         "Convert a classic CE map (tools/level/convert_ce_map.sh) or install a map pack.")
     setText(Lobby.ModeTitle, mode and mode.name or "")
     setText(Lobby.ModeDescription, mode and mode.description or "")
-    local names = rosterNames()
-    for i = 0, ROSTER_ROWS - 1 do
-        setText(Lobby["Player" .. i], names[i + 1] or "")
+    local roster = rosterPlayers()
+    local teams = mode and mode.teams
+    setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
+    setText(Lobby.MatchFormat, teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    setText(Lobby.TeamHint, teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
+    pcall(function() Lobby.Start:SetIsEnabled(map ~= nil and mode ~= nil) end)
+    for _, group in ipairs({ "FFA", "Red", "Blue", "Unassigned" }) do
+        local members = {}
+        for _, player in ipairs(roster) do
+            if (not teams and group == "FFA") or (teams and player.team == group) then
+                members[#members + 1] = player.name
+            end
+        end
+        setShown(Lobby[group .. "Roster"], (group == "FFA" and not teams) or
+            (teams and group ~= "FFA" and (group ~= "Unassigned" or #members > 0)))
+        local title = group == "FFA" and "FIRETEAM" or
+            (group == "Unassigned" and "AWAITING ASSIGNMENT" or string.upper(group) .. " TEAM")
+        setText(Lobby[group .. "Heading"], title .. "  /  " .. tostring(#members))
+        for i = 0, ROSTER_ROWS - 1 do
+            setText(Lobby[group .. "Player" .. i], members[i + 1] or "")
+            setShown(Lobby[group .. "Player" .. i], members[i + 1] ~= nil)
+        end
     end
 end
 
@@ -377,6 +405,7 @@ end
 
 local function drawSelect()
     if not UI.valid(Select) then return end
+    pcall(function() Select.Select:SetIsEnabled(Pick.map ~= nil and Pick.mode ~= nil) end)
     local maps = installedMaps()
     for i = 0, MAP_BUTTONS - 1 do
         local map, button = maps[i + 1], Select["Map" .. i]
@@ -522,7 +551,7 @@ local function openLobby()
         rootScreen()
         return
     end
-    setText(Lobby.Status, "INVITE FRIENDS brings them into your fireteam; START GAME when everyone is in.")
+    setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
     drawLobby()
     pcall(function() Lobby.Start:SetFocus() end)
 end

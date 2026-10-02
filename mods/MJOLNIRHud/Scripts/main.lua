@@ -2,7 +2,8 @@
 --
 -- The multiplayer HUD for the classic CE maps MJOLNIRLevelLoader runs under
 -- the simulation's Megalo engine: a kill feed, the respawn countdown, a
--- scoreboard while Tab (or the gamepad's View button) is held, and name tags
+-- persistent match score, a scoreboard while Tab (or the gamepad's View
+-- button) is held, and name tags
 -- over teammates only (none in free for all).
 --
 -- The widgets are MJOLNIR's own, cooked into pakchunk984-MJOLNIRUI
@@ -28,6 +29,7 @@ local function modDirectory()
 end
 
 local MOD_DIR = modDirectory()
+local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
@@ -41,7 +43,7 @@ local INCIDENT_EVENT = "/Game/Blueprints/BPC_MeteoriteIncidentHandlerComponent.B
 
 local POLL_MS = 100
 local FEED_LINES = 6     -- WBP_MJOLNIRKillFeed's Line0..Line5
-local SCORE_ROWS = 16    -- WBP_MJOLNIRScoreboard's Row0..Row15
+local SCORE_ROWS = 19    -- 16 players plus Red, Blue and unassigned headings
 local FEED_SECONDS = 6
 local FADE_SECONDS = 1
 --- A death is printed on its own ("X died.") only when no kill or suicide
@@ -58,11 +60,7 @@ local LOCAL_PLAYER = 0
 local VISIBLE = 3        -- HitTestInvisible: drawn, never takes the mouse
 local COLLAPSED = 1
 
-local MODES = {
-    slayer = { title = "SLAYER", toWin = 25, unit = "kills" },
-    team_slayer = { title = "TEAM SLAYER", toWin = 50, unit = "kills" },
-    ctf = { title = "CAPTURE THE FLAG", toWin = 3, unit = "captures", teams = true },
-}
+local MODES = Scoreboard.modes
 
 -- EBlamDamageReportingModifier
 local MODIFIER_VERBS = {
@@ -80,6 +78,11 @@ local YOU = { R = 1.0, G = 0.85, B = 0.35, A = 1 }       -- lines that name the 
 local ROW_EVEN = { R = 1, G = 1, B = 1, A = 0.06 }
 local ROW_ODD = { R = 1, G = 1, B = 1, A = 0.02 }
 local ROW_YOU = { R = 1.0, G = 0.85, B = 0.35, A = 0.18 }
+local TEAM_COLORS = {
+    Red = { R = 1, G = 0.32, B = 0.28, A = 1 },
+    Blue = { R = 0.3, G = 0.65, B = 1, A = 1 },
+    Unassigned = { R = 0.5, G = 0.66, B = 0.74, A = 1 },
+}
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -172,6 +175,13 @@ local function setVisible(w, visible)
     pcall(function() w:SetVisibility(visible and VISIBLE or COLLAPSED) end)
 end
 
+local function bipedTeam(actor)
+    local ok, team = pcall(function()
+        return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
+    end)
+    return ok and Scoreboard.team(team) or nil
+end
+
 --------------------------------------------------------------------------------
 -- The match
 --------------------------------------------------------------------------------
@@ -187,6 +197,7 @@ local incidentHooked = false
 local lastWorld = nil
 local boardShown = false
 local boardDirty = true
+local nextRosterRefresh = 0
 
 local function stats(index)
     local p = Match.players[index]
@@ -211,6 +222,12 @@ local function refreshNames()
                 local okN, name = pcall(function() return ps:GetPlayerName():ToString() end)
                 local p = stats(index)
                 if okN and name and name ~= "" then p.name = name end
+                -- A spawn can precede our incident hook. Use the replicated
+                -- pawn when it exposes a team, and retry the incident's biped
+                -- while a new spawn is still acquiring its simulation team.
+                local okP, pawn = pcall(function() return ps:GetPawn() end)
+                local team = bipedTeam(p.biped) or (okP and bipedTeam(pawn))
+                if team then p.team = team end
             end
         end)
     end)
@@ -229,8 +246,7 @@ local function feedLine(text, you)
 end
 
 local function score(p)
-    if Match.mode.teams then return p.captures end
-    return p.kills
+    return Scoreboard.score(p, Match.mode)
 end
 
 --------------------------------------------------------------------------------
@@ -252,6 +268,9 @@ HANDLERS.kill = function(inc)
     if type(victim) ~= "number" or victim < 0 then return end
     if killer == victim or type(killer) ~= "number" or killer < 0 then return end
     stats(killer).kills = stats(killer).kills + 1
+    if Match.variant == "team_slayer" then
+        Match.teamKills[#Match.teamKills + 1] = { player = killer, team = stats(killer).team }
+    end
     stats(victim).lastLine = inc.at
     local verb = MODIFIER_VERBS[inc.modifier] or "killed"
     local weapon = weaponOf(inc.damage)
@@ -291,20 +310,12 @@ HANDLERS.respawn_final_tick = function(inc)
     Match.dead = false
 end
 
---- "EBlamMultiplayerTeam::Red" -> "Red", from a Spartan biped (as
---- MJOLNIRLevelLoader colours armour).
-local function bipedTeam(actor)
-    local ok, team = pcall(function()
-        return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
-    end)
-    if ok then return team end
-    return nil
-end
-
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
     -- The spawn names the player's new biped, which knows its team.
     if type(inc.cause) == "number" and inc.cause >= 0 and inc.biped then
+        stats(inc.cause).biped = inc.biped
+        stats(inc.cause).left = false
         stats(inc.cause).team = bipedTeam(inc.biped) or stats(inc.cause).team
     end
     refreshNames()
@@ -314,17 +325,20 @@ end
 --- flag_scored: the carrier is the cause; the value is the captured flag's
 --- team (0 red, 1 blue), so the point is the other team's (blam_megalo::ctf).
 HANDLERS.flag_scored = function(inc)
+    if inc.value ~= 0 and inc.value ~= 1 then return end
     if type(inc.cause) == "number" and inc.cause >= 0 then
         stats(inc.cause).captures = stats(inc.cause).captures + 1
     end
     local scorer = (inc.value == 0) and 1 or 0
     Match.teams[scorer] = (Match.teams[scorer] or 0) + 1
-    feedLine(nameOf(inc.cause) .. " captured the " .. (TEAM_NAMES[inc.value] or "enemy") .. " flag",
+    feedLine((nameOf(inc.cause) or TEAM_NAMES[scorer] .. " team") .. " captured the " .. TEAM_NAMES[inc.value] .. " flag",
         inc.cause == LOCAL_PLAYER)
     boardDirty = true
 end
 
 HANDLERS.player_joined = function(inc)
+    if type(inc.cause) ~= "number" or inc.cause < 0 then return end
+    stats(inc.cause).left = false
     refreshNames()
     feedLine(nameOf(inc.cause) .. " joined the game", false)
     boardDirty = true
@@ -333,12 +347,16 @@ end
 HANDLERS.player_rejoined = HANDLERS.player_joined
 
 HANDLERS.player_quit = function(inc)
+    if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     feedLine(nameOf(inc.cause) .. " quit", false)
+    stats(inc.cause).left = true
     boardDirty = true
 end
 
 HANDLERS.player_booted_player = function(inc)
+    if type(inc.effect) ~= "number" or inc.effect < 0 then return end
     feedLine(nameOf(inc.effect) .. " was booted", false)
+    stats(inc.effect).left = true
     boardDirty = true
 end
 
@@ -360,9 +378,8 @@ local function hookIncidents()
                     at = now(),
                 }
                 pcall(function() entry.modifier = i.DamageReportingInfo.Modifier end)
-                if entry.name == "player_spawn" then
-                    pcall(function() entry.biped = i.CauseObjectActor end)
-                end
+                pcall(function() entry.biped = i.CauseObjectActor end)
+                pcall(function() entry.victimBiped = i.EffectObjectActor end)
                 pcall(function() entry.damage = i.DamageReportingInfo.Type.TagName:ToString() end)
                 Queue[#Queue + 1] = entry
             end)
@@ -377,6 +394,13 @@ local function drain()
     for _, inc in ipairs(queued) do
         local handler = Match and HANDLERS[inc.name]
         if handler then
+            for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
+                local index, biped = actor[1], actor[2]
+                if type(index) == "number" and index >= 0 and biped then
+                    local team = bipedTeam(biped)
+                    if team then stats(index).team = team end
+                end
+            end
             local ok, err = pcall(handler, inc)
             if not ok then Log("incident " .. inc.name .. ": " .. tostring(err)) end
         end
@@ -444,37 +468,62 @@ local function boardHeld(pc)
     return held
 end
 
+local function drawScoreStrip()
+    if not (Feed and Feed:IsValid()) then return end
+    local summary = Scoreboard.summary(Match, LOCAL_PLAYER)
+    setText(Feed.ScoreLeftLabel, summary.leftLabel)
+    setText(Feed.ScoreRightLabel, summary.rightLabel)
+    setText(Feed.ScoreLeftValue, tostring(summary.left))
+    setText(Feed.ScoreRightValue, tostring(summary.right))
+    setText(Feed.ScoreTarget, tostring(Match.mode.toWin))
+    for _, side in ipairs({ "Left", "Right" }) do
+        local team = summary[string.lower(side) .. "Team"]
+        local color = TEAM_COLORS[team] or (side == "Left" and YOU or TEAM_COLORS.Unassigned)
+        pcall(function()
+            Feed["Score" .. side .. "Accent"]:SetBrushColor(color)
+            Feed["Score" .. side .. "Label"]:SetColorAndOpacity({ SpecifiedColor = color, ColorUseRule = 0 })
+        end)
+    end
+end
+
 local function drawBoard()
     if not (Board and Board:IsValid()) then return end
     local mode = Match.mode
-    setText(Board.Title, mode.title .. "  -  " .. string.upper(Match.title or Match.code))
-    if mode.teams then
-        setText(Board.Subtitle, string.format("Red %d  -  Blue %d      First to %d %s",
-            Match.teams[0] or 0, Match.teams[1] or 0, mode.toWin, mode.unit))
-    else
-        setText(Board.Subtitle, string.format("First to %d %s", mode.toWin, mode.unit))
-    end
-    setText(Board.ScoreH, mode.teams and "CAPTURES" or "SCORE")
+    setText(Board.Title, mode.title)
+    setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
+        string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
+    setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or "SCORE")
     refreshNames()
-    local rows = {}
-    for _, p in pairs(Match.players) do rows[#rows + 1] = p end
-    table.sort(rows, function(a, b)
-        if score(a) ~= score(b) then return score(a) > score(b) end
-        if a.kills ~= b.kills then return a.kills > b.kills end
-        if a.deaths ~= b.deaths then return a.deaths < b.deaths end
-        return a.index < b.index
-    end)
+    local totals = Scoreboard.totals(Match)
+    local rows = Scoreboard.rows(Match.players, mode, totals)
+    local count = 0
+    for _, r in ipairs(rows) do if r.player then count = count + 1 end end
+    setText(Board.PlayerCount, tostring(count) .. (count == 1 and " PLAYER" or " PLAYERS"))
     for i = 0, SCORE_ROWS - 1 do
-        local p = rows[i + 1]
+        local entry = rows[i + 1]
+        local p = entry and entry.player
         local row = Board["Row" .. i]
-        if p then
+        if entry then
             setVisible(row, true)
-            setText(Board["Name" .. i], p.name or ("Player " .. tostring(p.index + 1)))
-            setText(Board["Score" .. i], tostring(score(p)))
-            setText(Board["Kills" .. i], tostring(p.kills))
-            setText(Board["Deaths" .. i], tostring(p.deaths))
-            local color = (p.index == LOCAL_PLAYER) and ROW_YOU or ((i % 2 == 0) and ROW_EVEN or ROW_ODD)
-            pcall(function() row:SetBrushColor(color) end)
+            local team = entry.team or (p and mode.teams and Scoreboard.team(p.team))
+            local tint = TEAM_COLORS[team]
+            local you = p and p.index == LOCAL_PLAYER
+            local name = p and (p.name or ("Player " .. tostring(p.index + 1))) or
+                ((team == "Unassigned" and "AWAITING ASSIGNMENT" or string.upper(team) .. " TEAM") ..
+                    "  /  " .. tostring(entry.count))
+            setText(Board["Name" .. i], name)
+            setText(Board["Marker" .. i], you and "YOU" or "")
+            setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
+            setText(Board["Kills" .. i], p and tostring(p.kills) or "")
+            setText(Board["Deaths" .. i], p and tostring(p.deaths) or "")
+            local color = you and ROW_YOU or ((i % 2 == 0) and ROW_EVEN or ROW_ODD)
+            if tint then color = { R = tint.R, G = tint.G, B = tint.B, A = entry.team and 0.24 or (you and 0.20 or 0.06) } end
+            pcall(function()
+                row:SetBrushColor(color)
+                row.Slot:SetPadding({ Left = 0, Top = entry.team and 12 or 2, Right = 0, Bottom = 0 })
+                Board["Stripe" .. i]:SetBrushColor(tint or (you and YOU or ROW_EVEN))
+                Board["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = entry.team and tint or WHITE, ColorUseRule = 0 })
+            end)
         else
             setVisible(row, false)
         end
@@ -545,11 +594,13 @@ local function startMatch(running, world)
         feed = {},
         deaths = {},
         teams = { [0] = 0, [1] = 0 },
+        teamKills = {},
         world = world,
     }
     Feed, Board = nil, nil
     boardShown = false
     boardDirty = true
+    nextRosterRefresh = 0
     Log("match: " .. running.code .. " " .. tostring(running.variant))
 end
 
@@ -602,6 +653,11 @@ local function tick()
     hookIncidents()
     ensureWidgets()
     refreshLocalPlayer()
+    if now() >= nextRosterRefresh then
+        nextRosterRefresh = now() + 1
+        refreshNames()
+        boardDirty = true
+    end
     drain()
     sweepTags()
     drawFeed()
@@ -610,10 +666,12 @@ local function tick()
         boardShown = held
         if held then boardDirty = true end
         setVisible(Board, held)
+        if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held) end
     end
-    if boardShown and boardDirty then
+    if boardDirty then
         boardDirty = false
-        drawBoard()
+        drawScoreStrip()
+        if boardShown then drawBoard() end
     end
 end
 
