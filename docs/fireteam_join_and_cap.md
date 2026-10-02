@@ -72,7 +72,7 @@ Game Pass is unverified.
 | PlayFab lobby `maxMemberCount` | `CreateAndJoinLobby` at `0x6f4156e` in CreateSession `0x6f40880`: from `FOnlineSessionSettings.NumPublicConnections` (settings+8) | 4 today; the game code supplying it not traced | Verified |
 | Native (Steam) presence session after a PlayFab join | `0x6f2007b` | `NumPublicConnections = NumPrivateConnections = 4`, a literal | Verified |
 | PlayFab Party network | `PartyCreateNewNetwork` `0x6f375dc`; fields loaded at `0x6f2eecb` from `[OnlineSubsystemPlayFab]` MaxDeviceCount, MaxUserCount, MaxUsersPerDeviceCount, MaxDevicesPerUserCount, MaxEndpointsPerDeviceCount | ini values unread (in the Oodle-compressed paks) | Verified as ini-driven |
-| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4; MJOLNIRCoop8 raises it, rebuilt every level | Verified (CU3) |
+| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4, rebuilt every level; MJOLNIRLobby holds it at 16 | Verified (CU3) |
 | Simulation players array | `0x181010` (sim DLL) | **16** of `0x4B0` bytes. CU3 notes read 32: `0x20` there is the name buffer, not the count | Verified |
 | `k_maximum_campaign_players` | block definition `0x9bb460` | 4 | Verified |
 | `net_maximum_player_count` | registered at `0x9a3dd8` | value unread | Verified present |
