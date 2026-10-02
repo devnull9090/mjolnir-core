@@ -37,13 +37,23 @@ export function AuthButton() {
           <ShieldCheck className="w-4 h-4" />
         </Link>
       )}
-      {user.avatar_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full" />
-      ) : null}
-      <span className="text-sm text-foreground font-medium max-w-28 truncate">
-        {user.display_name ?? user.username}
-      </span>
+      {/* The avatar alone: the header has no room for a name beside the
+          links, so it is the link's title and label instead. */}
+      <Link
+        href={`/users/${user.id}`}
+        title={user.display_name ?? user.username}
+        aria-label={`${user.display_name ?? user.username}: your profile`}
+        className="shrink-0 rounded-full hover:ring-2 hover:ring-gold/40 transition-shadow"
+      >
+        {user.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full" />
+        ) : (
+          <span className="w-7 h-7 rounded-full bg-surface-raised text-xs font-bold text-foreground flex items-center justify-center">
+            {(user.display_name ?? user.username).slice(0, 1).toUpperCase()}
+          </span>
+        )}
+      </Link>
       <button
         title="Sign out"
         aria-label="Sign out"
