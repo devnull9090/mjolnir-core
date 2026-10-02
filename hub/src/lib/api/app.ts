@@ -344,8 +344,9 @@ app.openapi(
   async (c) => {
     const { slug } = c.req.valid("param");
     const row = await c.env.DB.prepare(
-      `SELECT m.*, ${OWNER_COLUMNS}
+      `SELECT m.*, ${OWNER_COLUMNS}, ml.code AS map_code
        FROM mods m JOIN users u ON u.id = m.owner_id
+       LEFT JOIN map_listings ml ON ml.mod_id = m.id
        WHERE m.slug = ?1`,
     )
       .bind(slug)
@@ -360,7 +361,16 @@ app.openapi(
         return c.json({ error: "not_found" }, 404);
       }
     }
-    return c.json({ ...modFromRow(row), description_md: (row.description_md as string) ?? null }, 200);
+    const mapCode = (row.map_code as string | null) ?? null;
+    return c.json(
+      {
+        ...modFromRow(row),
+        type: mapCode ? ("map" as const) : (row.type as "content" | "script" | "native"),
+        map_code: mapCode,
+        description_md: (row.description_md as string) ?? null,
+      },
+      200,
+    );
   },
 );
 

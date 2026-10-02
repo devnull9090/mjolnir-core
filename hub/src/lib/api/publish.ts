@@ -130,7 +130,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         .bind(id)
         .first();
       return c.json(
-        { ...modFromRow(row), description_md: (row?.description_md as string) ?? null },
+        // A new mod has no map listing yet; its first map release adds one.
+        { ...modFromRow(row), map_code: null, description_md: (row?.description_md as string) ?? null },
         201,
       );
     },
