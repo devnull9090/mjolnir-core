@@ -1550,11 +1550,20 @@ local function loadMegaloSwitch()
                 local pending = readFile(MOD_DIR .. "\\pending_variant.txt")
                 if pending then os.remove(MOD_DIR .. "\\pending_variant.txt") end
                 pending = pending and pending:match("^%s*([%w_]+)%s*$")
+                -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
+                -- type<TAB>title", or no file while no multiplayer map runs.
+                os.remove(MOD_DIR .. "\\running.txt")
                 if level then
                     on()
                     Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine")
                     local chosen = pending or level.variant
                     RunningVariant = chosen
+                    local running = io.open(MOD_DIR .. "\\running.txt", "w")
+                    if running then
+                        running:write(tostring(code), "\t", tostring(chosen or ""), "\t",
+                            tostring(level.title or level.name or code), "\n")
+                        running:close()
+                    end
                     if chosen and variant then
                         local name = tostring(chosen)
                         local bytes = readFile(MOD_DIR .. "\\variants\\" .. name .. ".mglo")
