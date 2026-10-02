@@ -37,7 +37,7 @@ type Ctx = Context<ApiEnv>;
  * Launchers built before scopes were requestable send no list, and this is
  * what they were minted before, so they keep working untouched.
  */
-export const DEVICE_SCOPES = ["mods:read", "ratings:write", "comments:write"] as const;
+export const DEVICE_SCOPES = ["mods:read", "ratings:write", "comments:write", "lobbies:write"] as const;
 
 /**
  * Scopes a device may ask for. Every known scope is pairable — the check

@@ -139,6 +139,7 @@ dependencies = [
  "blam-sbsp",
  "blam-tag",
  "clap",
+ "mjolnir-sign",
  "serde",
  "serde_json",
  "ue-asset",

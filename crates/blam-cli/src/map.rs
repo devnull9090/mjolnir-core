@@ -54,6 +54,15 @@ pub struct PackArgs {
     /// by default.
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Sign the archive with this machine's device key, the one the tag
+    /// editor created and registered on the hub (which refuses unsigned
+    /// uploads).
+    #[arg(long, conflicts_with = "sign_seed")]
+    pub sign: bool,
+    /// Sign with the key in this seed file (32 raw bytes or 64 hex
+    /// characters) instead. Register its public key on the hub first.
+    #[arg(long, value_name = "FILE")]
+    pub sign_seed: Option<PathBuf>,
 }
 
 /// The CE runtime pack every converted map depends on.
@@ -143,6 +152,32 @@ fn registration(
     })
 }
 
+/// Now, as RFC 3339 UTC to the second (`2026-10-01T22:15:00Z`), for the
+/// signed statement.
+fn signed_at_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since the epoch (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
 /// A title as a hub slug: lowercase words joined by hyphens ("Blood Gulch"
 /// -> "blood-gulch").
 fn slugify(title: &str) -> String {
@@ -213,6 +248,26 @@ fn pack(a: PackArgs) -> Result<()> {
         members.push(("docs/README.md".into(), std::fs::read(readme)?));
     }
 
+    // The signature covers every other member's digest; it is built from the
+    // same list that is zipped, so the two cannot drift.
+    let signer = if a.sign {
+        Some(crate::signkey::device_identity()?)
+    } else if let Some(seed) = &a.sign_seed {
+        Some(crate::signkey::seed_file_identity(seed)?)
+    } else {
+        None
+    };
+    if let Some(identity) = &signer {
+        let refs: Vec<(String, &[u8])> =
+            members.iter().map(|(p, b)| (p.clone(), b.as_slice())).collect();
+        let signed_at = signed_at_now();
+        let envelope = identity
+            .sign_members(&slug, &a.version, None, &signed_at, &refs)
+            .map_err(|e| anyhow::anyhow!("signing: {e}"))?;
+        println!("  signed   key {}", identity.fingerprint());
+        members.push((mjolnir_sign::SIGNATURE_MEMBER.to_string(), envelope.into_bytes()));
+    }
+
     let out = a
         .out
         .clone()
@@ -236,8 +291,10 @@ fn pack(a: PackArgs) -> Result<()> {
         out.display(),
         a.version
     );
-    println!(
-        "publish it from the tag editor (Publish map pack), which signs it with your device key"
-    );
+    if signer.is_none() {
+        println!(
+            "unsigned: the hub refuses unsigned uploads; pass --sign to sign with this machine's              device key"
+        );
+    }
     Ok(())
 }

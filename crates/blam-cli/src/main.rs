@@ -25,6 +25,7 @@ mod megalo;
 mod mesh;
 mod newtag;
 mod rename;
+mod signkey;
 mod tagdiff;
 mod texture;
 mod ue;

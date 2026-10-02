@@ -63,6 +63,9 @@ async function ownedRelease(c: Ctx, releaseId: string) {
   return { user, release: row };
 }
 
+/** Trust level from which a map release publishes without review. */
+export const MAP_REVIEW_TRUST_LEVEL = 2;
+
 export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
   // ── Create mod ──────────────────────────────────────────────────────
 
@@ -368,8 +371,41 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         }
       }
 
+      // A map claims its codename: the game's map registry keys by it, so
+      // one listing owns a code for good (docs/map_distribution.md).
+      const map = scan.manifest?.type === "map" ? (scan.manifest.map ?? null) : null;
+      if (map) {
+        const holder = await c.env.DB.prepare(`SELECT mod_id FROM map_listings WHERE code = ?1`)
+          .bind(map.code)
+          .first<{ mod_id: string }>();
+        if (holder && holder.mod_id !== release.mod_id) {
+          scan.findings.push({
+            level: "error",
+            code: "map_code_taken",
+            message: `Another map already uses the code ${map.code}; pick a different codename.`,
+          });
+        }
+      }
+
       // Findings accumulated after the scan feed the verdict too.
       scan.verdict = scan.findings.some((f) => f.level === "error") ? "fail" : "pass";
+
+      // A community map waits for a moderator: it is the first content an
+      // upload adds rather than overrides, so a person looks before players
+      // download it. Moderators and trusted authors skip the queue.
+      const held =
+        map !== null &&
+        scan.verdict === "pass" &&
+        user.role === "user" &&
+        ((user.trust_level as number | undefined) ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+      if (held) {
+        scan.findings.push({
+          level: "warning",
+          code: "awaiting_review",
+          message: "Map releases from new authors wait for a moderator before they are listed.",
+        });
+      }
+      const finalStatus = scan.verdict === "pass" ? (held ? "pending" : "published") : "rejected";
 
       const statements = [
         c.env.DB.prepare(
@@ -385,13 +421,36 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
         c.env.DB.prepare(
           `UPDATE mod_releases SET status = ?2, signing_key_id = ?3, changes_json = ?4 WHERE id = ?1`,
-        ).bind(
-          id,
-          scan.verdict === "pass" ? "published" : "rejected",
-          signingKeyId,
-          scan.changes ? JSON.stringify(scan.changes) : null,
-        ),
+        ).bind(id, finalStatus, signingKeyId, scan.changes ? JSON.stringify(scan.changes) : null),
+        c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
+      if (scan.verdict === "pass") {
+        for (const dep of scan.manifest?.deps ?? []) {
+          statements.push(
+            c.env.DB.prepare(
+              `INSERT OR IGNORE INTO release_deps (release_id, dep_slug, semver_range) VALUES (?1, ?2, ?3)`,
+            ).bind(id, dep.slug, dep.range),
+          );
+        }
+      }
+      if (map && scan.verdict === "pass") {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO map_listings (mod_id, code, title, modes) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
+               updated_at = datetime('now')`,
+          ).bind(release.mod_id as string, map.code, map.title, JSON.stringify(map.modes)),
+        );
+      }
+      if (held) {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO release_reviews (release_id, state) VALUES (?1, 'pending')
+             ON CONFLICT(release_id) DO UPDATE SET state = 'pending', reason = NULL,
+               reviewed_by = NULL, reviewed_at = NULL`,
+          ).bind(id),
+        );
+      }
       if (signingKeyId) {
         statements.push(
           c.env.DB.prepare(`UPDATE user_keys SET last_used_at = datetime('now') WHERE id = ?1`).bind(
@@ -399,7 +458,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           ),
         );
       }
-      if (scan.verdict === "pass") {
+      if (finalStatus === "published") {
         // A first published release takes its draft mod live with it.
         statements.push(
           c.env.DB.prepare(
@@ -407,7 +466,11 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
              WHERE id = ?1 AND status = 'draft'`,
           ).bind(release.mod_id as string),
         );
-        // Chunk identity, batched under D1's bound-parameter budget.
+      }
+      if (scan.verdict === "pass") {
+        // Chunk identity, batched under D1's bound-parameter budget. A map
+        // in review records its chunks too, so conflicts show before it
+        // publishes.
         const PER = 40;
         for (let i = 0; i < scan.chunkIds.length; i += PER) {
           const slice = scan.chunkIds.slice(i, i + PER);
@@ -426,9 +489,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           id,
           mod_id: release.mod_id as string,
           version: release.version as string,
-          status: (scan.verdict === "pass" ? "published" : "rejected") as
-            | "published"
-            | "rejected",
+          status: finalStatus as "pending" | "published" | "rejected",
           sha256: (release.sha256 as string) ?? null,
           signature: (release.signature as string) ?? null,
           file_size: (release.file_size as number) ?? null,
