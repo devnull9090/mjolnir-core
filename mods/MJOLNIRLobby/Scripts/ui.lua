@@ -144,6 +144,19 @@ local function hookClickers()
             -- An address can be reused after garbage collection: the
             -- object's unique name has to match too.
             if not entry or not entry.armed or entry.name ~= nameOf(clicker) then return end
+            -- A real click comes from a button the player is on: under the
+            -- mouse, or holding keyboard/controller focus. The game also
+            -- calls this function on every hyperlink when its UI refreshes
+            -- (a player leaving), which clicked every armed button at once,
+            -- END GAME and RETURN TO LOBBY included (two PCs, 2026-10-03).
+            local okOn, on = pcall(function()
+                local b = entry.button
+                return b:IsVisible() and (b:IsHovered() or b:HasAnyUserFocus() or b:HasFocusedDescendants())
+            end)
+            if not (okOn and on) then
+                log("click ignored (not on its button): " .. tostring(entry.label))
+                return
+            end
             log("click: " .. tostring(entry.label))
             ExecuteInGameThread(function()
                 local okFn, errFn = pcall(entry.fn)
@@ -170,7 +183,7 @@ function UI.button(owner, label, fn)
     pcall(function() button.LeafNamedSlot:SetContent(clicker) end)
     pcall(function() clicker:SetVisibility(COLLAPSED) end)
     pcall(function() button.bInteractableWhenSelected = true end)
-    local entry = { name = nameOf(clicker), fn = fn, armed = false, label = label }
+    local entry = { name = nameOf(clicker), fn = fn, armed = false, label = label, button = button }
     clickers[addressOf(clicker)] = entry
     ExecuteInGameThreadWithDelay(300, function() entry.armed = true end)
     return { widget = button, clicker = clicker, label = label }
@@ -245,9 +258,11 @@ local function apply(rec)
     end
 end
 
---- Push a screen: { title, subtitle, description, buttons = { { label, description, onClick } } }.
+--- Push a screen: { title, subtitle, description, buttons = { { label, description, onClick } },
+--- layout (optional: the UI layout to push onto; in a match the game runs two,
+--- and the pause menu is on one of them) }.
 function UI.push(spec)
-    local layout = UI.layout()
+    local layout = spec.layout or UI.layout()
     if not valid(layout) then
         log("screen '" .. tostring(spec.title) .. "': no UI layout")
         return nil

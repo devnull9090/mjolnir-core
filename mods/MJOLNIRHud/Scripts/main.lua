@@ -206,6 +206,7 @@ local Board = nil
 local Queue = {}
 local incidentHooked = false
 local lastWorld = nil
+local nextRunningCheck = 0
 local boardShown = false
 local boardDirty = true
 local nextRosterRefresh = 0
@@ -384,7 +385,13 @@ local function finishMatch(how)
     end
     local host = false
     pcall(function() host = playerController():GetWorld().AuthorityGameMode:IsValid() end)
-    if host then
+    -- hold_match.txt beside this mod keeps a finished match where it is, so
+    -- its game state can be read (tools/remote/blam-arena.py).
+    local hold = io.open(MOD_DIR .. "\\hold_match.txt", "r")
+    if hold then
+        hold:close()
+        Log("hold_match.txt: staying in the finished match")
+    elseif host then
         Match.travelAt = now() + (how == "game over" and 0 or FINAL_SECONDS)
     end
     boardDirty = true
@@ -737,6 +744,12 @@ local function tick()
         lastWorld = code
         local running = runningMatch()
         if Match then endMatch() end
+        if running and code == running.code then startMatch(running, code) end
+    elseif not Match and code and now() >= nextRunningCheck then
+        -- A player who joins a match under way is in its world before the
+        -- level loader knows the match: look again once a second.
+        nextRunningCheck = now() + 1
+        local running = runningMatch()
         if running and code == running.code then startMatch(running, code) end
     end
     if not Match then

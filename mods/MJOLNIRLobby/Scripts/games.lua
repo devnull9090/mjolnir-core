@@ -124,6 +124,124 @@ local function explain(status, data)
     return (data and (data.message or data.error)) or ("The hub answered " .. tostring(status) .. ".")
 end
 
+--- Whether the native half refuses the game's own leave of its lobby. A
+--- match started with the host alone leaves it about a minute in, and
+--- nobody could join; a public game keeps it, whoever is in it. Off for a
+--- private game, and before joining another (the game must leave then).
+local keeping = nil
+local function keepLobby(on)
+    on = on and true or false
+    if keeping == on then return end
+    local f = io.open(nativeDir .. "keep_lobby.txt", "wb")
+    if not f then return end
+    f:write(on and "1" or "0")
+    f:close()
+    if native("mjolnir_keep_lobby") then keeping = on end
+end
+
+--- Whether a session that starts, or is joined while running, with one
+--- member stays online instead of leaving to play offline (the native half
+--- patches UBlamOnlineSessionSubsystem::SetSessionRunning). On for a joiner
+--- going into a public game; a public host gets it with keepLobby. It also
+--- arms the joiner's world hold: a match world that begins before its Blam
+--- game waits for it (see jipTick).
+local function stayOnline(on)
+    local f = io.open(nativeDir .. "stay_online.txt", "wb")
+    if not f then return end
+    f:write(on and "1" or "0")
+    f:close()
+    native("mjolnir_stay_online")
+end
+
+--- A joiner into a match under way holds its world's begin play until its
+--- Blam game runs, and starts that game by replaying the travel a normal
+--- start goes through. While a world is held (native\jip_held.txt) the
+--- native half needs the world's package path; it does the rest from here,
+--- once a second on the game thread.
+-- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
+-- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
+local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4 }
+-- The game type of the listed game being joined, and the level loader switch
+-- still owed for a match joined under way: { code, url, tries }.
+local joiningGameType
+local pendingSwitch
+local jipJoinedUrl
+
+--- Hand the level loader a joined match's URL (Megalo engine, game type,
+--- running.txt for MJOLNIRHud), as the host's travel would, before the
+--- native half builds this side's game: MJOLNIRLevelLoader\join_switch.txt,
+--- which the loader reads within half a second. Written again every ten
+--- seconds until the loader's running.txt names the map.
+local function levelSwitchTick()
+    if not pendingSwitch then return end
+    local loaderDir = nativeDir .. "..\\..\\MJOLNIRLevelLoader\\"
+    local running = readFile(loaderDir .. "running.txt") or ""
+    if running:sub(1, #pendingSwitch.code + 1) == pendingSwitch.code .. "\t" then
+        log("games: the level loader runs " .. pendingSwitch.code .. " for the match joined under way")
+        pendingSwitch = nil
+        return
+    end
+    if pendingSwitch.tries >= 60 then
+        log("games: the level loader never took " .. pendingSwitch.url)
+        pendingSwitch = nil
+        return
+    end
+    if pendingSwitch.tries % 10 == 0 then
+        local f = io.open(loaderDir .. "join_switch.txt", "wb")
+        if f then
+            f:write(pendingSwitch.url, "\n")
+            f:close()
+        end
+    end
+    pendingSwitch.tries = pendingSwitch.tries + 1
+end
+
+local function jipTick()
+    levelSwitchTick()
+    local held = io.open(nativeDir .. "jip_held.txt", "rb")
+    if not held then jipJoinedUrl = nil end
+    if held then
+        held:close()
+        local ok, full = pcall(function()
+            return FindFirstOf("PlayerController"):GetWorld():GetFullName()
+        end)
+        -- "World /Game/Levels/Halo1/Solo/BCK/BCK.BCK" -> "/Game/Levels/Halo1/Solo/BCK/BCK"
+        local path = ok and full and full:match("^%S+%s+([^%.]+)")
+        if path then
+            -- The URL a host's seamless travel sends (2026-10-03):
+            -- /Game/Levels/Halo1/Solo/ICE/ICE?Name=Player?SeamlessTravel?ScenarioName=ICE?InsertionPointIndex=0
+            local code = path:match("([^/]+)$")
+            local url = path .. "?Name=Player?SeamlessTravel?ScenarioName=" .. code
+                .. "?InsertionPointIndex=" .. tostring(GAME_TYPE_SLOT[joiningGameType or ""] or 0)
+            if not (pendingSwitch and pendingSwitch.url == url) and jipJoinedUrl ~= url then
+                jipJoinedUrl = url
+                pendingSwitch = { code = string.upper(code), url = url, tries = 0 }
+                log("games: joined a match under way: " .. url)
+            end
+            local f = io.open(nativeDir .. "jip_map.txt", "wb")
+            if f then
+                f:write(url, "\n")
+                -- The engine subsystem whose map-loaded step lifts the
+                -- loading screen once the Blam game has started.
+                local okManager, manager = pcall(function()
+                    return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
+                end)
+                f:write(string.format("%X\n", okManager and manager or 0))
+                -- The world's GameState experience component, whose
+                -- bWaiting... bits the loading step waits on (logged).
+                local okExperience, experience = pcall(function()
+                    local gs = FindFirstOf("PlayerController"):GetWorld().GameState
+                    local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
+                    return gs:GetComponentByClass(cls):GetAddress()
+                end)
+                f:write(string.format("%X\n", okExperience and experience or 0))
+                f:close()
+            end
+        end
+    end
+    native("mjolnir_jip_tick")
+end
+
 --- The current PlayFab lobby's connection string, or nil and why.
 local function connectionString()
     if not native("mjolnir_lobby_connection") then return nil, "the native half is not loaded" end
@@ -157,7 +275,14 @@ local function beat()
     if not (info and info.map_code and info.game_type) then return end
     local conn, why = connectionString()
     if not conn then
-        setStatus("Not listed yet: " .. tostring(why))
+        -- The game left its online lobby: a match started with the host
+        -- alone in the fireteam plays offline (2026-10-02). A listing kept
+        -- up would hand joiners a dead connection string, which the game
+        -- reports as a full fireteam, so it comes down until a lobby is back.
+        if Host.id then unlist("the game left its online lobby") end
+        Host.nextBeat = os.time() + 5
+        setStatus(info.in_game and "Not listed: this match is offline. A match started with only you in the fireteam can't be joined."
+            or ("Not listed yet: " .. tostring(why)))
         return
     end
     local players = math.max(1, info.players or 1)
@@ -225,6 +350,7 @@ local function tick()
     if not Net.isHost() then
         -- Joined someone else's game: this one is not ours to list.
         Host.public = false
+        keepLobby(false)
         unlist("no longer the host")
         setStatus("")
         return
@@ -238,6 +364,7 @@ function Games.status() return Host.status end
 function Games.setPublic(on)
     Host.public = on and true or false
     Host.nextBeat = 0
+    keepLobby(Host.public)
     if Host.public then
         setStatus("PUBLIC: listing...")
     else
@@ -278,6 +405,11 @@ function Games.join(lobby, done)
             Host.public = false
             unlist("joining another game")
         end
+        -- The game leaves its own lobby to join the host's, and stays in the
+        -- host's session though it arrives alone in a match under way.
+        keepLobby(false)
+        stayOnline(true)
+        joiningGameType = data.game_type or lobby.game_type
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then
             done(false, "cannot write the join request")
@@ -315,9 +447,11 @@ function Games.init(deps)
     Json, Net, log = deps.json, deps.net, deps.log
     Host.version = deps.version or ""
     Host.info = deps.info
+    keepLobby(false)
     local function loop()
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
+        jipTick()
         ExecuteInGameThreadWithDelay(1000, loop)
     end
     ExecuteInGameThreadWithDelay(1000, loop)

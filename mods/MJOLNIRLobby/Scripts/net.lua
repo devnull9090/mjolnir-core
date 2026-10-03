@@ -113,6 +113,16 @@ function Net.toHost(verb, ...)
     end
 end
 
+--- To one client's controller (on the host); true when sent.
+function Net.toClient(pc, verb, ...)
+    local msg = compose(verb, ...)
+    local ok = pcall(function()
+        if not (valid(pc) and not isLocal(pc) and valid(pc.Player) and valid(pc.PlayerState)) then error("not connected") end
+        pc:ClientMessage(msg, FName(TYPE), 0)
+    end)
+    return ok
+end
+
 --- To every connected fireteam client. A controller left over from the
 --- previous world has no player and no player state; a client RPC on one
 --- with no connection would run here, on the host.

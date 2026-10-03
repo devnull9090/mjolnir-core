@@ -1509,8 +1509,436 @@ local function watchMainMenu()
     ExecuteInGameThreadWithDelay(1500, poll)
 end
 
+-------------------------------------------------------------------------------
+-- Host menu (HOST MENU on the pause menu, or `mjolnir_host` at the console):
+-- during a match the host can end it, take the fireteam back to the lobby,
+-- and kick or ban players.
+-------------------------------------------------------------------------------
+--
+-- END GAME ends the match through the game engine (native
+-- mjolnir_sim_end_game), so the results and the post-game vote follow as
+-- after any match. RETURN TO LOBBY travels the fireteam back to the frontend
+-- (the travel MJOLNIRHud makes after a match) and opens the lobby there.
+-- KICK sends the player back to their main menu (the engine's own client RPC
+-- ClientReturnToMainMenuWithTextReason, so their game leaves the session
+-- itself). BAN kicks and remembers the name in bans.json; a banned name that
+-- joins again is sent back as soon as it appears among the players.
+
+local BANS_FILE = MOD_DIR .. "\\bans.json"
+
+--- Call one of native\mjolnir_lobby.dll's exports; true when it ran.
+local function native_(name)
+    local fn = package and package.loadlib and package.loadlib(MOD_DIR .. "\\native\\mjolnir_lobby.dll", name)
+    if not fn then return false end
+    return (pcall(fn))
+end
+local HOST_TRAVEL = "servertravel /Game/Levels/UI/Frontend/Frontend"
+local Bans = nil            -- { [lowercase name] = { name, at } }
+local lobbyOnReturn = false -- RETURN TO LOBBY: open the lobby once the frontend is up
+local hostMenuOpen = nil    -- the HOST MENU screen while it is up
+local hostLayout = nil      -- the UI layout the pause menu is on (a match runs two)
+
+local function loadBans()
+    if Bans then return Bans end
+    Bans = {}
+    local raw = readFile(BANS_FILE)
+    local ok, t = pcall(function() return raw and Json.decode(raw) end)
+    if ok and type(t) == "table" then
+        for _, b in ipairs(t) do
+            if type(b) == "table" and type(b.name) == "string" then
+                Bans[string.lower(b.name)] = { name = b.name, at = b.at }
+            end
+        end
+    end
+    return Bans
+end
+
+local function saveBans()
+    local list = {}
+    for _, b in pairs(loadBans()) do
+        list[#list + 1] = string.format('{"name":%q,"at":%d}', b.name, tonumber(b.at) or 0)
+    end
+    local f = io.open(BANS_FILE, "w")
+    if f then
+        f:write("[" .. table.concat(list, ",") .. "]\n")
+        f:close()
+    end
+end
+
+--- The other players: { name, pc } for each remote controller with a player.
+--- The other players: { name, pc } for each remote controller with a
+--- connection and a player state, found the way Net.toClients finds them.
+--- (GameState.PlayerArray with PlayerState:GetOwner() crashed the host inside
+--- UE4SS's function call, 2026-10-03.)
+local function remotePlayers()
+    local out = {}
+    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+        pcall(function()
+            if not pc:IsValid() or pc:IsLocalController() then return end
+            if not (UI.valid(pc.Player) and UI.valid(pc.PlayerState)) then return end
+            out[#out + 1] = { name = pc.PlayerState:GetPlayerName():ToString(), pc = pc }
+        end)
+    end
+    table.sort(out, function(a, b) return a.name < b.name end)
+    return out
+end
+
+--- Send a player back to their main menu: a kick message over the lobby's
+--- channel (Scripts/net.lua), on which their own game leaves the match.
+local function kick(player, why)
+    local ok = Net.toClient(player.pc, "kick", why)
+    log(string.format("host: %s %s (%s)", ok and "sent back" or "could not send back", player.name, why))
+    return ok
+end
+
+--- RETURN TO LOBBY: the fireteam travels back to the frontend with the host
+--- (as after a match), and the host's lobby opens there.
+local function returnToLobby()
+    lobbyOnReturn = true
+    pcall(function()
+        local pc = UI.playerController()
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            :ExecuteConsoleCommand(pc:GetWorld(), HOST_TRAVEL, pc)
+    end)
+    log("host: returning the fireteam to the lobby")
+end
+
+local function closeHostMenu()
+    if hostMenuOpen then UI.pop(hostMenuOpen) end
+    hostMenuOpen = nil
+end
+
+local openHostMenu
+
+local function playerScreen(player)
+    UI.push({
+        layout = hostLayout,
+        title = string.upper(player.name),
+        subtitle = "PLAYER",
+        description = "Kick sends them back to their main menu. Ban does the same and keeps them out of your games.",
+        buttons = {
+            { label = "KICK", description = "Send " .. player.name .. " back to their main menu.", onClick = function()
+                kick(player, "You were kicked by the host.")
+                closeHostMenu()
+            end },
+            { label = "BAN", description = "Kick " .. player.name .. " and keep them out of your games.", onClick = function()
+                loadBans()[string.lower(player.name)] = { name = player.name, at = os.time() }
+                saveBans()
+                kick(player, "You were banned by the host.")
+                closeHostMenu()
+            end },
+        },
+    })
+end
+
+local function playersScreen()
+    local players = remotePlayers()
+    local buttons = {}
+    for _, p in ipairs(players) do
+        buttons[#buttons + 1] = { label = string.upper(p.name), description = "Kick or ban " .. p.name .. ".",
+            onClick = function() playerScreen(p) end }
+    end
+    UI.push({
+        layout = hostLayout,
+        title = "PLAYERS",
+        subtitle = #players == 1 and "1 OTHER PLAYER" or (#players .. " OTHER PLAYERS"),
+        description = #players == 0 and "Nobody else is in the match." or "Pick a player to kick or ban.",
+        buttons = buttons,
+    })
+end
+
+local function bansScreen()
+    local buttons = {}
+    for key, b in pairs(loadBans()) do
+        buttons[#buttons + 1] = { label = string.upper(b.name), description = "Let " .. b.name .. " join again.",
+            onClick = function()
+                loadBans()[key] = nil
+                saveBans()
+                log("host: unbanned " .. b.name)
+                closeHostMenu()
+            end }
+    end
+    table.sort(buttons, function(a, b) return a.label < b.label end)
+    UI.push({
+        layout = hostLayout,
+        title = "BANNED PLAYERS",
+        subtitle = #buttons .. " BANNED",
+        description = #buttons == 0 and "Nobody is banned." or "Pick a name to unban it.",
+        buttons = buttons,
+    })
+end
+
+openHostMenu = function()
+    if not Net.isHost() then
+        log("host menu: only the host has one")
+        return
+    end
+    if inFrontend() then
+        log("host menu: in the lobby already")
+        return
+    end
+    local title = Game.map and (titleOf(Game.map) .. "  /  " .. modeName(Game.mode and Game.mode.id)) or "MATCH"
+    hostMenuOpen = UI.push({
+        layout = hostLayout,
+        title = "HOST MENU",
+        subtitle = string.upper(title),
+        description = "Your match: end it, take everyone back to the lobby, or manage players.",
+        buttons = {
+            { label = "END GAME", description = "End the match now. Everyone sees the results and votes on the next game.",
+                onClick = function()
+                    closeHostMenu()
+                    native_("mjolnir_sim_end_game")
+                end },
+            { label = "RETURN TO LOBBY", description = "Take everyone back to the lobby to change the map or game type.",
+                onClick = function()
+                    closeHostMenu()
+                    returnToLobby()
+                end },
+            { label = "PLAYERS", description = "Kick or ban a player.", onClick = playersScreen },
+            { label = "BANNED PLAYERS", description = "Unban a player.", onClick = bansScreen },
+        },
+    })
+end
+
+
+--- The pause menu in one of our multiplayer matches (MJOLNIRLevelLoader's
+--- running.txt names it): RELOAD CHECKPOINT and RESTART MISSION are campaign
+--- actions, so they go; the host gets HOST MENU in the first one's place.
+local PAUSE_MENU = "/Game/UI/InGame/PauseMenu/WBP_PauseMenu.WBP_PauseMenu_C"
+local pauseHooked = false
+local pauseEntry = { menu = nil, button = nil }
+
+local function inMultiplayerMatch()
+    return not inFrontend() and readFile(LOADER_DIR .. "\\running.txt") ~= nil
+end
+
+local function fixPauseMenu(menu)
+    if not UI.valid(menu) or not inMultiplayerMatch() then return end
+    pcall(function() hostLayout = menu:GetOuter():GetOuter() end)
+    pcall(function() menu.RestartMissionButton:SetVisibility(1) end)
+    if not Net.isHost() then
+        pcall(function() menu.ReloadCheckpointButton:SetVisibility(1) end)
+        return
+    end
+    if pauseEntry.menu == UI.addressOf(menu) and pauseEntry.button and UI.valid(pauseEntry.button.widget) then
+        UI.label(pauseEntry.button, "HOST MENU")
+        return
+    end
+    local container = menu.PauseButtonContainer
+    local reload = UI.addressOf(menu.ReloadCheckpointButton)
+    local index
+    local count = 0
+    pcall(function() count = container:GetChildrenCount() end)
+    for i = 0, count - 1 do
+        local ok, child = pcall(function() return container:GetChildAt(i) end)
+        if ok and UI.addressOf(child) == reload then index = i end
+    end
+    local button, err = UI.button(menu, "HOST MENU", openHostMenu)
+    if not button then
+        log("pause menu: " .. tostring(err))
+        return
+    end
+    local ok = pcall(function()
+        if index then
+            container:ReplaceButtonContainerChildAt(index, button.widget)
+        else
+            container:AddChildToButtonContainer(button.widget)
+        end
+    end)
+    if not ok then
+        log("pause menu: could not add HOST MENU")
+        return
+    end
+    pauseEntry.menu, pauseEntry.button = UI.addressOf(menu), button
+    ExecuteInGameThreadWithDelay(60, function()
+        UI.label(button, "HOST MENU")
+        pcall(function() button.widget:SetVisibility(0) end)
+    end)
+    log("pause menu: HOST MENU added")
+end
+
+--- Hook the pause menu's activation once its class is loaded (it loads with
+--- the first match; loading it here gets the first pause too).
+local function hookPauseMenu()
+    if pauseHooked then return end
+    if not UI.ensureClass(PAUSE_MENU) then return end
+    pauseHooked = pcall(function()
+        RegisterHook(PAUSE_MENU .. ":BP_OnActivated", function(self)
+            local menu = self:get()
+            ExecuteInGameThreadWithDelay(60, function() fixPauseMenu(menu) end)
+        end)
+    end)
+    if pauseHooked then log("pause menu: hooked") end
+end
+
+--- Each 5 s on the host: send banned names back, and open the lobby after
+--- RETURN TO LOBBY once the frontend's main menu is up.
+local function watchHost()
+    local function poll()
+        pcall(function()
+            if not pauseHooked and not inFrontend() then hookPauseMenu() end
+            if not Net.isHost() then return end
+            if lobbyOnReturn and inFrontend() and UI.valid(liveMainMenu()) then
+                lobbyOnReturn = false
+                openLobby()
+            end
+            local bans = loadBans()
+            if next(bans) then
+                for _, p in ipairs(remotePlayers()) do
+                    if bans[string.lower(p.name)] then kick(p, "You are banned from this host's games.") end
+                end
+            end
+        end)
+        ExecuteInGameThreadWithDelay(5000, poll)
+    end
+    ExecuteInGameThreadWithDelay(5000, poll)
+end
+
+-------------------------------------------------------------------------------
+-- Test automation (tools/remote/jip-test.mjs): `mjolnir_auto <verb> ...` at
+-- the console, answered in native\auto_state.txt as key=value lines, so a
+-- script can host, list, start and join without anyone at the menus.
+--   mjolnir_auto state                 where this game is
+--   mjolnir_auto host <CODE> <mode>    list publicly and start the map
+--   mjolnir_auto public on|off         list or unlist
+--   mjolnir_auto join [host name]      join a listed game (the first, or the host's)
+-------------------------------------------------------------------------------
+
+local AUTO_FILE = MOD_DIR .. "\\native\\auto_state.txt"
+
+local function autoWrite(fields)
+    local lines = {}
+    fields.at = os.time()
+    for k, v in pairs(fields) do lines[#lines + 1] = k .. "=" .. tostring(v) end
+    table.sort(lines)
+    local f = io.open(AUTO_FILE, "w")
+    if f then
+        f:write(table.concat(lines, "\n"), "\n")
+        f:close()
+    end
+end
+
+local function autoState(extra)
+    local world = "?"
+    pcall(function() world = UI.playerController():GetWorld():GetFName():ToString() end)
+    local pawn = "none"
+    pcall(function()
+        local p = UI.playerController().Pawn
+        if UI.valid(p) then pawn = p:GetClass():GetFName():ToString() end
+    end)
+    local fields = {
+        signed_in = UI.valid(liveMainMenu()) and 1 or (inFrontend() and 0 or 1),
+        frontend = inFrontend() and 1 or 0,
+        world = world,
+        pawn = pawn,
+        public = Games.isPublic() and 1 or 0,
+        status = tostring(Games.status() or ""),
+        name = tostring(localName() or ""),
+        players = #rosterPlayers(),
+    }
+    for k, v in pairs(extra or {}) do fields[k] = v end
+    autoWrite(fields)
+end
+
+local AUTO = {
+    state = function() autoState() end,
+    hostmenu = function()
+        openHostMenu()
+        autoState({ result = hostMenuOpen and "host menu open" or "error no host menu" })
+    end,
+    lobby = function()
+        returnToLobby()
+        autoState({ result = "returning to the lobby" })
+    end,
+    endgame = function()
+        autoState({ result = native_("mjolnir_sim_end_game") and "end game asked" or "error native" })
+    end,
+    kick = function(args, ban)
+        local wanted = string.lower(table.concat(args, " "))
+        for _, p in ipairs(remotePlayers()) do
+            if string.lower(p.name):find(wanted, 1, true) then
+                if ban then
+                    loadBans()[string.lower(p.name)] = { name = p.name, at = os.time() }
+                    saveBans()
+                end
+                return autoState({ result = (kick(p, ban and "You were banned by the host." or "You were kicked by the host.")
+                    and (ban and "banned " or "kicked ") or "error kick ") .. p.name })
+            end
+        end
+        autoState({ result = "error no player " .. wanted })
+    end,
+    unban = function(args)
+        local wanted = string.lower(table.concat(args, " "))
+        loadBans()[wanted] = nil
+        saveBans()
+        autoState({ result = "unbanned " .. wanted })
+    end,
+    public = function(args)
+        Games.setPublic(args[1] ~= "off")
+        autoState({ result = "public " .. tostring(args[1] ~= "off") })
+    end,
+    host = function(args)
+        local map = mapByCode(string.upper(args[1] or ""))
+        if not map then return autoState({ result = "error no installed map " .. tostring(args[1]) }) end
+        local mode = modeById(map, args[2] or "slayer") or modesFor(map)[1]
+        if not mode then return autoState({ result = "error no mode for " .. map.code }) end
+        Game.map, Game.mode = map, mode
+        saveGame()
+        Games.setPublic(true)
+        local ok, why = startGame(map, mode)
+        autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id) or ("error " .. tostring(why)) })
+    end,
+    join = function(args)
+        local wanted = args[1] and string.lower(table.concat(args, " ")) or nil
+        autoState({ result = "listing" })
+        Games.list(function(lobbies, why)
+            if not lobbies then return autoState({ result = "error " .. tostring(why) }) end
+            local chosen
+            for _, g in ipairs(lobbies) do
+                -- The hub lists its account name as host; the game's own
+                -- player name is in the listing's name ("<player>'s game").
+                local who = string.lower(tostring(g.host or "") .. " " .. tostring(g.name or ""))
+                if not chosen and (not wanted or who:find(wanted, 1, true)) then
+                    chosen = g
+                end
+            end
+            if not chosen then return autoState({ result = "error no listed game" .. (wanted and (" by " .. wanted) or "") }) end
+            autoState({ result = "joining " .. tostring(chosen.host) })
+            Games.join(chosen, function(ok, err)
+                autoState({ result = ok and ("joined " .. tostring(chosen.host)) or ("error " .. tostring(err)) })
+            end)
+        end)
+    end,
+}
+
 local function initialize()
     UI.init(MOD_DIR)
+    AUTO.ban = function(args) return AUTO.kick(args, true) end
+    RegisterConsoleCommandHandler("mjolnir_host", function()
+        ExecuteInGameThread(openHostMenu)
+        return true
+    end)
+    watchHost()
+    -- A kick from the host: leave its match the way the pause menu's quit
+    -- does (BlamCampaignFlowGameSubsystem LeaveGame), off the RPC.
+    Net.on("kick", function(fields)
+        log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
+        ExecuteInGameThreadWithDelay(200, function()
+            pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame() end)
+        end)
+    end)
+    RegisterConsoleCommandHandler("mjolnir_auto", function(full)
+        local args = {}
+        for word in tostring(full or ""):gmatch("%S+") do args[#args + 1] = word end
+        table.remove(args, 1)
+        local verb = table.remove(args, 1) or "state"
+        local fn = AUTO[verb]
+        ExecuteInGameThread(function()
+            local ok, err = pcall(fn or function() autoState({ result = "error unknown verb " .. verb }) end, args)
+            if not ok then autoState({ result = "error " .. tostring(err) }) end
+        end)
+        return true
+    end)
     watchNewLobbies()
     Net.hook()
     openFireteam()

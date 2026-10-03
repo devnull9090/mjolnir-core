@@ -39,6 +39,50 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.12.0",
+      "tag": "mods-v0.12.0",
+      "title": "Join a match already under way",
+      "date": "2026-10-03",
+      "summary": "Join a public game while its match is under way, straight from FIND GAMES. Hosts get a HOST MENU to end the match, return to the lobby, and kick or ban players.",
+      "body": "### Added\n\n- **Join in progress.** A public game takes new players while its match is\n  running. Pick it in FIND GAMES and you load into the match, with the\n  host's map and game type, the HUD and the scoreboard; the host's game puts\n  your Spartan in and spawns you within seconds. A private game still keeps\n  latecomers out.\n- **HOST MENU.** The host's pause menu has a HOST MENU entry during a match:\n  END GAME (results and the vote on the next game, as after any match),\n  RETURN TO LOBBY (everyone goes back to the lobby to change the map or game\n  type), PLAYERS (kick or ban) and BANNED PLAYERS (unban). A banned player\n  who joins again is sent back to their menu. The campaign-only RELOAD\n  CHECKPOINT and RESTART MISSION are gone from the pause menu in a\n  multiplayer match.\n\n### Fixed\n\n- **A public host alone keeps playing.** When the other players leave, the\n  match goes on instead of ending, and others can still join it.\n- **A host alone stays joinable.** A public match started by its host alone\n  keeps its online lobby, so FIND GAMES can join it.\n- **Players who join hear their own events.** Teleporters, the respawn\n  countdown and health packs now play for every player, not only the host.\n\n### Known issues\n\n- Rejoining the same match right after leaving or being kicked can stall on\n  the loading screen. Back out and join again after a minute or two.\n\n### Changed\n\n- **MJOLNIRLobby 0.5.0**: join in progress, the host menu, a public lobby\n  that stays open.\n- **MJOLNIRLevelLoader 0.1.6**: the match setup for a player who joins under\n  way; the host relays event sounds to the other players.\n- **MJOLNIRHud 0.3.2**: the scoreboard and kill feed for a player who joins\n  under way.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Join in progress. A public game takes new players while its match is running. Pick it in FIND GAMES and you load into the match, with the host's map and game type, the HUD and the scoreboard; the host's game puts your Spartan in and spawns you within seconds. A private game still keeps latecomers out.",
+            "HOST MENU. The host's pause menu has a HOST MENU entry during a match: END GAME (results and the vote on the next game, as after any match), RETURN TO LOBBY (everyone goes back to the lobby to change the map or game type), PLAYERS (kick or ban) and BANNED PLAYERS (unban). A banned player who joins again is sent back to their menu. The campaign-only RELOAD CHECKPOINT and RESTART MISSION are gone from the pause menu in a multiplayer match."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A public host alone keeps playing. When the other players leave, the match goes on instead of ending, and others can still join it.",
+            "A host alone stays joinable. A public match started by its host alone keeps its online lobby, so FIND GAMES can join it.",
+            "Players who join hear their own events. Teleporters, the respawn countdown and health packs now play for every player, not only the host."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Rejoining the same match right after leaving or being kicked can stall on the loading screen. Back out and join again after a minute or two."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.5.0: join in progress, the host menu, a public lobby that stays open.",
+            "MJOLNIRLevelLoader 0.1.6: the match setup for a player who joins under way; the host relays event sounds to the other players.",
+            "MJOLNIRHud 0.3.2: the scoreboard and kill feed for a player who joins under way."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.12.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.12.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.12.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.10.0",
