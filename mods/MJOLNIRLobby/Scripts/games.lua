@@ -124,6 +124,21 @@ local function explain(status, data)
     return (data and (data.message or data.error)) or ("The hub answered " .. tostring(status) .. ".")
 end
 
+--- Whether the native half refuses the game's own leave of its lobby. A
+--- match started with the host alone leaves it about a minute in, and
+--- nobody could join; a public game keeps it, whoever is in it. Off for a
+--- private game, and before joining another (the game must leave then).
+local keeping = nil
+local function keepLobby(on)
+    on = on and true or false
+    if keeping == on then return end
+    local f = io.open(nativeDir .. "keep_lobby.txt", "wb")
+    if not f then return end
+    f:write(on and "1" or "0")
+    f:close()
+    if native("mjolnir_keep_lobby") then keeping = on end
+end
+
 --- The current PlayFab lobby's connection string, or nil and why.
 local function connectionString()
     if not native("mjolnir_lobby_connection") then return nil, "the native half is not loaded" end
@@ -232,6 +247,7 @@ local function tick()
     if not Net.isHost() then
         -- Joined someone else's game: this one is not ours to list.
         Host.public = false
+        keepLobby(false)
         unlist("no longer the host")
         setStatus("")
         return
@@ -245,6 +261,7 @@ function Games.status() return Host.status end
 function Games.setPublic(on)
     Host.public = on and true or false
     Host.nextBeat = 0
+    keepLobby(Host.public)
     if Host.public then
         setStatus("PUBLIC: listing...")
     else
@@ -285,6 +302,8 @@ function Games.join(lobby, done)
             Host.public = false
             unlist("joining another game")
         end
+        -- The game leaves its own lobby to join the host's.
+        keepLobby(false)
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then
             done(false, "cannot write the join request")
@@ -322,6 +341,7 @@ function Games.init(deps)
     Json, Net, log = deps.json, deps.net, deps.log
     Host.version = deps.version or ""
     Host.info = deps.info
+    keepLobby(false)
     local function loop()
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
