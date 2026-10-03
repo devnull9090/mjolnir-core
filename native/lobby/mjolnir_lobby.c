@@ -986,9 +986,13 @@ static const char *stay_online_alone(int on) {
    that passed, refuses the login with "Cannot join - game is already in
    progress". The joiner's network-failure handler maps the text to a
    rejection and leaves the session: the "Disconnected from host" of every
-   join into a running match (2026-10-03). While the game is public the hook
-   calls the stock PreLogin alone, so only its own refusals (a full session)
-   stand; a private game keeps the shipped rule.
+   join into a running match (2026-10-03). With the refusal skipped, the
+   joiner got into the match and crashed: the host's Spartan replicated in,
+   and AMeteoritePawn::BeginPlay (exe 0x7b16500) dereferenced the BlamEngine
+   module's running game, which a joiner's simulation never started. So the
+   refusal stays (the hook logs every login) unless native\join_in_progress.txt
+   says "1", an experiment switch for the simulation's own join-in-progress
+   work; then, while the game is public, the hook calls the stock PreLogin alone.
    The pattern is the override's prologue up to its call of the stock one. */
 struct fstring {
     wchar_t *data;
@@ -1004,8 +1008,10 @@ static const unsigned char PRE_LOGIN_AFTER[] = {0x83, 0x7B, 0x08, 0x01, 0x0F, 0x
 #define PRE_LOGIN_REFUSAL_LEA 0x36
 static const wchar_t IN_PROGRESS[] = L"Cannot join - game is already in progress";
 
+static volatile LONG join_in_progress;
+
 static void __fastcall hook_pre_login(void *self, void *options, void *address, void *unique_id, struct fstring *error) {
-    int open = keep_lobby;
+    int open = keep_lobby && join_in_progress;
     (open ? stock_pre_login : real_pre_login)(self, options, address, unique_id, error);
     char text[120] = "accepted";
     if (error && error->num > 1 && error->data) {
@@ -1013,7 +1019,7 @@ static void __fastcall hook_pre_login(void *self, void *options, void *address, 
         for (; i < (int)sizeof text - 1 && error->data[i]; i++) text[i] = error->data[i] < 0x80 ? (char)error->data[i] : '?';
         text[i] = 0;
     }
-    fireteam_log("login: PreLogin (%s): %s", open ? "public, joins in progress open" : "as shipped", text);
+    fireteam_log("login: PreLogin (%s): %s", open ? "public, join-in-progress experiment" : "as shipped", text);
 }
 
 static const char *hook_pre_login_slots(void) {
@@ -1096,6 +1102,15 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
         fclose(f);
     }
     InterlockedExchange(&keep_lobby, value ? 1 : 0);
+    snprintf(path, sizeof path, "%sjoin_in_progress.txt", dir);
+    f = fopen(path, "r");
+    int jip = 0;
+    if (f) {
+        if (fscanf(f, "%d", &jip) != 1) jip = 0;
+        fclose(f);
+    }
+    InterlockedExchange(&join_in_progress, jip ? 1 : 0);
+    if (jip) fireteam_log("login: join-in-progress experiment on");
     fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", stay_online_alone(value));
     if (value) fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     return 0;
