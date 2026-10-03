@@ -1210,12 +1210,16 @@ static const char *hook_pawn_begin_play_slot(void) {
    (mjolnir_stay_online), the first NotifyBeginPlay without a running Blam game
    is held, and mjolnir_jip_tick (once a second, from games.lua, on the game
    thread) lets it through once the game runs, or after JIP_HOLD_MS. */
+typedef void(__fastcall *shell_command_t)(void *iface, char subtype, void *data);
+static shell_command_t real_shell_command0, real_shell_object_command, real_shell_command3;
+static void *volatile shell_iface;
 typedef void(__fastcall *notify_begin_play_t)(void *world_settings);
 static notify_begin_play_t real_notify_begin_play;
 static void *volatile held_world_settings;
 static DWORD held_since;
 static volatile LONG jip_armed;
 #define JIP_HOLD_MS 120000
+#define JIP_NUDGE_MS 5000
 
 /* AWorldSettings::NotifyBeginPlay's body after GetWorld: mov r15, rax / test
    byte [rax+13dh], 1 (the world's bBegunPlay) / jne. */
@@ -1283,6 +1287,19 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
         last = g;
     }
     DWORD waited = GetTickCount() - held_since;
+    /* Experiment: a joiner's exe never queues the command that starts the
+       simulation's join; queue it once, a few seconds into the hold. */
+    static void *nudged;
+    if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && nudged != ws) {
+        nudged = ws;
+        void *iface = shell_iface;
+        if (iface && real_shell_command0) {
+            fireteam_log("world: no Blam game %lu ms in; queueing shell command 0 0", (unsigned long)waited);
+            real_shell_command0(iface, 0, NULL);
+        } else {
+            fireteam_log("world: no Blam game %lu ms in, and no shell seen to queue command 0 0 on", (unsigned long)waited);
+        }
+    }
     if (!blam_game_running(&g) && waited < JIP_HOLD_MS) return 0;
     if (InterlockedCompareExchangePointer(&held_world_settings, NULL, ws) != ws) return 0;
     fireteam_log("world: begin play released after %lu ms (%s)", (unsigned long)waited,
@@ -1302,6 +1319,112 @@ __declspec(dllexport) int mjolnir_blam_state(void *L) {
     }
     struct blam_game g = blam_game_now();
     log_blam_game("blam: now", &g);
+    return 0;
+}
+
+/* --- The Blam shell's command queue ---------------------------------------- */
+
+/* The simulation DLL's one export, CreateBlamEngineShell, builds the shell the
+   exe drives the Blam engine through. Its second interface (shell +0x140,
+   vtable 0x7b0610 in the DLL on CU4) queues commands for the network tick
+   (slot 0, sim 0xe670): slot +0x08 queues type 0 (sim 0xe140: (iface,
+   subtype, data), data only for subtype 0xb), slot +0x10 builds object
+   commands (sim 0xe2a0), slot +0x20 queues type 3 (sim 0xe510). Command 0/0
+   resets the session flow to state 1 and pulls the target session from the
+   exe (sim 0xf4b0); the flow then queues the simulation's join (sim
+   0x4f14e0), which sends join-request. A joiner into a match under way never
+   sent one (2026-10-03): these hooks log every command the exe queues, with
+   the exe frames that queued it, and mjolnir_sim_command queues one by hand. */
+
+static void log_shell_command(const char *what, void *iface, char subtype) {
+    shell_iface = iface;
+    static char last_what[16];
+    static int last_subtype = -1000;
+    static DWORD last_at;
+    DWORD now = GetTickCount();
+    if (strcmp(last_what, what) == 0 && last_subtype == subtype && now - last_at < 2000) return;
+    snprintf(last_what, sizeof last_what, "%s", what);
+    last_subtype = subtype;
+    last_at = now;
+    char line[CALLER_STACK];
+    caller_stack(line);
+    fireteam_log("shell: %s %d from%s", what, subtype, line);
+}
+
+static void __fastcall hook_shell_command0(void *iface, char subtype, void *data) {
+    log_shell_command("command 0", iface, subtype);
+    real_shell_command0(iface, subtype, data);
+}
+
+static void __fastcall hook_shell_object_command(void *iface, char subtype, void *data) {
+    log_shell_command("object", iface, subtype);
+    real_shell_object_command(iface, subtype, data);
+}
+
+static void __fastcall hook_shell_command3(void *iface, char subtype, void *data) {
+    log_shell_command("command 3", iface, subtype);
+    real_shell_command3(iface, subtype, data);
+}
+
+/* `fn` holds "mov byte [rax+10h], type" within its first 0x200 bytes. */
+static int queues_type(const unsigned char *fn, unsigned char type) {
+    const unsigned char want[] = {0xC6, 0x40, 0x10, type};
+    for (int i = 0; i < 0x200; i++)
+        if (memcmp(fn + i, want, sizeof want) == 0) return 1;
+    return 0;
+}
+
+static const char *hook_shell_commands(void) {
+    if (real_shell_command0) return "already hooked";
+    HMODULE sim = GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "the simulation DLL is not loaded";
+    unsigned char *create = (unsigned char *)GetProcAddress(sim, "CreateBlamEngineShell");
+    if (!create) return "CreateBlamEngineShell not exported";
+    /* lea rax, [vtable] ... mov [rbx+140h], rax */
+    static const unsigned char STORE[] = {0x48, 0x89, 0x83, 0x40, 0x01, 0x00, 0x00};
+    unsigned char *store = NULL, *lea = NULL;
+    for (int i = 0; i < 0x180 && !store; i++)
+        if (memcmp(create + i, STORE, sizeof STORE) == 0) store = create + i;
+    for (unsigned char *q = store ? store - 3 : NULL; q && q > create && !lea; q--)
+        if (q[0] == 0x48 && q[1] == 0x8D && q[2] == 0x05) lea = q;
+    if (!lea) return "shell interface not found, left alone";
+    void **vtable = (void **)(lea + 7 + *(int *)(lea + 3));
+    unsigned char *cmd0 = (unsigned char *)vtable[1], *obj = (unsigned char *)vtable[2],
+                  *cmd3 = (unsigned char *)vtable[4];
+    if (!queues_type(cmd0, 0) || !queues_type(cmd3, 3)) return "shell command methods differ, left alone";
+    DWORD old;
+    if (!VirtualProtect(vtable, 5 * sizeof *vtable, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    real_shell_command0 = (shell_command_t)cmd0;
+    real_shell_object_command = (shell_command_t)obj;
+    real_shell_command3 = (shell_command_t)cmd3;
+    vtable[1] = (void *)hook_shell_command0;
+    vtable[2] = (void *)hook_shell_object_command;
+    vtable[4] = (void *)hook_shell_command3;
+    VirtualProtect(vtable, 5 * sizeof *vtable, old, &old);
+    return "hooked";
+}
+
+/* native\sim_command.txt: "0 <subtype>" queues that type-0 command on the
+   shell (never 11, which carries data). A test lever for a joiner's
+   simulation that never starts its join. */
+__declspec(dllexport) int mjolnir_sim_command(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%ssim_command.txt", dir);
+    FILE *f = fopen(path, "r");
+    int type = -1, subtype = -1;
+    if (f) {
+        if (fscanf(f, "%d %d", &type, &subtype) != 2) type = -1;
+        fclose(f);
+    }
+    void *iface = shell_iface;
+    if (type != 0 || subtype < 0 || subtype > 16 || subtype == 11 || !iface || !real_shell_command0) {
+        fireteam_log("shell: no command queued (type %d subtype %d, shell %p)", type, subtype, iface);
+        return 0;
+    }
+    fireteam_log("shell: queueing command 0 %d by hand", subtype);
+    real_shell_command0(iface, (char)subtype, NULL);
     return 0;
 }
 
@@ -1620,6 +1743,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     fireteam_log("pawn BeginPlay (a joiner before its Blam game): %s", hook_pawn_begin_play_slot());
     fireteam_log("world NotifyBeginPlay (held for a joiner's Blam game): %s", hook_notify_begin_play_slots());
+    fireteam_log("Blam shell commands (logged with their callers): %s", hook_shell_commands());
     return 0;
 }
 
