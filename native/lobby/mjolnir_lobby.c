@@ -150,6 +150,26 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
         fireteam_log("lobby: maxMemberCount %u -> %u", *max_members, at_least(*max_members, fireteam_size));
         *max_members = at_least(*max_members, fireteam_size);
     }
+    /* PFLobbyCreateConfiguration: maxMemberCount, ownerMigrationPolicy,
+       accessPolicy, searchPropertyCount (+12), keys (+16), values (+24),
+       lobbyPropertyCount (+32), keys (+40), values (+48). */
+    if (config) {
+        __try {
+            const unsigned char *c = (const unsigned char *)config;
+            fireteam_log("lobby: create, access policy %u, owner migration %u", *(const unsigned *)(c + 8),
+                         *(const unsigned *)(c + 4));
+            for (int group = 0; group < 2; group++) {
+                unsigned count = *(const unsigned *)(c + 12 + group * 20);
+                const char *const *keys = *(const char *const *const *)(c + 16 + group * 24);
+                const char *const *values = *(const char *const *const *)(c + 24 + group * 24);
+                for (unsigned i = 0; keys && i < count && i < 64; i++)
+                    fireteam_log("lobby: create %s property %s = %.200s", group ? "lobby" : "search",
+                                 keys[i] ? keys[i] : "?", values && values[i] ? values[i] : "");
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("lobby: create configuration unreadable");
+        }
+    }
     long hr = real_create_join_lobby(handle, creator, config, join, context, lobby);
     if (hr >= 0 && lobby) track_lobby(*(void **)lobby, "created");
     return hr;
@@ -350,9 +370,32 @@ enum { MEMBERSHIP_UNLOCKED = 0, MEMBERSHIP_LOCKED = 1 };
 
 static lobby_post_update_t real_lobby_post_update;
 
+/* The properties a lobby update carries: search properties (count at +32, keys
+   +40, values +48) and lobby properties (+56, +64, +72). Logged to find what a
+   joining client reads and gives up on in a match in progress (2026-10-02: it
+   leaves a second after joining, without the simulation refusing it). */
+static void log_lobby_properties(const unsigned char *update) {
+    for (int group = 0; group < 2; group++) {
+        unsigned count = *(const unsigned *)(update + 32 + group * 24);
+        const char *const *keys = *(const char *const *const *)(update + 40 + group * 24);
+        const char *const *values = *(const char *const *const *)(update + 48 + group * 24);
+        if (!count || !keys) continue;
+        for (unsigned i = 0; i < count && i < 64; i++) {
+            const char *v = values ? values[i] : NULL;
+            fireteam_log("lobby: %s property %s = %.200s", group ? "lobby" : "search", keys[i] ? keys[i] : "?",
+                         v ? v : "(removed)");
+        }
+    }
+}
+
 static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void *update, const void *member,
                                             void *context) {
     if (!update) return real_lobby_post_update(lobby, user, update, member, context);
+    __try {
+        log_lobby_properties((const unsigned char *)update);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("lobby: properties unreadable");
+    }
     const unsigned *const *fields = (const unsigned *const *)update;
     const unsigned *lock = fields[LOBBY_UPDATE_LOCK];
     if (!lock) return real_lobby_post_update(lobby, user, update, member, context);
