@@ -1538,6 +1538,45 @@ static void sim_session_line(char *line, size_t size) {
     }
 }
 
+/* Experiment: a joiner's own peer entry never says what the host's does
+   (map status 3 not 4, no game instance, start status 0), so the host never
+   spawns it. Copy those three from the host's entry into the local one (the
+   session's local peer index is at +0x40) and see what the simulation does
+   with it. Once per session; logged. */
+static void adopt_host_peer_properties(void) {
+    static int adopted;
+    static DWORD mismatch_since;
+    if (adopted || !sim_sessions) return;
+    __try {
+        for (int si = 0; si < 2; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            int local = *(int *)(s + 0x40);
+            if (!mask || local < 0 || local > 16 || !(mask & (1u << local))) continue;
+            unsigned char *mine = s + local * 0x128, *host = NULL;
+            for (int i = 0; i < 17; i++)
+                if (i != local && (mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x10c) == 4) host = s + i * 0x128;
+            if (!host || *(unsigned *)(mine + 0x10c) == 4) {
+                mismatch_since = 0;
+                return;
+            }
+            DWORD now = GetTickCount();
+            if (!mismatch_since) mismatch_since = now;
+            if (now - mismatch_since < NUDGE_MS) return;
+            adopted = 1;
+            fireteam_log("world: session %d local peer %d still map %u; adopting the host's map status, game instance and start status",
+                         si, local, *(unsigned *)(mine + 0x10c));
+            *(unsigned *)(mine + 0x10c) = *(unsigned *)(host + 0x10c);
+            *(unsigned long long *)(mine + 0x118) = *(unsigned long long *)(host + 0x118);
+            *(unsigned *)(mine + 0x164) = *(unsigned *)(host + 0x164);
+            return;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        adopted = 1;
+        fireteam_log("world: adopting the host's peer properties failed (unreadable)");
+    }
+}
+
 static void watch_loading(void) {
     static int last_mode = -1, last_state = -1, last_flags = -1;
     static void *last_experience = (void *)1;
@@ -1577,6 +1616,7 @@ static void watch_loading(void) {
         snprintf(last_session, sizeof last_session, "%s", session);
         fireteam_log("world: simulation session %s", session);
     }
+    if (state == 0 && mode == 2) adopt_host_peer_properties();
     if (state == 1 && mode == 1 && now - state_since > NUDGE_MS && !mode_pushed) {
         mode_pushed = 1;
         if (!loading_manager_set_mode2) loading_manager_set_mode2 = find_set_mode2();
