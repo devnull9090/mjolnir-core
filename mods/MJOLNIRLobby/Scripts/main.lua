@@ -1579,7 +1579,10 @@ local AUTO = {
             if not lobbies then return autoState({ result = "error " .. tostring(why) }) end
             local chosen
             for _, g in ipairs(lobbies) do
-                if not chosen and (not wanted or string.lower(tostring(g.host or "")):find(wanted, 1, true)) then
+                -- The hub lists its account name as host; the game's own
+                -- player name is in the listing's name ("<player>'s game").
+                local who = string.lower(tostring(g.host or "") .. " " .. tostring(g.name or ""))
+                if not chosen and (not wanted or who:find(wanted, 1, true)) then
                     chosen = g
                 end
             end
