@@ -524,15 +524,43 @@ static const unsigned char SIM_SEND[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x5
                                          0x57, 0x48, 0x83, 0xEC, 0x28, 0x80, 0x79, 0x28, 0x00, 0x4C, 0x8B, 0xFA};
 #define SIM_SEND_STOLEN 17
 
+/* Message names by type (the registration order in the sim DLL, 0x4c3420). */
+static const char *sim_message_name(unsigned type) {
+    static const char *const names[] = {"connect-request", "connect-refuse", "connect-establish", "connect-closed",
+                                        "join-request", "peer-connect", "join-abort", "join-refuse",
+                                        "leave-session", "leave-acknowledge", "session-disband"};
+    return type < sizeof names / sizeof *names ? names[type] : NULL;
+}
+
 static unsigned long long __fastcall hook_sim_send(void *gateway, void *address, unsigned type, unsigned size,
                                                    const unsigned char *data) {
-    /* 1 connect-refuse, 6 join-abort, 7 join-refuse */
-    if ((type == 1 || type == 6 || type == 7) && data) {
-        unsigned char *caller = (unsigned char *)_ReturnAddress();
-        fireteam_log("sim: send %s (size %u) reason %u, from sim+%llx",
-                     type == 7 ? "join-refuse" : type == 6 ? "join-abort" : "connect-refuse", size,
-                     size >= 12 ? *(const unsigned *)(data + 8) : *(const unsigned *)data,
-                     (unsigned long long)(caller - sim_base));
+    /* Every message, at most a few per type every 30 s (some go out each tick).
+       Joins, aborts and refusals carry the session id first (64 bits); a
+       refusal's reason follows at +8. */
+    static DWORD window[64];
+    static unsigned sent[64];
+    if (type < 64 && data) {
+        DWORD now = GetTickCount();
+        if (now - window[type] > 30000) {
+            window[type] = now;
+            sent[type] = 0;
+        }
+        if (sent[type]++ < 6 || type == 4 || type == 6 || type == 7) {
+            unsigned char *caller = (unsigned char *)_ReturnAddress();
+            const char *name = sim_message_name(type);
+            char label[24];
+            if (!name) {
+                snprintf(label, sizeof label, "type %u", type);
+                name = label;
+            }
+            if ((type == 4 || type == 6 || type == 7 || type == 1) && size >= 8)
+                fireteam_log("sim: send %s (size %u) session %016llx%s%u, from sim+%llx", name, size,
+                             *(const unsigned long long *)data, size >= 12 ? " reason " : " ",
+                             size >= 12 ? *(const unsigned *)(data + 8) : 0u, (unsigned long long)(caller - sim_base));
+            else
+                fireteam_log("sim: send %s (size %u), from sim+%llx", name, size,
+                             (unsigned long long)(caller - sim_base));
+        }
     }
     return sim_send_trampoline(gateway, address, type, size, data);
 }
