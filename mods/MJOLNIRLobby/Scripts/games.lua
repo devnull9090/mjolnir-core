@@ -67,6 +67,16 @@ local function encode(t)
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
+--- JSON null as nil: Json.decode keeps it as a sentinel table, which is
+--- truthy, and the hub sends null for fields it doesn't know (ping_ms).
+local function denull(v)
+    if v == Json.null then return nil end
+    if type(v) == "table" then
+        for k, x in pairs(v) do v[k] = denull(x) end
+    end
+    return v
+end
+
 --- Call the hub API: done(status, decoded body or nil). Status 0 means the
 --- hub could not be reached, or did not answer in time.
 local function hub(method, path, body, done)
@@ -91,7 +101,7 @@ local function hub(method, path, body, done)
             os.remove(reply)
             local status, rest = text:match("^(%d+)\n(.*)$")
             local ok, data = pcall(Json.decode, rest or "")
-            done(tonumber(status) or 0, ok and data or nil)
+            done(tonumber(status) or 0, ok and denull(data) or nil)
         elseif os.time() > deadline then
             done(0, nil)
         else
