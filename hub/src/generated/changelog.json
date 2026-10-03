@@ -76,6 +76,47 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.10.0",
+      "tag": "mods-v0.10.0",
+      "title": "Fireteams past four players",
+      "date": "2026-10-02",
+      "summary": "Up to 16 players can join a fireteam, and the FIRETEAM panel on the main menu lists all of them. Each extra player needs their own PC.",
+      "body": "### Added\n\n- **Bigger fireteams.** The host's fireteam now takes up to 16 players.\n  The game's limits of four, in the PlayFab lobby, the PlayFab Party network\n  and the Steam session, are raised as the host signs in. Tested with five\n  players on two PCs.\n- **The FIRETEAM panel lists everyone.** The game's panel stopped at four\n  rows; now every player has a row, an INVITE + row stays while there is\n  room, and the header shows the real limit (for example FIRETEAM 5/16).\n\n### Changed\n\n- **MJOLNIRLobby 0.3.0:** bigger fireteams and the full FIRETEAM panel.\n\n### Removed\n\n- **MJOLNIRCoop8**, an early experiment with the player limit. MJOLNIRLobby\n  does its job now. If you have it installed, it does no harm; you can\n  delete its folder.\n\n### Known issues\n\n- **Split screen:** more than two players on one PC freezes a match when it\n  starts, so a fifth player needs a fifth PC.\n- **Split screen and online players:** a split screen player added before\n  anyone joins online can stop online players from joining. Let online\n  players join first.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Bigger fireteams. The host's fireteam now takes up to 16 players. The game's limits of four, in the PlayFab lobby, the PlayFab Party network and the Steam session, are raised as the host signs in. Tested with five players on two PCs.",
+            "The FIRETEAM panel lists everyone. The game's panel stopped at four rows; now every player has a row, an INVITE + row stays while there is room, and the header shows the real limit (for example FIRETEAM 5/16)."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.3.0: bigger fireteams and the full FIRETEAM panel."
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            "MJOLNIRCoop8, an early experiment with the player limit. MJOLNIRLobby does its job now. If you have it installed, it does no harm; you can delete its folder."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Split screen: more than two players on one PC freezes a match when it starts, so a fifth player needs a fifth PC.",
+            "Split screen and online players: a split screen player added before anyone joins online can stop online players from joining. Let online players join first."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.10.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.10.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.10.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.9.0",
       "tag": "mods-v0.9.0",
       "title": "Post-game and next-map voting",
