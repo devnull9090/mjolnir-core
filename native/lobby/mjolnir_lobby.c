@@ -1068,6 +1068,130 @@ static const char *hook_pre_login_slots(void) {
     return why;
 }
 
+/* --- A joiner's pawn before its Blam game -------------------------------- */
+
+/* AMeteoritePawn::BeginPlay (exe 0x7b16500 on CU4, BP_MeteoritePawn_C vtable
+   slot 0x3a0) runs its parent BeginPlay, then binds to two event sources of
+   the running Blam game: the BlamEngine module's engine (+0x10), its +0x40 and
+   +0x60. A player let into a match under way (join_in_progress.txt) gets the
+   host's pawns replicated before its own simulation has a game, both are
+   null, and the bind crashed it (2026-10-03). Without a game the hook runs the
+   parent BeginPlay alone and logs it, so the joiner lives on to show what its
+   simulation does next. The module lookup is the one BeginPlay makes, read
+   from its own code. */
+typedef void(__fastcall *begin_play_t)(void *self);
+typedef void *(__fastcall *module_manager_get_t)(void);
+typedef void *(__fastcall *module_get_t)(void *manager, unsigned long long name);
+
+static begin_play_t real_pawn_begin_play, pawn_parent_begin_play;
+static module_manager_get_t module_manager_get;
+static module_get_t module_get;
+
+static const unsigned char PAWN_BEGIN_PLAY[] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54,
+                                                0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48,
+                                                0x83, 0xEC, 0x50, 0xB2, 0x01, 0x48, 0x8B, 0xF9};
+#define PAWN_PARENT_CALL 0x3b
+#define PAWN_MODULE_MANAGER_CALL 0x18b
+#define PAWN_GET_MODULE_CALL 0x197
+#define PAWN_ENGINE_READS 0x1b7
+/* mov r15, [rax+10h] / mov r13, [r15+40h] */
+static const unsigned char PAWN_ENGINE_READ_BYTES[] = {0x4C, 0x8B, 0x78, 0x10, 0x4D, 0x8B, 0x6F, 0x40};
+
+static unsigned char *call_target(unsigned char *call) {
+    return call[0] == 0xE8 ? call + 5 + *(int *)(call + 1) : NULL;
+}
+
+/* The running Blam game's two event sources, or NULLs: "engine +40 +60". */
+static void blam_game_parts(void **engine, void **at40, void **at60) {
+    *engine = *at40 = *at60 = NULL;
+    if (!module_get || !resolve()) return;
+    unsigned long long name = 0;
+    fname_ctor(&name, L"BlamEngine", FNAME_ADD, NULL);
+    __try {
+        unsigned char *module = (unsigned char *)module_get(module_manager_get(), name);
+        if (!module) return;
+        unsigned char *e = *(unsigned char **)(module + 0x10);
+        *engine = e;
+        if (!e) return;
+        *at40 = *(void **)(e + 0x40);
+        *at60 = *(void **)(e + 0x60);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *engine = *at40 = *at60 = NULL;
+    }
+}
+
+static void __fastcall hook_pawn_begin_play(void *self) {
+    void *engine, *at40, *at60;
+    blam_game_parts(&engine, &at40, &at60);
+    if (at40 && at60) {
+        real_pawn_begin_play(self);
+        return;
+    }
+    fireteam_log("pawn: BeginPlay %p before the Blam game (engine %p, +40 %p, +60 %p): parent BeginPlay only", self,
+                 engine, at40, at60);
+    pawn_parent_begin_play(self);
+}
+
+/* AMeteoritePawn::BeginPlay, with the module lookup and parent read from its
+   code; NULL (and why) when the code is not what this was written against. */
+static unsigned char *find_pawn_begin_play(const char **why) {
+    static char text[80];
+    int hits;
+    unsigned char *fn = find_code(PAWN_BEGIN_PLAY, sizeof PAWN_BEGIN_PLAY, &hits);
+    if (!fn) {
+        snprintf(text, sizeof text, "pawn BeginPlay pattern matched %d times, left alone", hits);
+        *why = text;
+        return NULL;
+    }
+    unsigned char *parent = call_target(fn + PAWN_PARENT_CALL);
+    unsigned char *manager = call_target(fn + PAWN_MODULE_MANAGER_CALL);
+    unsigned char *get = call_target(fn + PAWN_GET_MODULE_CALL);
+    if (!parent || !manager || !get || !in_image(parent) || !in_image(manager) || !in_image(get) ||
+        memcmp(fn + PAWN_ENGINE_READS, PAWN_ENGINE_READ_BYTES, sizeof PAWN_ENGINE_READ_BYTES) != 0) {
+        *why = "pawn BeginPlay body differs, left alone";
+        return NULL;
+    }
+    pawn_parent_begin_play = (begin_play_t)parent;
+    module_manager_get = (module_manager_get_t)manager;
+    module_get = (module_get_t)get;
+    return fn;
+}
+
+static const char *hook_pawn_begin_play_slot(void) {
+    static char why[80];
+    if (real_pawn_begin_play) return "already hooked";
+    const char *missing;
+    unsigned char *fn = find_pawn_begin_play(&missing);
+    if (!fn) return missing;
+    int hits;
+    void **slot = find_vtable_slot(fn, &hits);
+    if (!slot) {
+        snprintf(why, sizeof why, "pawn BeginPlay is in %d vtable slots, left alone", hits);
+        return why;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    real_pawn_begin_play = (begin_play_t)fn;
+    *slot = (void *)hook_pawn_begin_play;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return "hooked";
+}
+
+/* Logs the Blam game's parts now (a diagnostic; game thread only). */
+__declspec(dllexport) int mjolnir_blam_state(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    const char *why = NULL;
+    if (!module_get && !find_pawn_begin_play(&why)) {
+        fireteam_log("blam: %s", why);
+        return 0;
+    }
+    void *engine, *at40, *at60;
+    blam_game_parts(&engine, &at40, &at60);
+    fireteam_log("blam: engine %p, +40 %p, +60 %p", engine, at40, at60);
+    return 0;
+}
+
 /* native\stay_online.txt: "1" before joining a public game from FIND GAMES
    (games.lua). A joiner landing in a session that is already running took the
    same one-member branch and left within a second; it gets the branch patch
@@ -1379,6 +1503,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
+    fireteam_log("pawn BeginPlay (a joiner before its Blam game): %s", hook_pawn_begin_play_slot());
     return 0;
 }
 
