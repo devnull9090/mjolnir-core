@@ -759,11 +759,12 @@ fn set_install_path(path: Option<String>) -> Result<InstallStatus, String> {
 fn launch_game() -> Result<(), String> {
     let settings = get_settings();
 
-    // A game update replaces the tables the map registration was built from;
-    // rebuild it before the game reads them. A failure costs the converted
-    // maps, not the launch, so it is reported and the game starts anyway.
-    if let Err(e) = hub::refresh_maps() {
-        eprintln!("map registration: {e}");
+    // Put back any hub container deleted from Paks by hand, and rebuild the
+    // map registration (a game update replaces the tables it was built
+    // from). A failure costs those mods, not the launch, so it is reported
+    // and the game starts anyway.
+    if let Err(e) = hub::prepare_launch() {
+        eprintln!("hub mods: {e}");
     }
 
     match settings.launch_method.as_str() {
@@ -1115,6 +1116,14 @@ fn hub_sign_out() -> Result<(), String> {
 #[tauri::command]
 async fn hub_uninstall(slug: String) -> Result<hub::HubState, String> {
     tauri::async_runtime::spawn_blocking(move || hub::uninstall(slug))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// Installed hub mods whose files are gone from the cache or from Paks.
+#[tauri::command]
+async fn hub_missing_files() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(hub::missing_files)
         .await
         .map_err(|e| format!("Task join error: {e}"))?
 }
@@ -1577,6 +1586,7 @@ pub fn run() {
             hub_check_conflicts,
             hub_check_updates,
             hub_verify_installed,
+            hub_missing_files,
             hub_auth_status,
             hub_auth_start,
             hub_auth_poll,
