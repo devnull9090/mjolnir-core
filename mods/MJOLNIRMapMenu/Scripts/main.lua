@@ -216,7 +216,12 @@ local function initialize()
 
     if AUTO_REVEAL then
         -- The frontend menu is built a moment after the map finishes loading.
-        RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
+        -- ClientRestart also comes with every respawn in a match, where the
+        -- menu lookup (a walk of every object, ~20 ms on a converted map)
+        -- would only find nothing: the frontend's world alone looks.
+        RegisterHook("/Script/Engine.PlayerController:ClientRestart", function(self)
+            local okW, world = pcall(function() return self:get():GetWorld():GetFName():ToString() end)
+            if okW and world ~= "Frontend" then return end
             ExecuteInGameThreadWithDelay(3000, function()
                 if FindAllOf("WBP_MainMenu_C") then revealDebugPanel() end
             end)

@@ -130,24 +130,22 @@ local function describe(value)
     return safeName(value) or tostring(value)
 end
 
--- After a world change FindFirstOf can still return the previous world's
--- controller, valid until garbage collection but no longer viewing anything,
--- so a controller that owns a local player wins.
+--- The first local player's controller, read through the engine: a few
+--- property reads, where FindAllOf("PlayerController") walks every object in
+--- the game, ~20 ms on a converted map (200,000 objects, 2026-10-02).
+--- After a world change FindFirstOf can still return the previous world's
+--- controller, valid until garbage collection but no longer viewing anything;
+--- the engine's local player always has the live one.
+local Engine = nil
 local function playerController()
-    local fallback = nil
-    local okAll, all = pcall(FindAllOf, "PlayerController")
-    if okAll and all then
-        for _, candidate in ipairs(all) do
-            if candidate and candidate:IsValid() then
-                local okPlayer, player = pcall(function() return candidate.Player end)
-                if okPlayer and player and player:IsValid() then return candidate end
-                fallback = fallback or candidate
-            end
-        end
+    if not (Engine and Engine:IsValid()) then
+        Engine = FindFirstOf("GameEngine")
+        if not (Engine and Engine:IsValid()) then return nil end
     end
-    if fallback then return fallback end
-    local ok, controller = pcall(FindFirstOf, "PlayerController")
-    if ok and controller and controller:IsValid() then return controller end
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and pc and pc:IsValid() then return pc end
     return nil
 end
 

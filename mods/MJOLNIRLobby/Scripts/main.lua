@@ -1241,12 +1241,11 @@ local function openFireteam()
     log("fireteam: up to " .. FIRETEAM_SIZE .. " players (native\\fireteam.log has the details)")
 end
 
+--- The session of the world's game mode, which exists only on the host (a
+--- client has none to hold).
 local function holdFireteamSize()
-    for _, session in ipairs(FindAllOf("GameSession") or {}) do
-        pcall(function()
-            if session:IsValid() and session.MaxPlayers < FIRETEAM_SIZE then session.MaxPlayers = FIRETEAM_SIZE end
-        end)
-    end
+    local session = UI.playerController():GetWorld().AuthorityGameMode.GameSession
+    if session:IsValid() and session.MaxPlayers < FIRETEAM_SIZE then session.MaxPlayers = FIRETEAM_SIZE end
 end
 
 --- The fireteam as the squad panel sees it, and the world, logged whenever
@@ -1284,12 +1283,18 @@ local menuHook = false
 --- itself on the game thread: LoopAsync handing work to ExecuteInGameThread
 --- can deadlock on the game thread's lock (it froze the game in
 --- MJOLNIRLevelLoader, 2026-10-01).
+---
+--- Only the fireteam size is held during a match. The rest is the frontend's,
+--- and its widget and view-model lookups each walk every object in the game:
+--- run in a match, seven walks of ~20 ms each froze a converted map for
+--- 140 ms every 1.5 s (2026-10-02).
 local function watchMainMenu()
     local function poll()
         local ok, err = pcall(function()
+            pcall(holdFireteamSize)
+            if not inFrontend() then return end
             refreshLobby()
             pcall(watchFireteam)
-            pcall(holdFireteamSize)
             SquadPanel.hook(FIRETEAM_SIZE)
             pcall(SquadPanel.refresh, FIRETEAM_SIZE)
             pcall(hostPostGame)
