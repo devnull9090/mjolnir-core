@@ -297,6 +297,11 @@ static long __stdcall hook_join_lobby(void *handle, void *member, const char *co
    alone leaves the lobby, so nobody can join it (2026-10-02); the call chain
    is logged, as exe RVAs, to find where the game decides that. */
 static volatile LONG keep_lobby;
+/* Set on the thread running Online Services' LeaveSession (hook_leave_session):
+   the leave a solo start asks for. Only that one is refused. The game's own
+   leave on the way back to the menu (exe 0x7abf235, the online session
+   subsystem) retries without pause when refused: 9,172 times in 7 s. */
+static __declspec(thread) int in_leave_session;
 #define KEEP_LOBBY_REFUSED ((long)0x80004005) /* E_FAIL */
 
 static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
@@ -305,7 +310,7 @@ static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
        passes no async context and checks the result at once, so a failure
        comes back to it as "could not leave" rather than a wait that never
        ends. The lobby, its connection string and its listing stay. */
-    if (keep_lobby && lobby && lobby == current_lobby) {
+    if (keep_lobby && in_leave_session && lobby && lobby == current_lobby) {
         fireteam_log("lobby: kept %p (the game is public; its leave refused)", lobby);
         return KEEP_LOBBY_REFUSED;
     }
@@ -541,7 +546,10 @@ static void *__fastcall hook_leave_session(void *self, void *out, unsigned char 
         fireteam_log("session: LeaveSession name %u/%u destroy %u", *(unsigned *)(params + 4),
                      *(unsigned *)(params + 8), params[0xc]);
     }
-    return real_leave_session(self, out, params);
+    in_leave_session++;
+    void *result = real_leave_session(self, out, params);
+    in_leave_session--;
+    return result;
 }
 
 static const char *hook_leave_session_slot(void) {
