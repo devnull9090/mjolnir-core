@@ -142,6 +142,7 @@ static unsigned at_least(unsigned value, unsigned floor) { return value < floor 
    its first field is maxMemberCount. */
 static void track_lobby(void *lobby, const char *how);
 static int in_image(const void *p);
+static void drop_held_world(const char *why);
 
 /* The exe return addresses on the caller's stack, as " rva rva ...": who asked. */
 #define CALLER_STACK (24 * 12 + 1)
@@ -783,6 +784,31 @@ static void **find_vtable_slot(void *fn, int *hits) {
     return *hits == 1 ? found : NULL;
 }
 
+/* Point every read-only-data slot holding `fn` (each vtable of a class that
+   inherits it) at `hook`; the count swapped, and in *already those that held
+   `hook` before. */
+static int swap_vtable_slots(void *fn, void *hook, int *already) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    int swapped = 0;
+    *already = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
+        void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
+        for (; p < end; p++) {
+            if (*p == hook) (*already)++;
+            if (*p != fn) continue;
+            DWORD old;
+            if (!VirtualProtect(p, sizeof *p, PAGE_READWRITE, &old)) continue;
+            *p = hook;
+            VirtualProtect(p, sizeof *p, old, &old);
+            swapped++;
+        }
+    }
+    return swapped;
+}
+
 /* OnlineTick's body after its prologue (push rbx; sub rsp, 20h): the subsystem
    at +0x560, then SteamAPI_RunCallbacks when the client is up (exe RVA
    0x6a7b580 on CU4, vtable slot 6 at 0xbc86b00). */
@@ -892,6 +918,7 @@ static const unsigned char LEAVE_SESSION_PUBLIC_PROLOGUE[] = {0x40, 0x55, 0x53, 
 static void *__fastcall hook_leave_session_public(void *self, void *out, unsigned char *params) {
     char line[CALLER_STACK];
     caller_stack(line);
+    drop_held_world("LeaveSession");
     fireteam_log("session: LeaveSession asked (name %u/%u destroy %u) from%s", params ? *(unsigned *)(params + 4) : 0u,
                  params ? *(unsigned *)(params + 8) : 0u, params ? params[0xc] : 0u, line);
     return real_leave_session_public(self, out, params);
@@ -1046,23 +1073,8 @@ static const char *hook_pre_login_slots(void) {
     real_pre_login = (pre_login_t)fn;
     stock_pre_login = (pre_login_t)stock;
     /* Every class that inherits the override has it in its vtable. */
-    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
-    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    int swapped = 0, already = 0;
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
-        if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
-        void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
-        for (; p < end; p++) {
-            if (*p == (void *)hook_pre_login) already++;
-            if (*p != (void *)fn) continue;
-            DWORD old;
-            if (!VirtualProtect(p, sizeof *p, PAGE_READWRITE, &old)) continue;
-            *p = (void *)hook_pre_login;
-            VirtualProtect(p, sizeof *p, old, &old);
-            swapped++;
-        }
-    }
+    int already;
+    int swapped = swap_vtable_slots(fn, (void *)hook_pre_login, &already);
     if (!swapped) return already ? "already hooked" : "PreLogin is in no vtable, left alone";
     snprintf(why, sizeof why, "hooked in %d vtables", swapped);
     return why;
@@ -1101,34 +1113,43 @@ static unsigned char *call_target(unsigned char *call) {
     return call[0] == 0xE8 ? call + 5 + *(int *)(call + 1) : NULL;
 }
 
-/* The running Blam game's two event sources, or NULLs: "engine +40 +60". */
-static void blam_game_parts(void **engine, void **at40, void **at60) {
-    *engine = *at40 = *at60 = NULL;
-    if (!module_get || !resolve()) return;
+/* The BlamEngine module's engine and the parts of it that exist only while a
+   Blam game runs: event sources at +0x40 and +0x60 (the pawn binds them) and
+   +0x50 (the local player controller binds it). All NULL when unknown. */
+struct blam_game {
+    void *engine, *at40, *at50, *at60;
+};
+
+static struct blam_game blam_game_now(void) {
+    struct blam_game g = {0};
+    if (!module_get || !resolve()) return g;
     unsigned long long name = 0;
     fname_ctor(&name, L"BlamEngine", FNAME_ADD, NULL);
     __try {
         unsigned char *module = (unsigned char *)module_get(module_manager_get(), name);
-        if (!module) return;
+        if (!module) return g;
         unsigned char *e = *(unsigned char **)(module + 0x10);
-        *engine = e;
-        if (!e) return;
-        *at40 = *(void **)(e + 0x40);
-        *at60 = *(void **)(e + 0x60);
+        g.engine = e;
+        if (!e) return g;
+        g.at40 = *(void **)(e + 0x40);
+        g.at50 = *(void **)(e + 0x50);
+        g.at60 = *(void **)(e + 0x60);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        *engine = *at40 = *at60 = NULL;
+        memset(&g, 0, sizeof g);
     }
+    return g;
 }
 
+static int blam_game_running(const struct blam_game *g) { return g->at40 && g->at50 && g->at60; }
+
 static void __fastcall hook_pawn_begin_play(void *self) {
-    void *engine, *at40, *at60;
-    blam_game_parts(&engine, &at40, &at60);
-    if (at40 && at60) {
+    struct blam_game g = blam_game_now();
+    if (g.at40 && g.at60) {
         real_pawn_begin_play(self);
         return;
     }
     fireteam_log("pawn: BeginPlay %p before the Blam game (engine %p, +40 %p, +60 %p): parent BeginPlay only", self,
-                 engine, at40, at60);
+                 g.engine, g.at40, g.at60);
     pawn_parent_begin_play(self);
 }
 
@@ -1177,6 +1198,99 @@ static const char *hook_pawn_begin_play_slot(void) {
     return "hooked";
 }
 
+/* --- A joiner's world before its Blam game ------------------------------- */
+
+/* A client's world begins play when the GameState's bReplicatedHasBegunPlay
+   arrives: AGameStateBase::OnRep_ReplicatedHasBegunPlay (exe 0x6055a30) calls
+   AWorldSettings::NotifyBeginPlay (0x687d700, vtable +0x778), which runs
+   BeginPlay on every actor. In a normal start the Blam game is up by then; a
+   joiner into a match under way gets there first, and the pawn and player
+   controller BeginPlays bind to Blam game objects that do not exist yet
+   (2026-10-03, two crashes). While a FIND GAMES join is armed
+   (mjolnir_stay_online), the first NotifyBeginPlay without a running Blam game
+   is held, and mjolnir_jip_tick (once a second, from games.lua, on the game
+   thread) lets it through once the game runs, or after JIP_HOLD_MS. */
+typedef void(__fastcall *notify_begin_play_t)(void *world_settings);
+static notify_begin_play_t real_notify_begin_play;
+static void *volatile held_world_settings;
+static DWORD held_since;
+static volatile LONG jip_armed;
+#define JIP_HOLD_MS 120000
+
+/* AWorldSettings::NotifyBeginPlay's body after GetWorld: mov r15, rax / test
+   byte [rax+13dh], 1 (the world's bBegunPlay) / jne. */
+static const unsigned char NOTIFY_BEGIN_PLAY_BODY[] = {0x4C, 0x8B, 0xF8, 0xF6, 0x80, 0x3D, 0x01,
+                                                       0x00, 0x00, 0x01, 0x0F, 0x85};
+static const unsigned char NOTIFY_BEGIN_PLAY_PROLOGUE[] = {0x40, 0x55, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24,
+                                                           0xB1, 0x48, 0x81, 0xEC, 0xA8, 0x00, 0x00, 0x00};
+#define NOTIFY_BEGIN_PLAY_BODY_AT 0x23
+
+static void log_blam_game(const char *what, const struct blam_game *g) {
+    fireteam_log("%s (engine %p, +40 %p, +50 %p, +60 %p)", what, g->engine, g->at40, g->at50, g->at60);
+}
+
+static void __fastcall hook_notify_begin_play(void *world_settings) {
+    if (InterlockedExchange(&jip_armed, 0)) {
+        struct blam_game g = blam_game_now();
+        if (!blam_game_running(&g)) {
+            held_since = GetTickCount();
+            held_world_settings = world_settings;
+            log_blam_game("world: begin play held until the Blam game runs", &g);
+            return;
+        }
+        log_blam_game("world: begin play with the Blam game running", &g);
+    }
+    real_notify_begin_play(world_settings);
+}
+
+static const char *hook_notify_begin_play_slots(void) {
+    static char why[80];
+    if (real_notify_begin_play) return "already hooked";
+    int hits;
+    unsigned char *body = find_code(NOTIFY_BEGIN_PLAY_BODY, sizeof NOTIFY_BEGIN_PLAY_BODY, &hits);
+    if (!body) {
+        snprintf(why, sizeof why, "NotifyBeginPlay pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *fn = body - NOTIFY_BEGIN_PLAY_BODY_AT;
+    if (memcmp(fn, NOTIFY_BEGIN_PLAY_PROLOGUE, sizeof NOTIFY_BEGIN_PLAY_PROLOGUE) != 0)
+        return "NotifyBeginPlay prologue differs, left alone";
+    real_notify_begin_play = (notify_begin_play_t)fn;
+    int already;
+    int swapped = swap_vtable_slots(fn, (void *)hook_notify_begin_play, &already);
+    if (!swapped) {
+        real_notify_begin_play = NULL;
+        return already ? "already hooked" : "NotifyBeginPlay is in no vtable, left alone";
+    }
+    snprintf(why, sizeof why, "hooked in %d vtables", swapped);
+    return why;
+}
+
+/* The game left the session: a held world is going away, never release it. */
+static void drop_held_world(const char *why) {
+    if (InterlockedExchangePointer(&held_world_settings, NULL)) fireteam_log("world: held begin play dropped (%s)", why);
+}
+
+/* Once a second from games.lua, on the game thread. */
+__declspec(dllexport) int mjolnir_jip_tick(void *L) {
+    (void)L;
+    void *ws = held_world_settings;
+    if (!ws) return 0;
+    struct blam_game g = blam_game_now();
+    static struct blam_game last;
+    if (memcmp(&g, &last, sizeof g) != 0) {
+        log_blam_game("world: Blam game parts now", &g);
+        last = g;
+    }
+    DWORD waited = GetTickCount() - held_since;
+    if (!blam_game_running(&g) && waited < JIP_HOLD_MS) return 0;
+    if (InterlockedCompareExchangePointer(&held_world_settings, NULL, ws) != ws) return 0;
+    fireteam_log("world: begin play released after %lu ms (%s)", (unsigned long)waited,
+                 blam_game_running(&g) ? "the Blam game runs" : "no Blam game, gave up waiting");
+    real_notify_begin_play(ws);
+    return 0;
+}
+
 /* Logs the Blam game's parts now (a diagnostic; game thread only). */
 __declspec(dllexport) int mjolnir_blam_state(void *L) {
     (void)L;
@@ -1186,9 +1300,8 @@ __declspec(dllexport) int mjolnir_blam_state(void *L) {
         fireteam_log("blam: %s", why);
         return 0;
     }
-    void *engine, *at40, *at60;
-    blam_game_parts(&engine, &at40, &at60);
-    fireteam_log("blam: engine %p, +40 %p, +60 %p", engine, at40, at60);
+    struct blam_game g = blam_game_now();
+    log_blam_game("blam: now", &g);
     return 0;
 }
 
@@ -1209,6 +1322,8 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
         fclose(f);
     }
     fireteam_log("session: alone, stay online: %s", stay_online_alone(value || keep_lobby));
+    InterlockedExchange(&jip_armed, value ? 1 : 0);
+    if (value) fireteam_log("world: a begin play before the Blam game will wait for it");
     return 0;
 }
 
@@ -1504,6 +1619,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     fireteam_log("pawn BeginPlay (a joiner before its Blam game): %s", hook_pawn_begin_play_slot());
+    fireteam_log("world NotifyBeginPlay (held for a joiner's Blam game): %s", hook_notify_begin_play_slots());
     return 0;
 }
 

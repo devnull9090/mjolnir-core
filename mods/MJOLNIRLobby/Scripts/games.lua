@@ -359,6 +359,10 @@ function Games.init(deps)
     local function loop()
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
+        -- A joiner into a match under way holds its world's begin play until
+        -- its Blam game runs; the native half lets it go from here, on the
+        -- game thread.
+        native("mjolnir_jip_tick")
         ExecuteInGameThreadWithDelay(1000, loop)
     end
     ExecuteInGameThreadWithDelay(1000, loop)
