@@ -764,6 +764,30 @@ static unsigned char *find_code(const unsigned char *pattern, size_t length, int
     return *hits == 1 ? found : NULL;
 }
 
+/* find_code with wildcards: mask byte 0 skips that position. */
+static unsigned char *find_code_masked(const unsigned char *pattern, const unsigned char *mask, size_t length,
+                                       int *hits) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    *hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        unsigned char *start = base + s->VirtualAddress, *end = start + s->Misc.VirtualSize - length;
+        for (unsigned char *p = start; p <= end; p++) {
+            if (p[0] != pattern[0]) continue;
+            size_t k = 1;
+            while (k < length && (!mask[k] || p[k] == pattern[k])) k++;
+            if (k == length) {
+                found = p;
+                (*hits)++;
+            }
+        }
+    }
+    return *hits == 1 ? found : NULL;
+}
+
 /* The one slot in the exe's read-only data that holds `fn`: a vtable entry. */
 static void **find_vtable_slot(void *fn, int *hits) {
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
@@ -1268,6 +1292,39 @@ static const char *hook_pre_client_travel_slots(void) {
     return why;
 }
 
+/* UBlamEngineLoadingManagerEngineSubsystem's map-loaded callback (exe 0x7b47fe0
+   on CU4). The Blam start registers it on a global map-load delegate, and
+   when the map has loaded it starts the subsystem's loading tick, whose last
+   step queues shell command 0/2 and lifts the loading screen. A joiner into a
+   match under way loaded its map before its Blam game started, so the
+   callback never ran and the screen stayed black (2026-10-03). It is found
+   at its registration: lea r9, callback / mov r8, rbx / lea rcx, delegate /
+   mov rdx, [rax] / mov [rbx+1a0h], rdx. */
+typedef void(__fastcall *map_loaded_t)(void *loading_manager);
+static map_loaded_t loading_manager_map_loaded;
+static const unsigned char MAP_LOADED_SITE[] = {0x4C, 0x8D, 0x0D, 0, 0, 0, 0, 0x4C, 0x8B, 0xC3, 0x48, 0x8D, 0x0D, 0, 0, 0, 0,
+                                                0x48, 0x8B, 0x10, 0x48, 0x89, 0x93, 0xA0, 0x01, 0x00, 0x00};
+static const unsigned char MAP_LOADED_MASK[] = {1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
+                                                1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+/* push rbx/rbp/rsi/rdi; sub rsp, 48h; mov rdx, [rcx+1a8h] (its delegate handle) */
+static const unsigned char MAP_LOADED_PROLOGUE[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC,
+                                                    0x48, 0x48, 0x8B, 0x91, 0xA8, 0x01, 0x00, 0x00};
+
+static const char *find_map_loaded(void) {
+    static char why[80];
+    int hits;
+    unsigned char *site = find_code_masked(MAP_LOADED_SITE, MAP_LOADED_MASK, sizeof MAP_LOADED_SITE, &hits);
+    if (!site) {
+        snprintf(why, sizeof why, "map-loaded registration matched %d times", hits);
+        return why;
+    }
+    unsigned char *fn = site + 7 + *(int *)(site + 3);
+    if (!in_image(fn) || memcmp(fn, MAP_LOADED_PROLOGUE, sizeof MAP_LOADED_PROLOGUE) != 0)
+        return "map-loaded callback differs";
+    loading_manager_map_loaded = (map_loaded_t)fn;
+    return "found";
+}
+
 /* The world's name is "Frontend": the menu, which never has a Blam game. */
 static int world_is_frontend(unsigned char *world) {
     if (!world || !resolve()) return 0;
@@ -1408,15 +1465,17 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
        map it is in, once games.lua has said which map that is. */
     static void *replayed;
     if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && replayed != ws) {
-        char map[260] = "";
+        char map[260] = "", manager_line[64] = "";
         char path[MAX_PATH];
         snprintf(path, sizeof path, "%sjip_map.txt", dir);
         FILE *f = fopen(path, "r");
         if (f) {
             if (!fgets(map, sizeof map, f)) map[0] = 0;
+            if (!fgets(manager_line, sizeof manager_line, f)) manager_line[0] = 0;
             fclose(f);
         }
         map[strcspn(map, "\r\n")] = 0;
+        unsigned long long manager = _strtoui64(manager_line, NULL, 16);
         unsigned char *world = actor_get_world ? actor_get_world(ws) : NULL;
         void *gi = world && game_instance_offset ? *(void **)(world + game_instance_offset) : NULL;
         if (map[0] && gi && notify_pre_client_travel) {
@@ -1429,6 +1488,16 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
             fireteam_log("world: no Blam game %lu ms in; replaying NotifyPreClientTravel \"%s\" (relative, seamless)",
                          (unsigned long)waited, map);
             notify_pre_client_travel(gi, &url, 2, 1);
+            /* Its map has long loaded: run the loading manager's map-loaded
+               step the Blam start just registered for. */
+            if (!loading_manager_map_loaded) fireteam_log("world: map-loaded callback: %s", find_map_loaded());
+            void **mgr = (void **)(uintptr_t)manager;
+            if (mgr && loading_manager_map_loaded && in_image(*mgr)) {
+                fireteam_log("world: running the loading manager's map-loaded step (%p)", (void *)mgr);
+                loading_manager_map_loaded(mgr);
+            } else {
+                fireteam_log("world: no loading manager to run the map-loaded step on (%p)", (void *)mgr);
+            }
         } else if (waited > JIP_NUDGE_MS + 10000 && replayed != ws) {
             replayed = ws;
             fireteam_log("world: cannot replay the travel (map \"%s\", game instance %p)", map, gi);

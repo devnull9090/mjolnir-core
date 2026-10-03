@@ -174,6 +174,12 @@ local function jipTick()
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
             if f then
                 f:write(path, "?Name=Player?SeamlessTravel?ScenarioName=", code, "?InsertionPointIndex=0\n")
+                -- The engine subsystem whose map-loaded step lifts the
+                -- loading screen once the Blam game has started.
+                local okManager, manager = pcall(function()
+                    return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
+                end)
+                if okManager and manager then f:write(string.format("%X\n", manager)) end
                 f:close()
             end
         end
