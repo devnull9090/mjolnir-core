@@ -207,6 +207,7 @@ async function main() {
   say(`PC 2: ${beat.world}, ${beat.pawn}`);
   say("PASS: the joiner is in the match");
   if (LEAVE) await leave();
+  if (args.includes("--host")) await hostActions(host.name, joiner.name);
 }
 
 /** PC 2 leaves the way its pause menu does (BlamCampaignFlowGameSubsystem
@@ -253,6 +254,50 @@ async function leave() {
   const still = beat && beat.world?.includes(`/${MAP}/`) && /MeteoritePawn/.test(beat.pawn ?? "");
   if (over || !still) throw new Error(`PC 1's match ended when the joiner left (${over ? "game_over" : beat?.world})`);
   say("PASS: PC 1 plays on alone after the joiner left");
+}
+
+/** The host menu's actions, through mjolnir_auto (the same functions its
+ *  buttons call): kick, rejoin, ban, a banned rejoin, unban, end game. */
+async function hostActions(hostName, joinerName) {
+  const pc2World = async () => JSON.parse(await pc2.status()).bridge?.world ?? "";
+  const pc1InMatch = () => {
+    const beat = bridgeStatus();
+    return beat && beat.world?.includes(`/${MAP}/`) && /MeteoritePawn/.test(beat.pawn ?? "");
+  };
+  const pc1Responding = () => execFileSync("powershell", ["-NoProfile", "-Command", "(Get-Process HaloCampaignEvolved).Responding"], { encoding: "utf8" }).trim() === "True";
+  const toFrontend = (what) => waitFor(what, async () => (await pc2World()).includes("Frontend") || null, 60000, 2000);
+  const toMatch = (what) => waitFor(what, async () => (await pc2World()).includes(`/${MAP}/`) || null, 120000, 2000);
+  const who = joinerName.split(/\s/)[0];
+
+  say(`host: ${(await pc1.auto("kick", who)).result}`);
+  await toFrontend("PC 2 to be sent back by the kick");
+  if (!pc1Responding() || !pc1InMatch()) throw new Error("PC 1 left its match or stopped responding after the kick");
+  say("PASS: kick (PC 2 at its menu, PC 1 plays on)");
+
+  // The host holds a kicked player's old connection for a while: a rejoin
+  // 12 s on was dropped, one 2 min on worked (2026-10-03).
+  await sleep(30000);
+  say(`PC 2: ${(await pc2Side.auto("join", hostName)).result}`);
+  await toMatch("PC 2 to rejoin after the kick");
+  say("PASS: rejoin after a kick");
+
+  await sleep(5000);
+  say(`host: ${(await pc1.auto("ban", who)).result}`);
+  await toFrontend("PC 2 to be sent back by the ban");
+  say("PASS: ban");
+
+  await sleep(30000);
+  say(`PC 2: ${(await pc2Side.auto("join", hostName)).result} (banned)`);
+  await waitFor("PC 2 to reach the match", async () => (await pc2World()).includes(`/${MAP}/`) || null, 120000, 2000).catch(() => null);
+  await toFrontend("the banned PC 2 to be sent back");
+  say("PASS: a banned player is sent back when they join");
+  say(`host: ${(await pc1.auto("unban", joinerName.toLowerCase())).result}`);
+
+  const ue4ssLog = path.join(paths().ue4ss, "UE4SS.log");
+  const start = fs.statSync(ue4ssLog).size;
+  say(`host: ${(await pc1.auto("endgame")).result}`);
+  await waitFor("the match to end", () => fs.readFileSync(ue4ssLog, "utf8").slice(start).includes("incident game_over") || null, 30000, 1000);
+  say("PASS: end game (game_over)");
 }
 
 main().then(

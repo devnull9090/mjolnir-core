@@ -245,9 +245,11 @@ local function apply(rec)
     end
 end
 
---- Push a screen: { title, subtitle, description, buttons = { { label, description, onClick } } }.
+--- Push a screen: { title, subtitle, description, buttons = { { label, description, onClick } },
+--- layout (optional: the UI layout to push onto; in a match the game runs two,
+--- and the pause menu is on one of them) }.
 function UI.push(spec)
-    local layout = UI.layout()
+    local layout = spec.layout or UI.layout()
     if not valid(layout) then
         log("screen '" .. tostring(spec.title) .. "': no UI layout")
         return nil

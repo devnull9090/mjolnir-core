@@ -1042,9 +1042,9 @@ static const char *stay_online_alone(int on) {
    joiner got into the match and crashed: the host's Spartan replicated in,
    and AMeteoritePawn::BeginPlay (exe 0x7b16500) dereferenced the BlamEngine
    module's running game, which a joiner's simulation never started. So the
-   refusal stays (the hook logs every login) unless native\join_in_progress.txt
-   says "1", an experiment switch for the simulation's own join-in-progress
-   work; then, while the game is public, the hook calls the stock PreLogin alone.
+   refusal stays for a private game; a public one calls the stock PreLogin
+   alone, and the simulation side below puts the joiner in the running game
+   (native\join_in_progress.txt = 0 turns that off).
    The pattern is the override's prologue up to its call of the stock one. */
 struct fstring {
     wchar_t *data;
@@ -1071,7 +1071,7 @@ static void __fastcall hook_pre_login(void *self, void *options, void *address, 
         for (; i < (int)sizeof text - 1 && error->data[i]; i++) text[i] = error->data[i] < 0x80 ? (char)error->data[i] : '?';
         text[i] = 0;
     }
-    fireteam_log("login: PreLogin (%s): %s", open ? "public, join-in-progress experiment" : "as shipped", text);
+    fireteam_log("login: PreLogin (%s): %s", open ? "public game, joins in progress" : "as shipped", text);
 }
 
 static const char *hook_pre_login_slots(void) {
@@ -2023,6 +2023,8 @@ static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
 static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
+static volatile LONG end_game_request;
+static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
 static unsigned char *watch_globals;
 static unsigned char *sim_game_globals(void);
@@ -2037,6 +2039,13 @@ static void __fastcall hook_main_tick(void) {
         if (g && g[1]) watch_globals = g;
     }
     if (fade_in_pending) fade_in_tick();
+    if (InterlockedExchange(&end_game_request, 0)) {
+        __try {
+            end_game_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("game: end game faulted (%08lx)", GetExceptionCode());
+        }
+    }
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
         __try {
@@ -2931,6 +2940,54 @@ __declspec(dllexport) int mjolnir_sim_watch_write(void *L) {
     return 0;
 }
 
+/* The host menu's END GAME: end the running match the way a score limit does,
+   through the game engine's round end (sim 0x2afa70: winner, end the game,
+   reason) on the simulation thread, so the engine finishes it (game over
+   0x2b0400, game_over incidents) and MJOLNIRHud's results and the post-game
+   vote follow as after any match. Reason 4 is the game type's own end. Host
+   only, while a game runs in the in-game life cycle. */
+typedef void(__fastcall *round_end_t)(unsigned winner, char end_game, unsigned reason);
+static round_end_t round_end;
+static const unsigned char ROUND_END[] = {0x44, 0x89, 0x44, 0x24, 0x18, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41,
+                                          0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x48,
+                                          0x41, 0x8B, 0xF0, 0x8B, 0xD9};
+
+static void end_game_tick(void) {
+    unsigned char *g = sim_game_globals();
+    int hosting = 0;
+    for (int si = 0; si < 2 && sim_sessions; si++)
+        if (*(int *)(*sim_sessions + si * 0x5b9e8 + 0x5b460) == 6) hosting = 1;
+    if (!g || !g[1] || g[0x1ebcc] || !life_cycle || life_cycle[0] != 3 || !hosting) {
+        fireteam_log("game: end game refused (no running match hosted here)");
+        return;
+    }
+    round_end(0xffffffff, 1, 4);
+    fireteam_log("game: the host ended the match");
+}
+
+__declspec(dllexport) int mjolnir_sim_end_game(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits = 0;
+    if (!round_end) {
+        round_end = (round_end_t)find_in_module(sim, ROUND_END, NULL, sizeof ROUND_END, 1, &hits);
+        if (!round_end) {
+            fireteam_log("game: round end matched %d times", hits);
+            return 0;
+        }
+    }
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+    }
+    find_sim_sessions();
+    if (!install_main_tick(sim)) return 0;
+    InterlockedExchange(&end_game_request, 1);
+    return 0;
+}
+
 __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
@@ -3328,13 +3385,14 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     InterlockedExchange(&keep_lobby, value ? 1 : 0);
     snprintf(path, sizeof path, "%sjoin_in_progress.txt", dir);
     f = fopen(path, "r");
-    int jip = 0;
+    /* Joins into a public match under way are on unless the file says 0. */
+    int jip = 1;
     if (f) {
-        if (fscanf(f, "%d", &jip) != 1) jip = 0;
+        if (fscanf(f, "%d", &jip) != 1) jip = 1;
         fclose(f);
     }
     InterlockedExchange(&join_in_progress, jip ? 1 : 0);
-    if (jip) fireteam_log("login: join-in-progress experiment on");
+    if (!jip) fireteam_log("login: joins into a match under way are off (join_in_progress.txt)");
     fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", stay_online_alone(value));
     if (value) fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     return 0;
