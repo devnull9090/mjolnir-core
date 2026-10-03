@@ -1523,8 +1523,9 @@ static void sim_session_line(char *line, size_t size) {
         for (int si = 0; si < 2 && at + 64 < size; si++) {
             unsigned char *s = *sim_sessions + si * 0x5b9e8;
             unsigned mask = *(unsigned *)(s + 0x5c);
-            at += (size_t)snprintf(line + at, size - at, "%s[%d] life %d mask %x", si ? " " : "", si,
-                                   *(int *)(s + 0x5b460), mask);
+            at += (size_t)snprintf(line + at, size - at, "%s[%d] life %d mask %x hdr40 %d %d %d", si ? " " : "", si,
+                                   *(int *)(s + 0x5b460), mask, *(int *)(s + 0x40), *(int *)(s + 0x44),
+                                   *(int *)(s + 0x48));
             for (int i = 0; i < 17 && at + 64 < size; i++) {
                 if (!(mask & (1u << i))) continue;
                 unsigned char *peer = s + i * 0x128;
@@ -1551,8 +1552,13 @@ static void adopt_host_peer_properties(void) {
         for (int si = 0; si < 2; si++) {
             unsigned char *s = *sim_sessions + si * 0x5b9e8;
             unsigned mask = *(unsigned *)(s + 0x5c);
-            int local = *(int *)(s + 0x40);
-            if (!mask || local < 0 || local > 16 || !(mask & (1u << local))) continue;
+            if (!mask) continue;
+            /* The joining machine's entry carries +0x174 = 1 in both machines'
+               views (2026-10-03); the session's +0x40 is not it on a client. */
+            int local = -1;
+            for (int i = 0; i < 17; i++)
+                if ((mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x174) == 1) local = i;
+            if (local < 0) continue;
             unsigned char *mine = s + local * 0x128, *host = NULL;
             for (int i = 0; i < 17; i++)
                 if (i != local && (mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x10c) == 4) host = s + i * 0x128;
