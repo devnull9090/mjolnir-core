@@ -503,6 +503,78 @@ static const char *hook_online_tick_slot(void) {
     return "hooked";
 }
 
+/* --- Keeping the lobby through a solo start ------------------------------ */
+
+/* A match started with the host alone leaves the PlayFab lobby about a minute
+   in: the game's session flow asks Online Services' LeaveSession with
+   bDestroySession set, and the OSS adapter's LeaveSession (exe RVA 0x7a592f0
+   on CU4, the only pointer to it a vtable slot at 0xc1153b0) calls the
+   PlayFab session's DestroySession, which leaves the lobby (2026-10-02).
+   FLeaveSession::Params: local account (4 bytes), the session's FName (+4),
+   bDestroySession (+0xc). While a public game wants to stay joinable, the
+   flag is cleared on the way past. The body pattern is the flag's own test. */
+typedef void *(__fastcall *leave_session_t)(void *self, void *out, unsigned char *params);
+
+static leave_session_t real_leave_session;
+static volatile LONG keep_lobby;
+
+static const unsigned char LEAVE_SESSION[] = {0x41, 0x80, 0x7D, 0x0C, 0x00, 0x4C, 0x89, 0xB4, 0x24, 0x98, 0x01,
+                                              0x00, 0x00, 0x4C, 0x89, 0xBC, 0x24, 0x90, 0x01, 0x00, 0x00};
+static const unsigned char LEAVE_SESSION_PROLOGUE[] = {0x4C, 0x8B, 0xDC, 0x55, 0x41, 0x54};
+#define LEAVE_SESSION_BODY 0x74
+
+static void *__fastcall hook_leave_session(void *self, void *out, unsigned char *params) {
+    if (params) {
+        int keep = keep_lobby && params[0xc];
+        fireteam_log("session: LeaveSession name %u/%u destroy %u%s", *(unsigned *)(params + 4),
+                     *(unsigned *)(params + 8), params[0xc], keep ? " -> kept (the game is public)" : "");
+        if (keep) params[0xc] = 0;
+    }
+    return real_leave_session(self, out, params);
+}
+
+static const char *hook_leave_session_slot(void) {
+    static char why[80];
+    int hits;
+    unsigned char *body = find_code(LEAVE_SESSION, sizeof LEAVE_SESSION, &hits);
+    if (!body) {
+        snprintf(why, sizeof why, "LeaveSession pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *fn = body - LEAVE_SESSION_BODY;
+    if (memcmp(fn, LEAVE_SESSION_PROLOGUE, sizeof LEAVE_SESSION_PROLOGUE) != 0) return "LeaveSession prologue differs, left alone";
+    void **slot = find_vtable_slot(fn, &hits);
+    if (!slot) {
+        if (find_vtable_slot((void *)hook_leave_session, &hits)) return "already hooked";
+        snprintf(why, sizeof why, "LeaveSession is in %d vtable slots, left alone", hits);
+        return why;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    real_leave_session = (leave_session_t)fn;
+    *slot = (void *)hook_leave_session;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return "hooked";
+}
+
+/* native\keep_lobby.txt: "1" while the host's game is public (games.lua), so a
+   match started alone keeps its lobby; "0" otherwise. */
+__declspec(dllexport) int mjolnir_keep_lobby(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%skeep_lobby.txt", dir);
+    FILE *f = fopen(path, "r");
+    int value = 0;
+    if (f) {
+        if (fscanf(f, "%d", &value) != 1) value = 0;
+        fclose(f);
+    }
+    InterlockedExchange(&keep_lobby, value ? 1 : 0);
+    fireteam_log("session: keep the lobby through a solo start: %s", value ? "yes" : "no");
+    return 0;
+}
+
 /* native\join_request.txt: "<connection string> [<host SteamID64>]". The join
    goes out on the next online tick; native\join_reply.txt says how it went. */
 __declspec(dllexport) int mjolnir_join(void *L) {
@@ -755,6 +827,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PFLobbyLeave: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyLeave", (void *)hook_lobby_leave,
                                                  (void **)&real_lobby_leave));
     fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
+    fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     return 0;
 }
 
