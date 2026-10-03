@@ -1198,6 +1198,88 @@ static const char *hook_pawn_begin_play_slot(void) {
     return "hooked";
 }
 
+/* --- A client's Blam game starts on its travel ----------------------------- */
+
+/* A client's Blam game starts when the host's seamless travel reaches it:
+   APlayerController::ClientTravelInternal calls PreClientTravel (vtable
+   +0xf60, the game's override at exe 0x7ae84b0 on CU4), which calls
+   UGameInstance::NotifyPreClientTravel (0x600a220); the BlamNetworkSession
+   subsystem listens, builds the destination URL and queues the simulation's
+   start, whose join-request follows the same second (2026-10-03, PC 2's log).
+   A joiner into a match under way connects straight into the map and never
+   travels, so its Blam game never starts. The hook logs every PreClientTravel;
+   the world hold below replays NotifyPreClientTravel for the map it is in. */
+typedef void(__fastcall *pre_client_travel_t)(void *pc, struct fstring *url, int travel_type, unsigned char seamless);
+typedef void(__fastcall *notify_pre_client_travel_t)(void *game_instance, struct fstring *url, int travel_type,
+                                                     unsigned char seamless);
+typedef unsigned char *(__fastcall *get_world_t)(void *object);
+static pre_client_travel_t real_pre_client_travel;
+static notify_pre_client_travel_t notify_pre_client_travel;
+static get_world_t actor_get_world;
+static int game_instance_offset;
+
+static const unsigned char PRE_CLIENT_TRAVEL[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x38, 0x48, 0x8B, 0xEA,
+                                                  0xC7, 0x44, 0x24, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0x48, 0x8D, 0x54, 0x24,
+                                                  0x20, 0x41, 0x0F, 0xB6, 0xF9, 0x41, 0x8B, 0xF0, 0x48, 0x8B, 0xD9};
+#define PRE_CLIENT_TRAVEL_GET_WORLD 0x36
+#define PRE_CLIENT_TRAVEL_GAME_INSTANCE 0x3b /* mov rcx, [rax+disp32] */
+#define PRE_CLIENT_TRAVEL_NOTIFY 0x51
+
+static void fstring_text(const struct fstring *f, char *out, size_t size) {
+    size_t i = 0;
+    if (f && f->data && f->num > 1)
+        for (; i + 1 < size && f->data[i]; i++) out[i] = f->data[i] < 0x80 ? (char)f->data[i] : '?';
+    out[i] = 0;
+}
+
+static void __fastcall hook_pre_client_travel(void *pc, struct fstring *url, int travel_type, unsigned char seamless) {
+    char text[200];
+    fstring_text(url, text, sizeof text);
+    fireteam_log("travel: PreClientTravel \"%s\" type %d seamless %u", text, travel_type, seamless);
+    real_pre_client_travel(pc, url, travel_type, seamless);
+}
+
+static const char *hook_pre_client_travel_slots(void) {
+    static char why[80];
+    if (real_pre_client_travel) return "already hooked";
+    int hits;
+    unsigned char *fn = find_code(PRE_CLIENT_TRAVEL, sizeof PRE_CLIENT_TRAVEL, &hits);
+    if (!fn) {
+        snprintf(why, sizeof why, "PreClientTravel pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *get_world = call_target(fn + PRE_CLIENT_TRAVEL_GET_WORLD);
+    unsigned char *notify = call_target(fn + PRE_CLIENT_TRAVEL_NOTIFY);
+    unsigned char *gi = fn + PRE_CLIENT_TRAVEL_GAME_INSTANCE;
+    if (!get_world || !notify || !in_image(get_world) || !in_image(notify) || gi[0] != 0x48 || gi[1] != 0x8B ||
+        gi[2] != 0x88)
+        return "PreClientTravel body differs, left alone";
+    actor_get_world = (get_world_t)get_world;
+    notify_pre_client_travel = (notify_pre_client_travel_t)notify;
+    game_instance_offset = *(int *)(gi + 3);
+    real_pre_client_travel = (pre_client_travel_t)fn;
+    int already;
+    int swapped = swap_vtable_slots(fn, (void *)hook_pre_client_travel, &already);
+    if (!swapped) {
+        real_pre_client_travel = NULL;
+        return already ? "already hooked" : "PreClientTravel is in no vtable, left alone";
+    }
+    snprintf(why, sizeof why, "hooked in %d vtables", swapped);
+    return why;
+}
+
+/* The world's name is "Frontend": the menu, which never has a Blam game. */
+static int world_is_frontend(unsigned char *world) {
+    if (!world || !resolve()) return 0;
+    unsigned long long frontend = 0;
+    fname_ctor(&frontend, L"Frontend", FNAME_ADD, NULL);
+    __try {
+        return *(unsigned long long *)(world + 0x18) == frontend;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
 /* --- A joiner's world before its Blam game ------------------------------- */
 
 /* A client's world begins play when the GameState's bReplicatedHasBegunPlay
@@ -1233,17 +1315,44 @@ static void log_blam_game(const char *what, const struct blam_game *g) {
     fireteam_log("%s (engine %p, +40 %p, +50 %p, +60 %p)", what, g->engine, g->at40, g->at50, g->at60);
 }
 
+/* native\jip_held.txt exists while a world is held; games.lua then writes
+   native\jip_map.txt, the held world's package path. */
+static void held_flag(int on) {
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sjip_held.txt", dir);
+    if (on) {
+        FILE *f = fopen(path, "w");
+        if (f) fclose(f);
+    } else {
+        remove(path);
+        snprintf(path, sizeof path, "%sjip_map.txt", dir);
+        remove(path);
+    }
+}
+
 static void __fastcall hook_notify_begin_play(void *world_settings) {
     /* A world that begins play replaces any held one, which is gone or going
        (2026-10-03: a held lobby world was released after the match started,
        and crashed). */
     void *stale = InterlockedExchangePointer(&held_world_settings, NULL);
-    if (stale && stale != world_settings) fireteam_log("world: a new world began; the held one is dropped");
-    if (InterlockedExchange(&jip_armed, 0)) {
+    if (stale && stale != world_settings) {
+        held_flag(0);
+        fireteam_log("world: a new world began; the held one is dropped");
+    }
+    if (jip_armed) {
+        unsigned char *world = actor_get_world ? actor_get_world(world_settings) : NULL;
+        if (world_is_frontend(world)) {
+            /* The host's menu, on a lobby join: stay armed for its match. */
+            real_notify_begin_play(world_settings);
+            return;
+        }
+        InterlockedExchange(&jip_armed, 0);
         struct blam_game g = blam_game_now();
         if (!blam_game_running(&g)) {
             held_since = GetTickCount();
             held_world_settings = world_settings;
+            held_flag(1);
             log_blam_game("world: begin play held until the Blam game runs", &g);
             return;
         }
@@ -1277,7 +1386,10 @@ static const char *hook_notify_begin_play_slots(void) {
 
 /* The game left the session: a held world is going away, never release it. */
 static void drop_held_world(const char *why) {
-    if (InterlockedExchangePointer(&held_world_settings, NULL)) fireteam_log("world: held begin play dropped (%s)", why);
+    if (InterlockedExchangePointer(&held_world_settings, NULL)) {
+        held_flag(0);
+        fireteam_log("world: held begin play dropped (%s)", why);
+    }
 }
 
 /* Once a second from games.lua, on the game thread. */
@@ -1292,21 +1404,39 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
         last = g;
     }
     DWORD waited = GetTickCount() - held_since;
-    /* Experiment: a joiner's exe never queues the command that starts the
-       simulation's join; queue it once, a few seconds into the hold. */
-    static void *nudged;
-    if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && nudged != ws) {
-        nudged = ws;
-        void *iface = shell_iface;
-        if (iface && real_shell_command0) {
-            fireteam_log("world: no Blam game %lu ms in; queueing shell command 0 0", (unsigned long)waited);
-            real_shell_command0(iface, 0, NULL);
-        } else {
-            fireteam_log("world: no Blam game %lu ms in, and no shell seen to queue command 0 0 on", (unsigned long)waited);
+    /* The joiner never travelled, so replay the travel's notification for the
+       map it is in, once games.lua has said which map that is. */
+    static void *replayed;
+    if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && replayed != ws) {
+        char map[260] = "";
+        char path[MAX_PATH];
+        snprintf(path, sizeof path, "%sjip_map.txt", dir);
+        FILE *f = fopen(path, "r");
+        if (f) {
+            if (!fgets(map, sizeof map, f)) map[0] = 0;
+            fclose(f);
+        }
+        map[strcspn(map, "\r\n")] = 0;
+        unsigned char *world = actor_get_world ? actor_get_world(ws) : NULL;
+        void *gi = world && game_instance_offset ? *(void **)(world + game_instance_offset) : NULL;
+        if (map[0] && gi && notify_pre_client_travel) {
+            replayed = ws;
+            wchar_t wide[260];
+            int n = 0;
+            for (; map[n] && n < 259; n++) wide[n] = (unsigned char)map[n];
+            wide[n] = 0;
+            struct fstring url = {wide, n + 1, n + 1};
+            fireteam_log("world: no Blam game %lu ms in; replaying NotifyPreClientTravel \"%s\" (relative, seamless)",
+                         (unsigned long)waited, map);
+            notify_pre_client_travel(gi, &url, 2, 1);
+        } else if (waited > JIP_NUDGE_MS + 10000 && replayed != ws) {
+            replayed = ws;
+            fireteam_log("world: cannot replay the travel (map \"%s\", game instance %p)", map, gi);
         }
     }
     if (!blam_game_running(&g) && waited < JIP_HOLD_MS) return 0;
     if (InterlockedCompareExchangePointer(&held_world_settings, NULL, ws) != ws) return 0;
+    held_flag(0);
     fireteam_log("world: begin play released after %lu ms (%s)", (unsigned long)waited,
                  blam_game_running(&g) ? "the Blam game runs" : "no Blam game, gave up waiting");
     real_notify_begin_play(ws);
@@ -1453,8 +1583,8 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
     fireteam_log("session: alone, stay online: %s", stay_online_alone(value || keep_lobby));
     /* 2: the game joined is in a match; its world's begin play waits for the
        Blam game. 1: a lobby join, whose host's menu world never has one. */
-    InterlockedExchange(&jip_armed, value == 2 ? 1 : 0);
-    if (value == 2) fireteam_log("world: joining a match under way; a begin play before the Blam game will wait for it");
+    InterlockedExchange(&jip_armed, value ? 1 : 0);
+    if (value) fireteam_log("world: a match world that begins before its Blam game will wait for it");
     return 0;
 }
 
@@ -1752,6 +1882,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("pawn BeginPlay (a joiner before its Blam game): %s", hook_pawn_begin_play_slot());
     fireteam_log("world NotifyBeginPlay (held for a joiner's Blam game): %s", hook_notify_begin_play_slots());
     fireteam_log("Blam shell commands (logged with their callers): %s", hook_shell_commands());
+    fireteam_log("PreClientTravel (a client's Blam start): %s", hook_pre_client_travel_slots());
     return 0;
 }
 

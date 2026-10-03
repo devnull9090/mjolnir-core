@@ -142,15 +142,40 @@ end
 --- Whether a session that starts, or is joined while running, with one
 --- member stays online instead of leaving to play offline (the native half
 --- patches UBlamOnlineSessionSubsystem::SetSessionRunning). On for a joiner
---- going into a public game; a public host gets it with keepLobby. A joiner
---- into a match under way also holds its world's begin play until its Blam
---- game runs (inMatch).
-local function stayOnline(on, inMatch)
+--- going into a public game; a public host gets it with keepLobby. It also
+--- arms the joiner's world hold: a match world that begins before its Blam
+--- game waits for it (see jipTick).
+local function stayOnline(on)
     local f = io.open(nativeDir .. "stay_online.txt", "wb")
     if not f then return end
-    f:write(on and (inMatch and "2" or "1") or "0")
+    f:write(on and "1" or "0")
     f:close()
     native("mjolnir_stay_online")
+end
+
+--- A joiner into a match under way holds its world's begin play until its
+--- Blam game runs, and starts that game by replaying the travel a normal
+--- start goes through. While a world is held (native\jip_held.txt) the
+--- native half needs the world's package path; it does the rest from here,
+--- once a second on the game thread.
+local function jipTick()
+    local held = io.open(nativeDir .. "jip_held.txt", "rb")
+    if held then
+        held:close()
+        local ok, full = pcall(function()
+            return FindFirstOf("PlayerController"):GetWorld():GetFullName()
+        end)
+        -- "World /Game/Levels/Halo1/Solo/BCK/BCK.BCK" -> "/Game/Levels/Halo1/Solo/BCK/BCK"
+        local path = ok and full and full:match("^%S+%s+([^%.]+)")
+        if path then
+            local f = io.open(nativeDir .. "jip_map.txt", "wb")
+            if f then
+                f:write(path, "\n")
+                f:close()
+            end
+        end
+    end
+    native("mjolnir_jip_tick")
 end
 
 --- The current PlayFab lobby's connection string, or nil and why.
@@ -319,7 +344,7 @@ function Games.join(lobby, done)
         -- The game leaves its own lobby to join the host's, and stays in the
         -- host's session though it arrives alone in a match under way.
         keepLobby(false)
-        stayOnline(true, lobby.state == "in_game")
+        stayOnline(true)
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then
             done(false, "cannot write the join request")
@@ -361,10 +386,7 @@ function Games.init(deps)
     local function loop()
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
-        -- A joiner into a match under way holds its world's begin play until
-        -- its Blam game runs; the native half lets it go from here, on the
-        -- game thread.
-        native("mjolnir_jip_tick")
+        jipTick()
         ExecuteInGameThreadWithDelay(1000, loop)
     end
     ExecuteInGameThreadWithDelay(1000, loop)
