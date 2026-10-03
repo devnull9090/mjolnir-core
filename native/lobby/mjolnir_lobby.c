@@ -28,6 +28,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <intrin.h>
+#include <tlhelp32.h>
 
 typedef void *(__fastcall *fname_ctor_t)(void *self, const wchar_t *name, int find_type, void *unused);
 typedef void *(__fastcall *fweak_ctor_t)(void *self, const void *object);
@@ -1822,6 +1823,759 @@ __declspec(dllexport) int mjolnir_sim_restore_own_entry(void *L) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fireteam_log("game: restore failed");
     }
+    return 0;
+}
+
+/* The simulation's game globals are thread-local: G = TLS[_tls_index] + 0x60
+   (sim 0x209a20, "a game is running": G, G[0x1ebc0], !G[0], G[1]). The
+   network logic (sim 0x4c6300) reports map status 4 only when that holds and
+   G's two 16-byte map identities (+0x2c, +0x3c) equal the session's map
+   parameter (session +0x4340, getter +0x90), and the game instance is G+0x18.
+   This finds every thread with G set (TEB +0x58 is the TLS array) and logs
+   those fields beside each session's map parameter: a diagnostic for why a
+   joiner's map status stays 3 (2026-10-03). */
+typedef LONG(NTAPI *query_thread_t)(HANDLE, int, void *, ULONG, ULONG *);
+struct thread_basic_information {
+    LONG exit_status;
+    void *teb;
+    void *client_id[2];
+    ULONG_PTR affinity;
+    LONG priority, base_priority;
+};
+
+static void log_bytes(const char *what, const unsigned char *p, int n) {
+    char hex[3 * 64 + 1];
+    int at = 0;
+    for (int i = 0; i < n && i < 64; i++) at += snprintf(hex + at, sizeof hex - at, "%02x ", p[i]);
+    fireteam_log("%s %s", what, hex);
+}
+
+__declspec(dllexport) int mjolnir_sim_game_globals(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+    IMAGE_DATA_DIRECTORY tls_dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+    if (!tls_dir.VirtualAddress) {
+        fireteam_log("globals: the simulation has no TLS directory");
+        return 0;
+    }
+    IMAGE_TLS_DIRECTORY64 *tls = (IMAGE_TLS_DIRECTORY64 *)(sim + tls_dir.VirtualAddress);
+    unsigned tls_index = *(unsigned *)(uintptr_t)tls->AddressOfIndex;
+    query_thread_t query = (query_thread_t)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryInformationThread");
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    THREADENTRY32 entry = {sizeof entry};
+    DWORD pid = GetCurrentProcessId();
+    int found = 0;
+    for (BOOL more = Thread32First(snapshot, &entry); more; more = Thread32Next(snapshot, &entry)) {
+        if (entry.th32OwnerProcessID != pid) continue;
+        HANDLE thread = OpenThread(THREAD_QUERY_INFORMATION, FALSE, entry.th32ThreadID);
+        if (!thread) continue;
+        struct thread_basic_information info = {0};
+        if (query(thread, 0, &info, sizeof info, NULL) == 0 && info.teb) {
+            __try {
+                void **tls_array = *(void ***)((unsigned char *)info.teb + 0x58);
+                unsigned char *block = tls_array ? (unsigned char *)tls_array[tls_index] : NULL;
+                unsigned char *g = block ? *(unsigned char **)(block + 0x60) : NULL;
+                if (g) {
+                    found++;
+                    fireteam_log("globals: thread %lu G %p [0]=%u [1]=%u [1ebc0]=%u state(+10)=%u instance(+18)=%llx",
+                                 entry.th32ThreadID, (void *)g, g[0], g[1], g[0x1ebc0], g[0x10],
+                                 *(unsigned long long *)(g + 0x18));
+                    log_bytes("globals:   map +2c", g + 0x2c, 16);
+                    log_bytes("globals:   map +3c", g + 0x3c, 16);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+        CloseHandle(thread);
+    }
+    CloseHandle(snapshot);
+    if (!found) fireteam_log("globals: no thread has game globals (tls index %u)", tls_index);
+    find_sim_sessions();
+    __try {
+        for (int si = 0; si < 2 && sim_sessions; si++) {
+            unsigned char *session = *sim_sessions + si * 0x5b9e8;
+            if (!*(unsigned *)(session + 0x5c)) continue;
+            unsigned char *param = session + 0x4340;
+            typedef unsigned char *(__fastcall *get_t)(void *);
+            unsigned char *value = (*(get_t **)param)[0x90 / 8](param);
+            fireteam_log("globals: session %d map parameter valid %u", si, session[0x43c0] & 1);
+            if (value) log_bytes("globals:   session map", value, 32);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("globals: session map parameter unreadable");
+    }
+    return 0;
+}
+
+/* main_game_load_map (sim 0x20d5d0 on CU4: "main_game_load_map failed for
+   '%s'"), the call that loads a Blam game. A joiner into a match under way
+   never gets one, so its simulation has no game at all (G[1] = 0,
+   2026-10-03). This logs every call with the simulation and exe frames that
+   made it, to find the client path a normal start takes. The prologue (18
+   bytes of pushes and lea rbp, [rsp-18h]) moves to a trampoline. */
+typedef unsigned long long(__fastcall *load_map_t)(unsigned char *options);
+static load_map_t load_map_trampoline;
+static const unsigned char LOAD_MAP[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56,
+                                         0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xE8, 0x48, 0x81, 0xEC, 0x18,
+                                         0x01, 0x00, 0x00, 0xC5, 0xF8, 0x29, 0xB4, 0x24, 0x00, 0x01};
+#define LOAD_MAP_STOLEN 18
+
+static unsigned long long __fastcall hook_load_map(unsigned char *options) {
+    void *frames[32];
+    USHORT n = RtlCaptureStackBackTrace(1, 32, frames, NULL);
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    char line[32 * 16 + 1];
+    size_t at = 0;
+    for (USHORT i = 0; i < n && at + 16 < sizeof line; i++) {
+        unsigned char *f = (unsigned char *)frames[i];
+        if (sim && f >= sim && f < sim + 0x3000000)
+            at += (size_t)snprintf(line + at, sizeof line - at, " s%llx", (unsigned long long)(f - sim));
+        else if (in_image(f))
+            at += (size_t)snprintf(line + at, sizeof line - at, " e%llx", (unsigned long long)(f - exe));
+    }
+    line[at] = 0;
+    fireteam_log("game: main_game_load_map(%p) thread %lu from%s", (void *)options, GetCurrentThreadId(), line);
+    if (options) log_bytes("game:   options", options, 48);
+    unsigned long long result = load_map_trampoline(options);
+    fireteam_log("game: main_game_load_map returned %llu", result);
+    return result;
+}
+
+__declspec(dllexport) int mjolnir_sim_watch_load_map(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    if (load_map_trampoline) {
+        fireteam_log("game: load-map watch already on");
+        return 0;
+    }
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    unsigned char *fn = find_in_module(sim, LOAD_MAP, NULL, sizeof LOAD_MAP, 1, &hits);
+    if (!fn) {
+        fireteam_log("game: main_game_load_map matched %d times", hits);
+        return 0;
+    }
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return 0;
+    memcpy(tramp, fn, LOAD_MAP_STOLEN);
+    unsigned char *j = tramp + LOAD_MAP_STOLEN;
+    j[0] = 0xFF;
+    j[1] = 0x25;
+    memset(j + 2, 0, 4);
+    *(unsigned char **)(j + 6) = fn + LOAD_MAP_STOLEN;
+    load_map_trampoline = (load_map_t)tramp;
+    DWORD old;
+    if (!VirtualProtect(fn, LOAD_MAP_STOLEN, PAGE_EXECUTE_READWRITE, &old)) return 0;
+    unsigned char patch[LOAD_MAP_STOLEN];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF;
+    patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = (void *)hook_load_map;
+    memcpy(fn, patch, sizeof patch);
+    VirtualProtect(fn, LOAD_MAP_STOLEN, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), fn, LOAD_MAP_STOLEN);
+    fireteam_log("game: load-map watch on");
+    return 0;
+}
+
+/* A client's Blam game is loaded from its session: the start-game life-cycle
+   step calls sim 0x55e1c0 (CU4), which builds the game options from the
+   session's parameters (game and map variant, players) and asks
+   main_game_change (0x20cee0) for them; the next main-game tick
+   (0x1ad9f0 -> 0x20d1b0) loads the map (2026-10-03, both PCs' stacks). A
+   joiner into a match under way arrives in-game, whose life-cycle step is a
+   stub, so its simulation never loads a game at all. This makes that call,
+   on the simulation's own thread (the options and the load read its
+   thread-local game globals): a hook on the main-game tick runs it once
+   when asked. */
+typedef void(__fastcall *main_tick_t)(void);
+typedef char(__fastcall *build_game_t)(void *session);
+static main_tick_t main_tick_trampoline;
+static build_game_t build_game_from_session;
+static void *volatile jip_start_session;
+static const unsigned char MAIN_TICK[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
+                                          0x57, 0x48, 0x8D, 0x6C, 0x24, 0xE1, 0x48, 0x81, 0xEC, 0x88, 0x00, 0x00};
+#define MAIN_TICK_STOLEN 18
+static const unsigned char BUILD_GAME[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
+                                           0x57, 0x48, 0x8D, 0xAC, 0x24, 0x98, 0x09, 0xFE, 0xFF, 0xB8, 0x68, 0xF7};
+
+/* The simulation's life-cycle manager (sim 0xca3428 on CU4): current state
+   byte at +0, handlers at +8 + 8*state, the session at +0x58, a requested
+   transition at +0x70 (flag), +0x71 (state), +0x74 (parameter), +0x78
+   (payload length), +0x7c (payload), +0x8c (time). States: 0 none, 1
+   pre-game, 2 start-game, 3 in-game, 4 end-game, 5 leaving, 6 joining, 7 host
+   disconnected, 8 between-game. Found by the request at sim 0x4eebb0:
+   sub rsp, 28h / cmp byte [state], 5 / mov [rsp+30h], cl / je. */
+static unsigned char *life_cycle;
+static volatile LONG life_cycle_request = -1;
+static const unsigned char LIFE_CYCLE_REQUEST[] = {0x48, 0x83, 0xEC, 0x28, 0x80, 0x3D, 0, 0, 0, 0, 0x05, 0x88, 0x4C, 0x24, 0x30, 0x74};
+static const unsigned char LIFE_CYCLE_REQUEST_MASK[] = {1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
+
+static volatile LONG trace_on;
+static void trace_tick(void);
+
+static void __fastcall hook_main_tick(void) {
+    if (trace_on) trace_tick();
+    LONG wanted = InterlockedExchange(&life_cycle_request, -1);
+    if (wanted >= 0 && life_cycle) {
+        fireteam_log("life: on the simulation thread: state %u, requesting %ld", life_cycle[0], wanted);
+        *(int *)(life_cycle + 0x78) = 0;
+        life_cycle[0x70] = 1;
+        life_cycle[0x71] = (unsigned char)wanted;
+        *(int *)(life_cycle + 0x74) = 0;
+        memset(life_cycle + 0x7c, 0, 16);
+        *(DWORD *)(life_cycle + 0x8c) = *(DWORD *)(life_cycle + 0x8c);
+    }
+    unsigned char *session = (unsigned char *)InterlockedExchangePointer(&jip_start_session, NULL);
+    if (session && build_game_from_session) {
+        /* For a game variant of type 1 (+0x4338) the build refuses a session
+           whose +0x1408 is past 4: the life cycle beyond start-game, which is
+           where a joiner finds it. Present 4 for the call. */
+        int type = (session[0x4330] & 1) ? *(int *)(session + 0x4338) : -1;
+        int stage = *(int *)(session + 0x1408);
+        fireteam_log("game: on the simulation thread (%lu): session %p variant type %d stage %d", GetCurrentThreadId(),
+                     (void *)session, type, stage);
+        /* What the build checks (sim 0x55e1c0), for the log. */
+        __try {
+            typedef void *(__fastcall *get_t)(void *);
+#define PARAM(off) ((*(get_t **)(session + (off)))[0x90 / 8](session + (off)))
+            void *map = PARAM(0x4340), *p5c70 = PARAM(0x5c70), *p5d08 = PARAM(0x5d08);
+            unsigned *p5eb8 = (unsigned *)PARAM(0x5eb8);
+            unsigned *map_ids = (unsigned *)map;
+            fireteam_log("game:   map %p ids %08x %08x %08x %08x; +5c70 %p +5d08 %p +5eb8 %p (%d)", map,
+                         map_ids ? map_ids[4] : 0, map_ids ? map_ids[5] : 0, map_ids ? map_ids[6] : 0,
+                         map_ids ? map_ids[7] : 0, p5c70, p5d08, (void *)p5eb8, p5eb8 ? (int)*p5eb8 : -1);
+            fireteam_log("game:   players +4578 %u +4580 %u mask %05x; +63c0 %u +63c8 %u +63cc %d; +2fcc8 %u +2fcd0 %u",
+                         session[0x4578] & 1, session[0x4580], *(unsigned *)(session + 0x4584) & 0x1ffff,
+                         session[0x63c0] & 1, session[0x63c8], *(int *)(session + 0x63cc), session[0x2fcc8] & 1,
+                         session[0x2fcd0]);
+            if ((session[0x2fcc8] & 1) && session[0x2fcd0]) {
+                unsigned *mv = (unsigned *)((uintptr_t)(session + 0x2fcdb) & ~(uintptr_t)3);
+                fireteam_log("game:   map variant ids %08x %08x %08x %08x", mv[0x2b8 / 4], mv[0x2bc / 4], mv[0x2c0 / 4],
+                             mv[0x2c4 / 4]);
+            }
+#undef PARAM
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("game:   parameters unreadable");
+        }
+        int lowered = (type == 1 && stage > 4) || (type == 6 && stage > 8);
+        if (lowered) *(int *)(session + 0x1408) = type == 1 ? 4 : 8;
+        /* Mode 3 refuses without a map variant (session +0x2fcc8), which a
+           running match no longer has on any peer; mode 2 skips that check
+           and builds the same options with an empty variant, as the host's
+           own options turn out to hold. Present 2 for the call. */
+        int no_variant = type == 3 && !((session[0x2fcc8] & 1) && session[0x2fcd0]);
+        if (no_variant) *(int *)(session + 0x4338) = 2;
+        char queued = build_game_from_session(session);
+        if (no_variant) *(int *)(session + 0x4338) = 3;
+        if (lowered) *(int *)(session + 0x1408) = stage;
+        fireteam_log("game: game change %s%s%s", queued ? "queued" : "refused", lowered ? " (stage lowered for the call)" : "",
+                     no_variant ? " (mode 2 for the call: no map variant)" : "");
+        /* A normal client builds from the in-game handler itself (sim 0x55c730),
+           which then clears its +0x48 bit and follows the loaded game from
+           +0x58 = -1 (matched to the session's map once it loads). A joiner's
+           handler never built, so after a few seconds its timers decide the
+           host is gone and the joiner makes itself host. Leave the handler as
+           a normal client's after its build. */
+        if (queued && life_cycle) {
+            __try {
+                unsigned char *handler = *(unsigned char **)(life_cycle + 8 + 8 * 3);
+                fireteam_log("game: in-game handler was +48 %02x +58 %llx; now as after a client's own build", handler[0x48],
+                             *(unsigned long long *)(handler + 0x58));
+                handler[0x48] &= 0xfe;
+                *(long long *)(handler + 0x58) = -1;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                fireteam_log("game: in-game handler unreadable");
+            }
+        }
+    }
+    main_tick_trampoline();
+}
+
+/* Move `stolen` bytes of `fn` to a trampoline and jump from `fn` to `hook`. */
+static void *inline_hook(unsigned char *fn, size_t stolen, void *hook) {
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return NULL;
+    memcpy(tramp, fn, stolen);
+    unsigned char *j = tramp + stolen;
+    j[0] = 0xFF;
+    j[1] = 0x25;
+    memset(j + 2, 0, 4);
+    *(unsigned char **)(j + 6) = fn + stolen;
+    DWORD old;
+    if (!VirtualProtect(fn, stolen, PAGE_EXECUTE_READWRITE, &old)) return NULL;
+    unsigned char patch[32];
+    memset(patch, 0x90, stolen);
+    patch[0] = 0xFF;
+    patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = hook;
+    memcpy(fn, patch, stolen);
+    VirtualProtect(fn, stolen, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), fn, stolen);
+    return tramp;
+}
+
+/* native\life_cycle.txt: a state to request on the simulation thread, or -1
+   to log only. Logs the state, the pending request and each handler's
+   vtable (relative to the simulation DLL). */
+__declspec(dllexport) int mjolnir_sim_life_cycle(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (!at) {
+            fireteam_log("life: request code matched %d times", hits);
+            return 0;
+        }
+        life_cycle = at + 4 + 7 + *(int *)(at + 6);
+    }
+    __try {
+        char line[300];
+        size_t n = 0;
+        for (int i = 0; i < 9; i++) {
+            unsigned char *handler = *(unsigned char **)(life_cycle + 8 + 8 * i);
+            n += (size_t)snprintf(line + n, sizeof line - n, " %d:%llx", i,
+                                  handler ? (unsigned long long)(*(unsigned char **)handler - sim) : 0ull);
+        }
+        fireteam_log("life: state %u pending %u->%u (param %d) session %p handlers%s", life_cycle[0], life_cycle[0x70],
+                     life_cycle[0x71], *(int *)(life_cycle + 0x74), *(void **)(life_cycle + 0x58), line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("life: unreadable");
+        return 0;
+    }
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%slife_cycle.txt", dir);
+    FILE *f = fopen(path, "r");
+    int wanted = -1;
+    if (f) {
+        if (fscanf(f, "%d", &wanted) != 1) wanted = -1;
+        fclose(f);
+    }
+    if (wanted >= 0 && wanted <= 8) {
+        if (!main_tick_trampoline) {
+            fireteam_log("life: the main tick is not hooked yet (run mjolnir_sim_jip_start once)");
+            return 0;
+        }
+        InterlockedExchange(&life_cycle_request, wanted);
+        fireteam_log("life: state %d requested for the next tick", wanted);
+    }
+    return 0;
+}
+
+/* main_game_change (sim 0x20cee0 on CU4): copies 0x1ebb0 bytes of game
+   options to the pending slot that the next main-game tick loads. Logged with
+   its caller frames, to find what builds a client's options in a normal
+   start (a joiner's never get built). Prologue: five pushes and lea rbp,
+   [rsp-240h], 15 bytes, moved to a trampoline. */
+typedef void(__fastcall *game_change_t)(unsigned char *options);
+static game_change_t game_change_trampoline;
+static const unsigned char GAME_CHANGE[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x8D, 0xAC, 0x24,
+                                            0xC0, 0xFD, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0x40, 0x03, 0x00, 0x00};
+#define GAME_CHANGE_STOLEN 15
+
+/* The caller frames as " s<sim rva>" / " e<exe rva>", skipping `skip` frames. */
+static void sim_stack(char *line, size_t size, ULONG skip) {
+    void *frames[32];
+    USHORT n = RtlCaptureStackBackTrace(skip + 1, 32, frames, NULL);
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    size_t at = 0;
+    line[0] = 0;
+    for (USHORT i = 0; i < n && at + 16 < size; i++) {
+        unsigned char *f = (unsigned char *)frames[i];
+        if (sim && f >= sim && f < sim + 0x3000000)
+            at += (size_t)snprintf(line + at, size - at, " s%llx", (unsigned long long)(f - sim));
+        else if (in_image(f))
+            at += (size_t)snprintf(line + at, size - at, " e%llx", (unsigned long long)(f - exe));
+    }
+}
+
+static void __fastcall hook_game_change(unsigned char *options) {
+    char line[32 * 16 + 1];
+    sim_stack(line, sizeof line, 1);
+    fireteam_log("game: main_game_change(%p) thread %lu from%s", (void *)options, GetCurrentThreadId(), line);
+    if (options) log_bytes("game:   change options", options, 48);
+    game_change_trampoline(options);
+}
+
+__declspec(dllexport) int mjolnir_sim_watch_game_change(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    if (game_change_trampoline) return 0;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    unsigned char *fn = find_in_module(sim, GAME_CHANGE, NULL, sizeof GAME_CHANGE, 1, &hits);
+    if (!fn) {
+        fireteam_log("game: main_game_change matched %d times", hits);
+        return 0;
+    }
+    game_change_trampoline = (game_change_t)inline_hook(fn, GAME_CHANGE_STOLEN, (void *)hook_game_change);
+    fireteam_log("game: game-change watch %s", game_change_trampoline ? "on" : "failed");
+    return 0;
+}
+
+/* Session parameter clears (sim 0x51b0d0 by mask, 0x51b050 all of them;
+   the list is at session +0x40f0, pointers at +0x57238). The map variant
+   (parameter 20, at session +0x2fc48) is invalid on host and joiner once a
+   match runs, so a joiner cannot build its game options (0x55e1c0 refuses).
+   This logs each clear that drops a valid map variant, with its callers. */
+typedef void(__fastcall *clear_mask_t)(unsigned char *list, unsigned long long mask);
+typedef void(__fastcall *clear_all_t)(unsigned char *list);
+static clear_mask_t clear_mask_trampoline;
+static clear_all_t clear_all_trampoline;
+static const unsigned char CLEAR_MASK[] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20,
+                                           0x45, 0x33, 0xFF, 0x48, 0x8B, 0xDA, 0x41, 0x8B, 0xF7, 0x4C, 0x8B, 0xF1};
+#define CLEAR_MASK_STOLEN 15
+static const unsigned char CLEAR_ALL[] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x28, 0x45, 0x33,
+                                          0xF6, 0x48, 0x8B, 0xF1, 0x4C, 0x89, 0xB1, 0x60, 0x73, 0x05, 0x00};
+#define CLEAR_ALL_STOLEN 16
+#define MAP_VARIANT_PARAMETER 20
+
+static void log_parameter_clear(const char *what, unsigned char *list, unsigned long long mask) {
+    __try {
+        unsigned char *variant = *(unsigned char **)(list + 0x57238 + MAP_VARIANT_PARAMETER * 8);
+        if (!(mask & (1ull << MAP_VARIANT_PARAMETER)) || !(variant[0x80] & 1)) return;
+        char line[32 * 16 + 1];
+        sim_stack(line, sizeof line, 2);
+        fireteam_log("param: %s mask %llx drops the map variant (session %p, has value %u, life cycle %d) from%s", what,
+                     mask, (void *)(list - 0x40f0), variant[0x88], life_cycle ? life_cycle[0] : -1, line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+static void __fastcall hook_clear_mask(unsigned char *list, unsigned long long mask) {
+    log_parameter_clear("clear", list, mask);
+    clear_mask_trampoline(list, mask);
+}
+
+static void __fastcall hook_clear_all(unsigned char *list) {
+    log_parameter_clear("clear-all", list, ~0ull);
+    clear_all_trampoline(list);
+}
+
+__declspec(dllexport) int mjolnir_sim_watch_param_clear(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+    }
+    if (!clear_mask_trampoline) {
+        unsigned char *fn = find_in_module(sim, CLEAR_MASK, NULL, sizeof CLEAR_MASK, 1, &hits);
+        if (fn) clear_mask_trampoline = (clear_mask_t)inline_hook(fn, CLEAR_MASK_STOLEN, (void *)hook_clear_mask);
+        fireteam_log("param: clear-by-mask watch %s (%d matches)", clear_mask_trampoline ? "on" : "failed", hits);
+    }
+    if (!clear_all_trampoline) {
+        unsigned char *fn = find_in_module(sim, CLEAR_ALL, NULL, sizeof CLEAR_ALL, 1, &hits);
+        if (fn) clear_all_trampoline = (clear_all_t)inline_hook(fn, CLEAR_ALL_STOLEN, (void *)hook_clear_all);
+        fireteam_log("param: clear-all watch %s (%d matches)", clear_all_trampoline ? "on" : "failed", hits);
+    }
+    find_sim_sessions();
+    __try {
+        for (int si = 0; si < 2 && sim_sessions; si++) {
+            unsigned char *session = *sim_sessions + si * 0x5b9e8;
+            if (!*(unsigned *)(session + 0x5c)) continue;
+            unsigned char *list = session + 0x40f0;
+            unsigned long long valid = 0;
+            for (int i = 0; i < 0x25; i++)
+                if ((*(unsigned char **)(list + 0x57238 + i * 8))[0x80] & 1) valid |= 1ull << i;
+            fireteam_log("param: session %d valid parameters %llx (map variant has value %u)", si, valid, session[0x2fcd0]);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return 0;
+}
+
+/* Hook the main-game tick (sim 0x1ad9f0) once; 1 when the hook is in place. */
+static int install_main_tick(unsigned char *sim) {
+    int hits;
+    if (!main_tick_trampoline) {
+        unsigned char *tick = find_in_module(sim, MAIN_TICK, NULL, sizeof MAIN_TICK, 1, &hits);
+        if (!tick) {
+            /* Already patched by an earlier copy of this DLL: jmp [rip+0] to
+               its hook, nops, then the original bytes from 18 on. Rebuild the
+               trampoline from the known original bytes and take the jump. */
+            static const unsigned char PATCHED[] = {0xFF, 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x90, 0x90, 0x90, 0x90,
+                                                    0x48, 0x81, 0xEC, 0x88, 0x00, 0x00};
+            static const unsigned char PATCHED_MASK[] = {1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+                                                         1, 1, 1, 1, 1, 1};
+            tick = find_in_module(sim, PATCHED, PATCHED_MASK, sizeof PATCHED, 1, &hits);
+            if (!tick) {
+                fireteam_log("game: main tick matched %d times (patched form)", hits);
+                return 0;
+            }
+            unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+            if (!tramp) return 0;
+            memcpy(tramp, MAIN_TICK, MAIN_TICK_STOLEN);
+            tramp[MAIN_TICK_STOLEN] = 0xFF;
+            tramp[MAIN_TICK_STOLEN + 1] = 0x25;
+            memset(tramp + MAIN_TICK_STOLEN + 2, 0, 4);
+            *(unsigned char **)(tramp + MAIN_TICK_STOLEN + 6) = tick + MAIN_TICK_STOLEN;
+            main_tick_trampoline = (main_tick_t)tramp;
+            DWORD old;
+            if (!VirtualProtect(tick, MAIN_TICK_STOLEN, PAGE_EXECUTE_READWRITE, &old)) return 0;
+            *(void **)(tick + 6) = (void *)hook_main_tick;
+            VirtualProtect(tick, MAIN_TICK_STOLEN, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), tick, MAIN_TICK_STOLEN);
+            fireteam_log("game: took over the main tick hook from an earlier copy");
+        } else
+        main_tick_trampoline = (main_tick_t)inline_hook(tick, MAIN_TICK_STOLEN, (void *)hook_main_tick);
+        if (!main_tick_trampoline) {
+            fireteam_log("game: main tick hook failed");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A trace of what a normal match start does to the map variant parameter
+   (index 20, session +0x2fc48): mode 3 needs it to build game options, and it
+   is invalid on host and joiner once a match runs. On each main-game tick it
+   logs any change to a session's mode (+0x4338), the variant's flags and
+   value byte, the stage (+0x1408) and the life-cycle state; it also logs each
+   build (sim 0x55e1c0) and each variant set (sim 0x5321b0) with callers. */
+struct trace_state {
+    int mode, stage;
+    unsigned char variant_flags, variant_value, life;
+};
+static struct trace_state traced[2];
+
+/* The simulation thread's game globals: TLS[_tls_index] + 0x60 (sim 0x209a20). */
+static unsigned char *sim_game_globals(void) {
+    static unsigned tls_index = ~0u;
+    if (tls_index == ~0u) {
+        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+        if (!sim) return NULL;
+        IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+        IMAGE_DATA_DIRECTORY dir_tls = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+        if (!dir_tls.VirtualAddress) return NULL;
+        tls_index = *(unsigned *)(uintptr_t)((IMAGE_TLS_DIRECTORY64 *)(sim + dir_tls.VirtualAddress))->AddressOfIndex;
+    }
+    void **tls_array = (void **)__readgsqword(0x58);
+    unsigned char *block = tls_array ? (unsigned char *)tls_array[tls_index] : NULL;
+    return block ? *(unsigned char **)(block + 0x60) : NULL;
+}
+
+/* The in-game life-cycle handler (state 3, update sim 0x55c730): +0x48 bit 0
+   "build the game", +0x49/+0x4a flags, +0x50 a timer start, +0x58 the game
+   instance it follows (-1: match the loaded game to the session's map),
+   +0x60 another timer. */
+struct handler_state {
+    unsigned char b48, b49, b4a, g0, g1, g10, g1ebc0, g1ebcc;
+    int i4c, i50, i60;
+    unsigned long long q58, instance;
+};
+static struct handler_state traced_handler;
+
+static void trace_handler(void) {
+    if (!life_cycle) return;
+    __try {
+        unsigned char *handler = *(unsigned char **)(life_cycle + 8 + 8 * 3);
+        unsigned char *g = sim_game_globals();
+        struct handler_state now;
+        memset(&now, 0, sizeof now);
+        now.b48 = handler[0x48];
+        now.b49 = handler[0x49];
+        now.b4a = handler[0x4a];
+        now.i4c = *(int *)(handler + 0x4c);
+        now.i50 = *(int *)(handler + 0x50);
+        now.q58 = *(unsigned long long *)(handler + 0x58);
+        now.i60 = *(int *)(handler + 0x60);
+        if (g) {
+            now.g0 = g[0];
+            now.g1 = g[1];
+            now.g10 = g[0x10];
+            now.g1ebc0 = g[0x1ebc0];
+            now.g1ebcc = g[0x1ebcc];
+            now.instance = *(unsigned long long *)(g + 0x18);
+        }
+        if (memcmp(&now, &traced_handler, sizeof now)) {
+            fireteam_log("trace: in-game handler +48 %02x +49 %u +4a %u +4c %d +50 %d +58 %llx +60 %d | game %s [0] %u [1] %u "
+                         "[10] %u [1ebc0] %u [1ebcc] %u instance %llx",
+                         now.b48, now.b49, now.b4a, now.i4c, now.i50, now.q58, now.i60, g ? "yes" : "no", now.g0, now.g1,
+                         now.g10, now.g1ebc0, now.g1ebcc, now.instance);
+            traced_handler = now;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+static void trace_tick(void) {
+    if (!sim_sessions) return;
+    trace_handler();
+    __try {
+        for (int si = 0; si < 2; si++) {
+            unsigned char *session = *sim_sessions + si * 0x5b9e8;
+            struct trace_state now;
+            memset(&now, 0, sizeof now);
+            now.mode = (session[0x4330] & 1) ? *(int *)(session + 0x4338) : -1;
+            now.stage = *(int *)(session + 0x1408);
+            now.variant_flags = session[0x2fcc8];
+            now.variant_value = session[0x2fcd0];
+            now.life = life_cycle ? life_cycle[0] : 0xff;
+            if (memcmp(&now, &traced[si], sizeof now)) {
+                fireteam_log("trace: session %d peers %x state %d: mode %d stage %d variant flags %02x value %u; life %u", si,
+                             *(unsigned *)(session + 0x5c), *(int *)(session + 0x5b460), now.mode, now.stage,
+                             now.variant_flags, now.variant_value, now.life);
+                traced[si] = now;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+static build_game_t build_trampoline;
+#define BUILD_GAME_STOLEN 21
+
+static char __fastcall hook_build(void *at) {
+    unsigned char *session = (unsigned char *)at;
+    char line[32 * 16 + 1];
+    sim_stack(line, sizeof line, 1);
+    fireteam_log("trace: build(%p) mode %d variant flags %02x value %u stage %d from%s", at,
+                 (session[0x4330] & 1) ? *(int *)(session + 0x4338) : -1, session[0x2fcc8], session[0x2fcd0],
+                 *(int *)(session + 0x1408), line);
+    char built = build_trampoline(at);
+    fireteam_log("trace: build returned %d", built);
+    return built;
+}
+
+typedef char(__fastcall *variant_set_t)(unsigned char *parameter, unsigned char *variant);
+static variant_set_t variant_set_trampoline;
+static const unsigned char VARIANT_SET[] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B,
+                                            0xFA, 0x48, 0x8B, 0xD9, 0xE8, 0,    0,    0,    0,    0x84, 0xC0, 0x0F,
+                                            0x84, 0,    0,    0,    0,    0x48, 0x85, 0xFF, 0x75, 0x46, 0x40, 0x38,
+                                            0xBB, 0x88, 0x00, 0x00, 0x00};
+static const unsigned char VARIANT_SET_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
+                                                 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+#define VARIANT_SET_STOLEN 16
+
+static char __fastcall hook_variant_set(unsigned char *parameter, unsigned char *variant) {
+    char line[32 * 16 + 1];
+    sim_stack(line, sizeof line, 1);
+    unsigned short version = 0;
+    __try {
+        if (variant) version = *(unsigned short *)(variant + 0x2b0);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    char result = variant_set_trampoline(parameter, variant);
+    fireteam_log("trace: map variant set(%p, %p) version %u -> %d, flags now %02x from%s", (void *)parameter,
+                 (void *)variant, version, result, parameter[0x80], line);
+    return result;
+}
+
+__declspec(dllexport) int mjolnir_sim_trace(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+    }
+    find_sim_sessions();
+    if (!install_main_tick(sim)) return 0;
+    if (!build_trampoline) {
+        unsigned char *fn = find_in_module(sim, BUILD_GAME, NULL, sizeof BUILD_GAME, 1, &hits);
+        if (fn) {
+            build_trampoline = (build_game_t)inline_hook(fn, BUILD_GAME_STOLEN, (void *)hook_build);
+            /* jip_start's own call goes through the hook's trampoline. */
+            if (build_trampoline) build_game_from_session = build_trampoline;
+        }
+        fireteam_log("trace: build hook %s (%d matches)", build_trampoline ? "on" : "failed", hits);
+    }
+    if (!variant_set_trampoline) {
+        unsigned char *fn = find_in_module(sim, VARIANT_SET, VARIANT_SET_MASK, sizeof VARIANT_SET, 1, &hits);
+        if (fn) variant_set_trampoline = (variant_set_t)inline_hook(fn, VARIANT_SET_STOLEN, (void *)hook_variant_set);
+        fireteam_log("trace: map variant set hook %s (%d matches)", variant_set_trampoline ? "on" : "failed", hits);
+    }
+    memset(traced, 0xff, sizeof traced);
+    InterlockedExchange(&trace_on, 1);
+    fireteam_log("trace: on");
+    return 0;
+}
+
+/* Channel closes (sim 0x4cfe10: channel, closure reason). A joiner that has
+   loaded its game loses the host three seconds later, both sides sending
+   connect-closed; this logs every close with its reason, the channel's state
+   (+0x10cc, 5 = established) and the callers. */
+typedef void(__fastcall *channel_close_t)(unsigned char *channel, int reason);
+static channel_close_t channel_close_trampoline;
+static const unsigned char CHANNEL_CLOSE[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x83, 0xB9,
+                                              0xCC, 0x10, 0x00, 0x00, 0x05, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0x0F, 0x85};
+#define CHANNEL_CLOSE_STOLEN 17
+
+static void __fastcall hook_channel_close(unsigned char *channel, int reason) {
+    char line[32 * 16 + 1];
+    sim_stack(line, sizeof line, 1);
+    int state = -1;
+    __try {
+        state = *(int *)(channel + 0x10cc);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fireteam_log("close: channel %p state %d reason %d from%s", (void *)channel, state, reason, line);
+    channel_close_trampoline(channel, reason);
+}
+
+__declspec(dllexport) int mjolnir_sim_watch_close(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    if (channel_close_trampoline) return 0;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    unsigned char *fn = find_in_module(sim, CHANNEL_CLOSE, NULL, sizeof CHANNEL_CLOSE, 1, &hits);
+    if (fn) channel_close_trampoline = (channel_close_t)inline_hook(fn, CHANNEL_CLOSE_STOLEN, (void *)hook_channel_close);
+    fireteam_log("close: channel-close watch %s (%d matches)", channel_close_trampoline ? "on" : "failed", hits);
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    if (!build_game_from_session) {
+        unsigned char *build = find_in_module(sim, BUILD_GAME, NULL, sizeof BUILD_GAME, 1, &hits);
+        if (!build) {
+            fireteam_log("game: build-game code matched %d times", hits);
+            return 0;
+        }
+        build_game_from_session = (build_game_t)build;
+    }
+    if (!install_main_tick(sim)) return 0;
+    find_sim_sessions();
+    __try {
+        for (int si = 0; si < 2 && sim_sessions; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            if (!mask) continue;
+            for (int i = 0; i < 17; i++)
+                if ((mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x174) == 1) {
+                    fireteam_log("game: session %d (%p) is ours as peer %d; building its game on the next tick", si,
+                                 (void *)s, i);
+                    jip_start_session = s;
+                    return 0;
+                }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fireteam_log("game: no joined session to build a game from");
     return 0;
 }
 
