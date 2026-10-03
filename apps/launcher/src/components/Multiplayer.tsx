@@ -57,7 +57,22 @@ export default function Multiplayer({ library }: { library: Library }) {
     };
   }, []);
 
-  const installedBySlug = new Map((library.state?.installed ?? []).map((m) => [m.slug, m]));
+  // The state file is a record of what was installed, not proof it is still
+  // on disk: a map whose files were deleted reads as not installed, so the
+  // button offers it again (hub::missing_files).
+  const [missingFiles, setMissingFiles] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    invoke<string[]>("hub_missing_files").then(
+      (slugs) => setMissingFiles(new Set(slugs)),
+      () => setMissingFiles(new Set()),
+    );
+  }, [library.state]);
+
+  const installedBySlug = new Map(
+    (library.state?.installed ?? [])
+      .filter((m) => !missingFiles.has(m.slug))
+      .map((m) => [m.slug, m]),
+  );
   const missing = (maps ?? []).filter((m) => {
     const have = installedBySlug.get(m.slug);
     return !have || (m.release && have.release_id !== m.release.id);

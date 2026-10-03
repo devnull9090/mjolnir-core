@@ -25,6 +25,7 @@
 //! compromised bucket nor a tampered download can put unreviewed code in the
 //! game (docs/hub_architecture.md §2).
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -217,10 +218,63 @@ fn shader_chunk(stem: &str, utoc: &Path) -> Option<usize> {
     toc.chunk_ids.iter().any(|c| c.kind == 8).then_some(number)
 }
 
+/// One container the active profile mounts: where the cache holds it, and
+/// the name it takes in Paks.
+struct Mount {
+    slug: String,
+    /// The release cache directory.
+    cache: PathBuf,
+    /// The container's basename in the cache.
+    container: String,
+    /// `pakchunk<n>-MJOLNIRHUB-<slug>-<j>_P`, its basename in Paks.
+    base: String,
+}
+
+impl Mount {
+    fn cached(&self, ext: &str) -> PathBuf {
+        self.cache.join(format!("{}.{ext}", self.container))
+    }
+
+    fn in_paks(&self, paks: &Path, ext: &str) -> PathBuf {
+        paks.join(format!("{}.{ext}", self.base))
+    }
+}
+
+/// Every container the active profile mounts, in load order.
+fn mounts(state: &HubState) -> Result<Vec<Mount>, String> {
+    let profile = state
+        .profiles
+        .iter()
+        .find(|p| p.name == state.active)
+        .ok_or("Active profile missing")?;
+
+    let mut out = Vec::new();
+    for (i, entry) in profile.entries.iter().filter(|e| e.enabled).enumerate() {
+        let inst = state
+            .installed
+            .iter()
+            .find(|m| m.slug == entry.slug)
+            .ok_or_else(|| format!("{} is in the profile but not installed", entry.slug))?;
+        let release_cache = cache_dir().join(&inst.release_id);
+        for (j, container) in inst.containers.iter().enumerate() {
+            let number = shader_chunk(container, &release_cache.join(format!("{container}.utoc")))
+                .unwrap_or_else(|| order_number(i));
+            out.push(Mount {
+                slug: inst.slug.clone(),
+                cache: release_cache.clone(),
+                container: container.clone(),
+                base: format!("pakchunk{number}-{MARKER}-{}-{j}_P", sanitize(&inst.slug)),
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// Make the Paks directory agree with the active profile: remove every
 /// container this module owns, then write back the enabled ones in order.
 fn materialize(state: &HubState) -> Result<(), String> {
     let paks = paks_dir()?;
+    let mounts = mounts(state)?;
 
     for entry in fs::read_dir(&paks).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -231,45 +285,75 @@ fn materialize(state: &HubState) -> Result<(), String> {
         }
     }
 
-    let profile = state
-        .profiles
-        .iter()
-        .find(|p| p.name == state.active)
-        .ok_or("Active profile missing")?;
-
-    let mounted: Vec<&ProfileEntry> = profile.entries.iter().filter(|e| e.enabled).collect();
-    for (i, entry) in mounted.iter().enumerate() {
-        let inst = state
-            .installed
-            .iter()
-            .find(|m| m.slug == entry.slug)
-            .ok_or_else(|| format!("{} is in the profile but not installed", entry.slug))?;
-        let release_cache = cache_dir().join(&inst.release_id);
-        for (j, container) in inst.containers.iter().enumerate() {
-            let number = shader_chunk(container, &release_cache.join(format!("{container}.utoc")))
-                .unwrap_or_else(|| order_number(i));
-            let base = format!("pakchunk{number}-{MARKER}-{}-{j}_P", sanitize(&inst.slug));
-            fs::copy(
-                release_cache.join(format!("{container}.utoc")),
-                paks.join(format!("{base}.utoc")),
-            )
-            .map_err(|e| format!("{}: {e}", inst.slug))?;
-            fs::copy(
-                release_cache.join(format!("{container}.ucas")),
-                paks.join(format!("{base}.ucas")),
-            )
-            .map_err(|e| format!("{}: {e}", inst.slug))?;
-            // A container without a `.pak` sibling is never discovered, so an
-            // empty one rides along.
-            fs::write(
-                paks.join(format!("{base}.pak")),
-                ue_iostore::pak::stub_for(&base),
-            )
-            .map_err(|e| format!("{}: {e}", inst.slug))?;
+    for m in &mounts {
+        for ext in ["utoc", "ucas"] {
+            fs::copy(m.cached(ext), m.in_paks(&paks, ext))
+                .map_err(|e| format!("{}: {e}", m.slug))?;
         }
+        // A container without a `.pak` sibling is never discovered, so an
+        // empty one rides along.
+        fs::write(m.in_paks(&paks, "pak"), ue_iostore::pak::stub_for(&m.base))
+            .map_err(|e| format!("{}: {e}", m.slug))?;
     }
 
     sync_maps(state, &paks)
+}
+
+/// Whether a release's cache still holds everything the install recorded.
+/// The state file says what was installed; this says whether it still is.
+fn cache_complete(inst: &InstalledHubMod) -> bool {
+    let dir = cache_dir().join(&inst.release_id);
+    let containers = inst.containers.iter().all(|c| {
+        dir.join(format!("{c}.utoc")).is_file() && dir.join(format!("{c}.ucas")).is_file()
+    });
+    containers && (inst.map_code.is_none() || dir.join("map").is_dir())
+}
+
+/// The mods with a container missing from Paks. Presence, not content: a
+/// container replaced by hand (a test build of the same chunk) is the
+/// player's to keep, and the cache's own hashes are `verify_installed`'s.
+fn paks_gaps(mounts: &[Mount], paks: &Path) -> BTreeSet<String> {
+    mounts
+        .iter()
+        .filter(|m| !["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(paks, ext).is_file()))
+        .map(|m| m.slug.clone())
+        .collect()
+}
+
+/// Files in Paks carrying this module's marker that `materialize` would not
+/// write: left over from a profile change that did not finish.
+fn paks_strays(mounts: &[Mount], paks: &Path) -> Result<Vec<String>, String> {
+    let expected: BTreeSet<String> = mounts
+        .iter()
+        .flat_map(|m| ["utoc", "ucas", "pak"].map(|ext| format!("{}.{ext}", m.base)))
+        .collect();
+    let mut strays = Vec::new();
+    for entry in fs::read_dir(paks).map_err(|e| e.to_string())? {
+        let name = entry.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+        if name.contains(&format!("-{MARKER}-")) && !expected.contains(&name) {
+            strays.push(name);
+        }
+    }
+    Ok(strays)
+}
+
+/// Installed mods whose files are not all there: the release cache lost
+/// them, or Paks lost its copy of a mod the active profile mounts. The
+/// Multiplayer page reads these as not installed, so deleting a map's
+/// containers by hand offers the install again instead of claiming it is
+/// current.
+pub fn missing_files() -> Result<Vec<String>, String> {
+    let state = load_state();
+    let mut missing: BTreeSet<String> = state
+        .installed
+        .iter()
+        .filter(|m| !cache_complete(m))
+        .map(|m| m.slug.clone())
+        .collect();
+    if !state.installed.is_empty() {
+        missing.extend(paks_gaps(&mounts(&state)?, &paks_dir()?));
+    }
+    Ok(missing.into_iter().collect())
 }
 
 /// The enabled maps' data in `MJOLNIRMaps`, and the registration that lists
@@ -296,14 +380,39 @@ fn sync_maps(state: &HubState, paks: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Bring the registration up to date without touching the containers: what
-/// a launch runs, so a game update never leaves installed maps unregistered.
-pub fn refresh_maps() -> Result<(), String> {
+/// What a launch runs. Paks is put back the way the launcher's state says it
+/// should be, so containers deleted or replaced by hand come back; when
+/// nothing is out of place only the registration is rebuilt (a game update
+/// replaces the tables it was built from), and no containers are copied.
+pub fn prepare_launch() -> Result<(), String> {
     let state = load_state();
-    if !state.installed.iter().any(|m| m.map_code.is_some()) {
+    if state.installed.is_empty() {
         return Ok(());
     }
-    sync_maps(&state, &paks_dir()?)
+    let paks = paks_dir()?;
+    let mounts = mounts(&state)?;
+
+    // `materialize` clears Paks before it copies, so a cache that cannot
+    // supply its containers would take every mod after it down too. Leave
+    // Paks alone and say which mod needs reinstalling.
+    let uncached: BTreeSet<&str> = mounts
+        .iter()
+        .filter(|m| !m.cached("utoc").is_file() || !m.cached("ucas").is_file())
+        .map(|m| m.slug.as_str())
+        .collect();
+    if !uncached.is_empty() {
+        sync_maps(&state, &paks)?;
+        return Err(format!(
+            "The launcher's cache lost files for {}; reinstall to restore them",
+            uncached.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+
+    if paks_gaps(&mounts, &paks).is_empty() && paks_strays(&mounts, &paks)?.is_empty() {
+        sync_maps(&state, &paks)
+    } else {
+        materialize(&state)
+    }
 }
 
 // ─── Hub browsing & install ─────────────────────────────────────────────
@@ -670,7 +779,11 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         let Some(dep_slug) = dep["slug"].as_str() else {
             continue;
         };
-        if load_state().installed.iter().any(|m| m.slug == dep_slug) {
+        if load_state()
+            .installed
+            .iter()
+            .any(|m| m.slug == dep_slug && cache_complete(m))
+        {
             continue;
         }
         if depth + 1 >= MAX_DEP_DEPTH {
@@ -1778,6 +1891,13 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
         failed: Vec::new(),
         state: HubState::default(),
     };
+    // Maps whose Paks copy is gone but whose cache is whole: the
+    // `materialize` below restores them, and they count as installed.
+    let restored = match (mounts(&load_state()), paks_dir()) {
+        (Ok(mounts), Ok(paks)) => paks_gaps(&mounts, &paks),
+        _ => BTreeSet::new(),
+    };
+    let mut restoring = Vec::new();
     let total = maps.len() as f32;
     for (i, map) in maps.iter().enumerate() {
         let title = map["title"].as_str().unwrap_or("?").to_string();
@@ -1789,9 +1909,13 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
         let have = load_state()
             .installed
             .iter()
-            .any(|m| m.slug == slug && m.release_id == release);
+            .any(|m| m.slug == slug && m.release_id == release && cache_complete(m));
         if have {
-            result.current.push(title);
+            if restored.contains(slug) {
+                restoring.push(title);
+            } else {
+                result.current.push(title);
+            }
             continue;
         }
         progress(&format!("Installing {title}"), i as f32 / (total + 1.0));
@@ -1806,6 +1930,7 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
     // A map that was installed before but switched off in this profile is
     // what the player chose; only maps not in the profile at all are added.
     materialize(&state)?;
+    result.installed.extend(restoring);
     result.state = state;
     progress("Done", 1.0);
     Ok(result)
@@ -1858,6 +1983,51 @@ mod tests {
         // that renamed it on the way out would break the frontend filter.
         let json = serde_json::to_value(&manifest.mods[0]).unwrap();
         assert_eq!(json["default"], serde_json::json!(true));
+    }
+
+    /// A container deleted from Paks has to read as a gap, and a marker file
+    /// nothing mounts as a stray; anything else and the launch skips the copy
+    /// that would have put it back. One replaced by hand is left alone.
+    #[test]
+    fn paks_gaps_and_strays_follow_the_disk() {
+        let root = std::env::temp_dir().join(format!("mjolnir-paks-{}", std::process::id()));
+        let cache = root.join("cache");
+        let paks = root.join("paks");
+        fs::create_dir_all(&cache).unwrap();
+        fs::create_dir_all(&paks).unwrap();
+        let mount = |slug: &str| Mount {
+            slug: slug.into(),
+            cache: cache.clone(),
+            container: format!("{slug}-c"),
+            base: format!("pakchunk900-{MARKER}-{slug}-0_P"),
+        };
+        let mounts = [mount("bloodgulch"), mount("sidewinder")];
+        for m in &mounts {
+            for ext in ["utoc", "ucas"] {
+                fs::write(m.cached(ext), b"container").unwrap();
+                fs::write(m.in_paks(&paks, ext), b"container").unwrap();
+            }
+            fs::write(m.in_paks(&paks, "pak"), b"").unwrap();
+        }
+        assert!(paks_gaps(&mounts, &paks).is_empty());
+        assert!(paks_strays(&mounts, &paks).unwrap().is_empty());
+
+        fs::write(mounts[1].in_paks(&paks, "utoc"), b"a test build").unwrap();
+        assert!(paks_gaps(&mounts, &paks).is_empty());
+
+        fs::remove_file(mounts[0].in_paks(&paks, "ucas")).unwrap();
+        fs::remove_file(mounts[1].in_paks(&paks, "pak")).unwrap();
+        assert_eq!(
+            paks_gaps(&mounts, &paks).into_iter().collect::<Vec<_>>(),
+            ["bloodgulch", "sidewinder"]
+        );
+
+        let stray = format!("pakchunk901-{MARKER}-old-0_P.utoc");
+        fs::write(paks.join(&stray), b"").unwrap();
+        fs::write(paks.join("pakchunk0-Meteorite.utoc"), b"").unwrap();
+        assert_eq!(paks_strays(&mounts, &paks).unwrap(), [stray]);
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// The whole point of the digest: a folder name is not evidence. Editing
