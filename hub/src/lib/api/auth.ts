@@ -193,6 +193,8 @@ export interface AuthContext {
   scopes: string[] | null;
   /** What rate-limit windows key on: the api key id, or the user id. */
   subject: string;
+  /** When the api key expires; null for cookie sessions and keys without an expiry. */
+  expiresAt: string | null;
 }
 
 /**
@@ -219,11 +221,16 @@ export async function authenticate(c: Ctx): Promise<AuthContext | null> {
         .bind(row.id)
         .run() as unknown as Promise<unknown>,
     );
-    return { user, scopes: row.scopes.split(/\s+/).filter(Boolean), subject: `key:${row.id}` };
+    return {
+      user,
+      scopes: row.scopes.split(/\s+/).filter(Boolean),
+      subject: `key:${row.id}`,
+      expiresAt: row.expires_at,
+    };
   }
 
   const user = await sessionUser(c);
-  return user ? { user, scopes: null, subject: `user:${user.id}` } : null;
+  return user ? { user, scopes: null, subject: `user:${user.id}`, expiresAt: null } : null;
 }
 
 export function hasScope(auth: AuthContext, scope: string): boolean {

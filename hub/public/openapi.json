@@ -1217,11 +1217,28 @@
           },
           "username": {
             "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
-          "username"
+          "username",
+          "scopes",
+          "expires_at"
         ]
       },
       "SigningKey": {
@@ -4144,7 +4161,7 @@
           "account"
         ],
         "summary": "Who am I",
-        "description": "The authenticated account, for tools that need to embed their own identity — the tag editor puts it in signed release statements.",
+        "description": "The authenticated account, for tools that need to embed their own identity — the tag editor puts it in signed release statements. With an API key, also what the key may do and when it expires, so a client can ask its user to sign in again before a call fails.",
         "responses": {
           "200": {
             "description": "You.",

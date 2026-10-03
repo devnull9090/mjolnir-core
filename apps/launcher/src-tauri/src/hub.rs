@@ -1309,6 +1309,69 @@ pub fn sign_out() -> Result<(), String> {
     Ok(())
 }
 
+/// What the game needs a paired key to carry: MJOLNIRLobby lists a public
+/// game with it (docs/multiplayer_servers.md). A key without one of these
+/// works for the launcher but fails in game, so it counts as needing a new
+/// sign-in.
+const REQUIRED_SCOPES: &[&str] = &["lobbies:write"];
+
+/// Whether the stored sign-in still works, asked at startup and after each
+/// sign-in. The page decides whether `expires_at` is close enough to mention.
+#[derive(Debug, Serialize, Clone)]
+pub struct HubSession {
+    /// "signed_out", "ok", "expired", "missing_scope", "offline".
+    pub state: &'static str,
+    pub user: Option<HubUser>,
+    pub expires_at: Option<String>,
+    pub missing_scopes: Vec<String>,
+}
+
+/// Checks the stored key against the hub. "expired" covers revoked and
+/// expired keys alike: the hub answers 401 to both. "offline" means the check
+/// could not be made, which is no reason to ask anyone to sign in.
+pub fn session_check() -> HubSession {
+    let Some(auth) = load_auth() else {
+        return HubSession { state: "signed_out", user: None, expires_at: None, missing_scopes: vec![] };
+    };
+    let session = |state, expires_at, missing_scopes| HubSession {
+        state,
+        user: Some(auth.user.clone()),
+        expires_at,
+        missing_scopes,
+    };
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return session("offline", None, vec![]),
+    };
+    let resp = match client.get(format!("{}/account/me", hub_api())).bearer_auth(&auth.key).send() {
+        Ok(r) => r,
+        Err(_) => return session("offline", None, vec![]),
+    };
+    match resp.status().as_u16() {
+        200 => {}
+        401 => return session("expired", None, vec![]),
+        _ => return session("offline", None, vec![]),
+    }
+    let me: serde_json::Value = resp.json().unwrap_or(serde_json::Value::Null);
+    let expires_at = me["expires_at"].as_str().map(str::to_string);
+    // A hub from before /account/me reported scopes sends none: trust the key.
+    let missing: Vec<String> = match me["scopes"].as_array() {
+        Some(scopes) => REQUIRED_SCOPES
+            .iter()
+            .filter(|s| !scopes.iter().any(|v| v.as_str() == Some(s)))
+            .map(|s| s.to_string())
+            .collect(),
+        None => vec![],
+    };
+    if !missing.is_empty() {
+        return session("missing_scope", expires_at, missing);
+    }
+    session("ok", expires_at, vec![])
+}
+
 // ─── Signed code mods ───────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

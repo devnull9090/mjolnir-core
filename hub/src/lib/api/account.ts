@@ -79,6 +79,10 @@ const MeSchema = z
   .object({
     id: z.string(),
     username: z.string(),
+    /** The key's scopes; null for a browser session, which carries every scope. */
+    scopes: z.array(z.string()).nullable(),
+    /** When the key stops working; null for a session or a key that never expires. */
+    expires_at: z.string().nullable(),
   })
   .openapi("Me");
 
@@ -127,7 +131,9 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>) {
       summary: "Who am I",
       description:
         "The authenticated account, for tools that need to embed their own " +
-        "identity — the tag editor puts it in signed release statements.",
+        "identity — the tag editor puts it in signed release statements. With " +
+        "an API key, also what the key may do and when it expires, so a client " +
+        "can ask its user to sign in again before a call fails.",
       responses: {
         200: { description: "You.", content: { "application/json": { schema: MeSchema } } },
         401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
@@ -140,6 +146,8 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>) {
         {
           id: auth.user.id,
           username: auth.user.display_name ?? auth.user.discord_username,
+          scopes: auth.scopes,
+          expires_at: auth.expiresAt,
         },
         200,
       );
