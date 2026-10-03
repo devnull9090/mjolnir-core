@@ -284,6 +284,17 @@ local function loadCurrentLevelFile(scenario)
             return level
         end
     end
+    -- A player who joins a match under way has no scenario tag object (its
+    -- game was started from the session, not by a travel), so the tag cannot
+    -- name the file. An installed map's folder is named for the codename of
+    -- the world it runs on, which says the same thing.
+    if not tag then
+        local f = io.open(MAPS_DIR .. "\\" .. scenario .. "\\level.json", "rb")
+        if f then
+            f:close()
+            return loadLevelFile(scenario, scenario)
+        end
+    end
     return loadLevelFile(scenario)
 end
 
@@ -1768,21 +1779,33 @@ local function loadMegaloSwitch()
                 switchFor(code, pending, "host")
             end)
     end)
+    --- Switch for a travel URL (`...?ScenarioName=BGL?InsertionPointIndex=0`).
+    local function switchForUrl(target, how)
+        local code = target:match("[?&]ScenarioName=([%w_]+)")
+        code = code and string.upper(code)
+        -- The host's own SetAndBeginCampaign has already switched for
+        -- this map; anything else (a client, or a travel back to the
+        -- frontend, which names no scenario) decides here.
+        if code and switched.code == code and os.clock() - switched.at < 60 then return end
+        -- The game type travels as the insertion point index: the lobby
+        -- starts game type N at insertion point N (GAME_TYPE_SLOTS).
+        local slot = tonumber(target:match("[?&]InsertionPointIndex=(%d+)") or "")
+        switchFor(code, slot and GAME_TYPE_SLOTS[slot], how)
+    end
     local clientHooked = pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ClientTravelInternal", function(_, url)
             local okU, target = pcall(function() return url:get():ToString() end)
             if not okU or type(target) ~= "string" then return end
-            local code = target:match("[?&]ScenarioName=([%w_]+)")
-            code = code and string.upper(code)
-            -- The host's own SetAndBeginCampaign has already switched for
-            -- this map; anything else (a client, or a travel back to the
-            -- frontend, which names no scenario) decides here.
-            if code and switched.code == code and os.clock() - switched.at < 60 then return end
-            -- The game type travels as the insertion point index: the lobby
-            -- starts game type N at insertion point N (GAME_TYPE_SLOTS).
-            local slot = tonumber(target:match("[?&]InsertionPointIndex=(%d+)") or "")
-            switchFor(code, slot and GAME_TYPE_SLOTS[slot], "client travel")
+            switchForUrl(target, "client travel")
         end)
+    end)
+    -- A player who joins a match under way gets no travel from the host:
+    -- MJOLNIRLobby's native half replays the client side of one, which does
+    -- not pass through ClientTravelInternal, and runs this with the URL.
+    RegisterConsoleCommandHandler("mjolnir_level_join", function(full)
+        local target = tostring(full or ""):match("^%S+%s+(%S+)")
+        if target then switchForUrl(target, "join in progress") end
+        return true
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"
         or "multiplayer switch: could not hook SetAndBeginCampaign")

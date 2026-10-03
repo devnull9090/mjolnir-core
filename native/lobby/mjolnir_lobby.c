@@ -2020,10 +2020,22 @@ static const unsigned char LIFE_CYCLE_REQUEST_MASK[] = {1, 1, 1, 1, 1, 1, 0, 0, 
 static volatile LONG trace_on;
 static void trace_tick(void);
 static volatile LONG inject_request;
+static volatile LONG jip_host_auto;
 static void inject_players(void);
+static int inject_needed(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
+    static unsigned inject_ticks;
+    if (jip_host_auto && ++inject_ticks % 30 == 0) {
+        __try {
+            if (inject_needed()) {
+                fireteam_log("inject: a peer in the session has no player in the running game");
+                InterlockedExchange(&inject_request, 1);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
     if (InterlockedExchange(&inject_request, 0)) {
         __try {
             inject_players();
@@ -2590,6 +2602,28 @@ static void log_game_players(const char *when, unsigned char *g) {
     fireteam_log("inject: %s: machines %05x, players%s", when, *(unsigned *)(g + 0x26c), at ? line : " none");
 }
 
+/* 1 when a hosted session in the in-game life cycle has a peer whose
+   membership players are not in the running game (simulation thread). */
+static int inject_needed(void) {
+    if (!life_cycle || life_cycle[0] != 3 || !sim_sessions) return 0;
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1]) return 0;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (*(int *)(s + 0x5b460) != 6) continue;
+        unsigned missing = *(unsigned *)(s + 0x5c) & ~*(unsigned *)(g + 0x26c);
+        unsigned members = *(unsigned *)(s + 0x140c);
+        for (int p = 0; missing && p < 16; p++) {
+            unsigned char *member = s + 0x1410 + p * 0xb0;
+            int peer = *(int *)(member + 0xc);
+            if ((members & (1u << p)) && peer >= 0 && peer < 17 && (missing & (1u << peer)) &&
+                *(int *)(member + 0x1c) != -1)
+                return 1;
+        }
+    }
+    return 0;
+}
+
 static void inject_players(void) {
     unsigned char *g = sim_game_globals();
     if (!g || !g[1]) {
@@ -2660,12 +2694,26 @@ static void inject_players(void) {
     log_game_players("after", g);
 }
 
+static int inject_prepare(void);
+
 __declspec(dllexport) int mjolnir_sim_inject_player(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
+    if (!inject_prepare()) return 0;
+    InterlockedExchange(&inject_request, 1);
+    fireteam_log("inject: queued for the next simulation tick");
+    return 0;
+}
+
+/* Find the injection's functions and hook the main-game tick: 1 when ready. */
+static int inject_prepare(void) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
     int hits;
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+    }
     if (!player_new_jip) {
         player_new_jip = (player_new_t)find_in_module(sim, PLAYER_NEW, PLAYER_NEW_MASK, sizeof PLAYER_NEW, 1, &hits);
         if (!player_new_jip) fireteam_log("inject: player-new matched %d times", hits);
@@ -2679,10 +2727,7 @@ __declspec(dllexport) int mjolnir_sim_inject_player(void *L) {
         }
     }
     find_sim_sessions();
-    if (!install_main_tick(sim)) return 0;
-    InterlockedExchange(&inject_request, 1);
-    fireteam_log("inject: queued for the next simulation tick");
-    return 0;
+    return install_main_tick(sim);
 }
 
 __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
@@ -2718,6 +2763,25 @@ __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
     }
     fireteam_log("game: no joined session to build a game from");
     return 0;
+}
+
+__declspec(dllexport) int mjolnir_sim_jip_start(void *L);
+
+/* The simulation session this machine joined: the one whose own peer entry
+   is flagged joining (+0x174 == 1). */
+static unsigned char *joined_session(void) {
+    find_sim_sessions();
+    __try {
+        for (int si = 0; si < 2 && sim_sessions; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            int own = *(int *)(s + 0x3e04);
+            if (mask && own >= 0 && own < 17 && (mask & (1u << own)) && *(unsigned *)(s + own * 0x128 + 0x174) == 1)
+                return s;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return NULL;
 }
 
 static void watch_loading(void) {
@@ -2760,6 +2824,22 @@ static void watch_loading(void) {
         fireteam_log("world: simulation session %s", session);
     }
     if (state == 0 && mode == 2) adopt_host_peer_properties();
+    /* The host puts a joiner's players in its running game and republishes
+       the session's players parameter (inject_players); once that lists this
+       machine, build this side's game from the session, once per join. */
+    static DWORD built_for;
+    if (state == 0 && mode == 2 && built_for != watch_until) {
+        unsigned char *joined = joined_session();
+        __try {
+            if (joined && joined[0x4580] &&
+                (*(unsigned *)(joined + 0x4584) & (1u << *(int *)(joined + 0x3e04)))) {
+                built_for = watch_until;
+                fireteam_log("world: the host has put this machine in its game; building ours");
+                mjolnir_sim_jip_start(NULL);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
     if (state == 1 && mode == 1 && now - state_since > NUDGE_MS && !mode_pushed) {
         mode_pushed = 1;
         if (!loading_manager_set_mode2) loading_manager_set_mode2 = find_set_mode2();
@@ -2782,8 +2862,20 @@ static void watch_loading(void) {
     }
 }
 
+static int inject_prepare(void);
+static unsigned char *joined_session(void);
+
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    if (keep_lobby && join_in_progress && !jip_host_auto) {
+        if (inject_prepare()) {
+            InterlockedExchange(&jip_host_auto, 1);
+            fireteam_log("inject: armed: a peer that joins the running game gets its players put in");
+        } else {
+            static int warned;
+            if (!warned++) fireteam_log("inject: cannot arm (functions or main tick not found)");
+        }
+    }
     watch_loading();
     void *ws = held_world_settings;
     if (!ws) return 0;

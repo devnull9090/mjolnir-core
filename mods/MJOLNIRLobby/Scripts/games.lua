@@ -158,8 +158,17 @@ end
 --- start goes through. While a world is held (native\jip_held.txt) the
 --- native half needs the world's package path; it does the rest from here,
 --- once a second on the game thread.
+-- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
+-- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
+local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4 }
+-- The game type of the listed game being joined, and the world the level
+-- loader was last switched for.
+local joiningGameType
+local jipSwitchedFor
+
 local function jipTick()
     local held = io.open(nativeDir .. "jip_held.txt", "rb")
+    if not held then jipSwitchedFor = nil end
     if held then
         held:close()
         local ok, full = pcall(function()
@@ -171,9 +180,24 @@ local function jipTick()
             -- The URL a host's seamless travel sends (2026-10-03):
             -- /Game/Levels/Halo1/Solo/ICE/ICE?Name=Player?SeamlessTravel?ScenarioName=ICE?InsertionPointIndex=0
             local code = path:match("([^/]+)$")
+            local url = path .. "?Name=Player?SeamlessTravel?ScenarioName=" .. code
+                .. "?InsertionPointIndex=" .. tostring(GAME_TYPE_SLOT[joiningGameType or ""] or 0)
+            -- The level loader switches for a fireteam client's map when the
+            -- host's travel arrives; a joiner gets none, so hand it the URL
+            -- (Megalo engine, game type, running.txt for MJOLNIRHud) before
+            -- the native half starts the Blam game.
+            if jipSwitchedFor ~= path then
+                jipSwitchedFor = path
+                pcall(function()
+                    local pc = FindFirstOf("PlayerController")
+                    StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+                        :ExecuteConsoleCommand(pc:GetWorld(), "mjolnir_level_join " .. url, pc)
+                end)
+                log("games: joined a match under way: " .. url)
+            end
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
             if f then
-                f:write(path, "?Name=Player?SeamlessTravel?ScenarioName=", code, "?InsertionPointIndex=0\n")
+                f:write(url, "\n")
                 -- The engine subsystem whose map-loaded step lifts the
                 -- loading screen once the Blam game has started.
                 local okManager, manager = pcall(function()
@@ -362,6 +386,7 @@ function Games.join(lobby, done)
         -- host's session though it arrives alone in a match under way.
         keepLobby(false)
         stayOnline(true)
+        joiningGameType = data.game_type or lobby.game_type
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then
             done(false, "cannot write the join request")
