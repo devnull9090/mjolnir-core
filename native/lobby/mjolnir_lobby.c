@@ -938,6 +938,39 @@ static const char *hook_leave_session_slot(void) {
     return "hooked";
 }
 
+/* UBlamOnlineSessionSubsystem::SetSessionRunning (exe 0x7abb940 on CU4) runs at
+   a match's start. With more than one session member it locks the lobby's
+   membership; with one (a host alone) it leaves the session to play offline:
+   the LeaveSession that dropped a solo host's lobby and kept anyone from
+   joining (2026-10-03). While the game is public the member-count branch is
+   made unconditional, so a host alone stays online.
+       0x7abba88: cmp eax, 1 / jg +6c (7F 6C) -> jmp +6c (EB 6C) */
+static const unsigned char SOLO_SESSION_BRANCH[] = {0x83, 0xF8, 0x01, 0x7F, 0x6C, 0x44, 0x8B, 0x87, 0xE8, 0x02,
+                                                    0x00, 0x00, 0x48, 0x8D, 0x55, 0xC8, 0x80, 0xA7, 0x70, 0x02};
+static unsigned char *solo_session_branch;
+
+static const char *stay_online_alone(int on) {
+    if (!solo_session_branch) {
+        unsigned char pattern[sizeof SOLO_SESSION_BRANCH];
+        memcpy(pattern, SOLO_SESSION_BRANCH, sizeof pattern);
+        int hits;
+        solo_session_branch = find_code(pattern, sizeof pattern, &hits);
+        if (!solo_session_branch) {
+            pattern[3] = 0xEB; /* patched by an earlier load of this DLL */
+            solo_session_branch = find_code(pattern, sizeof pattern, &hits);
+        }
+        if (!solo_session_branch) return "SetSessionRunning branch not found, left alone";
+    }
+    unsigned char want = on ? 0xEB : 0x7F;
+    if (solo_session_branch[3] == want) return on ? "stays online alone" : "as shipped";
+    DWORD old;
+    if (!VirtualProtect(solo_session_branch + 3, 1, PAGE_EXECUTE_READWRITE, &old)) return "VirtualProtect failed";
+    solo_session_branch[3] = want;
+    VirtualProtect(solo_session_branch + 3, 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), solo_session_branch + 3, 1);
+    return on ? "stays online alone" : "as shipped";
+}
+
 /* native\keep_lobby.txt: "1" while the host's game is public (games.lua), so the
    game cannot leave its lobby (a match started alone would); "0" otherwise. */
 __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
@@ -952,7 +985,7 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
         fclose(f);
     }
     InterlockedExchange(&keep_lobby, value ? 1 : 0);
-    fireteam_log("lobby: keep while public: %s", value ? "yes" : "no");
+    fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", stay_online_alone(value));
     return 0;
 }
 
