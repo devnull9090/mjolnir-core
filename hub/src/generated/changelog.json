@@ -149,6 +149,33 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.11.1",
+      "tag": "mods-v0.11.1",
+      "title": "FIND GAMES shows a game's details",
+      "date": "2026-10-02",
+      "summary": "FIND GAMES shows the host, map, game type, players and ping of the selected game again. They were missing whenever the hub had no ping estimate.",
+      "body": "### Fixed\n\n- **A game's details in FIND GAMES.** Selecting a game showed only its name:\n  the host, map, game type, players and ping were missing whenever the hub\n  had no ping estimate for it. They show again, and the hub now has the\n  locations it needs to estimate ping.\n\n### Changed\n\n- **MJOLNIRLobby 0.4.1**: the fix.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "A game's details in FIND GAMES. Selecting a game showed only its name: the host, map, game type, players and ping were missing whenever the hub had no ping estimate for it. They show again, and the hub now has the locations it needs to estimate ping."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.4.1: the fix."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.11.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.11.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.11.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.11.0",
       "tag": "mods-v0.11.0",
       "title": "Public games and FIND GAMES",
