@@ -2749,9 +2749,11 @@ static const unsigned char HS_EVALUATE_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
 
 static void fade_in_tick(void) {
     static unsigned running_ticks;
+    static unsigned long long instance;
     unsigned char *g = sim_game_globals();
-    if (!g || !g[1] || g[0]) {
+    if (!g || !g[1] || g[0] || *(unsigned long long *)(g + 0x18) != instance) {
         running_ticks = 0;
+        instance = g ? *(unsigned long long *)(g + 0x18) : 0;
         return;
     }
     if (++running_ticks < 90) return;
@@ -2774,6 +2776,16 @@ static void fade_in_tick(void) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fireteam_log("game: fade_in faulted (%08lx)", GetExceptionCode());
     }
+}
+
+__declspec(dllexport) int mjolnir_sim_fade_in(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    InterlockedExchange(&fade_in_pending, 1);
+    fireteam_log("game: fade-in queued");
+    return 0;
 }
 
 __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
@@ -2820,6 +2832,7 @@ __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
 }
 
 __declspec(dllexport) int mjolnir_sim_jip_start(void *L);
+__declspec(dllexport) int mjolnir_sim_fade_in(void *L);
 
 /* The simulation session this machine joined: the one whose own peer entry
    is flagged joining (+0x174 == 1). */
@@ -2888,8 +2901,22 @@ static void watch_loading(void) {
             if (joined && joined[0x4580] &&
                 (*(unsigned *)(joined + 0x4584) & (1u << *(int *)(joined + 0x3e04)))) {
                 built_for = watch_until;
-                fireteam_log("world: the host has put this machine in its game; building ours");
-                mjolnir_sim_jip_start(NULL);
+                if (!life_cycle) {
+                    int hits;
+                    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+                    unsigned char *at = sim ? find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK,
+                                                             sizeof LIFE_CYCLE_REQUEST, 1, &hits)
+                                            : NULL;
+                    if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+                }
+                unsigned char *handler = life_cycle ? *(unsigned char **)(life_cycle + 8 + 8 * 3) : NULL;
+                if (handler && life_cycle[0] == 3 && !(handler[0x48] & 1) && *(long long *)(handler + 0x58) != -1) {
+                    fireteam_log("world: the host has put this machine in its game, and ours already runs it");
+                    mjolnir_sim_fade_in(NULL);
+                } else {
+                    fireteam_log("world: the host has put this machine in its game; building ours");
+                    mjolnir_sim_jip_start(NULL);
+                }
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
