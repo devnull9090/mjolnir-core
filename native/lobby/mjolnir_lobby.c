@@ -2736,6 +2736,14 @@ __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
     int hits;
+    /* The in-game handler (life_cycle) is left as after a client's own
+       build once the game is queued; without it the handler rebuilds, fails
+       and makes this peer host. */
+    if (!life_cycle) {
+        unsigned char *at = find_in_module(sim, LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK, sizeof LIFE_CYCLE_REQUEST, 1, &hits);
+        if (at) life_cycle = at + 4 + 7 + *(int *)(at + 6);
+        else fireteam_log("game: life-cycle manager not found (%d matches)", hits);
+    }
     if (!build_game_from_session) {
         unsigned char *build = find_in_module(sim, BUILD_GAME, NULL, sizeof BUILD_GAME, 1, &hits);
         if (!build) {

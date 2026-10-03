@@ -206,6 +206,7 @@ local Board = nil
 local Queue = {}
 local incidentHooked = false
 local lastWorld = nil
+local nextRunningCheck = 0
 local boardShown = false
 local boardDirty = true
 local nextRosterRefresh = 0
@@ -737,6 +738,12 @@ local function tick()
         lastWorld = code
         local running = runningMatch()
         if Match then endMatch() end
+        if running and code == running.code then startMatch(running, code) end
+    elseif not Match and code and now() >= nextRunningCheck then
+        -- A player who joins a match under way is in its world before the
+        -- level loader knows the match: look again once a second.
+        nextRunningCheck = now() + 1
+        local running = runningMatch()
         if running and code == running.code then startMatch(running, code) end
     end
     if not Match then

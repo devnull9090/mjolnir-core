@@ -161,14 +161,41 @@ end
 -- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
 -- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
 local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4 }
--- The game type of the listed game being joined, and the world the level
--- loader was last switched for.
+-- The game type of the listed game being joined, and the level loader switch
+-- still owed for a match joined under way: { code, url, tries }.
 local joiningGameType
-local jipSwitchedFor
+local pendingSwitch
+local jipJoinedUrl
+
+--- Hand the level loader a joined match's URL (Megalo engine, game type,
+--- running.txt for MJOLNIRHud), as the host's travel would. A held world may
+--- not take the console command yet, so retry once a second until the
+--- loader's running.txt names the map.
+local function levelSwitchTick()
+    if not pendingSwitch then return end
+    local running = readFile(nativeDir .. "..\\..\\MJOLNIRLevelLoader\\running.txt") or ""
+    if running:sub(1, #pendingSwitch.code + 1) == pendingSwitch.code .. "\t" then
+        log("games: the level loader runs " .. pendingSwitch.code .. " for the match joined under way")
+        pendingSwitch = nil
+        return
+    end
+    pendingSwitch.tries = pendingSwitch.tries + 1
+    if pendingSwitch.tries > 60 then
+        log("games: the level loader never took " .. pendingSwitch.url)
+        pendingSwitch = nil
+        return
+    end
+    pcall(function()
+        local pc = FindFirstOf("PlayerController")
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            :ExecuteConsoleCommand(pc:GetWorld(), "mjolnir_level_join " .. pendingSwitch.url, pc)
+    end)
+end
 
 local function jipTick()
+    levelSwitchTick()
     local held = io.open(nativeDir .. "jip_held.txt", "rb")
-    if not held then jipSwitchedFor = nil end
+    if not held then jipJoinedUrl = nil end
     if held then
         held:close()
         local ok, full = pcall(function()
@@ -182,17 +209,9 @@ local function jipTick()
             local code = path:match("([^/]+)$")
             local url = path .. "?Name=Player?SeamlessTravel?ScenarioName=" .. code
                 .. "?InsertionPointIndex=" .. tostring(GAME_TYPE_SLOT[joiningGameType or ""] or 0)
-            -- The level loader switches for a fireteam client's map when the
-            -- host's travel arrives; a joiner gets none, so hand it the URL
-            -- (Megalo engine, game type, running.txt for MJOLNIRHud) before
-            -- the native half starts the Blam game.
-            if jipSwitchedFor ~= path then
-                jipSwitchedFor = path
-                pcall(function()
-                    local pc = FindFirstOf("PlayerController")
-                    StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-                        :ExecuteConsoleCommand(pc:GetWorld(), "mjolnir_level_join " .. url, pc)
-                end)
+            if not (pendingSwitch and pendingSwitch.url == url) and jipJoinedUrl ~= url then
+                jipJoinedUrl = url
+                pendingSwitch = { code = string.upper(code), url = url, tries = 0 }
                 log("games: joined a match under way: " .. url)
             end
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
