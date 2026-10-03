@@ -168,9 +168,12 @@ local function jipTick()
         -- "World /Game/Levels/Halo1/Solo/BCK/BCK.BCK" -> "/Game/Levels/Halo1/Solo/BCK/BCK"
         local path = ok and full and full:match("^%S+%s+([^%.]+)")
         if path then
+            -- The URL a host's seamless travel sends (2026-10-03):
+            -- /Game/Levels/Halo1/Solo/ICE/ICE?Name=Player?SeamlessTravel?ScenarioName=ICE?InsertionPointIndex=0
+            local code = path:match("([^/]+)$")
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
             if f then
-                f:write(path, "\n")
+                f:write(path, "?Name=Player?SeamlessTravel?ScenarioName=", code, "?InsertionPointIndex=0\n")
                 f:close()
             end
         end
