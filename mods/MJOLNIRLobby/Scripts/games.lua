@@ -157,7 +157,14 @@ local function beat()
     if not (info and info.map_code and info.game_type) then return end
     local conn, why = connectionString()
     if not conn then
-        setStatus("Not listed yet: " .. tostring(why))
+        -- The game left its online lobby: a match started with the host
+        -- alone in the fireteam plays offline (2026-10-02). A listing kept
+        -- up would hand joiners a dead connection string, which the game
+        -- reports as a full fireteam, so it comes down until a lobby is back.
+        if Host.id then unlist("the game left its online lobby") end
+        Host.nextBeat = os.time() + 5
+        setStatus(info.in_game and "Not listed: this match is offline. A match started with only you in the fireteam can't be joined."
+            or ("Not listed yet: " .. tostring(why)))
         return
     end
     local players = math.max(1, info.players or 1)

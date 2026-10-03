@@ -140,6 +140,7 @@ static unsigned at_least(unsigned value, unsigned floor) { return value < floor 
    joinConfiguration, asyncContext, lobby). The configuration is the caller's;
    its first field is maxMemberCount. */
 static void track_lobby(void *lobby, const char *how);
+static int in_image(const void *p);
 
 static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *config, void *join, void *context,
                                             void *lobby) {
@@ -292,11 +293,25 @@ static long __stdcall hook_join_lobby(void *handle, void *member, const char *co
     return hr;
 }
 
-/* PFLobbyLeave(lobby, localUser, asyncContext). */
+/* PFLobbyLeave(lobby, localUser, asyncContext). A match started with the host
+   alone leaves the lobby, so nobody can join it (2026-10-02); the call chain
+   is logged, as exe RVAs, to find where the game decides that. */
 static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
     if (lobby == current_lobby) {
         current_lobby = NULL;
         fireteam_log("lobby: left %p", lobby);
+        void *frames[24];
+        USHORT n = RtlCaptureStackBackTrace(0, 24, frames, NULL);
+        unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+        char line[24 * 12 + 1];
+        size_t at = 0;
+        for (USHORT i = 0; i < n && at + 12 < sizeof line; i++) {
+            if (!in_image(frames[i])) continue;
+            at += (size_t)snprintf(line + at, sizeof line - at, " %llx",
+                                   (unsigned long long)((unsigned char *)frames[i] - base));
+        }
+        line[at] = 0;
+        fireteam_log("lobby: left from%s", line);
     }
     return real_lobby_leave(lobby, user, context);
 }
