@@ -1450,8 +1450,41 @@ static void drop_held_world(const char *why) {
 }
 
 /* Once a second from games.lua, on the game thread. */
+/* After a held world is released: the loading manager's state (+0xd9, its
+   tick queues command 0/2 at 6) and the GameState's experience component
+   (CurrentExperience at +0xa8; its three bWaiting... bits at +0x118, which
+   the tick waits to see all set), logged on change for WATCH_MS. */
+static unsigned char *watch_manager, *watch_experience;
+static DWORD watch_until;
+#define WATCH_MS 90000
+
+static void watch_loading(void) {
+    static int last_state = -1, last_flags = -1;
+    static void *last_experience = (void *)1;
+    if (!watch_until || (long)(GetTickCount() - watch_until) > 0) return;
+    int state = -1, flags = -1;
+    void *experience = NULL;
+    __try {
+        if (watch_manager) state = watch_manager[0xd9];
+        if (watch_experience) {
+            flags = watch_experience[0x118];
+            experience = *(void **)(watch_experience + 0xa8);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        watch_until = 0;
+        fireteam_log("world: loading watch stopped (unreadable)");
+        return;
+    }
+    if (state == last_state && flags == last_flags && experience == last_experience) return;
+    last_state = state;
+    last_flags = flags;
+    last_experience = experience;
+    fireteam_log("world: loading manager state %d, experience %p flags %02x", state, experience, flags);
+}
+
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    watch_loading();
     void *ws = held_world_settings;
     if (!ws) return 0;
     struct blam_game g = blam_game_now();
@@ -1465,17 +1498,20 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
        map it is in, once games.lua has said which map that is. */
     static void *replayed;
     if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && replayed != ws) {
-        char map[260] = "", manager_line[64] = "";
+        char map[260] = "", manager_line[64] = "", experience_line[64] = "";
         char path[MAX_PATH];
         snprintf(path, sizeof path, "%sjip_map.txt", dir);
         FILE *f = fopen(path, "r");
         if (f) {
             if (!fgets(map, sizeof map, f)) map[0] = 0;
             if (!fgets(manager_line, sizeof manager_line, f)) manager_line[0] = 0;
+            if (!fgets(experience_line, sizeof experience_line, f)) experience_line[0] = 0;
             fclose(f);
         }
         map[strcspn(map, "\r\n")] = 0;
         unsigned long long manager = _strtoui64(manager_line, NULL, 16);
+        watch_manager = (unsigned char *)(uintptr_t)manager;
+        watch_experience = (unsigned char *)(uintptr_t)_strtoui64(experience_line, NULL, 16);
         unsigned char *world = actor_get_world ? actor_get_world(ws) : NULL;
         void *gi = world && game_instance_offset ? *(void **)(world + game_instance_offset) : NULL;
         if (map[0] && gi && notify_pre_client_travel) {
@@ -1506,6 +1542,7 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     if (!blam_game_running(&g) && waited < JIP_HOLD_MS) return 0;
     if (InterlockedCompareExchangePointer(&held_world_settings, NULL, ws) != ws) return 0;
     held_flag(0);
+    watch_until = GetTickCount() + WATCH_MS;
     fireteam_log("world: begin play released after %lu ms (%s)", (unsigned long)waited,
                  blam_game_running(&g) ? "the Blam game runs" : "no Blam game, gave up waiting");
     real_notify_begin_play(ws);

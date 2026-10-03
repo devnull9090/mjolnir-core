@@ -179,7 +179,15 @@ local function jipTick()
                 local okManager, manager = pcall(function()
                     return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
                 end)
-                if okManager and manager then f:write(string.format("%X\n", manager)) end
+                f:write(string.format("%X\n", okManager and manager or 0))
+                -- The world's GameState experience component, whose
+                -- bWaiting... bits the loading step waits on (logged).
+                local okExperience, experience = pcall(function()
+                    local gs = FindFirstOf("PlayerController"):GetWorld().GameState
+                    local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
+                    return gs:GetComponentByClass(cls):GetAddress()
+                end)
+                f:write(string.format("%X\n", okExperience and experience or 0))
                 f:close()
             end
         end
