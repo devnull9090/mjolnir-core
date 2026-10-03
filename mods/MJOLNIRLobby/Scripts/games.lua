@@ -139,6 +139,18 @@ local function keepLobby(on)
     if native("mjolnir_keep_lobby") then keeping = on end
 end
 
+--- Whether a session that starts, or is joined while running, with one
+--- member stays online instead of leaving to play offline (the native half
+--- patches UBlamOnlineSessionSubsystem::SetSessionRunning). On for a joiner
+--- going into a public game; a public host gets it with keepLobby.
+local function stayOnline(on)
+    local f = io.open(nativeDir .. "stay_online.txt", "wb")
+    if not f then return end
+    f:write(on and "1" or "0")
+    f:close()
+    native("mjolnir_stay_online")
+end
+
 --- The current PlayFab lobby's connection string, or nil and why.
 local function connectionString()
     if not native("mjolnir_lobby_connection") then return nil, "the native half is not loaded" end
@@ -302,8 +314,10 @@ function Games.join(lobby, done)
             Host.public = false
             unlist("joining another game")
         end
-        -- The game leaves its own lobby to join the host's.
+        -- The game leaves its own lobby to join the host's, and stays in the
+        -- host's session though it arrives alone in a match under way.
         keepLobby(false)
+        stayOnline(true)
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then
             done(false, "cannot write the join request")

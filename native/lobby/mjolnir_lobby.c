@@ -971,6 +971,26 @@ static const char *stay_online_alone(int on) {
     return on ? "stays online alone" : "as shipped";
 }
 
+/* native\stay_online.txt: "1" before joining a public game from FIND GAMES
+   (games.lua). A joiner landing in a session that is already running took the
+   same one-member branch and left within a second; it gets the branch patch
+   alone, without keep_lobby's refusals (a refused leave on a normal quit
+   retries without pause). */
+__declspec(dllexport) int mjolnir_stay_online(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sstay_online.txt", dir);
+    FILE *f = fopen(path, "r");
+    int value = 0;
+    if (f) {
+        if (fscanf(f, "%d", &value) != 1) value = 0;
+        fclose(f);
+    }
+    fireteam_log("session: alone, stay online: %s", stay_online_alone(value || keep_lobby));
+    return 0;
+}
+
 /* native\keep_lobby.txt: "1" while the host's game is public (games.lua), so the
    game cannot leave its lobby (a match started alone would); "0" otherwise. */
 __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
