@@ -820,15 +820,73 @@ static const unsigned char LEAVE_SESSION[] = {0x41, 0x80, 0x7D, 0x0C, 0x00, 0x4C
 static const unsigned char LEAVE_SESSION_PROLOGUE[] = {0x4C, 0x8B, 0xDC, 0x55, 0x41, 0x54};
 #define LEAVE_SESSION_BODY 0x74
 
+/* The Online Services op runner (exe 0x6a2c740) calls LeaveSession through a
+   continuation object it keeps in rsi: the queued call's object (+0x18), its
+   member function pointer (+0x30, a vcall thunk) and this-adjust (+0x38). The
+   thunk names who queued the leave, the code that decides it; a stub in front
+   of the hook saves rsi into leave_runner_rsi (2026-10-03). */
+static volatile unsigned long long *leave_runner_rsi;
+
+static void log_leave_continuation(void) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    unsigned char *obj = leave_runner_rsi ? (unsigned char *)*leave_runner_rsi : NULL;
+    if (!obj) return;
+    __try {
+        char line[400];
+        size_t at = 0;
+        for (int k = 0; k < 0x48; k += 8) {
+            unsigned char *v = *(unsigned char **)(obj + k);
+            if (in_image(v))
+                at += (size_t)snprintf(line + at, sizeof line - at, " +%02x=exe+%llx", k, (unsigned long long)(v - base));
+            else
+                at += (size_t)snprintf(line + at, sizeof line - at, " +%02x=%p", k, (void *)v);
+            if (at >= sizeof line - 40) break;
+        }
+        fireteam_log("session: LeaveSession continuation%s", line);
+        unsigned char *pmf = *(unsigned char **)(obj + 0x30);
+        if (in_image(pmf))
+            fireteam_log("session: its function starts %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+                         pmf[0], pmf[1], pmf[2], pmf[3], pmf[4], pmf[5], pmf[6], pmf[7], pmf[8], pmf[9], pmf[10],
+                         pmf[11]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("session: LeaveSession continuation unreadable");
+    }
+}
+
 static void *__fastcall hook_leave_session(void *self, void *out, unsigned char *params) {
     if (params) {
         fireteam_log("session: LeaveSession name %u/%u destroy %u", *(unsigned *)(params + 4),
                      *(unsigned *)(params + 8), params[0xc]);
+        log_leave_continuation();
     }
     in_leave_session++;
     void *result = real_leave_session(self, out, params);
     in_leave_session--;
     return result;
+}
+
+/* The public Online Services LeaveSession (exe 0x69f1910 on CU4) sits at slot
+   0x48 of the same vtable whose slot 0x1b0 holds the work it queues (the hook
+   above). Whoever calls it decides the leave, and is on the stack here. */
+typedef void *(__fastcall *leave_session_public_t)(void *self, void *out, unsigned char *params);
+static leave_session_public_t real_leave_session_public;
+static const unsigned char LEAVE_SESSION_PUBLIC_PROLOGUE[] = {0x40, 0x55, 0x53, 0x57, 0x41, 0x55, 0x41, 0x56,
+                                                              0x48, 0x8D, 0x6C, 0x24, 0xC9};
+
+static void *__fastcall hook_leave_session_public(void *self, void *out, unsigned char *params) {
+    void *frames[24];
+    USHORT n = RtlCaptureStackBackTrace(0, 24, frames, NULL);
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    char line[24 * 12 + 1];
+    size_t at = 0;
+    for (USHORT i = 0; i < n && at + 12 < sizeof line; i++) {
+        if (!in_image(frames[i])) continue;
+        at += (size_t)snprintf(line + at, sizeof line - at, " %llx", (unsigned long long)((unsigned char *)frames[i] - base));
+    }
+    line[at] = 0;
+    fireteam_log("session: LeaveSession asked (name %u/%u destroy %u) from%s", params ? *(unsigned *)(params + 4) : 0u,
+                 params ? *(unsigned *)(params + 8) : 0u, params ? params[0xc] : 0u, line);
+    return real_leave_session_public(self, out, params);
 }
 
 static const char *hook_leave_session_slot(void) {
@@ -850,7 +908,32 @@ static const char *hook_leave_session_slot(void) {
     DWORD old;
     if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
     real_leave_session = (leave_session_t)fn;
-    *slot = (void *)hook_leave_session;
+    /* stub: mov [rip+0x39], rsi ; jmp [rip+0] -> hook_leave_session ; rsi kept at +0x40 */
+    unsigned char *stub = (unsigned char *)VirtualAlloc(NULL, 0x80, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!stub) return "VirtualAlloc failed";
+    stub[0] = 0x48;
+    stub[1] = 0x89;
+    stub[2] = 0x35;
+    *(int *)(stub + 3) = 0x40 - 7;
+    stub[7] = 0xFF;
+    stub[8] = 0x25;
+    *(int *)(stub + 9) = 0;
+    *(void **)(stub + 13) = (void *)hook_leave_session;
+    leave_runner_rsi = (volatile unsigned long long *)(stub + 0x40);
+    *slot = (void *)stub;
+    /* The public entry, 0x1b0 - 0x48 bytes before it in the same vtable. */
+    void **pub = slot - (0x1b0 - 0x48) / sizeof(void *);
+    if (in_image(*pub) && memcmp(*pub, LEAVE_SESSION_PUBLIC_PROLOGUE, sizeof LEAVE_SESSION_PUBLIC_PROLOGUE) == 0) {
+        DWORD old2;
+        if (VirtualProtect(pub, sizeof *pub, PAGE_READWRITE, &old2)) {
+            real_leave_session_public = (leave_session_public_t)*pub;
+            *pub = (void *)hook_leave_session_public;
+            VirtualProtect(pub, sizeof *pub, old2, &old2);
+            fireteam_log("LeaveSession public entry: hooked");
+        }
+    } else {
+        fireteam_log("LeaveSession public entry: not where expected, left alone");
+    }
     VirtualProtect(slot, sizeof *slot, old, &old);
     return "hooked";
 }
