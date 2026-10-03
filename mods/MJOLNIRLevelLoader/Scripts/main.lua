@@ -1273,20 +1273,62 @@ local function bipedTeam(actor)
     return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
 end
 
---- Give every Spartan armour mesh on `actor` the team colour.
-local function tintMeshes(actor, color)
+--- In a team game every Spartan wears the classic Mk V armour. It is the one
+--- armour whose material takes a colour (`Armor Color`): the others a player
+--- can pick (Chief's default, MkIV, Blamite, Lone Wolf, the coatings) bake
+--- their colours into textures, so a player in one stayed olive on Blue
+--- (2026-10-02, CTF over two PCs). Each mesh component's class names its
+--- role, the same whatever armour was picked, and the role names the Mk V
+--- mesh; `armor` roles also get the team-coloured material. The shields keep
+--- their own material (an empty or camo shell, the same for every armour).
+local MKV = "/Game/Characters/Spartans/MkV_Classic/"
+local MKV_FP = "/Game/Characters/SpartansFP/MkV_Classic/"
+local MKV_ARMOR = MKV .. "Materials/MI_Spartans_MkV_Classic.MI_Spartans_MkV_Classic"
+local BIPED_ROLES = {
+    BPC_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic.SK_Spartans_MkV_Classic", armor = true },
+    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Shield.SK_Spartans_MkV_Classic_Shield" },
+}
+-- The local player's own view: first-person arms and their shield, the legs
+-- seen looking down and their shield, and the body that casts its shadow.
+local PAWN_ROLES = {
+    BPC_FP_SkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic.SK_SpartansFP_MkV_Classic", armor = true },
+    BPC_FP_TranslucentSkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic_Shield.SK_SpartansFP_MkV_Classic_Shield" },
+    BPC_PAWN_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Legs.SK_Spartans_MkV_Classic_Legs", armor = true },
+    BPC_FP_ShadowSkeletalMesh_C = {
+        mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_NonNanite_Shadow.SK_Spartans_MkV_Classic_NonNanite_Shadow",
+        armor = true,
+    },
+    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_ShieldLegs.SK_Spartans_MkV_Classic_ShieldLegs" },
+}
+
+--- Put every Spartan mesh on `actor` in the Mk V armour and give its armour
+--- the team colour. Meshes already in Mk V are left in place.
+local function dressMeshes(actor, roles, color)
     local tinted = false
     local skel = findObject("/Script/Engine.SkeletalMeshComponent")
     for _, c in ipairs(actor:K2_GetComponentsByClass(skel) or {}) do
         if type(c) == "userdata" and c.get then c = c:get() end
-        local mat = c:GetMaterial(0)
-        local name = mat and mat:IsValid() and mat:GetFName():ToString() or ""
-        if name:find("^MI_Spartans") then
-            setArmorColor(c:CreateDynamicMaterialInstance(0, mat, FName("MJ_TeamArmor")), color)
-            tinted = true
-        elseif name:find("^MJ_TeamArmor") then
-            setArmorColor(mat, color)
-            tinted = true
+        local role = roles[c:GetClass():GetFName():ToString()]
+        local mesh = role and resolveMesh(role.mesh)
+        if mesh then
+            local current = c.SkeletalMesh
+            if not (current and current:IsValid() and current:GetFullName() == mesh:GetFullName()) then
+                c:SetSkeletalMeshAsset(mesh)
+            end
+            if role.armor then
+                local mat = c:GetMaterial(0)
+                local name = mat and mat:IsValid() and mat:GetFName():ToString() or ""
+                if name:find("^MJ_TeamArmor") then
+                    setArmorColor(mat, color)
+                    tinted = true
+                else
+                    local armor = resolveMesh(MKV_ARMOR)
+                    if armor then
+                        setArmorColor(c:CreateDynamicMaterialInstance(0, armor, FName("MJ_TeamArmor")), color)
+                        tinted = true
+                    end
+                end
+            end
         end
     end
     return tinted
@@ -1297,7 +1339,7 @@ local function tintBiped(actor)
     local team = bipedTeam(actor)
     local color = team and TEAM_ARMOR[team]
     if not color then return false end
-    return tintMeshes(actor, color)
+    return dressMeshes(actor, BIPED_ROLES, color)
 end
 
 --- Every Spartan biped the watch has seen (and the ones there before it).
@@ -1342,7 +1384,7 @@ local function tintLocalPawn()
         if d < best then team, best = bipedTeam(actor), d end
     end
     local color = team and TEAM_ARMOR[team]
-    if color then tintMeshes(pawn, color) end
+    if color then dressMeshes(pawn, PAWN_ROLES, color) end
 end
 
 retintSoon = function()

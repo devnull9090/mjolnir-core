@@ -462,7 +462,13 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
   `/Game/MJOLNIR/CTF/SM_CE_Flag`; its textures come from
   `tools/level/ce_flag_textures.py`. The stand needs no mesh: CE's own flag
   base scenery sits at each flag and comes in with the map.
-- **Armour colours.** In a team game the loader gives each Spartan's armour,
+- **Armour colours.** In a team game the loader puts every Spartan in the
+  classic Mk V armour, whatever the player picked: only its material takes a
+  colour. The others (Chief's default, MkIV, Blamite, Lone Wolf, the
+  coatings) bake theirs into textures, so a Chief-armoured player stayed
+  olive on Blue. Each mesh component's class (`BPC_SkeletalMesh_C`,
+  `BPC_FP_SkeletalMesh_C`, ...) names the Mk V mesh it gets. The loader then
+  gives each Spartan's armour,
   and the local player's first-person arms, legs and shadow, a dynamic
   instance with `Armor Color` set to red or blue. The parameter is read at
   global association with index **0**: the plain setter writes index -1,

@@ -149,6 +149,33 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.11.2",
+      "tag": "mods-v0.11.2",
+      "title": "Blue team shows blue, whatever armour you wear",
+      "date": "2026-10-02",
+      "summary": "In CTF and Team Slayer, every Spartan now wears the classic Mk V armour in its team's colour. Players in other armour, like Master Chief's default, stayed olive.",
+      "body": "### Fixed\n\n- **Team colours for every armour.** Only the classic Mk V armour can take a\n  team colour; the others carry their colours in their textures. A player\n  who had picked another armour, such as Master Chief's default, stayed\n  olive on their team, on every screen including their own. In team games\n  everyone now wears Mk V in red or blue, as in Halo: Combat Evolved. Free\n  for all games keep your own armour.\n\n### Changed\n\n- **MJOLNIRLevelLoader 0.1.5**: the fix.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Team colours for every armour. Only the classic Mk V armour can take a team colour; the others carry their colours in their textures. A player who had picked another armour, such as Master Chief's default, stayed olive on their team, on every screen including their own. In team games everyone now wears Mk V in red or blue, as in Halo: Combat Evolved. Free for all games keep your own armour."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLevelLoader 0.1.5: the fix."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.11.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.11.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.11.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.11.1",
       "tag": "mods-v0.11.1",
       "title": "FIND GAMES shows a game's details",
