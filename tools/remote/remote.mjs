@@ -74,6 +74,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const AGENT_FILES = [
   [path.join(REPO, "tools", "remote", "mjolnir-agent.ps1"), "mjolnir-agent.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
+  [path.join(REPO, "tools", "mcp", "game", "capture.ps1"), "capture.ps1"],
 ];
 
 /** mjolnir_auto's answer file as an object, or null (reads the file only: safe while the game travels). */
@@ -143,6 +144,12 @@ export const commands = {
       if (state && state.at !== before) return JSON.stringify(state);
     }
     throw new Error("mjolnir_auto did not answer (is MJOLNIRLobby loaded?)");
+  },
+  /** The game window as a PNG (agent 4). */
+  async shot(local = "pc2.png", max = "1280") {
+    const bytes = await call("GET", "/screenshot", { max });
+    fs.writeFileSync(local, bytes);
+    return `${local}: ${bytes.length} bytes`;
   },
   async "stage-agent"() {
     const out = [];

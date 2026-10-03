@@ -2115,7 +2115,6 @@ static void __fastcall hook_main_tick(void) {
            handler never built, so after a few seconds its timers decide the
            host is gone and the joiner makes itself host. Leave the handler as
            a normal client's after its build. */
-        if (queued) InterlockedExchange(&fade_in_pending, 1);
         if (queued && life_cycle) {
             __try {
                 unsigned char *handler = *(unsigned char **)(life_cycle + 8 + 8 * 3);
@@ -2785,12 +2784,11 @@ static int inject_prepare(void) {
     return install_main_tick(sim);
 }
 
-/* A joiner's screen stays black: a converted map's startup script fades the
-   view in when the match starts, and in a distributed game scripts run on
-   the host, so a game built later never fades in. Run the script command
-   ourselves through the simulation's hs_compile_and_evaluate (sim 0x1f8b30,
-   the call MJOLNIRBlamConsole makes), on the simulation thread, once the
-   joiner's game has run for three seconds. */
+/* (fade_in 0 0 0 15) through the simulation's hs_compile_and_evaluate (sim
+   0x1f8b30, the call MJOLNIRBlamConsole makes), on the simulation thread,
+   once a game has run for three seconds: mjolnir_sim_fade_in. Not run for a
+   joiner any more: its view is already up when it spawns (its black screens
+   were a missing biped), and the fade flashed it black once more. */
 typedef unsigned char(__fastcall *hs_evaluate_t)(unsigned long long unused, const char *source, const char *text,
                                                  char interactive, unsigned unused5, int *value, int *type);
 static hs_evaluate_t hs_evaluate;
@@ -3057,7 +3055,6 @@ static void watch_loading(void) {
                 unsigned char *handler = life_cycle ? *(unsigned char **)(life_cycle + 8 + 8 * 3) : NULL;
                 if (handler && life_cycle[0] == 3 && !(handler[0x48] & 1) && *(long long *)(handler + 0x58) != -1) {
                     fireteam_log("world: the host has put this machine in its game, and ours already runs it");
-                    mjolnir_sim_fade_in(NULL);
                 } else {
                     fireteam_log("world: the host has put this machine in its game; building ours");
                     mjolnir_sim_jip_start(NULL);

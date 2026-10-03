@@ -187,7 +187,7 @@ async function main() {
   say(`PC 1: ${injected.trim()}`);
   const faded = await waitFor("PC 2 to fade in", async () => {
     const log = (await pc2Side.log()).slice(pc2LogStart);
-    return log.split("\n").find((l) => l.includes("faded the joiner's view in")) ?? null;
+    return log.split("\n").find((l) => l.includes("the host has put this machine in its game")) ?? null;
   }, 120000, 2000);
   say(`PC 2: ${faded.trim()}`);
 
@@ -197,6 +197,12 @@ async function main() {
     return joinerPlayer && joinerPlayer.unit !== -1 ? joinerPlayer : null;
   }, 60000, 2000);
   say(`PC 1: joiner player ${spawned.index} has a biped (flags ${spawned.flags.toString(16)})`);
+  // What the joiner sees, a few seconds on (a fade flashed it once).
+  for (const wait of [2000, 4000]) {
+    await sleep(wait);
+    const file = path.join(os.tmpdir(), `jip-pc2-${Date.now()}.png`);
+    await pc2.shot(file).then(() => say(`PC 2: screenshot ${file}`), (e) => say(`PC 2: no screenshot (${e.message})`));
+  }
   const beat = JSON.parse(await pc2.status()).bridge ?? {};
   say(`PC 2: ${beat.world}, ${beat.pawn}`);
   say("PASS: the joiner is in the match");

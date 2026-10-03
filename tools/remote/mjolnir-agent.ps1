@@ -21,6 +21,7 @@
         POST /input                           keyboard and mouse steps for the
                                               game window (input.ps1 beside this
                                               script; steals focus while it runs)
+        GET  /screenshot[?max=W]              the game window as a PNG (capture.ps1)
         POST /restart-agent                   start this script again (after its
                                               files were replaced) and exit
 
@@ -45,7 +46,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "3"
+$AgentVersion = "4"
 
 # --- Where things are --------------------------------------------------------
 
@@ -314,6 +315,17 @@ function Handle($request, $stream) {
             $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
             $out = & powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | Out-String
             Send-Json $stream 200 @{ ok = ($LASTEXITCODE -eq 0); output = $out.Trim() }
+        }
+        "GET /screenshot" {
+            $script = Join-Path $PSScriptRoot "capture.ps1"
+            if (-not (Test-Path $script)) { Send-Json $stream 404 @{ error = "capture.ps1 is not beside the agent (remote.mjs deploy-agent)" }; return }
+            if (-not (Get-Game)) { Send-Json $stream 200 @{ ok = $false; error = "the game is not running" }; return }
+            $max = if ($p["max"]) { [int]$p["max"] } else { 1280 }
+            $file = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-shot.png"
+            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -OutFile $file -MaxWidth $max 2>&1 | Out-String
+            if (-not (Test-Path $file)) { Send-Json $stream 500 @{ error = "no capture: $($out.Trim())" }; return }
+            Send-Response $stream 200 ([System.IO.File]::ReadAllBytes($file)) "image/png"
+            Remove-Item $file -ErrorAction SilentlyContinue
         }
         "POST /restart-agent" {
             Send-Json $stream 200 @{ ok = $true; note = "restarting" }
