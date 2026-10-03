@@ -2019,9 +2019,18 @@ static const unsigned char LIFE_CYCLE_REQUEST_MASK[] = {1, 1, 1, 1, 1, 1, 0, 0, 
 
 static volatile LONG trace_on;
 static void trace_tick(void);
+static volatile LONG inject_request;
+static void inject_players(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
+    if (InterlockedExchange(&inject_request, 0)) {
+        __try {
+            inject_players();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("inject: faulted (%08lx)", GetExceptionCode());
+        }
+    }
     LONG wanted = InterlockedExchange(&life_cycle_request, -1);
     if (wanted >= 0 && life_cycle) {
         fireteam_log("life: on the simulation thread: state %u, requesting %ld", life_cycle[0], wanted);
@@ -2541,6 +2550,138 @@ __declspec(dllexport) int mjolnir_sim_watch_close(void *L) {
     unsigned char *fn = find_in_module(sim, CHANNEL_CLOSE, NULL, sizeof CHANNEL_CLOSE, 1, &hits);
     if (fn) channel_close_trampoline = (channel_close_t)inline_hook(fn, CHANNEL_CLOSE_STOLEN, (void *)hook_channel_close);
     fireteam_log("close: channel-close watch %s (%d matches)", channel_close_trampoline ? "on" : "failed", hits);
+    return 0;
+}
+
+/* Join in progress, host side: put a joiner's players into the running game.
+   A Blam game's machines and players come from its options at game start
+   (sim 0x20f530: machine mask G+0x26c, 6-byte machine ids G+0x270 per peer,
+   16 player entries of 0xb0 at G+0x2e0, each made by player-new 0x182000),
+   and the session's players parameter (index 7, +0x44f8) is republished from
+   those options, so a peer that joins later is in the session membership
+   (players +0x1410, 0xb0 apart, mask +0x140c) but never in the game. This
+   adds the joiner's machine (machine id 0x4d15a0, machine table 0x183a00),
+   fills each of its players' option entries the way the pre-game handler
+   does (0x55b2c0), creates them with player-new's join-in-progress flag set
+   and republishes the players parameter; on the simulation thread. */
+typedef char(__fastcall *player_new_t)(int index, unsigned char *options, char joined_in_progress);
+typedef void(__fastcall *machines_update_t)(unsigned mask, unsigned char *identifiers);
+typedef void(__fastcall *machine_id_t)(unsigned char *peer, unsigned char *identifier);
+static player_new_t player_new_jip;
+static machines_update_t machines_update;
+static machine_id_t machine_id;
+static const unsigned char PLAYER_NEW[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x28, 0x44, 0x8B, 0x0D,
+                                           0,    0,    0,    0,    0x48, 0x8B, 0xF2, 0x65, 0x48, 0x8B, 0x04, 0x25,
+                                           0x58, 0x00, 0x00, 0x00, 0x8B, 0xD1, 0x41, 0x0F, 0xB6, 0xE8};
+static const unsigned char PLAYER_NEW_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1,
+                                                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+static const unsigned char MACHINES_UPDATE[] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
+                                                0x57, 0x48, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00, 0x65, 0x48, 0x8B,
+                                                0x04, 0x25, 0x58, 0x00, 0x00, 0x00, 0x8B, 0xD9, 0x8B, 0x0D};
+static const unsigned char MACHINE_ID[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x45, 0x33, 0xDB, 0x45, 0x33, 0xD2, 0x33, 0xC0,
+                                           0x48, 0x8B, 0xDA, 0x4C, 0x8B, 0xC9, 0x41, 0xB8, 0x08, 0x00, 0x00, 0x00};
+
+static void log_game_players(const char *when, unsigned char *g) {
+    char line[200];
+    size_t at = 0;
+    for (int i = 0; i < 16; i++)
+        if (g[0x2e0 + i * 0xb0]) at += (size_t)snprintf(line + at, sizeof line - at, " %d", i);
+    line[at] = 0;
+    fireteam_log("inject: %s: machines %05x, players%s", when, *(unsigned *)(g + 0x26c), at ? line : " none");
+}
+
+static void inject_players(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1]) {
+        fireteam_log("inject: no game running on the simulation thread");
+        return;
+    }
+    unsigned char *session = NULL;
+    for (int si = 0; si < 2 && sim_sessions; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (*(int *)(s + 0x5b460) == 6 && *(unsigned *)(s + 0x5c)) session = s;
+    }
+    if (!session) {
+        fireteam_log("inject: no session hosted here");
+        return;
+    }
+    log_game_players("before", g);
+    unsigned peers = *(unsigned *)(session + 0x5c), machines = *(unsigned *)(g + 0x26c);
+    unsigned members = *(unsigned *)(session + 0x140c);
+    int added = 0;
+    for (int peer = 0; peer < 17; peer++) {
+        if (!(peers & (1u << peer)) || (machines & (1u << peer))) continue;
+        unsigned char *id = g + 0x270 + peer * 6;
+        machine_id(session + 0x60 + peer * 0x128, id);
+        machines |= 1u << peer;
+        *(unsigned *)(g + 0x26c) = machines;
+        machines_update(machines, g + 0x270);
+        fireteam_log("inject: machine %d added (%08x %04x)", peer, *(unsigned *)id, *(unsigned short *)(id + 4));
+        for (int p = 0; p < 16; p++) {
+            unsigned char *member = session + 0x1410 + p * 0xb0;
+            if (!(members & (1u << p)) || *(int *)(member + 0xc) != peer || *(int *)(member + 0x1c) == -1) continue;
+            unsigned char *entry = g + 0x2e0 + p * 0xb0;
+            if (entry[0]) {
+                fireteam_log("inject: player %d's options entry is taken", p);
+                continue;
+            }
+            memset(entry, 0, 0xb0);
+            entry[0] = 1;
+            entry[8] = member[0x10];
+            *(unsigned short *)(entry + 0xa) = *(unsigned short *)(member + 0x1c);
+            memcpy(entry + 0xc, id, 6);
+            memcpy(entry + 0x12, member + 4, 8);
+            memcpy(entry + 0x20, member + 0x20, 0x90);
+            /* Teams off in the game variant (session +0x63cc, byte +0x2bc
+               bit 0): each player is its own team, as the pre-game handler
+               numbers them. */
+            if (!(session[0x63cc + 0x2bc] & 1)) entry[0xa8] = (unsigned char)(p & 0xf);
+            else if ((signed char)entry[0xa8] < 0) entry[0xa8] = 0;
+            else if ((signed char)entry[0xa8] > 7) entry[0xa8] = 7;
+            char made = player_new_jip(p, entry, 1);
+            fireteam_log("inject: player %d (peer %d, team %u) created -> %d", p, peer, entry[0xa8], made);
+            added++;
+        }
+    }
+    if (!added) {
+        fireteam_log("inject: no new player to add (peers %05x, machines %05x, members %05x)", peers, machines, members);
+        return;
+    }
+    /* The players parameter, as the in-game handler republishes it: machine
+       mask and ids, the local-machine fields cleared, then the entries. */
+    memcpy(session + 0x4584, g + 0x26c, 0x6a);
+    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
+    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
+    session[0x4580] = 1;
+    session[0x4578] |= 1;
+    *(unsigned long long *)(session + 0x4528) = 0;
+    typedef void(__fastcall * changed_t)(void *);
+    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+    log_game_players("after", g);
+}
+
+__declspec(dllexport) int mjolnir_sim_inject_player(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    if (!player_new_jip) {
+        player_new_jip = (player_new_t)find_in_module(sim, PLAYER_NEW, PLAYER_NEW_MASK, sizeof PLAYER_NEW, 1, &hits);
+        if (!player_new_jip) fireteam_log("inject: player-new matched %d times", hits);
+        machines_update = (machines_update_t)find_in_module(sim, MACHINES_UPDATE, NULL, sizeof MACHINES_UPDATE, 1, &hits);
+        if (!machines_update) fireteam_log("inject: machine table update matched %d times", hits);
+        machine_id = (machine_id_t)find_in_module(sim, MACHINE_ID, NULL, sizeof MACHINE_ID, 1, &hits);
+        if (!machine_id) fireteam_log("inject: machine id matched %d times", hits);
+        if (!player_new_jip || !machines_update || !machine_id) {
+            player_new_jip = NULL;
+            return 0;
+        }
+    }
+    find_sim_sessions();
+    if (!install_main_tick(sim)) return 0;
+    InterlockedExchange(&inject_request, 1);
+    fireteam_log("inject: queued for the next simulation tick");
     return 0;
 }
 
