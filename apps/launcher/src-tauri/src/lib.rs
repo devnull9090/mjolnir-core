@@ -61,6 +61,14 @@ pub struct LauncherSettings {
     /// reads.
     #[serde(default)]
     pub install_path: Option<String>,
+    /// Open UE4SS's console window beside the game. Off unless the player
+    /// asks: a terminal full of log lines alarms players who did not expect
+    /// one, and the same lines go to `UE4SS.log` either way.
+    ///
+    /// Defaulted, so a settings file written before this field existed reads
+    /// as hidden.
+    #[serde(default)]
+    pub show_ue4ss_console: bool,
 }
 
 impl Default for LauncherSettings {
@@ -69,6 +77,7 @@ impl Default for LauncherSettings {
             launch_method: "steam".to_string(),
             custom_exe_path: None,
             install_path: None,
+            show_ue4ss_console: false,
         }
     }
 }
@@ -488,6 +497,88 @@ fn check_ue4ss_dll(bin_dir: &Path) -> (bool, bool) {
     (installed, enabled)
 }
 
+/// The UE4SS settings file the game will read: beside the chosen executable
+/// when the player launches one directly, else in the detected install.
+fn ue4ss_settings_file(settings: &LauncherSettings) -> Option<PathBuf> {
+    let custom_bin = (settings.launch_method == "exe")
+        .then(|| settings.custom_exe_path.as_deref())
+        .flatten()
+        .and_then(|exe| Path::new(exe).parent().map(Path::to_path_buf));
+    custom_bin
+        .into_iter()
+        .chain(get_bin_dir())
+        .map(|bin| bin.join("ue4ss").join("UE4SS-settings.ini"))
+        .find(|ini| ini.exists())
+}
+
+/// `ini` with `[Debug] ConsoleEnabled` set to `show`, everything else left as
+/// it was. The file is seed state the player may have tuned, so this edits
+/// the one key rather than writing a fresh file.
+fn with_console_enabled(ini: &str, show: bool) -> String {
+    let entry = format!("ConsoleEnabled = {}", if show { 1 } else { 0 });
+    let newline = if ini.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::with_capacity(ini.len() + entry.len() + 16);
+    let mut in_debug = false;
+    let mut debug_seen = false;
+    let mut written = false;
+
+    for line in ini.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\r', '\n']);
+        let trimmed = body.trim();
+        if trimmed.starts_with('[') {
+            // Leaving [Debug] without having met the key: add it there.
+            if in_debug && !written {
+                out.push_str(&entry);
+                out.push_str(newline);
+                written = true;
+            }
+            in_debug = trimmed.eq_ignore_ascii_case("[Debug]");
+            debug_seen |= in_debug;
+        } else if in_debug {
+            let is_key = trimmed
+                .split_once('=')
+                .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("ConsoleEnabled"));
+            if is_key {
+                out.push_str(&entry);
+                out.push_str(&line[body.len()..]);
+                written = true;
+                continue;
+            }
+        }
+        out.push_str(line);
+    }
+
+    if !written {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push_str(newline);
+        }
+        if !debug_seen {
+            out.push_str("[Debug]");
+            out.push_str(newline);
+        }
+        out.push_str(&entry);
+        out.push_str(newline);
+    }
+    out
+}
+
+/// Bring the installed UE4SS settings in line with the launcher's console
+/// choice. UE4SS reads the file once at startup, so this has to land before
+/// the game starts; with no UE4SS installed there is nothing to do.
+fn apply_ue4ss_console(settings: &LauncherSettings) -> Result<(), String> {
+    let Some(path) = ue4ss_settings_file(settings) else {
+        return Ok(());
+    };
+    let ini = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    let updated = with_console_enabled(&ini, settings.show_ue4ss_console);
+    if updated != ini {
+        fs::write(&path, updated)
+            .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+    }
+    Ok(())
+}
+
 // ─── Existing commands ──────────────────────────────────────────────────
 
 #[tauri::command]
@@ -664,6 +755,18 @@ fn save_settings(settings: LauncherSettings) -> Result<(), String> {
     Ok(())
 }
 
+/// Save the console choice on its own and write it to UE4SS straight away, so
+/// it holds when the game is started from Steam rather than the launcher.
+/// Only this field changes, so an unsaved edit elsewhere on the Settings page
+/// is not saved behind the player's back.
+#[tauri::command]
+fn set_ue4ss_console(show: bool) -> Result<(), String> {
+    let mut settings = get_settings();
+    settings.show_ue4ss_console = show;
+    save_settings(settings.clone())?;
+    apply_ue4ss_console(&settings)
+}
+
 #[tauri::command]
 fn get_build_info() -> BuildInfo {
     let game_info = detect_game();
@@ -765,6 +868,13 @@ fn launch_game() -> Result<(), String> {
     // and the game starts anyway.
     if let Err(e) = hub::prepare_launch() {
         eprintln!("hub mods: {e}");
+    }
+
+    // Applied on every launch as well as on toggle: a reinstall, or a hand
+    // edit, can leave the file saying otherwise. A failure only means the
+    // console shows or hides wrongly, so the game starts anyway.
+    if let Err(e) = apply_ue4ss_console(&settings) {
+        eprintln!("ue4ss console: {e}");
     }
 
     match settings.launch_method.as_str() {
@@ -1567,6 +1677,7 @@ pub fn run() {
             launch_game,
             get_settings,
             save_settings,
+            set_ue4ss_console,
             get_build_info,
             get_install_status,
             check_install_path,
@@ -1669,6 +1780,48 @@ mod tests {
         let json = r#"{"launch_method":"steam","custom_exe_path":null}"#;
         let s: LauncherSettings = serde_json::from_str(json).expect("old settings must parse");
         assert_eq!(s.install_path, None);
+        assert!(!s.show_ue4ss_console, "an old settings file must read as console hidden");
+    }
+
+    #[test]
+    fn the_console_toggle_edits_only_its_own_key() {
+        let ini = "[Overrides]\nModsFolderPath =\n\n[Debug]\n; Whether to enable the external UE4SS debug console.\nConsoleEnabled = 1\nGuiConsoleEnabled = 1\n\n[Threads]\nSigScannerNumThreads = 8\n";
+        let hidden = with_console_enabled(ini, false);
+        assert_eq!(hidden, ini.replace("ConsoleEnabled = 1\nGui", "ConsoleEnabled = 0\nGui"));
+        assert_eq!(with_console_enabled(&hidden, true), ini);
+        // A key of the same name in another section is not the console.
+        let elsewhere = "[Other]\nConsoleEnabled = 1\n[Debug]\nConsoleEnabled = 1\n";
+        assert_eq!(
+            with_console_enabled(elsewhere, false),
+            "[Other]\nConsoleEnabled = 1\n[Debug]\nConsoleEnabled = 0\n"
+        );
+    }
+
+    #[test]
+    fn the_console_toggle_keeps_crlf_line_endings() {
+        let ini = "[Debug]\r\nConsoleEnabled = 1\r\nGuiConsoleVisible = 0\r\n";
+        assert_eq!(
+            with_console_enabled(ini, false),
+            "[Debug]\r\nConsoleEnabled = 0\r\nGuiConsoleVisible = 0\r\n"
+        );
+    }
+
+    /// A settings file trimmed by hand may have lost the key, or the whole
+    /// section; UE4SS's own default then decides, so the key is added.
+    #[test]
+    fn the_console_toggle_adds_a_missing_key() {
+        assert_eq!(
+            with_console_enabled("[Debug]\nGuiConsoleVisible = 0\n\n[Threads]\n", false),
+            "[Debug]\nGuiConsoleVisible = 0\n\nConsoleEnabled = 0\n[Threads]\n"
+        );
+        assert_eq!(
+            with_console_enabled("[Debug]\nGuiConsoleVisible = 0", false),
+            "[Debug]\nGuiConsoleVisible = 0\nConsoleEnabled = 0\n"
+        );
+        assert_eq!(
+            with_console_enabled("[Threads]\nSigScannerNumThreads = 8\n", true),
+            "[Threads]\nSigScannerNumThreads = 8\n[Debug]\nConsoleEnabled = 1\n"
+        );
     }
 
     /// A stand-in install tree under the temp directory, inside a library

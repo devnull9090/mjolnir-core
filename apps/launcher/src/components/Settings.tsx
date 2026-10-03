@@ -7,6 +7,7 @@ interface LauncherSettings {
   launch_method: string;
   custom_exe_path: string | null;
   install_path: string | null;
+  show_ue4ss_console: boolean;
 }
 
 interface BuildInfo {
@@ -39,6 +40,7 @@ export default function Settings() {
     launch_method: "steam",
     custom_exe_path: null,
     install_path: null,
+    show_ue4ss_console: false,
   });
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
   const [saving, setSaving] = useState(false);
@@ -49,6 +51,10 @@ export default function Settings() {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  // Console toggle state
+  const [consoleSaving, setConsoleSaving] = useState(false);
+  const [consoleError, setConsoleError] = useState<string | null>(null);
 
   // Uninstall state
   const [confirmUninstall, setConfirmUninstall] = useState(false);
@@ -100,6 +106,22 @@ export default function Settings() {
       }
     } catch (err) {
       console.error("File dialog error:", err);
+    }
+  };
+
+  // Saved on its own, straight away, so it also holds when the game is
+  // started from Steam — and so it does not save an unsaved launch-method edit.
+  const handleConsoleToggle = async () => {
+    const show = !settings.show_ue4ss_console;
+    setConsoleSaving(true);
+    setConsoleError(null);
+    try {
+      await invoke("set_ue4ss_console", { show });
+      setSettings((prev) => ({ ...prev, show_ue4ss_console: show }));
+    } catch (err) {
+      setConsoleError(String(err));
+    } finally {
+      setConsoleSaving(false);
     }
   };
 
@@ -289,6 +311,47 @@ export default function Settings() {
           {error && (
             <span className="text-xs text-accent-red font-medium">{error}</span>
           )}
+        </div>
+      </section>
+
+      <hr className="border-border-subtle mb-8" />
+
+      {/* ── Troubleshooting ── */}
+      <section className="mb-8">
+        <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-4 flex items-center gap-2">
+          <svg className="w-4 h-4 text-mjolnir-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          Troubleshooting
+        </h3>
+
+        <div className="flex items-start justify-between gap-4 p-4 rounded-xl border border-border-subtle bg-surface-primary">
+          <div>
+            <span className="text-sm font-medium text-text-primary">Show UE4SS console</span>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Opens a log window beside the game while it runs. Useful when writing mods or
+              reporting a problem; the same log is always saved to{" "}
+              <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">ue4ss/UE4SS.log</code>.
+              Takes effect the next time the game starts.
+            </p>
+            {consoleError && (
+              <p className="text-xs text-accent-red font-medium mt-2">{consoleError}</p>
+            )}
+          </div>
+          <button
+            role="switch"
+            aria-checked={settings.show_ue4ss_console}
+            aria-label="Show UE4SS console"
+            onClick={handleConsoleToggle}
+            disabled={consoleSaving}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer shrink-0 disabled:opacity-50
+              ${settings.show_ue4ss_console ? "bg-accent-green" : "bg-border-subtle"}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200
+                ${settings.show_ue4ss_console ? "translate-x-5" : "translate-x-0"}`}
+            />
+          </button>
         </div>
       </section>
 
