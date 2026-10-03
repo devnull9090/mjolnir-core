@@ -127,18 +127,24 @@ local function pawnOf(pc)
     return nil
 end
 
---- The possessed controller, not merely the first one.
+--- The first local player's controller, read through the engine: a few
+--- property reads, where FindAllOf("PlayerController") walks every object in
+--- the game, ~20 ms on a converted map (200,000 objects, 2026-10-02).
 ---
 --- A loaded mission keeps a pawnless BP_FrontendPlayerController_C alongside
---- the real BP_MeteoritePlayerController_C, and the frontend one sorts first.
---- Taking the first valid controller finds it, finds no pawn, and reports an
---- empty world -- so prefer whichever controller actually possesses something.
+--- the real BP_MeteoritePlayerController_C, and the frontend one sorts first
+--- in FindAllOf; the local player's is the one that possesses the pawn.
+local Engine = nil
 local function getPlayerController()
-    local list = FindAllOf("PlayerController") or {}
-    for _, pc in ipairs(list) do
-        if pc and pc:IsValid() and pawnOf(pc) then return pc end
+    if not (Engine and Engine:IsValid()) then
+        Engine = FindFirstOf("GameEngine")
+        if not (Engine and Engine:IsValid()) then return nil end
     end
-    return firstValid(list)
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and pc and pc:IsValid() then return pc end
+    return nil
 end
 
 local function getPawn()

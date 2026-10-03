@@ -56,13 +56,6 @@ local function commandArg(args, index)
     return args[index + offset]
 end
 
-local function firstValid(list)
-    for _, o in ipairs(list or {}) do
-        if o and o:IsValid() then return o end
-    end
-    return nil
-end
-
 local function countOf(className)
     local n = 0
     local ok, list = pcall(function() return FindAllOf(className) end)
@@ -74,8 +67,20 @@ local function countOf(className)
     return n
 end
 
+--- The first local player's controller, read through the engine: a few
+--- property reads, where FindAllOf("PlayerController") walks every object in
+--- the game, ~20 ms on a converted map (200,000 objects, 2026-10-02).
+local Engine = nil
 local function getPlayerController()
-    return firstValid(FindAllOf("PlayerController"))
+    if not (Engine and Engine:IsValid()) then
+        Engine = FindFirstOf("GameEngine")
+        if not (Engine and Engine:IsValid()) then return nil end
+    end
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and pc and pc:IsValid() then return pc end
+    return nil
 end
 
 local function getPawn()

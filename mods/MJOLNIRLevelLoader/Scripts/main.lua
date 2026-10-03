@@ -84,11 +84,21 @@ local function Log(msg)
     print("[MJOLNIR LevelLoader] " .. tostring(msg) .. "\n")
 end
 
-local function firstValid(list)
-    for _, o in ipairs(list or {}) do
-        if o and o:IsValid() then return o end
+--- Actors of one class, as NotifyOnNewObject reports them, by address.
+--- FindAllOf walks every object in the game (~20 ms on a converted map), too
+--- slow for anything periodic: it runs once, as a watch is armed, for the
+--- actors made before it. An actor leaves its set when it is gone.
+local function track(set, actor)
+    local ok, address = pcall(function() return actor:GetAddress() end)
+    if ok and address then set[address] = actor end
+end
+
+local function liveIn(set)
+    local list = {}
+    for address, actor in pairs(set) do
+        if actor:IsValid() then list[#list + 1] = actor else set[address] = nil end
     end
-    return nil
+    return list
 end
 
 --- StaticFindObject returns a NON-NULL garbage pointer for paths that do not
@@ -102,8 +112,23 @@ local function findObject(path)
     return nil
 end
 
+--- The first local player's controller, read through the engine: a few
+--- property reads. FindAllOf walks every object in the game, ~20 ms on a
+--- converted map (200,000 objects, 2026-10-02); the pulse and event loops
+--- asking for it held the game thread at 23 ms a frame with the GPU at 2.
+--- It is the right controller, too: FindAllOf lists the frontend's leftover
+--- one first.
+local Engine = nil
 local function getPlayerController()
-    return firstValid(FindAllOf("PlayerController"))
+    if not (Engine and Engine:IsValid()) then
+        Engine = FindFirstOf("GameEngine")
+        if not (Engine and Engine:IsValid()) then return nil end
+    end
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and pc and pc:IsValid() then return pc end
+    return nil
 end
 
 local function getPawn()
@@ -884,14 +909,17 @@ local function ctfLevel()
     if type(ctf) == "table" and type(ctf.flag) == "table" then return ctf end
 end
 
---- A sweep of every skull actor. FindAllOf walks every object in the game,
---- so this is the fallback (MJOLNIRLevelLoader's slow tick); new actors are
---- reported as they are made (watchSkulls). At 0.3 s, twice a pass, it made
---- the game stutter.
+--- Every skull actor the watch has seen (and the ones there before it).
+local Skulls = {}
+
+--- A pass over every known skull actor, for any the watch's own handling
+--- missed (MJOLNIRLevelLoader's slow tick). It was a FindAllOf: at 0.3 s,
+--- twice a pass, the game stuttered, and at 3 s it still cost a 20 ms frame
+--- on a converted map.
 local function dressFlags(world)
     local ctf = ctfLevel()
     if not ctf then return end
-    for _, actor in ipairs(FindAllOf(FLAG_ACTOR_CLASS) or {}) do
+    for _, actor in ipairs(liveIn(Skulls)) do
         handleSkull(world, actor, ctf)
     end
 end
@@ -905,6 +933,7 @@ local skullsWatched = false
 local function watchSkulls()
     if skullsWatched then return end
     skullsWatched = pcall(NotifyOnNewObject, SKULL_ACTOR_CLASS_PATH, function(actor)
+        track(Skulls, actor)
         ExecuteInGameThreadWithDelay(50, function()
             local ctf, world = ctfLevel(), getWorld()
             if ctf and world then handleSkull(world, actor, ctf) end
@@ -916,7 +945,10 @@ local function watchSkulls()
             end)
         end
     end)
-    if skullsWatched then Log("CTF: watching for flag actors") end
+    if skullsWatched then
+        for _, actor in ipairs(FindAllOf(FLAG_ACTOR_CLASS) or {}) do track(Skulls, actor) end
+        Log("CTF: watching for flag actors")
+    end
 end
 
 --- The skull's effect comes back as a flag changes hands; a flag incident is
@@ -1048,9 +1080,7 @@ local LOCAL_PLAYER = 0
 
 local function refreshLocalPlayer()
     local ok, index = pcall(function()
-        local any = getPlayerController()
-        local pc = StaticFindObject("/Script/Engine.Default__GameplayStatics"):GetPlayerController(any, 0)
-        return pc.PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
+        return getPlayerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
     end)
     if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
 end
@@ -1270,6 +1300,32 @@ local function tintBiped(actor)
     return tintMeshes(actor, color)
 end
 
+--- Every Spartan biped the watch has seen (and the ones there before it).
+local Bipeds = {}
+
+local function watchBipeds()
+    if bipedsWatched then return end
+    bipedsWatched = pcall(NotifyOnNewObject, SPARTAN_CLASS_PATH, function(actor)
+        track(Bipeds, actor)
+        for _, ms in ipairs({ 300, 2000 }) do
+            ExecuteInGameThreadWithDelay(ms, function()
+                local ok, err = pcall(tintBiped, actor)
+                if not ok then Log("team colour: " .. tostring(err)) end
+            end)
+        end
+    end)
+    if bipedsWatched then
+        for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do track(Bipeds, actor) end
+    end
+end
+
+--- The Spartans in the world. A respawn reuses the actor, so the set holds
+--- each for the match; arming the watch is the one FindAllOf.
+local function knownBipeds()
+    watchBipeds()
+    return liveIn(Bipeds)
+end
+
 --- The local player's first-person arms, legs and shadow are meshes of the
 --- pawn, which has no team; it takes the team of the Spartan nearest the
 --- camera, its own body.
@@ -1280,7 +1336,7 @@ local function tintLocalPawn()
     if not (pawn and pc) then return end
     local cam = pc.PlayerCameraManager:GetCameraLocation()
     local team, best = nil, math.huge
-    for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do
+    for _, actor in ipairs(knownBipeds()) do
         local l = actor:K2_GetActorLocation()
         local d = (l.X - cam.X) ^ 2 + (l.Y - cam.Y) ^ 2 + (l.Z - cam.Z) ^ 2
         if d < best then team, best = bipedTeam(actor), d end
@@ -1293,24 +1349,12 @@ retintSoon = function()
     for _, ms in ipairs({ 300, 1500, 4000 }) do
         ExecuteInGameThreadWithDelay(ms, function()
             if not teamGame() then return end
-            for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do
+            for _, actor in ipairs(knownBipeds()) do
                 pcall(tintBiped, actor)
             end
             pcall(tintLocalPawn)
         end)
     end
-end
-
-local function watchBipeds()
-    if bipedsWatched then return end
-    bipedsWatched = pcall(NotifyOnNewObject, SPARTAN_CLASS_PATH, function(actor)
-        for _, ms in ipairs({ 300, 2000 }) do
-            ExecuteInGameThreadWithDelay(ms, function()
-                local ok, err = pcall(tintBiped, actor)
-                if not ok then Log("team colour: " .. tostring(err)) end
-            end)
-        end
-    end)
 end
 
 local function fadeIn()
@@ -1327,7 +1371,7 @@ local function fadeIn()
     end
     local ok = pcall(function()
         local kismet = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-        local pc = FindFirstOf("PlayerController")
+        local pc = getPlayerController()
         if kismet and pc then
             kismet:ExecuteConsoleCommand(pc, "blam !(fade_in 0 0 0 15)", pc)
         end
@@ -1486,7 +1530,7 @@ local function watch()
             if world then dressFlags(world) end
             -- A respawn reuses the actor and puts the stock armour back, so
             -- every pass re-tints (cheap: a few Spartans, a parameter each).
-            for _, actor in ipairs(teamGame() and FindAllOf("BP_SpartansBipedActor_C") or {}) do
+            for _, actor in ipairs(teamGame() and knownBipeds() or {}) do
                 pcall(tintBiped, actor)
             end
             pcall(tintLocalPawn)
@@ -1494,13 +1538,14 @@ local function watch()
     end)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
-    -- the first few passes sweep for them too (FindAllOf is slow; not more).
+    -- the pass that arms it sweeps for them too, once: a FindAllOf is a
+    -- 20 ms frame on a converted map.
     local packSweeps = 0
     every(1500, "health packs", function()
         local hp = Current.furnished and healthPackLevel()
         if not hp then return end
         watchHealthPacks()
-        if packSweeps >= 3 then return end
+        if packSweeps >= 1 then return end
         packSweeps = packSweeps + 1
         local world = getWorld()
         for _, actor in ipairs(world and FindAllOf("BP_Battle_Rifle_ammo_EquipmentActor_C") or {}) do

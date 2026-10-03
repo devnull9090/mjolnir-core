@@ -41,6 +41,29 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.9.2",
+      "tag": "launcher-v0.9.2",
+      "title": "Maps you deleted show as missing",
+      "date": "2026-10-02",
+      "summary": "A map whose files were deleted no longer shows as installed. The Multiplayer page offers it again, and launching puts missing files back.",
+      "body": "### Fixed\n\n- **Deleted maps no longer show as installed.** The Multiplayer page went by\n  the launcher's own record, so a map whose files were deleted from the\n  game's Paks folder still read \"Installed\" and the install button stayed\n  greyed out. It now checks the files are there, and offers anything missing\n  again.\n- **Launching the game puts missing hub files back.** If a map or mod you\n  installed from the hub is missing from the Paks folder, the launcher copies\n  it back before the game starts. When nothing is missing, launching copies\n  nothing.\n- **Install multiplayer re-downloads a map whose download was deleted**\n  instead of counting it as up to date.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Deleted maps no longer show as installed. The Multiplayer page went by the launcher's own record, so a map whose files were deleted from the game's Paks folder still read \"Installed\" and the install button stayed greyed out. It now checks the files are there, and offers anything missing again.",
+            "Launching the game puts missing hub files back. If a map or mod you installed from the hub is missing from the Paks folder, the launcher copies it back before the game starts. When nothing is missing, launching copies nothing.",
+            "Install multiplayer re-downloads a map whose download was deleted instead of counting it as up to date."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.9.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.9.1",
       "tag": "launcher-v0.9.1",
       "title": "One launcher, not two",
@@ -94,6 +117,34 @@
       "path": "/changelog/launcher/0.9.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.10.1",
+      "tag": "mods-v0.10.1",
+      "title": "Classic CE maps run smoothly",
+      "date": "2026-10-02",
+      "summary": "Converted Halo CE maps no longer stutter. The mods were stalling the game many times a second, whatever the graphics settings or the PC.",
+      "body": "### Fixed\n\n- **Stutter on converted maps.** Blood Gulch and the other classic maps\n  hitched several times a second and could be close to unplayable, even on\n  fast PCs at low settings. The mods kept searching through every object in\n  the game (about 20 ms each time on a converted map) to find the player.\n  They now ask the engine directly. On Blood Gulch the worst frame went from\n  265 ms to 9 ms, and the average from 59 to 190 frames a second.\n- **A freeze every second and a half in a match.** The multiplayer lobby kept\n  checking for the main menu during matches. It now waits until you are back\n  at the menu.\n\n### Changed\n\n- **MJOLNIRLevelLoader 0.1.4**, **MJOLNIRHud 0.3.1**, **MJOLNIRLobby 0.3.1**,\n  **MJOLNIRCTF 0.1.1**, **MJOLNIRWorldBuilder 0.1.2**, **MJOLNIRBridge 0.1.2**\n  and **MJOLNIRMapMenu 0.1.2**: the stutter fix.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutter on converted maps. Blood Gulch and the other classic maps hitched several times a second and could be close to unplayable, even on fast PCs at low settings. The mods kept searching through every object in the game (about 20 ms each time on a converted map) to find the player. They now ask the engine directly. On Blood Gulch the worst frame went from 265 ms to 9 ms, and the average from 59 to 190 frames a second.",
+            "A freeze every second and a half in a match. The multiplayer lobby kept checking for the main menu during matches. It now waits until you are back at the menu."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLevelLoader 0.1.4, MJOLNIRHud 0.3.1, MJOLNIRLobby 0.3.1, MJOLNIRCTF 0.1.1, MJOLNIRWorldBuilder 0.1.2, MJOLNIRBridge 0.1.2 and MJOLNIRMapMenu 0.1.2: the stutter fix."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.10.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.10.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.10.1"
     },
     {
       "product": "mods",

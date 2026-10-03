@@ -79,7 +79,12 @@ local function runHUD(variant, client, variantFile)
             if path:match("running.txt$") then return { read = function() return "DCN\t" .. variant .. "\tDanger Canyon" end, close = function() end } end
             return io.open(path, mode)
         end },
-        FindAllOf = function(class) return class == "PlayerController" and { pc } or {} end,
+        FindAllOf = function() return {} end,
+        FindFirstOf = function(class)
+            if class ~= "GameEngine" then return nil end
+            return { IsValid = function() return true end,
+                GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = pc } } } } }
+        end,
         RegisterHook = function(_, fn) incidentHook = fn end,
         NotifyOnNewObject = function() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,

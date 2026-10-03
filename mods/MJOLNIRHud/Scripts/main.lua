@@ -106,21 +106,22 @@ local function readFile(path)
     return data
 end
 
-local function firstValid(list)
-    for _, o in ipairs(list or {}) do
-        if o and o:IsValid() then return o end
-    end
-    return nil
-end
-
---- The first local player's controller. FindAllOf also returns the
---- frontend's controllers, left over in a map's world with no player (and
---- listed first), and a split-screen player's.
+--- The first local player's controller, read through the engine: a few
+--- property reads. It was FindAllOf("PlayerController"), which walks every
+--- object in the game, ~20 ms on a converted map (200,000 objects,
+--- 2026-10-02); twice a poll, ten polls a second, that alone was 400 ms of
+--- every second of game thread. FindAllOf also returns the frontend's
+--- controllers, left over in a map's world with no player (and listed
+--- first), and a split-screen player's; the engine's first local player is
+--- the one wanted.
+local Engine = nil
 local function playerController()
-    local any = firstValid(FindAllOf("PlayerController"))
-    if not any then return nil end
+    if not (Engine and Engine:IsValid()) then
+        Engine = FindFirstOf("GameEngine")
+        if not (Engine and Engine:IsValid()) then return nil end
+    end
     local ok, pc = pcall(function()
-        return StaticFindObject("/Script/Engine.Default__GameplayStatics"):GetPlayerController(any, 0)
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
     end)
     if ok and pc and pc:IsValid() then return pc end
     return nil
@@ -605,13 +606,22 @@ end
 -- (WBP_NavpointWidgetPlayer_C; PlayerNameValue is the name), enemies
 -- included. Free for all: no tags. Team games: teammates only, as in Halo.
 -- Collapsing a tag sticks; the widget does not show itself again. New tags
--- are caught as they are made, and a sweep each second covers the rest
--- (and a tag whose name or team was not known yet).
+-- are caught as they are made, and a pass each second over the known ones
+-- covers a tag whose name or team was not known yet. Only arming the watch
+-- walks the object array (FindAllOf, ~20 ms on a converted map): a sweep
+-- each second was a 20 ms hitch each second.
 
 local NAVPOINT_CLASS = "/Game/UI/Hud/Navpoints/WBP_NavpointWidgetPlayer.WBP_NavpointWidgetPlayer_C"
 local NAVPOINT_SHOWN = 4 -- SelfHitTestInvisible, as the HUD makes it
 local nextTagSweep = 0
 local tagWatch = false
+--- Every name tag seen, by address; a tag leaves when it is gone.
+local Tags = {}
+
+local function trackTag(tag)
+    local ok, address = pcall(function() return tag:GetAddress() end)
+    if ok and address then Tags[address] = tag end
+end
 
 local function teamOfName(name)
     for _, p in pairs(Match.players) do
@@ -634,17 +644,21 @@ end
 local function sweepTags()
     if now() < nextTagSweep then return end
     nextTagSweep = now() + 1
-    for _, tag in ipairs(FindAllOf("WBP_NavpointWidgetPlayer_C") or {}) do
-        if tag:IsValid() then applyTag(tag) end
-    end
     if not tagWatch then
         tagWatch = pcall(function()
             NotifyOnNewObject(NAVPOINT_CLASS, function(tag)
+                trackTag(tag)
                 ExecuteInGameThreadWithDelay(50, function()
                     if tag:IsValid() then applyTag(tag) end
                 end)
             end)
         end)
+        if tagWatch then
+            for _, tag in ipairs(FindAllOf("WBP_NavpointWidgetPlayer_C") or {}) do trackTag(tag) end
+        end
+    end
+    for address, tag in pairs(Tags) do
+        if tag:IsValid() then applyTag(tag) else Tags[address] = nil end
     end
 end
 
