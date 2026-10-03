@@ -2023,11 +2023,19 @@ static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
 static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
+static volatile DWORD sim_thread_id;
+static unsigned char *watch_globals;
+static unsigned char *sim_game_globals(void);
 static void inject_players(void);
 static int inject_needed(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
+    sim_thread_id = GetCurrentThreadId();
+    if (!watch_globals) {
+        unsigned char *g = sim_game_globals();
+        if (g && g[1]) watch_globals = g;
+    }
     if (fade_in_pending) fade_in_tick();
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
@@ -2569,6 +2577,48 @@ __declspec(dllexport) int mjolnir_sim_watch_close(void *L) {
     return 0;
 }
 
+/* A public game that takes joins in progress plays on when its joiners leave.
+   The game engine's end test (sim 0x2aea40, called each update by 0x2b1170)
+   ends a free-for-all once fewer than two teams are active if the player
+   table has ever held two players (0x2ae830 counts player records, and a
+   player who left keeps one), so a joiner leaving a host's match ended it
+   (two PCs, 2026-10-03: player_quit, then game_over). On a host taking joins
+   in progress, an "end" for too few players or teams (reasons 0 and 2) is
+   answered "go on"; score limits and the game type's own end (reason 4,
+   0x2b1170's own score checks) still end the game. */
+typedef char(__fastcall *end_check_t)(unsigned *winner, char *tie, unsigned *reason);
+static end_check_t end_check_trampoline;
+static const unsigned char END_CHECK[] = {0x48, 0x8B, 0xC4, 0x4C, 0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10, 0x48,
+                                          0x89, 0x48, 0x08, 0x53, 0x56, 0x41, 0x56, 0x48, 0x81, 0xEC, 0x90, 0x00,
+                                          0x00, 0x00, 0x48, 0x89, 0x78, 0xD8};
+#define END_CHECK_STOLEN 15
+
+static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *reason) {
+    unsigned local_reason = 0;
+    unsigned *out = reason ? reason : &local_reason;
+    char ends = end_check_trampoline(winner, tie, out);
+    if (ends && (*out == 0 || *out == 2) && keep_lobby && join_in_progress) {
+        static DWORD last;
+        if (GetTickCount() - last > 30000) {
+            last = GetTickCount();
+            fireteam_log("game: the engine would end the match for too few players (reason %u); a public game plays on",
+                         *out);
+        }
+        if (tie) *tie = 0;
+        *out = 0;
+        return 0;
+    }
+    return ends;
+}
+
+static void hook_end_check_once(unsigned char *sim) {
+    if (end_check_trampoline) return;
+    int hits;
+    unsigned char *fn = find_in_module(sim, END_CHECK, NULL, sizeof END_CHECK, 1, &hits);
+    if (fn) end_check_trampoline = (end_check_t)inline_hook(fn, END_CHECK_STOLEN, (void *)hook_end_check);
+    fireteam_log("game: end-of-match test %s (%d matches)", end_check_trampoline ? "hooked" : "not found", hits);
+}
+
 /* Join in progress, host side: put a joiner's players into the running game.
    A Blam game's machines and players come from its options at game start
    (sim 0x20f530: machine mask G+0x26c, 6-byte machine ids G+0x270 per peer,
@@ -2731,6 +2781,7 @@ static int inject_prepare(void) {
         }
     }
     find_sim_sessions();
+    hook_end_check_once(sim);
     return install_main_tick(sim);
 }
 
@@ -2785,6 +2836,100 @@ __declspec(dllexport) int mjolnir_sim_fade_in(void *L) {
     if (!sim || !install_main_tick(sim)) return 0;
     InterlockedExchange(&fade_in_pending, 1);
     fireteam_log("game: fade-in queued");
+    return 0;
+}
+
+/* A hardware write watch on the simulation thread's game globals, for
+   finding what writes a field (native\watch_write.txt: "<hex offset from G>
+   [length 1|2|4|8]"). Debug register 0 of the simulation thread (recorded by
+   the main-tick hook) is pointed at G+offset from a helper thread (a thread
+   cannot set its own); a vectored exception handler logs each write: the
+   instruction after it and the simulation return addresses found on the
+   stack. Diagnostics only (2026-10-03: what ends a match when a joiner
+   leaves). */
+static unsigned char *watch_address;
+static volatile LONG watch_hits;
+
+static LONG CALLBACK watch_handler(EXCEPTION_POINTERS *info) {
+    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !(info->ContextRecord->Dr6 & 1))
+        return EXCEPTION_CONTINUE_SEARCH;
+    info->ContextRecord->Dr6 = 0;
+    if (InterlockedIncrement(&watch_hits) > 24) return EXCEPTION_CONTINUE_EXECUTION;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    unsigned char *rip = (unsigned char *)info->ContextRecord->Rip;
+    char line[400];
+    size_t at = 0;
+    __try {
+        unsigned long long *sp = (unsigned long long *)info->ContextRecord->Rsp;
+        for (int i = 0, found = 0; i < 512 && found < 14 && at + 16 < sizeof line; i++) {
+            unsigned char *v = (unsigned char *)sp[i];
+            if (sim && v > sim && v < sim + 0x3000000) {
+                at += (size_t)snprintf(line + at, sizeof line - at, " s%llx", (unsigned long long)(v - sim));
+                found++;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    line[at] = 0;
+    unsigned value = 0;
+    __try {
+        value = watch_address[0];
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fireteam_log("watch: write to %p (now %02x) at s%llx; stack%s", (void *)watch_address, value,
+                 sim && rip > sim ? (unsigned long long)(rip - sim) : 0ull, line);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static DWORD WINAPI watch_arm_thread(void *param) {
+    unsigned length = (unsigned)(uintptr_t)param;
+    HANDLE thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, sim_thread_id);
+    if (!thread) {
+        fireteam_log("watch: cannot open the simulation thread (%lu)", GetLastError());
+        return 0;
+    }
+    SuspendThread(thread);
+    CONTEXT context;
+    memset(&context, 0, sizeof context);
+    context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+    BOOL ok = GetThreadContext(thread, &context);
+    if (ok) {
+        unsigned len_bits = length == 8 ? 2 : length == 4 ? 3 : length == 2 ? 1 : 0;
+        context.Dr0 = (DWORD64)(uintptr_t)watch_address;
+        context.Dr7 = (context.Dr7 & ~(0xfull << 16) & ~3ull) | 1ull | (1ull << 16) | ((DWORD64)len_bits << 18);
+        ok = SetThreadContext(thread, &context);
+    }
+    ResumeThread(thread);
+    CloseHandle(thread);
+    fireteam_log("watch: %s %u byte(s) at %p on the simulation thread %lu", ok ? "watching" : "could not watch", length,
+                 (void *)watch_address, sim_thread_id);
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_sim_watch_write(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    if (!sim_thread_id || !watch_globals) {
+        fireteam_log("watch: no simulation tick seen yet with a game");
+        return 0;
+    }
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%swatch_write.txt", dir);
+    FILE *f = fopen(path, "r");
+    unsigned long long offset = 0x1da;
+    unsigned length = 1;
+    if (f) {
+        if (fscanf(f, "%llx %u", &offset, &length) < 1) offset = 0x1da;
+        fclose(f);
+    }
+    static PVOID handler;
+    if (!handler) handler = AddVectoredExceptionHandler(1, watch_handler);
+    watch_address = watch_globals + offset;
+    InterlockedExchange(&watch_hits, 0);
+    HANDLE t = CreateThread(NULL, 0, watch_arm_thread, (void *)(uintptr_t)length, 0, NULL);
+    if (t) CloseHandle(t);
     return 0;
 }
 

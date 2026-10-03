@@ -12,6 +12,8 @@
 //   --restart   close and start both games first (sign-in included)
 //   --map/mode  what PC 1 hosts (an installed map's code and a game type)
 //   --wait      seconds of match before PC 2 joins
+//   --leave     then PC 2 leaves: PC 1's match must go on (the host alone)
+//   --arena     with --leave: diff PC 1's game state around the leave
 //
 // Steps: sign both in (Enter / click / Space until the main menu shows),
 // PC 1 lists the game publicly and starts it, PC 2 joins it from the hub list
@@ -20,6 +22,7 @@
 // the joiner spawned.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
@@ -35,6 +38,8 @@ const RESTART = args.includes("--restart");
 const MAP = flag("map", "BGL");
 const MODE = flag("mode", "slayer");
 const JOIN_AFTER = Number(flag("wait", "15")) * 1000;
+const LEAVE = args.includes("--leave");
+const ARENA = args.includes("--arena");
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const started = Date.now();
@@ -133,6 +138,7 @@ async function signIn(side) {
 
 async function main() {
   say(`join in progress: PC 1 hosts ${MAP} ${MODE}, PC 2 joins ${JOIN_AFTER / 1000} s in`);
+  const pc2Mark = (await pc2Side.log()).length;
   if (RESTART) {
     say("restarting both games");
     await Promise.all([pc1.restart(), pc2Side.restart()]);
@@ -140,6 +146,14 @@ async function main() {
   const [host, joiner] = await Promise.all([signIn(pc1), signIn(pc2Side)]);
   say(`signed in: PC 1 ${host.name} (${host.world}), PC 2 ${joiner.name} (${joiner.world})`);
   if (joiner.frontend !== "1") throw new Error("PC 2 is in a match; leave it first (or --restart)");
+  // A join waits for the joiner's own PlayFab lobby, made ~30 s after sign-in
+  // (a join sent sooner sat for 79 s, 2026-10-03).
+  await waitFor("PC 2's lobby", async () => {
+    const lines = (await pc2Side.log()).slice(pc2Mark).split("\n");
+    const signedInAt = lines.findLastIndex((l) => /lobby: (created|left)/.test(l));
+    return signedInAt >= 0 && lines[signedInAt].includes("lobby: created") ? true : null;
+  }, 90000, 2000);
+  say("PC 2: its lobby is up");
 
   const hosting = await pc1.auto("host", MAP, MODE);
   say(`PC 1: ${hosting.result}`);
@@ -186,6 +200,53 @@ async function main() {
   const beat = JSON.parse(await pc2.status()).bridge ?? {};
   say(`PC 2: ${beat.world}, ${beat.pawn}`);
   say("PASS: the joiner is in the match");
+  if (LEAVE) await leave();
+}
+
+/** PC 2 leaves the way its pause menu does (BlamCampaignFlowGameSubsystem
+ *  LeaveGame); PC 1 must stay in its match. --arena snapshots PC 1's game
+ *  state before and after (tools/remote/blam-arena.py) and prints the diff,
+ *  with MJOLNIRHud's hold_match.txt keeping a finished match in place. */
+async function leave() {
+  const arena = (...a) => execFileSync("python", [path.join(HERE, "blam-arena.py"), ...a], { encoding: "utf8" });
+  const ue4ssLog = path.join(paths().ue4ss, "UE4SS.log");
+  const ue4ssStart = fs.statSync(ue4ssLog).size;
+  const logStart = pc1.log().length;
+  if (ARENA) {
+    say(arena("snap", "a1").trim());
+    await sleep(2000);
+    say(arena("snap", "a2").trim());
+  }
+  // A hardware write watch on the field a finished game sets (G+0x1ebcc, from
+  // a --arena diff), logged by PC 1's lobby DLL as "watch:" lines.
+  fs.writeFileSync(pc1File("watch_write.txt"), `${flag("watch", "1ebcc")} 1\n`);
+  const dll = pc1File("mjolnir_lobby.dll").split(path.sep).join("/");
+  await bridgeCall("lua", `local fn = package.loadlib([[${dll}]], "mjolnir_sim_watch_write") print(fn and pcall(fn))`);
+  say("PC 2: leaving the game (LeaveGame)");
+  try {
+    await pc2.lua('local s = FindFirstOf("BlamCampaignFlowGameSubsystem") s:LeaveGame()');
+  } catch {
+    // The bridge does not answer while the game leaves.
+  }
+  const newLines = () => fs.readFileSync(ue4ssLog, "utf8").slice(ue4ssStart).split("\n");
+  await waitFor("PC 1 to see the joiner leave", () => newLines().some((l) => l.includes("incident player_quit")) || null, 60000, 250)
+    .catch(() => say("PC 1 never logged player_quit"));
+  if (ARENA) {
+    // At once: the engine takes a finished game back to the frontend 8 s on.
+    say(arena("snap", "b").trim());
+    const out = path.join(os.tmpdir(), "blam-arena-diff.txt");
+    fs.writeFileSync(out, arena("diff", "a1", "a2", "b", "--max", "100000"));
+    say(`diff: ${out}`);
+  }
+  await sleep(8000);
+  const beat = bridgeStatus();
+  const native = pc1.log().slice(logStart).split("\n").filter((l) => /watch:|inject:/.test(l));
+  const incidents = newLines().filter((l) => /incident (player_quit|game_over)|game over|final standings|hold_match/.test(l));
+  for (const l of [...native, ...incidents]) say(`PC 1: ${l.trim()}`);
+  const over = incidents.some((l) => l.includes("incident game_over"));
+  const still = beat && beat.world?.includes(`/${MAP}/`) && /MeteoritePawn/.test(beat.pawn ?? "");
+  if (over || !still) throw new Error(`PC 1's match ended when the joiner left (${over ? "game_over" : beat?.world})`);
+  say("PASS: PC 1 plays on alone after the joiner left");
 }
 
 main().then(

@@ -385,7 +385,13 @@ local function finishMatch(how)
     end
     local host = false
     pcall(function() host = playerController():GetWorld().AuthorityGameMode:IsValid() end)
-    if host then
+    -- hold_match.txt beside this mod keeps a finished match where it is, so
+    -- its game state can be read (tools/remote/blam-arena.py).
+    local hold = io.open(MOD_DIR .. "\\hold_match.txt", "r")
+    if hold then
+        hold:close()
+        Log("hold_match.txt: staying in the finished match")
+    elseif host then
         Match.travelAt = now() + (how == "game over" and 0 or FINAL_SECONDS)
     end
     boardDirty = true
