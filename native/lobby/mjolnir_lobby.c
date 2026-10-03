@@ -1234,6 +1234,11 @@ static void log_blam_game(const char *what, const struct blam_game *g) {
 }
 
 static void __fastcall hook_notify_begin_play(void *world_settings) {
+    /* A world that begins play replaces any held one, which is gone or going
+       (2026-10-03: a held lobby world was released after the match started,
+       and crashed). */
+    void *stale = InterlockedExchangePointer(&held_world_settings, NULL);
+    if (stale && stale != world_settings) fireteam_log("world: a new world began; the held one is dropped");
     if (InterlockedExchange(&jip_armed, 0)) {
         struct blam_game g = blam_game_now();
         if (!blam_game_running(&g)) {
@@ -1429,8 +1434,9 @@ __declspec(dllexport) int mjolnir_sim_command(void *L) {
 }
 
 /* native\stay_online.txt: "1" before joining a public game from FIND GAMES
-   (games.lua). A joiner landing in a session that is already running took the
-   same one-member branch and left within a second; it gets the branch patch
+   (games.lua), "2" when that game is in a match. A joiner landing in a
+   session that is already running took the same one-member branch and left
+   within a second; it gets the branch patch
    alone, without keep_lobby's refusals (a refused leave on a normal quit
    retries without pause). */
 __declspec(dllexport) int mjolnir_stay_online(void *L) {
@@ -1445,8 +1451,10 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
         fclose(f);
     }
     fireteam_log("session: alone, stay online: %s", stay_online_alone(value || keep_lobby));
-    InterlockedExchange(&jip_armed, value ? 1 : 0);
-    if (value) fireteam_log("world: a begin play before the Blam game will wait for it");
+    /* 2: the game joined is in a match; its world's begin play waits for the
+       Blam game. 1: a lobby join, whose host's menu world never has one. */
+    InterlockedExchange(&jip_armed, value == 2 ? 1 : 0);
+    if (value == 2) fireteam_log("world: joining a match under way; a begin play before the Blam game will wait for it");
     return 0;
 }
 
