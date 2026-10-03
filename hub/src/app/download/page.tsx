@@ -43,28 +43,29 @@ export default function DownloadPage() {
               <Download className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-xl font-bold text-foreground">Windows Installer (.msi)</h2>
+              <h2 className="text-xl font-bold text-foreground">Windows Installer (.exe)</h2>
               <p className="text-sm text-text-muted mt-1">Requires Windows 10/11 (64-bit) and WebView2 runtime</p>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <Link
-              href="https://github.com/devnull9090/mjolnir-core/releases/latest"
-              target="_blank"
+              href="https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe"
               className="w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-gold to-gold-dim text-background hover:brightness-110 transition-all shadow-lg shadow-gold/20 flex items-center justify-center gap-2"
             >
-              <GitHubIcon className="w-5 h-5 flex-shrink-0" />
-              Download from GitHub Releases
+              <Download className="w-5 h-5 flex-shrink-0" />
+              Download the installer
             </Link>
             <span className="text-sm text-text-dim">or</span>
+            {/* Not releases/latest: mods and tools publish releases from this
+                repository too, so "latest" is rarely the launcher. */}
             <Link
-              href="https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi"
+              href="https://github.com/devnull9090/mjolnir-core/releases?q=launcher-v&expanded=true"
               target="_blank"
               className="w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm border border-border-bright text-text-muted hover:text-foreground hover:border-gold/40 transition-all flex items-center justify-center gap-2"
             >
-              <ExternalLink className="w-4 h-4 flex-shrink-0" />
-              Download from CDN
+              <GitHubIcon className="w-5 h-5 flex-shrink-0" />
+              Launcher releases on GitHub
             </Link>
           </div>
         </div>
@@ -112,14 +113,14 @@ export default function DownloadPage() {
                       <Terminal className="w-3 h-3 text-text-dim" />
                       <span className="text-xs text-text-dim font-medium uppercase tracking-wider">PowerShell (Windows)</span>
                     </div>
-                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`(Get-FileHash .\\MJOLNIR-Launcher*.msi -Algorithm SHA256).Hash`}</code></pre>
+                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`(Get-FileHash .\\MJOLNIR-Launcher*-setup.exe -Algorithm SHA256).Hash`}</code></pre>
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <Terminal className="w-3 h-3 text-text-dim" />
                       <span className="text-xs text-text-dim font-medium uppercase tracking-wider">Command Prompt</span>
                     </div>
-                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`certutil -hashfile MJOLNIR-Launcher.msi SHA256`}</code></pre>
+                    <pre className="p-3 rounded-lg bg-surface-card border border-border text-sm font-mono text-foreground overflow-x-auto"><code>{`certutil -hashfile MJOLNIR-Launcher-latest-setup.exe SHA256`}</code></pre>
                   </div>
                 </div>
               </div>

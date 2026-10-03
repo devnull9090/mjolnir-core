@@ -34,8 +34,9 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant)
+local function runHUD(variant, client, variantFile)
     local time, scheduled, incidentHook, held = 5, nil, nil, true
+    local written, commands = {}, {}
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
     local function block()
         return setmetatable({ IsValid = function() return true end,
@@ -52,6 +53,7 @@ local function runHUD(variant)
         end } }
     end
     local world = { GetFullName = function() return "World /Game/Levels/Halo1/Solo/DCN/DCN.DCN" end,
+        AuthorityGameMode = { IsValid = function() return not client end },
         GameState = { PlayerArray = { ForEach = function(_, fn)
             for i, name in ipairs(names) do
                 local ps = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = i - 1 },
@@ -65,8 +67,15 @@ local function runHUD(variant)
         PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 1 } } }
     local env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
         dofile = function(path) return dofile((path:gsub("\\", "/"))) end,
-        print = function() end, os = { clock = function() return time end },
+        print = function() end, os = { clock = function() return time end, time = function() return 1000 end },
         io = { open = function(path, mode)
+            if path:match("last_match.txt$") and mode == "w" then
+                return { write = function(_, ...) for _, v in ipairs({ ... }) do written[#written + 1] = v end end,
+                    close = function() end }
+            end
+            if path:match("variants[\\/][%w_]+%.mglo$") then
+                return variantFile and io.open(variantFile, "rb") or nil
+            end
             if path:match("running.txt$") then return { read = function() return "DCN\t" .. variant .. "\tDanger Canyon" end, close = function() end } end
             return io.open(path, mode)
         end },
@@ -79,7 +88,8 @@ local function runHUD(variant)
             if path:find("KismetSystemLibrary") then
                 return { MakeSoftClassPath = function(_, p) return p end,
                     Conv_SoftClassPathToSoftClassRef = function(_, p) return p end,
-                    LoadClassAsset_Blocking = function() return { IsValid = function() return true end } end }
+                    LoadClassAsset_Blocking = function() return { IsValid = function() return true end } end,
+                    ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
             end
             return { Create = function() local w = block(); widgets[#widgets + 1] = w; return w end }
         end }, { __index = _G })
@@ -93,7 +103,8 @@ local function runHUD(variant)
     end
     poll()
     return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll,
-        hold = function(v) held = v; poll() end }
+        hold = function(v) held = v; poll() end,
+        written = function() return table.concat(written) end, commands = commands }
 end
 
 local ctf = runHUD("ctf")
@@ -146,4 +157,82 @@ eq(ffa.feed.ScoreLeftValue.text, "1"); eq(ffa.feed.ScoreRightValue.text, "1")
 ffa.incident("Kill", 1, 2, 0) -- local player takes the lead
 eq(ffa.feed.ScoreLeftValue.text, "2"); eq(ffa.feed.ScoreRightValue.text, "2")
 eq(ffa.feed.ScoreTarget.text, "25")
-print("Multiplayer UI: grouping, full rosters, CTF, Team Slayer, delayed teams, switching, quitting, FFA and live score strip passed")
+-- The respawn countdown clears even when the final tick and the spawn never
+-- reach a fireteam client.
+ffa.incident("death", -1, 1, 0)
+eq(ffa.feed.Respawn.text, "Respawning")
+for _ = 1, 3 do ffa.incident("respawn_tick", 1, -1, 0) end
+eq(ffa.feed.Respawn.text, "Respawn in 1")
+for _ = 1, 3 do ffa.poll() end
+eq(ffa.feed.Respawn.text, "")
+
+-- The end of the match: the final standings on every machine, without Tab;
+-- the results for the post-game screen; and, after the standings have been
+-- up a while, the host's seamless travel back to the lobby.
+ffa.incident("round_over", -1, -1, 0)
+eq(ffa.board.visibility, 3)
+eq(ffa.board.BoardLabel.text, "MULTIPLAYER  /  FINAL STANDINGS")
+eq(ffa.board.Title.text, "BRAVO WINS")
+eq(ffa.board.Subtitle.text, "SLAYER   /   DANGER CANYON")
+eq(ffa.board.BoardHint.text, "RETURNING TO THE LOBBY")
+local results = ffa.written()
+assert(results:find("^match\tDCN\tslayer\tDanger Canyon\tSLAYER\tBRAVO WINS\t1000\n"), results)
+assert(results:find("\nplayer\tBravo\t2\t2\t1\t%-\t1\n"), results)
+ffa.incident("Kill", 2, 1, 0) -- the round the game resets behind the standings does not score
+eq(ffa.board.Score0.text, "2"); eq(ffa.board.Name0.text, "Bravo")
+eq(#ffa.commands, 0)
+for _ = 1, 7 do ffa.poll() end
+eq(#ffa.commands, 1); eq(ffa.commands[1], "servertravel /Game/Levels/UI/Frontend/Frontend")
+for _ = 1, 3 do ffa.poll() end
+eq(#ffa.commands, 1) -- once
+
+-- A fireteam client shows the same standings and writes its own results,
+-- but only the host travels.
+local member = runHUD("ctf", true)
+member.teams[0] = "Red"; member.teams[1] = "Blue"
+member.incident("player_spawn", 0, -1, 0); member.incident("player_spawn", 1, -1, 0)
+member.incident("flag_scored", 1, -1, 0)
+member.incident("game_over", -1, -1, 0)
+eq(member.board.Title.text, "BLUE TEAM WINS")
+assert(member.written():find("\nteam\tBlue\t1\n"))
+for _ = 1, 10 do member.poll() end
+eq(#member.commands, 0)
+
+-- Winners: a shared lead, or nobody scoring, is a draw.
+local function match(mode, players, teams)
+    return { mode = model.modes[mode], players = players, teams = teams or { [0] = 0, [1] = 0 }, teamKills = {},
+        variant = mode }
+end
+eq(model.winner(match("slayer", { player(0, nil, 3), player(1, nil, 3) })), "DRAW")
+eq(model.winner(match("slayer", { player(0, nil, 0) })), "DRAW")
+eq(model.winner(match("ctf", {}, { [0] = 2, [1] = 2 })), "DRAW")
+eq(model.winner(match("ctf", {}, { [0] = 3, [1] = 1 })), "RED TEAM WINS")
+print("Multiplayer UI: grouping, full rosters, CTF, Team Slayer, delayed teams, switching, quitting, FFA, live score strip, final standings and results passed")
+
+-- The score to win comes from the variant the simulation loads, not a
+-- built-in number (fixtures written by `mjolnir megalo write`).
+local Variant = dofile("mods/MJOLNIRHud/Scripts/variant.lua")
+local function bytes(path)
+    local f = assert(io.open(path, "rb"))
+    local data = f:read("a")
+    f:close()
+    return data
+end
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/slayer_7.mglo")), 7)
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/ctf_2.mglo")), 2)       -- a string table of labels
+eq(Variant.scoreToWin(bytes("tools/tests/fixtures/tick_450.mglo")), 450)
+eq(Variant.scoreToWin("not a variant"), nil)
+eq(Variant.scoreToWin(nil), nil)
+local seven = runHUD("slayer", false, "tools/tests/fixtures/slayer_7.mglo")
+eq(seven.feed.ScoreTarget.text, "7")
+seven.hold(true)
+eq(seven.board.Subtitle.text, "DANGER CANYON   /   FIRST TO 7 KILLS")
+print("Multiplayer UI: the score to win comes from the variant")
+
+-- The build line names the game update and its changelist.
+local BuildLine = dofile("mods/MJOLNIRHud/Scripts/buildline.lua")
+eq(BuildLine.game("5.5.4-1121610+++Meteorite+Rel-i343-Meteorite-2607-CU4"), "CU4 1121610")
+eq(BuildLine.game("5.5.4-1112544+++Meteorite+Rel-i343-Meteorite-2607-CU3"), "CU3 1112544")
+eq(BuildLine.game("5.5.4-1200000+++Meteorite+Main"), "1200000")
+eq(BuildLine.game(nil), nil)
+print("Multiplayer UI: the build line")

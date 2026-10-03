@@ -41,6 +41,28 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.9.1",
+      "tag": "launcher-v0.9.1",
+      "title": "One launcher, not two",
+      "date": "2026-10-02",
+      "summary": "Updating no longer leaves a second copy of the launcher behind. Your shortcuts open the current version, and Installed apps lists it once.",
+      "body": "### Fixed\n\n- **Updates no longer install a second copy.** If you installed the launcher\n  from the .msi download, every update put a separate copy beside it: two\n  entries in Installed apps, and your shortcuts kept opening the old copy,\n  which asked to update again. This update removes the old .msi copy;\n  Windows asks for permission once to do it. Afterwards one launcher remains,\n  updated in place, with its own shortcuts.\n- **The download page gives the setup .exe**, the installer updates use, and\n  its main button downloads the launcher itself. It used to open the newest\n  GitHub release, which was often a mods release with no installer.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Updates no longer install a second copy. If you installed the launcher from the .msi download, every update put a separate copy beside it: two entries in Installed apps, and your shortcuts kept opening the old copy, which asked to update again. This update removes the old .msi copy; Windows asks for permission once to do it. Afterwards one launcher remains, updated in place, with its own shortcuts.",
+            "The download page gives the setup .exe, the installer updates use, and its main button downloads the launcher itself. It used to open the newest GitHub release, which was often a mods release with no installer."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.9.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.9.0",
       "tag": "launcher-v0.9.0",
       "title": "Multiplayer, in one click",
@@ -72,6 +94,80 @@
       "path": "/changelog/launcher/0.9.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.10.0",
+      "tag": "mods-v0.10.0",
+      "title": "Fireteams past four players",
+      "date": "2026-10-02",
+      "summary": "Up to 16 players can join a fireteam, and the FIRETEAM panel on the main menu lists all of them. Each extra player needs their own PC.",
+      "body": "### Added\n\n- **Bigger fireteams.** The host's fireteam now takes up to 16 players.\n  The game's limits of four, in the PlayFab lobby, the PlayFab Party network\n  and the Steam session, are raised as the host signs in. Tested with five\n  players on two PCs.\n- **The FIRETEAM panel lists everyone.** The game's panel stopped at four\n  rows; now every player has a row, an INVITE + row stays while there is\n  room, and the header shows the real limit (for example FIRETEAM 5/16).\n\n### Changed\n\n- **MJOLNIRLobby 0.3.0:** bigger fireteams and the full FIRETEAM panel.\n\n### Removed\n\n- **MJOLNIRCoop8**, an early experiment with the player limit. MJOLNIRLobby\n  does its job now. If you have it installed, it does no harm; you can\n  delete its folder.\n\n### Known issues\n\n- **Split screen:** more than two players on one PC freezes a match when it\n  starts, so a fifth player needs a fifth PC.\n- **Split screen and online players:** a split screen player added before\n  anyone joins online can stop online players from joining. Let online\n  players join first.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Bigger fireteams. The host's fireteam now takes up to 16 players. The game's limits of four, in the PlayFab lobby, the PlayFab Party network and the Steam session, are raised as the host signs in. Tested with five players on two PCs.",
+            "The FIRETEAM panel lists everyone. The game's panel stopped at four rows; now every player has a row, an INVITE + row stays while there is room, and the header shows the real limit (for example FIRETEAM 5/16)."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.3.0: bigger fireteams and the full FIRETEAM panel."
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            "MJOLNIRCoop8, an early experiment with the player limit. MJOLNIRLobby does its job now. If you have it installed, it does no harm; you can delete its folder."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Split screen: more than two players on one PC freezes a match when it starts, so a fifth player needs a fifth PC.",
+            "Split screen and online players: a split screen player added before anyone joins online can stop online players from joining. Let online players join first."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.10.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.10.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.10.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.9.0",
+      "tag": "mods-v0.9.0",
+      "title": "Post-game and next-map voting",
+      "date": "2026-10-02",
+      "summary": "Matches end with final standings, then everyone returns to the lobby together and votes on the next game. Nobody is dropped from the fireteam anymore.",
+      "body": "### Added\n\n- **The end of a match.** When someone reaches the score to win, the\n  scoreboard shows the final standings on every screen, and a few seconds\n  later the host takes the whole fireteam back to the lobby. Before, the\n  game sent every guest to their own main menu and out of the fireteam.\n- **A post-game screen** with the final standings and a 20-second vote on\n  the next game: the same game again, or one of three other maps. Every\n  player votes. The host can start the leading game right away, or go to the\n  lobby to pick by hand. With no votes, the next map in the list plays.\n- **Players who join see the host's lobby**, with the host's map and game\n  type, instead of the game's CLIENT LOBBY screen.\n- **A build line** at the bottom of the HUD and the multiplayer screens\n  shows the mod versions and the game build, for screenshots and bug\n  reports.\n- **Slayer and Capture the Flag game types now ship with MJOLNIRLevelLoader.**\n  Earlier releases left them out.\n\n### Changed\n\n- **MJOLNIRHud 0.3.0:** TO WIN shows the game type's real score to win. The\n  match score sits at the top edge of the screen and is more transparent.\n  The respawn countdown no longer gets stuck on a guest's screen.\n- **MJOLNIRLobby 0.2.0:** the post-game screen, the vote and the guests'\n  lobby view.\n- **MJOLNIRLevelLoader 0.1.3:** the return to the menu no longer freezes\n  guests, and no longer loads the old map's scenery on the way.\n\nUpdate the CE runtime from the launcher's Multiplayer page (1.0.4) for the\npost-game screen, the build line and the new match score position. Without\nit, a match still ends together in the lobby, without the vote.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "The end of a match. When someone reaches the score to win, the scoreboard shows the final standings on every screen, and a few seconds later the host takes the whole fireteam back to the lobby. Before, the game sent every guest to their own main menu and out of the fireteam.",
+            "A post-game screen with the final standings and a 20-second vote on the next game: the same game again, or one of three other maps. Every player votes. The host can start the leading game right away, or go to the lobby to pick by hand. With no votes, the next map in the list plays.",
+            "Players who join see the host's lobby, with the host's map and game type, instead of the game's CLIENT LOBBY screen.",
+            "A build line at the bottom of the HUD and the multiplayer screens shows the mod versions and the game build, for screenshots and bug reports.",
+            "Slayer and Capture the Flag game types now ship with MJOLNIRLevelLoader. Earlier releases left them out."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRHud 0.3.0: TO WIN shows the game type's real score to win. The match score sits at the top edge of the screen and is more transparent. The respawn countdown no longer gets stuck on a guest's screen.",
+            "MJOLNIRLobby 0.2.0: the post-game screen, the vote and the guests' lobby view.",
+            "MJOLNIRLevelLoader 0.1.3: the return to the menu no longer freezes guests, and no longer loads the old map's scenery on the way."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.9.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.9.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.9.0"
     },
     {
       "product": "mods",

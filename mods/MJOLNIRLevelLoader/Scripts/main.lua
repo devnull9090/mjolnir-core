@@ -1380,8 +1380,11 @@ local function tick()
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
-        -- into the fade back to the menu at game end.
-        if worldName:find("SEAMLESSTRAVEL", 1, true) then return end
+        -- into the fade back to the menu at game end. Its name is
+        -- /Game/Levels/Test/SeamlessTravelTEst: compare case-blind (a
+        -- case-sensitive test missed it, and every return to the menu spent
+        -- seconds dressing it).
+        if string.upper(worldName):find("SEAMLESSTRAVEL", 1, true) then return end
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
 
@@ -1622,6 +1625,15 @@ local function loadMegaloSwitch()
         -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
         -- type<TAB>title", or no file while no multiplayer map runs.
         os.remove(MOD_DIR .. "\\running.txt")
+        if not level and not code then
+            -- A travel that names no scenario: the way back to the frontend.
+            -- Leave the patches alone. Restoring them under a running Megalo
+            -- game froze every fireteam client on its way back to the menu
+            -- (two PCs, 2026-10-02); the next map start names its scenario
+            -- and switches either way.
+            switched.code = nil
+            return
+        end
         if not level then
             off()
             switched.code = nil

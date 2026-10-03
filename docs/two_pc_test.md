@@ -11,6 +11,11 @@ It answers, in order:
    two players reach the kill feed and the scoreboard on both screens?
 2. Does PlayFab accept a co-op lobby bigger than four
    ([fireteam_join_and_cap.md](fireteam_join_and_cap.md))?
+3. What does the end of a match do to the fireteam? Today everyone lands on
+   the main menu and the second player is out of the fireteam. Which way of
+   ending a game causes it ([re/megalo_engine.md](re/megalo_engine.md),
+   "Rounds, the end of a game, and the next map")?
+4. Does the post-game screen and vote work across the fireteam?
 
 ## Setup
 
@@ -76,3 +81,73 @@ game only, and counts each time it fires.
 The Party network, the Steam presence session's literal 4 and the
 simulation's network check are separate caps. Reaching five or more players
 needs those too, and more than two PCs to test.
+
+## Phase 3: what a match end does to the fireteam
+
+The bundle's Slayer is a short test game: **score to win 1, two rounds**.
+The first kill ends round 1, and everyone should respawn on the same map.
+The second kill ends the game, and about 15 s later the game returns to the
+main menu. To get the normal Slayer back, reinstall the regular mods.
+
+Both PCs log what the test needs to UE4SS.log:
+- `[MJOLNIR Lobby] fireteam: <world> | fireteam <n> [<names>]` whenever the
+  world or the fireteam changes;
+- `[MJOLNIR Hud] round over: ...` and `game over: ...` with each player's
+  kills and deaths.
+
+Each test starts the same way: both PCs at the main menu, PC 2 in PC 1's
+fireteam (Phase 1, steps 1–2; both show FIRETEAM 2/4). Then PC 1 starts
+Blood Gulch, Slayer.
+
+**A. The game's own end (score to win).**
+1. One player kills the other. **Expect:** both respawn on Blood Gulch, and
+   neither leaves the map.
+2. A second kill. **Expect:** both return to the main menu.
+3. **Record on each PC:** where it landed, the FIRETEAM count, and any
+   message or toast.
+
+**B. The host quits mid-match.** Only if A dropped PC 2. Re-invite, start
+again, and before any kill PC 1 quits to the main menu from the pause menu.
+Record the same things.
+
+**C. The host leaves through the campaign flow.** Only if B also dropped
+PC 2. Re-invite and start again. PC 1 runs
+`FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame()` (`game_lua`).
+Record the same things.
+
+**After the tests:** copy PC 2's
+`...\Meteorite\Binaries\Win64\ue4ss\UE4SS.log` to PC 1 before PC 2
+restarts the game.
+
+| Outcome | Reading |
+|---|---|
+| A keeps PC 2 | The return to the menu is harmless. The post-game screen and vote can live on the frontend, and START GAME carries on |
+| A drops PC 2, and B or C keeps it | The end-of-game return leaves the session. End games ourselves through the path that keeps it |
+| All three drop PC 2 | Any return to the menu breaks the fireteam. The next map has to start from inside the match (today that starts no game, see the Megalo notes) |
+
+## Phase 4: the post-game screen and the vote
+
+Phase 3 found the kick (the game's own return) and the fix (a seamless
+return). Phase 4 tests the whole flow built on it
+([multiplayer_postgame.md](multiplayer_postgame.md)). The bundle's Slayer
+ends at **3 kills**, and its CTF at **1 capture**; both have 31 rounds, so
+the game never ends on its own.
+
+1. **Both:** PC 2 joins PC 1's fireteam. Once PC 1 opens MULTIPLAYER, PC 2
+   should show our lobby (the host's map and game type, no START GAME)
+   instead of CLIENT LOBBY.
+2. **PC 1:** start Blood Gulch, Slayer.
+3. **Play to 3 kills.** **Expect on both:** the final standings with the
+   winner, "RETURNING TO THE LOBBY", and about 7 s later both on the
+   POST-GAME screen with the same four options.
+4. **PC 2:** vote for an option. **Expect:** its count goes up on both
+   screens, and the footer reads "1 OF 2 VOTED".
+5. **PC 1:** vote, or press START NOW. **Expect:** both screens show
+   "NEXT / <map / game type>", and a moment later both travel into it.
+6. **Once more:** play to 3 kills, and on the post-game screen PC 1 presses
+   LOBBY. **Expect:** the vote closes on both, PC 1 is in the lobby, and PC 2
+   is back in our lobby view.
+
+**Record:** where it stops, and both UE4SS.logs. The lines to look for are
+`[MJOLNIR Hud] round over`, `final standings shown`,
+`[MJOLNIR Lobby] post-game: ...` and `fireteam: ...`.

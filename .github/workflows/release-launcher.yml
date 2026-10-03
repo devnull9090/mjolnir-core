@@ -72,31 +72,21 @@ jobs:
           $version = "${{ github.ref_name }}" -replace "^launcher-v", ""
           $artifactsDir = "apps/launcher/src-tauri/target/release/bundle"
 
-          # Find the MSI and NSIS installers
-          $msi = Get-ChildItem -Path "$artifactsDir/msi" -Filter "*.msi" -Recurse | Select-Object -First 1
+          # The NSIS installer is the only one: it is what the updater runs,
+          # and an MSI beside it made a second install (installer.nsh).
           $nsis = Get-ChildItem -Path "$artifactsDir/nsis" -Filter "*.exe" -Recurse | Select-Object -First 1
+          if (-not $nsis) { throw "No NSIS installer under $artifactsDir/nsis" }
 
           $checksumFile = "checksums-${{ github.ref_name }}.txt"
           "# MJOLNIR Launcher ${{ github.ref_name }} - SHA-256 Checksums" | Out-File $checksumFile
           "" | Out-File $checksumFile -Append
 
-          if ($msi) {
-            $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
-            "$msiHash  $($msi.Name)" | Out-File $checksumFile -Append
-            echo "msi_hash=$msiHash" >> $env:GITHUB_OUTPUT
-            echo "msi_name=$($msi.Name)" >> $env:GITHUB_OUTPUT
-            echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
-            Write-Host "MSI: $msiHash  $($msi.Name)"
-          }
-
-          if ($nsis) {
-            $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLower()
-            "$nsisHash  $($nsis.Name)" | Out-File $checksumFile -Append
-            echo "nsis_hash=$nsisHash" >> $env:GITHUB_OUTPUT
-            echo "nsis_name=$($nsis.Name)" >> $env:GITHUB_OUTPUT
-            echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
-            Write-Host "NSIS: $nsisHash  $($nsis.Name)"
-          }
+          $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLower()
+          "$nsisHash  $($nsis.Name)" | Out-File $checksumFile -Append
+          echo "nsis_hash=$nsisHash" >> $env:GITHUB_OUTPUT
+          echo "nsis_name=$($nsis.Name)" >> $env:GITHUB_OUTPUT
+          echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "NSIS: $nsisHash  $($nsis.Name)"
 
           echo "checksum_file=$checksumFile" >> $env:GITHUB_OUTPUT
           echo "version=$version" >> $env:GITHUB_OUTPUT
@@ -122,17 +112,16 @@ jobs:
             ### Downloads
             | Installer | SHA-256 |
             | :--- | :--- |
-            | ${{ steps.checksums.outputs.msi_name }} | `${{ steps.checksums.outputs.msi_hash }}` |
             | ${{ steps.checksums.outputs.nsis_name }} | `${{ steps.checksums.outputs.nsis_hash }}` |
 
             ### Verify your download
             ```powershell
             # PowerShell
-            (Get-FileHash .\MJOLNIR-Launcher*.msi -Algorithm SHA256).Hash
+            (Get-FileHash .\MJOLNIR-Launcher*-setup.exe -Algorithm SHA256).Hash
             ```
             ```bash
             # Linux/macOS
-            sha256sum MJOLNIR-Launcher*.msi
+            sha256sum MJOLNIR-Launcher*-setup.exe
             ```
 
             Compare the output with the checksums above. They must match exactly.
@@ -149,13 +138,6 @@ jobs:
           # release's bytes for hours after a new one ships. Keep their TTL
           # short. Per-release keys are immutable and keep the default.
           $mutable = "--cache-control", "public, max-age=60"
-
-          # Upload MSI
-          if ("${{ steps.checksums.outputs.msi_path }}" -ne "") {
-            wrangler r2 object put "mjolnir-releases/launcher/${{ github.ref_name }}/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}" --remote
-            wrangler r2 object put "mjolnir-releases/launcher/latest/${{ steps.checksums.outputs.msi_name }}" --file="${{ steps.checksums.outputs.msi_path }}" --remote @mutable
-            wrangler r2 object put "mjolnir-releases/launcher/latest/MJOLNIR-Launcher-latest.msi" --file="${{ steps.checksums.outputs.msi_path }}" --remote @mutable
-          }
 
           # Upload NSIS
           if ("${{ steps.checksums.outputs.nsis_path }}" -ne "") {
@@ -186,7 +168,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VER: ${{ steps.checksums.outputs.version }}
-          MSI_HASH: ${{ steps.checksums.outputs.msi_hash }}
+          NSIS_HASH: ${{ steps.checksums.outputs.nsis_hash }}
           # Passed through the environment rather than interpolated into the
           # script: a changelog title is prose, and prose inside a PowerShell
           # string is one apostrophe away from a syntax error.
@@ -201,7 +183,7 @@ jobs:
           echo "::add-mask::$env:DISCORD_WEBHOOK_URL"
           $tag = $env:RELEASE_TAG
           $ver = $env:RELEASE_VER
-          $hash = $env:MSI_HASH
+          $hash = $env:NSIS_HASH
 
           $embedObj = @{
             username = "MJOLNIR Core Releases"
@@ -222,13 +204,13 @@ jobs:
                     inline = $true
                   },
                   @{
-                    name = "🛡️ SHA-256 (MSI)"
+                    name = "🛡️ SHA-256 (setup.exe)"
                     value = "$hash"
                     inline = $false
                   },
                   @{
                     name = "🔗 Download Options"
-                    value = "• [Download Page & Verification](https://mjolnircore.com/download)`n• [GitHub Release](https://github.com/devnull9090/mjolnir-core/releases/tag/$tag)`n• [Direct CDN (.msi)](https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest.msi)"
+                    value = "• [Download Page & Verification](https://mjolnircore.com/download)`n• [GitHub Release](https://github.com/devnull9090/mjolnir-core/releases/tag/$tag)`n• [Direct CDN (setup.exe)](https://releases.mjolnircore.com/launcher/latest/MJOLNIR-Launcher-latest-setup.exe)"
                     inline = $false
                   }
                 )

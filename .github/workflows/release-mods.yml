@@ -69,10 +69,47 @@ jobs:
           path: mods/MJOLNIRLobby/native/mjolnir_lobby.dll
           if-no-files-found: error
 
+  # The game types MJOLNIRLevelLoader hands the simulation (variants/*.mglo):
+  # Megalo bytecode written by our own encoder (crates/blam-megalo), nothing
+  # from the game, and never committed (.gitignore), so built here like the
+  # native halves. Their defaults give a game 31 rounds, so the game never
+  # runs its own return to the menu, which drops every fireteam client
+  # (docs/multiplayer_postgame.md). The lobby offers a game type only when its
+  # file is installed.
+  build-game-types:
+    name: Build game types (Megalo variants)
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Write slayer.mglo and ctf.mglo
+        run: |
+          set -euo pipefail
+          cargo build --release -q -p blam-cli
+          mkdir -p variants
+          ./target/release/mjolnir megalo write --mode slayer --out variants/slayer.mglo
+          ./target/release/mjolnir megalo write --mode ctf --out variants/ctf.mglo
+          for f in variants/*.mglo; do
+            ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
+            echo "$(basename "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game_types
+          path: variants/*.mglo
+          if-no-files-found: error
+
   release:
     name: Build, sign & publish
     if: github.ref_type == 'tag'
-    needs: build-native
+    needs: [build-native, build-game-types]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -96,6 +133,11 @@ jobs:
           name: mjolnir_lobby
           path: mods/MJOLNIRLobby/native
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: game_types
+          path: mods/MJOLNIRLevelLoader/variants
+
       - name: Check the native halves are in place
         run: |
           for dll in mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
@@ -103,6 +145,10 @@ jobs:
                      mods/MJOLNIRLobby/native/mjolnir_lobby.dll; do
             test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
             sha256sum "$dll"
+          done
+          for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo; do
+            test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
+            sha256sum "$mglo"
           done
 
       # The same lint gate as CI, but blocking: nothing ships with warnings

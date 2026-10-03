@@ -44,6 +44,15 @@ pub struct WriteArgs {
     /// Score to win (default 25; 3 captures for CTF).
     #[arg(long)]
     pub score: Option<u16>,
+    /// Rounds in a game (1..=31). An end of round before the last resets
+    /// the round in place; the last ends the game, and the game's own return
+    /// to the menu then drops every fireteam client. MJOLNIR's matches are
+    /// one round: at its end MJOLNIRHud shows the final standings and the
+    /// host takes the fireteam back to the lobby itself, so the default
+    /// keeps the game from ever ending on its own
+    /// (docs/multiplayer_postgame.md).
+    #[arg(long, default_value_t = 31)]
+    pub rounds: u8,
     /// CTF: the flag's index in `multiplayer_object_type_list` (the entry
     /// tools/level/build_ctf_flag.sh adds).
     #[arg(long, default_value_t = 18)]
@@ -91,6 +100,10 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     debug: w.debug_capture,
                 }),
             };
+            let v = Variant {
+                rounds: w.rounds,
+                ..v
+            };
             let ticks = |seconds: u16, what: &str| {
                 i16::try_from(u32::from(seconds) * u32::from(w.tick_rate))
                     .with_context(|| format!("{what} times --tick-rate is past 32767 ticks"))
@@ -111,13 +124,14 @@ pub fn run(a: MegaloArgs) -> Result<()> {
             std::fs::write(&w.out, &bytes)
                 .with_context(|| format!("writing {}", w.out.display()))?;
             println!(
-                "wrote {} ({} bytes): {} condition(s), {} action(s), {} trigger(s), score to win {}",
+                "wrote {} ({} bytes): {} condition(s), {} action(s), {} trigger(s), score to win {}, {} round(s)",
                 w.out.display(),
                 bytes.len(),
                 v.conditions.len(),
                 v.actions.len(),
                 v.triggers.len(),
-                v.score_to_win
+                v.score_to_win,
+                v.rounds
             );
             Ok(())
         }

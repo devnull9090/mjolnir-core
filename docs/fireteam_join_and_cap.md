@@ -72,7 +72,7 @@ Game Pass is unverified.
 | PlayFab lobby `maxMemberCount` | `CreateAndJoinLobby` at `0x6f4156e` in CreateSession `0x6f40880`: from `FOnlineSessionSettings.NumPublicConnections` (settings+8) | 4 today; the game code supplying it not traced | Verified |
 | Native (Steam) presence session after a PlayFab join | `0x6f2007b` | `NumPublicConnections = NumPrivateConnections = 4`, a literal | Verified |
 | PlayFab Party network | `PartyCreateNewNetwork` `0x6f375dc`; fields loaded at `0x6f2eecb` from `[OnlineSubsystemPlayFab]` MaxDeviceCount, MaxUserCount, MaxUsersPerDeviceCount, MaxDevicesPerUserCount, MaxEndpointsPerDeviceCount | ini values unread (in the Oodle-compressed paks) | Verified as ini-driven |
-| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4; MJOLNIRCoop8 raises it, rebuilt every level | Verified (CU3) |
+| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4, rebuilt every level; MJOLNIRLobby holds it at 16 | Verified (CU3) |
 | Simulation players array | `0x181010` (sim DLL) | **16** of `0x4B0` bytes. CU3 notes read 32: `0x20` there is the name buffer, not the count | Verified |
 | `k_maximum_campaign_players` | block definition `0x9bb460` | 4 | Verified |
 | `net_maximum_player_count` | registered at `0x9a3dd8` | value unread | Verified present |
@@ -102,3 +102,77 @@ lobby.
 IAT: `PFMultiplayerJoinLobby` `0xa8bb5f8`, `PFMultiplayerCreateAndJoinLobby`
 `0xa8bb630`, `PFMultiplayerFindLobbies` `0xa8bb608`. Party connect `0x6f37900`.
 Steam command-line parser `0x6aab2a0`.
+
+## Raising the caps in game (2026-10-02, two PCs)
+
+MJOLNIRLobby's native half (`native/lobby`, `mjolnir_fireteam_open`) now does
+three things at startup, all found at runtime by import name or byte pattern:
+- hooks `PFMultiplayerCreateAndJoinLobby` (IAT) and raises `maxMemberCount`;
+- hooks `PartyCreateNewNetwork` (IAT) and raises the Party limits;
+- patches the presence session's two literal 4s (the unique 24-byte pattern
+  at exe RVA `0x6f2007b`).
+
+MJOLNIRLobby holds `GameSession.MaxPlayers` at 16. `native\fireteam.log`
+records each call:
+
+```text
+party: users 4 devices 4 users/device 2 devices/user 1 endpoints/device 3 (options 15)
+party: users 16 devices 16
+lobby: maxMemberCount 4 -> 16
+```
+
+The incoming Party values match the shipped `[OnlineSubsystemPlayFab]`
+section (MaxUserCount 4, MaxDeviceCount 4, MaxUsersPerDeviceCount 2,
+MaxDevicesPerUserCount 1, MaxEndpointsPerDeviceCount 3), which confirms
+`PartyNetworkConfiguration`'s field order. Both calls happen at sign-in.
+A user `Saved/Config/Windows/Engine.ini` is deleted by the game at startup,
+so the ini route is closed.
+
+**Results:**
+- **More than four players join.** PC 2 joined a host that already had three
+  `CreatePlayer` guests: five players in `GameState.PlayerArray`, five
+  player states, one `PlayFabNetConnection`.
+- **Keep Party's per-device limits as shipped.** Raising users/device to 4
+  and endpoints/device to 5 made every remote join time out, with or without
+  guests: `ClientTravel` to the Party address (`0.0.0.0:5000`) gives up after
+  exactly 20 s with "CONNECTION LOST / Disconnected from host", although the
+  lobby join, the Party connect, authentication and endpoint creation all
+  return 0 on the client and the host's lobby sees the member arrive.
+- The host has no net driver at the frontend. It creates a
+  `PlayFabNetDriver` when the first remote player arrives.
+- **Local guests added before the first remote player block that join**
+  (the same 20 s timeout). Guests added after a remote player has joined do
+  not block later joins, up to four local players. `CreatePlayer` guests
+  never pass through `UBlamOnlineSessionSubsystem::AddSplitscreenPlayerToSession`;
+  the game's own `HaloOnlineGameInstance:LoginSplitScreenPlayer` does nothing
+  without a second input device.
+- **More than two local players on one PC freeze a match at its start**:
+  black screen on every machine, nothing responds, `player_spawn` still
+  fires. This happens offline too (host plus two guests, no remote player),
+  so it is a splitscreen limit, not the fireteam's. Host, one guest and one
+  remote player play Slayer normally.
+- CTF with three players raised `game_over` (cause -1) about 15 s in; Slayer
+  did not.
+
+So a five-player match needs five machines, or a fix for three local players
+on one; two PCs reach four players at most (two per machine).
+
+### The FIRETEAM panel
+
+`MeteoriteSquadLobbyViewModel.SquadMembers` always holds four slots: the
+players, then blank INVITE + rows. A fifth player gets no row and the header
+reads "n/4". MJOLNIRLobby's `squadpanel.lua` rebuilds the difference after
+the panel's own `BackingDataChanged` and `UpdateHeader`: a row for every
+player in the game state, one INVITE + row while there is room, and
+"Fireteam n/16".
+- A row's widget class travels with its item in a native field. The list's
+  `EntryWidgetClass` is only the fallback, read whenever the list builds the
+  row, so a fresh item gets whichever class happens to be set by then.
+  Player rows are therefore constructed with one of the view model's own
+  player items as the template, which carries the class.
+- An added row's `MeteoritePlayerViewModel` holds the name, platform and
+  player state. `CanKickFromFireteam` returns true on it, so its menu offers
+  Kick.
+
+Removing a `CreatePlayer` guest with `GameplayStatics:RemovePlayer` crashed
+the game.

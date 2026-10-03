@@ -122,3 +122,10 @@ python -c "from lupa import LuaRuntime; LuaRuntime().execute(open('tools/tests/t
   half.
 - Medals.
 - The game's fonts.
+
+## The end of a match
+
+The first `round_over` ends the match (MJOLNIR's variants have 31 rounds).
+The scoreboard comes up as the final standings, the results go to
+`last_match.txt`, and the host takes the fireteam back to the lobby
+([multiplayer_postgame.md](multiplayer_postgame.md)).
