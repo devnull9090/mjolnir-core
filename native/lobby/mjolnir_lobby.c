@@ -1450,22 +1450,51 @@ static void drop_held_world(const char *why) {
 }
 
 /* Once a second from games.lua, on the game thread. */
-/* After a held world is released: the loading manager's state (+0xd9, its
-   tick queues command 0/2 at 6) and the GameState's experience component
-   (CurrentExperience at +0xa8; its three bWaiting... bits at +0x118, which
-   the tick waits to see all set), logged on change for WATCH_MS. */
+/* After a held world is released: the loading manager's mode (+0xd8) and
+   state (+0xd9; its tick queues command 0/2 at 6), and the GameState's
+   experience component (CurrentExperience at +0xa8; its three bWaiting...
+   bits at +0x118, which the tick's state 4 waits to see all set), logged on
+   change for WATCH_MS. A joiner sat in state 1, mode 1, flags 00 (2026-10-03):
+   the Blam start subscribes the manager to an engine event that sets mode 2
+   (0x7b4a450 on CU4), which never came. Experiments, each logged: after
+   NUDGE_MS in state 1 / mode 1, set mode 2 as that event would; after
+   NUDGE_MS in state 4 without the three bits, set them. */
 static unsigned char *watch_manager, *watch_experience;
 static DWORD watch_until;
 #define WATCH_MS 90000
+#define NUDGE_MS 5000
+
+typedef void(__fastcall *set_mode_t)(void *loading_manager);
+static set_mode_t loading_manager_set_mode2;
+/* lea rcx, [r13+48h] / mov r8, rbx / lea r9, set-mode-2 / lea rdx, [rbp+38h] / call */
+static const unsigned char SET_MODE2_SITE[] = {0x49, 0x8D, 0x4D, 0x48, 0x4C, 0x8B, 0xC3, 0x4C, 0x8D, 0x0D,
+                                               0,    0,    0,    0,    0x48, 0x8D, 0x55, 0x38, 0xE8};
+static const unsigned char SET_MODE2_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+/* mov eax, 2 / xchg [rcx+0d8h], al / ret */
+static const unsigned char SET_MODE2_BODY[] = {0xB8, 0x02, 0x00, 0x00, 0x00, 0x86, 0x81, 0xD8, 0x00, 0x00, 0x00, 0xC3};
+
+static set_mode_t find_set_mode2(void) {
+    int hits;
+    unsigned char *site = find_code_masked(SET_MODE2_SITE, SET_MODE2_MASK, sizeof SET_MODE2_SITE, &hits);
+    if (!site) return NULL;
+    unsigned char *fn = site + 7 + 7 + *(int *)(site + 10);
+    if (!in_image(fn) || memcmp(fn, SET_MODE2_BODY, sizeof SET_MODE2_BODY) != 0) return NULL;
+    return (set_mode_t)fn;
+}
 
 static void watch_loading(void) {
-    static int last_state = -1, last_flags = -1;
+    static int last_mode = -1, last_state = -1, last_flags = -1;
     static void *last_experience = (void *)1;
+    static DWORD state_since;
+    static int mode_pushed, flags_pushed;
     if (!watch_until || (long)(GetTickCount() - watch_until) > 0) return;
-    int state = -1, flags = -1;
+    int mode = -1, state = -1, flags = -1;
     void *experience = NULL;
     __try {
-        if (watch_manager) state = watch_manager[0xd9];
+        if (watch_manager) {
+            mode = watch_manager[0xd8];
+            state = watch_manager[0xd9];
+        }
         if (watch_experience) {
             flags = watch_experience[0x118];
             experience = *(void **)(watch_experience + 0xa8);
@@ -1475,11 +1504,36 @@ static void watch_loading(void) {
         fireteam_log("world: loading watch stopped (unreadable)");
         return;
     }
-    if (state == last_state && flags == last_flags && experience == last_experience) return;
-    last_state = state;
-    last_flags = flags;
-    last_experience = experience;
-    fireteam_log("world: loading manager state %d, experience %p flags %02x", state, experience, flags);
+    DWORD now = GetTickCount();
+    if (state != last_state || mode != last_mode) state_since = now;
+    if (mode != last_mode || state != last_state || flags != last_flags || experience != last_experience) {
+        last_mode = mode;
+        last_state = state;
+        last_flags = flags;
+        last_experience = experience;
+        fireteam_log("world: loading manager mode %d state %d, experience %p flags %02x", mode, state, experience,
+                     flags);
+    }
+    if (state == 1 && mode == 1 && now - state_since > NUDGE_MS && !mode_pushed) {
+        mode_pushed = 1;
+        if (!loading_manager_set_mode2) loading_manager_set_mode2 = find_set_mode2();
+        if (loading_manager_set_mode2) {
+            fireteam_log("world: loading manager waited %lu ms in mode 1; setting mode 2", (unsigned long)(now - state_since));
+            loading_manager_set_mode2(watch_manager);
+        } else {
+            fireteam_log("world: loading manager's set-mode-2 not found");
+        }
+    }
+    if (state == 4 && flags >= 0 && (flags & 7) != 7 && now - state_since > NUDGE_MS && !flags_pushed) {
+        flags_pushed = 1;
+        fireteam_log("world: loading manager waited %lu ms for the experience; setting its three bits",
+                     (unsigned long)(now - state_since));
+        __try {
+            watch_experience[0x118] = (unsigned char)((flags | 7) & ~0x10);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("world: experience flags unwritable");
+        }
+    }
 }
 
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
