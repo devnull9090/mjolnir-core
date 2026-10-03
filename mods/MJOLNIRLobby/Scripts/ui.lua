@@ -55,18 +55,21 @@ local function nameOf(o)
     return ok and n or nil
 end
 
---- The local player's controller. After a world change FindFirstOf can
---- return the previous world's; the one with a local player is live.
+--- The local player's controller, read through the engine (its first local
+--- player): a few property reads. After a world change FindFirstOf can
+--- return the previous world's controller, and FindAllOf walks every object
+--- in the game, ~20 ms on a converted map (200,000 objects, 2026-10-02).
+local Engine = nil
 function UI.playerController()
-    local fallback
-    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
-        if valid(pc) then
-            local ok, player = pcall(function() return pc.Player end)
-            if ok and valid(player) then return pc end
-            fallback = fallback or pc
-        end
+    if not valid(Engine) then
+        Engine = FindFirstOf("GameEngine")
+        if not valid(Engine) then return nil end
     end
-    return fallback
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and valid(pc) then return pc end
+    return nil
 end
 
 --- The live instance of a widget class. After a level and back, FindFirstOf
