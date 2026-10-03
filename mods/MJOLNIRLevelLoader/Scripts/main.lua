@@ -1801,11 +1801,21 @@ local function loadMegaloSwitch()
     end)
     -- A player who joins a match under way gets no travel from the host:
     -- MJOLNIRLobby's native half replays the client side of one, which does
-    -- not pass through ClientTravelInternal, and runs this with the URL.
+    -- not pass through ClientTravelInternal. MJOLNIRLobby leaves the URL in
+    -- join_switch.txt (a console command needs a player controller that a
+    -- held world does not have yet), or it is typed here.
     RegisterConsoleCommandHandler("mjolnir_level_join", function(full)
         local target = tostring(full or ""):match("^%S+%s+(%S+)")
         if target then switchForUrl(target, "join in progress") end
         return true
+    end)
+    every(500, "join switch", function()
+        local path = MOD_DIR .. "\\join_switch.txt"
+        local target = readFile(path)
+        if not target then return end
+        os.remove(path)
+        target = target:match("^%s*(%S+)")
+        if target then switchForUrl(target, "join in progress") end
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"
         or "multiplayer switch: could not hook SetAndBeginCampaign")

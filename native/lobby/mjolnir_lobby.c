@@ -2021,11 +2021,14 @@ static volatile LONG trace_on;
 static void trace_tick(void);
 static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
+static volatile LONG fade_in_pending;
+static void fade_in_tick(void);
 static void inject_players(void);
 static int inject_needed(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
+    if (fade_in_pending) fade_in_tick();
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
         __try {
@@ -2104,6 +2107,7 @@ static void __fastcall hook_main_tick(void) {
            handler never built, so after a few seconds its timers decide the
            host is gone and the joiner makes itself host. Leave the handler as
            a normal client's after its build. */
+        if (queued) InterlockedExchange(&fade_in_pending, 1);
         if (queued && life_cycle) {
             __try {
                 unsigned char *handler = *(unsigned char **)(life_cycle + 8 + 8 * 3);
@@ -2728,6 +2732,48 @@ static int inject_prepare(void) {
     }
     find_sim_sessions();
     return install_main_tick(sim);
+}
+
+/* A joiner's screen stays black: a converted map's startup script fades the
+   view in when the match starts, and in a distributed game scripts run on
+   the host, so a game built later never fades in. Run the script command
+   ourselves through the simulation's hs_compile_and_evaluate (sim 0x1f8b30,
+   the call MJOLNIRBlamConsole makes), on the simulation thread, once the
+   joiner's game has run for three seconds. */
+typedef unsigned char(__fastcall *hs_evaluate_t)(unsigned long long unused, const char *source, const char *text,
+                                                 char interactive, unsigned unused5, int *value, int *type);
+static hs_evaluate_t hs_evaluate;
+static const unsigned char HS_EVALUATE[] = {0x48, 0x89, 0x54, 0x24, 0x10, 0x56, 0xB8, 0x50, 0x20, 0x00, 0x00, 0xE8, 0,
+                                            0,    0,    0,    0x48, 0x2B, 0xE0, 0x48, 0x89, 0xAC, 0x24, 0x70, 0x20};
+static const unsigned char HS_EVALUATE_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+static void fade_in_tick(void) {
+    static unsigned running_ticks;
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1] || g[0]) {
+        running_ticks = 0;
+        return;
+    }
+    if (++running_ticks < 90) return;
+    running_ticks = 0;
+    InterlockedExchange(&fade_in_pending, 0);
+    if (!hs_evaluate) {
+        int hits = 0;
+        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+        hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
+                          : NULL;
+        if (!hs_evaluate) {
+            fireteam_log("game: script evaluator not found (%d matches); the view stays faded", hits);
+            return;
+        }
+    }
+    int value = -1, type = 0;
+    __try {
+        hs_evaluate(0, "mjolnir_lobby", "(fade_in 0 0 0 15)", 1, 0, &value, &type);
+        fireteam_log("game: faded the joiner's view in");
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("game: fade_in faulted (%08lx)", GetExceptionCode());
+    }
 }
 
 __declspec(dllexport) int mjolnir_sim_jip_start(void *L) {

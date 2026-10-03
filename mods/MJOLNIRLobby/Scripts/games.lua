@@ -168,28 +168,32 @@ local pendingSwitch
 local jipJoinedUrl
 
 --- Hand the level loader a joined match's URL (Megalo engine, game type,
---- running.txt for MJOLNIRHud), as the host's travel would. A held world may
---- not take the console command yet, so retry once a second until the
---- loader's running.txt names the map.
+--- running.txt for MJOLNIRHud), as the host's travel would, before the
+--- native half builds this side's game: MJOLNIRLevelLoader\join_switch.txt,
+--- which the loader reads within half a second. Written again every ten
+--- seconds until the loader's running.txt names the map.
 local function levelSwitchTick()
     if not pendingSwitch then return end
-    local running = readFile(nativeDir .. "..\\..\\MJOLNIRLevelLoader\\running.txt") or ""
+    local loaderDir = nativeDir .. "..\\..\\MJOLNIRLevelLoader\\"
+    local running = readFile(loaderDir .. "running.txt") or ""
     if running:sub(1, #pendingSwitch.code + 1) == pendingSwitch.code .. "\t" then
         log("games: the level loader runs " .. pendingSwitch.code .. " for the match joined under way")
         pendingSwitch = nil
         return
     end
-    pendingSwitch.tries = pendingSwitch.tries + 1
-    if pendingSwitch.tries > 60 then
+    if pendingSwitch.tries >= 60 then
         log("games: the level loader never took " .. pendingSwitch.url)
         pendingSwitch = nil
         return
     end
-    pcall(function()
-        local pc = FindFirstOf("PlayerController")
-        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-            :ExecuteConsoleCommand(pc:GetWorld(), "mjolnir_level_join " .. pendingSwitch.url, pc)
-    end)
+    if pendingSwitch.tries % 10 == 0 then
+        local f = io.open(loaderDir .. "join_switch.txt", "wb")
+        if f then
+            f:write(pendingSwitch.url, "\n")
+            f:close()
+        end
+    end
+    pendingSwitch.tries = pendingSwitch.tries + 1
 end
 
 local function jipTick()
