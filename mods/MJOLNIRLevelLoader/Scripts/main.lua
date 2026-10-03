@@ -84,13 +84,6 @@ local function Log(msg)
     print("[MJOLNIR LevelLoader] " .. tostring(msg) .. "\n")
 end
 
-local function firstValid(list)
-    for _, o in ipairs(list or {}) do
-        if o and o:IsValid() then return o end
-    end
-    return nil
-end
-
 --- Actors of one class, as NotifyOnNewObject reports them, by address.
 --- FindAllOf walks every object in the game (~20 ms on a converted map), too
 --- slow for anything periodic: it runs once, as a watch is armed, for the
