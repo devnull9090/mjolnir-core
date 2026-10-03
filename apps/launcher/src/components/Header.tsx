@@ -30,25 +30,27 @@ export default function Header() {
 
   return (
     <header className="h-14 bg-surface-secondary/80 backdrop-blur-sm border-b border-border-subtle flex items-center justify-between px-6">
-      <div className="flex items-center gap-3">
-        <div className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
-        <span className="text-sm text-text-secondary">
+      {/* Versions sit with the game name, so the right side is the account alone. */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-2 h-2 rounded-full bg-accent-green animate-pulse shrink-0" />
+        <span className="text-sm text-text-secondary whitespace-nowrap">
           Halo Campaign Evolved
         </span>
-      </div>
-      <div className="flex items-center gap-4">
-        {ue4ssVersion && (
-          <span className="text-xs text-text-secondary px-3 py-1 rounded-full bg-surface-card border border-border-subtle">
-            UE4SS v{ue4ssVersion}
-          </span>
-        )}
         {launcherVersion && (
-          <span className="text-xs text-mjolnir-gold font-semibold">
+          <span className="text-xs text-mjolnir-gold font-semibold whitespace-nowrap">
             MJOLNIR v{launcherVersion}
           </span>
         )}
-        <AccountChip />
+        {ue4ssVersion && (
+          <span
+            title={`UE4SS v${ue4ssVersion}`}
+            className="text-xs text-text-secondary/70 truncate"
+          >
+            UE4SS v{ue4ssVersion}
+          </span>
+        )}
       </div>
+      <AccountChip />
     </header>
   );
 }
