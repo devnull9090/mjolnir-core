@@ -1921,11 +1921,24 @@ local function initialize()
     watchHost()
     -- A kick from the host: leave its match the way the pause menu's quit
     -- does (BlamCampaignFlowGameSubsystem LeaveGame), off the RPC.
+    -- A kick that arrives while this game is still joining (its world held
+    -- for the Blam game, which is not built yet) waits for the join to end:
+    -- leaving mid-join crashed the joiner in the Blam engine's tick (a ban
+    -- enforced as a banned player rejoined, two PCs 2026-10-03).
     Net.on("kick", function(fields)
         log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
-        ExecuteInGameThreadWithDelay(200, function()
-            pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame() end)
-        end)
+        local tries = 0
+        local function leave()
+            tries = tries + 1
+            if readFile(MOD_DIR .. "\\native\\jip_held.txt") and tries < 240 then
+                ExecuteInGameThreadWithDelay(500, leave)
+                return
+            end
+            ExecuteInGameThreadWithDelay(tries > 1 and 10000 or 200, function()
+                pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame() end)
+            end)
+        end
+        ExecuteInGameThreadWithDelay(200, leave)
     end)
     RegisterConsoleCommandHandler("mjolnir_auto", function(full)
         local args = {}
