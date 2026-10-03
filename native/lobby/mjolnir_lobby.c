@@ -143,6 +143,20 @@ static unsigned at_least(unsigned value, unsigned floor) { return value < floor 
 static void track_lobby(void *lobby, const char *how);
 static int in_image(const void *p);
 
+/* The exe return addresses on the caller's stack, as " rva rva ...": who asked. */
+#define CALLER_STACK (24 * 12 + 1)
+static void caller_stack(char *line) {
+    void *frames[24];
+    USHORT n = RtlCaptureStackBackTrace(1, 24, frames, NULL);
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    size_t at = 0;
+    for (USHORT i = 0; i < n && at + 12 < CALLER_STACK; i++) {
+        if (!in_image(frames[i])) continue;
+        at += (size_t)snprintf(line + at, CALLER_STACK - at, " %llx", (unsigned long long)((unsigned char *)frames[i] - base));
+    }
+    line[at] = 0;
+}
+
 static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *config, void *join, void *context,
                                             void *lobby) {
     if (config) {
@@ -460,8 +474,10 @@ static lobby_force_remove_t real_lobby_force_remove;
 static long __stdcall hook_lobby_force_remove(void *lobby, const void *member, unsigned char prevent_rejoin,
                                              void *context) {
     const char *id = member ? *(const char *const *)member : NULL;
-    fireteam_log("lobby: remove member %s from %p (prevent rejoin %u)%s", id ? id : "?", lobby, prevent_rejoin,
-                 keep_lobby ? ": refused (the game is public)" : "");
+    char line[CALLER_STACK];
+    caller_stack(line);
+    fireteam_log("lobby: remove member %s from %p (prevent rejoin %u)%s, asked from%s", id ? id : "?", lobby,
+                 prevent_rejoin, keep_lobby ? ": refused (the game is public)" : "", line);
     if (keep_lobby) return KEEP_LOBBY_REFUSED;
     return real_lobby_force_remove(lobby, member, prevent_rejoin, context);
 }
@@ -874,16 +890,8 @@ static const unsigned char LEAVE_SESSION_PUBLIC_PROLOGUE[] = {0x40, 0x55, 0x53, 
                                                               0x48, 0x8D, 0x6C, 0x24, 0xC9};
 
 static void *__fastcall hook_leave_session_public(void *self, void *out, unsigned char *params) {
-    void *frames[24];
-    USHORT n = RtlCaptureStackBackTrace(0, 24, frames, NULL);
-    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
-    char line[24 * 12 + 1];
-    size_t at = 0;
-    for (USHORT i = 0; i < n && at + 12 < sizeof line; i++) {
-        if (!in_image(frames[i])) continue;
-        at += (size_t)snprintf(line + at, sizeof line - at, " %llx", (unsigned long long)((unsigned char *)frames[i] - base));
-    }
-    line[at] = 0;
+    char line[CALLER_STACK];
+    caller_stack(line);
     fireteam_log("session: LeaveSession asked (name %u/%u destroy %u) from%s", params ? *(unsigned *)(params + 4) : 0u,
                  params ? *(unsigned *)(params + 8) : 0u, params ? params[0xc] : 0u, line);
     return real_leave_session_public(self, out, params);
