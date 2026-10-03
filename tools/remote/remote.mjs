@@ -13,6 +13,12 @@
 //   node tools/remote/remote.mjs deploy-lobby              the lobby's DLL and games.lua
 //   node tools/remote/remote.mjs log [lines]               the tail of MJOLNIRLobby's fireteam.log
 //   node tools/remote/remote.mjs crash                     the newest crash report's message and stack
+//   node tools/remote/remote.mjs input '[{"key":"Enter"}]'  keys and clicks for the game window (agent 2)
+//   node tools/remote/remote.mjs auto state|host CODE mode|join [host]|public on|off
+//                                                          MJOLNIRLobby's mjolnir_auto, and its answer
+//   node tools/remote/remote.mjs stage-agent               copy agent 2 into ue4ss/mjolnir-agent (once,
+//                                                          through an agent 1; then run it from there)
+//   node tools/remote/remote.mjs deploy-agent              replace this agent's files and restart it
 //
 // The agent's address and token come from MJOLNIR_REMOTE / MJOLNIR_REMOTE_TOKEN,
 // or from %USERPROFILE%\.mjolnir-remote.json: {"url": "http://host:47820", "token": "..."}.
@@ -64,7 +70,23 @@ async function put(local, root, remote) {
   return `${remote}: ${result.note} (${result.bytes} bytes)`;
 }
 
-const commands = {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const AGENT_FILES = [
+  [path.join(REPO, "tools", "remote", "mjolnir-agent.ps1"), "mjolnir-agent.ps1"],
+  [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
+];
+
+/** mjolnir_auto's answer file as an object, or null. */
+async function autoState() {
+  try {
+    const text = (await call("GET", "/file", { root: "ue4ss", path: "Mods/MJOLNIRLobby/native/auto_state.txt" })).toString("utf8");
+    return Object.fromEntries(text.split(/\r?\n/).filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+  } catch {
+    return null;
+  }
+}
+
+export const commands = {
   async status() {
     return JSON.stringify(await json("GET", "/status"), null, 1);
   },
@@ -106,6 +128,39 @@ const commands = {
     const text = (await call("GET", "/file", { root: "ue4ss", path: "Mods/MJOLNIRLobby/native/fireteam.log" })).toString("utf8");
     return text.split("\n").filter((l) => !/ (search |lobby |create (search |lobby ))?property /.test(l)).slice(-Number(lines)).join("\n");
   },
+  async input(steps) {
+    const result = await json("POST", "/input", {}, steps);
+    if (!result.ok) throw new Error(result.error ?? result.output ?? "input failed");
+    return result.output || "sent";
+  },
+  /** Run `mjolnir_auto ...` in the game and wait for its answer (a newer `at`). */
+  async auto(...words) {
+    const before = (await autoState())?.at ?? "0";
+    await bridge("console", `mjolnir_auto ${words.join(" ")}`.trim());
+    for (let i = 0; i < 40; i++) {
+      await sleep(250);
+      const state = await autoState();
+      if (state && state.at !== before) return JSON.stringify(state);
+    }
+    throw new Error("mjolnir_auto did not answer (is MJOLNIRLobby loaded?)");
+  },
+  async "stage-agent"() {
+    const out = [];
+    for (const [local, name] of AGENT_FILES) out.push(await put(local, "ue4ss", `mjolnir-agent/${name}`));
+    const tokenFile = path.join(os.tmpdir(), "mjolnir-agent-token.txt");
+    fs.writeFileSync(tokenFile, config().token);
+    out.push(await put(tokenFile, "ue4ss", "mjolnir-agent/agent-token.txt"));
+    fs.unlinkSync(tokenFile);
+    return out.join("\n");
+  },
+  async "deploy-agent"() {
+    const out = [];
+    for (const [local, name] of AGENT_FILES) out.push(await put(local, "agent", name));
+    out.push(JSON.stringify(await json("POST", "/restart-agent")));
+    await sleep(4000);
+    out.push(JSON.stringify(await json("GET", "/status")));
+    return out.join("\n");
+  },
   async crash() {
     const { items } = await json("GET", "/list", { root: "saved", path: "Crashes" });
     const newest = items.find((i) => i.dir);
@@ -117,15 +172,18 @@ const commands = {
   },
 };
 
-const [name, ...args] = process.argv.slice(2);
-if (!commands[name]) {
-  console.error(`usage: remote.mjs <${Object.keys(commands).join("|")}> ...`);
-  process.exit(2);
-}
-commands[name](...args).then(
-  (out) => console.log(out),
-  (error) => {
-    console.error(String(error.message ?? error));
-    process.exit(1);
+// Run as a command unless imported (tools/remote/jip-test.mjs).
+if (path.resolve(process.argv[1] ?? "") === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
+  const [name, ...args] = process.argv.slice(2);
+  if (!commands[name]) {
+    console.error(`usage: remote.mjs <${Object.keys(commands).join("|")}> ...`);
+    process.exit(2);
   }
-);
+  commands[name](...args).then(
+    (out) => console.log(out),
+    (error) => {
+      console.error(String(error.message ?? error));
+      process.exit(1);
+    }
+  );
+}

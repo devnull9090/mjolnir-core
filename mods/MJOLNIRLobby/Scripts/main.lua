@@ -1509,8 +1509,103 @@ local function watchMainMenu()
     ExecuteInGameThreadWithDelay(1500, poll)
 end
 
+-------------------------------------------------------------------------------
+-- Test automation (tools/remote/jip-test.mjs): `mjolnir_auto <verb> ...` at
+-- the console, answered in native\auto_state.txt as key=value lines, so a
+-- script can host, list, start and join without anyone at the menus.
+--   mjolnir_auto state                 where this game is
+--   mjolnir_auto host <CODE> <mode>    list publicly and start the map
+--   mjolnir_auto public on|off         list or unlist
+--   mjolnir_auto join [host name]      join a listed game (the first, or the host's)
+-------------------------------------------------------------------------------
+
+local AUTO_FILE = MOD_DIR .. "\\native\\auto_state.txt"
+
+local function autoWrite(fields)
+    local lines = {}
+    fields.at = os.time()
+    for k, v in pairs(fields) do lines[#lines + 1] = k .. "=" .. tostring(v) end
+    table.sort(lines)
+    local f = io.open(AUTO_FILE, "w")
+    if f then
+        f:write(table.concat(lines, "\n"), "\n")
+        f:close()
+    end
+end
+
+local function autoState(extra)
+    local world = "?"
+    pcall(function() world = UI.playerController():GetWorld():GetFName():ToString() end)
+    local pawn = "none"
+    pcall(function()
+        local p = UI.playerController().Pawn
+        if UI.valid(p) then pawn = p:GetClass():GetFName():ToString() end
+    end)
+    local fields = {
+        signed_in = UI.valid(liveMainMenu()) and 1 or (inFrontend() and 0 or 1),
+        frontend = inFrontend() and 1 or 0,
+        world = world,
+        pawn = pawn,
+        public = Games.isPublic() and 1 or 0,
+        status = tostring(Games.status() or ""),
+        name = tostring(localName() or ""),
+        players = #rosterPlayers(),
+    }
+    for k, v in pairs(extra or {}) do fields[k] = v end
+    autoWrite(fields)
+end
+
+local AUTO = {
+    state = function() autoState() end,
+    public = function(args)
+        Games.setPublic(args[1] ~= "off")
+        autoState({ result = "public " .. tostring(args[1] ~= "off") })
+    end,
+    host = function(args)
+        local map = mapByCode(string.upper(args[1] or ""))
+        if not map then return autoState({ result = "error no installed map " .. tostring(args[1]) }) end
+        local mode = modeById(map, args[2] or "slayer") or modesFor(map)[1]
+        if not mode then return autoState({ result = "error no mode for " .. map.code }) end
+        Game.map, Game.mode = map, mode
+        saveGame()
+        Games.setPublic(true)
+        local ok, why = startGame(map, mode)
+        autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id) or ("error " .. tostring(why)) })
+    end,
+    join = function(args)
+        local wanted = args[1] and string.lower(table.concat(args, " ")) or nil
+        autoState({ result = "listing" })
+        Games.list(function(lobbies, why)
+            if not lobbies then return autoState({ result = "error " .. tostring(why) }) end
+            local chosen
+            for _, g in ipairs(lobbies) do
+                if not chosen and (not wanted or string.lower(tostring(g.host or "")):find(wanted, 1, true)) then
+                    chosen = g
+                end
+            end
+            if not chosen then return autoState({ result = "error no listed game" .. (wanted and (" by " .. wanted) or "") }) end
+            autoState({ result = "joining " .. tostring(chosen.host) })
+            Games.join(chosen, function(ok, err)
+                autoState({ result = ok and ("joined " .. tostring(chosen.host)) or ("error " .. tostring(err)) })
+            end)
+        end)
+    end,
+}
+
 local function initialize()
     UI.init(MOD_DIR)
+    RegisterConsoleCommandHandler("mjolnir_auto", function(full)
+        local args = {}
+        for word in tostring(full or ""):gmatch("%S+") do args[#args + 1] = word end
+        table.remove(args, 1)
+        local verb = table.remove(args, 1) or "state"
+        local fn = AUTO[verb]
+        ExecuteInGameThread(function()
+            local ok, err = pcall(fn or function() autoState({ result = "error unknown verb " .. verb }) end, args)
+            if not ok then autoState({ result = "error " .. tostring(err) }) end
+        end)
+        return true
+    end)
     watchNewLobbies()
     Net.hook()
     openFireteam()

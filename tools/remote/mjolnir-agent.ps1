@@ -18,11 +18,19 @@
                                               while the game runs)
         GET  /list?root=R&path=P              a directory listing
         POST /install-bridge                  install the bundled bridge mod
+        POST /input                           keyboard and mouse steps for the
+                                              game window (input.ps1 beside this
+                                              script; steals focus while it runs)
+        POST /restart-agent                   start this script again (after its
+                                              files were replaced) and exit
 
-    Roots: "ue4ss" (the game's UE4SS folder, Mods under it) and "saved"
-    (%LOCALAPPDATA%\Meteorite\Saved: crash reports, config). Paths cannot leave
-    their root. There is no general command execution; the bridge runs Lua in
-    the game, which is what it is for.
+    Roots: "ue4ss" (the game's UE4SS folder, Mods under it), "saved"
+    (%LOCALAPPDATA%\Meteorite\Saved: crash reports, config) and "agent" (this
+    script's folder, so the agent can be updated from the development PC).
+    Paths cannot leave their root. A token holder can already run Lua in the
+    game, and now replace and restart this agent and run its input script, so
+    the token is as good as a login to this PC's game account: keep it to the
+    LAN and the development PC.
 
     Every request needs the token in an X-Mjolnir-Token header, and only
     private-network addresses are served. The token is made on the first run
@@ -37,7 +45,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "1"
+$AgentVersion = "2"
 
 # --- Where things are --------------------------------------------------------
 
@@ -64,6 +72,7 @@ $Ue4ss = Join-Path $GameDir "Meteorite\Binaries\Win64\ue4ss"
 $Roots = @{
     ue4ss = $Ue4ss
     saved = Join-Path $env:LOCALAPPDATA "Meteorite\Saved"
+    agent = $PSScriptRoot
 }
 $BridgeDir = Join-Path $Ue4ss "mjolnir-bridge"
 
@@ -294,6 +303,19 @@ function Handle($request, $stream) {
             Send-Json $stream 200 @{ items = $items }
         }
         "POST /install-bridge" { Send-Json $stream 200 @{ ok = $true; note = (Install-Bridge) } }
+        "POST /input" {
+            $script = Join-Path $PSScriptRoot "input.ps1"
+            if (-not (Test-Path $script)) { Send-Json $stream 404 @{ error = "input.ps1 is not beside the agent (remote.mjs deploy-agent)" }; return }
+            if (-not (Get-Game)) { Send-Json $stream 200 @{ ok = $false; error = "the game is not running" }; return }
+            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Steps ($Utf8.GetString($request.body)) 2>&1 | Out-String
+            Send-Json $stream 200 @{ ok = ($LASTEXITCODE -eq 0); output = $out.Trim() }
+        }
+        "POST /restart-agent" {
+            Send-Json $stream 200 @{ ok = $true; note = "restarting" }
+            $stream.Flush()
+            Start-Process powershell -ArgumentList @("-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-Port", $Port)
+            $script:Restart = $true
+        }
         default { Send-Json $stream 404 @{ error = "unknown endpoint" } }
     }
 }
@@ -307,7 +329,11 @@ try {
         ForEach-Object { $_.ToString() })
 } catch { }
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
-$listener.Start()
+for ($try = 0; ; $try++) {
+    # A restarted agent starts while the old one is still answering.
+    try { $listener.Start(); break } catch { if ($try -ge 20) { throw }; Start-Sleep -Milliseconds 500 }
+}
+$Restart = $false
 Write-Host ""
 Write-Host "MJOLNIR agent $AgentVersion on port $Port" -ForegroundColor Cyan
 Write-Host "  game:    $GameDir"
@@ -344,4 +370,5 @@ while ($true) {
         $client.Close()
     }
     Write-Host $line
+    if ($Restart) { $listener.Stop(); Write-Host "restarting"; break }
 }
