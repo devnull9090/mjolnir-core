@@ -333,6 +333,40 @@ static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
     return real_lobby_leave(lobby, user, context);
 }
 
+/* PFLobbyPostUpdate(lobby, localUser, lobbyUpdate, memberUpdate, asyncContext).
+   The host locks its lobby's membership when a match starts, and a join into a
+   locked lobby reaches the joiner as "This fireteam is full" (two PCs,
+   2026-10-02: lock 0 at the menu, 1 in a match). While the game is public the
+   lock is rewritten to unlocked, so players can join a match in progress.
+   PFLobbyDataUpdate: newOwner, maxMemberCount, accessPolicy, membershipLock
+   (pointers, each optional), then the property arrays; the caller's struct is
+   const, so a copy goes to PlayFab. */
+typedef long(__stdcall *lobby_post_update_t)(void *, void *, const void *, const void *, void *);
+
+enum { MEMBERSHIP_UNLOCKED = 0, MEMBERSHIP_LOCKED = 1 };
+#define LOBBY_UPDATE_LOCK 3 /* membershipLock's index among the four leading pointers */
+#define LOBBY_UPDATE_SIZE 80
+
+static lobby_post_update_t real_lobby_post_update;
+
+static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void *update, const void *member,
+                                            void *context) {
+    if (!update) return real_lobby_post_update(lobby, user, update, member, context);
+    const unsigned *const *fields = (const unsigned *const *)update;
+    const unsigned *lock = fields[LOBBY_UPDATE_LOCK];
+    if (!lock) return real_lobby_post_update(lobby, user, update, member, context);
+    if (keep_lobby && *lock == MEMBERSHIP_LOCKED) {
+        static const unsigned unlocked = MEMBERSHIP_UNLOCKED;
+        __declspec(align(8)) unsigned char copy[LOBBY_UPDATE_SIZE];
+        memcpy(copy, update, sizeof copy);
+        ((const unsigned **)copy)[LOBBY_UPDATE_LOCK] = &unlocked;
+        fireteam_log("lobby: membership lock asked for %p, kept open (the game is public)", lobby);
+        return real_lobby_post_update(lobby, user, copy, member, context);
+    }
+    fireteam_log("lobby: membership %s for %p", *lock == MEMBERSHIP_LOCKED ? "locked" : "unlocked", lobby);
+    return real_lobby_post_update(lobby, user, update, member, context);
+}
+
 static void *playfab(const char *name) {
     HMODULE pf = GetModuleHandleA("PlayFabMultiplayerWin.dll");
     return pf ? (void *)GetProcAddress(pf, name) : NULL;
@@ -845,6 +879,8 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                                                             (void *)hook_join_lobby, (void **)&real_join_lobby));
     fireteam_log("PFLobbyLeave: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyLeave", (void *)hook_lobby_leave,
                                                  (void **)&real_lobby_leave));
+    fireteam_log("PFLobbyPostUpdate: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyPostUpdate",
+                                                      (void *)hook_lobby_post_update, (void **)&real_lobby_post_update));
     fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     return 0;
