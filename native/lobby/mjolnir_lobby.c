@@ -1513,22 +1513,25 @@ static void find_sim_sessions(void) {
     fireteam_log("world: simulation sessions %s", hits == 1 ? "found" : "not found");
 }
 
-/* "life <state> mask <m> | peer: map <+10c> inst <+118> start <+164> f <+174> ..." */
+/* "[session] life <state> mask <m> | peer: map <+10c> inst <+118> start <+164> f <+174> ..." for both sessions */
 static void sim_session_line(char *line, size_t size) {
     size_t at = 0;
     line[0] = 0;
     find_sim_sessions();
     if (!sim_sessions) return;
     __try {
-        unsigned char *s = *sim_sessions;
-        unsigned mask = *(unsigned *)(s + 0x5c);
-        at += (size_t)snprintf(line + at, size - at, "life %d mask %x", *(int *)(s + 0x5b460), mask);
-        for (int i = 0; i < 17 && at + 64 < size; i++) {
-            if (!(mask & (1u << i))) continue;
-            unsigned char *peer = s + i * 0x128;
-            at += (size_t)snprintf(line + at, size - at, " | %d: map %u inst %llx start %u f %u", i,
-                                   *(unsigned *)(peer + 0x10c), *(unsigned long long *)(peer + 0x118),
-                                   *(unsigned *)(peer + 0x164), *(unsigned *)(peer + 0x174));
+        for (int si = 0; si < 2 && at + 64 < size; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            at += (size_t)snprintf(line + at, size - at, "%s[%d] life %d mask %x", si ? " " : "", si,
+                                   *(int *)(s + 0x5b460), mask);
+            for (int i = 0; i < 17 && at + 64 < size; i++) {
+                if (!(mask & (1u << i))) continue;
+                unsigned char *peer = s + i * 0x128;
+                at += (size_t)snprintf(line + at, size - at, " | %d: map %u inst %llx start %u f %u", i,
+                                       *(unsigned *)(peer + 0x10c), *(unsigned long long *)(peer + 0x118),
+                                       *(unsigned *)(peer + 0x164), *(unsigned *)(peer + 0x174));
+            }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         snprintf(line, size, "unreadable");
