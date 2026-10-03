@@ -69,6 +69,37 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.13.0",
+      "tag": "mods-v0.13.0",
+      "title": "A new server browser in FIND GAMES",
+      "date": "2026-10-03",
+      "summary": "FIND GAMES is now a proper server browser: columns that line up, sorting, filters, a details panel and QUICK JOIN.",
+      "body": "### Added\n\n- **Sort any column.** Server, map, game type, players, ping and status each\n  get their own column, lined up down the list. Click a heading to sort by\n  it, and click again to reverse. Ping, lowest first, is the default.\n- **Filters.** Pick a game type or a map, or hide full games, matches under\n  way and maps you don't have. The list says how many games your filters\n  hide. Your sort and filters are remembered.\n- **QUICK JOIN** puts you in the best open game your filters allow: one with\n  a map you have and a free slot, preferring the same MJOLNIR version, a\n  better connection and more players.\n- **A details panel** for the game under the cursor or the one you picked:\n  host, map, game type, a bar of player slots, ping, region and version, with\n  a warning when you're missing the map or the host runs another version.\n  JOIN tells you why it can't join (game full, map not installed).\n- The list refreshes itself every 30 seconds while it's open, and holds up to\n  40 games.\n\n### Changed\n\n- **MJOLNIRLobby 0.6.0**: the new FIND GAMES. The new screen comes with the\n  CE runtime 1.0.6 from the hub. With an older runtime, FIND GAMES still\n  works as before.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Sort any column. Server, map, game type, players, ping and status each get their own column, lined up down the list. Click a heading to sort by it, and click again to reverse. Ping, lowest first, is the default.",
+            "Filters. Pick a game type or a map, or hide full games, matches under way and maps you don't have. The list says how many games your filters hide. Your sort and filters are remembered.",
+            "QUICK JOIN puts you in the best open game your filters allow: one with a map you have and a free slot, preferring the same MJOLNIR version, a better connection and more players.",
+            "A details panel for the game under the cursor or the one you picked: host, map, game type, a bar of player slots, ping, region and version, with a warning when you're missing the map or the host runs another version. JOIN tells you why it can't join (game full, map not installed).",
+            "The list refreshes itself every 30 seconds while it's open, and holds up to 40 games."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.6.0: the new FIND GAMES. The new screen comes with the CE runtime 1.0.6 from the hub. With an older runtime, FIND GAMES still works as before."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.13.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.13.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.13.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.12.0",
       "tag": "mods-v0.12.0",
       "title": "Join a match already under way",

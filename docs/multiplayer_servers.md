@@ -61,10 +61,34 @@ only; every session starts private). While public, `games.lua`:
 The lobby's footer says why a game isn't listed (no launcher sign-in, an old
 key, the hub unreachable).
 
-**FIND GAMES** (`WBP_MJOLNIRFindGames`, chunk 984) lists up to 12 public
-games, nearest first. A row is map / game type / players. The details show
-the host, state, ping estimate, a missing map, and a different MJOLNIR Lobby
-version. JOIN refuses a map that isn't installed.
+**FIND GAMES** (`WBP_MJOLNIRFindGames`, chunk 984) is a server table of up
+to 40 public games:
+- **Columns:** server (name, then host account and country), map ("NOT
+  INSTALLED" when missing), game type (teams or free for all), players (and
+  open slots), ping (signal bars and the estimate), status (LOBBY, IN MATCH,
+  FULL, and a different MJOLNIR Lobby version). Columns are fixed-width
+  boxes in both the header and the rows, so they line up whatever the text.
+- **Sorting:** a column heading sorts by it; again reverses it. Ping, lowest
+  first, by default. Ties go to fuller games, then nearer ones.
+- **Filters:** GAME TYPE and MAP cycle through the values listed; HIDE FULL,
+  HIDE IN MATCH and MAPS I HAVE are toggles. The count above the table says
+  how many games the filters hide.
+- **Details:** hovering a row previews it; clicking chooses it. The panel
+  shows the host, map, game type, a pip per player slot, ping, region
+  (country and Cloudflare colo) and version, with warnings for a missing map
+  or another version.
+- **JOIN** follows the game the details show, and says why it can't join
+  (GAME FULL, MAP NOT INSTALLED). **QUICK JOIN** joins the best game the
+  filters allow: map installed, a free slot, then the same version, better
+  signal, more players.
+- The list refreshes every 30 s while the screen is up. The sort, game type
+  filter and toggles are kept in `MJOLNIRLobby\find_games.txt`.
+- `native\lobbies_sample.json` (a `/lobbies` reply) stands in for the hub
+  when present, to try the screen with many games.
+
+An older runtime pack's FIND GAMES (one label per row) still works with
+this Lobby, unsorted and unfiltered; this runtime pack's widget keeps the
+names an older Lobby fills.
 
 **Joining.** JOIN gets the string from `/lobbies/{id}/join` and writes it to
 `native\join_request.txt`. `mjolnir_join` queues it, and the next
