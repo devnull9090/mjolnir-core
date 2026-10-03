@@ -41,6 +41,29 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.9.2",
+      "tag": "launcher-v0.9.2",
+      "title": "Maps you deleted show as missing",
+      "date": "2026-10-02",
+      "summary": "A map whose files were deleted no longer shows as installed. The Multiplayer page offers it again, and launching puts missing files back.",
+      "body": "### Fixed\n\n- **Deleted maps no longer show as installed.** The Multiplayer page went by\n  the launcher's own record, so a map whose files were deleted from the\n  game's Paks folder still read \"Installed\" and the install button stayed\n  greyed out. It now checks the files are there, and offers anything missing\n  again.\n- **Launching the game puts missing hub files back.** If a map or mod you\n  installed from the hub is missing from the Paks folder, the launcher copies\n  it back before the game starts. When nothing is missing, launching copies\n  nothing.\n- **Install multiplayer re-downloads a map whose download was deleted**\n  instead of counting it as up to date.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Deleted maps no longer show as installed. The Multiplayer page went by the launcher's own record, so a map whose files were deleted from the game's Paks folder still read \"Installed\" and the install button stayed greyed out. It now checks the files are there, and offers anything missing again.",
+            "Launching the game puts missing hub files back. If a map or mod you installed from the hub is missing from the Paks folder, the launcher copies it back before the game starts. When nothing is missing, launching copies nothing.",
+            "Install multiplayer re-downloads a map whose download was deleted instead of counting it as up to date."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.9.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.9.1",
       "tag": "launcher-v0.9.1",
       "title": "One launcher, not two",
