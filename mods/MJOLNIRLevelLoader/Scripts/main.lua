@@ -1199,11 +1199,64 @@ local function playEvent(name, cause, value, effect)
 end
 
 --- Play what the hook queued; runs on the game thread, outside any hook.
+--- Incidents reach the host's incident handler for every player, a fireteam
+--- client's for almost none (two PCs, 2026-10-03: the host heard a joiner's
+--- teleporter_used, the joiner only its own player_spawn). The host relays
+--- them over the controller RPC MJOLNIRLobby's messages use (ClientMessage
+--- with type "MJOLNIR"; docs/multiplayer_postgame.md), and each client
+--- filters them as its own (personalEvent / isLocal). Incidents a client
+--- does get itself are not taken from the relay.
+local RELAY_TYPE = "MJOLNIR"
+local NativeIncidents = {}
+local relayHooked = false
+
+local function isHostWorld()
+    local ok, yes = pcall(function() return getWorld().AuthorityGameMode:IsValid() end)
+    return ok and yes == true
+end
+
+local function relayEvents(queued)
+    if not isHostWorld() then return end
+    local messages = {}
+    for _, e in ipairs(queued) do
+        if e[1] ~= "player_spawn" and not e.relayed then
+            messages[#messages + 1] = string.format("MJOLNIR|event|%s|%s|%s|%s", tostring(e[1]),
+                tostring(e[2] or -1), tostring(e[3] or 0), tostring(e[4] or -1))
+        end
+    end
+    if #messages == 0 then return end
+    local kind = FName(RELAY_TYPE)
+    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+        pcall(function()
+            if not pc:IsValid() or pc:IsLocalController() then return end
+            if not (pc.Player:IsValid() and pc.PlayerState:IsValid()) then return end
+            for _, msg in ipairs(messages) do pc:ClientMessage(msg, kind, 0) end
+        end)
+    end
+end
+
+local function hookRelay()
+    if relayHooked then return end
+    relayHooked = pcall(function()
+        RegisterHook("/Script/Engine.PlayerController:ClientMessage", function(_, s, kind)
+            local okK, name = pcall(function() return kind:get():ToString() end)
+            if not okK or name ~= RELAY_TYPE then return end
+            local okS, text = pcall(function() return s:get():ToString() end)
+            if not okS then return end
+            local event, cause, value, effect = text:match("^MJOLNIR|event|([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+            if not event or NativeIncidents[event] or #EventQueue >= 32 or isHostWorld() then return end
+            EventQueue[#EventQueue + 1] = { event, tonumber(cause), tonumber(value), tonumber(effect), relayed = true }
+        end)
+    end)
+    Log(relayHooked and "event sounds: relay from the host armed" or "event sounds: could not hook ClientMessage")
+end
+
 local function drainEvents()
     if #EventQueue == 0 then return end
     refreshLocalPlayer()
     local queued = EventQueue
     EventQueue = {}
+    pcall(relayEvents, queued)
     for _, e in ipairs(queued) do
         local ok, err = pcall(playEvent, e[1], e[2], e[3], e[4])
         if not ok then Log("event " .. tostring(e[1]) .. ": " .. tostring(err)) end
@@ -1241,6 +1294,7 @@ local function hookIncidents()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
             if okI and name and #EventQueue < 32 then
+                NativeIncidents[name] = true
                 EventQueue[#EventQueue + 1] = { name, cause, value, effect }
             end
         end)
@@ -1827,6 +1881,7 @@ local function initialize()
     loadMegaloSwitch()
     loadEventSounds()
     hookIncidents()
+    hookRelay()
     RegisterConsoleCommandHandler("mjolnir_level_status", function()
         status()
         return true
