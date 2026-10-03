@@ -1482,6 +1482,59 @@ static set_mode_t find_set_mode2(void) {
     return (set_mode_t)fn;
 }
 
+/* The simulation's two network sessions (sim 0x2c3cea0 on CU4: a pointer to
+   them, 0x5b9e8 bytes apart), read from its network tick: imul rcx, rbx,
+   5b9e8h / add rcx, [rip+sessions]. Per peer (0x128 apart), the properties a
+   host compares (2026-10-03, PC 1's view of a joiner: +0x10c 3 not 4,
+   +0x118 unset, +0x164 0 not 3). */
+static unsigned char **sim_sessions;
+
+static void find_sim_sessions(void) {
+    static int tried;
+    if (tried) return;
+    tried = 1;
+    unsigned char *base = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!base) return;
+    static const unsigned char SESSIONS[] = {0x48, 0x69, 0xCB, 0xE8, 0xB9, 0x05, 0x00, 0x48, 0x03, 0x0D};
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    int hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
+        if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        unsigned char *p = base + sec->VirtualAddress, *end = p + sec->Misc.VirtualSize - sizeof SESSIONS - 4;
+        for (; p <= end; p++)
+            if (p[0] == 0x48 && memcmp(p, SESSIONS, sizeof SESSIONS) == 0) {
+                found = p;
+                hits++;
+            }
+    }
+    if (hits == 1) sim_sessions = (unsigned char **)(found + 14 + *(int *)(found + 10));
+    fireteam_log("world: simulation sessions %s", hits == 1 ? "found" : "not found");
+}
+
+/* "life <state> mask <m> | peer: map <+10c> inst <+118> start <+164> f <+174> ..." */
+static void sim_session_line(char *line, size_t size) {
+    size_t at = 0;
+    line[0] = 0;
+    find_sim_sessions();
+    if (!sim_sessions) return;
+    __try {
+        unsigned char *s = *sim_sessions;
+        unsigned mask = *(unsigned *)(s + 0x5c);
+        at += (size_t)snprintf(line + at, size - at, "life %d mask %x", *(int *)(s + 0x5b460), mask);
+        for (int i = 0; i < 17 && at + 64 < size; i++) {
+            if (!(mask & (1u << i))) continue;
+            unsigned char *peer = s + i * 0x128;
+            at += (size_t)snprintf(line + at, size - at, " | %d: map %u inst %llx start %u f %u", i,
+                                   *(unsigned *)(peer + 0x10c), *(unsigned long long *)(peer + 0x118),
+                                   *(unsigned *)(peer + 0x164), *(unsigned *)(peer + 0x174));
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        snprintf(line, size, "unreadable");
+    }
+}
+
 static void watch_loading(void) {
     static int last_mode = -1, last_state = -1, last_flags = -1;
     static void *last_experience = (void *)1;
@@ -1513,6 +1566,13 @@ static void watch_loading(void) {
         last_experience = experience;
         fireteam_log("world: loading manager mode %d state %d, experience %p flags %02x", mode, state, experience,
                      flags);
+    }
+    static char last_session[600];
+    char session[600];
+    sim_session_line(session, sizeof session);
+    if (strcmp(session, last_session) != 0) {
+        snprintf(last_session, sizeof last_session, "%s", session);
+        fireteam_log("world: simulation session %s", session);
     }
     if (state == 1 && mode == 1 && now - state_since > NUDGE_MS && !mode_pushed) {
         mode_pushed = 1;
@@ -1614,6 +1674,9 @@ __declspec(dllexport) int mjolnir_blam_state(void *L) {
     }
     struct blam_game g = blam_game_now();
     log_blam_game("blam: now", &g);
+    char session[600];
+    sim_session_line(session, sizeof session);
+    fireteam_log("blam: simulation session %s", session);
     return 0;
 }
 
