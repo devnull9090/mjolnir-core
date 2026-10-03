@@ -1023,8 +1023,14 @@ static const char *hook_pre_login_slots(void) {
     if (lea[0] != 0x4C || lea[1] != 0x8D || lea[2] != 0x3D) return "PreLogin refusal not where expected, left alone";
     const wchar_t *refusal = (const wchar_t *)(lea + 7 + *(int *)(lea + 3));
     if (!in_image(refusal) || wcscmp(refusal, IN_PROGRESS) != 0) return "PreLogin refuses something else, left alone";
+    /* The stock PreLogin it calls first: the call's rel32 counts from `after`. It
+       is in the stock game modes' vtables, so it must be in at least one. */
+    unsigned char *stock = after + *(int *)(after - 4);
+    int stock_hits;
+    find_vtable_slot(stock, &stock_hits);
+    if (!in_image(stock) || stock_hits == 0) return "stock PreLogin not found, left alone";
     real_pre_login = (pre_login_t)fn;
-    stock_pre_login = (pre_login_t)(after - 4 + *(int *)(after - 4));
+    stock_pre_login = (pre_login_t)stock;
     /* Every class that inherits the override has it in its vtable. */
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
     IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
