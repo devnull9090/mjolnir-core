@@ -971,6 +971,83 @@ static const char *stay_online_alone(int on) {
     return on ? "stays online alone" : "as shipped";
 }
 
+/* --- Joining a match under way ------------------------------------------- */
+
+/* The match's game mode (BP_MeteoriteGameMode, native override at exe 0x7b552b0
+   on CU4, vtable slot 0x848) calls AGameModeBase::PreLogin and then, whenever
+   that passed, refuses the login with "Cannot join - game is already in
+   progress". The joiner's network-failure handler maps the text to a
+   rejection and leaves the session: the "Disconnected from host" of every
+   join into a running match (2026-10-03). While the game is public the hook
+   calls the stock PreLogin alone, so only its own refusals (a full session)
+   stand; a private game keeps the shipped rule.
+   The pattern is the override's prologue up to its call of the stock one. */
+struct fstring {
+    wchar_t *data;
+    int num, max;
+};
+typedef void(__fastcall *pre_login_t)(void *self, void *options, void *address, void *unique_id, struct fstring *error);
+static pre_login_t real_pre_login, stock_pre_login;
+
+static const unsigned char PRE_LOGIN[] = {0x40, 0x53, 0x56, 0x48, 0x83, 0xEC, 0x68, 0x48, 0x8B, 0x9C, 0x24, 0xA0,
+                                          0x00, 0x00, 0x00, 0x49, 0x8B, 0xF1, 0x48, 0x89, 0x5C, 0x24, 0x20, 0xE8};
+/* After the call: cmp dword [rbx+8], 1 / jg (an error already) ... lea r15, the refusal. */
+static const unsigned char PRE_LOGIN_AFTER[] = {0x83, 0x7B, 0x08, 0x01, 0x0F, 0x8F};
+#define PRE_LOGIN_REFUSAL_LEA 0x36
+static const wchar_t IN_PROGRESS[] = L"Cannot join - game is already in progress";
+
+static void __fastcall hook_pre_login(void *self, void *options, void *address, void *unique_id, struct fstring *error) {
+    int open = keep_lobby;
+    (open ? stock_pre_login : real_pre_login)(self, options, address, unique_id, error);
+    char text[120] = "accepted";
+    if (error && error->num > 1 && error->data) {
+        int i = 0;
+        for (; i < (int)sizeof text - 1 && error->data[i]; i++) text[i] = error->data[i] < 0x80 ? (char)error->data[i] : '?';
+        text[i] = 0;
+    }
+    fireteam_log("login: PreLogin (%s): %s", open ? "public, joins in progress open" : "as shipped", text);
+}
+
+static const char *hook_pre_login_slots(void) {
+    static char why[80];
+    if (real_pre_login) return "already hooked";
+    int hits;
+    unsigned char *fn = find_code(PRE_LOGIN, sizeof PRE_LOGIN, &hits);
+    if (!fn) {
+        snprintf(why, sizeof why, "PreLogin pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *after = fn + sizeof PRE_LOGIN + 4;
+    if (memcmp(after, PRE_LOGIN_AFTER, sizeof PRE_LOGIN_AFTER) != 0) return "PreLogin body differs, left alone";
+    unsigned char *lea = fn + PRE_LOGIN_REFUSAL_LEA;
+    if (lea[0] != 0x4C || lea[1] != 0x8D || lea[2] != 0x3D) return "PreLogin refusal not where expected, left alone";
+    const wchar_t *refusal = (const wchar_t *)(lea + 7 + *(int *)(lea + 3));
+    if (!in_image(refusal) || wcscmp(refusal, IN_PROGRESS) != 0) return "PreLogin refuses something else, left alone";
+    real_pre_login = (pre_login_t)fn;
+    stock_pre_login = (pre_login_t)(after - 4 + *(int *)(after - 4));
+    /* Every class that inherits the override has it in its vtable. */
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    int swapped = 0, already = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
+        void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
+        for (; p < end; p++) {
+            if (*p == (void *)hook_pre_login) already++;
+            if (*p != (void *)fn) continue;
+            DWORD old;
+            if (!VirtualProtect(p, sizeof *p, PAGE_READWRITE, &old)) continue;
+            *p = (void *)hook_pre_login;
+            VirtualProtect(p, sizeof *p, old, &old);
+            swapped++;
+        }
+    }
+    if (!swapped) return already ? "already hooked" : "PreLogin is in no vtable, left alone";
+    snprintf(why, sizeof why, "hooked in %d vtables", swapped);
+    return why;
+}
+
 /* native\stay_online.txt: "1" before joining a public game from FIND GAMES
    (games.lua). A joiner landing in a session that is already running took the
    same one-member branch and left within a second; it gets the branch patch
@@ -1006,6 +1083,7 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     }
     InterlockedExchange(&keep_lobby, value ? 1 : 0);
     fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", stay_online_alone(value));
+    if (value) fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     return 0;
 }
 
@@ -1271,6 +1349,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                              (void **)&real_lobby_force_remove));
     fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
+    fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     return 0;
 }
 
