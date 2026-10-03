@@ -22,6 +22,9 @@ jobs:
       - name: Test multiplayer HUD and team presentation
         run: lua5.4 tools/tests/test_multiplayer_ui.lua
 
+      - name: Test the FIRETEAM panel past four players
+        run: lua5.4 tools/tests/test_squadpanel.lua
+
       - name: Lint Lua scripts
         run: |
           if command -v luacheck &> /dev/null; then

@@ -38,6 +38,7 @@ local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
+local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -1208,6 +1209,46 @@ local function watchPostGame()
     ExecuteInGameThreadWithDelay(250, poll)
 end
 
+-------------------------------------------------------------------------------
+-- The fireteam cap
+-------------------------------------------------------------------------------
+--
+-- The game's co-op fireteam stops at four, in layers
+-- (docs/fireteam_join_and_cap.md). The native half (native/lobby,
+-- mjolnir_fireteam_open) raises the PlayFab lobby's size, the PlayFab Party
+-- network's user and device limits and the Steam presence session's
+-- connections as the host creates them. Unreal's GameSession is rebuilt at
+-- MaxPlayers 4 with every level, so the poll holds it up, and squadpanel.lua
+-- lists the players past four on the game's FIRETEAM panel. A match freezes
+-- with more than two local players on one PC, so the extra players have to
+-- be separate machines.
+
+local FIRETEAM_SIZE = 16
+
+local function openFireteam()
+    local native = MOD_DIR .. "\\native\\"
+    local request = io.open(native .. "fireteam_request.txt", "w")
+    if request then
+        request:write(tostring(FIRETEAM_SIZE))
+        request:close()
+    end
+    local open = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_fireteam_open")
+    if not open then
+        log("fireteam: the native half is not installed; the fireteam stays at four")
+        return
+    end
+    open()
+    log("fireteam: up to " .. FIRETEAM_SIZE .. " players (native\\fireteam.log has the details)")
+end
+
+local function holdFireteamSize()
+    for _, session in ipairs(FindAllOf("GameSession") or {}) do
+        pcall(function()
+            if session:IsValid() and session.MaxPlayers < FIRETEAM_SIZE then session.MaxPlayers = FIRETEAM_SIZE end
+        end)
+    end
+end
+
 --- The fireteam as the squad panel sees it, and the world, logged whenever
 --- either changes: the record of what a match end does to a fireteam
 --- (docs/two_pc_test.md, Phase 3).
@@ -1248,6 +1289,9 @@ local function watchMainMenu()
         local ok, err = pcall(function()
             refreshLobby()
             pcall(watchFireteam)
+            pcall(holdFireteamSize)
+            SquadPanel.hook(FIRETEAM_SIZE)
+            pcall(SquadPanel.refresh, FIRETEAM_SIZE)
             pcall(hostPostGame)
             pcall(broadcastLobby)
             local menu = liveMainMenu()
@@ -1280,6 +1324,7 @@ local function initialize()
     UI.init(MOD_DIR)
     watchNewLobbies()
     Net.hook()
+    openFireteam()
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()
