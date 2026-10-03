@@ -23,8 +23,8 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
-import { commands as pc2 } from "./remote.mjs";
-import { callTool, bridgeCall, paths } from "../mcp/game/game.mjs";
+import { commands as pc2, autoState as pc2AutoFile } from "./remote.mjs";
+import { callTool, bridgeCall, bridgeStatus, paths } from "../mcp/game/game.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -144,9 +144,13 @@ async function main() {
   const hosting = await pc1.auto("host", MAP, MODE);
   say(`PC 1: ${hosting.result}`);
   if (!hosting.result?.startsWith("hosting")) throw new Error("PC 1 did not start hosting");
-  await waitFor("PC 1's match", async () => {
-    const s = await pc1.auto("state");
-    return s.frontend === "0" && s.pawn !== "none" ? s : null;
+  // While a map loads, ask the game nothing: polling mjolnir_auto through the
+  // travel went with PC 1's game dying at map load (2026-10-03). The bridge's
+  // heartbeat file says where it is without touching the game thread.
+  await sleep(10000);
+  await waitFor("PC 1's match", () => {
+    const beat = bridgeStatus();
+    return beat && beat.world?.includes(`/${MAP}/`) && /MeteoritePawn/.test(beat.pawn ?? "") ? beat : null;
   }, 120000, 2000);
   say(`PC 1: in the match; PC 2 joins in ${JOIN_AFTER / 1000} s`);
   await sleep(JOIN_AFTER);
@@ -156,8 +160,8 @@ async function main() {
   const join = await pc2Side.auto("join", host.name);
   say(`PC 2: ${join.result}`);
   const joined = await waitFor("PC 2's join", async () => {
-    const s = await pc2Side.auto("state");
-    return /^(joined|error)/.test(s.result ?? "") ? s : null;
+    const s = await pc2AutoFile();
+    return /^(joined|error)/.test(s?.result ?? "") ? s : null;
   }, 30000, 1000);
   say(`PC 2: ${joined.result}`);
   if (joined.result.startsWith("error")) throw new Error(joined.result);
@@ -179,8 +183,8 @@ async function main() {
     return joinerPlayer && joinerPlayer.unit !== -1 ? joinerPlayer : null;
   }, 60000, 2000);
   say(`PC 1: joiner player ${spawned.index} has a biped (flags ${spawned.flags.toString(16)})`);
-  const finalState = await pc2Side.auto("state");
-  say(`PC 2: world ${finalState.world}, pawn ${finalState.pawn}`);
+  const beat = JSON.parse(await pc2.status()).bridge ?? {};
+  say(`PC 2: ${beat.world}, ${beat.pawn}`);
   say("PASS: the joiner is in the match");
 }
 

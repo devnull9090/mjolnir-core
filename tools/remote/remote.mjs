@@ -76,8 +76,8 @@ const AGENT_FILES = [
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
 ];
 
-/** mjolnir_auto's answer file as an object, or null. */
-async function autoState() {
+/** mjolnir_auto's answer file as an object, or null (reads the file only: safe while the game travels). */
+export async function autoState() {
   try {
     const text = (await call("GET", "/file", { root: "ue4ss", path: "Mods/MJOLNIRLobby/native/auto_state.txt" })).toString("utf8");
     return Object.fromEntries(text.split(/\r?\n/).filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));

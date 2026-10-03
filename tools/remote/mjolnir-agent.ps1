@@ -45,7 +45,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "2"
+$AgentVersion = "3"
 
 # --- Where things are --------------------------------------------------------
 
@@ -307,7 +307,12 @@ function Handle($request, $stream) {
             $script = Join-Path $PSScriptRoot "input.ps1"
             if (-not (Test-Path $script)) { Send-Json $stream 404 @{ error = "input.ps1 is not beside the agent (remote.mjs deploy-agent)" }; return }
             if (-not (Get-Game)) { Send-Json $stream 200 @{ ok = $false; error = "the game is not running" }; return }
-            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Steps ($Utf8.GetString($request.body)) 2>&1 | Out-String
+            # The steps go in an encoded command: on a -File command line
+            # Windows PowerShell strips the JSON's quotes.
+            $steps = $Utf8.GetString($request.body).Replace("'", "''")
+            $command = "& '$($script.Replace("'", "''"))' -Steps '$steps'"
+            $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
+            $out = & powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | Out-String
             Send-Json $stream 200 @{ ok = ($LASTEXITCODE -eq 0); output = $out.Trim() }
         }
         "POST /restart-agent" {
