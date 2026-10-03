@@ -4,14 +4,15 @@
 a dedicated server that players connect to?
 
 **Short answer:**
-- Every game is already hosted by a player: the host's game is a listen
-  server, and PlayFab Party carries the traffic. The server list needs only
-  client glue on top of the hub API, which is already live.
+- Every game is hosted by a player: the host's game is a listen server, and
+  PlayFab Party carries the traffic.
+- Public games are built: a host switches its lobby to PUBLIC GAME, the game
+  is listed on the hub, and FIND GAMES joins it through the game's own
+  invite flow (below).
 - A true dedicated server is not possible: there is no server binary, and no
-  way to run the Blam sim outside the game client.
-- A **headless host** is possible: the real game, with no window, run on a
-  machine with a GPU. It signed in, hosted Blood Gulch Slayer and spawned a
-  Spartan on 2026-10-02.
+  way to run the Blam sim outside the game client. A headless host (the real
+  game, windowless) works on a GPU machine, but the idea was dropped on
+  2026-10-02. The findings are kept below.
 
 Status as of 2026-10-02 (CU4).
 
@@ -19,13 +20,13 @@ Status as of 2026-10-02 (CU4).
 
 | Piece | Where | Status |
 |---|---|---|
-| Lobby API: register, heartbeat, remove, list, join | `hub/src/lib/api/lobby.ts`, migration `0012_maps_and_lobbies.sql` | Live in prod (`GET /api/v1/lobbies` answers `{"lobbies":[]}`) |
-| Games page on the website | `hub/src/app/games/page.tsx` | Live, empty |
-| `lobbies:write` on launcher device keys | `hub/src/lib/api/device.ts` `DEVICE_SCOPES` | Live |
-| Host flow: MULTIPLAYER, HOST GAME, map, game type, START | `mods/MJOLNIRLobby` | Shipped |
-| Lobby and Party caps raised to 16 | `native/lobby` | Shipped (mods 0.10.0) |
-| FIND GAMES, JOIN PRIVATE | `mods/MJOLNIRLobby/Scripts/main.lua` | Stubs ("not yet") |
-| Anything that registers a game or joins one by connection string | — | Not built |
+| Lobby API: register, heartbeat, remove, list, join | `hub/src/lib/api/lobby.ts`, migration `0012_maps_and_lobbies.sql` | Live in prod |
+| Games page on the website | `hub/src/app/games/page.tsx` | Live |
+| `lobbies:write` on launcher device keys | `hub/src/lib/api/device.ts` `DEVICE_SCOPES` | Live; keys paired before it lack the scope (403 `insufficient_scope`) |
+| The lobby's connection string | `native/lobby` `mjolnir_lobby_connection` | Verified: `cv2:...`, 106 characters, membership unlocked, max 16 |
+| Join by connection string | `native/lobby` `mjolnir_join` (OnlineTick hook) | Verified on one PC: the game left its lobby and called `PFMultiplayerJoinLobby` with our string, then showed its own FAILED TO JOIN for a fake one |
+| Hub calls from the game | `native/lobby` `mjolnir_hub_call` (WinHTTP) | Verified: `GET /lobbies` 200 |
+| PRIVATE / PUBLIC GAME, FIND GAMES | `mods/MJOLNIRLobby/Scripts/games.lua`, `main.lua`, `WBP_MJOLNIRFindGames` | Built, solo-verified; two-PC test pending ([two_pc_test.md](two_pc_test.md), Phase 5) |
 
 The listing hides the connection string. A client gets it from `/join`, which
 requires sign-in. See the header comment in `lobby.ts`.
@@ -45,39 +46,54 @@ requires sign-in. See the header comment in `lobby.ts`.
   `PFMultiplayerJoinLobby` through `JoinSession` or the Steam
   invite-accepted path. The exe imports `PFLobbyGetConnectionString`.
 
-## The server list (player-hosted)
+## Public games
 
-Three pieces of glue, all on the client side.
+**Hosting.** The lobby's PRIVATE GAME button switches to PUBLIC GAME (host
+only; every session starts private). While public, `games.lua`:
+- reads the PlayFab lobby's connection string from the native half;
+- `POST /lobbies` with the map, game type, players and the string;
+- heartbeats every 30 s, and at once after a map, game type or start
+  changes, with players, state (`open`, `in_game`, `full`) and the current
+  string (the game makes a new lobby after leaving one);
+- `DELETE`s the listing when the host goes private or joins another game. A
+  game that quits drops out when its heartbeat goes stale (90 s).
 
-1. **Host registers its game.**
-   - `native/lobby` already hooks `PFMultiplayerCreateAndJoinLobby`. It
-     should also keep the lobby handle and call `PFLobbyGetConnectionString`
-     once the create completes.
-   - It should `POST /lobbies` with map, game type, players and the
-     connection string, then heartbeat every 30 s with player count and
-     state (`open`, `in_game`, `full`), and `DELETE` on leave.
-   - UE4SS Lua has no HTTP, so the requests go out from the native DLL
-     (WinHTTP). Lua tells it the map, game type and player count.
-2. **FIND GAMES lists games.**
-   - A cooked widget beside the lobby (chunk 984), filled from
-     `GET /lobbies`, sorted by the estimated ping.
-   - Grey out games whose map pack isn't installed, or let the launcher
-     fetch the map first.
-3. **Join by connection string.**
-   - `/join` returns the string. The native DLL hands it to the game's own
-     invite-accepted flow, as a Steam invite does.
-   - **Unverified:** no join by connection string has been tried yet. Every
-     two-PC join so far went through a Steam invite. Test this first,
-     because the rest depends on it.
+The lobby's footer says why a game isn't listed (no launcher sign-in, an old
+key, the hub unreachable).
 
-**Auth.** `POST /lobbies` and `/join` need a key with `lobbies:write`. The
-launcher's device key already has it. The launcher can write the key where
-the native DLL reads it, so players never paste a key. Players without the
-launcher can't host listed games or join through the list. Invites still
-work for them.
+**FIND GAMES** (`WBP_MJOLNIRFindGames`, chunk 984) lists up to 12 public
+games, nearest first. A row is map / game type / players. The details show
+the host, state, ping estimate, a missing map, and a different MJOLNIR Lobby
+version. JOIN refuses a map that isn't installed.
 
-**JOIN PRIVATE** can be the same path with a short code: the host registers
-the game as unlisted and the hub maps the code to the lobby.
+**Joining.** JOIN gets the string from `/lobbies/{id}/join` and writes it to
+`native\join_request.txt`. `mjolnir_join` queues it, and the next
+`FOnlineAsyncTaskManagerSteam::OnlineTick` (online thread) calls the task
+manager's own `GameRichPresenceJoinRequested_t` handler with it. That handler
+is what a Steam "Join Game" runs:
+- it builds `FOnlineAsyncEventSteamInviteAccepted`;
+- a connect string without `SteamConnectIP=` is stored whole as
+  `CONNECTIONSTRING`;
+- the game leaves its fireteam and joins the host's.
+
+How the native half finds it, by pattern rather than address:
+- `OnlineTick` by its body bytes; exe RVA `0x6a7b580` on CU4, the only
+  pointer to it is vtable slot 6 at `0xbc86b00`;
+- the handler by scanning the task manager for the `CCallback` whose
+  `m_iCallback` is 337 and whose `m_pObj` is the manager (+0x380 on CU4,
+  `m_Func` `0x6a7b5d0`).
+
+The handler converts the connect string as a C string, so Steam's 256-byte
+limit doesn't apply. Today's strings are 106 characters anyway.
+
+**Auth.** Listing needs `lobbies:write`; `/join` needs any signed-in key. The
+native half reads the launcher's key from
+`%APPDATA%\com.devnull9090.mjolnir-launcher\hub_auth.json` and sends it to
+the hub only. Players without the launcher can still host for, and be
+invited by, friends.
+
+**Not built:** JOIN PRIVATE by short code (an unlisted registration the hub
+maps to the lobby); the launcher fetching a missing map before a join.
 
 ## Dedicated servers
 
@@ -100,7 +116,7 @@ process. But clients are Unreal clients:
 
 That means reimplementing an Unreal server around the sim. Not worth it.
 
-### C. A headless host: works, with a GPU
+### C. A headless host: works with a GPU (dropped 2026-10-02)
 
 The real game with no window, hosting through the normal menu path, driven
 by script. Tested 2026-10-02 on PC 1, as a second process launched directly
@@ -135,28 +151,16 @@ What a headless host still needs:
   re-host after a game update.
 - Two hosts can share one PC if each has its own account.
 
-## Recommended order
-
-1. **Join by connection string**, two PCs, no UI: the host logs its
-   connection string, PC 2's native DLL joins with it. Everything below
-   depends on this.
-2. **Register and heartbeat** from `native/lobby`, with the key handed over
-   by the launcher. The game appears on the website's Games page.
-3. **FIND GAMES** in game, plus missing-map handling.
-4. **JOIN PRIVATE** by short code.
-5. **Headless host**, once players can find games:
-   - the host player hidden;
-   - the loop and watchdog;
-   - a `mjolnir host` command or launcher mode that runs it.
-
-   Its value is games that outlive their host and an always-full list. It
-   costs a GPU machine and a game copy per server.
-
 ## Open questions
 
+- **Can a player join a match in progress?** The host's lobby membership is
+  unlocked at the menu; whether the game locks it in a match, and whether a
+  late client gets a seat in the sim, is untested. The local-guest research
+  found the sim roster fixed at launch,
+  but that was a local `CreatePlayer`, not a network join.
 - Does a Private lobby accept a join by connection string from a stranger?
-  Expected yes, per PlayFab's model; not tested.
-- Can the host's player be kept from spawning, or must it be parked?
-- WARP for a GPU-less host, and why `-nullrhi` hangs at map start (PSO and
-  loading-screen waits are the likely suspects).
-- Game Pass: the same PlayFab path, untested.
+  Expected yes, per PlayFab's model; not tested with a real host.
+- Game Pass: the same PlayFab path, untested. Its online subsystem may not
+  be Steam, so the join hook would need another route there.
+- Headless host (dropped): keeping its player from spawning; WARP for a
+  GPU-less machine; why `-nullrhi` hangs at map start.

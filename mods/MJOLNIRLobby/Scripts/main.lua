@@ -39,6 +39,7 @@ local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
+local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -68,6 +69,9 @@ local function readFile(path)
     f:close()
     return data
 end
+
+-- What FIND GAMES compares between a host and a joiner.
+local LOBBY_VERSION = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"') or "?"
 
 local function fileExists(path)
     local f = io.open(path, "rb")
@@ -155,6 +159,7 @@ local function startGame(map, mode)
     end
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
+    Games.changed()
     return true
 end
 
@@ -223,8 +228,8 @@ local function notYet(title)
     UI.push({
         title = title,
         subtitle = "MULTIPLAYER",
-        description = "Public and private Steam lobbies are the next part of the multiplayer menu. "
-            .. "For now, HOST GAME and invite friends to your fireteam.",
+        description = "Finding public games needs the MJOLNIR UI (pakchunk984-MJOLNIRUI). "
+            .. "Install the CE runtime from the MJOLNIR launcher, or HOST GAME and invite friends.",
         buttons = {},
     })
 end
@@ -258,9 +263,11 @@ end
 local UI_ROOT = "/Game/MJOLNIR/UI/"
 local LOBBY_CLASS = UI_ROOT .. "WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C"
 local SELECT_CLASS = UI_ROOT .. "WBP_MJOLNIRMapSelect.WBP_MJOLNIRMapSelect_C"
+local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
 local MAP_BUTTONS = 32
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
+local GAME_ROWS = 12
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
@@ -270,6 +277,9 @@ local SELECTED_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1 }
 
 local Game = { map = nil, mode = nil }   -- what START GAME starts
 local Lobby, Select = nil, nil           -- the screens on the stack
+local Find = nil                         -- FIND GAMES, while it is up
+local Found = { games = {}, chosen = nil, loading = false }
+local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
@@ -290,6 +300,14 @@ local function loadClass(path)
     end)
     if ok and UI.valid(cls) then return cls end
     return nil
+end
+
+--- FIND GAMES is in the installed UI container: one from before it still
+--- has the lobby, without the button.
+local findGames = nil
+local function hasFindGames()
+    if findGames == nil then findGames = loadClass(FIND_CLASS) ~= nil end
+    return findGames
 end
 
 --- Push one of our screens onto the game's menu stack.
@@ -376,7 +394,12 @@ local function drawLobby()
     -- starts the game.
     local host = Net.isHost()
     pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
-    for _, key in ipairs({ "Start", "ChangeMap", "GameType" }) do setShown(Lobby[key], host) end
+    for _, key in ipairs({ "Start", "ChangeMap", "GameType", "Listing" }) do setShown(Lobby[key], host) end
+    setText(Lobby.ListingLabel, Games.isPublic() and "PUBLIC GAME" or "PRIVATE GAME")
+    setShown(Lobby.FindGames, hasFindGames())
+    local status = host and Games.status() or ""
+    if status ~= "" and status ~= listingStatus then setText(Lobby.Status, status) end
+    listingStatus = status
     for _, group in ipairs({ "FFA", "Red", "Blue", "Unassigned" }) do
         local members = {}
         for _, player in ipairs(roster) do
@@ -469,6 +492,154 @@ local function openFriends()
     if not ok then setText(Lobby.Status, "Could not open Friends: " .. tostring(err)) end
 end
 
+-------------------------------------------------------------------------------
+-- FIND GAMES
+-------------------------------------------------------------------------------
+--
+-- Public games from the hub (games.lua), nearest first. A row is the map,
+-- the game type and the players; hovering or clicking one shows its details,
+-- and JOIN joins it the way an accepted invite would.
+
+local function installedMap(code)
+    for _, map in ipairs(installedMaps()) do
+        if map.code == code then return map end
+    end
+    return nil
+end
+
+local function modeName(id)
+    for _, mode in ipairs(MODES) do
+        if mode.id == id then return mode.name end
+    end
+    return (string.upper(tostring(id or "")):gsub("_", " "))
+end
+
+local function gameMapTitle(g)
+    local map = installedMap(g.map_code)
+    return map and titleOf(map) or string.upper(tostring(g.map_title or g.map_code or "?"))
+end
+
+local function showGame(g)
+    if not alive(Find) then return end
+    setShown(Find.Join, g ~= nil)
+    if not g then
+        setText(Find.GameKicker, "")
+        setText(Find.GameTitle, "")
+        setText(Find.GameDetails, "")
+        return
+    end
+    setText(Find.GameKicker, g.state == "in_game" and "IN A MATCH" or (g.state == "full" and "FULL" or "IN THE LOBBY"))
+    setText(Find.GameTitle, g.name or "")
+    local lines = {
+        "Host:  " .. tostring(g.host or "?"),
+        "Map:  " .. gameMapTitle(g),
+        "Game type:  " .. modeName(g.game_type),
+        string.format("Players:  %d / %d", g.players or 0, g.max_players or 0),
+    }
+    if g.ping_ms then lines[#lines + 1] = string.format("Ping:  about %d ms", g.ping_ms) end
+    if not installedMap(g.map_code) then
+        lines[#lines + 1] = "\nYou don't have this map. Install it from the MJOLNIR launcher's Maps tab."
+    end
+    if g.client_version and g.client_version ~= LOBBY_VERSION then
+        lines[#lines + 1] = "\nThe host runs MJOLNIR Lobby " .. g.client_version .. "; you run " .. LOBBY_VERSION .. "."
+    end
+    setText(Find.GameDetails, table.concat(lines, "\n"))
+end
+
+local function drawFind()
+    if not alive(Find) then return end
+    local games = Found.games
+    for i = 0, GAME_ROWS - 1 do
+        local g, button = games[i + 1], Find["Game" .. i]
+        setShown(button, g ~= nil)
+        if g then
+            setText(Find["Game" .. i .. "Label"], string.format("%s   /   %s   /   %d/%d",
+                gameMapTitle(g), modeName(g.game_type), g.players or 0, g.max_players or 0))
+            pcall(function()
+                button:SetBackgroundColor(Found.chosen == g and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
+            end)
+        end
+    end
+    setShown(Find.Empty, #games == 0)
+    setText(Find.Empty, Found.loading and "Looking for games..." or
+        "No public games right now.\n\nHost one, and set it to PUBLIC GAME in the lobby.")
+    showGame(Found.chosen or games[1])
+end
+
+local function refreshFind()
+    if Found.loading then return end
+    Found.loading = true
+    drawFind()
+    Games.list(function(games, why)
+        Found.loading = false
+        Found.games = {}
+        for i, g in ipairs(games or {}) do
+            if i <= GAME_ROWS then Found.games[i] = g end
+        end
+        -- Keep the choice across a refresh while its game is still listed.
+        local keep = nil
+        for _, g in ipairs(Found.games) do
+            if Found.chosen and g.id == Found.chosen.id then keep = g end
+        end
+        Found.chosen = keep
+        if alive(Find) then
+            setText(Find.Status, games and string.format("%d PUBLIC GAME%s   /   REFRESH FOR MORE",
+                #Found.games, #Found.games == 1 and "" or "S") or why)
+        end
+        drawFind()
+    end)
+end
+
+local function openFindGames()
+    Find = pushScreen(FIND_CLASS)
+    if not Find then
+        log("find games: could not push " .. FIND_CLASS)
+        return
+    end
+    Found.games, Found.chosen = {}, nil
+    setText(Find.Status, "")
+    refreshFind()
+    pcall(function() Find.Refresh:SetFocus() end)
+end
+
+local function joinChosen()
+    local g = Found.chosen or Found.games[1]
+    if not g then return end
+    if not installedMap(g.map_code) then
+        setText(Find.Status, "You don't have " .. gameMapTitle(g) .. ". Install it from the MJOLNIR launcher's Maps tab.")
+        return
+    end
+    setText(Find.Status, "Joining " .. tostring(g.host) .. "...")
+    Games.join(g, function(ok, why)
+        if not alive(Find) then return end
+        setText(Find.Status, ok and ("Joining " .. tostring(g.host) .. "'s fireteam...")
+            or ("Could not join: " .. tostring(why)))
+    end)
+end
+
+local FIND_EVENTS = {
+    join = joinChosen,
+    refresh = refreshFind,
+    back = function() pcall(function() Find:DeactivateWidget() end) end,
+}
+
+--- One event from FIND GAMES: "game:3", "hover:3", "join" ...
+local function onFindEvent(event)
+    local verb, index = event:match("^(%a+):(%d+)$")
+    if verb then
+        local g = Found.games[tonumber(index) + 1]
+        if verb == "game" and g then
+            Found.chosen = g
+            drawFind()
+        elseif verb == "hover" then
+            showGame(g)
+        end
+        return
+    end
+    local handler = FIND_EVENTS[event]
+    if handler then handler() end
+end
+
 local LOBBY_EVENTS = {
     invite = openFriends,
     start = function()
@@ -490,7 +661,16 @@ local LOBBY_EVENTS = {
         end
         Game.mode = modes[next_]
         saveGame()
+        Games.changed()
         drawLobby()
+    end,
+    listing = function()
+        if not Net.isHost() then return end
+        Games.setPublic(not Games.isPublic())
+        drawLobby()
+    end,
+    findgames = function()
+        if hasFindGames() then openFindGames() end
     end,
     back = function()
         -- A fireteam client's BACK: the game's own menus until the next vote.
@@ -504,6 +684,7 @@ local SELECT_EVENTS = {
         if Pick.map and Pick.mode then
             Game.map, Game.mode = Pick.map, Pick.mode
             saveGame()
+            Games.changed()
         end
         pcall(function() Select:DeactivateWidget() end)
         drawLobby()
@@ -513,6 +694,7 @@ local SELECT_EVENTS = {
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event)
+    if isLobby == "find" then return onFindEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
@@ -536,13 +718,15 @@ end
 local function hookScreenEvents()
     if screenEvents then return true end
     local ok = pcall(function()
-        for _, spec in ipairs({ { LOBBY_CLASS, true }, { SELECT_CLASS, false } }) do
+        local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
+        if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
+        for _, spec in ipairs(specs) do
             RegisterHook(spec[1] .. ":MJ_Event", function(self, name)
                 local okE, event = pcall(function() return name:get():ToString() end)
                 if not okE then return end
                 -- The main menu pushes the lobby itself: the screen that
                 -- sent the event is the lobby on screen.
-                if spec[2] then
+                if spec[2] == true then
                     local okS, screen = pcall(function() return self:get() end)
                     if okS and UI.valid(screen) then Lobby = screen end
                 end
@@ -1330,6 +1514,26 @@ local function initialize()
     watchNewLobbies()
     Net.hook()
     openFireteam()
+    Games.init({
+        modDir = MOD_DIR,
+        json = Json,
+        net = Net,
+        log = log,
+        version = LOBBY_VERSION,
+        -- The game a public listing shows: the lobby's choice, which a start
+        -- (from the lobby or the post-game vote) also sets.
+        info = function()
+            if not (Game.map and Game.mode) then return nil end
+            local name = localName()
+            return {
+                name = name and (name .. "'s game") or "MJOLNIR game",
+                map_code = Game.map.code,
+                game_type = Game.mode.id,
+                players = #rosterPlayers(),
+                in_game = not inFrontend(),
+            }
+        end,
+    })
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

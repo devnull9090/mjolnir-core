@@ -12,6 +12,7 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
   WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
+  WBP_MJOLNIRFindGames   public games from the hub, a game's details, JOIN
   WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
                          the next game (MJOLNIRLobby)
                      Both are layout only: MJOLNIRHud fills their text blocks
@@ -286,6 +287,7 @@ BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 32
 MODE_BUTTONS = 5
 ROSTER_ROWS = 16
+GAME_ROWS = 12
 
 
 def stretch(w):
@@ -347,7 +349,7 @@ def menu_button(bp, name, label, parent, size=30):
     button = widget(bp, unreal.Button, name, parent)
     button_style(button)
     block = widget(bp, unreal.TextBlock, f"{name}Label", name)
-    text_style(block, label, size, GOLD if name in ("Start", "Select") else WHITE)
+    text_style(block, label, size, GOLD if name in ("Start", "Select", "Join") else WHITE)
     block.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
     return button
 
@@ -409,8 +411,11 @@ def build_lobby():
     widget(bp, unreal.VerticalBox, "Menu", "MenuSize")
     gap(rule(bp, "MenuRule", "Menu", ACCENT, 2), bottom=12)
     events = []
+    # Listing: the host's game private (fireteam and invites only) or
+    # public (listed on the hub for FIND GAMES); Lua sets its label.
     for key, label in (("Start", "START GAME"), ("Invite", "INVITE FRIENDS"), ("ChangeMap", "CHANGE MAP"),
-                       ("GameType", "GAME TYPE"), ("Back", "BACK")):
+                       ("GameType", "GAME TYPE"), ("Listing", "PRIVATE GAME"), ("FindGames", "FIND GAMES"),
+                       ("Back", "BACK")):
         gap(menu_button(bp, key, label, "Menu", size=30), bottom=10)
         events.append((key, "OnClicked", key.lower()))
 
@@ -536,6 +541,58 @@ def build_map_select():
     finish_screen(bp, name)
 
 
+def build_find_games():
+    """Public games from the hub: a list, the chosen game's details, JOIN
+    (docs/multiplayer_servers.md). MJOLNIRLobby fills every text."""
+    name = "WBP_MJOLNIRFindGames"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    screen_canvas(bp)
+    screen_header(bp, "FIND GAMES", "MULTIPLAYER")
+
+    list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
+    place(list_panel, (0.06, 0.22), (0.0, 0.0))
+    sized(bp, "ListSize", "ListPanel", width=980, height=790)
+    widget(bp, unreal.ScrollBox, "GameList", "ListSize")
+    empty = widget(bp, unreal.TextBlock, "Empty", "GameList")
+    text_style(empty, "", 26, GREY)
+    wrapped(empty)
+    empty.get_editor_property("slot").set_padding(unreal.Margin(12, 12, 12, 12))
+    events = []
+    for i in range(GAME_ROWS):
+        gap(menu_button(bp, f"Game{i}", "", "GameList", size=24), bottom=5)
+        events += [(f"Game{i}", "OnClicked", f"game:{i}"), (f"Game{i}", "OnHovered", f"hover:{i}")]
+
+    details = panel(bp, "Details", "Root")
+    place(details, (0.94, 0.22), (1.0, 0.0))
+    sized(bp, "DetailsSize", "Details", width=1000)
+    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
+    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=24)
+    kicker = widget(bp, unreal.TextBlock, "GameKicker", "DetailsStack")
+    text_style(kicker, "", 18, ACCENT)
+    gap(kicker, bottom=12)
+    title = widget(bp, unreal.TextBlock, "GameTitle", "DetailsStack")
+    text_style(title, "", 44, WHITE)
+    wrapped(title)
+    info = widget(bp, unreal.TextBlock, "GameDetails", "DetailsStack")
+    text_style(info, "", 26, GREY)
+    wrapped(info)
+    gap(info, top=16, bottom=30)
+    gap(rule(bp, "ActionsRule", "DetailsStack"), bottom=18)
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
+    for key, label in (("Join", "JOIN"), ("Refresh", "REFRESH"), ("Back", "BACK")):
+        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", key.lower()))
+    footer(bp)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
 VOTE_OPTIONS = 4
 RESULT_ROWS = 18  # sixteen players and the two team headings
 
@@ -645,6 +702,7 @@ build_kill_feed()
 build_scoreboard()
 build_lobby()
 build_map_select()
+build_find_games()
 build_post_game()
 build_label()
 unreal.log("MJOLNIR UI built")

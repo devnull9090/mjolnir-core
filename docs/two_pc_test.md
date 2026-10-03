@@ -151,3 +151,40 @@ the game never ends on its own.
 **Record:** where it stops, and both UE4SS.logs. The lines to look for are
 `[MJOLNIR Hud] round over`, `final standings shown`,
 `[MJOLNIR Lobby] post-game: ...` and `fireteam: ...`.
+
+## Phase 5: public games and joining a match in progress
+
+The lobby has **PRIVATE GAME / PUBLIC GAME** and **FIND GAMES**
+([multiplayer_servers.md](multiplayer_servers.md)). A public game is listed
+on mjolnircore.com; JOIN hands its connection string to the game's own
+invite flow. Nobody sends an invite in this phase.
+
+**Both PCs, once:** the MJOLNIR launcher is signed in, after 2026-10-02 (sign
+out and back in if it was paired earlier). An older sign-in can't list a
+game, and the lobby's footer says so. Listing and joining both need one.
+
+**A. Join from the lobby.**
+1. **PC 1:** MULTIPLAYER, then PRIVATE GAME, so it reads **PUBLIC GAME**.
+   **Expect:** the footer reads "PUBLIC: listed in FIND GAMES" within a few
+   seconds, and the game shows on mjolnircore.com's Games page.
+2. **PC 2:** MULTIPLAYER, then FIND GAMES. **Expect:** PC 1's game with its
+   map, game type, 1/16 and "IN THE LOBBY".
+3. **PC 2:** select it, JOIN. **Expect:** PC 2 lands in PC 1's fireteam
+   (both show FIRETEAM 2), as after an accepted invite.
+4. **PC 1:** START GAME. Both should load the map and play.
+
+**B. Join a match in progress** (the open question).
+1. **PC 2:** leave the fireteam (quit to the main menu, or restart the game).
+2. **PC 1:** still PUBLIC, start Blood Gulch, Slayer, and stay in the match.
+3. **PC 2:** FIND GAMES, REFRESH. **Expect:** the game shows "IN A MATCH".
+   JOIN.
+4. **Record:** what PC 2's screen does (loading, a lobby, an error dialog's
+   exact words), whether PC 2 spawns in Blood Gulch, and whether PC 1 sees
+   PC 2 (Tab scoreboard, kill feed).
+
+**C. PRIVATE takes it down.** PC 1 sets PRIVATE GAME. PC 2 REFRESH: the game
+is gone.
+
+**Record, if anything fails:** both UE4SS.logs (lines with `[MJOLNIR Lobby]
+games:`) and both `...\Mods\MJOLNIRLobby\native\fireteam.log` (`join:` and
+`lobby:` lines).
