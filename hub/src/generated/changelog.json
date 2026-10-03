@@ -41,6 +41,34 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.10.0",
+      "tag": "launcher-v0.10.0",
+      "title": "Your hub sign-in, always in view",
+      "date": "2026-10-02",
+      "summary": "The hub sign-in is in the header on every page, and the launcher tells you when it needs renewing. Public multiplayer games in the game use it.",
+      "body": "### Added\n\n- **A sign-in check at startup.** The launcher asks the hub whether its\n  sign-in still works. If you aren't signed in, the sign-in expired or was\n  revoked, or it expires within two weeks, a banner says so with the button\n  that fixes it. Public multiplayer games (PUBLIC GAME and FIND GAMES in the\n  game) need a working sign-in.\n\n### Changed\n\n- **The account button is in the header**, on every page, instead of only on\n  Browse Hub.\n- Sign-ins made before public games can list a game too. Nothing to do.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A sign-in check at startup. The launcher asks the hub whether its sign-in still works. If you aren't signed in, the sign-in expired or was revoked, or it expires within two weeks, a banner says so with the button that fixes it. Public multiplayer games (PUBLIC GAME and FIND GAMES in the game) need a working sign-in."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The account button is in the header, on every page, instead of only on Browse Hub.",
+            "Sign-ins made before public games can list a game too. Nothing to do."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.10.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.10.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.10.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.9.2",
       "tag": "launcher-v0.9.2",
       "title": "Maps you deleted show as missing",
@@ -117,6 +145,35 @@
       "path": "/changelog/launcher/0.9.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.9.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.9.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.11.0",
+      "tag": "mods-v0.11.0",
+      "title": "Public games and FIND GAMES",
+      "date": "2026-10-02",
+      "summary": "Hosts can make a multiplayer game public, and FIND GAMES lists public games to join without an invite. Games stay private unless the host opens them.",
+      "body": "### Added\n\n- **PUBLIC GAME.** The multiplayer lobby has a PRIVATE GAME button for the\n  host. Switch it to PUBLIC GAME and your game is listed on mjolnircore.com\n  with its map, game type and players, kept up to date while you play. Switch\n  back, or join someone else's game, and it comes off the list. Every session\n  starts private.\n- **FIND GAMES.** Public games, nearest first: the map, game type, players,\n  whether the host is in the lobby or a match, and an estimated ping. JOIN\n  puts you in the host's fireteam the same way an accepted invite does. It\n  tells you if you don't have the map.\n- Both need the MJOLNIR launcher signed in to the hub. The lobby says so when\n  it isn't.\n\n### Changed\n\n- **MJOLNIRLobby 0.4.0**: public games and FIND GAMES. The FIND GAMES screen\n  comes with the CE runtime 1.0.5 from the hub; with an older runtime the\n  button stays hidden.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "PUBLIC GAME. The multiplayer lobby has a PRIVATE GAME button for the host. Switch it to PUBLIC GAME and your game is listed on mjolnircore.com with its map, game type and players, kept up to date while you play. Switch back, or join someone else's game, and it comes off the list. Every session starts private.",
+            "FIND GAMES. Public games, nearest first: the map, game type, players, whether the host is in the lobby or a match, and an estimated ping. JOIN puts you in the host's fireteam the same way an accepted invite does. It tells you if you don't have the map.",
+            "Both need the MJOLNIR launcher signed in to the hub. The lobby says so when it isn't."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLobby 0.4.0: public games and FIND GAMES. The FIND GAMES screen comes with the CE runtime 1.0.5 from the hub; with an older runtime the button stays hidden."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.11.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.11.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.11.0"
     },
     {
       "product": "mods",

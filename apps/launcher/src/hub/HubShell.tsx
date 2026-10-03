@@ -140,7 +140,7 @@ function PairingDialog({
         <div>
           <h2 className="text-lg font-bold">Sign in to the Hub</h2>
           <p className="text-sm text-text-secondary mt-1">
-            Rating and commenting need a hub account. Your browser opens at
+            Public multiplayer games, ratings and comments need a hub account. Your browser opens at
             mjolnircore.com/link — approve the code below there, signed in with Discord.
           </p>
         </div>
@@ -185,8 +185,8 @@ function PairingDialog({
         )}
 
         <p className="text-[11px] text-text-secondary">
-          The launcher receives a key limited to reading, rating and commenting — it cannot
-          publish mods. Revoke it any time under Account → API keys on the website.
+          The launcher receives a key limited to reading, rating, commenting and listing your
+          multiplayer games — it cannot publish mods. Revoke it any time under Account → API keys on the website.
         </p>
       </div>
     </div>

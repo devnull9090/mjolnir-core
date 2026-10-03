@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import AccountChip from "./AccountChip";
 
 /**
  * Both pills used to be hardcoded, so they kept claiming a version the build
@@ -46,6 +47,7 @@ export default function Header() {
             MJOLNIR v{launcherVersion}
           </span>
         )}
+        <AccountChip />
       </div>
     </header>
   );

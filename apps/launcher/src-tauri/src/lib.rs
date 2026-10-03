@@ -1095,6 +1095,13 @@ fn hub_auth_status() -> Option<hub::HubUser> {
 }
 
 #[tauri::command]
+async fn hub_session_check() -> Result<hub::HubSession, String> {
+    tauri::async_runtime::spawn_blocking(hub::session_check)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
 async fn hub_auth_start() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(hub::auth_start)
         .await
@@ -1590,6 +1597,7 @@ pub fn run() {
             hub_auth_status,
             hub_auth_start,
             hub_auth_poll,
+            hub_session_check,
             hub_sign_out,
             code_mods_status,
             code_mods_install,
