@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <intrin.h>
 
 typedef void *(__fastcall *fname_ctor_t)(void *self, const wchar_t *name, int find_type, void *unused);
 typedef void *(__fastcall *fweak_ctor_t)(void *self, const void *object);
@@ -422,6 +423,85 @@ static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count
         }
     }
     return err;
+}
+
+/* --- The simulation's join refusals (diagnosis) ---------------------------
+
+   A player joining a match in progress reaches the host's lobby and Party
+   network, then leaves within a second (2026-10-02). The simulation's own
+   network session answers its join-request over Party; the refusal is message
+   7, "join-refuse" (12 bytes: the session id, then a 6-bit reason). Its send
+   routine (sim DLL RVA 0x5318f0 on CU4: gateway, address, type, size, data)
+   is hooked inline to log each refusal's reason and the code that sent it.
+   The prologue it displaces is 17 bytes of pushes and `sub rsp, 28h`, with
+   nothing position-dependent, so the trampoline is a plain copy. */
+typedef unsigned long long(__fastcall *sim_send_t)(void *, void *, unsigned, unsigned, const unsigned char *);
+
+static sim_send_t sim_send_trampoline;
+static unsigned char *sim_base;
+
+static const unsigned char SIM_SEND[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
+                                         0x57, 0x48, 0x83, 0xEC, 0x28, 0x80, 0x79, 0x28, 0x00, 0x4C, 0x8B, 0xFA};
+#define SIM_SEND_STOLEN 17
+
+static unsigned long long __fastcall hook_sim_send(void *gateway, void *address, unsigned type, unsigned size,
+                                                   const unsigned char *data) {
+    /* 1 connect-refuse, 6 join-abort, 7 join-refuse */
+    if ((type == 1 || type == 6 || type == 7) && data) {
+        unsigned char *caller = (unsigned char *)_ReturnAddress();
+        fireteam_log("sim: send %s (size %u) reason %u, from sim+%llx",
+                     type == 7 ? "join-refuse" : type == 6 ? "join-abort" : "connect-refuse", size,
+                     size >= 12 ? *(const unsigned *)(data + 8) : *(const unsigned *)data,
+                     (unsigned long long)(caller - sim_base));
+    }
+    return sim_send_trampoline(gateway, address, type, size, data);
+}
+
+static const char *hook_sim_send_routine(void) {
+    if (sim_send_trampoline) return "already hooked";
+    HMODULE sim = GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "simulation DLL not loaded";
+    sim_base = (unsigned char *)sim;
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim_base + ((IMAGE_DOS_HEADER *)sim_base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    int hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        unsigned char *p = sim_base + s->VirtualAddress, *end = p + s->Misc.VirtualSize - sizeof SIM_SEND;
+        for (; p <= end; p++)
+            if (p[0] == SIM_SEND[0] && memcmp(p, SIM_SEND, sizeof SIM_SEND) == 0) {
+                found = p;
+                hits++;
+            }
+    }
+    if (hits != 1) {
+        static char why[64];
+        snprintf(why, sizeof why, "send pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return "VirtualAlloc failed";
+    /* trampoline: the stolen prologue, then jmp [rip+0] -> found + 17 */
+    memcpy(tramp, found, SIM_SEND_STOLEN);
+    unsigned char *j = tramp + SIM_SEND_STOLEN;
+    j[0] = 0xFF;
+    j[1] = 0x25;
+    memset(j + 2, 0, 4);
+    *(unsigned char **)(j + 6) = found + SIM_SEND_STOLEN;
+    sim_send_trampoline = (sim_send_t)tramp;
+    DWORD old;
+    if (!VirtualProtect(found, SIM_SEND_STOLEN, PAGE_EXECUTE_READWRITE, &old)) return "VirtualProtect failed";
+    unsigned char patch[SIM_SEND_STOLEN];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF;
+    patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = (void *)hook_sim_send;
+    memcpy(found, patch, sizeof patch);
+    VirtualProtect(found, SIM_SEND_STOLEN, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), found, SIM_SEND_STOLEN);
+    return "hooked";
 }
 
 static void *playfab(const char *name) {
@@ -938,6 +1018,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                                                  (void **)&real_lobby_leave));
     fireteam_log("PFLobbyPostUpdate: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyPostUpdate",
                                                       (void *)hook_lobby_post_update, (void **)&real_lobby_post_update));
+    fireteam_log("simulation send (join refusals): %s", hook_sim_send_routine());
     fireteam_log("PartyStartProcessingStateChanges: %s",
                  swap_import("PartyWin.dll", "PartyStartProcessingStateChanges", (void *)hook_party_start_changes,
                              (void **)&real_party_start_changes));
