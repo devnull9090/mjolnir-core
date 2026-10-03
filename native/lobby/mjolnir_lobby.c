@@ -367,6 +367,24 @@ static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void
     return real_lobby_post_update(lobby, user, update, member, context);
 }
 
+/* PFLobbyForceRemoveMember(lobby, targetMember, preventRejoin, asyncContext):
+   the host removing someone from its lobby. A player joining a match in
+   progress was disconnected (2026-10-02) while the game re-locked its lobby at
+   each membership change; this logs any removal and refuses it while the game
+   is public. PFEntityKey: { const char *id; const char *type; }. */
+typedef long(__stdcall *lobby_force_remove_t)(void *, const void *, unsigned char, void *);
+
+static lobby_force_remove_t real_lobby_force_remove;
+
+static long __stdcall hook_lobby_force_remove(void *lobby, const void *member, unsigned char prevent_rejoin,
+                                             void *context) {
+    const char *id = member ? *(const char *const *)member : NULL;
+    fireteam_log("lobby: remove member %s from %p (prevent rejoin %u)%s", id ? id : "?", lobby, prevent_rejoin,
+                 keep_lobby ? ": refused (the game is public)" : "");
+    if (keep_lobby) return KEEP_LOBBY_REFUSED;
+    return real_lobby_force_remove(lobby, member, prevent_rejoin, context);
+}
+
 static void *playfab(const char *name) {
     HMODULE pf = GetModuleHandleA("PlayFabMultiplayerWin.dll");
     return pf ? (void *)GetProcAddress(pf, name) : NULL;
@@ -881,6 +899,9 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                                                  (void **)&real_lobby_leave));
     fireteam_log("PFLobbyPostUpdate: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyPostUpdate",
                                                       (void *)hook_lobby_post_update, (void **)&real_lobby_post_update));
+    fireteam_log("PFLobbyForceRemoveMember: %s",
+                 swap_import("PlayFabMultiplayerWin.dll", "PFLobbyForceRemoveMember", (void *)hook_lobby_force_remove,
+                             (void **)&real_lobby_force_remove));
     fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     return 0;
