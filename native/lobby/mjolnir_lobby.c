@@ -139,6 +139,8 @@ static unsigned at_least(unsigned value, unsigned floor) { return value < floor 
 /* PFMultiplayerCreateAndJoinLobby(handle, creator, createConfiguration,
    joinConfiguration, asyncContext, lobby). The configuration is the caller's;
    its first field is maxMemberCount. */
+static void track_lobby(void *lobby, const char *how);
+
 static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *config, void *join, void *context,
                                             void *lobby) {
     if (config) {
@@ -146,7 +148,9 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
         fireteam_log("lobby: maxMemberCount %u -> %u", *max_members, at_least(*max_members, fireteam_size));
         *max_members = at_least(*max_members, fireteam_size);
     }
-    return real_create_join_lobby(handle, creator, config, join, context, lobby);
+    long hr = real_create_join_lobby(handle, creator, config, join, context, lobby);
+    if (hr >= 0 && lobby) track_lobby(*(void **)lobby, "created");
+    return hr;
 }
 
 /* PartyCreateNewNetwork(handle, localUser, networkConfiguration, regionCount,
@@ -241,6 +245,478 @@ static const char *patch_presence(void) {
     return "patched";
 }
 
+/*
+ * The games list (docs/multiplayer_servers.md). Three things the Lua side
+ * cannot do itself:
+ *
+ *   the lobby's connection string  PFLobbyGetConnectionString on the lobby the
+ *                                  game created or joined last, tracked by the
+ *                                  import hooks
+ *   joining by one                 the game's own Steam "join game" handler
+ *                                  (GameRichPresenceJoinRequested_t), fed the
+ *                                  string on the online thread. A connect
+ *                                  string without "SteamConnectIP=" goes to
+ *                                  PlayFab whole as CONNECTIONSTRING, the way
+ *                                  a Steam invite's does
+ *   the hub                        HTTPS on a worker thread, with the key the
+ *                                  launcher paired
+ *
+ * Requests arrive as files, like the others: native\join_request.txt,
+ * native\hub_request.txt. Replies: native\lobby_connection.txt,
+ * native\join_reply.txt, native\hub_reply_<id>.txt.
+ */
+typedef long(__stdcall *join_lobby_t)(void *, void *, const char *, void *, void *, void *);
+typedef long(__stdcall *lobby_leave_t)(void *, void *, void *);
+typedef long(__stdcall *get_connection_string_t)(void *, const char **);
+typedef long(__stdcall *get_membership_lock_t)(void *, int *);
+typedef long(__stdcall *get_max_members_t)(void *, unsigned *);
+
+static join_lobby_t real_join_lobby;
+static lobby_leave_t real_lobby_leave;
+static void *volatile current_lobby;
+
+static void track_lobby(void *lobby, const char *how) {
+    current_lobby = lobby;
+    fireteam_log("lobby: %s %p", how, lobby);
+}
+
+/* PFMultiplayerJoinLobby(handle, newMember, connectionString, joinConfiguration,
+   asyncContext, lobby). */
+static long __stdcall hook_join_lobby(void *handle, void *member, const char *connection, void *config, void *context,
+                                     void *lobby) {
+    fireteam_log("lobby: joining by a connection string of %u characters",
+                 connection ? (unsigned)strlen(connection) : 0u);
+    long hr = real_join_lobby(handle, member, connection, config, context, lobby);
+    fireteam_log("lobby: PFMultiplayerJoinLobby returned 0x%08lx", (unsigned long)hr);
+    if (hr >= 0 && lobby) track_lobby(*(void **)lobby, "joined");
+    return hr;
+}
+
+/* PFLobbyLeave(lobby, localUser, asyncContext). */
+static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
+    if (lobby == current_lobby) {
+        current_lobby = NULL;
+        fireteam_log("lobby: left %p", lobby);
+    }
+    return real_lobby_leave(lobby, user, context);
+}
+
+static void *playfab(const char *name) {
+    HMODULE pf = GetModuleHandleA("PlayFabMultiplayerWin.dll");
+    return pf ? (void *)GetProcAddress(pf, name) : NULL;
+}
+
+/* Writes `text` to native\<name>, whole: a temporary file renamed over it, so
+   a poll never reads half a reply. */
+static void write_reply(const char *name, const char *text, size_t length) {
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], tmp[MAX_PATH];
+    snprintf(path, sizeof path, "%s%s", dir, name);
+    snprintf(tmp, sizeof tmp, "%s%s.tmp", dir, name);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    fwrite(text, 1, length, f);
+    fclose(f);
+    MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* The current lobby's connection string, membership lock and size, for a host
+   to list its game: "ok <string>\nlock <0|1>\nmax <n>\n", or "none <why>\n". */
+__declspec(dllexport) int mjolnir_lobby_connection(void *L) {
+    (void)L;
+    char out[4600];
+    void *lobby = current_lobby;
+    get_connection_string_t get_connection = (get_connection_string_t)playfab("PFLobbyGetConnectionString");
+    get_membership_lock_t get_lock = (get_membership_lock_t)playfab("PFLobbyGetMembershipLock");
+    get_max_members_t get_max = (get_max_members_t)playfab("PFLobbyGetMaxMemberCount");
+    const char *connection = NULL;
+    long hr = 0;
+    if (!lobby) {
+        snprintf(out, sizeof out, "none no lobby yet\n");
+    } else if (!get_connection) {
+        snprintf(out, sizeof out, "none PFLobbyGetConnectionString not found\n");
+    } else if ((hr = get_connection(lobby, &connection)) < 0 || !connection || !connection[0]) {
+        snprintf(out, sizeof out, "none 0x%08lx\n", (unsigned long)hr);
+    } else {
+        int lock = -1;
+        unsigned max = 0;
+        if (get_lock) get_lock(lobby, &lock);
+        if (get_max) get_max(lobby, &max);
+        snprintf(out, sizeof out, "ok %s\nlock %d\nmax %u\n", connection, lock, max);
+    }
+    write_reply("lobby_connection.txt", out, strlen(out));
+    return 0;
+}
+
+/* --- Joining: the Steam online subsystem's task manager ------------------- */
+
+#define STEAM_JOIN_REQUESTED 337 /* GameRichPresenceJoinRequested_t */
+#define TASK_MANAGER_SPAN 0x800  /* the object is 0x570 bytes on CU4 */
+
+typedef void(__fastcall *online_tick_t)(void *self);
+typedef void(__fastcall *steam_handler_t)(void *self, void *data);
+
+/* GameRichPresenceJoinRequested_t: the friend's CSteamID, then the connect
+   string. The handler converts it as a C string, so it may run past Steam's
+   256 characters. */
+struct join_request {
+    unsigned long long friend_id;
+    char connect[4096];
+};
+
+static online_tick_t real_online_tick;
+static struct join_request *volatile pending_join;
+
+static int in_image(const void *p) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    return (const unsigned char *)p >= base && (const unsigned char *)p < base + nt->OptionalHeader.SizeOfImage;
+}
+
+/* The task manager's CCallback for GameRichPresenceJoinRequested_t: vtable,
+   flags, m_iCallback, then m_pObj (the manager itself) and m_Func. Found by
+   those, not by offset (+0x380 on CU4). */
+static steam_handler_t join_handler(unsigned char *self) {
+    __try {
+        for (unsigned off = 0; off + 0x20 <= TASK_MANAGER_SPAN; off += 8) {
+            if (*(int *)(self + off + 0xC) != STEAM_JOIN_REQUESTED) continue;
+            if (*(void **)(self + off + 0x10) != self) continue;
+            void *fn = *(void **)(self + off + 0x18);
+            if (in_image(fn) && in_image(*(void **)(self + off))) return (steam_handler_t)fn;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return NULL;
+}
+
+static void deliver_join(void *self, struct join_request *req) {
+    char reply[128];
+    steam_handler_t handler = join_handler((unsigned char *)self);
+    if (!handler) {
+        snprintf(reply, sizeof reply, "error the Steam join handler was not found\n");
+    } else {
+        __try {
+            handler(self, req);
+            snprintf(reply, sizeof reply, "delivered\n");
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            snprintf(reply, sizeof reply, "error the Steam join handler faulted (0x%08lx)\n",
+                     (unsigned long)GetExceptionCode());
+        }
+    }
+    fireteam_log("join: %.*s", (int)strcspn(reply, "\n"), reply);
+    write_reply("join_reply.txt", reply, strlen(reply));
+    free(req);
+}
+
+/* FOnlineAsyncTaskManagerSteam::OnlineTick, on the online thread, where Steam's
+   own callbacks run. */
+static void __fastcall hook_online_tick(void *self) {
+    struct join_request *req = (struct join_request *)InterlockedExchangePointer((void *volatile *)&pending_join, NULL);
+    if (req) deliver_join(self, req);
+    real_online_tick(self);
+}
+
+/* The one place `pattern` occurs in the exe's code, or NULL (with the count in *hits). */
+static unsigned char *find_code(const unsigned char *pattern, size_t length, int *hits) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    *hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        unsigned char *start = base + s->VirtualAddress, *end = start + s->Misc.VirtualSize - length;
+        for (unsigned char *p = start; p <= end; p++) {
+            if (p[0] == pattern[0] && memcmp(p, pattern, length) == 0) {
+                found = p;
+                (*hits)++;
+            }
+        }
+    }
+    return *hits == 1 ? found : NULL;
+}
+
+/* The one slot in the exe's read-only data that holds `fn`: a vtable entry. */
+static void **find_vtable_slot(void *fn, int *hits) {
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    void **found = NULL;
+    *hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
+        void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
+        for (; p < end; p++) {
+            if (*p == fn) {
+                found = p;
+                (*hits)++;
+            }
+        }
+    }
+    return *hits == 1 ? found : NULL;
+}
+
+/* OnlineTick's body after its prologue (push rbx; sub rsp, 20h): the subsystem
+   at +0x560, then SteamAPI_RunCallbacks when the client is up (exe RVA
+   0x6a7b580 on CU4, vtable slot 6 at 0xbc86b00). */
+static const unsigned char ONLINE_TICK[] = {0x48, 0x8B, 0x81, 0x60, 0x05, 0x00, 0x00, 0x48, 0x8B, 0xD9, 0x80,
+                                            0xB8, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x74, 0x06, 0xFF, 0x15};
+static const unsigned char ONLINE_TICK_PROLOGUE[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20};
+
+static const char *hook_online_tick_slot(void) {
+    static char why[80];
+    int hits;
+    unsigned char *body = find_code(ONLINE_TICK, sizeof ONLINE_TICK, &hits);
+    if (!body) {
+        snprintf(why, sizeof why, "OnlineTick pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *fn = body - sizeof ONLINE_TICK_PROLOGUE;
+    if (memcmp(fn, ONLINE_TICK_PROLOGUE, sizeof ONLINE_TICK_PROLOGUE) != 0) return "OnlineTick prologue differs, left alone";
+    void **slot = find_vtable_slot(fn, &hits);
+    if (!slot) {
+        void **ours = find_vtable_slot((void *)hook_online_tick, &hits);
+        if (ours) return "already hooked";
+        snprintf(why, sizeof why, "OnlineTick is in %d vtable slots, left alone", hits);
+        return why;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    real_online_tick = (online_tick_t)fn;
+    *slot = (void *)hook_online_tick;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return "hooked";
+}
+
+/* native\join_request.txt: "<connection string> [<host SteamID64>]". The join
+   goes out on the next online tick; native\join_reply.txt says how it went. */
+__declspec(dllexport) int mjolnir_join(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sjoin_reply.txt", dir);
+    remove(path);
+    snprintf(path, sizeof path, "%sjoin_request.txt", dir);
+    const char *problem = NULL;
+    struct join_request *req = (struct join_request *)calloc(1, sizeof *req);
+    FILE *f = fopen(path, "r");
+    if (!req) {
+        problem = "out of memory";
+    } else if (!real_online_tick) {
+        problem = "the online tick is not hooked";
+    } else if (!f) {
+        problem = "no request";
+    } else if (fscanf(f, "%4095s %llu", req->connect, &req->friend_id) < 1 || !req->connect[0]) {
+        problem = "no connection string in the request";
+    }
+    if (f) fclose(f);
+    if (problem) {
+        char reply[96];
+        snprintf(reply, sizeof reply, "error %s\n", problem);
+        write_reply("join_reply.txt", reply, strlen(reply));
+        free(req);
+        return 0;
+    }
+    fireteam_log("join: queued, %u characters", (unsigned)strlen(req->connect));
+    free(InterlockedExchangePointer((void *volatile *)&pending_join, req));
+    return 0;
+}
+
+/* --- The hub ------------------------------------------------------------- */
+
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
+
+#define HUB_DEFAULT L"https://mjolnircore.com/api/v1"
+
+struct hub_call {
+    char id[40];
+    char method[8];
+    char path[1024];
+    char *body;
+};
+
+/* The key the launcher paired, from its hub_auth.json, or "". */
+static void launcher_key(char *key, size_t size) {
+    key[0] = 0;
+    char path[MAX_PATH];
+    const char *appdata = getenv("APPDATA");
+    if (!appdata) return;
+    snprintf(path, sizeof path, "%s\\com.devnull9090.mjolnir-launcher\\hub_auth.json", appdata);
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    char text[8192];
+    size_t n = fread(text, 1, sizeof text - 1, f);
+    fclose(f);
+    text[n] = 0;
+    char *at = strstr(text, "\"key\"");
+    if (!at || !(at = strchr(at + 5, '"'))) return;
+    at++;
+    size_t i = 0;
+    while (at[i] && at[i] != '"' && i + 1 < size) {
+        key[i] = at[i];
+        i++;
+    }
+    key[i] = 0;
+}
+
+static void hub_reply(const struct hub_call *call, unsigned status, const char *body, size_t length) {
+    char name[64], head[32];
+    snprintf(name, sizeof name, "hub_reply_%s.txt", call->id);
+    int h = snprintf(head, sizeof head, "%u\n", status);
+    char *text = (char *)malloc((size_t)h + length);
+    if (!text) return;
+    memcpy(text, head, (size_t)h);
+    memcpy(text + h, body, length);
+    write_reply(name, text, (size_t)h + length);
+    free(text);
+}
+
+static void hub_error(const struct hub_call *call, const char *what) {
+    char body[160];
+    int n = snprintf(body, sizeof body, "{\"error\":\"%s (%lu)\"}", what, GetLastError());
+    hub_reply(call, 0, body, (size_t)n);
+}
+
+static DWORD WINAPI hub_worker(LPVOID arg) {
+    struct hub_call *call = (struct hub_call *)arg;
+    wchar_t base[512], url[2048], wmethod[8];
+    const char *override = getenv("MJOLNIR_HUB_URL");
+    if (!override || MultiByteToWideChar(CP_UTF8, 0, override, -1, base, 512) <= 0) wcscpy(base, HUB_DEFAULT);
+    wchar_t wpath[1024];
+    MultiByteToWideChar(CP_UTF8, 0, call->path, -1, wpath, 1024);
+    MultiByteToWideChar(CP_UTF8, 0, call->method, -1, wmethod, 8);
+    _snwprintf(url, 2048, L"%s%s", base, wpath);
+    url[2047] = 0;
+
+    URL_COMPONENTS parts;
+    wchar_t host[256], object[2048];
+    memset(&parts, 0, sizeof parts);
+    parts.dwStructSize = sizeof parts;
+    parts.lpszHostName = host;
+    parts.dwHostNameLength = 256;
+    parts.lpszUrlPath = object;
+    parts.dwUrlPathLength = 2048;
+    parts.dwExtraInfoLength = (DWORD)-1;
+    HINTERNET session = NULL, connection = NULL, request = NULL;
+    if (!WinHttpCrackUrl(url, 0, 0, &parts)) {
+        hub_error(call, "bad hub URL");
+        goto done;
+    }
+    if (parts.lpszExtraInfo && parts.dwExtraInfoLength) wcsncat(object, parts.lpszExtraInfo, parts.dwExtraInfoLength);
+
+    session = WinHttpOpen(L"MJOLNIR-Lobby/1", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                          WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) {
+        hub_error(call, "WinHttpOpen failed");
+        goto done;
+    }
+    WinHttpSetTimeouts(session, 5000, 5000, 10000, 15000);
+    connection = WinHttpConnect(session, host, parts.nPort, 0);
+    request = connection ? WinHttpOpenRequest(connection, wmethod, object, NULL, WINHTTP_NO_REFERER,
+                                              WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                              parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)
+                         : NULL;
+    if (!request) {
+        hub_error(call, "cannot reach the hub");
+        goto done;
+    }
+    char key[256];
+    wchar_t headers[512];
+    launcher_key(key, sizeof key);
+    if (key[0])
+        _snwprintf(headers, 512, L"Content-Type: application/json\r\nAuthorization: Bearer %S\r\n", key);
+    else
+        _snwprintf(headers, 512, L"Content-Type: application/json\r\n");
+    headers[511] = 0;
+    SecureZeroMemory(key, sizeof key);
+    DWORD length = call->body ? (DWORD)strlen(call->body) : 0;
+    BOOL sent = WinHttpSendRequest(request, headers, (DWORD)-1L, length ? call->body : WINHTTP_NO_REQUEST_DATA,
+                                   length, length, 0);
+    SecureZeroMemory(headers, sizeof headers);
+    if (!sent || !WinHttpReceiveResponse(request, NULL)) {
+        hub_error(call, "the hub did not answer");
+        goto done;
+    }
+    DWORD status = 0, size = sizeof status;
+    WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                        &status, &size, WINHTTP_NO_HEADER_INDEX);
+    char *body = NULL;
+    size_t total = 0;
+    for (;;) {
+        DWORD available = 0, got = 0;
+        if (!WinHttpQueryDataAvailable(request, &available) || available == 0) break;
+        char *grown = (char *)realloc(body, total + available);
+        if (!grown) break;
+        body = grown;
+        if (!WinHttpReadData(request, body + total, available, &got) || got == 0) break;
+        total += got;
+    }
+    hub_reply(call, status, body ? body : "", total);
+    free(body);
+done:
+    if (request) WinHttpCloseHandle(request);
+    if (connection) WinHttpCloseHandle(connection);
+    if (session) WinHttpCloseHandle(session);
+    free(call->body);
+    free(call);
+    return 0;
+}
+
+/* native\hub_request.txt: "<id> <METHOD> <path below /api/v1>", then the JSON
+   body, if any, on the lines after. The call runs on its own thread; the
+   reply lands in native\hub_reply_<id>.txt as "<status>\n<body>", status 0
+   when the hub could not be reached. */
+__declspec(dllexport) int mjolnir_hub_call(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%shub_request.txt", dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    struct hub_call *call = (struct hub_call *)calloc(1, sizeof *call);
+    char line[1200];
+    if (!call || !fgets(line, sizeof line, f) ||
+        sscanf(line, "%39s %7s %1023s", call->id, call->method, call->path) != 3) {
+        fclose(f);
+        free(call);
+        return 0;
+    }
+    /* The id names a file beside this DLL. */
+    for (const char *c = call->id; *c; c++) {
+        if (!((*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z'))) {
+            fclose(f);
+            free(call);
+            return 0;
+        }
+    }
+    /* The path names an API route, never another host. */
+    if (call->path[0] != '/' || call->path[1] == '/' || strstr(call->path, "://")) {
+        fclose(f);
+        hub_error(call, "the path must be below the hub API");
+        free(call);
+        return 0;
+    }
+    long start = ftell(f);
+    fseek(f, 0, SEEK_END);
+    long end = ftell(f);
+    if (end > start) {
+        call->body = (char *)calloc(1, (size_t)(end - start) + 1);
+        fseek(f, start, SEEK_SET);
+        if (call->body) fread(call->body, 1, (size_t)(end - start), f);
+    }
+    fclose(f);
+    HANDLE thread = CreateThread(NULL, 0, hub_worker, call, 0, NULL);
+    if (thread) {
+        CloseHandle(thread);
+    } else {
+        hub_error(call, "cannot start a thread");
+        free(call->body);
+        free(call);
+    }
+    return 0;
+}
+
 __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
@@ -259,6 +735,11 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PartyCreateNewNetwork: %s", swap_import("PartyWin.dll", "PartyCreateNewNetwork",
                                                           (void *)hook_create_network, (void **)&real_create_network));
     fireteam_log("presence session literals: %s", patch_presence());
+    fireteam_log("PFMultiplayerJoinLobby: %s", swap_import("PlayFabMultiplayerWin.dll", "PFMultiplayerJoinLobby",
+                                                            (void *)hook_join_lobby, (void **)&real_join_lobby));
+    fireteam_log("PFLobbyLeave: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyLeave", (void *)hook_lobby_leave,
+                                                 (void **)&real_lobby_leave));
+    fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     return 0;
 }
 
