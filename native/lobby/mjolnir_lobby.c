@@ -382,11 +382,23 @@ static void log_lobby_properties(const unsigned char *update) {
         if (!count || !keys) continue;
         for (unsigned i = 0; i < count && i < 64; i++) {
             const char *v = values ? values[i] : NULL;
+            /* The connection string is the lobby's join secret: never logged. */
+            if (keys[i] && strcmp(keys[i], "ConnectionString") == 0) v = "<hidden>";
             fireteam_log("lobby: %s property %s = %.200s", group ? "lobby" : "search", keys[i] ? keys[i] : "?",
                          v ? v : "(removed)");
         }
     }
 }
+
+/* Unreal's session settings ride in the lobby property "_flags", one bit each
+   in FOnlineSessionSettings order: bShouldAdvertise 0, bAllowJoinInProgress 1,
+   bIsLANMatch 2, bIsDedicated 3, bUsesStats 4, bAllowInvites 5, bUsesPresence
+   6, bAllowJoinViaPresence 7, bAllowJoinViaPresenceFriendsOnly 8, ... The host
+   clears join-in-progress a minute after creating the lobby (1507 -> 1505) and
+   advertise, invites and join-via-presence when a match starts (-> 1344), and
+   a joining client that reads them leaves within a second (2026-10-02). While
+   the game is public those four bits stay set. */
+#define SESSION_JOIN_FLAGS ((1u << 0) | (1u << 1) | (1u << 5) | (1u << 7))
 
 static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void *update, const void *member,
                                             void *context) {
@@ -396,19 +408,44 @@ static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fireteam_log("lobby: properties unreadable");
     }
-    const unsigned *const *fields = (const unsigned *const *)update;
-    const unsigned *lock = fields[LOBBY_UPDATE_LOCK];
-    if (!lock) return real_lobby_post_update(lobby, user, update, member, context);
-    if (keep_lobby && *lock == MEMBERSHIP_LOCKED) {
-        static const unsigned unlocked = MEMBERSHIP_UNLOCKED;
-        __declspec(align(8)) unsigned char copy[LOBBY_UPDATE_SIZE];
-        memcpy(copy, update, sizeof copy);
+    if (!keep_lobby) {
+        const unsigned *lock = ((const unsigned *const *)update)[LOBBY_UPDATE_LOCK];
+        if (lock) fireteam_log("lobby: membership %s for %p", *lock == MEMBERSHIP_LOCKED ? "locked" : "unlocked", lobby);
+        return real_lobby_post_update(lobby, user, update, member, context);
+    }
+
+    /* A public game: a copy of the update, with the lock left open and the
+       join flags kept on. */
+    static const unsigned unlocked = MEMBERSHIP_UNLOCKED;
+    __declspec(align(8)) unsigned char copy[LOBBY_UPDATE_SIZE];
+    memcpy(copy, update, sizeof copy);
+    const unsigned *lock = ((const unsigned *const *)copy)[LOBBY_UPDATE_LOCK];
+    if (lock && *lock == MEMBERSHIP_LOCKED) {
         ((const unsigned **)copy)[LOBBY_UPDATE_LOCK] = &unlocked;
         fireteam_log("lobby: membership lock asked for %p, kept open (the game is public)", lobby);
-        return real_lobby_post_update(lobby, user, copy, member, context);
     }
-    fireteam_log("lobby: membership %s for %p", *lock == MEMBERSHIP_LOCKED ? "locked" : "unlocked", lobby);
-    return real_lobby_post_update(lobby, user, update, member, context);
+    /* Lobby properties: count +56, keys +64, values +72. */
+    unsigned count = *(const unsigned *)(copy + 56);
+    const char *const *keys = *(const char *const *const *)(copy + 64);
+    const char *const *values = *(const char *const *const *)(copy + 72);
+    const char *patched_values[64];
+    char flags_text[16];
+    if (count && count <= 64 && keys && values) {
+        for (unsigned i = 0; i < count; i++) {
+            patched_values[i] = values[i];
+            if (keys[i] && values[i] && strcmp(keys[i], "_flags") == 0) {
+                unsigned flags = (unsigned)strtoul(values[i], NULL, 10);
+                unsigned kept = flags | SESSION_JOIN_FLAGS;
+                if (kept != flags) {
+                    snprintf(flags_text, sizeof flags_text, "%u", kept);
+                    patched_values[i] = flags_text;
+                    *(const char *const **)(copy + 72) = patched_values;
+                    fireteam_log("lobby: _flags %u -> %u (joining stays open: the game is public)", flags, kept);
+                }
+            }
+        }
+    }
+    return real_lobby_post_update(lobby, user, copy, member, context);
 }
 
 /* PFLobbyForceRemoveMember(lobby, targetMember, preventRejoin, asyncContext):
