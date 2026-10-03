@@ -385,6 +385,45 @@ static long __stdcall hook_lobby_force_remove(void *lobby, const void *member, u
     return real_lobby_force_remove(lobby, member, prevent_rejoin, context);
 }
 
+/* PartyStartProcessingStateChanges(handle, &count, &changes): every Party
+   event, each change starting with its PartyStateChangeType. Logged, without
+   the per-packet ones, to see whether a player joining a match in progress
+   ever reaches the host's Party network (2026-10-02: it joins the lobby but
+   no connection reaches the game). */
+typedef unsigned(__stdcall *party_start_changes_t)(void *, unsigned *, const void *const **);
+
+static party_start_changes_t real_party_start_changes;
+
+static const char *party_change_name(unsigned type) {
+    static const char *const names[] = {
+        "RegionsChanged", "DestroyLocalUserCompleted", "CreateNewNetworkCompleted", "ConnectToNetworkCompleted",
+        "AuthenticateLocalUserCompleted", "NetworkConfigurationMadeAvailable", "NetworkDescriptorChanged",
+        "LocalUserRemoved", "RemoveLocalUserCompleted", "LocalUserKicked", "CreateEndpointCompleted",
+        "DestroyEndpointCompleted", "EndpointCreated", "EndpointDestroyed", "RemoteDeviceCreated",
+        "RemoteDeviceDestroyed", "RemoteDeviceJoinedNetwork", "RemoteDeviceLeftNetwork", "DevicePropertiesChanged",
+        "LeaveNetworkCompleted", "NetworkDestroyed", "EndpointMessageReceived", "DataBuffersReturned",
+        "EndpointPropertiesChanged", "SynchronizeMessagesBetweenEndpointsCompleted", "CreateInvitationCompleted",
+        "RevokeInvitationCompleted", "InvitationCreated", "InvitationDestroyed", "NetworkPropertiesChanged",
+        "KickDeviceCompleted", "KickUserCompleted"};
+    return type < sizeof names / sizeof *names ? names[type] : "(chat/audio)";
+}
+
+static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count, const void *const **changes) {
+    unsigned err = real_party_start_changes(handle, count, changes);
+    if (err == 0 && count && changes && *changes) {
+        for (unsigned i = 0; i < *count; i++) {
+            const unsigned *change = (const unsigned *)(*changes)[i];
+            if (!change) continue;
+            unsigned type = *change;
+            /* Messages and returned buffers come every frame; chat and audio
+               (32 and up) are not the join. */
+            if (type == 21 || type == 22 || type >= 32) continue;
+            fireteam_log("party: %s (%u)", party_change_name(type), type);
+        }
+    }
+    return err;
+}
+
 static void *playfab(const char *name) {
     HMODULE pf = GetModuleHandleA("PlayFabMultiplayerWin.dll");
     return pf ? (void *)GetProcAddress(pf, name) : NULL;
@@ -899,6 +938,9 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                                                  (void **)&real_lobby_leave));
     fireteam_log("PFLobbyPostUpdate: %s", swap_import("PlayFabMultiplayerWin.dll", "PFLobbyPostUpdate",
                                                       (void *)hook_lobby_post_update, (void **)&real_lobby_post_update));
+    fireteam_log("PartyStartProcessingStateChanges: %s",
+                 swap_import("PartyWin.dll", "PartyStartProcessingStateChanges", (void *)hook_party_start_changes,
+                             (void **)&real_party_start_changes));
     fireteam_log("PFLobbyForceRemoveMember: %s",
                  swap_import("PlayFabMultiplayerWin.dll", "PFLobbyForceRemoveMember", (void *)hook_lobby_force_remove,
                              (void **)&real_lobby_force_remove));
