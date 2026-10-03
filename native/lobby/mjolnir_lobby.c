@@ -1583,6 +1583,248 @@ static void adopt_host_peer_properties(void) {
     }
 }
 
+/* A client asks the host to take new peer properties through the session's
+   properties object (vtable sim 0x8c1d10 on CU4, its [+0x18] the session):
+   slot +0x48 (sim 0x528c30) copies the 0x110-byte block into the pending
+   request and marks it for sending when this machine is an established
+   client. A joiner's properties never change from "map 3", so nothing ever
+   asks; this asks with the block from its own peer entry (+0x10), which the
+   adoption above has brought to the host's map status and game instance.
+   Found by its code (prologue / call / body, the call displacements masked)
+   and the one read-only slot that holds it. */
+typedef void(__fastcall *request_properties_t)(void *properties_object, const void *properties);
+
+static unsigned char *find_in_module(unsigned char *base, const unsigned char *pattern, const unsigned char *mask,
+                                     size_t length, int executable, int *hits) {
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    *hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
+        int exec = (sec->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+        if (exec != executable || (!executable && (sec->Characteristics & IMAGE_SCN_MEM_WRITE))) continue;
+        unsigned char *p = base + sec->VirtualAddress, *end = p + sec->Misc.VirtualSize - length;
+        for (; p <= end; p++) {
+            size_t k = 0;
+            for (; k < length; k++)
+                if ((!mask || mask[k]) && p[k] != pattern[k]) break;
+            if (k == length) {
+                found = p;
+                (*hits)++;
+            }
+        }
+    }
+    return *hits == 1 ? found : NULL;
+}
+
+static const unsigned char REQUEST_PROPERTIES[] = {
+    0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x4C, 0x8B, 0xDA, 0x48, 0x8B, 0xD9, 0xE8, 0, 0, 0, 0,
+    0x48, 0x8B, 0xCB, 0x84, 0xC0, 0x74, 0x12, 0x48, 0x8B, 0x03, 0x49, 0x8B, 0xD3, 0x48, 0x83, 0xC4,
+    0x20, 0x5B, 0x48, 0xFF, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0xE8, 0, 0, 0, 0, 0x84, 0xC0, 0x0F, 0x84,
+    0xD5, 0x00, 0x00, 0x00, 0xC4, 0xC1, 0x7C, 0x10, 0x03, 0x48, 0x8D, 0x93, 0x98, 0x01, 0x00, 0x00};
+static const unsigned char REQUEST_PROPERTIES_MASK[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+__declspec(dllexport) int mjolnir_sim_push_properties(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) {
+        fireteam_log("props: no simulation DLL");
+        return 0;
+    }
+    int hits;
+    unsigned char *fn = find_in_module(sim, REQUEST_PROPERTIES, REQUEST_PROPERTIES_MASK, sizeof REQUEST_PROPERTIES, 1, &hits);
+    if (!fn) {
+        fireteam_log("props: request-properties code matched %d times", hits);
+        return 0;
+    }
+    void *fn_value = fn;
+    unsigned char *slot = find_in_module(sim, (const unsigned char *)&fn_value, NULL, sizeof fn_value, 0, &hits);
+    if (!slot) {
+        fireteam_log("props: request-properties is in %d read-only slots", hits);
+        return 0;
+    }
+    void *vtable = slot - 0x48;
+    find_sim_sessions();
+    if (!sim_sessions) {
+        fireteam_log("props: no simulation sessions");
+        return 0;
+    }
+    __try {
+        for (int si = 0; si < 2; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            if (!mask) continue;
+            int local = -1;
+            unsigned char *host = NULL;
+            for (int i = 0; i < 17; i++) {
+                if (!(mask & (1u << i))) continue;
+                if (*(unsigned *)(s + i * 0x128 + 0x174) == 1) local = i;
+                else if (*(unsigned *)(s + i * 0x128 + 0x10c) == 4) host = s + i * 0x128;
+            }
+            if (local < 0 || !host) continue;
+            unsigned char *mine = s + local * 0x128;
+            *(unsigned *)(mine + 0x10c) = *(unsigned *)(host + 0x10c);
+            *(unsigned long long *)(mine + 0x118) = *(unsigned long long *)(host + 0x118);
+            *(unsigned *)(mine + 0x164) = *(unsigned *)(host + 0x164);
+            unsigned char properties[0x110];
+            memcpy(properties, mine + 0x10, sizeof properties);
+            int asked = 0;
+            for (unsigned char *q = s; q < s + 0x5b9e8; q += 8) {
+                if (*(void **)q != vtable || *(unsigned char **)(q + 0x18) != s) continue;
+                fireteam_log("props: session %d local peer %d: asking %p (session +%llx) to send map %u inst %llx start %u",
+                             si, local, (void *)q, (unsigned long long)(q - s), *(unsigned *)(mine + 0x10c),
+                             *(unsigned long long *)(mine + 0x118), *(unsigned *)(mine + 0x164));
+                ((request_properties_t)fn)(q, properties);
+                fireteam_log("props: flags now %02x", q[0x80]);
+                asked++;
+            }
+            if (!asked) {
+                fireteam_log("props: session %d (%p) has no properties object inside it; searching wider", si, (void *)s);
+                /* The simulation's writable sections, and a window around the
+                   session array. */
+                IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+                IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+                int shown = 0;
+                for (unsigned k = 0; k < nt->FileHeader.NumberOfSections; k++, sec++) {
+                    if (!(sec->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+                    for (unsigned char *q = sim + sec->VirtualAddress; q + 0x20 <= sim + sec->VirtualAddress + sec->Misc.VirtualSize; q += 8) {
+                        if (*(void **)q != vtable || shown >= 12) continue;
+                        shown++;
+                        fireteam_log("props: object %p (sim+%llx) +18 %p +20 %p", (void *)q, (unsigned long long)(q - sim),
+                                     *(void **)(q + 0x18), *(void **)(q + 0x20));
+                        if (*(unsigned char **)(q + 0x18) == s) {
+                            fireteam_log("props: it belongs to session %d; asking it", si);
+                            ((request_properties_t)fn)(q, properties);
+                            fireteam_log("props: flags now %02x", q[0x80]);
+                        }
+                    }
+                }
+                if (!shown) fireteam_log("props: no object with that vtable in the simulation's data");
+                /* Heap objects the session points to. */
+                int pointed = 0;
+                for (unsigned char *q = s; q < s + 0x5b9e8 && pointed < 12; q += 8) {
+                    unsigned char *target = *(unsigned char **)q;
+                    if ((unsigned long long)target < 0x10000 || ((unsigned long long)target & 7)) continue;
+                    MEMORY_BASIC_INFORMATION info;
+                    if (!VirtualQuery(target, &info, sizeof info) || info.State != MEM_COMMIT ||
+                        (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                        continue;
+                    if (*(void **)target != vtable) continue;
+                    pointed++;
+                    fireteam_log("props: session +%llx points to object %p, its +18 %p", (unsigned long long)(q - s),
+                                 (void *)target, *(void **)(target + 0x18));
+                    if (*(unsigned char **)(target + 0x18) == s && pointed == 1) {
+                        fireteam_log("props: asking it");
+                        ((request_properties_t)fn)(target, properties);
+                        fireteam_log("props: flags now %02x", target[0x80]);
+                    }
+                }
+                if (!pointed) fireteam_log("props: the session points to no object with that vtable");
+                /* Any word in the session that points into the vtable's neighbourhood. */
+                int nearby = 0;
+                for (unsigned char *q = s; q < s + 0x5b9e8 && nearby < 16; q += 8) {
+                    unsigned char *v = *(unsigned char **)q;
+                    if (v >= (unsigned char *)vtable - 0x50 && v <= (unsigned char *)vtable + 0x50) {
+                        nearby++;
+                        fireteam_log("props: session +%llx holds vtable%+lld; its +18 %p", (unsigned long long)(q - s),
+                                     (long long)(v - (unsigned char *)vtable), *(void **)(q + 0x18));
+                    }
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("props: failed (exception %08lx)", GetExceptionCode());
+    }
+    return 0;
+}
+
+/* A client's peer properties are rebuilt from simulation globals (sim
+   0x4b7db0 on CU4): the map status (0xca2824, 4 = loaded), its progress
+   (0xca2828) and the game instance (0xca2ef0). A normal start sets them while
+   loading the game; a joiner's say 3 and nothing, so the host never counts it
+   as in the game. Found where the builder reads them: mov eax, [map] / mov
+   [rsp+0d4h], eax / mov eax, [progress] / mov [rsp+0d8h], eax / mov rax,
+   [instance] / mov [rsp+0e0h], rax. This sets them as the host's peer entry
+   has them (experiment; logged). */
+static const unsigned char GAME_GLOBALS[] = {0x8B, 0x05, 0, 0, 0, 0, 0x89, 0x84, 0x24, 0xD4, 0x00, 0x00, 0x00,
+                                             0x8B, 0x05, 0, 0, 0, 0, 0x89, 0x84, 0x24, 0xD8, 0x00, 0x00, 0x00,
+                                             0x48, 0x8B, 0x05, 0, 0, 0, 0, 0x48, 0x89, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00};
+static const unsigned char GAME_GLOBALS_MASK[] = {1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+                                                  1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+                                                  1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1};
+
+__declspec(dllexport) int mjolnir_sim_adopt_game(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    int hits;
+    unsigned char *at = find_in_module(sim, GAME_GLOBALS, GAME_GLOBALS_MASK, sizeof GAME_GLOBALS, 1, &hits);
+    if (!at) {
+        fireteam_log("game: globals code matched %d times", hits);
+        return 0;
+    }
+    unsigned *map_status = (unsigned *)(at + 6 + *(int *)(at + 2));
+    unsigned *progress = (unsigned *)(at + 13 + 6 + *(int *)(at + 15));
+    unsigned long long *instance = (unsigned long long *)(at + 26 + 7 + *(int *)(at + 29));
+    find_sim_sessions();
+    unsigned long long host_instance = 0;
+    unsigned host_map = 0;
+    __try {
+        for (int si = 0; si < 2 && sim_sessions && !host_instance; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            for (int i = 0; i < 17; i++)
+                if ((mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x174) == 0 &&
+                    *(unsigned *)(s + i * 0x128 + 0x10c) == 4) {
+                    host_instance = *(unsigned long long *)(s + i * 0x128 + 0x118);
+                    host_map = *(unsigned *)(s + i * 0x128 + 0x10c);
+                }
+        }
+        fireteam_log("game: map status %u progress %u instance %llx; the host's map %u instance %llx", *map_status,
+                     *progress, *instance, host_map, host_instance);
+        if (host_instance) {
+            *map_status = host_map;
+            *progress = 100;
+            *instance = host_instance;
+            fireteam_log("game: now map status %u progress %u instance %llx", *map_status, *progress, *instance);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("game: failed (exception %08lx)", GetExceptionCode());
+    }
+    return 0;
+}
+
+/* Undo adopt_host_peer_properties: put the joiner's own entry back to what
+   it last told the host, so the properties builder sees a change to send. */
+__declspec(dllexport) int mjolnir_sim_restore_own_entry(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    find_sim_sessions();
+    __try {
+        for (int si = 0; si < 2 && sim_sessions; si++) {
+            unsigned char *s = *sim_sessions + si * 0x5b9e8;
+            unsigned mask = *(unsigned *)(s + 0x5c);
+            for (int i = 0; i < 17; i++)
+                if ((mask & (1u << i)) && *(unsigned *)(s + i * 0x128 + 0x174) == 1) {
+                    unsigned char *mine = s + i * 0x128;
+                    *(unsigned *)(mine + 0x10c) = 3;
+                    *(unsigned long long *)(mine + 0x118) = ~0ull;
+                    *(unsigned *)(mine + 0x164) = 0;
+                    fireteam_log("game: session %d peer %d entry restored to map 3, no instance", si, i);
+                }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("game: restore failed");
+    }
+    return 0;
+}
+
 static void watch_loading(void) {
     static int last_mode = -1, last_state = -1, last_flags = -1;
     static void *last_experience = (void *)1;
