@@ -383,7 +383,22 @@ end
 -------------------------------------------------------------------------------
 
 --- Public games, nearest first: done(lobbies) or done(nil, why).
+--- native\lobbies_sample.json, when present, stands in for the hub (the
+--- reply's shape: { "lobbies": [...] }), to try FIND GAMES with many games.
 function Games.list(done)
+    local sample = readFile(nativeDir .. "lobbies_sample.json")
+    if sample then
+        local ok, data = pcall(Json.decode, sample)
+        data = ok and denull(data) or nil
+        ExecuteInGameThreadWithDelay(300, function()
+            if data and type(data.lobbies) == "table" then
+                done(data.lobbies)
+            else
+                done(nil, "lobbies_sample.json is not a lobby list")
+            end
+        end)
+        return
+    end
     hub("GET", "/lobbies", nil, function(status, data)
         if status == 200 and data and type(data.lobbies) == "table" then
             done(data.lobbies)

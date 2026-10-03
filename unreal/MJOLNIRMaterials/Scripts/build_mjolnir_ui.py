@@ -12,7 +12,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
   WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
-  WBP_MJOLNIRFindGames   public games from the hub, a game's details, JOIN
+  WBP_MJOLNIRFindGames   public games from the hub: filter chips, a sortable
+                         server table, a game's details, JOIN, QUICK JOIN
   WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
                          the next game (MJOLNIRLobby)
                      Both are layout only: MJOLNIRHud fills their text blocks
@@ -287,7 +288,7 @@ BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 32
 MODE_BUTTONS = 5
 ROSTER_ROWS = 16
-GAME_ROWS = 12
+GAME_ROWS = 40
 
 
 def stretch(w):
@@ -541,48 +542,279 @@ def build_map_select():
     finish_screen(bp, name)
 
 
+def flat_style(button, normal, hovered, pressed, padding=(0, 0, 0, 0)):
+    """A tinted, imageless button style (rows, column headers, filter chips)."""
+    style = button.get_editor_property("widget_style")
+    for state, rgba in (("normal", normal), ("hovered", hovered), ("pressed", pressed),
+                        ("disabled", (0.03, 0.04, 0.05, 0.25))):
+        brush = style.get_editor_property(state)
+        brush.set_editor_property("resource_object", None)
+        brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+        brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
+        style.set_editor_property(state, brush)
+    style.set_editor_property("normal_padding", unreal.Margin(*padding))
+    style.set_editor_property("pressed_padding", unreal.Margin(*padding))
+    button.set_editor_property("widget_style", style)
+
+
+def fill(w, value):
+    w.get_editor_property("slot").set_size(unreal.SlateChildSize(value, unreal.SlateSizeRule.FILL))
+
+
+def middle(w):
+    w.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+
+
+def swatch(bp, name, parent, width, height, color):
+    """A solid block of colour: `<name>` is the Border Lua recolours."""
+    box = sized(bp, name + "Size", parent, width=width, height=height)
+    ink = widget(bp, unreal.Border, name, box.get_name())
+    ink.set_editor_property("brush_color", unreal.LinearColor(*color))
+    ink.set_editor_property("padding", unreal.Margin(0))
+    return box
+
+
+# The server table's columns: key, heading, width (None: the rest), centred.
+# Header and row cells are fixed-width boxes with the same inner padding, and
+# every button's content slot is unpadded, so the columns line up exactly
+# whatever the text in them; the last column takes what is left (the rows
+# give some of it to the scroll bar).
+GAME_COLUMNS = (("Name", "SERVER", 380, False), ("Map", "MAP", 290, False),
+                ("Type", "GAME TYPE", 300, False), ("Players", "PLAYERS", 150, True),
+                ("Ping", "PING", 170, False), ("State", "STATUS", None, False))
+CELL_PAD = 14
+SCROLLBAR = (6, 8)   # the list's scroll bar, when it shows: thickness, gap before it
+FILTERS = (("Type", "GAME TYPE", True), ("Map", "MAP", True), ("Full", "HIDE FULL", False),
+           ("Match", "HIDE IN MATCH", False), ("Have", "MAPS I HAVE", False))
+DIM = (0.20, 0.30, 0.36, 1.0)
+GREEN = (0.45, 0.88, 0.55, 1.0)
+CAPACITY_PIPS = 16
+
+
+def column(bp, name, parent, width):
+    """A table cell: `width` wide (or the rest of the row), clipped, so a long
+    value never runs into the next column."""
+    if width:
+        box = sized(bp, name, parent, width=width)
+    else:
+        box = widget(bp, unreal.SizeBox, name, parent)
+        fill(box, 1)
+    box.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    return box
+
+
+def unpadded(w):
+    """No padding from the slot a button (or size box) gives its content."""
+    w.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 0, 0))
+
+
 def build_find_games():
-    """Public games from the hub: a list, the chosen game's details, JOIN
-    (docs/multiplayer_servers.md). MJOLNIRLobby fills every text."""
+    """Public games from the hub as a server table: filter chips, sortable
+    columns, rows that line up, and the chosen game's details with JOIN and
+    QUICK JOIN (docs/multiplayer_servers.md). MJOLNIRLobby fills every text
+    and colour.
+
+    Names an older MJOLNIRLobby relies on are kept (Game<i>, Game<i>Label,
+    GameKicker, GameTitle, GameDetails, Join, Refresh, Back, Empty, Status),
+    so a newer runtime pack still works with it."""
     name = "WBP_MJOLNIRFindGames"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
     screen_header(bp, "FIND GAMES", "MULTIPLAYER")
+    events = []
 
-    list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
-    place(list_panel, (0.06, 0.22), (0.0, 0.0))
-    sized(bp, "ListSize", "ListPanel", width=980, height=790)
-    widget(bp, unreal.ScrollBox, "GameList", "ListSize")
+    # Filters: two cycling chips (a caption and a value) and three toggles
+    # (a check square and a label). Lua colours the squares and values.
+    bar = widget(bp, unreal.HorizontalBox, "Filters", "Root")
+    place(bar, (0.06, 0.205), (0.0, 0.0))
+    for key, label, cycles in FILTERS:
+        chip = widget(bp, unreal.Button, f"Filter{key}", "Filters")
+        flat_style(chip, (0.02, 0.05, 0.075, 0.55), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95),
+                   padding=(18, 11, 20, 11))
+        chip.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+        inner = widget(bp, unreal.HorizontalBox, f"Filter{key}Row", chip.get_name())
+        unpadded(inner)
+        if cycles:
+            caption = widget(bp, unreal.TextBlock, f"Filter{key}Caption", inner.get_name())
+            text_style(caption, label, 17, ACCENT)
+            middle(caption)
+            value = widget(bp, unreal.TextBlock, f"Filter{key}Value", inner.get_name())
+            text_style(value, "ALL", 21, WHITE)
+            value.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+            middle(value)
+        else:
+            check = swatch(bp, f"Filter{key}Check", inner.get_name(), 16, 16, DIM)
+            middle(check)
+            text = widget(bp, unreal.TextBlock, f"Filter{key}Label", inner.get_name())
+            text_style(text, label, 20, WHITE)
+            text.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+            middle(text)
+        events.append((chip.get_name(), "OnClicked", f"filter:{key.lower()}"))
+
+    # The table.
+    table = panel(bp, "ListPanel", "Root", padding=(0, 0, 0, 0))
+    place(table, (0.06, 0.265), (0.0, 0.0))
+    sized(bp, "ListSize", "ListPanel", width=1520)
+    widget(bp, unreal.VerticalBox, "ListStack", "ListSize")
+    rule(bp, "ListRule", "ListStack", ACCENT, 2)
+    caption = widget(bp, unreal.HorizontalBox, "ListCaption", "ListStack")
+    caption.get_editor_property("slot").set_padding(unreal.Margin(24, 18, 24, 6))
+    count = widget(bp, unreal.TextBlock, "ListCount", "ListCaption")
+    text_style(count, "PUBLIC GAMES", 18, ACCENT)
+    fill(count, 1)
+    order = widget(bp, unreal.TextBlock, "ListOrder", "ListCaption")
+    text_style(order, "", 18, GREY)
+
+    header = widget(bp, unreal.HorizontalBox, "TableHeader", "ListStack")
+    header.get_editor_property("slot").set_padding(unreal.Margin(10, 6, 10, 6))
+    sized(bp, "TableHeaderStripe", "TableHeader", width=4)
+    for key, title, width, centred in GAME_COLUMNS:
+        box = column(bp, f"Head{key}Size", "TableHeader", width)
+        cell = widget(bp, unreal.Button, f"Head{key}", box.get_name())
+        unpadded(cell)
+        flat_style(cell, (0, 0, 0, 0), (0.12, 0.32, 0.43, 0.45), (0.20, 0.48, 0.60, 0.7),
+                   padding=(CELL_PAD, 8, CELL_PAD, 8))
+        inner = widget(bp, unreal.HorizontalBox, f"Head{key}Row", cell.get_name())
+        unpadded(inner)
+        if centred:
+            inner.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        else:
+            inner.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+        label = widget(bp, unreal.TextBlock, f"Head{key}Label", inner.get_name())
+        text_style(label, title, 17, GREY)
+        middle(label)
+        arrow = widget(bp, unreal.TextBlock, f"Head{key}Sort", inner.get_name())
+        text_style(arrow, "", 14, GOLD)
+        arrow.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+        middle(arrow)
+        events.append((cell.get_name(), "OnClicked", f"sort:{key.lower()}"))
+    sized(bp, "TableHeaderScrollGap", "TableHeader", width=sum(SCROLLBAR))
+    rule(bp, "TableHeaderRule", "ListStack")
+
+    rows = sized(bp, "RowsSize", "ListStack", height=700)
+    rows.get_editor_property("slot").set_padding(unreal.Margin(10, 8, 10, 10))
+    scroll = widget(bp, unreal.ScrollBox, "GameList", "RowsSize")
+    for prop, value in (("scrollbar_thickness", unreal.Vector2D(SCROLLBAR[0], SCROLLBAR[0])),
+                        ("scrollbar_padding", unreal.Margin(SCROLLBAR[1], 0, 0, 0)),
+                        ("scroll_when_focus_changes", unreal.ScrollWhenFocusChanges.ANIMATED_SCROLL)):
+        try:
+            scroll.set_editor_property(prop, value)
+        except Exception as e:  # an engine without the property: default look
+            unreal.log_warning(f"MJOLNIR UI: GameList.{prop}: {e}")
+    # A flat accent thumb on a faint track, instead of the stock white bar.
+    try:
+        bar = scroll.get_editor_property("widget_bar_style")
+        for prop, rgba in (("normal_thumb_image", (0.46, 0.79, 0.94, 0.45)),
+                           ("hovered_thumb_image", (0.46, 0.79, 0.94, 0.8)),
+                           ("dragged_thumb_image", (0.46, 0.79, 0.94, 1.0)),
+                           ("vertical_background_image", (0.0, 0.0, 0.0, 0.3)),
+                           ("vertical_top_slot_image", (0.0, 0.0, 0.0, 0.3)),
+                           ("vertical_bottom_slot_image", (0.0, 0.0, 0.0, 0.3))):
+            brush = bar.get_editor_property(prop)
+            brush.set_editor_property("resource_object", None)
+            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
+            bar.set_editor_property(prop, brush)
+        scroll.set_editor_property("widget_bar_style", bar)
+    except Exception as e:
+        unreal.log_warning(f"MJOLNIR UI: GameList scroll bar style: {e}")
     empty = widget(bp, unreal.TextBlock, "Empty", "GameList")
     text_style(empty, "", 26, GREY)
     wrapped(empty)
-    empty.get_editor_property("slot").set_padding(unreal.Margin(12, 12, 12, 12))
-    events = []
-    for i in range(GAME_ROWS):
-        gap(menu_button(bp, f"Game{i}", "", "GameList", size=24), bottom=5)
-        events += [(f"Game{i}", "OnClicked", f"game:{i}"), (f"Game{i}", "OnHovered", f"hover:{i}")]
+    empty.get_editor_property("slot").set_padding(unreal.Margin(24, 24, 24, 24))
 
+    for i in range(GAME_ROWS):
+        row = widget(bp, unreal.Button, f"Game{i}", "GameList")
+        flat_style(row, (0.02, 0.05, 0.075, 0.42), (0.08, 0.22, 0.30, 0.6), (0.14, 0.34, 0.44, 0.85))
+        row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        gap(row, bottom=3)
+        cols = widget(bp, unreal.HorizontalBox, f"GameCols{i}", row.get_name())
+        unpadded(cols)
+        cols.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        cols.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+        stripe = sized(bp, f"GameStripeSize{i}", cols.get_name(), width=4)
+        ink = widget(bp, unreal.Border, f"GameStripe{i}", stripe.get_name())
+        ink.set_editor_property("brush_color", unreal.LinearColor(*ACCENT))
+        for key, _, width, centred in GAME_COLUMNS:
+            box = column(bp, f"Game{key}Size{i}", cols.get_name(), width)
+            middle(box)
+            cell = widget(bp, unreal.VerticalBox, f"Game{key}Cell{i}", box.get_name())
+            cell.get_editor_property("slot").set_padding(unreal.Margin(CELL_PAD, 9, CELL_PAD, 9))
+            justify = unreal.TextJustify.CENTER if centred else unreal.TextJustify.LEFT
+            if key == "Ping":
+                line = widget(bp, unreal.HorizontalBox, f"GamePingLine{i}", cell.get_name())
+                for b, height in enumerate((8, 13, 18, 23)):
+                    bar = swatch(bp, f"GamePing{i}Bar{b}", line.get_name(), 5, height, DIM)
+                    bar.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+                    bar.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 3, 0))
+                value = widget(bp, unreal.TextBlock, f"GamePing{i}", line.get_name())
+                text_style(value, "", 21, WHITE)
+                value.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
+                value.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+                continue
+            # The server name's block keeps the old row label's name.
+            main = widget(bp, unreal.TextBlock, f"Game{i}Label" if key == "Name" else f"Game{key}{i}",
+                          cell.get_name())
+            text_style(main, "", {"Name": 24, "Players": 24, "State": 20}.get(key, 22), WHITE)
+            main.set_editor_property("justification", justify)
+            main.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+            note = widget(bp, unreal.TextBlock, f"Game{key}Note{i}", cell.get_name())
+            text_style(note, "", 16, GREY)
+            note.set_editor_property("justification", justify)
+            note.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+            note.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 0, 0))
+        events += [(f"Game{i}", "OnClicked", f"game:{i}"), (f"Game{i}", "OnHovered", f"hover:{i}"),
+                   (f"Game{i}", "OnUnhovered", f"unhover:{i}")]
+
+    # The chosen game.
     details = panel(bp, "Details", "Root")
-    place(details, (0.94, 0.22), (1.0, 0.0))
-    sized(bp, "DetailsSize", "Details", width=1000)
+    place(details, (0.94, 0.265), (1.0, 0.0))
+    sized(bp, "DetailsSize", "Details", width=640)
     widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
     gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=24)
     kicker = widget(bp, unreal.TextBlock, "GameKicker", "DetailsStack")
     text_style(kicker, "", 18, ACCENT)
-    gap(kicker, bottom=12)
+    gap(kicker, bottom=10)
     title = widget(bp, unreal.TextBlock, "GameTitle", "DetailsStack")
-    text_style(title, "", 44, WHITE)
+    text_style(title, "", 42, WHITE)
     wrapped(title)
+    host = widget(bp, unreal.TextBlock, "GameHost", "DetailsStack")
+    text_style(host, "", 21, GREY)
+    gap(host, top=6, bottom=22)
+    gap(rule(bp, "InfoRule", "DetailsStack"), bottom=14)
+    for key, label in (("Map", "MAP"), ("Type", "GAME TYPE"), ("Players", "PLAYERS"), ("Ping", "PING"),
+                       ("Region", "REGION"), ("Version", "VERSION")):
+        line = widget(bp, unreal.HorizontalBox, f"Info{key}", "DetailsStack")
+        gap(line, top=7, bottom=7)
+        size = sized(bp, f"Info{key}LabelSize", line.get_name(), width=190)
+        middle(size)
+        text_style(widget(bp, unreal.TextBlock, f"Info{key}Label", size.get_name()), label, 17, GREY)
+        value = widget(bp, unreal.TextBlock, f"Info{key}Value", line.get_name())
+        text_style(value, "", 24, WHITE)
+        value.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        fill(value, 1)
+        middle(value)
+        if key == "Players":
+            # One pip per slot: filled for each player, hidden past the cap.
+            pips = widget(bp, unreal.HorizontalBox, "Pips", "DetailsStack")
+            pips.get_editor_property("slot").set_padding(unreal.Margin(190, 2, 0, 8))
+            for p in range(CAPACITY_PIPS):
+                pip = swatch(bp, f"Pip{p}", "Pips", 20, 8, DIM)
+                pip.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 5, 0))
     info = widget(bp, unreal.TextBlock, "GameDetails", "DetailsStack")
-    text_style(info, "", 26, GREY)
+    text_style(info, "", 21, GOLD)
     wrapped(info)
-    gap(info, top=16, bottom=30)
+    gap(info, top=14, bottom=22)
     gap(rule(bp, "ActionsRule", "DetailsStack"), bottom=18)
+    join = menu_button(bp, "Join", "JOIN", "DetailsStack", size=30)
+    events.append(("Join", "OnClicked", "join"))
+    gap(join, bottom=12)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
-    for key, label in (("Join", "JOIN"), ("Refresh", "REFRESH"), ("Back", "BACK")):
-        button = menu_button(bp, key, label, actions.get_name(), size=28)
-        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
-        events.append((key, "OnClicked", key.lower()))
+    for key, label, event in (("QuickJoin", "QUICK JOIN", "quickjoin"), ("Refresh", "REFRESH", "refresh"),
+                              ("Back", "BACK", "back")):
+        button = menu_button(bp, key, label, actions.get_name(), size=22)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
+        events.append((key, "OnClicked", event))
     footer(bp)
 
     if not ui.compile_widget(bp):

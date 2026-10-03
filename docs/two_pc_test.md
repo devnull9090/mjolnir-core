@@ -176,7 +176,7 @@ game, and the lobby's footer says so. Listing and joining both need one.
 **B. Join a match in progress** (the open question).
 1. **PC 2:** leave the fireteam (quit to the main menu, or restart the game).
 2. **PC 1:** still PUBLIC, start Blood Gulch, Slayer, and stay in the match.
-3. **PC 2:** FIND GAMES, REFRESH. **Expect:** the game shows "IN A MATCH".
+3. **PC 2:** FIND GAMES, REFRESH. **Expect:** the game shows "IN MATCH".
    JOIN.
 4. **Record:** what PC 2's screen does (loading, a lobby, an error dialog's
    exact words), whether PC 2 spawns in Blood Gulch, and whether PC 1 sees

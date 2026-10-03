@@ -267,7 +267,7 @@ local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
 local MAP_BUTTONS = 32
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
-local GAME_ROWS = 12
+local GAME_ROWS = 40
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
@@ -278,7 +278,7 @@ local SELECTED_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1 }
 local Game = { map = nil, mode = nil }   -- what START GAME starts
 local Lobby, Select = nil, nil           -- the screens on the stack
 local Find = nil                         -- FIND GAMES, while it is up
-local Found = { games = {}, chosen = nil, loading = false }
+local Found = { all = {}, games = {}, maps = {}, matching = 0, chosen = nil, loading = false }
 local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
 -- A fireteam client's view of the host's lobby (After a match, below).
@@ -496,148 +496,674 @@ end
 -- FIND GAMES
 -------------------------------------------------------------------------------
 --
--- Public games from the hub (games.lua), nearest first. A row is the map,
--- the game type and the players; hovering or clicking one shows its details,
--- and JOIN joins it the way an accepted invite would.
+-- Public games from the hub (games.lua) as a server table: a row per game
+-- with its server name and host, map, game type, players, ping and status,
+-- in columns that line up. A column's heading sorts by it (again reverses
+-- it); the chips above filter by game type and map, and hide full games,
+-- matches under way and maps not installed. Hovering a row previews it,
+-- clicking chooses it; JOIN joins the chosen game the way an accepted invite
+-- would, and QUICK JOIN joins the best open game the filters allow. The list
+-- refreshes itself every AUTO_REFRESH seconds while it is up, and the sort
+-- and filters are kept in find_games.txt.
+--
+-- A UI container from before the table (one button label per row) still
+-- works: its rows get the old one-line label, unsorted and unfiltered.
 
-local function installedMap(code)
-    for _, map in ipairs(installedMaps()) do
-        if map.code == code then return map end
+-- One block, so its locals stay out of the main chunk's (Lua allows 200).
+local openFindGames, onFindEvent, tickFind, modeName
+do
+local FIND_PREFS = MOD_DIR .. "\\find_games.txt"
+local AUTO_REFRESH = 30   -- seconds
+local NOTE_SECONDS = 10   -- how long a join message stays in the footer
+local PIPS = 16
+
+-- The screen's colours (build_mjolnir_ui.py), as Lua colours.
+local FIND = {
+    accent = { R = 0.46, G = 0.79, B = 0.94, A = 1 },
+    white = { R = 0.88, G = 0.95, B = 1.0, A = 1 },
+    grey = { R = 0.46, G = 0.61, B = 0.70, A = 1 },
+    dim = { R = 0.20, G = 0.30, B = 0.36, A = 1 },
+    gold = { R = 1.0, G = 0.80, B = 0.35, A = 1 },
+    green = { R = 0.45, G = 0.88, B = 0.55, A = 1 },
+    red = { R = 1.0, G = 0.32, B = 0.28, A = 1 },
+}
+local ZEBRA_BACKGROUND = { R = 1.35, G = 1.35, B = 1.35, A = 1.1 }
+local ROW_CHOSEN_BACKGROUND = { R = 1.8, G = 2.0, B = 2.0, A = 1.4 }
+local CHIP_ON_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1.3 }
+
+-- A column: its widget names' key, heading, and the footer's wording.
+local SORTS = {
+    name = { col = "Name", title = "SERVER", asc = "A TO Z", desc = "Z TO A" },
+    map = { col = "Map", title = "MAP", asc = "A TO Z", desc = "Z TO A" },
+    type = { col = "Type", title = "GAME TYPE", asc = "A TO Z", desc = "Z TO A" },
+    players = { col = "Players", title = "PLAYERS", asc = "FEWEST FIRST", desc = "MOST FIRST", descFirst = true },
+    ping = { col = "Ping", title = "PING", asc = "LOWEST FIRST", desc = "HIGHEST FIRST" },
+    state = { col = "State", title = "STATUS", asc = "OPEN FIRST", desc = "FULL FIRST" },
+}
+local SORT_UP, SORT_DOWN = "\226\150\178", "\226\150\188"   -- U+25B2, U+25BC
+
+local STATES = {
+    open = { label = "LOBBY", kicker = "IN THE LOBBY", color = FIND.green, rank = 0 },
+    in_game = { label = "IN MATCH", kicker = "MATCH UNDER WAY", color = FIND.accent, rank = 1 },
+    full = { label = "FULL", kicker = "FULL", color = FIND.red, rank = 2 },
+}
+
+-- Saved: the sort, the game type filter and the three toggles. The map
+-- filter lasts while the screen is up.
+local Prefs = { sort = "ping", desc = false, type = nil, full = false, match = false, have = false }
+
+local function loadFindPrefs()
+    for k, v in (readFile(FIND_PREFS) or ""):gmatch("([%w_]+)=([^\r\n]*)") do
+        if k == "sort" and SORTS[v] then
+            Prefs.sort = v
+        elseif k == "desc" or k == "full" or k == "match" or k == "have" then
+            Prefs[k] = v == "1"
+        elseif k == "type" then
+            Prefs.type = v ~= "" and v or nil
+        end
     end
-    return nil
 end
 
-local function modeName(id)
+local function saveFindPrefs()
+    local f = io.open(FIND_PREFS, "w")
+    if not f then return end
+    for _, k in ipairs({ "sort", "desc", "type", "full", "match", "have" }) do
+        local v = Prefs[k]
+        if type(v) == "boolean" then v = v and "1" or "0" end
+        f:write(k, "=", tostring(v or ""), "\n")
+    end
+    f:close()
+end
+
+function modeName(id)
     for _, mode in ipairs(MODES) do
         if mode.id == id then return mode.name end
     end
     return (string.upper(tostring(id or "")):gsub("_", " "))
 end
 
-local function gameMapTitle(g)
-    local map = installedMap(g.map_code)
-    return map and titleOf(map) or string.upper(tostring(g.map_title or g.map_code or "?"))
+local function teamsMode(id)
+    for _, mode in ipairs(MODES) do
+        if mode.id == id then return mode.teams == true end
+    end
+    return false
+end
+
+--- The installed maps by code, read once per refresh rather than per row.
+local function indexMaps()
+    Found.maps = {}
+    for _, map in ipairs(installedMaps()) do Found.maps[map.code] = map end
+end
+
+local function ownMap(g)
+    return Found.maps[g.map_code]
+end
+
+local function mapTitle(g)
+    local map = ownMap(g)
+    if map then return titleOf(map) end
+    return (string.upper(tostring(g.map_title or g.map_code or "?")):gsub(" %(CLASSIC CE%)", ""))
+end
+
+local function stateOf(g)
+    if g.state == "full" or (g.max_players and (g.players or 0) >= g.max_players) then return "full" end
+    return g.state == "in_game" and "in_game" or "open"
+end
+
+local function otherVersion(g)
+    return g.client_version and g.client_version ~= LOBBY_VERSION
+end
+
+--- Signal bars for an estimated ping: how many of four, and their colour.
+local function pingBars(ms)
+    if not ms then return 0, FIND.dim end
+    if ms <= 60 then return 4, FIND.green end
+    if ms <= 110 then return 3, FIND.green end
+    if ms <= 170 then return 2, FIND.gold end
+    return 1, FIND.red
+end
+
+local function tint(block, color)
+    pcall(function() block:SetColorAndOpacity({ SpecifiedColor = color, ColorUseRule = 0 }) end)
+end
+
+local function brush(border, color)
+    pcall(function() border:SetBrushColor(color) end)
+end
+
+--- The table layout, or a container from before it.
+local function tableLayout()
+    if Found.table == nil then
+        local ok, yes = pcall(function() return Find.TableHeader:IsValid() end)
+        Found.table = ok and yes == true
+    end
+    return Found.table
+end
+
+local function sortValue(g, key)
+    if key == "name" then return string.lower(tostring(g.name or "")) end
+    if key == "map" then return mapTitle(g) end
+    if key == "type" then return modeName(g.game_type) end
+    if key == "players" then return g.players or 0 end
+    if key == "ping" then return g.ping_ms or math.huge end
+    return STATES[stateOf(g)].rank
+end
+
+--- The table's order: the chosen column, then fuller games, then nearer,
+--- then the id, so the order is total and rows don't swap on a refresh.
+local function before(a, b)
+    local va, vb = sortValue(a, Prefs.sort), sortValue(b, Prefs.sort)
+    if va ~= vb then
+        if Prefs.desc then return va > vb end
+        return va < vb
+    end
+    if (a.players or 0) ~= (b.players or 0) then return (a.players or 0) > (b.players or 0) end
+    local pa, pb = a.ping_ms or math.huge, b.ping_ms or math.huge
+    if pa ~= pb then return pa < pb end
+    return tostring(a.id) < tostring(b.id)
+end
+
+local function passes(g)
+    if Prefs.type and g.game_type ~= Prefs.type then return false end
+    if Found.mapFilter and g.map_code ~= Found.mapFilter then return false end
+    local state = stateOf(g)
+    if Prefs.full and state == "full" then return false end
+    if Prefs.match and state == "in_game" then return false end
+    if Prefs.have and not ownMap(g) then return false end
+    return true
+end
+
+local function filtering()
+    return Prefs.type ~= nil or Found.mapFilter ~= nil or Prefs.full or Prefs.match or Prefs.have
+end
+
+--- Found.games: the rows, filtered and sorted. The old layout lists the
+--- hub's order, unfiltered.
+local function applyView()
+    local list = {}
+    local legacy = not tableLayout()
+    for _, g in ipairs(Found.all) do
+        if legacy or passes(g) then list[#list + 1] = g end
+    end
+    if not legacy then table.sort(list, before) end
+    Found.matching = #list
+    Found.games = {}
+    for i = 1, math.min(#list, GAME_ROWS) do Found.games[i] = list[i] end
+    -- The chosen game stays chosen while it is in view; otherwise the top row.
+    local keep
+    for _, g in ipairs(Found.games) do
+        if Found.chosen and g.id == Found.chosen.id then keep = g end
+    end
+    Found.chosen = keep or Found.games[1]
+    if Found.hovered then
+        local still
+        for _, g in ipairs(Found.games) do
+            if g.id == Found.hovered.id then still = g end
+        end
+        Found.hovered = still
+    end
+end
+
+--- The next value of a cycling filter: nil (ALL), then each choice, then
+--- back to ALL.
+local function cycle(choices, current)
+    if current == nil then return choices[1] end
+    for i, v in ipairs(choices) do
+        if v == current then return choices[i + 1] end
+    end
+    return nil
+end
+
+--- The game types listed now: menu order first, then any others.
+local function typeChoices()
+    local present, out, others = {}, {}, {}
+    for _, g in ipairs(Found.all) do
+        if g.game_type then present[g.game_type] = true end
+    end
+    for _, mode in ipairs(MODES) do
+        if present[mode.id] then
+            out[#out + 1] = mode.id
+            present[mode.id] = nil
+        end
+    end
+    for id in pairs(present) do others[#others + 1] = id end
+    table.sort(others)
+    for _, id in ipairs(others) do out[#out + 1] = id end
+    return out
+end
+
+--- The maps listed now, by title.
+local function mapChoices()
+    local seen, out = {}, {}
+    for _, g in ipairs(Found.all) do
+        if g.map_code and not seen[g.map_code] then
+            seen[g.map_code] = mapTitle(g)
+            out[#out + 1] = g.map_code
+        end
+    end
+    table.sort(out, function(a, b) return seen[a] < seen[b] end)
+    return out, seen
+end
+
+local function ago(seconds)
+    if seconds < 5 then return "JUST NOW" end
+    if seconds < 60 then return string.format("%d S AGO", seconds) end
+    return string.format("%d MIN AGO", math.floor(seconds / 60))
+end
+
+--- The footer: a recent join message, the hub's error, or when the list
+--- was fetched.
+local function drawFindStatus()
+    if not alive(Find) then return end
+    local text
+    if Found.note and os.time() - Found.note.at < NOTE_SECONDS then
+        text = Found.note.text
+    elseif Found.error then
+        text = "Could not refresh: " .. Found.error
+    elseif Found.fetchedAt then
+        text = string.format("UPDATED %s   /   REFRESHES EVERY %d S   /   SELECT A COLUMN HEADING TO SORT",
+            ago(os.time() - Found.fetchedAt), AUTO_REFRESH)
+    else
+        text = Found.loading and "Looking for games..." or ""
+    end
+    if not tableLayout() and not Found.note and not Found.error and Found.fetchedAt then
+        text = string.format("%d PUBLIC GAME%s   /   REFRESH FOR MORE", #Found.games, #Found.games == 1 and "" or "S")
+    end
+    if text ~= Found.statusShown then
+        Found.statusShown = text
+        setText(Find.Status, text)
+    end
+end
+
+local function findNote(text)
+    Found.note = { text = text, at = os.time() }
+    drawFindStatus()
+end
+
+local function drawFilters()
+    local typeValue = Find.FilterTypeValue
+    setText(typeValue, Prefs.type and modeName(Prefs.type) or "ALL")
+    tint(typeValue, Prefs.type and FIND.gold or FIND.white)
+    local _, titles = mapChoices()
+    local mapValue = Find.FilterMapValue
+    setText(mapValue, Found.mapFilter and (titles[Found.mapFilter] or Found.mapFilter) or "ALL")
+    tint(mapValue, Found.mapFilter and FIND.gold or FIND.white)
+    pcall(function() Find.FilterType:SetBackgroundColor(Prefs.type and CHIP_ON_BACKGROUND or NORMAL_BACKGROUND) end)
+    pcall(function() Find.FilterMap:SetBackgroundColor(Found.mapFilter and CHIP_ON_BACKGROUND or NORMAL_BACKGROUND) end)
+    for key, on in pairs({ Full = Prefs.full, Match = Prefs.match, Have = Prefs.have }) do
+        brush(Find["Filter" .. key .. "Check"], on and FIND.accent or FIND.dim)
+        tint(Find["Filter" .. key .. "Label"], on and FIND.white or FIND.grey)
+        pcall(function() Find["Filter" .. key]:SetBackgroundColor(on and CHIP_ON_BACKGROUND or NORMAL_BACKGROUND) end)
+    end
+end
+
+local function drawHeadings()
+    for key, sort in pairs(SORTS) do
+        local active = Prefs.sort == key
+        setText(Find["Head" .. sort.col .. "Sort"], active and (Prefs.desc and SORT_DOWN or SORT_UP) or "")
+        tint(Find["Head" .. sort.col .. "Label"], active and FIND.white or FIND.grey)
+    end
+    local sort = SORTS[Prefs.sort]
+    setText(Find.ListOrder, "SORTED BY " .. sort.title .. ", " .. (Prefs.desc and sort.desc or sort.asc))
+    local total, hidden = #Found.all, #Found.all - Found.matching
+    local count = string.format("PUBLIC GAMES   /   %d", total)
+    if hidden > 0 then count = count .. string.format("   /   %d HIDDEN BY FILTERS", hidden) end
+    if Found.matching > #Found.games then
+        count = count .. string.format("   /   SHOWING %d OF %d", #Found.games, Found.matching)
+    end
+    setText(Find.ListCount, count)
+end
+
+local function drawRow(i, g)
+    local row = Find["Game" .. i]
+    setShown(row, g ~= nil)
+    if not g then return end
+    local state = STATES[stateOf(g)]
+    local own = ownMap(g) ~= nil
+    local chosen = Found.chosen and Found.chosen.id == g.id
+    local name = Find["Game" .. i .. "Label"]
+    setText(name, g.name or "?")
+    tint(name, chosen and FIND.gold or FIND.white)
+    setText(Find["GameNameNote" .. i], tostring(g.host or "?") .. (g.country and ("   /   " .. g.country) or ""))
+
+    setText(Find["GameMap" .. i], mapTitle(g))
+    tint(Find["GameMap" .. i], own and FIND.white or FIND.grey)
+    local mapNote = Find["GameMapNote" .. i]
+    setText(mapNote, own and "" or "NOT INSTALLED")
+    tint(mapNote, FIND.red)
+
+    -- The table's column is narrow: CTF there, the full name in the details.
+    setText(Find["GameType" .. i], g.game_type == "ctf" and "CTF" or modeName(g.game_type))
+    setText(Find["GameTypeNote" .. i], teamsMode(g.game_type) and "TEAMS" or "FREE FOR ALL")
+
+    local players, max = g.players or 0, g.max_players or 0
+    setText(Find["GamePlayers" .. i], string.format("%d / %d", players, max))
+    tint(Find["GamePlayers" .. i], stateOf(g) == "full" and FIND.red or FIND.white)
+    local free = math.max(0, max - players)
+    setText(Find["GamePlayersNote" .. i], free > 0 and string.format("%d OPEN", free) or "NO SLOTS")
+
+    local bars, color = pingBars(g.ping_ms)
+    for b = 0, 3 do brush(Find["GamePing" .. i .. "Bar" .. b], b < bars and color or FIND.dim) end
+    setText(Find["GamePing" .. i], g.ping_ms and string.format("%d ms", g.ping_ms) or "?")
+    tint(Find["GamePing" .. i], g.ping_ms and FIND.white or FIND.grey)
+
+    setText(Find["GameState" .. i], state.label)
+    tint(Find["GameState" .. i], state.color)
+    local stateNote = Find["GameStateNote" .. i]
+    setText(stateNote, otherVersion(g) and ("VERSION " .. g.client_version) or "")
+    tint(stateNote, FIND.gold)
+
+    brush(Find["GameStripe" .. i], chosen and FIND.gold or state.color)
+    pcall(function()
+        row:SetBackgroundColor(chosen and ROW_CHOSEN_BACKGROUND or (i % 2 == 1 and ZEBRA_BACKGROUND or NORMAL_BACKGROUND))
+    end)
+    pcall(function() Find["GameCols" .. i]:SetRenderOpacity(own and 1.0 or 0.6) end)
+end
+
+--- The game JOIN would join, and why it can't.
+local function joinable(g)
+    if not g then return false, "JOIN" end
+    if Found.joining then return false, "JOINING..." end
+    if not ownMap(g) then return false, "MAP NOT INSTALLED" end
+    if stateOf(g) == "full" then return false, "GAME FULL" end
+    return true, stateOf(g) == "in_game" and "JOIN MATCH" or "JOIN"
 end
 
 local function showGame(g)
     if not alive(Find) then return end
-    setShown(Find.Join, g ~= nil)
+    if not tableLayout() then
+        -- The container from before the table: one block of details.
+        setShown(Find.Join, g ~= nil)
+        if not g then
+            setText(Find.GameKicker, "")
+            setText(Find.GameTitle, "")
+            setText(Find.GameDetails, "")
+            return
+        end
+        setText(Find.GameKicker, STATES[stateOf(g)].kicker)
+        setText(Find.GameTitle, g.name or "")
+        local lines = {
+            "Host:  " .. tostring(g.host or "?"),
+            "Map:  " .. mapTitle(g),
+            "Game type:  " .. modeName(g.game_type),
+            string.format("Players:  %d / %d", g.players or 0, g.max_players or 0),
+        }
+        if g.ping_ms then lines[#lines + 1] = string.format("Ping:  about %d ms", g.ping_ms) end
+        if not ownMap(g) then
+            lines[#lines + 1] = "\nYou don't have this map. Install it from the MJOLNIR launcher's Maps tab."
+        end
+        if otherVersion(g) then
+            lines[#lines + 1] = "\nThe host runs MJOLNIR Lobby " .. g.client_version .. "; you run " .. LOBBY_VERSION .. "."
+        end
+        setText(Find.GameDetails, table.concat(lines, "\n"))
+        return
+    end
+
+    -- JOIN is for the game the details show: the cursor leaves a row (and
+    -- the details go back to the chosen game) on its way to the button.
+    local ok, label = joinable(g)
+    pcall(function() Find.Join:SetIsEnabled(ok) end)
+    setText(Find.JoinLabel, label)
+    tint(Find.JoinLabel, ok and FIND.gold or FIND.grey)
+    pcall(function() Find.QuickJoin:SetIsEnabled(not Found.joining) end)
+
+    -- With no game to show, only the title: no empty labels.
+    for _, key in ipairs({ "Map", "Type", "Players", "Ping", "Region", "Version" }) do
+        setShown(Find["Info" .. key], g ~= nil)
+    end
+    setShown(Find.Pips, g ~= nil)
+    setShown(Find.InfoRule, g ~= nil)
     if not g then
         setText(Find.GameKicker, "")
-        setText(Find.GameTitle, "")
+        setText(Find.GameTitle, Found.loading and "LOOKING FOR GAMES" or "NO GAME SELECTED")
+        setText(Find.GameHost, "")
         setText(Find.GameDetails, "")
         return
     end
-    setText(Find.GameKicker, g.state == "in_game" and "IN A MATCH" or (g.state == "full" and "FULL" or "IN THE LOBBY"))
+    local state = stateOf(g)
+    local look = STATES[state]
+    setText(Find.GameKicker, look.kicker)
+    tint(Find.GameKicker, look.color)
     setText(Find.GameTitle, g.name or "")
-    local lines = {
-        "Host:  " .. tostring(g.host or "?"),
-        "Map:  " .. gameMapTitle(g),
-        "Game type:  " .. modeName(g.game_type),
-        string.format("Players:  %d / %d", g.players or 0, g.max_players or 0),
-    }
-    if g.ping_ms then lines[#lines + 1] = string.format("Ping:  about %d ms", g.ping_ms) end
-    if not installedMap(g.map_code) then
-        lines[#lines + 1] = "\nYou don't have this map. Install it from the MJOLNIR launcher's Maps tab."
+    setText(Find.GameHost, "Hosted by " .. tostring(g.host or "?"))
+
+    setText(Find.InfoMapValue, mapTitle(g))
+    tint(Find.InfoMapValue, ownMap(g) and FIND.white or FIND.red)
+    setText(Find.InfoTypeValue, modeName(g.game_type) .. (teamsMode(g.game_type) and "   /   TEAMS" or "   /   FREE FOR ALL"))
+    local players, max = g.players or 0, g.max_players or 0
+    local free = math.max(0, max - players)
+    setText(Find.InfoPlayersValue, string.format("%d / %d", players, max)
+        .. (free > 0 and string.format("   /   %d OPEN", free) or "   /   FULL"))
+    for p = 0, PIPS - 1 do
+        setShown(Find["Pip" .. p .. "Size"], p < max)
+        brush(Find["Pip" .. p], p < players and (state == "full" and FIND.red or FIND.accent) or FIND.dim)
     end
-    if g.client_version and g.client_version ~= LOBBY_VERSION then
-        lines[#lines + 1] = "\nThe host runs MJOLNIR Lobby " .. g.client_version .. "; you run " .. LOBBY_VERSION .. "."
+    local _, color = pingBars(g.ping_ms)
+    setText(Find.InfoPingValue, g.ping_ms and string.format("About %d ms (estimated)", g.ping_ms) or "Unknown")
+    tint(Find.InfoPingValue, g.ping_ms and color or FIND.grey)
+    local region = g.country or "?"
+    if g.colo then region = region .. "   /   " .. g.colo end
+    setText(Find.InfoRegionValue, region)
+    setText(Find.InfoVersionValue, "MJOLNIR Lobby " .. tostring(g.client_version or "?"))
+    tint(Find.InfoVersionValue, otherVersion(g) and FIND.gold or FIND.white)
+
+    local notes = {}
+    if not ownMap(g) then
+        notes[#notes + 1] = "You don't have " .. mapTitle(g) .. ". Install it from the MJOLNIR launcher's Maps tab."
     end
-    setText(Find.GameDetails, table.concat(lines, "\n"))
+    if otherVersion(g) then
+        notes[#notes + 1] = "The host runs MJOLNIR Lobby " .. g.client_version .. "; you run " .. LOBBY_VERSION
+            .. ". Update from the launcher if the join fails."
+    end
+    if state == "in_game" and ownMap(g) then
+        notes[#notes + 1] = "The match is under way: you join it straight away."
+    end
+    setText(Find.GameDetails, table.concat(notes, "\n\n"))
+end
+
+--- The details show the row under the mouse, else the chosen game.
+local function shownGame()
+    return Found.hovered or Found.chosen
+end
+
+local function emptyText()
+    if Found.loading and #Found.all == 0 then return "Looking for games..." end
+    if Found.error and #Found.all == 0 then return "Could not reach the game list.\n\n" .. Found.error end
+    if #Found.all == 0 then return "No public games right now.\n\nHost one, and set it to PUBLIC GAME in the lobby." end
+    return string.format("No games match your filters.\n\n%d game%s hidden: change the filters above.",
+        #Found.all, #Found.all == 1 and " is" or "s are")
 end
 
 local function drawFind()
     if not alive(Find) then return end
-    local games = Found.games
+    applyView()
+    local legacy = not tableLayout()
     for i = 0, GAME_ROWS - 1 do
-        local g, button = games[i + 1], Find["Game" .. i]
-        setShown(button, g ~= nil)
-        if g then
-            setText(Find["Game" .. i .. "Label"], string.format("%s   /   %s   /   %d/%d",
-                gameMapTitle(g), modeName(g.game_type), g.players or 0, g.max_players or 0))
-            pcall(function()
-                button:SetBackgroundColor(Found.chosen == g and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
-            end)
+        local g = Found.games[i + 1]
+        if legacy then
+            local button = Find["Game" .. i]
+            setShown(button, g ~= nil)
+            if g then
+                setText(Find["Game" .. i .. "Label"], string.format("%s   /   %s   /   %d/%d",
+                    mapTitle(g), modeName(g.game_type), g.players or 0, g.max_players or 0))
+                pcall(function()
+                    button:SetBackgroundColor(Found.chosen == g and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
+                end)
+            end
+        else
+            drawRow(i, g)
         end
     end
-    setShown(Find.Empty, #games == 0)
-    setText(Find.Empty, Found.loading and "Looking for games..." or
-        "No public games right now.\n\nHost one, and set it to PUBLIC GAME in the lobby.")
-    showGame(Found.chosen or games[1])
+    setShown(Find.Empty, #Found.games == 0)
+    setText(Find.Empty, emptyText())
+    if not legacy then
+        drawFilters()
+        drawHeadings()
+    end
+    drawFindStatus()
+    showGame(shownGame())
 end
 
 local function refreshFind()
     if Found.loading then return end
     Found.loading = true
+    Found.lastTry = os.time()
     drawFind()
     Games.list(function(games, why)
         Found.loading = false
-        Found.games = {}
-        for i, g in ipairs(games or {}) do
-            if i <= GAME_ROWS then Found.games[i] = g end
+        if games then
+            Found.all, Found.error, Found.fetchedAt = games, nil, os.time()
+        else
+            -- Keep showing the last list; the footer says why it is stale.
+            Found.error = why
         end
-        -- Keep the choice across a refresh while its game is still listed.
-        local keep = nil
-        for _, g in ipairs(Found.games) do
-            if Found.chosen and g.id == Found.chosen.id then keep = g end
-        end
-        Found.chosen = keep
-        if alive(Find) then
-            setText(Find.Status, games and string.format("%d PUBLIC GAME%s   /   REFRESH FOR MORE",
-                #Found.games, #Found.games == 1 and "" or "S") or why)
-        end
+        indexMaps()
         drawFind()
+        if alive(Find) and not Found.focused and Found.games[1] and tableLayout() then
+            Found.focused = true
+            pcall(function() Find.Game0:SetFocus() end)
+        end
     end)
 end
 
-local function openFindGames()
+--- While FIND GAMES is up (the main menu's poll): the footer's age, and the
+--- automatic refresh.
+function tickFind()
+    if not alive(Find) then return end
+    drawFindStatus()
+    if not (Found.loading or Found.joining) and os.time() - (Found.lastTry or 0) >= AUTO_REFRESH then
+        refreshFind()
+    end
+end
+
+function openFindGames()
     Find = pushScreen(FIND_CLASS)
     if not Find then
         log("find games: could not push " .. FIND_CLASS)
         return
     end
-    Found.games, Found.chosen = {}, nil
-    setText(Find.Status, "")
+    Found.table, Found.chosen, Found.hovered, Found.mapFilter = nil, nil, nil, nil
+    Found.note, Found.statusShown, Found.focused = nil, nil, false
+    loadFindPrefs()
+    indexMaps()
+    -- The last list at once, if there is one, while the new one loads.
+    drawFind()
     refreshFind()
     pcall(function() Find.Refresh:SetFocus() end)
 end
 
-local function joinChosen()
-    local g = Found.chosen or Found.games[1]
-    if not g then return end
-    if not installedMap(g.map_code) then
-        setText(Find.Status, "You don't have " .. gameMapTitle(g) .. ". Install it from the MJOLNIR launcher's Maps tab.")
+local function joinGame(g)
+    if not g or Found.joining then return end
+    if not ownMap(g) then
+        findNote("You don't have " .. mapTitle(g) .. ". Install it from the MJOLNIR launcher's Maps tab.")
         return
     end
-    setText(Find.Status, "Joining " .. tostring(g.host) .. "...")
+    if stateOf(g) == "full" then
+        findNote("That game is full.")
+        return
+    end
+    Found.joining = g
+    findNote("Joining " .. tostring(g.host) .. "...")
+    showGame(shownGame())
     Games.join(g, function(ok, why)
+        Found.joining = nil
         if not alive(Find) then return end
-        setText(Find.Status, ok and ("Joining " .. tostring(g.host) .. "'s fireteam...")
-            or ("Could not join: " .. tostring(why)))
+        findNote(ok and ("Joining " .. tostring(g.host) .. "'s fireteam...") or ("Could not join: " .. tostring(why)))
+        showGame(shownGame())
     end)
 end
 
+local function joinChosen()
+    joinGame(Found.chosen)
+end
+
+--- QUICK JOIN: of the games the filters show, one that can be joined (its
+--- map installed, a free slot), preferring the same MJOLNIR Lobby version,
+--- a better connection, then more players.
+local function quickJoin()
+    local best, bestRank
+    for _, g in ipairs(Found.all) do
+        if (not tableLayout() or passes(g)) and ownMap(g) and stateOf(g) ~= "full" then
+            local bars = pingBars(g.ping_ms)
+            local rank = { otherVersion(g) and 0 or 1, bars, g.players or 0, -(g.ping_ms or 999) }
+            local better = best == nil
+            for k = 1, #rank do
+                if better then break end
+                if rank[k] ~= bestRank[k] then
+                    better = rank[k] > bestRank[k]
+                    break
+                end
+            end
+            if better then best, bestRank = g, rank end
+        end
+    end
+    if not best then
+        findNote("No open game with a map you have" .. (filtering() and " matches your filters." or "."))
+        return
+    end
+    Found.chosen, Found.hovered = best, nil
+    drawFind()
+    joinGame(best)
+end
+
+local function sortBy(key)
+    if not SORTS[key] then return end
+    if Prefs.sort == key then
+        Prefs.desc = not Prefs.desc
+    else
+        Prefs.sort, Prefs.desc = key, SORTS[key].descFirst == true
+    end
+    saveFindPrefs()
+    drawFind()
+end
+
+local FILTERS = {
+    type = function() Prefs.type = cycle(typeChoices(), Prefs.type) end,
+    map = function() Found.mapFilter = cycle((mapChoices()), Found.mapFilter) end,
+    full = function() Prefs.full = not Prefs.full end,
+    match = function() Prefs.match = not Prefs.match end,
+    have = function() Prefs.have = not Prefs.have end,
+}
+
 local FIND_EVENTS = {
     join = joinChosen,
+    quickjoin = quickJoin,
     refresh = refreshFind,
     back = function() pcall(function() Find:DeactivateWidget() end) end,
 }
 
---- One event from FIND GAMES: "game:3", "hover:3", "join" ...
-local function onFindEvent(event)
-    local verb, index = event:match("^(%a+):(%d+)$")
+--- One event from FIND GAMES: "game:3", "hover:3", "sort:ping",
+--- "filter:full", "join" ...
+function onFindEvent(event)
+    local verb, arg = event:match("^(%a+):(%w+)$")
+    if verb == "sort" then return sortBy(arg) end
+    if verb == "filter" then
+        local apply = FILTERS[arg]
+        if apply then
+            apply()
+            saveFindPrefs()
+            drawFind()
+        end
+        return
+    end
     if verb then
-        local g = Found.games[tonumber(index) + 1]
+        local g = Found.games[(tonumber(arg) or -1) + 1]
         if verb == "game" and g then
             Found.chosen = g
             drawFind()
-        elseif verb == "hover" then
+        elseif verb == "hover" and g then
+            Found.hovered = g
             showGame(g)
+        elseif verb == "unhover" then
+            if g and Found.hovered and Found.hovered.id == g.id then Found.hovered = nil end
+            showGame(shownGame())
         end
         return
     end
     local handler = FIND_EVENTS[event]
     if handler then handler() end
+end
+
 end
 
 local LOBBY_EVENTS = {
@@ -1478,6 +2004,7 @@ local function watchMainMenu()
             pcall(holdFireteamSize)
             if not inFrontend() then return end
             refreshLobby()
+            pcall(tickFind)
             pcall(watchFireteam)
             SquadPanel.hook(FIRETEAM_SIZE)
             pcall(SquadPanel.refresh, FIRETEAM_SIZE)
