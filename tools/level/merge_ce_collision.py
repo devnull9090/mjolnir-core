@@ -9,17 +9,19 @@ to the structure BSP's collision instead. Every scenery placement with a
 staged collision model (`collision/*.json`, object space, world units) has its
 triangles moved to the placement and appended as standalone surfaces: one
 plane, one three-edge ring and three vertices each, marked two-sided, with a
-material picked from the scenery's name (rock, wood, plant: SCENERY_MATERIALS).
+material picked from the scenery's name (shield, rock, wood, plant:
+SCENERY_MATERIALS).
 
 Ground shaders that paint grass into sand per pixel are split: their surfaces
 over grass get a grass material of their own (split_blended_ground). Every
 material ends up in the output's `materials`, with the CE `material_type` or a
 `game_material` that `mjolnir level collision` turns into the game's own.
 
-They are not referenced by the BSP tree: `mjolnir level collision --own-bsp`
-compiles the structure's Havok MOPP with one key per collision surface, so
-players and vehicles stand on and run into them, while queries that walk the
-BSP tree (projectiles) pass through, as they do not reach the surfaces.
+No BSP leaf references them here. `mjolnir level collision --own-bsp` puts
+them into the BSP tree (blam_sbsp::scenery: the leaves they pass through are
+split on their planes), so queries that walk the tree, projectiles among
+them, meet them, and compiles the structure's Havok MOPP with one key per
+collision surface, so players and vehicles stand on and run into them.
 
 Writes `<out>.json` and the `.bin` it names, in the staging's own layout.
 """
@@ -50,8 +52,12 @@ def ce_rotation(yaw, pitch, roll):
 
 
 # Scenery collision models carry no shader, so their material is picked by
-# name: what a footstep or a bullet should sound and look like on it.
-SCENERY_MATERIALS = [(("rock", "boulder", "stone", "cliff"), "hard_terrain_stone"),
+# name: what a footstep or a bullet should sound and look like on it. The
+# Covenant shield (c_field_generator) takes the Jackal shield's material: an
+# energy shield made to stop small-arms fire, where energy_hologram (CE's
+# "force field" type) is the hologram decoy's. Not yet confirmed in game.
+SCENERY_MATERIALS = [(("field_generator",), "energy_shield_thick_cov_jackal"),
+                     (("rock", "boulder", "stone", "cliff"), "hard_terrain_stone"),
                      (("tree", "log", "stump", "wood", "branch"), "tough_organic_wood"),
                      (("plant", "bush", "shrub", "grass", "fern", "leaf"), "soft_organic_plant")]
 
@@ -264,7 +270,7 @@ def main():
     meta["bin"] = bin_name
     meta["counts"] = {name: len(arrays[name]) for name in order}
     meta["scenery_surfaces"] = {"objects": objects, "surfaces": added,
-                                "note": "standalone surfaces after the BSP's own, not in the BSP tree"}
+                                "note": "standalone surfaces after the BSP's own; mjolnir level collision links them into the tree"}
     json.dump(meta, open(out, "w", encoding="utf-8"), indent=1)
     print(f"{objects} scenery placement(s): {added} collision surface(s) added -> {out}")
     for name, (grass, total) in split.items():

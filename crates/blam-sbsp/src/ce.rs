@@ -25,7 +25,8 @@ pub struct Manifest {
     #[serde(default)]
     pub materials: Vec<Material>,
     /// Scenery collision `tools/level/merge_ce_collision.py` appended after
-    /// the BSP's own surfaces, which the BSP tree does not reach.
+    /// the BSP's own surfaces, which the staged tree does not reach until
+    /// [`crate::scenery::place`] links it.
     #[serde(default)]
     pub scenery_surfaces: Option<ScenerySurfaces>,
 }
@@ -78,6 +79,8 @@ pub struct Plane {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Leaf {
+    /// bit 0: contains two-sided surfaces (a line test crossing between two
+    /// such leaves looks for a surface on the plane crossed).
     pub flags: u16,
     pub reference_count: i16,
     pub first_reference: i32,

@@ -5,15 +5,20 @@
 //! splitting it at each node plane it crosses, near side first. Arriving in
 //! solid space (`-1`) is a hit on the plane crossed last, and the surface is
 //! the one the leaf the ray was in names for that plane: its 2D reference for
-//! the plane, descended with the hit point projected into the plane.
+//! the plane, descended with the hit point projected into the plane. Going
+//! from one open leaf into another hits a two-sided surface by the
+//! simulation's own rule (`fn_2eb3d0`, CU4; see [`crate::scenery`]): both
+//! leaves flagged, a reference on the plane signed for the direction of
+//! travel, and the point inside the surface's polygon.
 //!
 //! A standing test only classifies a point; a moving pawn sweeps. So a tree
 //! that holds a pawn at rest can still let it through once it moves, and this
 //! is the offline check for that: every ray the polygons say hits something
 //! must also hit through the tree, on a surface at the same place.
 
-use crate::ce::{Bounds, Collision};
+use crate::ce::{Bounds, Bsp2dReference, Collision};
 use crate::pack16::projection_axes;
+use crate::scenery::TWO_SIDED_LEAF;
 use crate::unpack16;
 
 const LEAF: u32 = 0x8000_0000;
@@ -48,58 +53,103 @@ pub fn leaf_surface(c: &Collision, leaf: usize, plane: usize, p: [f32; 3]) -> Op
         if (r.plane as u32 & 0x7fff_ffff) as usize != plane {
             continue;
         }
-        let pl = c.planes.get(plane)?;
-        let mut n = pl.n;
-        if (r.plane as u32) & LEAF != 0 {
-            n = [-n[0], -n[1], -n[2]];
-        }
-        let (u, v) = projection_axes(n);
-        let mut cur = r.node;
-        for _ in 0..1024 {
-            if cur == -1 {
-                return None;
-            }
-            if (cur as u32) & LEAF != 0 {
-                return Some((cur as u32 & 0x7fff_ffff) as usize);
-            }
-            let node = c.bsp2d_nodes.get(cur as usize)?;
-            let d = node.plane[0] * p[u] + node.plane[1] * p[v] - node.plane[2];
-            cur = if d >= 0.0 { node.right } else { node.left };
-        }
-        return None;
+        return descend(c, r, p);
     }
     None
 }
+
+/// Follow a 2D reference down to the surface under `p`.
+fn descend(c: &Collision, r: &Bsp2dReference, p: [f32; 3]) -> Option<usize> {
+    let pl = c.planes.get((r.plane as u32 & 0x7fff_ffff) as usize)?;
+    let mut n = pl.n;
+    if (r.plane as u32) & LEAF != 0 {
+        n = [-n[0], -n[1], -n[2]];
+    }
+    let (u, v) = projection_axes(n);
+    let mut cur = r.node;
+    for _ in 0..1024 {
+        if cur == -1 {
+            return None;
+        }
+        if (cur as u32) & LEAF != 0 {
+            return Some((cur as u32 & 0x7fff_ffff) as usize);
+        }
+        let node = c.bsp2d_nodes.get(cur as usize)?;
+        let d = node.plane[0] * p[u] + node.plane[1] * p[v] - node.plane[2];
+        cur = if d >= 0.0 { node.right } else { node.left };
+    }
+    None
+}
+
+/// Whether `p`, on surface `s`'s plane, lies inside its polygon (edges
+/// included, to a small tolerance).
+pub fn inside(c: &Collision, s: usize, p: [f32; 3]) -> bool {
+    let poly = unpack16::polygon(c, s);
+    let Some(pl) = c
+        .surfaces
+        .get(s)
+        .and_then(|surf| c.planes.get((surf.plane as u32 & 0x7fff_ffff) as usize))
+    else {
+        return false;
+    };
+    if poly.len() < 3 {
+        return false;
+    }
+    let (u, v) = projection_axes(pl.n);
+    let (mut pos, mut neg) = (false, false);
+    for k in 0..poly.len() {
+        let (a, b) = (poly[k], poly[(k + 1) % poly.len()]);
+        let (ex, ey) = (b[u] - a[u], b[v] - a[v]);
+        let cross = ex * (p[v] - a[v]) - ey * (p[u] - a[u]);
+        let tol = 1e-4 * (ex * ex + ey * ey).sqrt();
+        pos |= cross > tol;
+        neg |= cross < -tol;
+    }
+    !(pos && neg)
+}
+
+/// Where a walk is: a leaf, or `None` for solid.
+type Terminal = Option<usize>;
 
 struct Walk<'c> {
     c: &'c Collision,
     o: [f32; 3],
     d: [f32; 3],
-    leaf: Option<usize>,
+    /// Where the walk was last; `None` before the first leaf or solid.
+    prev: Option<Terminal>,
     plane: Option<usize>,
 }
 
 impl Walk<'_> {
-    /// Whether the ray meets surface `s` from a side that collides.
-    fn faces(&self, s: usize) -> bool {
-        let Some(surf) = self.c.surfaces.get(s) else {
-            return false;
-        };
-        if surf.flags & 1 != 0 {
-            return true;
+    fn two_sided(&self, leaf: usize) -> bool {
+        self.c
+            .leaves
+            .get(leaf)
+            .is_some_and(|l| l.flags & TWO_SIDED_LEAF != 0)
+    }
+
+    /// A surface on `plane` the ray meets at `p` as it leaves `leaf` for
+    /// another open leaf: a reference on the plane whose sign matches the
+    /// direction of travel (no sign: against the plane's normal), whose
+    /// surface holds `p`.
+    fn crossing(&self, leaf: usize, plane: usize, p: [f32; 3]) -> Option<usize> {
+        let c = self.c;
+        let lf = c.leaves.get(leaf)?;
+        let along = dot(c.planes.get(plane)?.n, self.d) > 0.0;
+        for k in 0..lf.reference_count.max(0) as usize {
+            let r = c.bsp2d_references.get(lf.first_reference as usize + k)?;
+            if (r.plane as u32 & 0x7fff_ffff) as usize != plane
+                || ((r.plane as u32) & LEAF != 0) != along
+            {
+                continue;
+            }
+            if let Some(s) = descend(c, r, p) {
+                if inside(c, s, p) {
+                    return Some(s);
+                }
+            }
         }
-        let Some(pl) = self
-            .c
-            .planes
-            .get((surf.plane as u32 & 0x7fff_ffff) as usize)
-        else {
-            return false;
-        };
-        let mut n = pl.n;
-        if (surf.plane as u32) & LEAF != 0 {
-            n = [-n[0], -n[1], -n[2]];
-        }
-        dot(n, self.d) < 0.0
+        None
     }
 
     /// `Err` carries the first hit, which stops the walk.
@@ -107,18 +157,30 @@ impl Walk<'_> {
         if depth > 1024 {
             return Err(None);
         }
-        if node == -1 {
-            // Solid: a hit on the plane just crossed, if the ray came from a
-            // leaf. A ray that starts in solid reports nothing.
-            let (Some(leaf), Some(plane)) = (self.leaf, self.plane) else {
-                return Ok(());
-            };
-            let p = at(self.o, self.d, t0);
-            let surface = leaf_surface(self.c, leaf, plane, p);
-            return Err(surface.map(|surface| Hit { t: t0, surface }));
-        }
-        if (node as u32) & LEAF != 0 {
-            self.leaf = Some((node as u32 & 0x7fff_ffff) as usize);
+        if node == -1 || (node as u32) & LEAF != 0 {
+            let here = (node != -1).then_some((node as u32 & 0x7fff_ffff) as usize);
+            if let (Some(Some(prev)), Some(plane)) = (self.prev, self.plane) {
+                let p = at(self.o, self.d, t0);
+                match here {
+                    // Into solid: a hit on the plane just crossed. (A ray
+                    // that starts in solid reports nothing.)
+                    None => {
+                        let surface = leaf_surface(self.c, prev, plane, p);
+                        return Err(surface.map(|surface| Hit { t: t0, surface }));
+                    }
+                    // From one open leaf into another: thin floors, bridges
+                    // and scenery have open space on both sides. The
+                    // simulation looks only when both leaves are flagged
+                    // two-sided (fn_2eb3d0, CU4).
+                    Some(cur) if self.two_sided(prev) && self.two_sided(cur) => {
+                        if let Some(s) = self.crossing(prev, plane, p) {
+                            return Err(Some(Hit { t: t0, surface: s }));
+                        }
+                    }
+                    Some(_) => {}
+                }
+            }
+            self.prev = Some(here);
             return Ok(());
         }
         let n = self.c.bsp3d_nodes.get(node as usize).ok_or(None)?;
@@ -137,20 +199,7 @@ impl Walk<'_> {
             (n.back, n.front)
         };
         self.rec(near, t0, tm, depth + 1)?;
-        let plane = (n.plane as u32 & 0x7fff_ffff) as usize;
-        self.plane = Some(plane);
-        // Crossing between two open leaves still hits a surface lying on the
-        // crossed plane there: thin floors, bridges and walkways have open
-        // space on both sides. It counts from the surface's front, or from
-        // either side of a two-sided one.
-        if let Some(leaf) = self.leaf {
-            let p = at(self.o, self.d, tm);
-            if let Some(s) = leaf_surface(self.c, leaf, plane, p) {
-                if self.faces(s) {
-                    return Err(Some(Hit { t: tm, surface: s }));
-                }
-            }
-        }
+        self.plane = Some((n.plane as u32 & 0x7fff_ffff) as usize);
         self.rec(far, tm, t1, depth + 1)
     }
 }
@@ -164,7 +213,7 @@ pub fn tree(c: &Collision, o: [f32; 3], d: [f32; 3]) -> Option<Hit> {
         c,
         o,
         d,
-        leaf: None,
+        prev: None,
         plane: None,
     };
     match w.rec(0, 0.0, 1.0, 0) {
