@@ -280,11 +280,45 @@ async function bridgeCall(op, body, timeoutMs = 15_000) {
 // Process control
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Every child process gets a deadline: a capture or input script blocked on a
+// hung game window, or a stuck tasklist, otherwise holds the tool call (and
+// the agent waiting on it) indefinitely.
+const PROCESS_TIMEOUT_MS = 10_000;
+const CAPTURE_TIMEOUT_MS = 20_000;
+
+// A game thread that has not ticked for this long is hung or deep in a load.
+// The window belongs to that thread, so PrintWindow and focus changes would
+// block on it: screenshots and input fail fast instead.
+const HUNG_THREAD_SECONDS = 15;
+
+function gameThreadLag() {
+  const status = bridgeStatus();
+  if (!status) return null;
+  const heartbeatAge = Date.now() / 1000 - Number(status.now);
+  // A stale heartbeat means the bridge itself stopped; nothing to judge by.
+  if (!(heartbeatAge < 10)) return null;
+  return Number(status.now) - Number(status.refreshed);
+}
+
+function hungThreadError(what) {
+  const lag = gameThreadLag();
+  if (lag === null || lag < HUNG_THREAD_SECONDS) return null;
+  return {
+    content: [{
+      type: "text",
+      text: `${what} skipped: the game thread has not ticked for ${lag}s (hung, or busy loading a level), ` +
+        "and the window it owns would block the call. Check game_status again in a moment; if the lag keeps " +
+        "growing, game_quit force and relaunch.",
+    }],
+    isError: true,
+  };
+}
+
 async function gameProcess() {
   try {
     const { stdout } = await execFileAsync("tasklist", [
       "/FI", `IMAGENAME eq ${EXE_NAME}`, "/NH", "/FO", "CSV",
-    ]);
+    ], { timeout: PROCESS_TIMEOUT_MS });
     const match = stdout.match(/^"([^"]+)","(\d+)"/m);
     return match ? { name: match[1], pid: Number(match[2]) } : null;
   } catch {
@@ -292,12 +326,23 @@ async function gameProcess() {
   }
 }
 
-async function powershell(script, args) {
-  const { stdout, stderr } = await execFileAsync(
-    "powershell",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
-    { maxBuffer: 64 * 1024 * 1024 }
-  );
+async function powershell(script, args, timeoutMs = CAPTURE_TIMEOUT_MS) {
+  let stdout, stderr;
+  try {
+    ({ stdout, stderr } = await execFileAsync(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
+      { maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: "SIGKILL" }
+    ));
+  } catch (error) {
+    if (error.killed || error.signal) {
+      throw new Error(
+        `${path.basename(script)} did not finish within ${timeoutMs} ms and was stopped. ` +
+          "A hung game window blocks capture and input; check game_status."
+      );
+    }
+    throw error;
+  }
   const line = stdout.trim().split("\n").filter(Boolean).pop();
   try {
     return JSON.parse(line);
@@ -479,7 +524,8 @@ define({
     if (!running) return text("not running.");
     const flags = ["/PID", String(running.pid)];
     if (args.force) flags.push("/F");
-    await execFileAsync("taskkill", flags).catch(() => execFileAsync("taskkill", [...flags, "/F"]));
+    const kill = (f) => execFileAsync("taskkill", f, { timeout: PROCESS_TIMEOUT_MS });
+    await kill(flags).catch(() => kill([...flags, "/F"]));
     return text(`closed pid ${running.pid}.`);
   },
 });
@@ -602,6 +648,9 @@ define({
     const running = await gameProcess();
     if (!running) return { content: [{ type: "text", text: "the game is not running." }], isError: true };
 
+    const hung = hungThreadError("capture");
+    if (hung) return hung;
+
     fs.mkdirSync(SCRATCH, { recursive: true });
     const file = path.join(SCRATCH, `shot-${Date.now()}.png`);
     const flags = ["-ProcessName", PROCESS_NAME, "-OutFile", file, "-MaxWidth", String(args.max_width ?? 800)];
@@ -642,9 +691,14 @@ define({
   async run(args) {
     const running = await gameProcess();
     if (!running) return { content: [{ type: "text", text: "the game is not running." }], isError: true };
+    const hung = hungThreadError("input");
+    if (hung) return hung;
     const flags = ["-ProcessName", PROCESS_NAME, "-Steps", JSON.stringify(args.steps)];
     if (args.gap_ms !== undefined) flags.push("-GapMs", String(args.gap_ms));
-    const result = await powershell(INPUT_SCRIPT, flags);
+    // The steps' own waits and holds, plus the gaps, plus room to focus.
+    const scripted = args.steps.reduce((sum, step) => sum + (Number(step.wait) || 0) + (Number(step.hold) || 0), 0) +
+      args.steps.length * (args.gap_ms ?? 60);
+    const result = await powershell(INPUT_SCRIPT, flags, scripted + CAPTURE_TIMEOUT_MS);
     if (!result.ok) return { content: [{ type: "text", text: `input failed: ${result.error}` }], isError: true };
     return text(
       (result.focused ? "" : "warning: the game window did not take focus, so the input may have gone elsewhere.\n") +
