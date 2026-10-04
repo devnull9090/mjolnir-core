@@ -52,10 +52,16 @@ START_TYPES = ("Slayer", "Ctf", "AllGames", "AllGamesExceptCtf", "AllGamesExcept
 # Infinity's, is 1.4 wu apart).
 VEHICLE_SETS = {"slayer": 1 << 0, "ctf": 1 << 1, "king": 1 << 2, "oddball": 1 << 3, "all": 0xfff}
 
-# CE vehicles that are a model variant of a Campaign Evolved one: the rocket
-# Warthog is the Warthog with its "rocket" turret (warthog-model variants:
-# default, gauss, troop, rocket, ...).
-VEHICLE_VARIANTS = {"vehicles/rwarthog/rwarthog": "rocket"}
+# CE vehicles that are a model variant of a Campaign Evolved one, by CE tag:
+# the rocket Warthog would be the Warthog with its "rocket" turret
+# (warthog-model variants: default, gauss, troop, rocket, ...). Empty for now,
+# so rocket hogs spawn as chaingun hogs, as gen_bloodgulch_level.py does: the
+# rocket turret (warthog_rocket) has no Unreal actor Blueprint, so its gun was
+# invisible and its gunner vanished (playtest, 2026-10-03). The real fix points
+# its tag wrapper at the chaingun turret's Blueprint (crates/ue-asset
+# tagwrap); the mapping code below stays so the variant can come back:
+#   "vehicles/rwarthog/rwarthog": "rocket"
+VEHICLE_VARIANTS = {}
 
 # The bake creates every placed object "at rest" (placement flag 0x20). This
 # override clears it, so an object placed above the floor falls into place
