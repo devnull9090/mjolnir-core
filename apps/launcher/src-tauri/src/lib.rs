@@ -512,38 +512,80 @@ fn ue4ss_settings_file(settings: &LauncherSettings) -> Option<PathBuf> {
 }
 
 /// `ini` with `[Debug] ConsoleEnabled` set to `show`, everything else left as
-/// it was. The file is seed state the player may have tuned, so this edits
-/// the one key rather than writing a fresh file.
+/// it was.
 fn with_console_enabled(ini: &str, show: bool) -> String {
-    let entry = format!("ConsoleEnabled = {}", if show { 1 } else { 0 });
+    with_ini_value(ini, "Debug", "ConsoleEnabled", if show { "1" } else { "0" })
+}
+
+/// The fewest seconds UE4SS may scan before giving up. Its FName::FName
+/// check passes only once the engine ticks, ~20 s into a launch on a fast
+/// PC; with UE4SS's stock 30 a slower one gives up first, and no Lua mod
+/// runs at all (playtest, 2026-10-03: the lobby showed, its buttons were
+/// dead). A failed scan costs this long only when UE4SS is broken anyway.
+const MIN_SECONDS_TO_SCAN: u32 = 120;
+
+/// `ini` with `[General] SecondsToScanBeforeGivingUp` at least
+/// [`MIN_SECONDS_TO_SCAN`]. A longer timeout the player chose is kept.
+fn with_scan_time_floor(ini: &str) -> String {
+    let current = ini_value(ini, "General", "SecondsToScanBeforeGivingUp")
+        .and_then(|v| v.parse::<u32>().ok());
+    match current {
+        Some(seconds) if seconds >= MIN_SECONDS_TO_SCAN => ini.to_string(),
+        _ => with_ini_value(ini, "General", "SecondsToScanBeforeGivingUp", &MIN_SECONDS_TO_SCAN.to_string()),
+    }
+}
+
+/// Whether `line` is `key = ...`, ignoring case and spacing.
+fn is_ini_key(line: &str, key: &str) -> bool {
+    line.split_once('=')
+        .is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case(key))
+}
+
+/// The value of `[section] key`, trimmed; `None` when it is not set there.
+fn ini_value(ini: &str, section: &str, key: &str) -> Option<String> {
+    let header = format!("[{section}]");
+    let mut in_section = false;
+    for line in ini.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_section = trimmed.eq_ignore_ascii_case(&header);
+        } else if in_section && is_ini_key(trimmed, key) {
+            return trimmed.split_once('=').map(|(_, v)| v.trim().to_string());
+        }
+    }
+    None
+}
+
+/// `ini` with `[section] key` set to `value`, everything else left as it
+/// was. The file is seed state the player may have tuned, so this edits the
+/// one key rather than writing a fresh file. A missing key goes at the end
+/// of its section, and a missing section at the end of the file.
+fn with_ini_value(ini: &str, section: &str, key: &str, value: &str) -> String {
+    let entry = format!("{key} = {value}");
+    let header = format!("[{section}]");
     let newline = if ini.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = String::with_capacity(ini.len() + entry.len() + 16);
-    let mut in_debug = false;
-    let mut debug_seen = false;
+    let mut in_section = false;
+    let mut section_seen = false;
     let mut written = false;
 
     for line in ini.split_inclusive('\n') {
         let body = line.trim_end_matches(['\r', '\n']);
         let trimmed = body.trim();
         if trimmed.starts_with('[') {
-            // Leaving [Debug] without having met the key: add it there.
-            if in_debug && !written {
+            // Leaving the section without having met the key: add it there.
+            if in_section && !written {
                 out.push_str(&entry);
                 out.push_str(newline);
                 written = true;
             }
-            in_debug = trimmed.eq_ignore_ascii_case("[Debug]");
-            debug_seen |= in_debug;
-        } else if in_debug {
-            let is_key = trimmed
-                .split_once('=')
-                .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("ConsoleEnabled"));
-            if is_key {
-                out.push_str(&entry);
-                out.push_str(&line[body.len()..]);
-                written = true;
-                continue;
-            }
+            in_section = trimmed.eq_ignore_ascii_case(&header);
+            section_seen |= in_section;
+        } else if in_section && !written && is_ini_key(trimmed, key) {
+            out.push_str(&entry);
+            out.push_str(&line[body.len()..]);
+            written = true;
+            continue;
         }
         out.push_str(line);
     }
@@ -552,8 +594,8 @@ fn with_console_enabled(ini: &str, show: bool) -> String {
         if !out.is_empty() && !out.ends_with('\n') {
             out.push_str(newline);
         }
-        if !debug_seen {
-            out.push_str("[Debug]");
+        if !section_seen {
+            out.push_str(&header);
             out.push_str(newline);
         }
         out.push_str(&entry);
@@ -562,16 +604,31 @@ fn with_console_enabled(ini: &str, show: bool) -> String {
     out
 }
 
-/// Bring the installed UE4SS settings in line with the launcher's console
-/// choice. UE4SS reads the file once at startup, so this has to land before
-/// the game starts; with no UE4SS installed there is nothing to do.
-fn apply_ue4ss_console(settings: &LauncherSettings) -> Result<(), String> {
+/// `ini` with `[General] EnableHotReloadSystem` off. Ctrl+R reloads every
+/// Lua mod, and the native halves they load had hooks in the game: a reload
+/// mid-match crashed the host (two PCs, 2026-10-03). The DLLs now pin
+/// themselves, but a player has no use for a reload, and a stray Ctrl+R
+/// still restarts every mod in the middle of a game.
+fn with_hot_reload_off(ini: &str) -> String {
+    with_ini_value(ini, "General", "EnableHotReloadSystem", "0")
+}
+
+/// Everything the launcher keeps in the player's UE4SS settings.
+fn with_launcher_settings(ini: &str, show_console: bool) -> String {
+    with_hot_reload_off(&with_scan_time_floor(&with_console_enabled(ini, show_console)))
+}
+
+/// Bring the installed UE4SS settings in line with what the launcher needs:
+/// the player's console choice, the scan-time floor and no hot reload. UE4SS
+/// reads the file once at startup, so this has to land before the game
+/// starts; with no UE4SS installed there is nothing to do.
+fn apply_ue4ss_settings(settings: &LauncherSettings) -> Result<(), String> {
     let Some(path) = ue4ss_settings_file(settings) else {
         return Ok(());
     };
     let ini = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    let updated = with_console_enabled(&ini, settings.show_ue4ss_console);
+    let updated = with_launcher_settings(&ini, settings.show_ue4ss_console);
     if updated != ini {
         fs::write(&path, updated)
             .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
@@ -764,7 +821,7 @@ fn set_ue4ss_console(show: bool) -> Result<(), String> {
     let mut settings = get_settings();
     settings.show_ue4ss_console = show;
     save_settings(settings.clone())?;
-    apply_ue4ss_console(&settings)
+    apply_ue4ss_settings(&settings)
 }
 
 #[tauri::command]
@@ -871,10 +928,10 @@ fn launch_game() -> Result<(), String> {
     }
 
     // Applied on every launch as well as on toggle: a reinstall, or a hand
-    // edit, can leave the file saying otherwise. A failure only means the
-    // console shows or hides wrongly, so the game starts anyway.
-    if let Err(e) = apply_ue4ss_console(&settings) {
-        eprintln!("ue4ss console: {e}");
+    // edit, can leave the file saying otherwise. A failure costs the console
+    // choice or the scan-time floor, not the launch, so the game starts anyway.
+    if let Err(e) = apply_ue4ss_settings(&settings) {
+        eprintln!("ue4ss settings: {e}");
     }
 
     match settings.launch_method.as_str() {
@@ -1670,6 +1727,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Also on every launch (launch_game), but many players start the
+        // game from Steam: opening the launcher is enough to fix their file.
+        .setup(|_| {
+            if let Err(e) = apply_ue4ss_settings(&get_settings()) {
+                eprintln!("ue4ss settings: {e}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             detect_game,
             get_mods,
@@ -1821,6 +1886,86 @@ mod tests {
         assert_eq!(
             with_console_enabled("[Threads]\nSigScannerNumThreads = 8\n", true),
             "[Threads]\nSigScannerNumThreads = 8\n[Debug]\nConsoleEnabled = 1\n"
+        );
+    }
+
+    /// UE4SS's stock 30 s lost the startup race on a playtester's PC, and
+    /// the launcher keeps an existing settings file as it is, so the floor
+    /// is raised in place.
+    #[test]
+    fn a_short_scan_timeout_is_raised_to_the_floor() {
+        let stock = "[General]\r\n; Default: 30\r\nSecondsToScanBeforeGivingUp = 30\r\nUseCache = 1\r\n\r\n[Debug]\r\nConsoleEnabled = 0\r\n";
+        assert_eq!(
+            with_scan_time_floor(stock),
+            stock.replace("GivingUp = 30", "GivingUp = 120")
+        );
+        // Our own bundled 60 is short too.
+        assert_eq!(
+            with_scan_time_floor("[General]\nSecondsToScanBeforeGivingUp = 60\n"),
+            "[General]\nSecondsToScanBeforeGivingUp = 120\n"
+        );
+    }
+
+    #[test]
+    fn a_longer_scan_timeout_is_kept() {
+        let ini = "[General]\nSecondsToScanBeforeGivingUp=300\n";
+        assert_eq!(with_scan_time_floor(ini), ini);
+        assert_eq!(with_scan_time_floor(&with_scan_time_floor("[General]\n")), "[General]\nSecondsToScanBeforeGivingUp = 120\n");
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_scan_timeout_gets_the_floor() {
+        assert_eq!(
+            with_scan_time_floor("[General]\nUseCache = 1\n\n[Debug]\nConsoleEnabled = 0\n"),
+            "[General]\nUseCache = 1\n\nSecondsToScanBeforeGivingUp = 120\n[Debug]\nConsoleEnabled = 0\n"
+        );
+        assert_eq!(
+            with_scan_time_floor("[Debug]\nConsoleEnabled = 0\n"),
+            "[Debug]\nConsoleEnabled = 0\n[General]\nSecondsToScanBeforeGivingUp = 120\n"
+        );
+        assert_eq!(
+            with_scan_time_floor("[General]\nSecondsToScanBeforeGivingUp = soon\n"),
+            "[General]\nSecondsToScanBeforeGivingUp = 120\n"
+        );
+        // The same key in another section is not the one UE4SS reads.
+        assert_eq!(
+            with_scan_time_floor("[Other]\nSecondsToScanBeforeGivingUp = 500\n[General]\n"),
+            "[Other]\nSecondsToScanBeforeGivingUp = 500\n[General]\nSecondsToScanBeforeGivingUp = 120\n"
+        );
+    }
+
+    /// The shipped settings file, run through every edit: only the scan
+    /// timeout and hot reload change (the bundle already hides the console).
+    #[test]
+    fn the_bundled_settings_change_only_their_own_keys() {
+        let bundled = include_str!("../../../../config/UE4SS-settings.ini");
+        let updated = with_launcher_settings(bundled, false);
+        let changed: Vec<(&str, &str)> = bundled
+            .lines()
+            .zip(updated.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(
+            changed,
+            vec![
+                ("EnableHotReloadSystem = 1", "EnableHotReloadSystem = 0"),
+                ("SecondsToScanBeforeGivingUp = 60", "SecondsToScanBeforeGivingUp = 120"),
+            ]
+        );
+        assert_eq!(bundled.lines().count(), updated.lines().count());
+        // A second pass changes nothing.
+        assert_eq!(with_launcher_settings(&updated, false), updated);
+    }
+
+    #[test]
+    fn hot_reload_is_turned_off_and_added_when_missing() {
+        assert_eq!(
+            with_hot_reload_off("[General]\nEnableHotReloadSystem = 1\nHotReloadKey = R\n"),
+            "[General]\nEnableHotReloadSystem = 0\nHotReloadKey = R\n"
+        );
+        assert_eq!(
+            with_hot_reload_off("[General]\nUseCache = 1\n[Debug]\n"),
+            "[General]\nUseCache = 1\nEnableHotReloadSystem = 0\n[Debug]\n"
         );
     }
 
