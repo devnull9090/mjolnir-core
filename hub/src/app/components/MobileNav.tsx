@@ -16,6 +16,7 @@ import {
   ScrollText,
   ShieldCheck,
   Wrench,
+  Swords,
 } from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
@@ -26,6 +27,7 @@ const navLinks = [
   { href: "/mods", label: "Mods", icon: Package },
   { href: "/maps", label: "Maps", icon: MapIcon },
   { href: "/games", label: "Games", icon: Gamepad2 },
+  { href: "/matches", label: "Matches", icon: Swords },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
   { href: "/blog", label: "Blog", icon: Newspaper },

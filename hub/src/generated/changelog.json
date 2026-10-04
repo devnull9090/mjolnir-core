@@ -69,6 +69,36 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.14.0",
+      "tag": "mods-v0.14.0",
+      "title": "Match history for public games",
+      "date": "2026-10-03",
+      "summary": "Public matches now report their scoreboard and every kill, with where it happened, to mjolnircore.com/matches.",
+      "body": "### Added\n\n- **Match history.** When a public match ends, the host's game sends it to\n  mjolnircore.com: the final scoreboard and every kill, death, spawn, medal\n  and flag capture, in order, with where each player was standing. See every\n  match at mjolnircore.com/matches, with a timeline and a map of where the\n  kills and deaths happened.\n- **Your matches on your profile.** Your own game claims your seat in each\n  public match you play, so your hub profile lists your matches, wins, kills\n  and deaths. Players can also be looked up by in-game name.\n- Private games are not reported.\n\n### Changed\n\n- **MJOLNIRHud 0.4.0** records public matches on the host and claims your seat\n  when you play in someone else's.\n- **MJOLNIRLobby 0.7.0** sends them to the hub with your launcher sign-in.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Match history. When a public match ends, the host's game sends it to mjolnircore.com: the final scoreboard and every kill, death, spawn, medal and flag capture, in order, with where each player was standing. See every match at mjolnircore.com/matches, with a timeline and a map of where the kills and deaths happened.",
+            "Your matches on your profile. Your own game claims your seat in each public match you play, so your hub profile lists your matches, wins, kills and deaths. Players can also be looked up by in-game name.",
+            "Private games are not reported."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRHud 0.4.0 records public matches on the host and claims your seat when you play in someone else's.",
+            "MJOLNIRLobby 0.7.0 sends them to the hub with your launcher sign-in."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.14.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.13.0",
       "tag": "mods-v0.13.0",
       "title": "A new server browser in FIND GAMES",

@@ -73,3 +73,10 @@ native/map_registry/obj/
 mods/MJOLNIRLobby/native/*.dll
 mods/MJOLNIRLobby/native/*.txt
 native/lobby/obj/
+
+# Match history files the HUD and Lobby write at runtime (docs/match_stats.md).
+mods/MJOLNIRHud/match_*.json
+mods/MJOLNIRHud/claim_*.json
+mods/MJOLNIRHud/match_outbox.txt
+mods/MJOLNIRHud/match_current.txt
+mods/MJOLNIRLobby/listing.txt

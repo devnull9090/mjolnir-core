@@ -2215,6 +2215,851 @@
           "ping_ms",
           "created_at"
         ]
+      },
+      "MatchReport": {
+        "type": "object",
+        "properties": {
+          "host_match_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,64}$"
+          },
+          "lobby_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "map_code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{3}$"
+          },
+          "game_type": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,24}$"
+          },
+          "team_game": {
+            "type": "boolean",
+            "default": false
+          },
+          "score_to_win": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "started_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 21600000
+          },
+          "end_reason": {
+            "type": "string",
+            "enum": [
+              "round_over",
+              "game_over",
+              "abandoned"
+            ]
+          },
+          "host_index": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 15
+          },
+          "team_scores": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "red": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blue": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "red",
+              "blue"
+            ]
+          },
+          "client_version": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "players": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchPlayerInput"
+            },
+            "minItems": 1,
+            "maxItems": 16
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchEventInput"
+            },
+            "maxItems": 20000,
+            "default": []
+          }
+        },
+        "required": [
+          "host_match_id",
+          "lobby_id",
+          "map_code",
+          "game_type",
+          "started_at",
+          "duration_ms",
+          "end_reason",
+          "players"
+        ]
+      },
+      "MatchPlayerInput": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 15
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "score": {
+            "type": "integer",
+            "minimum": -1000,
+            "maximum": 100000,
+            "default": 0
+          },
+          "kills": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0
+          },
+          "deaths": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0
+          },
+          "suicides": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0
+          },
+          "captures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0
+          },
+          "left": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "index",
+          "name"
+        ]
+      },
+      "MatchEventInput": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 21600000
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]{1,40}$",
+            "example": "kill"
+          },
+          "cause": {
+            "type": "integer",
+            "minimum": -1,
+            "maximum": 15,
+            "default": -1
+          },
+          "effect": {
+            "type": "integer",
+            "minimum": -1,
+            "maximum": 15,
+            "default": -1
+          },
+          "value": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "weapon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_]{1,48}$",
+            "example": "AssaultRifle"
+          },
+          "modifier": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 64
+          },
+          "cause_pos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Unreal world space, centimetres, Z up.",
+            "example": [
+              12034.5,
+              -3310.2,
+              405
+            ]
+          },
+          "effect_pos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Unreal world space, centimetres, Z up.",
+            "example": [
+              12034.5,
+              -3310.2,
+              405
+            ]
+          }
+        },
+        "required": [
+          "t_ms",
+          "type"
+        ]
+      },
+      "MatchClaim": {
+        "type": "object",
+        "properties": {
+          "host_match_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,64}$"
+          },
+          "player_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 15
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "host_match_id",
+          "player_index",
+          "name"
+        ]
+      },
+      "MatchSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "map_code": {
+            "type": "string"
+          },
+          "map_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "game_type": {
+            "type": "string"
+          },
+          "team_game": {
+            "type": "boolean"
+          },
+          "score_to_win": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "end_reason": {
+            "type": "string",
+            "enum": [
+              "round_over",
+              "game_over",
+              "abandoned"
+            ]
+          },
+          "red_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "blue_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "winner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "winner_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "player_count": {
+            "type": "number"
+          },
+          "event_count": {
+            "type": "number"
+          },
+          "host": {
+            "type": "string"
+          },
+          "player": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "index": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "red",
+                  "blue",
+                  null
+                ]
+              },
+              "score": {
+                "type": "number"
+              },
+              "kills": {
+                "type": "number"
+              },
+              "deaths": {
+                "type": "number"
+              },
+              "suicides": {
+                "type": "number"
+              },
+              "captures": {
+                "type": "number"
+              },
+              "place": {
+                "type": "number"
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "win",
+                  "loss",
+                  "draw",
+                  null
+                ]
+              },
+              "left_early": {
+                "type": "boolean"
+              },
+              "is_host": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "index",
+              "name",
+              "team",
+              "score",
+              "kills",
+              "deaths",
+              "suicides",
+              "captures",
+              "place",
+              "outcome",
+              "left_early",
+              "is_host"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "map_code",
+          "map_title",
+          "game_type",
+          "team_game",
+          "score_to_win",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "end_reason",
+          "red_score",
+          "blue_score",
+          "winner",
+          "winner_name",
+          "player_count",
+          "event_count",
+          "host",
+          "player"
+        ]
+      },
+      "MatchDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "map_code": {
+            "type": "string"
+          },
+          "map_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "game_type": {
+            "type": "string"
+          },
+          "team_game": {
+            "type": "boolean"
+          },
+          "score_to_win": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "end_reason": {
+            "type": "string",
+            "enum": [
+              "round_over",
+              "game_over",
+              "abandoned"
+            ]
+          },
+          "red_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "blue_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "winner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "winner_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "player_count": {
+            "type": "number"
+          },
+          "event_count": {
+            "type": "number"
+          },
+          "host": {
+            "type": "string"
+          },
+          "players": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchPlayer"
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchEvent"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "map_code",
+          "map_title",
+          "game_type",
+          "team_game",
+          "score_to_win",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "end_reason",
+          "red_score",
+          "blue_score",
+          "winner",
+          "winner_name",
+          "player_count",
+          "event_count",
+          "host",
+          "players",
+          "events"
+        ]
+      },
+      "MatchPlayer": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "score": {
+            "type": "number"
+          },
+          "kills": {
+            "type": "number"
+          },
+          "deaths": {
+            "type": "number"
+          },
+          "suicides": {
+            "type": "number"
+          },
+          "captures": {
+            "type": "number"
+          },
+          "place": {
+            "type": "number"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "win",
+              "loss",
+              "draw",
+              null
+            ]
+          },
+          "left_early": {
+            "type": "boolean"
+          },
+          "is_host": {
+            "type": "boolean"
+          },
+          "user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "team",
+          "score",
+          "kills",
+          "deaths",
+          "suicides",
+          "captures",
+          "place",
+          "outcome",
+          "left_early",
+          "is_host",
+          "user"
+        ]
+      },
+      "MatchEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "number"
+          },
+          "t_ms": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          },
+          "cause": {
+            "type": "number"
+          },
+          "effect": {
+            "type": "number"
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "weapon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modifier": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cause_pos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Unreal world space, centimetres, Z up.",
+            "example": [
+              12034.5,
+              -3310.2,
+              405
+            ]
+          },
+          "effect_pos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Unreal world space, centimetres, Z up.",
+            "example": [
+              12034.5,
+              -3310.2,
+              405
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "t_ms",
+          "type",
+          "cause",
+          "effect",
+          "value",
+          "weapon",
+          "modifier",
+          "cause_pos",
+          "effect_pos"
+        ]
+      },
+      "PlayerTotals": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "number"
+          },
+          "completed": {
+            "type": "number"
+          },
+          "wins": {
+            "type": "number"
+          },
+          "losses": {
+            "type": "number"
+          },
+          "draws": {
+            "type": "number"
+          },
+          "kills": {
+            "type": "number"
+          },
+          "deaths": {
+            "type": "number"
+          },
+          "suicides": {
+            "type": "number"
+          },
+          "captures": {
+            "type": "number"
+          },
+          "last_played": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weapons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "weapon": {
+                  "type": "string"
+                },
+                "kills": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "weapon",
+                "kills"
+              ]
+            }
+          }
+        },
+        "required": [
+          "matches",
+          "completed",
+          "wins",
+          "losses",
+          "draws",
+          "kills",
+          "deaths",
+          "suicides",
+          "captures",
+          "last_played",
+          "weapons"
+        ]
       }
     },
     "parameters": {}
@@ -5885,6 +6730,370 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matches": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Report a public match the caller hosted",
+        "description": "The host's game sends this when a public match ends: the standings and every incident the simulation raised, in order, with positions. `host_match_id` is the host's own id for the match, which its fireteam's games cite to claim their seats; reporting the same one again is a no-op. Needs the `lobbies:write` scope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchReport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Already recorded from this account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "duplicate"
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "duplicate"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope, or not this listing's host.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That match id is another account's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many reports.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Recent public matches: by map, game type, player or account",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{3}$"
+            },
+            "required": false,
+            "name": "map",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,24}$"
+            },
+            "required": false,
+            "name": "game_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The name the game gave a player."
+            },
+            "required": false,
+            "description": "The name the game gave a player.",
+            "name": "player",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "A hub account id."
+            },
+            "required": false,
+            "description": "A hub account id.",
+            "name": "user",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "`next` from the previous page."
+            },
+            "required": false,
+            "description": "`next` from the previous page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "matches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MatchSummary"
+                      }
+                    },
+                    "next": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "matches",
+                    "next"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matches/claims": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Claim the caller's seat in a public match",
+        "description": "A participant's game sends this when the host tells it the match's id, so the seat it played in links to the caller's account. The match may not be reported yet: the claim waits for it. It links only a seat of the claimed name. Needs the `lobbies:write` scope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchClaim"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claimed; `linked` once the match is reported and the seat matched.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "linked": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "linked"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Someone else claimed that seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matches/{id}": {
+      "get": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "One match: standings and every event, in order",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The match.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such match.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/players/{name}/stats": {
+      "get": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "A player's totals across public matches, by in-game name",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "name",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerTotals"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/match-stats": {
+      "get": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "An account's totals across the public matches it is linked to",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerTotals"
                 }
               }
             }
