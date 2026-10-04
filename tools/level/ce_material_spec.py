@@ -42,6 +42,19 @@ CE = "/Game/MJOLNIR/CE"
 # add. Unreal has no subtract/min/max blend; those fall back to alpha blending.
 BLEND_PARENTS = {0: "Alpha", 1: "Mul", 2: "Mul", 3: "Add", 4: "Alpha", 5: "Alpha", 6: "Alpha", 7: "Add"}
 
+# shader_transparent_chicago(_extended) flag bit 2: "two-sided". A material
+# instance cannot turn two-sided on, so these take the TwoSided masters: the
+# Covenant shields drew from one side only (playtest, 2026-10-03). halo2ue's
+# `double_sided` says nothing here: it is true for every transparent shader.
+CHICAGO_TWO_SIDED = 4
+
+
+def transparent_master(blend_parent, shader):
+    """The M_CE_Transparent* master for a blend ("Add", "Alpha", "Mul") and
+    the shader's two-sided flag."""
+    two_sided = "TwoSided" if shader.get("shader_flags", 0) & CHICAGO_TWO_SIDED else ""
+    return master(f"M_CE_Transparent{blend_parent}{two_sided}")
+
 
 WU_TO_CM = 304.8
 
@@ -205,7 +218,7 @@ def main():
         entry = {"name": mi, "scalars": {}, "vectors": {}, "textures": {}}
         if cls in ("schi", "scex"):
             blend = s.get("framebuffer_blend_function", 0)
-            entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}")
+            entry["parent"] = transparent_master(BLEND_PARENTS.get(blend, "Alpha"), s)
             stages = [st for st in (s.get("chicago_stages") or []) if st.get("map")][:4]
             if not stages:
                 stages = [{"map": s["base_map"]}]
@@ -235,7 +248,7 @@ def main():
                 # reference). CE draws nothing there; the master's default
                 # white map made it a solid white box. A zero tint adds
                 # nothing, and the additive master keeps it out of the alpha.
-                entry["parent"] = master("M_CE_TransparentAdd")
+                entry["parent"] = transparent_master("Add", s)
                 vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
         elif cls == "swat":
             # shader_transparent_water (M_CE_Water): the reflection cube seen

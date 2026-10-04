@@ -11,6 +11,8 @@ Writes, under /Game/MJOLNIR/CE:
   M_CE_TransparentAdd     shader_transparent_chicago(_extended), drawn additively
   M_CE_TransparentAlpha   ... alpha blended
   M_CE_TransparentMul     ... multiplied into the frame
+  M_CE_Transparent{Add,Alpha,Mul}TwoSided   ... drawn from both sides (the
+                          shader's two-sided flag: Covenant shields)
   M_CE_Water              shader_transparent_water: a rippling, view-tinted
                           reflection, added into the frame
   T_CE_White, T_CE_Grey, T_CE_Flat, T_CE_BlackCube   what an absent map samples
@@ -619,10 +621,14 @@ def build_environment(name, masked, defaults, two_sided=False):
     eal.save_loaded_asset(m)
 
 
-def build_transparent(name, blend, defaults):
+def build_transparent(name, blend, defaults, two_sided=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property("blend_mode", blend)
+    # A material instance cannot turn two-sided on, so the shaders with
+    # CE's two-sided flag get masters of their own: the Covenant shields
+    # drew from one side only (playtest, 2026-10-03).
+    m.set_editor_property("two_sided", two_sided)
     m.set_editor_property("used_with_static_lighting", False)
     g = Graph(m)
     uv0 = g.uv(0)
@@ -828,6 +834,9 @@ build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=Tr
 build_transparent("M_CE_TransparentAdd", unreal.BlendMode.BLEND_ADDITIVE, defaults)
 build_transparent("M_CE_TransparentAlpha", unreal.BlendMode.BLEND_TRANSLUCENT, defaults)
 build_transparent("M_CE_TransparentMul", unreal.BlendMode.BLEND_MODULATE, defaults)
+build_transparent("M_CE_TransparentAddTwoSided", unreal.BlendMode.BLEND_ADDITIVE, defaults, two_sided=True)
+build_transparent("M_CE_TransparentAlphaTwoSided", unreal.BlendMode.BLEND_TRANSLUCENT, defaults, two_sided=True)
+build_transparent("M_CE_TransparentMulTwoSided", unreal.BlendMode.BLEND_MODULATE, defaults, two_sided=True)
 build_water(defaults)
 build_flare(defaults)
 unreal.log("MJOLNIR CE materials built")
