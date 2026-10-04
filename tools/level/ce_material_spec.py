@@ -136,6 +136,128 @@ def model_shader(entry, s, texture):
         sc["ReflCutoff"] = model["reflection_cutoff"] * 304.8
 
 
+def environment_tag(entry, s, cls):
+    """The shader_environment and shader_model fields beyond the summary
+    (halo2ue's `tag`, docs/ce_map_conversion.md, "Materials"): the base UV
+    transform (an environment's texture scrolling; a model's map scale and
+    u, v and rotation animation), the material colour, the detail maps'
+    rescale and v scale, the reflection's lightmap brightness mask and a
+    model's self-illumination colour source."""
+    t = s.get("tag")
+    if not t:
+        return
+    sc, vec = entry["scalars"], entry["vectors"]
+    if cls == "senv":
+        # Texture scrolling: no phase, no source, base-map repeats.
+        vec["BaseUAnim"] = [t.get("u_animation_function", 0), t.get("u_animation_period", 0.0), 0.0,
+                            t.get("u_animation_scale", 0.0)]
+        vec["BaseVAnim"] = [t.get("v_animation_function", 0), t.get("v_animation_period", 0.0), 0.0,
+                            t.get("v_animation_scale", 0.0)]
+        mc = t.get("material_color") or [1.0, 1.0, 1.0]
+        vec["MaterialColor"] = list(mc) + [1.0]
+        # Diffuse flag bit 0, "rescale detail maps": each detail scale also
+        # takes the base map's size over its own, per axis.
+        base = t.get("base_map") or {}
+        for key, param in (("primary_detail_map", "Primary"), ("secondary_detail_map", "Secondary"),
+                           ("micro_detail_map", "Micro")):
+            det = t.get(key) or {}
+            if t.get("diffuse_flags", 0) & 1 and base.get("width") and det.get("width"):
+                u = base["width"] / det["width"]
+                v = base["height"] / det["height"]
+                sc[f"{param}Scale"] = sc.get(f"{param}Scale", 1.0) * u
+                sc[f"{param}Aspect"] = v / u
+        # Reflections dim in dark lightmap areas below this scale.
+        lbs = t.get("lightmap_brightness_scale", 1.0)
+        if 0.0 <= lbs < 1.0:
+            sc["LightmapReflScale"] = lbs
+    elif cls == "soso":
+        vec["BaseXform"] = [t.get("map_u_scale") or 1.0, t.get("map_v_scale") or 1.0, 0.0, 0.0]
+        for axis, key in (("U", "u"), ("V", "v"), ("R", "rotation")):
+            vec[f"Base{axis}Anim"] = [t.get(f"{key}_animation_function", 0), t.get(f"{key}_animation_period", 0.0),
+                                      t.get(f"{key}_animation_phase", 0.0), t.get(f"{key}_animation_scale", 0.0)]
+        centre = t.get("rotation_animation_center") or [0.0, 0.0]
+        vec["BaseMisc"] = [0.0, centre[0], centre[1], 0.0]
+        if t.get("detail_map_v_scale"):
+            sc["PrimaryAspect"] = t["detail_map_v_scale"]
+        # The self-illumination colour takes a change colour (A-D).
+        source = t.get("self_illumination_color_source", 0)
+        if 1 <= source <= 4 and sc.get("HasModelSelfIllum"):
+            sc["SICCOffset"] = (1 + source) / 8.0
+            sc["HasSICC"] = 1.0
+
+
+def chicago(entry, s, texture, cube):
+    """shader_transparent_chicago(_extended) on the transparent masters, every
+    field of the tag (halo2ue's `tag`, docs/ce_map_conversion.md,
+    "Transparent shaders"): each map with its transform, animation and flags,
+    the colour/alpha chain, the first map type, the framebuffer blend and
+    fade, the alpha-test, decal and two-sided flags. An extended shader draws
+    its four-stage maps, or its two-stage ones when it has none. A map with
+    no bitmap keeps its place (CE binds a white default)."""
+    t = s.get("tag") or {}
+    blend = t.get("framebuffer_blend_function", s.get("framebuffer_blend_function", 0))
+    flags = t.get("flags", 0)
+    # Two-sided (bit 2) is a master variant: an instance cannot change it.
+    variant = "TwoSided" if flags & 4 else ""
+    entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}{variant}")
+    maps = t.get("maps") or t.get("four_stage_maps") or t.get("two_stage_maps") or []
+    if not t:
+        # A staging from before halo2ue wrote `tag`: its stage summary.
+        for st in s.get("chicago_stages") or []:
+            u, v = st.get("u_animation") or [0, 0, 0, 0], st.get("v_animation") or [0, 0, 0, 0]
+            maps.append({"map": {"file": st.get("map")}, "color_function": st.get("color_function", 0),
+                         "alpha_function": st.get("alpha_function", 0),
+                         "map_u_scale": st.get("u_scale"), "map_v_scale": st.get("v_scale"),
+                         "map_u_offset": st.get("u_offset", 0.0), "map_v_offset": st.get("v_offset", 0.0),
+                         "map_rotation": st.get("rotation", 0.0),
+                         "u_animation_function": u[0], "u_animation_period": u[1],
+                         "u_animation_phase": u[2], "u_animation_scale": u[3],
+                         "v_animation_function": v[0], "v_animation_period": v[1],
+                         "v_animation_phase": v[2], "v_animation_scale": v[3]})
+    maps = maps[:4]
+    sc, vec, tex = entry["scalars"], entry["vectors"], entry["textures"]
+    if not maps:
+        maps = [{"map": {"file": s.get("base_map")}}]
+    functions, alpha_functions = [0.0] * 4, [0.0] * 4
+    for i, m in enumerate(maps):
+        tex[f"Map{i}"] = texture((m.get("map") or {}).get("file"))
+        vec[f"Stage{i}Xform"] = [m.get("map_u_scale") or 1.0, m.get("map_v_scale") or 1.0,
+                                 m.get("map_u_offset", 0.0), m.get("map_v_offset", 0.0)]
+        for axis, key in (("U", "u"), ("V", "v"), ("R", "rotation")):
+            vec[f"Stage{i}{axis}Anim"] = [m.get(f"{key}_animation_function", 0), m.get(f"{key}_animation_period", 0.0),
+                                          m.get(f"{key}_animation_phase", 0.0), m.get(f"{key}_animation_scale", 0.0)]
+        centre = m.get("rotation_animation_center") or [0.0, 0.0]
+        vec[f"Stage{i}Misc"] = [m.get("map_rotation", 0.0), centre[0], centre[1], float(m.get("flags", 0))]
+        functions[i] = m.get("color_function", 0)
+        alpha_functions[i] = m.get("alpha_function", 0)
+    vec["StageColorFunctions"] = functions
+    vec["StageAlphaFunctions"] = alpha_functions
+    sc["StageCount"] = len(maps)
+    sc["ChicagoFlags"] = float(flags)
+    sc["BlendFunction"] = float(blend)
+    sc["FadeMode"] = float(t.get("framebuffer_fade_mode", 0))
+    first = t.get("first_map_type", 0)
+    if first:
+        cube_map = cube((maps[0].get("map") or {}).get("faces"))
+        if cube_map:
+            sc["FirstMapType"] = float(first)
+            tex["Map0Cube"] = cube_map
+    if blend == 2:
+        vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
+    if blend == 7:
+        sc["Premultiply"] = 1.0
+    if not any(tex.get(f"Map{i}") for i in range(len(maps))) and not tex.get("Map0Cube"):
+        # No bitmap on any map (Danger Canyon's white_light: a null
+        # reference). CE draws nothing there; the master's default white map
+        # made it a solid white box. A zero tint adds nothing, and the
+        # additive master keeps it out of the alpha.
+        entry["parent"] = master(f"M_CE_TransparentAdd{variant}")
+        sc["BlendFunction"] = 3.0
+        vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
+    for k in [k for k, v in tex.items() if not v]:
+        del tex[k]
+
+
 def main():
     args = sys.argv[1:]
     code = None
@@ -204,39 +326,7 @@ def main():
         cls = s["shader_class"]
         entry = {"name": mi, "scalars": {}, "vectors": {}, "textures": {}}
         if cls in ("schi", "scex"):
-            blend = s.get("framebuffer_blend_function", 0)
-            entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}")
-            stages = [st for st in (s.get("chicago_stages") or []) if st.get("map")][:4]
-            if not stages:
-                stages = [{"map": s["base_map"]}]
-            sc, vec = entry["scalars"], entry["vectors"]
-            functions = [0.0] * 4
-            alpha_functions = [0.0] * 4
-            for i, st in enumerate(stages):
-                entry["textures"][f"Map{i}"] = texture(st["map"])
-                vec[f"Stage{i}Xform"] = [st.get("u_scale") or 1.0, st.get("v_scale") or 1.0,
-                                         st.get("u_offset", 0.0), st.get("v_offset", 0.0)]
-                for axis in ("u", "v"):
-                    fn, period, phase, scale = st.get(f"{axis}_animation") or [0, 0.0, 0.0, 0.0]
-                    vec[f"Stage{i}{axis.upper()}Anim"] = [fn, period, phase, scale]
-                if st.get("rotation"):
-                    sc[f"Stage{i}Rotation"] = st["rotation"]
-                functions[i] = st.get("color_function", 0)
-                alpha_functions[i] = st.get("alpha_function", 0)
-            vec["StageColorFunctions"] = functions
-            vec["StageAlphaFunctions"] = alpha_functions
-            sc["StageCount"] = len(stages)
-            if blend == 2:
-                vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
-            if blend == 7:
-                sc["Premultiply"] = 1.0
-            if not any(entry["textures"].get(f"Map{i}") for i in range(len(stages))):
-                # No bitmap on any stage (Danger Canyon's white_light: a null
-                # reference). CE draws nothing there; the master's default
-                # white map made it a solid white box. A zero tint adds
-                # nothing, and the additive master keeps it out of the alpha.
-                entry["parent"] = master("M_CE_TransparentAdd")
-                vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
+            chicago(entry, s, texture, cube)
         elif cls == "swat":
             # shader_transparent_water (M_CE_Water): the reflection cube seen
             # through rippling, view-tinted water. Its base map is a mask,
@@ -269,9 +359,9 @@ def main():
                 # mean other things, so none of the senv flag reads below
                 # apply.
                 masked = mat_info.get("alpha_mode") == "MASK"
-                two_sided = masked and mat_info.get("double_sided")
-                entry["parent"] = master("M_CE_EnvironmentMaskedTwoSided" if two_sided else
-                                         "M_CE_EnvironmentMasked" if masked else "M_CE_Environment")
+                two_sided = mat_info.get("double_sided")
+                entry["parent"] = master("M_CE_Environment" + ("Masked" if masked else "") +
+                                         ("TwoSided" if two_sided else ""))
                 if masked:
                     entry["scalars"]["AlphaFromBase"] = 1.0
                 flags = 0
@@ -328,6 +418,7 @@ def main():
                 sc["ReflectFlat"] = 1.0 if flat else 0.0
             if cls == "soso":
                 model_shader(entry, s, texture)
+            environment_tag(entry, s, cls)
         if halo.get("lightmap_index") == "objects":
             # A placed object: its light, reflection tint and change colours
             # are its block of the object lighting page (merge_ce_scene.py).

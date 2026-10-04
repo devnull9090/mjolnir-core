@@ -47,6 +47,14 @@ import zlib
 import unreal
 
 ROOT = "/Game/MJOLNIR/CE"
+# A trial build of the masters (MJ_CE_ROOT=/Game/MJOLNIR/CETrial
+# MJ_CE_CHUNK=983) goes in a folder and chunk of its own, labelled alone, so
+# the runtime pack's 988 is left as it is; MJOLNIRLevelLoader picks the trial
+# masters up with `mjolnir_terrain_shadows lightmap`.
+TRIAL_ROOT = os.environ.get("MJ_CE_ROOT")
+if TRIAL_ROOT:
+    ROOT = TRIAL_ROOT.rstrip("/")
+CHUNK = int(os.environ.get("MJ_CE_CHUNK", "988"))
 
 # The game's display colour correction at its default brightness
 # (ColorCorrectionBrightness 0.5) scales the shown sRGB colour by this much.
@@ -231,22 +239,25 @@ class Graph:
         raise RuntimeError("EyeAdaptationInverse: no light value pin")
 
 
-# CE's periodic functions (self-illumination and UV animation), of
-# x = time / period + phase, as 0..1: one, zero, cosine (and variable
-# period), diagonal wave (and variable), slide (and variable), noise,
-# jitter, wander, spark. The variable-period forms use their nominal period,
-# and noise, jitter and wander a smooth value noise at different rates.
-# Spark rises over the first 35% of the period and decays over the rest:
-# a hard on/off blip made Gephyrophobia's energy ropes flash every 5 s where
-# CE's pulse (2026-10-02).
+# CE's periodic functions (self-illumination and UV animation) as 0..1:
+# one, zero, cosine (and variable period), diagonal wave (and variable),
+# slide (and variable), noise, jitter, wander, spark
+# (docs/ce_map_conversion.md, "Periodic functions"). Cosine is
+# 0.5 + 0.5 cos 2 pi x, 1 at x = 0; diagonal is a triangle from 0 at x = 0;
+# slide is frac(x). The variable-period forms use their nominal period, and
+# noise, jitter and wander a smooth value noise at different rates. Spark
+# rises over the first 35% of the period and decays over the rest: a hard
+# on/off blip made Gephyrophobia's energy ropes flash every 5 s where CE's
+# pulse (2026-10-02).
+#
+# Their input is (time + phase) / period, phase in seconds. A negative period
+# runs the function backwards (Damnation's and Timberland's waterfalls slide
+# with periods of -2 s and -6 s); a zero period counts as 1.
 WAVE = r"""
 #define CE_HASH(n) frac(sin(n) * 43758.5453)
 #define CE_VNOISE(x) lerp(CE_HASH(floor(x)), CE_HASH(floor(x) + 1.0), smoothstep(0.0, 1.0, frac(x)))
-#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 - 0.5 * cos(6.2831853 * (x)) \
-    : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0) \
-    : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x) \
-    : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
-#define CE_PHASE(anim, t) ((anim).y > 0.0 ? (t) / (anim).y + (anim).z : (anim).z)
+#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 + 0.5 * cos(6.2831853 * (x))     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0)     : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x)     : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
+#define CE_PHASE(anim, t) (((t) + (anim).z) / (abs((anim).y) > 1e-6 ? (anim).y : 1.0))
 """
 
 WAVE_END = r"""
@@ -329,7 +340,10 @@ float neutralM = (MicroFunc > 0.5 && MicroFunc < 1.5) ? 1.0 : 0.5;
 float3 M = HasMicro > 0.5 ? Micro.rgb : neutralM.xxx;
 float3 T = MicroFunc < 0.5 ? 2.0 * R * M : (MicroFunc < 1.5 ? R * M : R + 2.0 * M - 1.0);
 T = saturate(T);
-float specMask = (Type > 0.5 && Type < 1.5) ? lerp(Qa, Pa, Base.a) : Base.a;
+// The specular mask: normal base.a * lerp(secondary.a, primary.a,
+// secondary.a), blended lerp(secondary.a, primary.a, base.a), blended base
+// specular base.a.
+float specMask = Type < 0.5 ? Base.a * lerp(Qa, Pa, Qa) : Type < 1.5 ? lerp(Qa, Pa, Base.a) : Base.a;
 specMask *= HasMicro > 0.5 ? Micro.a : 1.0;
 
 bool bumpIsMask = BumpIsSpecMask > 0.5;
@@ -338,18 +352,27 @@ float3 L = Incident.rgb * 2.0 - 1.0;
 L *= rsqrt(max(dot(L, L), 1e-8));
 float bumpTerm = lerp(1.0, saturate(dot(N, L)), IncidentWeight);
 float3 lm = HasLightmap > 0.5 ? Lightmap.rgb : 1.0.xxx;
+// The level's baked corners (lightmap_bake: red, on the lightmap's UVs),
+// which CE's lightmaps are too coarse to hold.
+if (HasBake > 0.5)
+    lm *= pow(saturate(Bake.r), BakeAO);
 
 float3 S = 0.0.xxx;
 if (HasSelfIllum > 0.5)
 {
     float3 primary = lerp(SelfOff0, SelfOn0, CE_WAVE(SelfAnim0.x, CE_PHASE(SelfAnim0, Time)));
     float3 secondary = lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)));
+    // Plasma: a sharp ridge where the animated value meets the map's
+    // alpha; its off colour is added whatever the ridge.
     float plasma = CE_WAVE(SelfAnim2.x, CE_PHASE(SelfAnim2, Time));
-    float band = saturate(1.0 - abs(SelfIllum.a - plasma) * 8.0);
-    S = SelfIllum.r * primary + SelfIllum.g * secondary + SelfIllum.b * (SelfOn2 * band + SelfOff2);
+    float pr = 1.0 - 2.0 * abs(plasma - SelfIllum.a);
+    pr *= pr;
+    float q = pr * pr >= 0.5 ? (2.0 * pr * pr - 1.0) * (2.0 * pr * pr - 1.0) : 0.0;
+    S = SelfIllum.r * primary + SelfIllum.g * secondary + SelfIllum.b * (q * SelfOn2 + SelfOff2);
 }
 if (model && HasModelSelfIllum > 0.5)
-    S = MP.g * lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)));
+    S = MP.g * lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)))
+        * (HasSICC > 0.5 ? SICC.rgb : 1.0.xxx);
 float3 lit = lm * MaterialColor * bumpTerm + S;
 // An object's change colour tints its light (self-illumination included)
 // where the multipurpose map's alpha says.
@@ -386,6 +409,9 @@ if (HasReflection > 0.5)
     float3 refl = lerp(c8, c, lerp(SpecParallel, SpecPerpendicular, v)) * lerp(ReflPara, ReflPerp, v);
     if (bumpIsMask && HasBump > 0.5) refl *= Bump.rgb;
     float reflMask = frameAlpha;
+    // The reflection lightmap mask: reflections dim in dark lightmap areas.
+    if (!model && HasLightmap > 0.5 && LightmapReflScale < 1.0)
+        reflMask *= lerp(LightmapReflScale, 1.0, saturate(dot(lm, float3(0.502, 0.690, 0.314))));
     if (model)
     {
         // shader_model: the cube colour as it is, times the tint and
@@ -412,54 +438,117 @@ if (FogDensity > 0.0)
 }
 """ + SRGB_TO_LINEAR + WAVE_END
 
-# One chicago stage's texture coordinates: scale, offset, rotation about the
-# map's centre, and the scrolling animation (offset += scale * wave).
+# A transparent map's texture coordinates (chicago and generic maps, and the
+# shader_model base map). CE's texture-animation transform: u, v and rotation
+# channels each animate as scale * wave(function, (t + phase) / period); the
+# map's u/v scale applies to the incoming UV first, offsets and animation are
+# added unscaled about the rotation centre c, and the rotation (map rotation
+# plus its animation, in degrees) turns about c:
+#   uv' = R(theta) ((su u, sv v) + (offset - c + anim)) + c
+# Misc is (map rotation in degrees, centre u, centre v, map flags); map flags
+# bit 2 / 3 clamp u / v. Map 0 alone: chicago flag bit 3 (first map is in
+# screenspace) takes the screen position for UV, and bit 6 (scale first map
+# with distance) multiplies its scale by the view depth in world units.
 STAGE_UV_CODE = WAVE + r"""
-float2 uv = UV * Xform.xy + Xform.zw;
-uv.x += UAnim.w * CE_WAVE(UAnim.x, CE_PHASE(UAnim, Time));
-uv.y += VAnim.w * CE_WAVE(VAnim.x, CE_PHASE(VAnim, Time));
-float s = sin(Rot), c = cos(Rot);
-uv = float2(c * (uv.x - 0.5) - s * (uv.y - 0.5), s * (uv.x - 0.5) + c * (uv.y - 0.5)) + 0.5;
+float2 src = UV;
+float2 scale = Xform.xy;
+if (First > 0.5)
+{
+    int cf = (int)ChicagoFlags;
+    if (cf & 8) src = Parameters.SvPosition.xy * View.ViewSizeAndInvSize.zw;
+    if (cf & 64) scale *= Depth / 304.8;
+}
+float2 c = Misc.yz;
+float2 anim = float2(UAnim.w * CE_WAVE(UAnim.x, CE_PHASE(UAnim, Time)),
+                     VAnim.w * CE_WAVE(VAnim.x, CE_PHASE(VAnim, Time)));
+float theta = radians(Misc.x + RAnim.w * CE_WAVE(RAnim.x, CE_PHASE(RAnim, Time)));
+float2 p = src * scale + Xform.zw - c + anim;
+float s = sin(theta), co = cos(theta);
+float2 uv = float2(co * p.x - s * p.y, s * p.x + co * p.y) + c;
+int mf = (int)Misc.w;
+if (mf & 4) uv.x = clamp(uv.x, 0.0005, 0.9995);
+if (mf & 8) uv.y = clamp(uv.y, 0.0005, 0.9995);
 return uv;
 """ + WAVE_END
 
-# shader_transparent_chicago: map 0 is the running result; each stage's
-# colour and alpha functions fold the next map into it: current, next map,
-# multiply, double multiply, add, add signed (current / next), subtract
-# (current / next), blend by the current or next map's alpha (and inverse).
-# Each step is clamped as the combiners clamp.
-TRANSPARENT_CODE = WAVE + r"""
+# A chicago map 0 that is a cube map (first map type 1-3): the lookup
+# direction, in CE's world space (Unreal's with y mirrored): 1 the eye vector
+# reflected about the vertex normal, 2 from the object's origin to the
+# surface, 3 from the camera to the surface.
+FIRST_CUBE_CODE = r"""
+float3 d;
+if (Type < 1.5)
+{
+    float3 E = normalize(Cam);
+    float3 N = normalize(VertexN);
+    d = 2.0 * dot(N, E) * N - E;
+}
+else if (Type < 2.5) d = WorldPos - ObjectPos;
+else d = WorldPos - CameraPos;
+return float3(d.x, -d.y, d.z);
+"""
+
+# shader_transparent_chicago's colour and alpha chain (docs/ce_map_conversion.md,
+# "Transparent shaders"). Map 0 starts the result; map k is folded in with
+# map k-1's colour and alpha functions, so the last map's functions are never
+# used: current, next map, multiply, double multiply, add, add signed current
+# (next + 2 current - 1), add signed next (current + 2 next - 1), subtract
+# current (next - current), subtract next (current - next), blend by the
+# current or next map's alpha (and inverse). Map k-1's "alpha replicate"
+# (map flag bit 1) reads the next map's alpha for its colour. A register read
+# clamps to 0..1 at every stage.
+#
+# Then CE's fade stage, which takes each blend function to its neutral value
+# as F goes to 0: the framebuffer fade (1 none, 1 - |N.V| fading when
+# perpendicular, |N.V| when parallel), the atmospheric fog (queued
+# transparents fade out in fog rather than taking its colour) and the alpha
+# test (chicago flag bit 0: alpha must exceed 127/255). Alpha blend scales
+# alpha, multiply and component min go to 1, double multiply to 0.5, add,
+# subtract and component max scale the colour, alpha-multiply add both.
+TRANSPARENT_CODE = r"""
 float4 maps[4] = { M0, M1, M2, M3 };
-float4 cur = maps[0];
+float flags[4] = { S0.w, S1.w, S2.w, S3.w };
+if (FirstType > 0.5) maps[0] = Cube;
+float4 cur = saturate(maps[0]);
 int count = (int)Count;
 [unroll] for (int i = 0; i < 3; ++i)
 {
     if (i + 1 >= count) break;
-    float4 nxt = maps[i + 1];
+    float4 nxt = saturate(maps[i + 1]);
+    float3 nc = ((int)flags[i] & 2) ? nxt.aaa : nxt.rgb;
     float cf = Fn[i], af = AFn[i];
-    float3 c = cf < 0.5 ? cur.rgb : cf < 1.5 ? nxt.rgb : cf < 2.5 ? cur.rgb * nxt.rgb : cf < 3.5 ? 2.0 * cur.rgb * nxt.rgb
-        : cf < 4.5 ? cur.rgb + nxt.rgb : cf < 6.5 ? cur.rgb + nxt.rgb - 0.5 : cf < 7.5 ? cur.rgb - nxt.rgb
-        : cf < 8.5 ? nxt.rgb - cur.rgb : cf < 9.5 ? lerp(cur.rgb, nxt.rgb, cur.a) : cf < 10.5 ? lerp(nxt.rgb, cur.rgb, cur.a)
-        : cf < 11.5 ? lerp(cur.rgb, nxt.rgb, nxt.a) : lerp(nxt.rgb, cur.rgb, nxt.a);
+    float3 c = cf < 0.5 ? cur.rgb : cf < 1.5 ? nc : cf < 2.5 ? cur.rgb * nc : cf < 3.5 ? 2.0 * cur.rgb * nc
+        : cf < 4.5 ? cur.rgb + nc : cf < 5.5 ? nc + 2.0 * cur.rgb - 1.0 : cf < 6.5 ? cur.rgb + 2.0 * nc - 1.0
+        : cf < 7.5 ? nc - cur.rgb : cf < 8.5 ? cur.rgb - nc : cf < 9.5 ? lerp(cur.rgb, nc, cur.a)
+        : cf < 10.5 ? lerp(nc, cur.rgb, cur.a) : cf < 11.5 ? lerp(cur.rgb, nc, nxt.a) : lerp(nc, cur.rgb, nxt.a);
     float a = af < 0.5 ? cur.a : af < 1.5 ? nxt.a : af < 2.5 ? cur.a * nxt.a : af < 3.5 ? 2.0 * cur.a * nxt.a
-        : af < 4.5 ? cur.a + nxt.a : af < 6.5 ? cur.a + nxt.a - 0.5 : af < 7.5 ? cur.a - nxt.a
-        : af < 8.5 ? nxt.a - cur.a : af < 9.5 ? lerp(cur.a, nxt.a, cur.a) : af < 10.5 ? lerp(nxt.a, cur.a, cur.a)
-        : af < 11.5 ? lerp(cur.a, nxt.a, nxt.a) : lerp(nxt.a, cur.a, nxt.a);
+        : af < 4.5 ? cur.a + nxt.a : af < 5.5 ? nxt.a + 2.0 * cur.a - 1.0 : af < 6.5 ? cur.a + 2.0 * nxt.a - 1.0
+        : af < 7.5 ? nxt.a - cur.a : af < 8.5 ? cur.a - nxt.a : af < 9.5 ? lerp(cur.a, nxt.a, cur.a)
+        : af < 10.5 ? lerp(nxt.a, cur.a, cur.a) : af < 11.5 ? lerp(cur.a, nxt.a, nxt.a) : lerp(nxt.a, cur.a, nxt.a);
     cur = saturate(float4(c, a));
 }
 float3 frame = cur.rgb * Tint;
 float alpha = cur.a;
-frame *= Premultiply > 0.5 ? alpha : 1.0;
+
+float F = 1.0;
+float ndv = abs(dot(normalize(VertexN), normalize(Cam)));
+if (FadeMode > 0.5) F = FadeMode < 1.5 ? 1.0 - ndv : ndv;
 if (FogDensity > 0.0)
-{
-    float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
-    frame *= 1.0 - f;
-}
+    F *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+if (((int)ChicagoFlags & 1) && alpha <= 127.0 / 255.0) F = 0.0;
+int blend = (int)Blend;
+if (blend == 0) alpha *= F;
+else if (blend == 1 || blend == 5) frame = lerp(1.0.xxx, frame, F);
+else if (blend == 2) frame = lerp(0.5.xxx, frame, F);
+else if (blend == 7) { frame *= F; alpha *= F; }
+else frame *= F;
+frame *= Premultiply > 0.5 ? alpha : 1.0;
+
 frame = max(frame, 0.0) / DisplayGain;
 float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
 return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
-""" + WAVE_END
+"""
 
 
 # Object shadows on a baked level. CE's colour T (what reaches the screen, the
@@ -469,15 +558,34 @@ return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
 # to T exactly; where a vehicle or a player blocks it, the share drops out and
 # the shadow shows. AO 0 keeps the sky light and bounce off it, so nothing
 # else changes. w fades out where the surface turns from the sun, and is
-# capped so the base colour stays within 1. The terrain itself casts no
-# shadows (its own are in the lightmap); MJOLNIRLevelLoader sets the sun
+# capped so the base colour stays within 1. MJOLNIRLevelLoader sets the sun
 # parameters from the level's environment.
+#
+# The lightmap already has the level's own shadows, so a share taken out
+# where CE had none of its sun darkens them a second time (an object's shadow
+# reaching through a platform, or the terrain casting at all). LightmapSun is
+# the level's lightmap luminance in CE's shadow (x) and in its sun (y),
+# measured from the lightmaps (tools/level/gen_ce_level.py): a texel near the
+# shadow level gives up nothing, one in the sun gives up what takes it down to
+# the shadow level, so an object's shadow is as dark as a baked one beside
+# it. The lightmaps are gamma-space values; the colour is linear, hence the
+# 2.2. Left at zero, the share is ShadowStrength everywhere, as before.
 SUN_WEIGHT_CODE = r"""
 float3 screen = max(Screen.rgb, 1e-4);
 float ndl = saturate(dot(normalize(N), normalize(SunDir)));
 float3 denom = max(SunIlluminance * ndl * SunColor.rgb, 1e-4);
 float3 room = denom / (screen * 3.14159265);
 float w = ShadowStrength * saturate(ndl * 4.0);
+if (HasLightmap > 0.5 && LightmapSun.y > LightmapSun.x)
+{
+    float l = max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4);
+    // Where the sun reached, traced (lightmap_bake: green) when the level
+    // has it, else guessed from the lightmap's brightness, which takes lamp
+    // light for sun.
+    float sunlit = HasBake > 0.5 ? Bake.g
+        : smoothstep(0.5, 0.9, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x));
+    w = min(w, sunlit * (1.0 - pow(saturate(LightmapSun.x / l), 2.2)));
+}
 return min(w, min(room.r, min(room.g, room.b)));
 """
 
@@ -492,7 +600,7 @@ return Screen.rgb * (1.0 - W);
 """
 
 
-def sun_split(g, screen):
+def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake):
     """Connects `screen` (the colour to_screen made) to emissive and base
     colour, split for object shadows (SUN_WEIGHT_CODE)."""
     n = g.node(unreal.MaterialExpressionVertexNormalWS)
@@ -500,7 +608,10 @@ def sun_split(g, screen):
            ("SunColor", g.vector("SunColor", (1.0, 1.0, 1.0, 1.0)), ""),
            ("SunIlluminance", g.scalar("SunIlluminance", 8.0), ""),
            ("ShadowStrength", g.scalar("ShadowStrength", 0.0), "")]
-    w = g.custom(SUN_WEIGHT_CODE, [("Screen", screen, ""), ("N", n, "")] + sun,
+    baked = [("Lightmap", lightmap, "RGB"), ("HasLightmap", has_lightmap, ""),
+             ("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), ""),
+             ("Bake", bake, "RGBA"), ("HasBake", has_bake, "")]
+    w = g.custom(SUN_WEIGHT_CODE, [("Screen", screen, ""), ("N", n, "")] + sun + baked,
                  output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE sun share")
     base = g.custom(SUN_BASE_CODE, [("Screen", screen, ""), ("N", n, ""), ("W", w, "")] + sun,
                     description="CE sun base colour")
@@ -535,13 +646,38 @@ def build_environment(name, masked, defaults, two_sided=False):
     g = Graph(m)
     white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
 
-    uv0 = g.uv(0)
+    # The base UV, transformed as CE does every pass of the surface: an
+    # environment's texture scrolling (BaseUAnim/BaseVAnim, no phase), a
+    # model's map scale and u, v and rotation animation (STAGE_UV_CODE). The
+    # detail, micro, bump and self-illumination maps scale the transformed UV.
+    time0 = g.node(unreal.MaterialExpressionTime)
+    zero = g.node(unreal.MaterialExpressionConstant, x=-1900, r=0.0)
+    uv0 = g.custom(STAGE_UV_CODE, [
+        ("UV", g.uv(0), ""), ("Time", time0, ""), ("Depth", zero, ""),
+        ("Xform", g.vector4("BaseXform", (1, 1, 0, 0)), ""),
+        ("UAnim", g.vector4("BaseUAnim", (1, 0, 0, 0)), ""),
+        ("VAnim", g.vector4("BaseVAnim", (1, 0, 0, 0)), ""),
+        ("RAnim", g.vector4("BaseRAnim", (1, 0, 0, 0)), ""),
+        ("Misc", g.vector4("BaseMisc", (0, 0, 0, 0)), ""), ("First", zero, ""), ("ChicagoFlags", zero, ""),
+    ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="CE base uv")
+
+    def scaled(scale, aspect=None):
+        """The base UV times a map's scale, its v also times `aspect` (a
+        detail map's v scale or rescale)."""
+        inputs = [("UV", uv0, ""), ("S", g.scalar(scale, 1.0), "")]
+        inputs.append(("A", g.scalar(aspect, 1.0) if aspect else g.node(unreal.MaterialExpressionConstant, x=-1900, r=1.0), ""))
+        return g.custom("return UV * float2(S, S * A);", inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                        description=f"CE {scale} uv")
+
     base = g.texture("Base", white, uv0)
-    primary = g.texture("Primary", grey, g.uv(0, "PrimaryScale"))
-    secondary = g.texture("Secondary", grey, g.uv(0, "SecondaryScale"))
-    micro = g.texture("Micro", grey, g.uv(0, "MicroScale"))
-    bump = g.texture("Bump", flat, g.uv(0, "BumpScale"))
+    primary = g.texture("Primary", grey, scaled("PrimaryScale", "PrimaryAspect"))
+    secondary = g.texture("Secondary", grey, scaled("SecondaryScale", "SecondaryAspect"))
+    micro = g.texture("Micro", grey, scaled("MicroScale", "MicroAspect"))
+    bump = g.texture("Bump", flat, scaled("BumpScale"))
     lightmap = g.texture("Lightmap", white, g.uv(1))
+    # tools: crates/ue-texture/examples/lightmap_bake.rs, on the same UVs.
+    bake = g.texture("Bake", white, g.uv(1))
+    has_bake = g.scalar("HasBake", 0.0)
     # A placed object's lightmap is its block of the object lighting page
     # (tools/level/merge_ce_scene.py): its light in the first of eight
     # columns, its reflection tint in the second, change colours A-D in the
@@ -555,7 +691,13 @@ def build_environment(name, masked, defaults, two_sided=False):
                                                     description="object change colour"))
     # shader_model's multipurpose map (read only with HasMulti).
     multi = g.texture("Multipurpose", white, uv0)
-    self_illum = g.texture("SelfIllumMap", white, g.uv(0, "SelfIllumScale"))
+    self_illum = g.texture("SelfIllumMap", white, scaled("SelfIllumScale"))
+    # A model's self-illumination colour source: a change colour of the
+    # object lighting page, like CCOffset's.
+    si_cc = g.texture("Lightmap", white, g.custom("return UV + float2(SICCOffset, 0.0);",
+                                                   [("UV", g.uv(1), ""), ("SICCOffset", g.scalar("SICCOffset", 0.25), "")],
+                                                   output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                                                   description="object self-illumination colour"))
     vc = g.node(unreal.MaterialExpressionVertexColor)
     cam = g.node(unreal.MaterialExpressionCameraVectorWS)
     eye = g.node(unreal.MaterialExpressionTransform, x=-1100,
@@ -582,13 +724,18 @@ def build_environment(name, masked, defaults, two_sided=False):
         ("Micro", micro, "RGBA"), ("Bump", bump, "RGBA"), ("Lightmap", lightmap, "RGBA"),
         ("SelfIllum", self_illum, "RGBA"), ("Incident", vc, ""), ("IncidentWeight", vc, "A"),
         ("Multi", multi, "RGBA"), ("ObjTint", obj_tint, "RGBA"), ("ObjCC", obj_cc, "RGBA"),
+        ("SICC", si_cc, "RGBA"), ("HasSICC", g.scalar("HasSICC", 0.0), ""),
+        ("LightmapReflScale", g.scalar("LightmapReflScale", 1.0), ""),
         ("Eye", eye, ""), ("Cam", cam, ""), ("BumpN", bump_n, ""), ("BumpW", bump_w, ""),
         ("VertexN", vertex_n, ""), ("Cube", cube, "RGB"), ("Time", time, ""),
         ("HasBump", has_bump, ""), ("BumpIsSpecMask", bump_is_mask, ""), ("ReflectFlat", reflect_flat, ""),
         ("Exposure", g.scalar("Exposure", 1.0), ""), ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), ""),
     ] + fog_inputs(g)
+    has_lightmap = g.scalar("HasLightmap", 0.0)
+    inputs.append(("HasLightmap", has_lightmap, ""))
+    inputs += [("Bake", bake, "RGBA"), ("HasBake", has_bake, ""), ("BakeAO", g.scalar("BakeAO", 1.0), "")]
     for pname, default in (("Type", 0.0), ("Func", 0.0), ("MicroFunc", 0.0), ("HasPrimary", 0.0),
-                           ("HasSecondary", 0.0), ("HasMicro", 0.0), ("HasLightmap", 0.0),
+                           ("HasSecondary", 0.0), ("HasMicro", 0.0),
                            ("HasSelfIllum", 0.0), ("SpecLightmap", 0.0), ("ExtraShiny", 0.0),
                            ("Overbright", 0.0), ("SpecBrightness", 0.0), ("HasReflection", 0.0),
                            ("ReflPerp", 0.0), ("ReflPara", 0.0), ("HasMulti", 0.0), ("ModelShader", 0.0),
@@ -606,7 +753,7 @@ def build_environment(name, masked, defaults, two_sided=False):
         node = g.vector4(pname, default) if pname.startswith("SelfAnim") else g.vector(pname, default)
         inputs.append((pname, node, ""))
     c = g.custom(ENVIRONMENT_CODE, inputs, description="CE shader_environment")
-    sun_split(g, g.to_screen(c))
+    sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake)
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).
@@ -619,29 +766,54 @@ def build_environment(name, masked, defaults, two_sided=False):
     eal.save_loaded_asset(m)
 
 
-def build_transparent(name, blend, defaults):
+# A chicago decal (flag bit 1) is drawn with a depth bias over the surface it
+# lies on. Not reproduced: sampling scene depth from these translucent
+# materials crashed the game as they loaded (2026-10-04), and this editor's
+# Python cannot connect world position offset.
+def build_transparent(name, blend, defaults, two_sided=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property("blend_mode", blend)
+    m.set_editor_property("two_sided", two_sided)
     m.set_editor_property("used_with_static_lighting", False)
     g = Graph(m)
     uv0 = g.uv(0)
     time = g.node(unreal.MaterialExpressionTime)
-    samples = []
+    depth = g.node(unreal.MaterialExpressionPixelDepth)
+    cam = g.node(unreal.MaterialExpressionCameraVectorWS)
+    vertex_n = g.node(unreal.MaterialExpressionVertexNormalWS)
+    world_pos = g.node(unreal.MaterialExpressionWorldPosition)
+    camera_pos = g.node(unreal.MaterialExpressionCameraPositionWS)
+    object_pos = g.node(unreal.MaterialExpressionObjectPositionWS)
+    chicago_flags = g.scalar("ChicagoFlags", 0.0)
+    first_type = g.scalar("FirstMapType", 0.0)
+    samples, miscs = [], []
     for i in range(4):
+        misc = g.vector4(f"Stage{i}Misc", (0, 0, 0, 0))
+        miscs.append(misc)
+        first = g.node(unreal.MaterialExpressionConstant, x=-1900, r=1.0 if i == 0 else 0.0)
         uv = g.custom(STAGE_UV_CODE, [
-            ("UV", uv0, ""), ("Time", time, ""),
+            ("UV", uv0, ""), ("Time", time, ""), ("Depth", depth, ""),
             ("Xform", g.vector4(f"Stage{i}Xform", (1, 1, 0, 0)), ""),
             ("UAnim", g.vector4(f"Stage{i}UAnim", (1, 0, 0, 0)), ""),
             ("VAnim", g.vector4(f"Stage{i}VAnim", (1, 0, 0, 0)), ""),
-            ("Rot", g.scalar(f"Stage{i}Rotation", 0.0), ""),
+            ("RAnim", g.vector4(f"Stage{i}RAnim", (1, 0, 0, 0)), ""),
+            ("Misc", misc, ""), ("First", first, ""), ("ChicagoFlags", chicago_flags, ""),
         ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description=f"CE stage {i} uv")
         samples.append(g.texture(f"Map{i}", defaults["T_CE_White"], uv))
+    direction = g.custom(FIRST_CUBE_CODE, [("Type", first_type, ""), ("Cam", cam, ""), ("VertexN", vertex_n, ""),
+                                           ("WorldPos", world_pos, ""), ("ObjectPos", object_pos, ""),
+                                           ("CameraPos", camera_pos, "")], description="CE first map cube direction")
+    cube = g.cube("Map0Cube", defaults["T_CE_BlackCube"], direction)
     inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
-    inputs += [("Fn", g.vector4("StageColorFunctions", (0, 0, 0, 0)), ""),
+    inputs += [(f"S{i}", misc, "") for i, misc in enumerate(miscs)]
+    inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""),
+               ("Fn", g.vector4("StageColorFunctions", (0, 0, 0, 0)), ""),
                ("AFn", g.vector4("StageAlphaFunctions", (0, 0, 0, 0)), ""),
                ("Count", g.scalar("StageCount", 1.0), ""), ("Tint", g.vector("Tint"), ""),
-               ("Premultiply", g.scalar("Premultiply", 0.0), ""), ("Time", time, "")]
+               ("Premultiply", g.scalar("Premultiply", 0.0), ""),
+               ("Blend", g.scalar("BlendFunction", 0.0), ""), ("FadeMode", g.scalar("FadeMode", 0.0), ""),
+               ("ChicagoFlags", chicago_flags, ""), ("VertexN", vertex_n, ""), ("Cam", cam, "")]
     # Multiplying into the frame is not exposed: the result is a factor.
     modulate = blend == unreal.BlendMode.BLEND_MODULATE
     inputs.append(("Exposure", g.scalar("Exposure" if not modulate else "Unity", 1.0), ""))
@@ -806,11 +978,12 @@ LABELLED = ("CE", "Sounds", "Levels")
 def build_label():
     if eal.does_asset_exist("/Game/MJOLNIR/PAL_MJOLNIR"):
         eal.delete_asset("/Game/MJOLNIR/PAL_MJOLNIR")
-    for folder in LABELLED:
+    folders = [ROOT.rsplit("/", 1)[-1]] if TRIAL_ROOT else LABELLED
+    for folder in folders:
         label = fresh(f"/Game/MJOLNIR/{folder}", f"PAL_MJOLNIR_{folder}", unreal.PrimaryAssetLabel,
                       unreal.DataAssetFactory())
         rules = label.get_editor_property("rules")
-        rules.set_editor_property("chunk_id", 988)
+        rules.set_editor_property("chunk_id", CHUNK)
         rules.set_editor_property("apply_recursively", True)
         rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
         label.set_editor_property("rules", rules)
@@ -825,9 +998,16 @@ if eal.does_asset_exist(f"{ROOT}/MPC_CE"):
 build_environment("M_CE_Environment", False, defaults)
 build_environment("M_CE_EnvironmentMasked", True, defaults)
 build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=True)
-build_transparent("M_CE_TransparentAdd", unreal.BlendMode.BLEND_ADDITIVE, defaults)
-build_transparent("M_CE_TransparentAlpha", unreal.BlendMode.BLEND_TRANSLUCENT, defaults)
-build_transparent("M_CE_TransparentMul", unreal.BlendMode.BLEND_MODULATE, defaults)
+# shader_model's two-sided flag on an opaque (not alpha-tested) model.
+build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
+# Every framebuffer blend, one- and two-sided (chicago flag bit 2: 38 stock
+# shaders, the teleporter fields).
+for blend_name, blend_mode in (("Add", unreal.BlendMode.BLEND_ADDITIVE),
+                               ("Alpha", unreal.BlendMode.BLEND_TRANSLUCENT),
+                               ("Mul", unreal.BlendMode.BLEND_MODULATE)):
+    for two_sided in (False, True):
+        build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}",
+                          blend_mode, defaults, two_sided=two_sided)
 build_water(defaults)
 build_flare(defaults)
 unreal.log("MJOLNIR CE materials built")
