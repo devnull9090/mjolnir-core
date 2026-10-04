@@ -263,7 +263,13 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
 - a shader with no bitmap on any stage (Danger Canyon's and Ice Fields'
   light shaders reference none) draws nothing, as in CE: it is added at a
   zero tint. Drawn with the master's default white map, it was a solid
-  white box.
+  white box;
+- a shader with CE's two-sided flag (bit 2: the Covenant shields, the
+  teleporter shields and cones, the powerups) takes a two-sided master,
+  `M_CE_Transparent{Add,Alpha,Mul}TwoSided`, since an instance cannot turn
+  two-sided on. With one-sided masters the shields drew from one side only
+  (playtest, 2026-10-03). halo2ue's `double_sided` is true for every
+  transparent shader, so only the flag decides.
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
@@ -396,11 +402,21 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   CE's "all vehicles" sets did. Most Ghosts, Banshees, Scorpions and rocket
   Warthogs are in no game type's default set (spawn flags `0xf00`), so a
   default set left the big maps nearly empty; no stock map stacks two
-  vehicles on one spot. The rocket Warthog is the Warthog with its `rocket`
-  model variant (`permutation data.variant name`); its turret has no Unreal
-  actor of its own. Banshees start 0.3 wu above CE's height and fall into
-  place (`VEHICLE_LIFT`): at CE's height on Blood Gulch's roofs they started
-  inside them and were thrown on their sides.
+  vehicles on one spot. The rocket Warthog spawns as the chaingun Warthog
+  (`VEHICLE_VARIANTS` is empty): as the Warthog's `rocket` model variant
+  (`permutation data.variant name`) its turret had no Unreal actor
+  Blueprint, so the gun was invisible and the gunner vanished (playtest,
+  2026-10-03). Banshees and Scorpions start 0.3 wu above CE's height and
+  every other vehicle 0.05 wu (`VEHICLE_LIFT`), with the at-rest placement
+  flag cleared so they fall into place: at CE's height on Blood Gulch's roofs
+  the Banshees started inside them and were thrown on their sides.
+- **Weapons and equipment** start 0.05 wu above CE's height (`ITEM_LIFT`)
+  with the at-rest flag cleared, and fall into place. CE places items
+  0.001 wu over the floor, and the bake creates objects at rest (placement
+  flag `0x20`), so the part of a weapon below its origin stayed in the floor
+  (playtest, 2026-10-03). Levitating powerups (CE's `levitate`, on Battle
+  Creek, Hang 'Em High, Rat Race and Timberland) stay at rest where CE put
+  them.
 - **Respawn times.** Each weapon and pickup respawns after CE's time: its
   placement's, else its item collection's (halo2ue's
   `collection_spawn_time`), else 30 s. Vehicles respawn after 30 s and are
@@ -551,6 +567,9 @@ seconds after the loading screen are dark.
 - **One BSP per map.** Coldsnap's second BSP is not converted.
 - **The canvas palette.** Weapons and vehicles the canvas mission never
   places (shotgun, flamethrower, fuel rod, health packs) are dropped.
+- **No rocket Warthog.** Rocket hogs spawn as chaingun hogs until the rocket
+  turret's tag wrapper points at an actor Blueprint (the chaingun turret's,
+  via `ue-asset` tagwrap, or a rewritten mesh with CE's rocket pod).
 - **Extent.** Keep a map inside the canvas level's overall extent: lifted 800 wu
   above B40, Havok flung objects hundreds of wu.
 - **Game modes.** Slayer only (`mjolnir megalo write --mode slayer --score N
