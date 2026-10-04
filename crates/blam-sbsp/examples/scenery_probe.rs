@@ -138,7 +138,13 @@ fn main() {
         b
     };
     let bounds = c.bounds().unwrap();
-    let floors = raytest::floors(&bsp_only, bounds, 2.0, 0.6);
+    // The floor grid is brute force: a big map wants a coarser step
+    // (SCENERY_PROBE_STEP, world units).
+    let step = std::env::var("SCENERY_PROBE_STEP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2.0);
+    let floors = raytest::floors(&bsp_only, bounds, step, 0.6);
     let (down, _) = raytest::floor_rays(&floors, 0.6, 1.0);
     let before_floor = raytest::compare(&bsp_only, &down, 0.05);
     println!(

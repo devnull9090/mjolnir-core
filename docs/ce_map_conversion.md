@@ -100,8 +100,15 @@ scenery's own collision models to the BSP's collision first:
 - every placement's triangles go in as standalone two-sided surfaces;
 - the compiled MOPP gives every surface a key, so players and vehicles stand
   on and run into rocks and trees as in CE;
-- no BSP leaf references the added surfaces, so queries that walk the BSP
-  tree, such as projectiles, pass through them.
+- `mjolnir level collision` puts them into the BSP tree as well
+  (`blam_sbsp::scenery`), so queries that walk the tree, projectiles among
+  them, meet them too: every leaf a scenery triangle passes through is split
+  on the triangle's plane into two flagged copies of itself that name the
+  triangle, the rule the simulation's line test uses for two-sided surfaces
+  between open leaves. Where the scenery does not fit the BSP's 16-bit tables
+  it goes to instances of its own, each with such a tree (until 2026-10-03 no
+  leaf named a scenery surface, and bullets went through the Covenant
+  shields).
 
 **Surface materials.** The game picks footstep sounds, tire dust and bullet
 impacts from each collision surface's material. Each surface keeps its CE
@@ -127,7 +134,10 @@ up in `globals`.
   points (low alpha shows the secondary detail). Surfaces that are mostly
   grass get `tough_terrain_grass`, 1,178 of 2,423 on Blood Gulch.
 - **Scenery** carries no shader, so its material comes from its name: rock,
-  wood or plant.
+  wood or plant, and the Covenant shield (`c_field_generator`) takes the
+  Jackal shield's `energy_shield_thick_cov_jackal`, an energy material made to
+  stop small-arms fire (`energy_hologram` is the hologram decoy's). Whether
+  every projectile stops on it is still to be seen in game.
 
 Gephyrophobia has more than 8,191 surfaces, so its `structure_physics` uses
 one whole-instance key (see above). Havok contacts there may report one
@@ -535,7 +545,14 @@ seconds after the loading screen are dark.
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
-- **Scenery collision** stops players and vehicles, not projectiles.
+- **Scenery collision** stops players, vehicles and, since 2026-10-03,
+  projectiles (checked offline, `scenery_probe`; not yet in game). The trees
+  cost table space: Danger Canyon's 43,646 scenery triangles need 17 scenery
+  instances instead of 6, and the maps that keep scenery in the BSP grow
+  their 2D references several times over (Blood Gulch 55,634 and Boarding
+  Action 58,539 of the 65,535 limit; a map past it moves its scenery to
+  instances of its own). See `ce_terrain_collision.md`, "Scenery in the
+  tree".
 - **Approximations in the materials.** CE's noise, jitter and wander
   functions are a value noise; the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the
