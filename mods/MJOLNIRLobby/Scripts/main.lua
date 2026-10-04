@@ -284,7 +284,11 @@ local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
-local screenEvents = false
+-- hooked: class path -> true once its MJ_Event hook is in, false after a
+-- failed try. watching (the new-lobby watch): false before the first try,
+-- nil after a failed one, true once registered. noUI: the lobby class does
+-- not load (no pakchunk984), so there is nothing to watch.
+local screenEvents = { hooked = {}, watching = false, noUI = false }
 
 local function setText(block, text)
     pcall(function() block:SetText(FText(text or "")) end)
@@ -1242,13 +1246,18 @@ local function onScreenEvent(isLobby, event)
     if handler then handler() end
 end
 
+--- Hook each of our screens' MJ_Event, once per class; true when all are in.
+--- A class whose hook failed is tried again on the next call (adoptLobby,
+--- the main menu's poll). Without its hook a screen still shows, since the
+--- main menu pushes the lobby natively, but every button on it does nothing
+--- (playtest, 2026-10-03).
 local function hookScreenEvents()
-    if screenEvents then return true end
-    local ok = pcall(function()
-        local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
-        if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
-        for _, spec in ipairs(specs) do
-            RegisterHook(spec[1] .. ":MJ_Event", function(self, name)
+    local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
+    if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
+    local all = true
+    for _, spec in ipairs(specs) do
+        if not screenEvents.hooked[spec[1]] then
+            local ok, hookErr = pcall(RegisterHook, spec[1] .. ":MJ_Event", function(self, name)
                 local okE, event = pcall(function() return name:get():ToString() end)
                 if not okE then return end
                 -- The main menu pushes the lobby itself: the screen that
@@ -1264,10 +1273,15 @@ local function hookScreenEvents()
                     if not okH then log("screen event " .. event .. ": " .. tostring(err)) end
                 end)
             end)
+            -- Logged once per class, not on every retry.
+            if not ok and screenEvents.hooked[spec[1]] == nil then
+                log("cannot hook " .. spec[1] .. ":MJ_Event: " .. tostring(hookErr))
+            end
+            screenEvents.hooked[spec[1]] = ok
+            all = all and ok
         end
-    end)
-    screenEvents = ok
-    return ok
+    end
+    return all
 end
 
 --- Our screens' classes loaded and their events hooked.
@@ -1280,7 +1294,13 @@ end
 local function adoptLobby(screen)
     if not UI.valid(screen) then return end
     Lobby = screen
+    hookScreenEvents()
     setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
+    -- The cooked footer warns, in gold, that the mods are not running; the
+    -- status lines below replace it, in the footer's usual grey.
+    pcall(function()
+        Lobby.Status:SetColorAndOpacity({ SpecifiedColor = { R = 0.46, G = 0.61, B = 0.70, A = 1 }, ColorUseRule = 0 })
+    end)
     local host = Net.isHost()
     if host then
         if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
@@ -1314,8 +1334,18 @@ end
 --- The main menu's own MULTIPLAYER button (pakchunk985-MJOLNIRMENU) pushes
 --- the lobby without us: fill each new lobby as it is built. The widget is
 --- constructed before its tree is, so the fill waits a moment.
+---
+--- Runs first at startup and again from the main menu's poll until it is
+--- registered: a lobby nobody adopts shows, but its buttons do nothing. A
+--- watch that comes late adopts a lobby that is already up.
 local function watchNewLobbies()
-    if not ourScreens() then return false end
+    if screenEvents.watching then return true end
+    if screenEvents.noUI then return false end
+    if not loadClass(LOBBY_CLASS) then
+        screenEvents.noUI = true
+        return false
+    end
+    ourScreens()
     local ok, err = pcall(function()
         NotifyOnNewObject(LOBBY_CLASS, function(screen)
             local okN, name = pcall(function() return screen:GetFName():ToString() end)
@@ -1323,8 +1353,17 @@ local function watchNewLobbies()
             ExecuteInGameThreadWithDelay(100, function() adoptLobby(screen) end)
         end)
     end)
-    if not ok then log("cannot watch for new lobbies: " .. tostring(err)) end
-    return ok
+    if not ok then
+        if screenEvents.watching == false then log("cannot watch for new lobbies: " .. tostring(err)) end
+        screenEvents.watching = nil
+        return false
+    end
+    if screenEvents.watching == nil then
+        local up = UI.liveWidget("WBP_MJOLNIRLobby_C", alive)
+        if up then adoptLobby(up) end
+    end
+    screenEvents.watching = true
+    return true
 end
 
 --- Keep the lobby's player list current while it is up.
@@ -2004,6 +2043,10 @@ local function watchMainMenu()
         local ok, err = pcall(function()
             pcall(holdFireteamSize)
             if not inFrontend() then return end
+            -- Retried until they are in: without them the lobby shows but
+            -- does nothing. Both return at once when already done.
+            pcall(watchNewLobbies)
+            if Lobby then pcall(hookScreenEvents) end
             refreshLobby()
             pcall(tickFind)
             pcall(watchFireteam)
@@ -2441,6 +2484,9 @@ local AUTO = {
 
 local function initialize()
     UI.init(MOD_DIR)
+    -- First: the main menu pushes the lobby without us, and if anything
+    -- below fails, a lobby nobody watches for shows with dead buttons.
+    watchNewLobbies()
     AUTO.ban = function(args) return AUTO.kick(args, true) end
     RegisterConsoleCommandHandler("mjolnir_host", function()
         ExecuteInGameThread(openHostMenu)
@@ -2480,7 +2526,6 @@ local function initialize()
         end)
         return true
     end)
-    watchNewLobbies()
     Net.hook()
     openFireteam()
     Games.init({
