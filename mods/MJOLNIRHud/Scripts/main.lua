@@ -18,6 +18,10 @@
 -- (crates/blam-megalo): Slayer gives a point per kill of another player,
 -- CTF a point to the team per capture. The hook only queues; the work runs
 -- in this mod's own game-thread poll, as the loader's event sounds do.
+--
+-- On the host of a public game the same incidents, with where the players
+-- stood, become the match's record for the hub (Scripts/matchlog.lua,
+-- docs/match_stats.md).
 
 local function modDirectory()
     local source = debug.getinfo(1, "S").source or ""
@@ -32,10 +36,18 @@ local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
+local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
+end
+
+--- The match log must never break the HUD: a failure in it is logged, and
+--- the feed, the board and the end of the match go on.
+local function logSafely(what, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then Log("match log " .. what .. ": " .. tostring(err)) end
 end
 
 local UI_ROOT = "/Game/MJOLNIR/UI/"
@@ -378,6 +390,7 @@ local function finishMatch(how)
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
+    logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, how == "game over" and "game_over" or "round_over", now())
     local f = io.open(RESULTS_FILE, "w")
     if f then
         f:write(Scoreboard.results(Match, LOCAL_PLAYER, os.time()))
@@ -414,8 +427,16 @@ HANDLERS.player_booted_player = function(inc)
     boardDirty = true
 end
 
+--- Where an incident's actor stands, as { X, Y, Z } in the world's space.
+local function actorPosition(actor)
+    if not (actor and actor:IsValid()) then return nil end
+    local l = actor:K2_GetActorLocation()
+    return { l.X, l.Y, l.Z }
+end
+
 --- Every incident, queued with what the handlers read. Reading the struct is
---- all the hook does.
+--- all the hook does; while the match log records (the host), that includes
+--- where the cause's and the effect's objects stand at that moment.
 local function hookIncidents()
     if incidentHooked then return end
     incidentHooked = pcall(function()
@@ -435,6 +456,10 @@ local function hookIncidents()
                 pcall(function() entry.biped = i.CauseObjectActor end)
                 pcall(function() entry.victimBiped = i.EffectObjectActor end)
                 pcall(function() entry.damage = i.DamageReportingInfo.Type.TagName:ToString() end)
+                if MatchLog.recording() then
+                    pcall(function() entry.causePos = actorPosition(i.CauseObjectActor) end)
+                    pcall(function() entry.effectPos = actorPosition(i.EffectObjectActor) end)
+                end
                 Queue[#Queue + 1] = entry
             end)
         end)
@@ -448,6 +473,7 @@ local function drain()
     for _, inc in ipairs(queued) do
         -- After the end the tallies are final: the round the game resets in
         -- place behind the standings must not score.
+        if Match and not Match.over then logSafely("incident", MatchLog.incident, inc) end
         local handler = Match and not Match.over and HANDLERS[inc.name]
         if handler then
             for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
@@ -603,6 +629,92 @@ local function drawBoard()
 end
 
 --------------------------------------------------------------------------------
+-- The match log
+--------------------------------------------------------------------------------
+-- The host records (Scripts/matchlog.lua); each client asks it for the
+-- match's id over ServerExecRPC and claims its seat from the answer, which
+-- comes back on its controller as ClientMessage type "MJOLNIR". Both RPCs
+-- are the ones MJOLNIRLobby's messages ride (docs/multiplayer_postgame.md).
+
+local ASK = "MJOLNIR|matchid"
+local logHooked = false
+local Told = {}       -- host answers waiting for the game thread
+
+local function isHostWorld(pc)
+    local ok, yes = pcall(function() return pc:GetWorld().AuthorityGameMode:IsValid() end)
+    return ok and yes == true
+end
+
+local function hookMatchLog()
+    if logHooked then return end
+    logHooked = pcall(function()
+        RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
+            local okM, text = pcall(function() return msg:get():ToString() end)
+            if not okM or text ~= ASK or not MatchLog.recording() then return end
+            local pc = self:get()
+            -- Off the RPC, as MJOLNIRLobby answers its messages.
+            ExecuteInGameThread(function()
+                if not (Match and pc:IsValid()) then return end
+                local seat = {}
+                pcall(function() seat.index = pc.PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex end)
+                pcall(function() seat.name = pc.PlayerState:GetPlayerName():ToString() end)
+                -- Answer only with the asker's own seat, as recorded: a player
+                -- joining a match under way reads index 0 (the host's) for a
+                -- few seconds after the host seats it (two PCs, 2026-10-03).
+                -- Until then say nothing; the client asks again.
+                local p = type(seat.index) == "number" and seat.index ~= LOCAL_PLAYER and Match.players[seat.index]
+                if not (p and p.name and p.name == seat.name) then return end
+                MatchLog.answer(pc, seat)
+            end)
+        end)
+        RegisterHook("/Script/Engine.PlayerController:ClientMessage", function(_, s, kind)
+            local okK, name = pcall(function() return kind:get():ToString() end)
+            if not okK or name ~= "MJOLNIR" then return end
+            local okS, text = pcall(function() return s:get():ToString() end)
+            if okS and type(text) == "string" and text:sub(1, 14) == "MJOLNIR|match|" and #Told < 8 then
+                Told[#Told + 1] = text
+            end
+        end)
+    end)
+    if not logHooked then Log("match log: could not hook the controller RPCs") end
+end
+
+local function matchLogTick(pc)
+    hookMatchLog()
+    if not Match.logChecked and not Match.over then
+        -- The host records. Its world's game mode is there from the start;
+        -- a few seconds' grace covers a world still coming up.
+        if isHostWorld(pc) then
+            Match.logChecked = true
+            MatchLog.start(Match, Match.startedAt)
+        elseif now() - Match.startedAt > 15 then
+            Match.logChecked = true
+        end
+    end
+    MatchLog.tick(Match, Scoreboard, LOCAL_PLAYER, now())
+    local told = Told
+    Told = {}
+    -- The host's own hook sees the answers it sends its clients.
+    if MatchLog.recording() or isHostWorld(pc) then told = {} end
+    for _, text in ipairs(told) do
+        local ownName = nil
+        pcall(function() ownName = pc.PlayerState:GetPlayerName():ToString() end)
+        local id, claimed = MatchLog.told(text, LOCAL_PLAYER, ownName)
+        if id then
+            Match.logId = id
+            Match.claimed = claimed
+            -- A private match may go public: ask again now and then.
+            Match.nextAsk = now() + (claimed and math.huge or 30)
+        end
+    end
+    if not MatchLog.recording() and not Match.claimed and not Match.over and now() >= Match.nextAsk
+        and not isHostWorld(pc) then
+        Match.nextAsk = now() + MatchLog.ASK_SECONDS
+        pcall(function() pc:ServerExecRPC(ASK) end)
+    end
+end
+
+--------------------------------------------------------------------------------
 -- The poll
 --------------------------------------------------------------------------------
 
@@ -693,6 +805,11 @@ local function startMatch(running, world)
         teams = { [0] = 0, [1] = 0 },
         teamKills = {},
         world = world,
+        startedAt = now(),
+        -- The match log: the host records; a client asks the host for the
+        -- match's id to claim its seat.
+        logChecked = false,
+        nextAsk = now() + 3,
     }
     Feed, Board = nil, nil
     boardShown = false
@@ -729,6 +846,9 @@ local function ensureWidgets()
 end
 
 local function endMatch()
+    if Match and MatchLog.recording() then
+        logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
+    end
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
     if Board and Board:IsValid() then setVisible(Board, false) end
@@ -764,6 +884,8 @@ local function tick()
         refreshNames()
         boardDirty = true
     end
+    -- Before the drain: the host's log is recording by the first incident.
+    logSafely("tick", matchLogTick, pc)
     drain()
     sweepTags()
     drawFeed()
@@ -793,6 +915,12 @@ local function poll()
     if not ok then Log("tick: " .. tostring(err)) end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
+
+logSafely("init", MatchLog.init, {
+    modDir = MOD_DIR,
+    log = Log,
+    version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
+})
 
 Log("Module loaded.")
 ExecuteInGameThreadWithDelay(5000, poll)

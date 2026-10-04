@@ -40,6 +40,7 @@ local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
+local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -2502,6 +2503,8 @@ local function initialize()
             }
         end,
     })
+    -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
+    Matches.init({ modDir = MOD_DIR, games = Games, log = log })
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

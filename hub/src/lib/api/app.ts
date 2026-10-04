@@ -22,6 +22,7 @@ import { registerProfileRoutes } from "./profiles";
 import { registerCodeSyncRoutes } from "./codesync";
 import { registerLobbyRoutes } from "./lobby";
 import { registerMapRoutes } from "./maps";
+import { registerMatchRoutes } from "./matches";
 import {
   ErrorSchema,
   HealthSchema,
@@ -443,6 +444,8 @@ registerCodeSyncRoutes(app);
 // Maps and the multiplayer lobby browser (docs/multiplayer_release_plan.md).
 registerMapRoutes(app);
 registerLobbyRoutes(app);
+// Public match history (docs/match_stats.md).
+registerMatchRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

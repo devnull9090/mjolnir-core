@@ -65,6 +65,9 @@ export function Navbar() {
           <Link href="/games" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Games
           </Link>
+          <Link href="/matches" className="text-sm text-text-muted hover:text-foreground transition-colors">
+            Matches
+          </Link>
           <Link href="/tools" className="text-sm text-text-muted hover:text-foreground transition-colors">
             Tools
           </Link>
