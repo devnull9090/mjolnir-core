@@ -604,17 +604,31 @@ fn with_ini_value(ini: &str, section: &str, key: &str, value: &str) -> String {
     out
 }
 
+/// `ini` with `[General] EnableHotReloadSystem` off. Ctrl+R reloads every
+/// Lua mod, and the native halves they load had hooks in the game: a reload
+/// mid-match crashed the host (two PCs, 2026-10-03). The DLLs now pin
+/// themselves, but a player has no use for a reload, and a stray Ctrl+R
+/// still restarts every mod in the middle of a game.
+fn with_hot_reload_off(ini: &str) -> String {
+    with_ini_value(ini, "General", "EnableHotReloadSystem", "0")
+}
+
+/// Everything the launcher keeps in the player's UE4SS settings.
+fn with_launcher_settings(ini: &str, show_console: bool) -> String {
+    with_hot_reload_off(&with_scan_time_floor(&with_console_enabled(ini, show_console)))
+}
+
 /// Bring the installed UE4SS settings in line with what the launcher needs:
-/// the player's console choice and the scan-time floor. UE4SS reads the file
-/// once at startup, so this has to land before the game starts; with no
-/// UE4SS installed there is nothing to do.
+/// the player's console choice, the scan-time floor and no hot reload. UE4SS
+/// reads the file once at startup, so this has to land before the game
+/// starts; with no UE4SS installed there is nothing to do.
 fn apply_ue4ss_settings(settings: &LauncherSettings) -> Result<(), String> {
     let Some(path) = ue4ss_settings_file(settings) else {
         return Ok(());
     };
     let ini = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    let updated = with_scan_time_floor(&with_console_enabled(&ini, settings.show_ue4ss_console));
+    let updated = with_launcher_settings(&ini, settings.show_ue4ss_console);
     if updated != ini {
         fs::write(&path, updated)
             .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
@@ -1920,19 +1934,39 @@ mod tests {
         );
     }
 
-    /// The shipped settings file, run through both edits: only the two keys
-    /// change.
+    /// The shipped settings file, run through every edit: only the scan
+    /// timeout and hot reload change (the bundle already hides the console).
     #[test]
-    fn the_bundled_settings_change_only_the_two_keys() {
+    fn the_bundled_settings_change_only_their_own_keys() {
         let bundled = include_str!("../../../../config/UE4SS-settings.ini");
-        let updated = with_scan_time_floor(&with_console_enabled(bundled, false));
+        let updated = with_launcher_settings(bundled, false);
         let changed: Vec<(&str, &str)> = bundled
             .lines()
             .zip(updated.lines())
             .filter(|(a, b)| a != b)
             .collect();
-        assert_eq!(changed, vec![("SecondsToScanBeforeGivingUp = 60", "SecondsToScanBeforeGivingUp = 120")]);
+        assert_eq!(
+            changed,
+            vec![
+                ("EnableHotReloadSystem = 1", "EnableHotReloadSystem = 0"),
+                ("SecondsToScanBeforeGivingUp = 60", "SecondsToScanBeforeGivingUp = 120"),
+            ]
+        );
         assert_eq!(bundled.lines().count(), updated.lines().count());
+        // A second pass changes nothing.
+        assert_eq!(with_launcher_settings(&updated, false), updated);
+    }
+
+    #[test]
+    fn hot_reload_is_turned_off_and_added_when_missing() {
+        assert_eq!(
+            with_hot_reload_off("[General]\nEnableHotReloadSystem = 1\nHotReloadKey = R\n"),
+            "[General]\nEnableHotReloadSystem = 0\nHotReloadKey = R\n"
+        );
+        assert_eq!(
+            with_hot_reload_off("[General]\nUseCache = 1\n[Debug]\n"),
+            "[General]\nUseCache = 1\nEnableHotReloadSystem = 0\n[Debug]\n"
+        );
     }
 
     /// A stand-in install tree under the temp directory, inside a library

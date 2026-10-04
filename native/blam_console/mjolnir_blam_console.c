@@ -324,9 +324,17 @@ __declspec(dllexport) int mjolnir_blam_pump(void *L) {
     return 0;
 }
 
+/* Pinned for the life of the process. The game keeps calling the hooks this
+   DLL installs, and a UE4SS mod reload (Ctrl+R) closes the Lua state that
+   loaded it, which unloaded the code under them: the host crashed executing
+   freed memory (two PCs, 2026-10-03). Pinned, a reload's package.loadlib
+   finds the same module, statics and all, and the install guards skip a
+   second install. */
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
+        HMODULE pinned;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, (LPCWSTR)module, &pinned);
         DisableThreadLibraryCalls(module);
         InitializeCriticalSection(&g_lock);
         derive_paths(module);
