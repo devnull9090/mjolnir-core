@@ -910,9 +910,19 @@ local function tick()
     end
 end
 
+--- A tick that holds the game thread past 50 ms is logged (at most every
+--- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said
+--- which mod's loop it was (playtest, 2026-10-03).
+local slowReportedAt = -100
 local function poll()
+    local started = os.clock()
     local ok, err = pcall(tick)
     if not ok then Log("tick: " .. tostring(err)) end
+    local took = os.clock() - started
+    if took > 0.05 and started - slowReportedAt > 30 then
+        slowReportedAt = started
+        Log(string.format("slow: the HUD tick held the game thread %.0f ms", took * 1000))
+    end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
 

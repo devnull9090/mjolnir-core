@@ -344,6 +344,19 @@ function UI.installScreenHooks()
     end)
 end
 
+--- Log a loop run that held the game thread past 50 ms, at most once every
+--- 30 s per loop: a CTF host froze ~250 ms every 3.24 s in Lua, and nothing
+--- said which loop it was (playtest, 2026-10-03). `started` is os.clock()
+--- at the run's start.
+local slowAt = {}
+function UI.reportSlow(name, started)
+    local took = os.clock() - started
+    if took > 0.05 and started - (slowAt[name] or -100) > 30 then
+        slowAt[name] = started
+        log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
+    end
+end
+
 UI.log = log
 UI.valid = valid
 UI.addressOf = addressOf

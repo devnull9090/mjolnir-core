@@ -222,6 +222,11 @@ local function resetState()
     Current.tinted = {}
     Current.fileMissing = false
     Current.pulses = {}
+    -- Flag state is per match: the first drop of a match took the last
+    -- match's team.
+    Current.lastFlagTeam = nil
+    Current.carriedTeam = nil
+    Current.flagSerial = 0
 end
 
 local function clearActors()
@@ -277,6 +282,14 @@ local function loadCurrentLevelFile(scenario)
     local tag = scenarioTagOf()
     if tag then
         local level = loadLevelFile(scenario, tag)
+        -- The tag outlives its map: on a fireteam client the map just left
+        -- is still loaded at the menu, and its level was furnished behind
+        -- the menu and its game type announced again (playtest,
+        -- 2026-10-03). The tag's file counts only on its own world or on
+        -- the world its canvas names.
+        if level and tag ~= scenario and string.upper(level.canvas.scenario) ~= scenario then
+            level = nil
+        end
         if level then
             if tag ~= scenario then
                 Log(string.format("scenario tag %s has its own level file", tag))
@@ -302,23 +315,60 @@ end
 -- Decor spawning
 --------------------------------------------------------------------------------
 
+--- Whether a watch that has not armed may try again now. NotifyOnNewObject
+--- on a class not loaded yet raises after looking the class up, a walk of
+--- every object; retried from 1.5 s loops up to four times a pass, it was
+--- part of the CTF freeze (playtest, 2026-10-03). Once every 10 s per watch.
+local ArmAt = {}
+local function mayArm(name)
+    if os.clock() < (ArmAt[name] or 0) then return false end
+    ArmAt[name] = os.clock() + 10
+    return true
+end
+
+--- Assets resolved this world, by path, and paths that would not load.
+--- A lookup of a path that is not in memory walks every object in the game
+--- (18.7 ms on a converted map), and the loads after it block: re-dressing
+--- the Spartans every 3 s missed all seven Mk V meshes each time and froze a
+--- CTF host for ~250 ms every 3.24 s (playtest, 2026-10-03). A path that
+--- does not load is not tried again until the next world.
+local Resolved, Unresolved = {}, {}
+
 --- Resolve a mesh object path, loading the asset if it is not in memory.
 --- Never called on world packages: decor mesh paths are object paths into
 --- /Engine or /Game mesh packages (LoadAsset on a world package crashes).
 local function resolveMesh(path)
+    -- A Lua handle does not keep its object: after a garbage collection the
+    -- address may hold something else, so the name has to match too.
+    local known = Resolved[path]
+    if known then
+        local ok, name = pcall(function() return known:IsValid() and known:GetFullName() end)
+        if ok and type(name) == "string" and name:sub(-#path) == path then return known end
+        Resolved[path] = nil
+    end
+    if Unresolved[path] then return nil end
     local mesh = findObject(path)
-    if mesh then return mesh end
+    if mesh then
+        Resolved[path] = mesh
+        return mesh
+    end
     local ok, loaded = pcall(function() return LoadAsset(path) end)
-    if ok and loaded and loaded:IsValid() then return loaded end
-    -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists, which
-    -- leaves out every package of ours (the converted levels' cooked
-    -- materials and textures, pakchunk988). A soft-path blocking load goes
-    -- straight to the package store instead.
-    ok, loaded = pcall(function()
-        local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
-        return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
-    end)
-    if ok and loaded and loaded:IsValid() then return loaded end
+    if not (ok and loaded and loaded:IsValid()) then
+        -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists,
+        -- which leaves out every package of ours (the converted levels'
+        -- cooked materials and textures, pakchunk988). A soft-path blocking
+        -- load goes straight to the package store instead.
+        ok, loaded = pcall(function()
+            local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+        end)
+    end
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
+    Unresolved[path] = true
+    Log("asset not found, not tried again on this map: " .. path)
     return nil
 end
 
@@ -836,7 +886,7 @@ local HomeFlags = {}
 --- flag object (a weapon) settles a little off the stand and turned, which
 --- showed on Gephyrophobia. Picked up, it follows the flag again
 --- (unpinFlag).
-local function pinFlag(comp, flag, stand, name)
+local function pinFlag(comp, flag, stand, name, actor)
     local p, yaw = flag.pos or { 0, 0, 0 }, math.rad(stand.yaw or 0)
     comp:SetAbsolute(true, true, false)
     comp:K2_SetWorldLocationAndRotation({
@@ -844,7 +894,7 @@ local function pinFlag(comp, flag, stand, name)
         Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
         Z = stand.pos[3] + p[3],
     }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, {}, false)
-    HomeFlags[name] = { comp = comp, flag = flag }
+    HomeFlags[name] = { comp = comp, flag = flag, actor = actor }
 end
 
 local function unpinFlag(name)
@@ -857,7 +907,23 @@ local function unpinFlag(name)
         { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
 end
 
-local function dressFlag(world, actor, ctf)
+local function teamName(team)
+    return type(team) == "string" and team or TEAM_NAMES[team] or nil
+end
+
+--- Whether team `name`'s flag is at home already, as an actor other than
+--- `actor`.
+local function flagHome(name, actor)
+    local home = HomeFlags[name]
+    if not (home and home.actor and home.actor:IsValid() and home.comp:IsValid()) then return false end
+    local ok, other = pcall(function() return home.actor:GetFullName() ~= actor:GetFullName() end)
+    return ok and other
+end
+
+--- Dress a world flag in its team's colours. `serial` is the flag incident
+--- count when the actor appeared (nil from a sweep: no wait).
+local function dressFlag(world, actor, ctf, serial, tries)
+    if not actor:IsValid() then return end
     local at = actor:K2_GetActorLocation()
     local team, best, home = nil, math.huge, nil
     for _, s in ipairs(type(ctf.stands) == "table" and ctf.stands or {}) do
@@ -865,15 +931,30 @@ local function dressFlag(world, actor, ctf)
         local d = dx * dx + dy * dy + dz * dz
         if d < best then team, best, home = s.team, d, s end
     end
-    -- A flag picked up or dropped is a new actor away from both stands; its
-    -- team is the one the flag incident just named (CustomValue).
-    if best > FLAG_AT_STAND_CM * FLAG_AT_STAND_CM and Current.lastFlagTeam then
-        team = Current.lastFlagTeam
+    -- A flag made on a stand is that stand's, unless that team's flag is
+    -- home already: a carrier killed beside their own stand drops the
+    -- enemy's flag there, and it was dressed in the stand's colour and
+    -- pinned over the stand (playtest, 2026-10-03).
+    local atStand = best <= FLAG_AT_STAND_CM * FLAG_AT_STAND_CM and not flagHome(teamName(team), actor)
+    if not atStand then
+        -- A flag picked up or dropped is a new actor away from both stands;
+        -- its team is the one the flag incident about it names
+        -- (CustomValue). That incident comes after the actor, a drain or a
+        -- relay later, so wait for one newer than the actor (up to 1.5 s)
+        -- rather than take the last incident of either flag.
+        if serial and (Current.flagSerial or 0) == serial and (tries or 0) < 15 then
+            ExecuteInGameThreadWithDelay(100, function()
+                local ok, err = pcall(dressFlag, world, actor, ctf, serial, (tries or 0) + 1)
+                if not ok then Log("CTF flag: " .. tostring(err)) end
+            end)
+            return
+        end
+        if Current.lastFlagTeam then team = Current.lastFlagTeam end
     end
-    local name = type(team) == "string" and team or TEAM_NAMES[team] or "red"
+    local name = teamName(team) or "red"
     local flag = ctf.flag
     local comp = attachFlagMesh(world, actor, ctf, name, flag.pos or { 0, 0, 0 }, { 0, 0, 0 }, flag.scale or 1.0)
-    if best <= FLAG_AT_STAND_CM * FLAG_AT_STAND_CM then pinFlag(comp, flag, home, name) end
+    if atStand then pinFlag(comp, flag, home, name, actor) end
 end
 
 --- The flag in first person: the carrier's own copy of the skull actor
@@ -885,15 +966,27 @@ end
 --- flag (2026-10-01).
 local FP_FLAG = { pos = { 65, -42, -28 }, rot = { -10, -20, 60 }, scale = 0.7 }
 
-local function dressFirstPersonFlag(world, actor, ctf)
-    local name = TEAM_NAMES[Current.lastFlagTeam] or "red"
+--- The team is the local player's own grab's (Current.carriedTeam), which
+--- arrives after the actor: waited for up to 1.5 s, then the last flag
+--- incident's.
+local function dressFirstPersonFlag(world, actor, ctf, tries)
+    if not actor:IsValid() then return end
+    if not Current.carriedTeam and (tries or 0) < 15 then
+        ExecuteInGameThreadWithDelay(100, function()
+            local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf, (tries or 0) + 1)
+            if not ok then Log("CTF first-person flag: " .. tostring(err)) end
+        end)
+        return
+    end
+    local name = TEAM_NAMES[Current.carriedTeam] or TEAM_NAMES[Current.lastFlagTeam] or "red"
     attachFlagMesh(world, actor, ctf, name, FP_FLAG.pos, FP_FLAG.rot, FP_FLAG.scale)
 end
 
 
 --- Quench a skull actor, and dress it if it is a world flag (not the
---- first-person one, a subclass) not yet dressed.
-local function handleSkull(world, actor, ctf)
+--- first-person one, a subclass) not yet dressed. `serial`: the flag
+--- incident count when the actor appeared.
+local function handleSkull(world, actor, ctf, serial)
     if not actor:IsValid() then return end
     pcall(quenchSkull, actor)
     local class = actor:GetClass():GetFName():ToString()
@@ -901,17 +994,12 @@ local function handleSkull(world, actor, ctf)
     if Current.flags[key] then return end
     Current.flags[key] = actor
     if class == FP_FLAG_ACTOR_CLASS then
-        -- The pickup's incident (which names the flag's team) is drained a
-        -- moment after the actor appears.
-        ExecuteInGameThreadWithDelay(300, function()
-            if not actor:IsValid() then return end
-            local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf)
-            if not ok then Log("CTF first-person flag: " .. tostring(err)) end
-        end)
+        local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf)
+        if not ok then Log("CTF first-person flag: " .. tostring(err)) end
         return
     end
     if class ~= FLAG_ACTOR_CLASS then return end
-    local ok, err = pcall(dressFlag, world, actor, ctf)
+    local ok, err = pcall(dressFlag, world, actor, ctf, serial)
     if not ok then Log("CTF flag: " .. tostring(err)) end
 end
 
@@ -942,12 +1030,13 @@ local skullsWatched = false
 --- or made anew, and the first-person one) is handled as it appears, once
 --- its components exist.
 local function watchSkulls()
-    if skullsWatched then return end
+    if skullsWatched or not mayArm("skulls") then return end
     skullsWatched = pcall(NotifyOnNewObject, SKULL_ACTOR_CLASS_PATH, function(actor)
         track(Skulls, actor)
+        local serial = Current.flagSerial or 0
         ExecuteInGameThreadWithDelay(50, function()
             local ctf, world = ctfLevel(), getWorld()
-            if ctf and world then handleSkull(world, actor, ctf) end
+            if ctf and world then handleSkull(world, actor, ctf, serial) end
         end)
         -- The effect and its sound start a little after the actor.
         for _, ms in ipairs({ 500, 2000 }) do
@@ -967,7 +1056,10 @@ end
 local function quenchFlags()
     ExecuteInGameThreadWithDelay(200, function()
         local ctf, world = ctfLevel(), getWorld()
-        local name = TEAM_NAMES[Current.lastFlagTeam]
+        -- Only the local player's own grab recolours their first-person
+        -- flag: any flag's incident did, so carrying blue while red was
+        -- dropped turned the flag in hand red (playtest, 2026-10-03).
+        local name = TEAM_NAMES[Current.carriedTeam]
         for key, actor in pairs(Current.flags) do
             if type(actor) == "userdata" and actor:IsValid() then
                 pcall(quenchSkull, actor)
@@ -1049,7 +1141,7 @@ local packsWatched = false
 --- dressed as it appears; the game may show the pickup's own mesh again a
 --- moment later, so it is hidden again then.
 local function watchHealthPacks()
-    if packsWatched then return end
+    if packsWatched or not mayArm("packs") then return end
     packsWatched = pcall(NotifyOnNewObject, HEALTH_PACK_ACTOR_CLASS_PATH, function(actor)
         for _, ms in ipairs({ 50, 500 }) do
             ExecuteInGameThreadWithDelay(ms, function()
@@ -1163,7 +1255,19 @@ end
 local function playEvent(name, cause, value, effect)
     -- The CTF variant's flag incidents carry the flag's team (dressFlag).
     if name:find("^flag_") then
-        if value == 0 or value == 1 then Current.lastFlagTeam = value end
+        if value == 0 or value == 1 then
+            Current.lastFlagTeam = value
+            -- A flag actor made away from both stands waits for the
+            -- incident after it (dressFlag), not the last one before it.
+            Current.flagSerial = (Current.flagSerial or 0) + 1
+            -- The flag in the local player's hands, for the first-person
+            -- flag: only their own grab says which it is.
+            -- Any other flag incident of theirs (a drop, a capture) ends it,
+            -- so their next flag waits for its own grab.
+            if cause == LOCAL_PLAYER then
+                Current.carriedTeam = name == "flag_grabbed" and value or nil
+            end
+        end
         if name == "flag_grabbed" and TEAM_NAMES[value] then unpinFlag(TEAM_NAMES[value]) end
         quenchFlags()
     end
@@ -1215,24 +1319,61 @@ local function isHostWorld()
     return ok and yes == true
 end
 
+--- Whether a client has a use for an incident: one with a sound, or a flag's
+--- (its team colours the flags). Relaying every incident sent six reliable
+--- messages for one sniper headshot, most of them silent, and each one
+--- queued behind the last (playtest, 2026-10-03).
+local function relayed(e)
+    local name = e[1]
+    if name == "player_spawn" or e.relayed then return false end
+    return name:find("^flag_") ~= nil or EventWaves[name] ~= nil
+        or (e[3] ~= nil and EventWaves[name .. ":" .. tostring(e[3])] ~= nil)
+end
+
+--- The world's controllers, from one FindAllOf every few seconds: a walk
+--- per relay held the host's game thread ~20 ms each time an event came in.
+local Controllers = { list = {}, at = -100, world = nil }
+local function controllers()
+    local world = Current.worldName
+    if world ~= Controllers.world or os.clock() - Controllers.at > 5 then
+        Controllers.list = FindAllOf("PlayerController") or {}
+        Controllers.at, Controllers.world = os.clock(), world
+    end
+    return Controllers.list
+end
+
 local function relayEvents(queued)
     if not isHostWorld() then return end
     local messages = {}
     for _, e in ipairs(queued) do
-        if e[1] ~= "player_spawn" and not e.relayed then
+        if relayed(e) then
             messages[#messages + 1] = string.format("MJOLNIR|event|%s|%s|%s|%s", tostring(e[1]),
                 tostring(e[2] or -1), tostring(e[3] or 0), tostring(e[4] or -1))
         end
     end
     if #messages == 0 then return end
     local kind = FName(RELAY_TYPE)
-    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+    for _, pc in ipairs(controllers()) do
         pcall(function()
             if not pc:IsValid() or pc:IsLocalController() then return end
             if not (pc.Player:IsValid() and pc.PlayerState:IsValid()) then return end
             for _, msg in ipairs(messages) do pc:ClientMessage(msg, kind, 0) end
         end)
     end
+end
+
+--- Drain on the next tick rather than the next 100 ms poll: each side's
+--- wait for its poll added up to ~117 ms to a relayed sound. Never from
+--- inside the hook itself (playing a sound there froze the game).
+local drainEvents
+local drainPending = false
+local function scheduleDrain()
+    if drainPending then return end
+    drainPending = true
+    ExecuteInGameThread(function()
+        drainPending = false
+        pcall(drainEvents)
+    end)
 end
 
 local function hookRelay()
@@ -1246,12 +1387,13 @@ local function hookRelay()
             local event, cause, value, effect = text:match("^MJOLNIR|event|([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
             if not event or NativeIncidents[event] or #EventQueue >= 32 or isHostWorld() then return end
             EventQueue[#EventQueue + 1] = { event, tonumber(cause), tonumber(value), tonumber(effect), relayed = true }
+            scheduleDrain()
         end)
     end)
     Log(relayHooked and "event sounds: relay from the host armed" or "event sounds: could not hook ClientMessage")
 end
 
-local function drainEvents()
+drainEvents = function()
     if #EventQueue == 0 then return end
     refreshLocalPlayer()
     local queued = EventQueue
@@ -1288,14 +1430,17 @@ local function hookIncidents()
     -- RegisterHook raises while the Blueprint is not loaded.
     incidentHooked = pcall(function()
         RegisterHook(INCIDENT_EVENT, function(_, incident)
-            if not next(EventWaves) then return end
             local okI, name, cause, value, effect = pcall(function()
                 local i = incident:get()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
-            if okI and name and #EventQueue < 32 then
+            -- Flag incidents count without sounds too: they colour the flags,
+            -- and with no wave loaded every dropped flag came out red.
+            if not (okI and name) or not (next(EventWaves) or name:find("^flag_")) then return end
+            if #EventQueue < 32 then
                 NativeIncidents[name] = true
                 EventQueue[#EventQueue + 1] = { name, cause, value, effect }
+                scheduleDrain()
             end
         end)
     end)
@@ -1411,7 +1556,7 @@ end
 local Bipeds = {}
 
 local function watchBipeds()
-    if bipedsWatched then return end
+    if bipedsWatched or not mayArm("bipeds") then return end
     bipedsWatched = pcall(NotifyOnNewObject, SPARTAN_CLASS_PATH, function(actor)
         track(Bipeds, actor)
         for _, ms in ipairs({ 300, 2000 }) do
@@ -1528,6 +1673,14 @@ local function tick()
         resetState()
         EventWaves = {}
         SilentIncidents = {}
+        -- Nothing queued on the old map plays in the new world, and which
+        -- incidents arrive natively is learnt again: a player who hosted
+        -- earlier had every name marked native and, as a client, dropped
+        -- every relayed sound.
+        EventQueue = {}
+        NativeIncidents = {}
+        Resolved, Unresolved = {}, {}
+        HomeFlags, FlagMeshes = {}, {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -1538,6 +1691,14 @@ local function tick()
         if string.upper(worldName):find("SEAMLESSTRAVEL", 1, true) then return end
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
+        -- The menu has no level. The match is over, so the file that tells
+        -- other mods a match runs goes: only the next switch removed it, so
+        -- a host back at the menu still had one, and a FIND GAMES join to
+        -- the same map was taken as already switched.
+        if Current.scenario == "FRONTEND" then
+            os.remove(MOD_DIR .. "\\running.txt")
+            return
+        end
 
         local level, err = loadCurrentLevelFile(Current.scenario)
         if not level then
@@ -1578,10 +1739,21 @@ end
 --- holding the mod's Lua lock while it queues, the game thread holding the
 --- queue while it waits for the lock; at 0.1 s and 0.3 s it froze the game
 --- within minutes (2026-10-01).
+---
+--- A run that holds the game thread past 50 ms is logged with its name (at
+--- most once every 30 s per loop): a CTF host froze ~250 ms every 3.24 s in
+--- Lua, and nothing said which loop (playtest, 2026-10-03).
 local function every(ms, name, fn)
+    local reportedAt = -100
     local function run()
+        local started = os.clock()
         local ok, err = pcall(fn)
         if not ok then Log(name .. " error: " .. tostring(err)) end
+        local took = os.clock() - started
+        if took > 0.05 and started - reportedAt > 30 then
+            reportedAt = started
+            Log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
+        end
         ExecuteInGameThreadWithDelay(ms, run)
     end
     ExecuteInGameThreadWithDelay(ms, run)
