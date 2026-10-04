@@ -20,6 +20,40 @@ tools/level/convert_ce_map.sh maps/bloodgulch.map BGL out/bgl --install
 containers into the game and the level file into MJOLNIRLevelLoader; without
 it everything lands in the output folder.
 
+### Custom Edition maps
+
+Community maps convert the same way (`TITLE="Yoyorast Island"
+tools/level/convert_ce_map.sh "maps/Yoyorast Island V2.map" YOY out/yoy`).
+Their file name becomes `[a-z0-9_]` for file and asset names; `TITLE` is the
+menu name. Three things differ from the stock maps:
+
+- **Protected maps** (Yoyorast Island V2): a protection tool replaced every
+  primary tag class with `ztpt` and every tag path with `<zteam>`. halo2ue
+  repairs the index in memory (HalcyonRing `map-core/src/parsers/deprotect.rs`)
+  before anything reads it. Every tag reference inside the tag data (and the
+  BSP's own region) still carries the real class, so each tag's class is the
+  majority of the references to it; the scenario comes from the header. The
+  names come back by fingerprinting each tag (its data with pointers masked
+  and references replaced by the referenced tag's fingerprint, a few rounds)
+  against the unprotected maps in the same folder (`--reference-maps`).
+  Yoyorast: all 3,091 classes and 1,261 of 1,838 names, every stock weapon,
+  power-up and item collection among them. The rest get
+  `protected\<class>\<index>`, and a second copy of a stock tag
+  `<stock path>__p<index>` (placed as the stock tag). halo2ue writes the
+  repaired index to `staging/tags.json` for `ce_sounds.py`.
+- **Custom vehicles** the tag map does not list are placed by the CE vehicle
+  type halo2ue stages (`vehicle_type`): jeep as warthog, tank as scorpion,
+  scout as ghost, fighter as banshee, turret as shade (`vehicle_types` in
+  `defs/level/ce-tag-map.json`).
+- **Big BSPs.** Coldsnap's BSP is 35,173 surfaces once its polygons are split
+  into triangles, past a definition's 32,767. Where triangles do not fit, the
+  split makes quads instead (32,257); see
+  [ce_terrain_collision.md](ce_terrain_collision.md). Its second BSP is a copy
+  of the first.
+
+Sounds a custom map keeps inside the `.map` (not in `sounds.map`) are not
+extracted.
+
 ## What the command does
 
 | Step | Tool | Result |
@@ -548,7 +582,8 @@ seconds after the loading screen are dark.
 - **More than 8,191 surfaces** (Sidewinder, Infinity, Death Island, ...): the
   static body lists the terrain as one whole-instance key instead of one key
   per surface. Verified on Sidewinder: players walk and vehicles rest on it.
-- **One BSP per map.** Coldsnap's second BSP is not converted.
+- **One BSP per map.** A map's second BSP is not converted (Coldsnap's is a
+  copy of its first).
 - **The canvas palette.** Weapons and vehicles the canvas mission never
   places (shotgun, flamethrower, fuel rod, health packs) are dropped.
 - **Extent.** Keep a map inside the canvas level's overall extent: lifted 800 wu

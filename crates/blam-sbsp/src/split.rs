@@ -61,9 +61,32 @@ fn set_next(edge: &mut Edge, owner: i32, next: i32, old_owner: i32) {
     }
 }
 
-/// Split every polygon with more than `max` vertices. Returns how many were
-/// split and how many 2D references/leaves were rewritten.
+/// Split every polygon with more than `max` vertices into triangles. Returns
+/// how many were split and how many 2D references/leaves were rewritten.
 pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
+    fan_split_into(c, max, 3)
+}
+
+/// [`fan_split`] into triangles when the result fits the 16-bit tables, into
+/// quads (shipped definitions carry those too) when it does not: Coldsnap's
+/// BSP is 35,173 surfaces as triangles and 32,257 as quads, under the 32,767
+/// limit. Maps that fit split exactly as before.
+pub fn fan_split_fit(c: &mut Collision, max: usize) -> (usize, usize) {
+    let mut tri = c.clone();
+    let r = fan_split(&mut tri, max);
+    if tri.fits_16bit().is_ok() || max < 4 {
+        *c = tri;
+        return r;
+    }
+    fan_split_into(c, max, 4)
+}
+
+/// Split every polygon with more than `max` vertices into a fan of convex
+/// pieces of at most `piece` vertices (3 or more), all sharing the polygon's
+/// first vertex. Returns how many were split and how many 2D
+/// references/leaves were rewritten.
+pub fn fan_split_into(c: &mut Collision, max: usize, piece: usize) -> (usize, usize) {
+    let piece = piece.max(3);
     let mut split_count = 0;
     let mut rewired = 0;
     let original_surfaces = c.surfaces.len();
@@ -79,60 +102,60 @@ pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
         let v = &lp.verts;
         let e = &lp.edges;
 
-        // Piece k (k = 1..=n-2) is (v0, v_k, v_{k+1}); piece 1 keeps index s.
-        let mut piece: Vec<i32> = vec![s as i32];
-        for _ in 2..=(n - 2) {
-            piece.push(c.surfaces.len() as i32);
+        // Piece j is (v0, v_ks[j], ..., v_ks[j+1]): `piece - 2` fan steps
+        // each, the last one whatever is left. Edge e[i] carries v_i -> v_i+1.
+        let mut ks = vec![1usize];
+        while *ks.last().unwrap() < n - 1 {
+            let k = *ks.last().unwrap();
+            ks.push((k + piece - 2).min(n - 1));
+        }
+        let m = ks.len() - 1;
+        // Piece 0 keeps index s.
+        let mut pieces: Vec<i32> = vec![s as i32];
+        for _ in 1..m {
+            pieces.push(c.surfaces.len() as i32);
             c.surfaces.push(template);
         }
-        // Diagonal k (k = 2..=n-2) runs v0 -> v_k; piece k has it on the left,
-        // piece k-1 on the right.
-        let mut diag: Vec<i32> = vec![-1, -1]; // index by k
-        for k in 2..=(n - 2) {
+        // Diagonal j (j = 1..m) runs v0 -> v_ks[j]; piece j has it on the
+        // left, piece j-1 on the right.
+        let mut diag: Vec<i32> = vec![-1]; // index by j
+        for j in 1..m {
             diag.push(c.edges.len() as i32);
             c.edges.push(Edge {
                 start: v[0],
-                end: v[k],
+                end: v[ks[j]],
                 forward: -1,
                 reverse: -1,
-                left: piece[k - 1],
-                right: piece[k - 2],
+                left: pieces[j],
+                right: pieces[j - 1],
             });
         }
-        let first_edge_of = |k: usize| -> i32 {
-            if k == 1 {
-                e[0] as i32
-            } else {
-                diag[k]
-            }
-        };
-        let closing_edge_of = |k: usize| -> i32 {
-            if k == n - 2 {
+
+        for j in 0..m {
+            let p = pieces[j];
+            let opening = if j == 0 { e[0] as i32 } else { diag[j] };
+            let closing = if j == m - 1 {
                 e[n - 1] as i32
             } else {
-                diag[k + 1]
+                diag[j + 1]
+            };
+            // opening -> e[ks[j]] .. e[ks[j+1]-1] -> closing -> opening.
+            let mut seq = vec![opening];
+            seq.extend((ks[j]..ks[j + 1]).map(|i| e[i] as i32));
+            seq.push(closing);
+            for (q, &edge) in seq.iter().enumerate() {
+                let next = seq[(q + 1) % seq.len()];
+                if j > 0 && q == 0 {
+                    // Diagonal j, traversed start->end by piece j: its left side.
+                    c.edges[edge as usize].forward = next;
+                } else if j + 1 < m && q == seq.len() - 1 {
+                    // Diagonal j+1, traversed end->start by piece j: its right side.
+                    c.edges[edge as usize].reverse = next;
+                } else {
+                    set_next(&mut c.edges[edge as usize], p, next, s as i32);
+                }
             }
-        };
-
-        for k in 1..=(n - 2) {
-            let p = piece[k - 1];
-            let (a, b, cl) = (first_edge_of(k), e[k] as i32, closing_edge_of(k));
-            // a -> b -> cl -> a around piece k.
-            if k == 1 {
-                let old = s as i32;
-                set_next(&mut c.edges[a as usize], p, b, old);
-            } else {
-                // Diagonal a is traversed start->end by piece k: its left side.
-                c.edges[a as usize].forward = b;
-            }
-            set_next(&mut c.edges[b as usize], p, cl, s as i32);
-            if k == n - 2 {
-                set_next(&mut c.edges[cl as usize], p, a, s as i32);
-            } else {
-                // Diagonal cl is traversed end->start by piece k: its right side.
-                c.edges[cl as usize].reverse = a;
-            }
-            c.surfaces[p as usize].first_edge = a;
+            c.surfaces[p as usize].first_edge = opening;
         }
 
         // The 2D side: a chain of split lines along the diagonals, in the
@@ -145,15 +168,16 @@ pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
         };
         let p0 = proj(v[0]);
         // Build from the far end so each node's "rest" child already exists.
-        let mut rest: i32 = (SURFACE_FLAG | piece[n - 3] as u32) as i32; // last piece
-        for k in (2..=(n - 2)).rev() {
-            let pk = proj(v[k]);
+        let mut rest: i32 = (SURFACE_FLAG | pieces[m - 1] as u32) as i32; // last piece
+        for j in (1..m).rev() {
+            let pk = proj(v[ks[j]]);
             let dir = [pk[0] - p0[0], pk[1] - p0[1]];
             let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-9);
             let nrm = [dir[1] / len, -dir[0] / len];
             let d = nrm[0] * p0[0] + nrm[1] * p0[1];
-            let near = (SURFACE_FLAG | piece[k - 2] as u32) as i32; // piece k-1
-            let far_vertex = proj(v[k - 1]);
+            let near = (SURFACE_FLAG | pieces[j - 1] as u32) as i32;
+            // A vertex of piece j-1 off the diagonal.
+            let far_vertex = proj(v[ks[j] - 1]);
             let side = nrm[0] * far_vertex[0] + nrm[1] * far_vertex[1] - d;
             // Right child is the positive side of the line.
             let (left, right) = if side > 0.0 {
@@ -179,7 +203,7 @@ pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
         }
         // 2D nodes that pointed at the old surface (only the nodes that
         // existed before this split can).
-        let new_from = c.bsp2d_nodes.len() - (n - 3);
+        let new_from = c.bsp2d_nodes.len() - (m - 1);
         for node in c.bsp2d_nodes[..new_from].iter_mut() {
             if node.left == target {
                 node.left = root;
@@ -425,5 +449,88 @@ mod tests {
         let mut c = with_tail();
         c.bsp3d_nodes[0].plane = 2;
         assert!(split_standalone(&mut c, 1, 8).is_err());
+    }
+
+    /// One convex octagon on z = 0, as a leaf's only 2D reference.
+    fn octagon() -> Collision {
+        use crate::ce::Bsp2dReference;
+        let mut c = Collision::default();
+        c.planes.push(Plane {
+            n: [0.0, 0.0, 1.0],
+            d: 0.0,
+        });
+        for i in 0..8 {
+            let a = i as f32 * std::f32::consts::TAU / 8.0;
+            c.vertices.push(Vertex {
+                point: [10.0 * a.cos(), 10.0 * a.sin(), 0.0],
+                first_edge: i,
+            });
+            c.edges.push(Edge {
+                start: i,
+                end: (i + 1) % 8,
+                forward: (i + 1) % 8,
+                reverse: -1,
+                left: 0,
+                right: -1,
+            });
+        }
+        c.surfaces.push(Surface {
+            plane: 0,
+            first_edge: 0,
+            flags: 0,
+            breakable: -1,
+            material: 0,
+        });
+        c.bsp2d_references.push(Bsp2dReference {
+            plane: 0,
+            node: SURFACE_FLAG as i32,
+        });
+        c.leaves.push(Leaf {
+            flags: 0,
+            reference_count: 1,
+            first_reference: 0,
+        });
+        c
+    }
+
+    /// Every piece is a closed loop of at most `piece` vertices, and the 2D
+    /// chain sends each piece's centroid to that piece.
+    fn check_fan(piece: usize, expect: usize) {
+        let mut c = octagon();
+        assert_eq!(fan_split_into(&mut c, 4, piece), (1, 1));
+        assert_eq!(c.surfaces.len(), expect);
+        let mut corners = 0;
+        for s in 0..c.surfaces.len() {
+            let lp = walk(&c, s).expect("closed loop");
+            assert!(
+                lp.verts.len() >= 3 && lp.verts.len() <= piece,
+                "piece {s}: {:?}",
+                lp.verts
+            );
+            corners += lp.verts.len();
+            let mut m = [0.0f32; 3];
+            for &v in &lp.verts {
+                for k in 0..3 {
+                    m[k] += c.vertices[v as usize].point[k] / lp.verts.len() as f32;
+                }
+            }
+            assert_eq!(
+                crate::raytest::leaf_surface(&c, 0, 0, m),
+                Some(s),
+                "centroid of piece {s}"
+            );
+        }
+        // n + 2 * diagonals corners in all.
+        assert_eq!(corners, 8 + 2 * (expect - 1));
+    }
+
+    #[test]
+    fn an_octagon_fans_into_triangles() {
+        check_fan(3, 6);
+    }
+
+    #[test]
+    fn an_octagon_fans_into_quads() {
+        check_fan(4, 3);
     }
 }

@@ -578,5 +578,18 @@ gave each piece a node with "none" on both sides, so every point of the map
 was inside solid scenery: a player was killed by the guardians
 (`guardian_kill`) the moment they moved, and teleporters refused to exit into
 it (`teleporter_blocked`). Danger Canyon, 2026-10-01; one empty leaf fixed
-both. Coldsnap does not: its BSP alone has 35,173
-surfaces, which would need the tree itself split.
+both. Coldsnap did not: its BSP alone has 35,173
+surfaces as triangles.
+
+## Quads for the biggest BSPs (2026-10-03)
+
+The fan split (`split::fan_split_into`) cuts a CE polygon past four vertices
+into a fan around its first vertex; shipped definitions carry triangles and
+quads, so the pieces may be either. `fan_split_fit` keeps triangles when they
+fit the 16-bit tables, so every map that converted before converts byte for
+byte the same, and makes quads when they do not: Coldsnap's BSP (9,662
+triangles, 18,707 quads, 1,860 polygons of five to eight vertices) becomes
+32,257 surfaces instead of 35,173. `level collision` decides whether the
+scenery moves to instances of its own after this split, not before (Coldsnap
+fits before it and not after). `ray_probe packed` on Coldsnap gives the same
+result as on the unsplit CE tables (no misses).
