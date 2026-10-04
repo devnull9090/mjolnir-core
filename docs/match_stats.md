@@ -135,8 +135,16 @@ before the hub deploy that uses it (`pnpm db:migrate:prod`).
   hand-written `listing.txt`; `blam unit_kill (unit (list_get (players) 1))`
   for deaths; `mjolnir_auto endgame`. The record, posted to the local hub,
   rendered as written.
-- Not yet: a two-PC claim (the `matchid` exchange), and a real kill between
-  players (a bot cannot shoot; see synthetic input notes).
+- Two PCs (2026-10-03, `tools/remote/jip-test.mjs`, PC 2 joining PC 1's
+  public BGL match under way): PC 2 claimed seat 1 in the match PC 1
+  recorded. The host's record held two real kills (an assault rifle first
+  blood; a Warthog splatter, `WarthogDriver` modifier 3, the cause position
+  the vehicle's), with positions for both players. Posted to a local hub,
+  claim first, both seats linked. The first run had claimed seat 0: a joiner
+  reads index 0 on the host for a few seconds after it is seated, so the host
+  now answers only with the asker's own recorded seat.
+- A host's ban list kicks a banned joiner about a second in; an old ban of
+  the test account looked like a failed join until it was cleared.
 
 ## Next
 
