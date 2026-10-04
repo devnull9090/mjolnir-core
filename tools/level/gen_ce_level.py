@@ -57,11 +57,25 @@ VEHICLE_SETS = {"slayer": 1 << 0, "ctf": 1 << 1, "king": 1 << 2, "oddball": 1 <<
 # default, gauss, troop, rocket, ...).
 VEHICLE_VARIANTS = {"vehicles/rwarthog/rwarthog": "rocket"}
 
+# The bake creates every placed object "at rest" (placement flag 0x20). This
+# override clears it, so an object placed above the floor falls into place
+# instead of hanging where it was put.
+NOT_AT_REST = {"object data.placement flags": "0x0"}
+
 # Vehicles that start inside the floor at CE's height: Blood Gulch's
 # Banshees on the base roofs and its Scorpions were thrown on their sides
 # (2026-10-01). They start this many wu higher and fall into place (not
-# "create at rest", which would leave them hanging there).
+# "create at rest", which would leave them hanging there). Every other
+# vehicle starts VEHICLE_LIFT_DEFAULT higher: CE places vehicles and items
+# 0.001 wu over the floor, which leaves the part below their origin in it.
 VEHICLE_LIFT = {"banshee": 0.3, "scorpion": 0.3}
+VEHICLE_LIFT_DEFAULT = 0.05
+
+# Weapons and equipment start this many wu over their CE height and fall into
+# place: created at rest at CE's height, the part of a weapon below its origin
+# stayed in the floor (playtest, 2026-10-03). Levitating powerups (CE's
+# `levitate` flag) stay at rest where CE put them.
+ITEM_LIFT = 0.05
 
 # The canvas's structure designs (B40's three soft-ceiling exports) carry
 # Reach's soft ceilings and soft-kill volumes for the mission's own space. A
@@ -511,13 +525,13 @@ def main():
                 continue
             kind = resolve("vehicles", asset)
             if kind:
-                lift = VEHICLE_LIFT.get(kind, 0.0)
+                lift = VEHICLE_LIFT.get(kind, VEHICLE_LIFT_DEFAULT)
                 pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
                 v = {"type": kind, "pos": to_ue(pos), "yaw": yaw_ue(e["rot"]),
                      "set": {"multiplayer data.spawn time": str(DEFAULT_RESPAWN),
                              "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT)}}
                 if lift:
-                    v["set"]["object data.placement flags"] = "0x0"
+                    v["set"].update(NOT_AT_REST)
                 if asset in VEHICLE_VARIANTS:
                     v["set"]["permutation data.variant name"] = VEHICLE_VARIANTS[asset]
                 vehicles.append(v)
@@ -536,10 +550,14 @@ def main():
             kind = resolve(section, asset)
             if not kind:
                 continue
-            item = {"type": kind, "pos": to_ue(e["pos"])}
+            lift = 0.0 if e.get("levitate") else ITEM_LIFT
+            pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
+            item = {"type": kind, "pos": to_ue(pos)}
             if section == "weapons":
                 item["yaw"] = yaw_ue(e.get("rot", [0, 0, 0]))
             item["set"] = {"multiplayer data.spawn time": str(spawn_seconds(e) or DEFAULT_RESPAWN)}
+            if lift:
+                item["set"].update(NOT_AT_REST)
             (weapons if section == "weapons" else equipment).append(item)
 
     single_bsp = bool(t.get("own_bsp")) and t.get("scenario_bsp_index") == 0
