@@ -74,7 +74,12 @@ def main():
             pattern = s["pattern"] + ("|*" if k > 0 and j == 0 else "")
             args += ["--material", f"s_{s['name']}={s['material']['parent']}={pattern}"]
             materials.append(s["material"])
-        log = subprocess.run(args, cwd=a.repo, capture_output=True, text=True)
+        # The slot list goes through a response file: hundreds of slots
+        # (Coldsnap) pass Windows' 32K command line.
+        rsp = os.path.join(a.out, f"{leaf}.args")
+        with open(rsp, "w", encoding="utf-8") as f:
+            f.write("\n".join(args[9:]) + "\n")
+        log = subprocess.run(args[:9] + ["@" + rsp], cwd=a.repo, capture_output=True, text=True)
         open(os.path.join(a.out, f"{leaf}.log"), "w").write(log.stdout + log.stderr)
         if log.returncode != 0 or "MISMATCH" in log.stdout:
             sys.exit(f"mesh_rewrite failed for {gltf}:\n{(log.stdout + log.stderr)[-2000:]}")

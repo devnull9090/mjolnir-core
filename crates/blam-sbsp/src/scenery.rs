@@ -505,13 +505,18 @@ pub fn place(
     first: usize,
     max: usize,
 ) -> Result<(Collision, Vec<Collision>, Placed), Error> {
-    let why = match c.fits_16bit() {
+    // Judged after the fan split the transplant does (split::fan_split_fit,
+    // quads where triangles overflow): Coldsnap fits before it and not after.
+    let fits = |c: &Collision| {
+        let mut check = c.clone();
+        split::fan_split_fit(&mut check, 4);
+        check.fits_16bit()
+    };
+    let why = match fits(&c) {
         Ok(()) => {
             let mut linked = c.clone();
             let r = link(&mut linked, first);
-            let mut check = linked.clone();
-            split::fan_split(&mut check, 4);
-            match check.fits_16bit() {
+            match fits(&linked) {
                 Ok(()) => return Ok((linked, Vec::new(), Placed::Tree(r))),
                 Err(e) => format!("{e} once the scenery is in the tree"),
             }

@@ -10,7 +10,8 @@ starts, vehicles and pickups land on the converted collision.
 
 Player starts, vehicles, pickups and netgame markers come from the staging
 export's placement.json. CE tags map to level-file types through
-defs/level/ce-tag-map.json; the first candidate the game has a type for
+defs/level/ce-tag-map.json (a vehicle it does not list, through its CE
+vehicle type); the first candidate the game has a type for
 (defs/level/palette-map.json; the bake adds what the canvas palette lacks)
 wins, and what cannot be placed is reported.
 
@@ -24,6 +25,7 @@ import collections
 import json
 import math
 import os
+import re
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -429,7 +431,10 @@ def ambient_sounds(sounds_dir, root, to_ue):
 
 
 def norm(asset):
-    return asset.replace("\\", "/")
+    # A protected map's second copy of a stock tag comes back from halo2ue
+    # as `<stock path>__p<index>` (map-core deprotect.rs): place it as the
+    # stock tag.
+    return re.sub(r"__p\d+$", "", asset.replace("\\", "/"))
 
 
 def main():
@@ -477,8 +482,12 @@ def main():
 
     dropped = collections.Counter()
 
-    def resolve(section, asset):
+    def resolve(section, asset, vehicle_type=None):
         candidates = tag_map[section].get(asset)
+        if candidates is None and vehicle_type:
+            # A custom map's own vehicle, or a protected map's whose name did
+            # not come back: placed by the CE vehicle type it declares.
+            candidates = tag_map["vehicle_types"].get(vehicle_type)
         if candidates is None:
             dropped[f"{asset} (unmapped)"] += 1
             return None
@@ -529,7 +538,7 @@ def main():
             if flags and not flags & VEHICLE_SETS[a.game_type]:
                 dropped[f"{asset} (not in {a.game_type}'s vehicle set)"] += 1
                 continue
-            kind = resolve("vehicles", asset)
+            kind = resolve("vehicles", asset, e.get("vehicle_type"))
             if kind:
                 lift = VEHICLE_LIFT.get(kind, VEHICLE_LIFT_DEFAULT)
                 pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
