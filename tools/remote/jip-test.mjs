@@ -138,7 +138,9 @@ async function signIn(side) {
 
 async function main() {
   say(`join in progress: PC 1 hosts ${MAP} ${MODE}, PC 2 joins ${JOIN_AFTER / 1000} s in`);
-  const pc2Mark = (await pc2Side.log()).length;
+  // Lobby lines before the restart are the old game's. Without --restart,
+  // PC 2 may have signed in (and made its lobby) before the run: read it all.
+  const pc2Mark = RESTART ? (await pc2Side.log()).length : 0;
   if (RESTART) {
     say("restarting both games");
     await Promise.all([pc1.restart(), pc2Side.restart()]);

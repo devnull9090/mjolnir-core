@@ -658,8 +658,12 @@ local function hookMatchLog()
                 local seat = {}
                 pcall(function() seat.index = pc.PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex end)
                 pcall(function() seat.name = pc.PlayerState:GetPlayerName():ToString() end)
-                local p = type(seat.index) == "number" and Match.players[seat.index]
-                if p and p.name then seat.name = p.name end
+                -- Answer only with the asker's own seat, as recorded: a player
+                -- joining a match under way reads index 0 (the host's) for a
+                -- few seconds after the host seats it (two PCs, 2026-10-03).
+                -- Until then say nothing; the client asks again.
+                local p = type(seat.index) == "number" and seat.index ~= LOCAL_PLAYER and Match.players[seat.index]
+                if not (p and p.name and p.name == seat.name) then return end
                 MatchLog.answer(pc, seat)
             end)
         end)

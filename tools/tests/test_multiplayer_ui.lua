@@ -116,6 +116,7 @@ local function runHUD(variant, client, variantFile, listing)
         end,
         RegisterHook = function(path, fn) hooks[path] = fn end,
         NotifyOnNewObject = function() end,
+        ExecuteInGameThread = function(fn) fn() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
         StaticFindObject = function(path)
             if path:find("GameplayStatics") then return { GetPlayerController = function() return pc end } end
@@ -281,6 +282,27 @@ for _, want in ipairs({
 end
 assert(not record:find("respawn_tick", 1, true), "the respawn countdown was recorded")
 assert(not pub.file("^match_current%.txt$"), "a finished match is still current")
+
+-- The host answers a client's question with the client's own seat, and says
+-- nothing while the asker's index is not yet its own: a joiner reads index 0
+-- (the host's) for a moment after the host seats it.
+local host = runHUD("slayer", false, nil, "lobby-1")
+local hostId = host.file("^match_current%.txt$")
+local function ask(index, name)
+    local sent = {}
+    local asker = { IsValid = function() return true end,
+        ClientMessage = function(_, msg, kind) sent[#sent + 1] = kind .. " " .. msg end,
+        PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = index },
+            GetPlayerName = function() return { ToString = function() return name end } end } }
+    host.hooks["/Script/Engine.PlayerController:ServerExecRPC"](
+        { get = function() return asker end },
+        { get = function() return { ToString = function() return "MJOLNIR|matchid" end } end })
+    return sent
+end
+eq(#ask(0, "Charlie"), 0)     -- not yet seated: index 0 is someone else's
+eq(#ask(1, "Bravo"), 0)       -- the host's own seat (LOCAL_PLAYER) is never handed out
+eq(#ask(2, "Somebody"), 0)    -- a seat recorded under another name
+eq(ask(2, "Charlie")[1], "MJOLNIR MJOLNIR|match|" .. hostId .. "|1|2|Charlie")
 
 -- The host answers a client's question for the match id with nothing to
 -- send while it records nothing; a client asks until it is told, then claims
