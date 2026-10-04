@@ -197,7 +197,14 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         // every surface keeps a key of its own in the structure body.
         let mut collision = staged.collision;
         let mut scenery = Vec::new();
-        if let (Err(why), Some(tail)) = (collision.fits_16bit(), staged.manifest.scenery_surfaces) {
+        // Judged after the fan split the transplant does (Coldsnap fits
+        // before it and not after).
+        let fits = {
+            let mut split = collision.clone();
+            blam_sbsp::split::fan_split_fit(&mut split, 4);
+            split.fits_16bit()
+        };
+        if let (Err(why), Some(tail)) = (fits, staged.manifest.scenery_surfaces) {
             let first = collision.surfaces.len().saturating_sub(tail.surfaces);
             scenery = blam_sbsp::split::split_standalone(
                 &mut collision,

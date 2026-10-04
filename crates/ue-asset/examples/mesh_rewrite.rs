@@ -4,8 +4,10 @@
 //! ```text
 //! cargo run -p ue-asset --example mesh_rewrite -- \
 //!     <paks> <donor path substring> <mesh.gltf> <out.uasset> //!     [--selftest] [--offset x,y,z] [--rename /Game/Path/SM_Name] \
-//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]... [--lightmap-uvs]
+//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]... [--lightmap-uvs] [@args.txt]
 //! ```
+//!
+//! `@args.txt` reads more arguments from a file, one per line.
 //!
 //! `--material` groups the glTF's own materials into numbered slots: every
 //! primitive whose material name contains one of the patterns gets that slot's
@@ -84,7 +86,20 @@ fn accessor_indices(doc: &serde_json::Value, bin: &[u8], index: usize) -> Vec<u3
 }
 
 fn main() {
-    let a: Vec<String> = std::env::args().skip(1).collect();
+    // `@file` stands for the file's lines, one argument each: a map with
+    // hundreds of material slots (Coldsnap) passes Windows' 32K command line.
+    let a: Vec<String> = std::env::args()
+        .skip(1)
+        .flat_map(|s| match s.strip_prefix('@') {
+            Some(f) => std::fs::read_to_string(f)
+                .expect("read response file")
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect(),
+            None => vec![s],
+        })
+        .collect();
     if a.len() < 4 {
         eprintln!(
             "usage: mesh_rewrite <paks> <donor substring> <mesh.gltf> <out.bin> [--selftest]"

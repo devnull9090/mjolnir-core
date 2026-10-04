@@ -53,7 +53,11 @@ IMA_INDEX = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8]
 
 
 def cstr(b, at):
-    return b[at:b.index(b"\0", at)].decode("latin1")
+    # A protected map's path pointers can point anywhere (or nowhere).
+    if not 0 <= at < len(b):
+        return ""
+    end = b.find(b"\0", at)
+    return b[at:end if end >= 0 else len(b)].decode("latin1")
 
 
 def xbox_adpcm(data, channels):
@@ -93,7 +97,7 @@ def xbox_adpcm(data, channels):
 
 
 class Map:
-    def __init__(self, path):
+    def __init__(self, path, staging=None):
         self.d = open(path, "rb").read()
         self.version = struct.unpack_from("<I", self.d, 4)[0]
         self.tio = struct.unpack_from("<I", self.d, 0x10)[0]
@@ -105,6 +109,13 @@ class Map:
             datum, pp, doff, indexed = struct.unpack_from("<IIII", e, 12)
             path = cstr(self.d, (pp - MEM) + self.tio) if pp > MEM else ""
             self.tags.append({"cls": cls, "datum": datum, "path": path, "doff": doff, "indexed": indexed})
+        # A protected map's junk classes and placeholder paths, as halo2ue
+        # repaired them (staging tags.json; map-core deprotect.rs).
+        fixed = staging and os.path.join(staging, "tags.json")
+        if fixed and os.path.exists(fixed):
+            for t, f in zip(self.tags, json.load(open(fixed, encoding="utf-8"))["tags"]):
+                if t["datum"] == f["datum"]:
+                    t["cls"], t["path"] = f["class"].ljust(4), f["path"]
         self.by_datum = {t["datum"]: t for t in self.tags}
 
     def off(self, ptr):
@@ -338,7 +349,7 @@ def main():
     if len(sys.argv) == 4 and sys.argv[1] == "--events":
         return extract_events(sys.argv[2], sys.argv[3])
     map_path, sounds_path, staging, out = sys.argv[1:5]
-    m, snd = Map(map_path), Sounds(sounds_path)
+    m, snd = Map(map_path, staging), Sounds(sounds_path)
     if m.version != 609:
         sys.exit(f"{map_path}: cache version {m.version}; only Custom Edition (609) maps are read")
     placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
