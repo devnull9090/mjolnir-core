@@ -43,6 +43,13 @@ local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
 
+--- The match log must never break the HUD: a failure in it is logged, and
+--- the feed, the board and the end of the match go on.
+local function logSafely(what, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then Log("match log " .. what .. ": " .. tostring(err)) end
+end
+
 local UI_ROOT = "/Game/MJOLNIR/UI/"
 local FEED_CLASS = UI_ROOT .. "WBP_MJOLNIRKillFeed.WBP_MJOLNIRKillFeed_C"
 local BOARD_CLASS = UI_ROOT .. "WBP_MJOLNIRScoreboard.WBP_MJOLNIRScoreboard_C"
@@ -383,7 +390,7 @@ local function finishMatch(how)
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
-    MatchLog.finish(Match, Scoreboard, LOCAL_PLAYER, how == "game over" and "game_over" or "round_over", now())
+    logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, how == "game over" and "game_over" or "round_over", now())
     local f = io.open(RESULTS_FILE, "w")
     if f then
         f:write(Scoreboard.results(Match, LOCAL_PLAYER, os.time()))
@@ -466,7 +473,7 @@ local function drain()
     for _, inc in ipairs(queued) do
         -- After the end the tallies are final: the round the game resets in
         -- place behind the standings must not score.
-        if Match and not Match.over then MatchLog.incident(inc) end
+        if Match and not Match.over then logSafely("incident", MatchLog.incident, inc) end
         local handler = Match and not Match.over and HANDLERS[inc.name]
         if handler then
             for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
@@ -836,7 +843,7 @@ end
 
 local function endMatch()
     if Match and MatchLog.recording() then
-        MatchLog.finish(Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
+        logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
     end
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
@@ -874,7 +881,7 @@ local function tick()
         boardDirty = true
     end
     -- Before the drain: the host's log is recording by the first incident.
-    matchLogTick(pc)
+    logSafely("tick", matchLogTick, pc)
     drain()
     sweepTags()
     drawFeed()
@@ -905,7 +912,7 @@ local function poll()
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
 
-MatchLog.init({
+logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,
     log = Log,
     version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
