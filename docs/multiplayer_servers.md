@@ -51,9 +51,10 @@ requires sign-in. See the header comment in `lobby.ts`.
 **Hosting.** The lobby's PRIVATE GAME button switches to PUBLIC GAME (host
 only; every session starts private). While public, `games.lua`:
 - reads the PlayFab lobby's connection string from the native half;
-- `POST /lobbies` with the map, game type, players and the string;
+- `POST /lobbies` with the map, game type, players, the host's MAX PLAYERS
+  (`max_players`) and the string;
 - heartbeats every 30 s, and at once after a map, game type or start
-  changes, with players, state (`open`, `in_game`, `full`) and the current
+  changes, with players, MAX PLAYERS, state (`open`, `in_game`, `full`) and the current
   string (the game makes a new lobby after leaving one);
 - `DELETE`s the listing when the host goes private or joins another game. A
   game that quits drops out when its heartbeat goes stale (90 s).
