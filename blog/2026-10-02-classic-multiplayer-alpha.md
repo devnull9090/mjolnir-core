@@ -176,7 +176,8 @@ before anything lands in your game folder.
 ## Known issues
 
 - **Four players.** Fireteams top out at four for now. Raising that is the next
-  thing we're working on.
+  thing we're working on. *Update: fixed in mods 0.10.0. Fireteams now take up
+  to 16 players, each on their own PC.*
 - **The end of a game** takes everyone back to the main menu. A post-game
   scoreboard and a vote for the next map are planned.
 - **Finding games.** There's no public game browser in the game yet. Invite
