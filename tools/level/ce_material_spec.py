@@ -186,6 +186,64 @@ def environment_tag(entry, s, cls):
             sc["HasSICC"] = 1.0
 
 
+def glass(entry, s, texture, cube, halo):
+    """shader_transparent_glass (docs/ce_map_conversion.md, "Glass"): the pass
+    this copy of the surface draws (merge_ce_scene.py `extra_passes`): tint
+    (multiply), reflection (add), or the surface itself, the diffuse pass
+    (alpha blend; nothing when the shader has no diffuse or detail map).
+    Flag bit 2 (two-sided) picks the master variant."""
+    t = s["tag"]
+    sc, vec, tex = entry["scalars"], entry["vectors"], entry["textures"]
+    flags = t.get("flags", 0)
+    side = "TwoSided" if flags & 4 else ""
+    pas = halo.get("pass")
+    if pas == "tint":
+        entry["parent"] = master(f"M_CE_GlassTint{side}")
+        tm = texture((t.get("background_tint_map") or {}).get("file"))
+        if tm:
+            tex["TintMap"] = tm
+        sc["TintScale"] = t.get("background_tint_map_scale") or 1.0
+        vec["TintColor"] = list(t.get("background_tint_color") or [1, 1, 1]) + [1.0]
+        return
+    if pas == "reflection":
+        entry["parent"] = master(f"M_CE_GlassReflection{side}")
+        cube_map = cube((t.get("reflection_map") or {}).get("faces"))
+        if cube_map:
+            tex["ReflectionCube"] = cube_map
+        bump = texture((t.get("bump_map") or {}).get("file"))
+        if bump:
+            tex["Bump"] = bump
+            sc["HasBump"] = 1.0
+        sc["BumpScale"] = t.get("bump_map_scale") or 1.0
+        sc["GlassFlags"] = float(flags)
+        # A bumped cube map draws flat without a bump map, or when the bump
+        # map is a specular mask; a dynamic mirror (2) has no mirror here.
+        rtype = t.get("reflection_type", 0)
+        sc["ReflectionType"] = 0.0 if rtype == 0 and bump and not flags & 8 else 1.0
+        sc["PerpBrightness"] = t.get("perpendicular_brightness", 0.0)
+        sc["ParaBrightness"] = t.get("parallel_brightness", 0.0)
+        vec["PerpTint"] = list(t.get("perpendicular_tint_color") or [1, 1, 1]) + [1.0]
+        vec["ParaTint"] = list(t.get("parallel_tint_color") or [1, 1, 1]) + [1.0]
+        return
+    diffuse = texture((t.get("diffuse_map") or {}).get("file"))
+    detail = texture((t.get("diffuse_detail_map") or {}).get("file"))
+    if not diffuse and not detail:
+        entry["parent"] = master(f"M_CE_TransparentAdd{side}")
+        vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
+        return
+    entry["parent"] = master(f"M_CE_GlassDiffuse{side}")
+    if diffuse:
+        tex["Diffuse"] = diffuse
+    if detail:
+        tex["Detail"] = detail
+    sc["DiffuseScale"] = t.get("diffuse_map_scale") or 1.0
+    sc["DetailScale"] = t.get("diffuse_detail_map_scale") or 1.0
+    lm = texture(halo.get("lightmap_texture"), lightmap=True)
+    if lm:
+        tex["Lightmap"] = lm
+        sc["HasLightmap"] = 1.0
+
+
 def water(entry, s, texture, cube, halo):
     """shader_transparent_water (docs/ce_map_conversion.md, "Water"): the
     rippled cube reflection added into the frame (M_CE_Water), replacing it
@@ -384,6 +442,8 @@ def main():
             chicago(entry, s, texture, cube)
         elif cls == "swat":
             water(entry, s, texture, cube, halo)
+        elif cls == "sgla" and s.get("tag"):
+            glass(entry, s, texture, cube, halo)
         else:
             flags = s.get("shader_flags", 0)
             if cls == "senv":

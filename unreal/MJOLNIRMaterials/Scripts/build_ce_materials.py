@@ -978,6 +978,135 @@ def build_water_background(defaults):
     eal.save_loaded_asset(m)
 
 
+# shader_transparent_glass (docs/ce_map_conversion.md, "Glass"): three passes
+# in CE's order, each a master of its own on a copy of the surface
+# (merge_ce_scene.py `with_passes`):
+# - tint (M_CE_GlassTint, multiply): the frame times background tint map x
+#   tint colour, when either is set;
+# - reflection (M_CE_GlassReflection, add): the cube map along the eye
+#   reflected about the bump normal (bumped cube map) or the vertex normal
+#   (flat; also a bumped type with no bump map or with "bump map is specular
+#   mask"), lerp(c^8, c, tint) x brightness, tint and brightness between
+#   parallel and perpendicular by x^2, x the normal against the camera's
+#   forward vector; times the bump map's colour with "bump map is specular
+#   mask";
+# - diffuse (M_CE_GlassDiffuse, alpha blend): 2 x diffuse x detail x the
+#   surface's light (its lightmap), alpha diffuse.a x detail.a.
+# Fog fades each towards its blend's neutral value, as CE's per-vertex fade
+# does. Flag bit 2 (two-sided) is a master variant.
+GLASS_TINT_CODE = r"""
+float3 k = Tint.rgb * TintColor.rgb;
+if (FogDensity > 0.0)
+    k = lerp(k, 1.0.xxx, FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0)));
+float3 lo = k / 12.92;
+float3 hi = pow((k + 0.055) / 1.055, 2.4);
+return lerp(hi, lo, step(k, 0.04045));
+"""
+
+GLASS_DIRECTION_CODE = r"""
+float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
+float3 N = Type < 0.5 ? normalize(BumpN) : normalize(VertexN);
+float3 R = 2.0 * dot(N, E) * N - E;
+return float3(R.x, -R.y, R.z);
+"""
+
+GLASS_REFLECTION_CODE = r"""
+float3 N = Type < 0.5 ? normalize(BumpN) : normalize(VertexN);
+float x = saturate(dot(N, -View.ViewForward));
+x *= x;
+float3 tint = lerp(ParaTint.rgb, PerpTint.rgb, x);
+float bright = lerp(ParaBrightness, PerpBrightness, x);
+float3 c = Cube.rgb;
+float3 c8 = c * c; c8 *= c8; c8 *= c8;
+float3 frame = lerp(c8, c, tint) * bright;
+if ((int)Flags & 8) frame *= Bump.rgb;
+if (FogDensity > 0.0)
+    frame *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+frame = max(frame, 0.0) / DisplayGain;
+float3 lo = frame / 12.92;
+float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+return lerp(hi, lo, step(frame, 0.04045)) * Exposure;
+"""
+
+GLASS_DIFFUSE_CODE = r"""
+float3 light = HasLightmap > 0.5 ? Lightmap.rgb : 1.0.xxx;
+float3 frame = saturate(2.0 * Diffuse.rgb * Detail.rgb * light);
+float alpha = Diffuse.a * Detail.a;
+if (FogDensity > 0.0)
+    alpha *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+frame = frame / DisplayGain;
+float3 lo = frame / 12.92;
+float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
+"""
+
+
+def glass_material(name, blend, two_sided):
+    m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property("blend_mode", blend)
+    m.set_editor_property("two_sided", two_sided)
+    m.set_editor_property("used_with_static_lighting", False)
+    return m, Graph(m)
+
+
+def build_glass(defaults, two_sided):
+    side = "TwoSided" if two_sided else ""
+    white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
+
+    m, g = glass_material(f"M_CE_GlassTint{side}", unreal.BlendMode.BLEND_MODULATE, two_sided)
+    tint = g.texture("TintMap", white, g.uv(0, "TintScale"))
+    c = g.custom(GLASS_TINT_CODE, [("Tint", tint, "RGBA"), ("TintColor", g.vector("TintColor"), "")] + fog_inputs(g),
+                 description="CE glass tint")
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+    m, g = glass_material(f"M_CE_GlassReflection{side}", unreal.BlendMode.BLEND_ADDITIVE, two_sided)
+    bump = g.texture("Bump", flat, g.uv(0, "BumpScale"))
+    flags = g.scalar("GlassFlags", 0.0)
+    bump_n = g.custom(NORMAL_CODE, [("Bump", bump, "RGBA"), ("HasBump", g.scalar("HasBump", 0.0), ""),
+                                    ("BumpIsSpecMask", g.node(unreal.MaterialExpressionConstant, x=-1900, r=0.0), "")],
+                      description="CE bump normal")
+    bump_w = g.node(unreal.MaterialExpressionTransform, x=-800,
+                    transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
+                    transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    link(bump_n, "", bump_w, "")
+    cam = g.node(unreal.MaterialExpressionCameraVectorWS)
+    vertex_n = g.node(unreal.MaterialExpressionVertexNormalWS)
+    rtype = g.scalar("ReflectionType", 1.0)
+    direction = g.custom(GLASS_DIRECTION_CODE, [("Cam", cam, ""), ("BumpN", bump_w, ""), ("VertexN", vertex_n, ""),
+                                                ("Type", rtype, "")], description="CE glass reflection vector")
+    cube = g.cube("ReflectionCube", defaults["T_CE_BlackCube"], direction)
+    inputs = [("Cube", cube, "RGB"), ("Bump", bump, "RGBA"), ("BumpN", bump_w, ""), ("VertexN", vertex_n, ""),
+              ("Type", rtype, ""), ("Flags", flags, ""),
+              ("PerpBrightness", g.scalar("PerpBrightness", 0.0), ""),
+              ("ParaBrightness", g.scalar("ParaBrightness", 0.0), ""),
+              ("PerpTint", g.vector("PerpTint"), ""), ("ParaTint", g.vector("ParaTint"), ""),
+              ("Exposure", g.scalar("Exposure", 1.0), ""),
+              ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), "")] + fog_inputs(g)
+    c = g.custom(GLASS_REFLECTION_CODE, inputs, description="CE glass reflection")
+    mel.connect_material_property(g.to_screen(c), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+    m, g = glass_material(f"M_CE_GlassDiffuse{side}", unreal.BlendMode.BLEND_TRANSLUCENT, two_sided)
+    diffuse = g.texture("Diffuse", white, g.uv(0, "DiffuseScale"))
+    detail = g.texture("Detail", grey, g.uv(0, "DetailScale"))
+    lightmap = g.texture("Lightmap", white, g.uv(1))
+    inputs = [("Diffuse", diffuse, "RGBA"), ("Detail", detail, "RGBA"), ("Lightmap", lightmap, "RGBA"),
+              ("HasLightmap", g.scalar("HasLightmap", 0.0), ""),
+              ("Exposure", g.scalar("Exposure", 1.0), ""),
+              ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), "")] + fog_inputs(g)
+    c = g.custom(GLASS_DIFFUSE_CODE, inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                 description="CE glass diffuse")
+    mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
+                                  unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.connect_material_property(g.mask(c, a=True), "", unreal.MaterialProperty.MP_OPACITY)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 # A CE lens flare (a light's glow, e.g. a base beacon's): the flare bitmap
 # drawn facing the camera, added into the frame. The loader puts it on
 # /Engine/BasicShapes/Sphere at the light's marker, scaled to the flare's
@@ -1070,5 +1199,7 @@ build_water(defaults)
 # Sky water replaces the frame rather than adding to it.
 build_water(defaults, "M_CE_WaterSky", unreal.BlendMode.BLEND_OPAQUE)
 build_water_background(defaults)
+for two_sided in (False, True):
+    build_glass(defaults, two_sided)
 build_flare(defaults)
 unreal.log("MJOLNIR CE materials built")

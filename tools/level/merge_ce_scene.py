@@ -41,7 +41,7 @@ import sys
 import numpy as np
 
 WU_TO_M = 3.048
-TRANSPARENT = ("schi", "scex", "swat")
+TRANSPARENT = ("schi", "scex", "swat", "sgla")
 # The placed objects' lighting, one texel block each (see object_lighting).
 OBJECT_LIGHTING_PAGE = "object_lighting.png"
 LUMA = np.array([0.2126, 0.7152, 0.0722])
@@ -466,11 +466,22 @@ def main():
 def extra_passes(shader):
     """The passes a CE shader draws before its own, each a copy of its
     surface with a material of its own: water flag 1 (base map colour
-    modulates background) multiplies the frame by the base map first."""
+    modulates background) multiplies the frame by the base map first; glass
+    tints the frame, then adds its reflection, before its diffuse pass."""
     t = (shader or {}).get("shader", {}).get("tag") or {}
     cls = (shader or {}).get("shader_class")
     if cls == "swat" and t.get("flags", 0) & 2:
         return ["background"]
+    if cls == "sgla" and t:
+        # Glass: the tint pass when a tint map or colour is set, the
+        # reflection pass when a brightness and a reflection map are; the
+        # surface itself is the diffuse pass, last.
+        passes = []
+        if t.get("background_tint_map") or any(t.get("background_tint_color") or []):
+            passes.append("tint")
+        if (t.get("perpendicular_brightness", 0) > 0 or t.get("parallel_brightness", 0) > 0) and t.get("reflection_map"):
+            passes.append("reflection")
+        return passes
     return []
 
 
