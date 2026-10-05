@@ -8,9 +8,9 @@ export const MULTIPLAYER_RELEASE_PATH = "/blog/classic-multiplayer-alpha";
 // Published gameplay captures from the multiplayer alpha announcement.
 // Absolute URLs let local previews use the published media, too.
 export const MULTIPLAYER_IMAGES = {
-  bloodGulch: SITE_URL + "/api/v1/media/41a34c3c-7b2d-472d-9041-04567ce64879",
-  dangerCanyon: SITE_URL + "/api/v1/media/f6f0ba83-e57f-4953-ba0f-59506cbefcbb",
-  chillOut: SITE_URL + "/api/v1/media/3edcf802-a110-426c-8106-29b8f5744773",
+  bloodGulch: SITE_URL + "/api/v1/media/b8a44558-8ced-4ade-b1ac-793db6037205",
+  dangerCanyon: SITE_URL + "/api/v1/media/3ca0f417-6a46-4b07-83d6-183268a84b45",
+  chillOut: SITE_URL + "/api/v1/media/d34d011f-09f8-4c30-bcc2-431c01f1b4b3",
 };
 
 export const MARKETING_DESCRIPTION =
