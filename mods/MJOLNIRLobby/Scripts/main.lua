@@ -41,6 +41,7 @@ local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
+local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -133,6 +134,24 @@ end
 -- Starting a game
 -------------------------------------------------------------------------------
 
+local GAME_SETTINGS_FILE = MOD_DIR .. "\\game_settings.txt"
+local VARIANT_SETTINGS_FILE = LOADER_DIR .. "\\variant_settings.txt"
+
+--- The game settings line MJOLNIRLevelLoader patches into the next variant
+--- it stages (docs/host_game_settings.md); "" for the variant's own rules.
+--- Written by the host as it starts a game, by a fireteam client from the
+--- host's lobby message, and cleared by games.lua on a join from FIND GAMES
+--- until the host's line arrives.
+local function writeVariantSettings(line)
+    line = line or ""
+    if (readFile(VARIANT_SETTINGS_FILE) or "") == line then return end
+    local f = io.open(VARIANT_SETTINGS_FILE, "w")
+    if not f then return end
+    f:write(line)
+    f:close()
+    log("game settings: " .. (line ~= "" and line or "the variant's own"))
+end
+
 local function startGame(map, mode)
     local pc = UI.playerController()
     local helpers = StaticFindObject(HELPERS)
@@ -158,6 +177,9 @@ local function startGame(map, mode)
         f:write(mode.id)
         f:close()
     end
+    -- The host's game settings, which the loader patches into the variant;
+    -- the fireteam got the same line with the lobby (broadcastLobby).
+    writeVariantSettings(Settings.variantLine())
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -265,6 +287,9 @@ local UI_ROOT = "/Game/MJOLNIR/UI/"
 local LOBBY_CLASS = UI_ROOT .. "WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C"
 local SELECT_CLASS = UI_ROOT .. "WBP_MJOLNIRMapSelect.WBP_MJOLNIRMapSelect_C"
 local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
+local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettings_C"
+local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
+local SETTINGS_ROWS = 12    -- option rows in the cooked screen
 local MAP_BUTTONS = 32
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
@@ -290,6 +315,12 @@ local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
+-- A fireteam client's copy of the host's game settings line (the lobby
+-- card shows its rules).
+local clientRules = ""
+-- GAME SETTINGS while it is up: the screen, its page and the row whose help
+-- shows.
+local Tweak = { screen = nil, page = 1, row = 1 }
 -- hooked: class path -> true once its MJ_Event hook is in, false after a
 -- failed try. watching (the new-lobby watch): false before the first try,
 -- nil after a failed one, true once registered. noUI: the lobby class does
@@ -319,6 +350,14 @@ local findGames = nil
 local function hasFindGames()
     if findGames == nil then findGames = loadClass(FIND_CLASS) ~= nil end
     return findGames
+end
+
+--- GAME SETTINGS likewise: a container from before it has neither the
+--- screen nor the lobby's button.
+local gameSettings = nil
+local function hasGameSettings()
+    if gameSettings == nil then gameSettings = loadClass(SETTINGS_CLASS) ~= nil end
+    return gameSettings
 end
 
 --- Push one of our screens onto the game's menu stack.
@@ -498,6 +537,13 @@ local function drawLobby()
     setText(Lobby.MaxPlayersValue, tostring(Game.maxPlayers))
     pcall(function() Lobby.MaxPlayersDown:SetIsEnabled(Game.maxPlayers > minPlayers(#roster)) end)
     pcall(function() Lobby.MaxPlayersUp:SetIsEnabled(Game.maxPlayers < FIRETEAM_SIZE) end)
+    -- GAME SETTINGS (host only), and the rules away from the defaults on the
+    -- card for everyone: a client's come from the host's lobby message.
+    setShown(Lobby.GameSettings, host and hasGameSettings())
+    local modeId = mode and mode.id
+    local rules = host and Settings.changes(modeId) or Settings.describe(clientRules, modeId)
+    setText(Lobby.Rules, #rules > 0 and table.concat(rules, "\n") or "")
+    setShown(Lobby.RulesBox, #rules > 0)
     setShown(Lobby.FindGames, hasFindGames())
     local status = host and Games.status() or ""
     if status ~= "" and status ~= listingStatus then setText(Lobby.Status, status) end
@@ -613,6 +659,7 @@ end
 
 -- One block, so its locals stay out of the main chunk's (Lua allows 200).
 local openFindGames, onFindEvent, tickFind, modeName
+local openSettings -- GAME SETTINGS, below
 do
 local FIND_PREFS = MOD_DIR .. "\\find_games.txt"
 local AUTO_REFRESH = 30   -- seconds
@@ -1318,6 +1365,7 @@ local LOBBY_EVENTS = {
     findgames = function()
         if hasFindGames() then openFindGames() end
     end,
+    gamesettings = function() openSettings() end,
     back = function()
         -- A fireteam client's BACK: the game's own menus until the next vote.
         if not Net.isHost() then clientLobby.dismissed = true end
@@ -1338,9 +1386,106 @@ local SELECT_EVENTS = {
     back = function() pcall(function() Select:DeactivateWidget() end) end,
 }
 
+-------------------------------------------------------------------------------
+-- GAME SETTINGS
+-------------------------------------------------------------------------------
+-- The host's game settings (settings.lua), one page at a time: CE's EDIT
+-- GAMETYPES pages as rows of `label  < value >`, the highlighted row's help
+-- on the right. Every change is saved at once and reaches the fireteam with
+-- the next lobby message.
+
+local SELECTED_PAGE = { R = 0.12, G = 0.32, B = 0.43, A = 0.85 }
+local NORMAL_PAGE = { R = 0.025, G = 0.06, B = 0.09, A = 0.28 }
+
+local function settingsOptions()
+    return Settings.page(Tweak.page, Game.mode and Game.mode.id)
+end
+
+local function drawSettings()
+    local s = Tweak.screen
+    if not alive(s) then return end
+    local modeName = Game.mode and Game.mode.name or ""
+    setText(s.ModeLine, modeName ~= "" and (modeName .. "   /   THESE RULES APPLY TO THE NEXT GAME") or "")
+    for i = 0, SETTINGS_PAGES - 1 do
+        local name = Settings.PAGES[i + 1]
+        setShown(s["Page" .. i], name ~= nil)
+        if name then
+            setText(s["Page" .. i .. "Label"], name)
+            pcall(function() s["Page" .. i]:SetBackgroundColor(i + 1 == Tweak.page and SELECTED_PAGE or NORMAL_PAGE) end)
+        end
+    end
+    local options = settingsOptions()
+    for i = 0, SETTINGS_ROWS - 1 do
+        local opt = options[i + 1]
+        setShown(s["Row" .. i], opt ~= nil)
+        if opt then
+            setText(s["Row" .. i .. "Label"], opt.label)
+            setText(s["Row" .. i .. "Value"], Settings.text(opt))
+            pcall(function()
+                s["Row" .. i .. "Value"]:SetColorAndOpacity({
+                    SpecifiedColor = Settings.value(opt) ~= opt.default and ACCENT or WHITE, ColorUseRule = 0 })
+            end)
+        end
+    end
+    local focus = options[Tweak.row] or options[1]
+    setText(s.HelpTitle, focus and focus.label or "")
+    setText(s.HelpValue, focus and Settings.text(focus) or "")
+    setText(s.HelpText, focus and focus.help or "")
+    local changed = #Settings.changes(Game.mode and Game.mode.id)
+    setText(s.Status, changed == 0 and "STANDARD RULES" or (changed .. " SETTING" .. (changed == 1 and "" or "S")
+        .. " CHANGED   /   RESET PUTS THEM BACK"))
+end
+
+local function saveSettings()
+    local f = io.open(GAME_SETTINGS_FILE, "w")
+    if f then
+        f:write(Settings.save())
+        f:close()
+    end
+    drawSettings()
+    if alive(Lobby) then drawLobby() end
+end
+
+function openSettings()
+    if not (Net.isHost() and hasGameSettings()) then return end
+    local screen = pushScreen(SETTINGS_CLASS)
+    if not screen then
+        log("game settings: could not push " .. SETTINGS_CLASS)
+        return
+    end
+    Tweak.screen, Tweak.page, Tweak.row = screen, 1, 1
+    drawSettings()
+    pcall(function() screen.Row0Pick:SetFocus() end)
+end
+
+local function onSettingsEvent(event)
+    local verb, index = event:match("^(%a+):(%d+)$")
+    local i = index and tonumber(index) + 1
+    local opt = i and settingsOptions()[i]
+    if verb == "page" and Settings.PAGES[i] then
+        Tweak.page, Tweak.row = i, 1
+        drawSettings()
+    elseif verb == "hover" and opt then
+        Tweak.row = i
+        drawSettings()
+    elseif (verb == "row" or verb == "next" or verb == "prev") and opt then
+        Tweak.row = i
+        Settings.step(opt, verb == "prev" and -1 or 1)
+        saveSettings()
+    elseif event == "reset" then
+        Settings.reset()
+        saveSettings()
+    elseif event == "back" then
+        pcall(function() Tweak.screen:DeactivateWidget() end)
+        Tweak.screen = nil
+        if alive(Lobby) then drawLobby() end
+    end
+end
+
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event)
     if isLobby == "find" then return onFindEvent(event) end
+    if isLobby == "settings" then return onSettingsEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
@@ -1369,6 +1514,7 @@ end
 local function hookScreenEvents()
     local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
     if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
+    if hasGameSettings() then specs[#specs + 1] = { SETTINGS_CLASS, "settings" } end
     local all = true
     for _, spec in ipairs(specs) do
         if not screenEvents.hooked[spec[1]] then
@@ -2033,6 +2179,8 @@ Net.on("lobby", function(f)
         end
     end
     Game.map, Game.mode = map, mode
+    writeVariantSettings(f[3] or "")
+    clientRules = f[3] or ""
     if Post and alive(Post.screen) then return end
     if alive(Lobby) then
         drawLobby()
@@ -2062,7 +2210,9 @@ end)
 --- is up.
 local function broadcastLobby()
     if not (alive(Lobby) and Game.map and Game.mode and inFrontend() and Net.isHost()) then return end
-    Net.toClients("lobby", Game.map.code, Game.mode.id)
+    -- The third field is the host's game settings line; a host from before
+    -- them sends none, which a client takes as "the variant's own rules".
+    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine())
 end
 
 local function watchPostGame()
@@ -2651,6 +2801,7 @@ local function initialize()
         return true
     end)
     Net.hook()
+    Settings.load(readFile(GAME_SETTINGS_FILE))
     openFireteam()
     Games.init({
         modDir = MOD_DIR,

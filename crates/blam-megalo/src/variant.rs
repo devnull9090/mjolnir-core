@@ -2055,6 +2055,74 @@ pub(crate) mod tests {
         assert_eq!(&bytes[..4], &VERSION.to_be_bytes());
     }
 
+    /// The settings line tools/tests/test_variant_settings.lua applies to
+    /// the `*_default.mglo` fixtures; the result must equal `*_settings.mglo`.
+    const FIXTURE_SETTINGS: &str = "betrayal_seconds=0;lives=3;map_flags=0;respawn_seconds=10;\
+        score=15;social_flags=5;suicide_seconds=15;time_limit=10;trait.camo=4;trait.health=4;\
+        trait.shields=1";
+
+    fn fixture_variants() -> Vec<(&'static str, Variant)> {
+        let ctf = Variant::ctf(crate::ctf::Ctf {
+            flag_type: 18,
+            score_to_win: 3,
+            reset_ticks: 900,
+            debug: false,
+        });
+        vec![
+            ("slayer", Variant::slayer(25).with_time_limit()),
+            ("ctf", ctf.with_time_limit()),
+        ]
+    }
+
+    fn with_fixture_settings(mut v: Variant) -> Variant {
+        for pair in FIXTURE_SETTINGS.split(';') {
+            let (key, value) = pair.split_once('=').unwrap();
+            let value: u16 = value.parse().unwrap();
+            let b = &mut v.base;
+            match key {
+                "score" => v.score_to_win = value,
+                "time_limit" => b.time_limit = value as u8,
+                "lives" => b.lives = value as u8,
+                "respawn_seconds" => b.respawn_seconds = value as u8,
+                "suicide_seconds" => b.suicide_seconds = value as u8,
+                "betrayal_seconds" => b.betrayal_seconds = value as u8,
+                "social_flags" => b.social_flags = value as u8,
+                "map_flags" => b.map_flags = value as u8,
+                _ => {
+                    let name = key.strip_prefix("trait.").unwrap();
+                    b.player_traits.set(name, value as u8).unwrap();
+                }
+            }
+        }
+        v
+    }
+
+    /// Writes the fixtures with `MJOLNIR_UPDATE_FIXTURES=1`, else checks
+    /// them, so the Lua patcher is always tested against this writer.
+    #[test]
+    fn settings_fixtures_are_current() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/tests/fixtures/settings");
+        let update = std::env::var_os("MJOLNIR_UPDATE_FIXTURES").is_some();
+        let mut files = vec![("settings.txt".to_string(), FIXTURE_SETTINGS.as_bytes().to_vec())];
+        for (name, v) in fixture_variants() {
+            files.push((format!("{name}_default.mglo"), v.write().unwrap()));
+            files.push((format!("{name}_settings.mglo"), with_fixture_settings(v).write().unwrap()));
+        }
+        for (file, bytes) in files {
+            let path = dir.join(&file);
+            if update {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(&path, &bytes).unwrap();
+            } else {
+                let on_disk = std::fs::read(&path).unwrap_or_default();
+                assert!(
+                    on_disk == bytes,
+                    "{file} is stale: run MJOLNIR_UPDATE_FIXTURES=1 cargo test -p blam-megalo"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_time_limit_trigger_reads_back_exactly() {
         for v in [

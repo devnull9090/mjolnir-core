@@ -123,14 +123,15 @@ Megalo script or user options; **data** = new tag data in the runtime pack;
 | CE setting | Route | Status |
 |---|---|---|
 | Kills / captures to win | patch (the score field) | verified |
-| Time limit | patch (misc time limit) | untested: does the round end, and the HUD has no clock |
-| Number of lives | patch (respawn lives) | untested: does the round end when all are out |
-| Respawn time | patch | 5 s verified, other values untested |
-| Suicide penalty | patch | untested |
+| Time limit | patch (misc time limit) + script (`with_time_limit`) | verified 2026-10-04: the engine counts the clock but never ends the round; the trigger does |
+| Number of lives | patch (respawn lives) | untested: a GPU driver reset hit the one test (cause unknown) |
+| Respawn time | patch | verified: 0 (instant) and 15 s |
+| Suicide penalty | patch | verified: 10 s added to a suicide |
 | Friendly fire on/off, betrayal penalty | patch (social flags) | untested; currently written 0, so FF may be off today |
-| Shields, maximum health | patch (base player traits) | untested; Reach trait value tables unverified on this build |
-| Invisible players | patch (camo trait) | untested |
-| Radar, friend indicators | patch (sensor traits) | untested; the UE HUD may not follow them |
+| Shields | patch (shield trait 1) | verified: shield vitality 0 of 70 |
+| Maximum health | patch (health trait) | untested: trait 4 leaves maximum body vitality at 45; damage scaling unmeasured |
+| Invisible players | patch (camo trait 4) | verified: first-person active camo |
+| Radar, friend indicators | patch (sensor traits) | radar trait 1 left the motion tracker drawn: the UE HUD does not follow it |
 | Infinite grenades, starting grenades | patch (traits) | untested |
 | Grenades / powerups on the map | patch (map options) | verified (0 removes, 0x1f places all) |
 | Team play (Slayer) | script: Team Slayer | small |
@@ -149,37 +150,57 @@ Megalo script or user options; **data** = new tag data in the runtime pack;
 
 One cooked screen, `WBP_MJOLNIRGameSettings`, generic so new settings never
 need a re-cook:
-- left: page buttons (GAME, PLAYERS, ITEMS, INDICATORS, TEAMS; more slots
-  hidden until used) and a PRESET spinner over them;
-- middle: up to 12 rows of `label   < value >`; Lua names each row, fills
-  its values and hides the rest;
-- right: CE's help box, describing the highlighted row's current value;
-- footer: RESET (back to the preset) and DONE.
+- left: five page buttons (GAME, PLAYERS, ITEMS used so far), RESET (every
+  setting back to its default) and DONE;
+- middle: twelve rows of `<   LABEL   value   >`; clicking the row steps it
+  forward, `<` and `>` step either way; Lua names each row, fills it and
+  hides the rest; a value away from its default is drawn in the accent;
+- right: CE's help box for the highlighted row: its label, value and what
+  it does.
 
 GAME SETTINGS sits in the lobby menu under GAME TYPE (host only). The lobby
-card lists the settings that differ from the preset under the mode's
-description, so clients see the rules too. Only settings that work are
-shown; nothing is greyed out "coming soon".
+card lists the settings away from their defaults under the game type, for
+the host and every client. Only settings that work are shown; nothing is
+greyed out "coming soon". Presets (Snipers, Rockets, Elimination ...) wait
+for the settings they need.
 
-### Getting a choice into every simulation
+### Getting a choice into every simulation (built)
 
-1. The host's choices are one `key=value` string, saved beside
-   `last_game.txt` and sent to clients in the existing `lobby` broadcast
-   (`MJOLNIRLobby/Scripts/main.lua`, broadcastLobby), and once more just
-   before StartCountdown.
-2. On every machine, the level loader copies `variants/<mode>.mglo`,
-   patches the fields, and stages the result as it does today.
-3. Field offsets come from `mjolnir megalo write --layout`, a JSON emitted by
-   CI beside each `.mglo`, so the Rust writer stays the only definition; a
-   Rust test round-trips patched files.
-4. MJOLNIRHud reads the staged `native\variant.mglo`, not the installed one.
-5. Joins into a match under way get the string from the hub listing (one new
-   field) and patch before their held world is released.
+1. The host's choices (`MJOLNIRLobby/Scripts/settings.lua`, saved in
+   `MJOLNIRLobby\game_settings.txt`) become one line of variant fields,
+   `key=value;...`, with a score to win per game type (`score.slayer`,
+   `score.ctf`) so the line stays right when a post-game vote changes the
+   game type.
+2. The host writes it to `MJOLNIRLevelLoader\variant_settings.txt` as it
+   starts a game; fireteam clients get it as the third field of the `lobby`
+   message and write the same file. A host from before settings sends no
+   third field, which clears it. A join from FIND GAMES clears it too (or
+   takes the listing's `settings`, once the hub carries one).
+3. On every machine the level loader patches the line into its copy of
+   `variants/<mode>.mglo` (`variant_settings.lua`, keeping only that game
+   type's score) and stages the result.
+4. MJOLNIRHud reads the staged `native\variant.mglo`: the score to win and
+   the time limit for its round clock.
+5. `tools/tests/test_variant_settings.lua` patches the Rust writer's default
+   variants with a settings line and must get, byte for byte, what the
+   writer makes with the same settings (`settings_fixtures_are_current`
+   keeps the fixtures current); `test_game_settings.lua` patches every
+   choice of every option.
 
-Risk: the Ice Fields note says map options can lag one match behind when the
-variant changes mid-session. Per-round settings (score, time, respawn,
-traits) are read at the round reset and should not lag; map options and
-weapon sets might. Verify first.
+Not yet: a player joining a match under way runs the variant's own rules
+until the hub listing carries the host's line (one new field and a
+migration).
+
+A changed variant applies at the next match: test C0 ran straight after C1
+from the post-game vote with the new file.
+
+### The round clock
+
+The engine counts the round clock down and raises `30_seconds_remaining`
+and `10_seconds_remaining`, but shows nothing. MJOLNIRHud shows `M:SS` under
+TO WIN when a time limit is set: counted from the first spawn (the clock
+starts about 0.8 s after it), set right by those two incidents, and on a
+fireteam client by the host, which sends its count every 30 s.
 
 ## Phases
 
