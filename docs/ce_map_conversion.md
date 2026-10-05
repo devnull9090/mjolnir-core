@@ -560,12 +560,12 @@ seconds after the loading screen are dark.
   height (Infinity, 2026-10-04), so maps converted earlier need converting
   again.
 - **Object light colour.** Players, vehicles and weapons are lit by the
-  Unreal sun and sky light, coloured as the map's lightmap is where the
-  bake has sun (else the lightmaps' average): CE lit an object by the
-  lightmap under it. The
-  sky's outdoor ambient sets only their brightness; its colour can be
-  anything (Infinity's test sky: (0.5, 0.5, 0), which turned everything
-  yellow).
+  Unreal sun and sky light. On a map with a real sun (its lightmap at 0.8
+  or more where the bake has sun) they take that sunlit lightmap's colour,
+  since CE lit an object by the lightmap under it; otherwise the sky's
+  outdoor ambient colour, or the lightmaps' average when that colour lacks
+  a channel. The sky's colour alone can be anything: Infinity's test sky is
+  (0.5, 0.5, 0), which turned everything yellow.
 - **Approximations in the materials.** CE's noise, jitter and wander
   functions are a value noise; the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the

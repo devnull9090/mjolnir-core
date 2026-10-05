@@ -489,11 +489,18 @@ def environment(template, placement, scene=None, staging=None, bake=None):
         return env
     lum = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]
     k = power * lum / REFERENCE_AMBIENT
-    # The sunlit lightmap's colour, else the whole lightmap's: CE lit an
-    # object by the lightmap under it.
-    tint = light.get("colour") or (lightmap_tint(staging) if staging else None)
+    # Where the level has a real sun, the sunlit lightmap's colour: CE lit an
+    # object by the lightmap under it. Otherwise the sky's ambient colour,
+    # unless that is no colour of light at all (Infinity's test sky is
+    # (0.5, 0.5, 0)): then the lightmaps' average. A dim "sunlit" level is sky
+    # light (Danger Canyon's 0.42 came out blue), and an indoor map's average
+    # is its lamps (Longest's purple).
+    sunny = (light.get("levels") or [0, 0])[1] >= 0.8
+    tint = light.get("colour") if sunny else None
     if not tint:
         tint = [round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1]
+        if min(tint) < 0.25:
+            tint = (lightmap_tint(staging) if staging else None) or tint
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
