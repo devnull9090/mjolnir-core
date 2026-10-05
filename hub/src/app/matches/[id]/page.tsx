@@ -15,11 +15,16 @@ import {
   explainedDeaths,
   isExplainedDeath,
   kd,
+  mapHref,
   namer,
-  when,
+  playerHref,
   winnerText,
 } from "../_components/format";
-import { PositionMap } from "../_components/PositionMap";
+import { Avatar } from "../_components/Avatar";
+import { LocalTime } from "../_components/LocalTime";
+import { MatchReplay } from "../_components/MatchReplay";
+import { positionMarks } from "../_components/positions";
+import mapPreviews from "../_components/map-previews.json";
 
 /**
  * One match: the final scoreboard, the timeline of what happened, and where
@@ -51,10 +56,6 @@ const TEAM_STYLE: Record<string, string> = {
   red: "border-l-red-500",
   blue: "border-l-sky-500",
 };
-
-function playerHref(p: MatchPlayer): string {
-  return p.user ? `/users/${p.user.id}` : `/players/${encodeURIComponent(p.name)}`;
-}
 
 function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null }) {
   const groups: { label: string | null; team: string | null; players: MatchPlayer[]; total: number | null }[] =
@@ -101,7 +102,11 @@ function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null
               <tr key={p.index} className={`border-t border-border ${focus === p.index ? "bg-gold/10" : ""}`}>
                 <td className={`px-4 py-3 border-l-4 ${TEAM_STYLE[p.team ?? ""] ?? "border-l-transparent"}`}>
                   <span className="text-text-dim mr-2 tabular-nums">{p.place}.</span>
-                  <Link href={playerHref(p)} className="text-foreground font-medium hover:text-gold">
+                  <Link
+                    href={playerHref(p)}
+                    className="inline-flex items-center gap-2 align-middle text-foreground font-medium hover:text-gold"
+                  >
+                    <Avatar name={p.name} user={p.user} />
                     {p.name}
                   </Link>
                   {p.user && (
@@ -153,6 +158,14 @@ export default async function MatchPage({
     .map((e) => ({ e, text: isExplainedDeath(e, explained) ? null : eventLine(e, nameOf) }))
     .filter((l): l is { e: (typeof match.events)[number]; text: string } => l.text !== null);
   const other = match.events.length - lines.length;
+  const { kills, deaths } = positionMarks(match.events, nameOf, focus);
+  const rows = lines.map(({ e, text }) => ({
+    seq: e.seq,
+    t_ms: e.t_ms,
+    text,
+    strong: e.type === "kill" || e.type === "suicide" || e.type === "death",
+    mine: focus !== null && (e.cause === focus || e.effect === focus),
+  }));
 
   return (
     <>
@@ -163,9 +176,18 @@ export default async function MatchPage({
           <Link href="/matches" className="text-xs text-text-dim hover:text-foreground">
             ← Match history
           </Link>
-          <h1 className="mt-2 text-3xl md:text-4xl font-black text-foreground">{title(match)}</h1>
+          <h1 className="mt-2 text-3xl md:text-4xl font-black text-foreground">
+            {GAME_TYPE_NAMES[match.game_type] ?? match.game_type} on{" "}
+            {mapHref(match) ? (
+              <Link href={mapHref(match)!} className="hover:text-gold">
+                {match.map_title ?? match.map_code}
+              </Link>
+            ) : (
+              (match.map_title ?? match.map_code)
+            )}
+          </h1>
           <p className="mt-2 text-text-muted">
-            {when(match.ended_at)} · {duration(match.duration_ms)} · {match.player_count} players · hosted by{" "}
+            <LocalTime sql={match.ended_at} /> · {duration(match.duration_ms)} · {match.player_count} players · hosted by{" "}
             {match.host}
             {match.score_to_win ? ` · first to ${match.score_to_win}` : ""}
           </p>
@@ -186,51 +208,16 @@ export default async function MatchPage({
           <Scoreboard match={match} focus={focus} />
         </section>
 
-        <div className="grid gap-10 lg:grid-cols-2">
-          <section id="map">
-            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
-              Kills and deaths{focus !== null ? ` · ${nameOf(focus)}` : ""}
-            </h2>
-            <PositionMap events={match.events} nameOf={nameOf} focus={focus} />
-          </section>
-
-          <section>
-            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Timeline</h2>
-            {lines.length === 0 ? (
-              <p className="text-sm text-text-muted">Nothing happened.</p>
-            ) : (
-              <ol className="max-h-[560px] overflow-y-auto rounded-xl border border-border divide-y divide-border text-sm">
-                {lines.map(({ e, text }) => (
-                  <li
-                    key={e.seq}
-                    className={`flex gap-3 px-4 py-2 ${focus !== null && (e.cause === focus || e.effect === focus) ? "bg-gold/10" : ""}`}
-                  >
-                    <span className="w-12 shrink-0 tabular-nums text-text-dim">{duration(e.t_ms)}</span>
-                    <span
-                      className={
-                        e.type === "kill" || e.type === "suicide" || e.type === "death"
-                          ? "text-foreground"
-                          : "text-text-muted"
-                      }
-                    >
-                      {text}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {other > 0 && (
-              <p className="mt-2 text-xs text-text-dim">
-                Plus {other} other incidents (spawns, deaths a kill already tells, commendations, lead changes)
-                in the{" "}
-                <a href={`/api/v1/matches/${match.id}`} className="underline hover:text-foreground">
-                  full event data
-                </a>
-                .
-              </p>
-            )}
-          </section>
-        </div>
+        <MatchReplay
+          code={match.map_code in mapPreviews ? match.map_code : null}
+          kills={kills}
+          deaths={deaths}
+          rows={rows}
+          durationMs={match.duration_ms}
+          mapHeading={`Kills and deaths${focus !== null ? ` · ${nameOf(focus)}` : ""}`}
+          matchId={match.id}
+          otherCount={other}
+        />
       </main>
 
       <Footer />

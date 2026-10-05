@@ -51,6 +51,7 @@ end
 
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
+local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -2099,6 +2100,20 @@ local function loadMegaloSwitch()
         if chosen and variant then
             local name = tostring(chosen)
             local bytes = readFile(MOD_DIR .. "\\variants\\" .. name .. ".mglo")
+            -- The host's game settings (MJOLNIRLobby writes them here on the
+            -- host and on every fireteam client), patched into the copy the
+            -- simulation loads, so every machine runs the same rules.
+            local settingsText = readFile(MOD_DIR .. "\\variant_settings.txt")
+            if bytes and settingsText and settingsText:match("%S") then
+                local settings = VariantSettings.forMode(VariantSettings.parse(settingsText), name)
+                local patched, why = VariantSettings.apply(bytes, settings)
+                if patched then
+                    bytes = patched
+                    Log("multiplayer switch: game settings " .. VariantSettings.format(settings))
+                else
+                    Log("multiplayer switch: game settings not applied (" .. tostring(why) .. "); the variant's own rules run")
+                end
+            end
             local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
             if staged then
                 staged:write(bytes)

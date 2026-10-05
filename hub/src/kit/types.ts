@@ -384,6 +384,8 @@ export interface Lobby {
   country: string | null;
   /** Estimated round trip from the caller in ms, or null without locations. */
   ping_ms: number | null;
+  /** The host's game settings line, or null from a host without them. */
+  settings: string | null;
   created_at: string;
 }
 

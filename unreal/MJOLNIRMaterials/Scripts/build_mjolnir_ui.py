@@ -201,6 +201,14 @@ def build_kill_feed():
                        "Score" + side + "Stack")
         text_style(value, "0", 18 if side == "Target" else 30, GREY if side == "Target" else WHITE)
         value.set_editor_property("justification", unreal.TextJustify.CENTER)
+        if side == "Target":
+            # The round clock (a time limit from the host's game settings);
+            # MJOLNIRHud fills it and hides it when there is no limit.
+            clock = widget(bp, unreal.TextBlock, "MatchClock", "ScoreTargetStack")
+            text_style(clock, "", 16, WHITE)
+            clock.set_editor_property("justification", unreal.TextJustify.CENTER)
+            clock.set_visibility(unreal.SlateVisibility.COLLAPSED)
+            gap(clock, top=2)
     watermark(bp)
     finish(bp, name)
 
@@ -399,9 +407,37 @@ def finish_screen(bp, name):
     unreal.log(f"MJOLNIR UI: {ROOT}/{name} built")
 
 
+def max_players_row(bp, parent):
+    """The host's MAX PLAYERS: - and + either side of the number, which also
+    steps up when clicked (MJOLNIRLobby wraps it from 16 to the fewest). Lua
+    sets MaxPlayersValue, enables the steps and shows the row to the host
+    only. Returns the row's events."""
+    row = widget(bp, unreal.HorizontalBox, "MaxPlayersRow", parent)
+    gap(row, bottom=5)
+    for key, text in (("MaxPlayersDown", "-"), ("MaxPlayers", None), ("MaxPlayersUp", "+")):
+        button = widget(bp, unreal.Button, key, "MaxPlayersRow")
+        button_style(button)
+        if text is None:
+            fill(button, 1)
+            button.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 8, 0))
+            inner = widget(bp, unreal.HorizontalBox, "MaxPlayersInner", key)
+            caption = widget(bp, unreal.TextBlock, "MaxPlayersCaption", "MaxPlayersInner")
+            text_style(caption, "MAX PLAYERS", 20, ACCENT)
+            middle(caption)
+            value = widget(bp, unreal.TextBlock, "MaxPlayersValue", "MaxPlayersInner")
+            text_style(value, "16", 26, WHITE)
+            value.get_editor_property("slot").set_padding(unreal.Margin(14, 0, 0, 0))
+            middle(value)
+        else:
+            text_style(widget(bp, unreal.TextBlock, key + "Label", key), text, 26, WHITE)
+    return [("MaxPlayersDown", "OnClicked", "maxdown"), ("MaxPlayers", "OnClicked", "maxplayers"),
+            ("MaxPlayersUp", "OnClicked", "maxup")]
+
+
 def build_lobby():
-    """The host's lobby: the map and game type, the players, START and
-    INVITE FRIENDS (the game's own Friends screen, cross-platform)."""
+    """The host's lobby: the map and game type, the players, START,
+    INVITE FRIENDS (the game's own Friends screen, cross-platform), PRIVATE /
+    PUBLIC GAME and MAX PLAYERS."""
     name = "WBP_MJOLNIRLobby"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
@@ -414,11 +450,14 @@ def build_lobby():
     events = []
     # Listing: the host's game private (fireteam and invites only) or
     # public (listed on the hub for FIND GAMES); Lua sets its label.
+    # GameSettings: the host's game settings (WBP_MJOLNIRGameSettings).
     for key, label in (("Start", "START GAME"), ("Invite", "INVITE FRIENDS"), ("ChangeMap", "CHANGE MAP"),
-                       ("GameType", "GAME TYPE"), ("Listing", "PRIVATE GAME"), ("FindGames", "FIND GAMES"),
-                       ("Back", "BACK")):
-        gap(menu_button(bp, key, label, "Menu", size=30), bottom=10)
+                       ("GameType", "GAME TYPE"), ("GameSettings", "GAME SETTINGS"), ("Listing", "PRIVATE GAME"),
+                       ("FindGames", "FIND GAMES"), ("Back", "BACK")):
+        gap(menu_button(bp, key, label, "Menu", size=26), bottom=5)
         events.append((key, "OnClicked", key.lower()))
+        if key == "Listing":
+            events += max_players_row(bp, "Menu")
 
     card = panel(bp, "Card", "Root")
     place(card, (0.28, 0.28), (0.0, 0.0))
@@ -446,6 +485,17 @@ def build_lobby():
     wrapped(mode_description)
     gap(rule(bp, "FormatRule", "CardStack"), top=32, bottom=20)
     text_style(widget(bp, unreal.TextBlock, "MatchFormat", "CardStack"), "FREE FOR ALL", 20, ACCENT)
+    # The game settings away from the defaults, one per line; Lua hides the
+    # box when there are none.
+    rules_box = widget(bp, unreal.VerticalBox, "RulesBox", "CardStack")
+    gap(rules_box, top=24)
+    rules_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    gap(rule(bp, "RulesRule", "RulesBox"), bottom=18)
+    text_style(widget(bp, unreal.TextBlock, "RulesKicker", "RulesBox"), "GAME SETTINGS", 18, ACCENT)
+    rules = widget(bp, unreal.TextBlock, "Rules", "RulesBox")
+    text_style(rules, "", 22, WHITE)
+    wrapped(rules)
+    gap(rules, top=10)
 
     roster = panel(bp, "Roster", "Root")
     place(roster, (0.94, 0.28), (1.0, 0.0))
@@ -923,6 +973,93 @@ def build_post_game():
     finish_screen(bp, name)
 
 
+SETTINGS_PAGES = 5
+SETTINGS_ROWS = 12
+
+
+def build_game_settings():
+    """The host's game settings (docs/host_game_settings.md): page buttons,
+    then up to SETTINGS_ROWS rows of `<  LABEL  value  >`, and a help panel
+    for the highlighted row, as CE's EDIT GAMETYPES pages had. Generic:
+    MJOLNIRLobby's settings.lua names, fills and hides everything, so a new
+    setting needs no new cook."""
+    name = "WBP_MJOLNIRGameSettings"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    screen_canvas(bp)
+    screen_header(bp, "GAME SETTINGS", "CUSTOM GAME")
+    mode_line = widget(bp, unreal.TextBlock, "ModeLine", "Root")
+    place(mode_line, (0.06, 0.205), (0.0, 0.0))
+    text_style(mode_line, "", 20, ACCENT)
+    events = []
+
+    pages = sized(bp, "PagesSize", "Root", width=360)
+    place(pages, (0.06, 0.26), (0.0, 0.0))
+    widget(bp, unreal.VerticalBox, "Pages", "PagesSize")
+    gap(rule(bp, "PagesRule", "Pages", ACCENT, 2), bottom=12)
+    for i in range(SETTINGS_PAGES):
+        gap(menu_button(bp, f"Page{i}", "", "Pages", size=28), bottom=8)
+        events.append((f"Page{i}", "OnClicked", f"page:{i}"))
+    gap(rule(bp, "ActionsRule", "Pages"), top=20, bottom=12)
+    for key, label in (("Reset", "RESET"), ("Back", "DONE")):
+        gap(menu_button(bp, key, label, "Pages", size=28), bottom=8)
+        events.append((key, "OnClicked", key.lower()))
+
+    # Widths are UI units (the screen is 2560 wide at any resolution), not
+    # pixels: pages end near 0.21, the rows run to 0.61, the help to 0.94.
+    options = panel(bp, "Options", "Root", padding=(24, 20, 24, 20))
+    place(options, (0.225, 0.26), (0.0, 0.0))
+    sized(bp, "OptionsSize", "Options", width=960)
+    widget(bp, unreal.VerticalBox, "Rows", "OptionsSize")
+    for i in range(SETTINGS_ROWS):
+        row = widget(bp, unreal.HorizontalBox, f"Row{i}", "Rows")
+        gap(row, bottom=8)
+        for key, text in ((f"Row{i}Prev", "<"), (f"Row{i}Pick", None), (f"Row{i}Next", ">")):
+            button = widget(bp, unreal.Button, key, f"Row{i}")
+            button_style(button)
+            if text is None:
+                fill(button, 1)
+                button.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 8, 0))
+                inner = widget(bp, unreal.HorizontalBox, f"Row{i}Inner", key)
+                # The label on the left, the value on the right, across the
+                # whole button (a button centres its content otherwise).
+                inner.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+                label = widget(bp, unreal.TextBlock, f"Row{i}Label", inner.get_name())
+                text_style(label, "", 26, WHITE)
+                fill(label, 1)
+                middle(label)
+                value = widget(bp, unreal.TextBlock, f"Row{i}Value", inner.get_name())
+                text_style(value, "", 26, WHITE)
+                value.set_editor_property("justification", unreal.TextJustify.RIGHT)
+                value.get_editor_property("slot").set_padding(unreal.Margin(24, 0, 0, 0))
+                middle(value)
+            else:
+                text_style(widget(bp, unreal.TextBlock, key + "Label", key), text, 26, WHITE)
+        events += [(f"Row{i}Prev", "OnClicked", f"prev:{i}"), (f"Row{i}Pick", "OnClicked", f"row:{i}"),
+                   (f"Row{i}Pick", "OnHovered", f"hover:{i}"), (f"Row{i}Next", "OnClicked", f"next:{i}")]
+
+    help_panel = panel(bp, "Help", "Root")
+    place(help_panel, (0.64, 0.26), (0.0, 0.0))
+    sized(bp, "HelpSize", "Help", width=700)
+    widget(bp, unreal.VerticalBox, "HelpStack", "HelpSize")
+    gap(rule(bp, "HelpRule", "HelpStack", ACCENT, 2), bottom=24)
+    title = widget(bp, unreal.TextBlock, "HelpTitle", "HelpStack")
+    text_style(title, "", 20, ACCENT)
+    value = widget(bp, unreal.TextBlock, "HelpValue", "HelpStack")
+    text_style(value, "", 44, WHITE)
+    gap(value, top=10, bottom=18)
+    help_text = widget(bp, unreal.TextBlock, "HelpText", "HelpStack")
+    text_style(help_text, "", 26, GREY)
+    wrapped(help_text)
+    text_style(footer(bp), "", 22, GREY)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
 def build_label():
     full = f"{ROOT}/PAL_MJOLNIR_UI"
     if eal.does_asset_exist(full):
@@ -944,5 +1081,6 @@ build_lobby()
 build_map_select()
 build_find_games()
 build_post_game()
+build_game_settings()
 build_label()
 unreal.log("MJOLNIR UI built")

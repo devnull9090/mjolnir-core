@@ -108,9 +108,44 @@ the same account is a no-op; from another, 409. A listing id that still exists
 must be the caller's.
 
 Pages: `/matches` (filters by game type and map, player search),
-`/matches/<id>` (scoreboard by team, the timeline, and a top-down plot of kill
-and death positions, per player with `?p=<index>`), `/players/<name>` (totals,
-most-used weapons, matches), and a Multiplayer section on `/users/<id>`.
+`/matches/<id>` (scoreboard by team, the timeline, and the kill and death
+positions over the map, per player with `?p=<index>`), `/players/<name>`
+(totals, most-used weapons, matches), and a Multiplayer section on
+`/users/<id>`.
+
+### The map under the positions
+
+A match on a map the hub has a preview model of draws its kills and deaths
+over the level with three.js (`MatchMap.tsx`, `mapViewer.ts`): a top-down
+minimap (orthographic, panned and zoomed) or the level in 3D to orbit. A cut
+slider takes off everything above a height, so a lower floor shows on
+Prisoner or Chill Out; the map's faces point into the play space, so an
+indoor map is seen through its roof either way. Hovering a dot shows the
+kill. Other maps, and a browser without WebGL, get the plain SVG plot.
+
+Under the map, a replay (`MatchReplay.tsx`): play the match at 10× to 120×
+(the default plays it in about a minute) or scrub it, and the map, either
+kind, shows only what had happened by then, the last moments larger and the
+rest faded. Ticks on the scrub bar mark when each kill (gold) and death
+(red) came. The timeline follows the replay, and a row jumps the replay to
+it. "Show all" goes back to the whole match.
+
+The models are `hub/public/map-previews/<CODE>.glb`, listed in
+`hub/src/app/matches/_components/map-previews.json`, made from a converted
+map's output folder ([ce_map_conversion.md](ce_map_conversion.md)):
+
+```bash
+python tools/level/export_map_preview.py out/bgl BGL hub/public/map-previews   --manifest hub/src/app/matches/_components/map-previews.json
+```
+
+It takes `scene.gltf` (the BSP with its scenery; no sky, no glass or water),
+quantized (`KHR_mesh_quantization`) to 100 KB to 1.2 MB a map, with a vertex
+colour for the textures: CE's texture pass with the base map shrunk to 16×16
+and each detail map as its average colour, times the lightmap. The model is
+glTF metres, Y up, at CE coordinates; a recorded Unreal position is
+`(x, z, y) / 100` in it. Checked 2026-10-05 against 12 prod matches on 12
+maps: every recorded position falls inside its map's model. Re-export a map
+whenever it is re-converted.
 
 ## Trust
 
@@ -148,6 +183,7 @@ before the hub deploy that uses it (`pnpm db:migrate:prod`).
 
 ## Next
 
-- Heatmaps across matches per map, from `match_events` (indexed by type).
+- Heatmaps across matches per map, from `match_events` (indexed by type),
+  over the same preview models.
 - Periodic position samples (where players walk, not just where they die).
 - Ranking: per-account ratings from linked seats in completed matches.

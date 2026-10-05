@@ -119,7 +119,7 @@ export default function HomePage() {
                 </div>
                 <p className="mt-6 text-sm font-medium">Plus framework support for</p>
                 <div className="mt-3 flex flex-wrap gap-2">{["Team Slayer", "King of the Hill", "Oddball"].map((mode) => <span key={mode} className="border border-border-bright px-3 py-1.5 text-xs text-text-muted">{mode}</span>)}</div>
-                <p className="mt-4 text-xs leading-6 text-text-muted">Available modes depend on the map and installed game variant. The current alpha supports up to four players.</p>
+                <p className="mt-4 text-xs leading-6 text-text-muted">Available modes depend on the map and installed game variant. The current alpha supports up to 16 players.</p>
               </div>
             </div>
           </div>

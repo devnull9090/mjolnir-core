@@ -6,8 +6,8 @@
 //! own, called with [`Action::CallTrigger`].
 
 use crate::variant::{
-    Action, Compare, Condition, ConditionKind, Number, Object, Op, Trigger, TriggerKind, Var,
-    Variant, ATTR_SUBROUTINE,
+    Action, Compare, Condition, ConditionKind, Number, Object, Op, Timer, Trigger, TriggerKind,
+    Var, Variant, ATTR_SUBROUTINE,
 };
 
 pub(crate) enum Item {
@@ -46,6 +46,31 @@ pub(crate) fn obj(r: u8) -> Var {
 
 pub(crate) struct Builder {
     pub v: Variant,
+}
+
+impl Variant {
+    /// End the round when its time limit runs out. The engine counts the
+    /// round clock down and raises the 30 and 10 seconds remaining
+    /// incidents, but ending the round is the script's job (2026-10-04: a
+    /// one-minute limit ran out and the round went on). The limit is
+    /// checked first: with none, the round clock may sit at zero.
+    pub fn with_time_limit(self) -> Variant {
+        let mut b = Builder::new(self);
+        b.trigger(
+            TriggerKind::Do,
+            crate::variant::ATTR_NORMAL,
+            vec![
+                compare(
+                    Var::Number(Number::RoundTimeLimit),
+                    constant(0),
+                    Compare::Greater,
+                ),
+                Item::If(ConditionKind::TimerIsZero(Timer::Round)),
+                Item::Do(Action::EndRound),
+            ],
+        );
+        b.v
+    }
 }
 
 impl Builder {

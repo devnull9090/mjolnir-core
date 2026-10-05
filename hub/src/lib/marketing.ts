@@ -110,7 +110,7 @@ export const MULTIPLAYER_FAQS = [
   {
     id: "player-count",
     question: "How many players can join a multiplayer game?",
-    answer: "The current multiplayer alpha supports fireteams of up to four players. Larger lobbies are in development. Even on the larger classic maps, the alpha's current fireteam limit still applies.",
+    answer: "Up to 16 players, on every classic map. Each player needs their own PC and their own copy of the game, with the same maps installed. More than two players on one PC isn't supported yet.",
     href: MULTIPLAYER_RELEASE_PATH,
     linkLabel: "See the alpha release notes",
   },

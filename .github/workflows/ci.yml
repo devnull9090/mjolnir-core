@@ -25,6 +25,11 @@ jobs:
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 
+      - name: Test host game settings against the variant writer
+        run: |
+          lua5.4 tools/tests/test_variant_settings.lua
+          lua5.4 tools/tests/test_game_settings.lua
+
       - name: Lint Lua scripts
         run: |
           if command -v luacheck &> /dev/null; then

@@ -41,6 +41,7 @@ local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
+local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -133,6 +134,24 @@ end
 -- Starting a game
 -------------------------------------------------------------------------------
 
+local GAME_SETTINGS_FILE = MOD_DIR .. "\\game_settings.txt"
+local VARIANT_SETTINGS_FILE = LOADER_DIR .. "\\variant_settings.txt"
+
+--- The game settings line MJOLNIRLevelLoader patches into the next variant
+--- it stages (docs/host_game_settings.md); "" for the variant's own rules.
+--- Written by the host as it starts a game, by a fireteam client from the
+--- host's lobby message, and cleared by games.lua on a join from FIND GAMES
+--- until the host's line arrives.
+local function writeVariantSettings(line)
+    line = line or ""
+    if (readFile(VARIANT_SETTINGS_FILE) or "") == line then return end
+    local f = io.open(VARIANT_SETTINGS_FILE, "w")
+    if not f then return end
+    f:write(line)
+    f:close()
+    log("game settings: " .. (line ~= "" and line or "the variant's own"))
+end
+
 local function startGame(map, mode)
     local pc = UI.playerController()
     local helpers = StaticFindObject(HELPERS)
@@ -158,6 +177,9 @@ local function startGame(map, mode)
         f:write(mode.id)
         f:close()
     end
+    -- The host's game settings, which the loader patches into the variant;
+    -- the fireteam got the same line with the lobby (broadcastLobby).
+    writeVariantSettings(Settings.variantLine())
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -265,18 +287,27 @@ local UI_ROOT = "/Game/MJOLNIR/UI/"
 local LOBBY_CLASS = UI_ROOT .. "WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C"
 local SELECT_CLASS = UI_ROOT .. "WBP_MJOLNIRMapSelect.WBP_MJOLNIRMapSelect_C"
 local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
+local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettings_C"
+local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
+local SETTINGS_ROWS = 12    -- option rows in the cooked screen
 local MAP_BUTTONS = 32
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
 local GAME_ROWS = 40
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
+local MAX_PLAYERS_FILE = MOD_DIR .. "\\max_players.txt"
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
 local ACCENT = { R = 0.55, G = 0.85, B = 1.0, A = 1 }
 local NORMAL_BACKGROUND = { R = 1, G = 1, B = 1, A = 1 }
 local SELECTED_BACKGROUND = { R = 3.0, G = 3.5, B = 3.5, A = 1 }
 
-local Game = { map = nil, mode = nil }   -- what START GAME starts
+-- The fireteam's ceiling: the simulation's players array holds 16
+-- (docs/fireteam_join_and_cap.md). The host's MAX PLAYERS narrows it.
+local FIRETEAM_SIZE = 16
+local MIN_PLAYERS = 2
+
+local Game = { map = nil, mode = nil, maxPlayers = FIRETEAM_SIZE }   -- what START GAME starts
 local Lobby, Select = nil, nil           -- the screens on the stack
 local Find = nil                         -- FIND GAMES, while it is up
 local Found = { all = {}, games = {}, maps = {}, matching = 0, chosen = nil, loading = false }
@@ -284,6 +315,12 @@ local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
+-- A fireteam client's copy of the host's game settings line (the lobby
+-- card shows its rules).
+local clientRules = ""
+-- GAME SETTINGS while it is up: the screen, its page and the row whose help
+-- shows.
+local Tweak = { screen = nil, page = 1, row = 1 }
 -- hooked: class path -> true once its MJ_Event hook is in, false after a
 -- failed try. watching (the new-lobby watch): false before the first try,
 -- nil after a failed one, true once registered. noUI: the lobby class does
@@ -313,6 +350,14 @@ local findGames = nil
 local function hasFindGames()
     if findGames == nil then findGames = loadClass(FIND_CLASS) ~= nil end
     return findGames
+end
+
+--- GAME SETTINGS likewise: a container from before it has neither the
+--- screen nor the lobby's button.
+local gameSettings = nil
+local function hasGameSettings()
+    if gameSettings == nil then gameSettings = loadClass(SETTINGS_CLASS) ~= nil end
+    return gameSettings
 end
 
 --- Push one of our screens onto the game's menu stack.
@@ -360,6 +405,91 @@ local function saveGame()
     end
 end
 
+--- The smallest MAX PLAYERS the host can pick with `present` players in the
+--- fireteam: PlayFab does not shrink a lobby below its members.
+local function minPlayers(present)
+    return math.max(MIN_PLAYERS, math.min(present or 0, FIRETEAM_SIZE))
+end
+
+--- Hand Game.maxPlayers to the native half, which resizes the PlayFab lobby
+--- this game owns (and every lobby it creates from now on), and to the
+--- listing. The lobby turns away anyone past it, however they join; the
+--- game's GameSession is held to it at once (holdFireteamSize). Returns the
+--- native half's reply ("ok", "kept" or "error ..."), or why there is none.
+local function applyMaxPlayers()
+    Games.setMaxPlayers(Game.maxPlayers)
+    local native = MOD_DIR .. "\\native\\"
+    local request = io.open(native .. "lobby_max.txt", "wb")
+    if not request then return "error cannot write lobby_max.txt" end
+    request:write(tostring(Game.maxPlayers))
+    request:close()
+    local apply = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_lobby_max")
+    if not apply then return "error the native half is not installed" end
+    local ok, err = pcall(apply)
+    if not ok then return "error " .. tostring(err) end
+    local reply = (readFile(native .. "lobby_max_reply.txt") or "error no reply"):gsub("%s+$", "")
+    return reply
+end
+
+--- The size PlayFab reports for the lobby, or nil when there is none.
+local function lobbyMax()
+    local native = MOD_DIR .. "\\native\\"
+    local read = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_lobby_connection")
+    if not (read and pcall(read)) then return nil end
+    return tonumber((readFile(native .. "lobby_connection.txt") or ""):match("\nmax (%d+)") or "")
+end
+
+-- PlayFab throttles lobby updates: thirty in twenty seconds left the lobby
+-- at an early size while every call still returned success (2026-10-04). So
+-- a click only changes the number; the lobby gets the last one once the
+-- host stops clicking, is read back, and is sent again until it holds it.
+local RESIZE_DELAY_MS = 1500
+local RESIZE_CHECK_MS = 5000
+local RESIZE_TRIES = 5
+local resizeToken = 0
+
+local function resizeLobby(delay, tries)
+    resizeToken = resizeToken + 1
+    local token = resizeToken
+    ExecuteInGameThreadWithDelay(delay, function()
+        if token ~= resizeToken then return end   -- a newer click took over
+        local reply = applyMaxPlayers()
+        log("max players: " .. Game.maxPlayers .. " (" .. reply .. ")")
+        if reply:match("^error") then
+            setText(Lobby and Lobby.Status, "MAX PLAYERS NOT APPLIED: " .. reply:sub(7))
+            return
+        end
+        if not reply:match("^ok") then return end   -- kept for the next lobby
+        ExecuteInGameThreadWithDelay(RESIZE_CHECK_MS, function()
+            if token ~= resizeToken then return end
+            local held = lobbyMax()
+            if not held or held == Game.maxPlayers then return end
+            if tries >= RESIZE_TRIES then
+                log("max players: the lobby still holds " .. held .. " after " .. tries .. " tries")
+                setText(Lobby and Lobby.Status, "MAX PLAYERS NOT APPLIED: the lobby still holds " .. held)
+                return
+            end
+            log("max players: the lobby holds " .. held .. "; sending " .. Game.maxPlayers .. " again")
+            resizeLobby(0, tries + 1)
+        end)
+    end)
+end
+
+--- The host's MAX PLAYERS, kept within what the fireteam allows and saved
+--- for the next session.
+local function setMaxPlayers(size, present)
+    size = math.max(minPlayers(present), math.min(FIRETEAM_SIZE, size))
+    if size == Game.maxPlayers then return end
+    Game.maxPlayers = size
+    local f = io.open(MAX_PLAYERS_FILE, "w")
+    if f then
+        f:write(tostring(size), "\n")
+        f:close()
+    end
+    setText(Lobby and Lobby.Status, "UP TO " .. size .. " PLAYERS CAN BE IN THIS FIRETEAM")
+    resizeLobby(RESIZE_DELAY_MS, 1)
+end
+
 --- The players in the fireteam: the frontend's player states.
 local function rosterPlayers()
     local roster = {}
@@ -401,6 +531,19 @@ local function drawLobby()
     pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
     for _, key in ipairs({ "Start", "ChangeMap", "GameType", "Listing" }) do setShown(Lobby[key], host) end
     setText(Lobby.ListingLabel, Games.isPublic() and "PUBLIC GAME" or "PRIVATE GAME")
+    -- MAX PLAYERS: a runtime pack from before it has no such row, and the
+    -- fireteam stays at FIRETEAM_SIZE.
+    setShown(Lobby.MaxPlayersRow, host)
+    setText(Lobby.MaxPlayersValue, tostring(Game.maxPlayers))
+    pcall(function() Lobby.MaxPlayersDown:SetIsEnabled(Game.maxPlayers > minPlayers(#roster)) end)
+    pcall(function() Lobby.MaxPlayersUp:SetIsEnabled(Game.maxPlayers < FIRETEAM_SIZE) end)
+    -- GAME SETTINGS (host only), and the rules away from the defaults on the
+    -- card for everyone: a client's come from the host's lobby message.
+    setShown(Lobby.GameSettings, host and hasGameSettings())
+    local modeId = mode and mode.id
+    local rules = host and Settings.changes(modeId) or Settings.describe(clientRules, modeId)
+    setText(Lobby.Rules, #rules > 0 and table.concat(rules, "\n") or "")
+    setShown(Lobby.RulesBox, #rules > 0)
     setShown(Lobby.FindGames, hasFindGames())
     local status = host and Games.status() or ""
     if status ~= "" and status ~= listingStatus then setText(Lobby.Status, status) end
@@ -516,6 +659,7 @@ end
 
 -- One block, so its locals stay out of the main chunk's (Lua allows 200).
 local openFindGames, onFindEvent, tickFind, modeName
+local openSettings -- GAME SETTINGS, below
 do
 local FIND_PREFS = MOD_DIR .. "\\find_games.txt"
 local AUTO_REFRESH = 30   -- seconds
@@ -1200,9 +1344,28 @@ local LOBBY_EVENTS = {
         Games.setPublic(not Games.isPublic())
         drawLobby()
     end,
+    -- MAX PLAYERS: - and + step it; the row's middle steps up, and wraps
+    -- from the most to the fewest.
+    maxdown = function()
+        if not Net.isHost() then return end
+        setMaxPlayers(Game.maxPlayers - 1, #rosterPlayers())
+        drawLobby()
+    end,
+    maxup = function()
+        if not Net.isHost() then return end
+        setMaxPlayers(Game.maxPlayers + 1, #rosterPlayers())
+        drawLobby()
+    end,
+    maxplayers = function()
+        if not Net.isHost() then return end
+        local present = #rosterPlayers()
+        setMaxPlayers(Game.maxPlayers >= FIRETEAM_SIZE and minPlayers(present) or Game.maxPlayers + 1, present)
+        drawLobby()
+    end,
     findgames = function()
         if hasFindGames() then openFindGames() end
     end,
+    gamesettings = function() openSettings() end,
     back = function()
         -- A fireteam client's BACK: the game's own menus until the next vote.
         if not Net.isHost() then clientLobby.dismissed = true end
@@ -1223,9 +1386,106 @@ local SELECT_EVENTS = {
     back = function() pcall(function() Select:DeactivateWidget() end) end,
 }
 
+-------------------------------------------------------------------------------
+-- GAME SETTINGS
+-------------------------------------------------------------------------------
+-- The host's game settings (settings.lua), one page at a time: CE's EDIT
+-- GAMETYPES pages as rows of `label  < value >`, the highlighted row's help
+-- on the right. Every change is saved at once and reaches the fireteam with
+-- the next lobby message.
+
+local SELECTED_PAGE = { R = 0.12, G = 0.32, B = 0.43, A = 0.85 }
+local NORMAL_PAGE = { R = 0.025, G = 0.06, B = 0.09, A = 0.28 }
+
+local function settingsOptions()
+    return Settings.page(Tweak.page, Game.mode and Game.mode.id)
+end
+
+local function drawSettings()
+    local s = Tweak.screen
+    if not alive(s) then return end
+    local gameType = Game.mode and Game.mode.name or ""
+    setText(s.ModeLine, gameType ~= "" and (gameType .. "   /   THESE RULES APPLY TO THE NEXT GAME") or "")
+    for i = 0, SETTINGS_PAGES - 1 do
+        local name = Settings.PAGES[i + 1]
+        setShown(s["Page" .. i], name ~= nil)
+        if name then
+            setText(s["Page" .. i .. "Label"], name)
+            pcall(function() s["Page" .. i]:SetBackgroundColor(i + 1 == Tweak.page and SELECTED_PAGE or NORMAL_PAGE) end)
+        end
+    end
+    local options = settingsOptions()
+    for i = 0, SETTINGS_ROWS - 1 do
+        local opt = options[i + 1]
+        setShown(s["Row" .. i], opt ~= nil)
+        if opt then
+            setText(s["Row" .. i .. "Label"], opt.label)
+            setText(s["Row" .. i .. "Value"], Settings.text(opt))
+            pcall(function()
+                s["Row" .. i .. "Value"]:SetColorAndOpacity({
+                    SpecifiedColor = Settings.value(opt) ~= opt.default and ACCENT or WHITE, ColorUseRule = 0 })
+            end)
+        end
+    end
+    local focus = options[Tweak.row] or options[1]
+    setText(s.HelpTitle, focus and focus.label or "")
+    setText(s.HelpValue, focus and Settings.text(focus) or "")
+    setText(s.HelpText, focus and focus.help or "")
+    local changed = #Settings.changes(Game.mode and Game.mode.id)
+    setText(s.Status, changed == 0 and "STANDARD RULES" or (changed .. " SETTING" .. (changed == 1 and "" or "S")
+        .. " CHANGED   /   RESET PUTS THEM BACK"))
+end
+
+local function saveSettings()
+    local f = io.open(GAME_SETTINGS_FILE, "w")
+    if f then
+        f:write(Settings.save())
+        f:close()
+    end
+    drawSettings()
+    if alive(Lobby) then drawLobby() end
+end
+
+function openSettings()
+    if not (Net.isHost() and hasGameSettings()) then return end
+    local screen = pushScreen(SETTINGS_CLASS)
+    if not screen then
+        log("game settings: could not push " .. SETTINGS_CLASS)
+        return
+    end
+    Tweak.screen, Tweak.page, Tweak.row = screen, 1, 1
+    drawSettings()
+    pcall(function() screen.Row0Pick:SetFocus() end)
+end
+
+local function onSettingsEvent(event)
+    local verb, index = event:match("^(%a+):(%d+)$")
+    local i = index and tonumber(index) + 1
+    local opt = i and settingsOptions()[i]
+    if verb == "page" and Settings.PAGES[i] then
+        Tweak.page, Tweak.row = i, 1
+        drawSettings()
+    elseif verb == "hover" and opt then
+        Tweak.row = i
+        drawSettings()
+    elseif (verb == "row" or verb == "next" or verb == "prev") and opt then
+        Tweak.row = i
+        Settings.step(opt, verb == "prev" and -1 or 1)
+        saveSettings()
+    elseif event == "reset" then
+        Settings.reset()
+        saveSettings()
+    elseif event == "back" then
+        pcall(function() Tweak.screen:DeactivateWidget() end)
+        Tweak.screen = nil
+        if alive(Lobby) then drawLobby() end
+    end
+end
+
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event)
     if isLobby == "find" then return onFindEvent(event) end
+    if isLobby == "settings" then return onSettingsEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
@@ -1254,6 +1514,7 @@ end
 local function hookScreenEvents()
     local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
     if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
+    if hasGameSettings() then specs[#specs + 1] = { SETTINGS_CLASS, "settings" } end
     local all = true
     for _, spec in ipairs(specs) do
         if not screenEvents.hooked[spec[1]] then
@@ -1918,6 +2179,8 @@ Net.on("lobby", function(f)
         end
     end
     Game.map, Game.mode = map, mode
+    writeVariantSettings(f[3] or "")
+    clientRules = f[3] or ""
     if Post and alive(Post.screen) then return end
     if alive(Lobby) then
         drawLobby()
@@ -1947,7 +2210,9 @@ end)
 --- is up.
 local function broadcastLobby()
     if not (alive(Lobby) and Game.map and Game.mode and inFrontend() and Net.isHost()) then return end
-    Net.toClients("lobby", Game.map.code, Game.mode.id)
+    -- The third field is the host's game settings line; a host from before
+    -- them sends none, which a client takes as "the variant's own rules".
+    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine())
 end
 
 local function watchPostGame()
@@ -1971,9 +2236,8 @@ end
 -- MaxPlayers 4 with every level, so the poll holds it up, and squadpanel.lua
 -- lists the players past four on the game's FIRETEAM panel. A match freezes
 -- with more than two local players on one PC, so the extra players have to
--- be separate machines.
-
-local FIRETEAM_SIZE = 16
+-- be separate machines. The host's MAX PLAYERS (setMaxPlayers) narrows the
+-- lobby and the GameSession below FIRETEAM_SIZE.
 
 local function openFireteam()
     local native = MOD_DIR .. "\\native\\"
@@ -1989,13 +2253,23 @@ local function openFireteam()
     end
     open()
     log("fireteam: up to " .. FIRETEAM_SIZE .. " players (native\\fireteam.log has the details)")
+    -- The last MAX PLAYERS, in place before the game creates its lobby.
+    local saved = tonumber((readFile(MAX_PLAYERS_FILE) or ""):match("%d+") or "")
+    if saved then Game.maxPlayers = math.max(MIN_PLAYERS, math.min(FIRETEAM_SIZE, saved)) end
+    log("max players: " .. Game.maxPlayers .. " (" .. applyMaxPlayers() .. ")")
 end
 
 --- The session of the world's game mode, which exists only on the host (a
---- client has none to hold).
+--- client has none to hold), held at the host's MAX PLAYERS.
 local function holdFireteamSize()
     local session = UI.playerController():GetWorld().AuthorityGameMode.GameSession
-    if session:IsValid() and session.MaxPlayers < FIRETEAM_SIZE then session.MaxPlayers = FIRETEAM_SIZE end
+    if session:IsValid() and session.MaxPlayers ~= Game.maxPlayers then session.MaxPlayers = Game.maxPlayers end
+end
+
+--- The FIRETEAM panel's size: the host's MAX PLAYERS; a client does not know
+--- its host's, so it shows the ceiling.
+local function fireteamSize()
+    return Net.isHost() and Game.maxPlayers or FIRETEAM_SIZE
 end
 
 --- The fireteam as the squad panel sees it, and the world, logged whenever
@@ -2050,8 +2324,8 @@ local function watchMainMenu()
             refreshLobby()
             pcall(tickFind)
             pcall(watchFireteam)
-            SquadPanel.hook(FIRETEAM_SIZE)
-            pcall(SquadPanel.refresh, FIRETEAM_SIZE)
+            SquadPanel.hook(fireteamSize)
+            pcall(SquadPanel.refresh, fireteamSize())
             pcall(hostPostGame)
             pcall(broadcastLobby)
             local menu = liveMainMenu()
@@ -2527,6 +2801,7 @@ local function initialize()
         return true
     end)
     Net.hook()
+    Settings.load(readFile(GAME_SETTINGS_FILE))
     openFireteam()
     Games.init({
         modDir = MOD_DIR,
@@ -2545,6 +2820,7 @@ local function initialize()
                 game_type = Game.mode.id,
                 players = #rosterPlayers(),
                 in_game = not inFrontend(),
+                settings = Settings.variantLine(),
             }
         end,
     })
