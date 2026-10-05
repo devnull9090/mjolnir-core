@@ -30,6 +30,7 @@ The spec also lists the mesh slots in slot order: `{"name": <slot name>,
 mesh_rewrite's --material and the level file.
 """
 import json
+import math
 import os
 import re
 import struct
@@ -371,6 +372,57 @@ def chicago(entry, s, texture, cube):
         del tex[k]
 
 
+def device(entry, motion, part, mesh, delta):
+    """A machine's moving part (merge_ce_scene.py device_motion) on the
+    device variant of its master: the motion in Unreal centimetres, and the
+    bounds scale its mesh needs to stay drawn wherever the part goes (a
+    World Position Offset moves it outside the mesh's own bounds). `part`
+    and `mesh` are the glTF boxes (min, max) of the part and of its mesh."""
+    def ue(v, offset=True):
+        # glTF metres (x, y, z) are Unreal (x, z, y) x 100; the map's own
+        # move (its sbsp transform's delta, CE world units) on positions.
+        out = [v[0] * 100.0, v[2] * 100.0, v[1] * 100.0]
+        if offset:
+            out = [out[0] + delta[0] * 304.8, out[1] - delta[1] * 304.8, out[2] + delta[2] * 304.8]
+        return out
+    entry["parent"] = master(entry["parent"].rsplit(".", 1)[-1] + "Device")
+    vec = entry["vectors"]
+    vec["DevicePivot"] = ue(motion["pivot"]) + [0.0]
+    vec["DeviceT0"] = ue(motion["t0"], False) + [0.0]
+    vec["DeviceT1"] = ue(motion["t1"], False) + [0.0]
+    vec["DeviceMotion"] = [motion["s0"], motion["s1"], motion["period"], motion["position"]]
+    pivot = [motion["pivot"][i] for i in range(3)]
+    lo, hi = [list(v) for v in mesh]
+    for sc in (motion["s0"], motion["s1"], 1.0):
+        for t in (motion["t0"], motion["t1"]):
+            for corner in (part[0], part[1]):
+                for i in range(3):
+                    v = pivot[i] + (corner[i] - pivot[i]) * sc + t[i]
+                    lo[i], hi[i] = min(lo[i], v), max(hi[i], v)
+    centre = [(a + b) / 2 for a, b in zip(*mesh)]
+    half = [max((b - a) / 2, 1.0) for a, b in zip(*mesh)]
+    need = max(max(c - l, h - c) / e for c, l, h, e in zip(centre, lo, hi, half))
+    entry["bounds_scale"] = round(max(1.0, need) + 0.05, 2)
+
+
+def gltf_boxes(scene):
+    """Each material's box and the whole mesh's, glTF metres, from the
+    POSITION accessors' bounds."""
+    g = json.load(open(scene, encoding="utf-8"))
+    boxes, lo, hi = {}, [math.inf] * 3, [-math.inf] * 3
+    for mesh in g.get("meshes", []):
+        for prim in mesh["primitives"]:
+            acc = g["accessors"][prim["attributes"]["POSITION"]]
+            if "min" not in acc:
+                continue
+            name = g["materials"][prim["material"]]["name"] if "material" in prim else None
+            b = boxes.setdefault(name, [[math.inf] * 3, [-math.inf] * 3])
+            for i in range(3):
+                b[0][i], b[1][i] = min(b[0][i], acc["min"][i]), max(b[1][i], acc["max"][i])
+                lo[i], hi[i] = min(lo[i], acc["min"][i]), max(hi[i], acc["max"][i])
+    return boxes, (lo, hi)
+
+
 def main():
     args = sys.argv[1:]
     code = None
@@ -384,11 +436,21 @@ def main():
     # The materials of every mesh, each once, in mesh then slot order.
     gltf = {"materials": []}
     seen_names = set()
+    boxes = {}
     for scene in scenes:
+        parts, mesh_box = gltf_boxes(scene)
         for m in json.load(open(scene, encoding="utf-8"))["materials"]:
             if m["name"] not in seen_names:
                 seen_names.add(m["name"])
                 gltf["materials"].append(m)
+                if m["name"] in parts:
+                    boxes[m["name"]] = (parts[m["name"]], mesh_box)
+    # The map's own move, CE world units (convert_ce_map.sh writes the
+    # transform beside the spec): machines' pivots are world positions.
+    delta = [0.0, 0.0, 0.0]
+    transform = os.path.join(os.path.dirname(os.path.abspath(dest)), f"{name}.sbsp.transform.json")
+    if os.path.exists(transform):
+        delta = json.load(open(transform, encoding="utf-8")).get("delta", delta)
     shaders = json.load(open(os.path.join(staging, "materials.json"), encoding="utf-8"))
     root = f"/Game/MJOLNIR/Maps/{code}" if code else f"/Game/MJOLNIR/Levels/{asset_name('', name)}"
 
@@ -515,6 +577,12 @@ def main():
             if cls == "soso":
                 model_shader(entry, s, texture)
             environment_tag(entry, s, cls)
+        motion = halo.get("device")
+        leaf = entry.get("parent", "").rsplit(".", 1)[-1]
+        if motion and leaf.startswith("M_CE_Transparent") and mat["name"] in boxes:
+            device(entry, motion, *boxes[mat["name"]], delta)
+        elif motion:
+            print(f"  {mat['name']}: a moving machine part on {entry.get('parent')}, drawn still", file=sys.stderr)
         if halo.get("lightmap_index") == "objects":
             # A placed object: its light, reflection tint and change colours
             # are its block of the object lighting page (merge_ce_scene.py).
@@ -524,7 +592,7 @@ def main():
             entry["scalars"].update(fog.get("scalars", {}))
             entry["vectors"].update(fog.get("vectors", {}))
         entry["textures"] = {k: f"{root}/Textures/{v}.{v}" for k, v in entry["textures"].items() if v}
-        runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors") if entry[k]}
+        runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors", "bounds_scale") if entry.get(k)}
         materials.append(entry)
         slots.append({"name": mi, "pattern": mat["name"].lower() + "$", "material": runtime})
 

@@ -770,7 +770,38 @@ def build_environment(name, masked, defaults, two_sided=False):
 # lies on. Not reproduced: sampling scene depth from these translucent
 # materials crashed the game as they loaded (2026-10-04), and this editor's
 # Python cannot connect world position offset.
-def build_transparent(name, blend, defaults, two_sided=False):
+# A machine's moving part (docs/ce_map_conversion.md, "Machines"): the
+# device position animation moves one node, and the merged geometry hung on
+# it is drawn moved, as a World Position Offset. DeviceMotion is (scale at
+# the first frame, scale at the last, period in seconds, position): a gear
+# runs its position from 0 to 1 over the period and starts again; a period
+# of 0 holds it at the position. The node's offset runs from DeviceT0 to
+# DeviceT1 (centimetres), its scale about DevicePivot, all from its rest
+# pose, which the mesh holds.
+DEVICE_WPO_CODE = r"""
+float p = Motion.z > 0.0 ? frac(Time / Motion.z + Motion.w) : Motion.w;
+float s = lerp(Motion.x, Motion.y, p);
+return (WorldPos - Pivot.xyz) * (s - 1.0) + lerp(T0.xyz, T1.xyz, p);
+"""
+
+
+def device_offset(g, m):
+    """Wire the device motion into the material's World Position Offset.
+    Python cannot reach that input (MaterialProperty leaves it out): the
+    project's MjolnirUIBuilder plugin connects it."""
+    wpo = g.custom(DEVICE_WPO_CODE, [
+        ("WorldPos", g.node(unreal.MaterialExpressionWorldPosition), ""),
+        ("Time", g.node(unreal.MaterialExpressionTime), ""),
+        ("Pivot", g.vector("DevicePivot", (0, 0, 0, 0)), ""),
+        ("T0", g.vector("DeviceT0", (0, 0, 0, 0)), ""),
+        ("T1", g.vector("DeviceT1", (0, 0, 0, 0)), ""),
+        ("Motion", g.vector4("DeviceMotion", (1, 1, 0, 0)), ""),
+    ], description="CE device position")
+    if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, wpo, ""):
+        raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
+
+
+def build_transparent(name, blend, defaults, two_sided=False, device=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property("blend_mode", blend)
@@ -827,6 +858,8 @@ def build_transparent(name, blend, defaults, two_sided=False):
     mel.connect_material_property(rgb if modulate else g.to_screen(rgb), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     if blend == unreal.BlendMode.BLEND_TRANSLUCENT:
         mel.connect_material_property(g.mask(c, a=True), "", unreal.MaterialProperty.MP_OPACITY)
+    if device:
+        device_offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -1193,8 +1226,10 @@ for blend_name, blend_mode in (("Add", unreal.BlendMode.BLEND_ADDITIVE),
                                ("Alpha", unreal.BlendMode.BLEND_TRANSLUCENT),
                                ("Mul", unreal.BlendMode.BLEND_MODULATE)):
     for two_sided in (False, True):
-        build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}",
-                          blend_mode, defaults, two_sided=two_sided)
+        for device in (False, True):
+            build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}"
+                              f"{'Device' if device else ''}",
+                              blend_mode, defaults, two_sided=two_sided, device=device)
 build_water(defaults)
 # Sky water replaces the frame rather than adding to it.
 build_water(defaults, "M_CE_WaterSky", unreal.BlendMode.BLEND_OPAQUE)

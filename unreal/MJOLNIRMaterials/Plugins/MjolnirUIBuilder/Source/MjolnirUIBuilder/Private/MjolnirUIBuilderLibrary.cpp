@@ -15,6 +15,8 @@
 #include "Kismet/KismetTextLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "MaterialEditingLibrary.h"
+#include "Materials/Material.h"
 #include "Modules/ModuleManager.h"
 #include "WidgetBlueprint.h"
 
@@ -214,5 +216,16 @@ bool UMjolnirUIBuilderLibrary::CompileWidget(UWidgetBlueprint* Blueprint)
 		return false;
 	}
 	Blueprint->MarkPackageDirty();
+	return true;
+}
+
+bool UMjolnirUIBuilderLibrary::ConnectWorldPositionOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
+{
+	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_WorldPositionOffset))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("MJOLNIR: could not connect World Position Offset on %s"), Material ? *Material->GetName() : TEXT("(none)"));
+		return false;
+	}
+	Material->MarkPackageDirty();
 	return true;
 }

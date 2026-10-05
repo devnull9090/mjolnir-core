@@ -158,6 +158,22 @@ material even though the surfaces carry theirs. Untested.
   position, and the colour is a blend between the permutation's bounds.
   The draw is our own hash, so the mix of colours matches CE but a given
   crate's colour may not.
+- **Machines:** placed like scenery, in their rest pose. A part a machine's
+  `device position` animation moves (Infinity's beam emitters: the beam
+  rises 1,089 wu out of the base and grows from half size to full) draws
+  with a material of its own on a device variant of its master
+  (`M_CE_Transparent…Device`), which moves it as a World Position Offset:
+  the node's offset and scale between the animation's first and last
+  frames, about the node's origin, by the device position. A gear runs its
+  position from 0 to 1 over its position transition time and starts again;
+  any other machine (doors, platforms) is drawn at the position it is
+  placed at, because the simulation moves it and Unreal never hears of it.
+  A part that turns, whose parent node moves, or whose frames leave the
+  line between the first and last stays still, as do opaque parts (no
+  opaque device master yet). The mesh's bounds scale (`bounds_scale` in
+  the spec) keeps it drawn wherever the part goes. halo2ue stages the
+  machine's device and machine fields, its placement's device flags and
+  the animation's frames in `placement.json` (`device`).
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -535,7 +551,17 @@ seconds after the loading screen are dark.
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
-- **Scenery collision** stops players and vehicles, not projectiles.
+- **Scenery collision** stops players and vehicles, not projectiles. Each
+  node of a collision model is placed by its model node's rest pose: before
+  halo2ue did that, a tree's canopy hull sat around its trunk at head
+  height (Infinity, 2026-10-04), so maps converted earlier need converting
+  again.
+- **Object light colour.** Players, vehicles and weapons are lit by the
+  Unreal sun and sky light, coloured as the map's lightmaps are on average
+  (lit, unclipped texels): CE lit an object by the lightmap under it. The
+  sky's outdoor ambient sets only their brightness; its colour can be
+  anything (Infinity's test sky: (0.5, 0.5, 0), which turned everything
+  yellow).
 - **Approximations in the materials.** CE's noise, jitter and wander
   functions are a value noise; the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the

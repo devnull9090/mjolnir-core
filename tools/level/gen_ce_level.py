@@ -296,8 +296,10 @@ def ctf_section(stands):
 # vehicles, weapons (the CE terrain carries its own baked light). Their level
 # follows the CE sky's outdoor ambient light (colour x power): the template's
 # sun 8 and sky light 3 are what Blood Gulch's ambient (0.87, 0.84, 0.75) x
-# 0.2 looks right with, and other maps scale from there, so a night map's
-# dim blue ambient gives a dim blue sun.
+# 0.2 looks right with, and other maps scale from there. Their colour is the
+# lightmaps' (lightmap_tint): CE lit an object by the lightmap under it, and
+# the sky's ambient colour can be anything (Infinity's test sky is pure
+# yellow, (0.5, 0.5, 0), and its weapons and players came out yellow).
 REFERENCE_AMBIENT = 0.2 * (0.2126 * 0.871 + 0.7152 * 0.843 + 0.0722 * 0.753)
 
 
@@ -347,7 +349,35 @@ def sun_rotation(scene_gltf):
     return round(pitch, 1), round(yaw, 1)
 
 
-def environment(template, placement, scene=None):
+def lightmap_tint(staging):
+    """The colour of a map's light: its lightmap pages' mean over the texels
+    that are lit (luminance over 0.05) and not clipped (no channel at 1),
+    scaled to a maximum of 1. None without the pages or Pillow."""
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        manifest = json.load(open(os.path.join(staging, "manifest.json"), encoding="utf-8"))
+    except OSError:
+        return None
+    total, count = np.zeros(3), 0
+    for bsp in manifest.get("bsps", []):
+        for page in bsp.get("lightmap_pages", []):
+            path = os.path.join(staging, "textures", page)
+            if not os.path.exists(path):
+                continue
+            a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64).reshape(-1, 3) / 255.0
+            lit = (a @ [0.2126, 0.7152, 0.0722] > 0.05) & (a.max(axis=1) < 0.99)
+            total += a[lit].sum(axis=0)
+            count += int(lit.sum())
+    if not count or total.max() <= 0:
+        return None
+    return [round(float(c), 3) for c in total / total.max()]
+
+
+def environment(template, placement, scene=None, staging=None):
     env = json.loads(json.dumps(template))
     rotation = sun_rotation(scene) if scene else None
     if rotation:
@@ -360,7 +390,7 @@ def environment(template, placement, scene=None):
         return env
     lum = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]
     k = power * lum / REFERENCE_AMBIENT
-    tint = [round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1]
+    tint = (lightmap_tint(staging) if staging else None)         or ([round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1])
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
@@ -679,7 +709,7 @@ def main():
         # post-process volume keeps everything between them and the screen
         # neutral: fixed exposure, no local exposure, no filmic curve
         # (MJOLNIRLevelLoader "post").
-        "environment": {**environment(blank["environment"], placement, scene),
+        "environment": {**environment(blank["environment"], placement, scene, a.staging),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

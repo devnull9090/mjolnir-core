@@ -6,6 +6,6 @@ public class MjolnirUIBuilder : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "UMG" });
-		PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "BlueprintGraph", "Kismet", "KismetCompiler", "AssetTools", "SlateCore", "Slate" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "UMGEditor", "UnrealEd", "BlueprintGraph", "Kismet", "KismetCompiler", "AssetTools", "SlateCore", "Slate", "MaterialEditor" });
 	}
 }

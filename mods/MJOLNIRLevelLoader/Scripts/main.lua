@@ -545,6 +545,10 @@ end
 local function applyMaterials(comp, list, world, id)
     if type(list) ~= "table" then return 0, 0 end
     local applied, failed = 0, 0
+    -- A machine's moving part is drawn moved by its material (the CE device
+    -- masters' World Position Offset), out past the mesh's own bounds: the
+    -- spec's bounds_scale keeps the mesh drawn wherever the part goes.
+    local bounds = 1.0
     for i, entry in ipairs(list) do
         local mat, err
         if type(entry) == "string" and #entry > 0 then
@@ -553,6 +557,7 @@ local function applyMaterials(comp, list, world, id)
         elseif type(entry) == "table" then
             local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
             mat, err = ok and m or nil, ok and e or m
+            if mat and type(entry.bounds_scale) == "number" then bounds = math.max(bounds, entry.bounds_scale) end
         end
         if mat then
             if pcall(function() comp:SetMaterial(i - 1, mat) end) then
@@ -564,6 +569,12 @@ local function applyMaterials(comp, list, world, id)
             failed = failed + 1
             Log(string.format("decor '%s' slot %d: %s", tostring(id), i - 1, tostring(err)))
         end
+    end
+    if bounds > 1.0 then
+        local ok = pcall(function() comp:SetBoundsScale(bounds) end)
+        if not ok then ok = pcall(function() comp.BoundsScale = bounds; comp:MarkRenderStateDirty() end) end
+        Log(string.format("decor '%s': bounds scale %.2f for its moving machine parts%s", tostring(id), bounds,
+            ok and "" or " (could not set)"))
     end
     return applied, failed
 end
