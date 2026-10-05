@@ -49,7 +49,9 @@ the gate does not resolve, and with it the world has the same 35 subsystems
 as B40.
 
 Build the tools first: `cargo build --release -p blam-cli -p ue-asset --example
-mesh_rewrite -p blam-pack --example package_override`.
+mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
+lightmap_bake`. Without `lightmap_bake` the map converts without its baked
+corners and sun.
 
 ### The structure BSP (step 2)
 
@@ -246,6 +248,7 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m; the lightmap is multiplied by `red ^ BakeAO` (2.0: Blood Gulch was approved at 2.5 and found a little dark across the maps). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
 use the same master with `ModelShader` on, for the terms that differ:
@@ -557,8 +560,9 @@ seconds after the loading screen are dark.
   height (Infinity, 2026-10-04), so maps converted earlier need converting
   again.
 - **Object light colour.** Players, vehicles and weapons are lit by the
-  Unreal sun and sky light, coloured as the map's lightmaps are on average
-  (lit, unclipped texels): CE lit an object by the lightmap under it. The
+  Unreal sun and sky light, coloured as the map's lightmap is where the
+  bake has sun (else the lightmaps' average): CE lit an object by the
+  lightmap under it. The
   sky's outdoor ambient sets only their brightness; its colour can be
   anything (Infinity's test sky: (0.5, 0.5, 0), which turned everything
   yellow).

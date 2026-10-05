@@ -377,12 +377,111 @@ def lightmap_tint(staging):
     return [round(float(c), 3) for c in total / total.max()]
 
 
-def environment(template, placement, scene=None, staging=None):
+def lightmap_sun(scene_gltf, staging, bake_dir):
+    """The level's lightmap in CE's shadow and in its sun, from lightmapped
+    vertices facing the sun, split by the bake's traced sun visibility
+    (lightmap_bake, green: under 0.1 shadow, over 0.9 sun): `levels`, the
+    luminance in each (MJOLNIRMaterials SUN_WEIGHT_CODE's LightmapSun), and
+    `colour`, the sunlit lightmap's colour scaled to a maximum of 1.
+
+    The shadow level is the lower quartile, not the median: the bake has
+    lamp-lit interiors in shadow too (Blood Gulch's median 0.42, its quartile
+    0.19, the level picked by eye). A texel near it gives up none of its
+    colour to the Unreal sun, so an object's shadow there does not darken a
+    baked one a second time. None without the scene, the bake or enough of
+    either."""
+    try:
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from ce_material_spec import asset_name
+    except ImportError:
+        return None
+    try:
+        g = json.load(open(scene_gltf, encoding="utf-8"))
+        pages = json.load(open(os.path.join(staging, "manifest.json"), encoding="utf-8"))["bsps"][0]["lightmap_pages"]
+    except (OSError, KeyError, IndexError):
+        return None
+    if not pages or not os.path.isdir(bake_dir or ""):
+        return None
+    base = os.path.dirname(scene_gltf)
+    bufs = [open(os.path.join(base, b["uri"]), "rb").read() for b in g["buffers"]]
+
+    def accessor(i, n):
+        a = g["accessors"][i]
+        bv = g["bufferViews"][a["bufferView"]]
+        off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+        return np.frombuffer(bufs[bv["buffer"]], dtype="f4", count=a["count"] * n, offset=off).reshape(-1, n)
+
+    images = {}
+
+    def image(path):
+        if path not in images:
+            try:
+                images[path] = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64) / 255.0
+            except OSError:
+                images[path] = None
+        return images[path]
+
+    def sample(img, uv):
+        h, w = img.shape[:2]
+        x = np.clip((uv[:, 0] % 1.0 * w).astype(int), 0, w - 1)
+        y = np.clip((uv[:, 1] % 1.0 * h).astype(int), 0, h - 1)
+        return img[y, x]
+
+    # CE's sun, as sun_rotation finds it (glTF space, towards the sun).
+    total, data = np.zeros(3), []
+    for mesh in g["meshes"]:
+        for prim in mesh["primitives"]:
+            at = prim["attributes"]
+            name = g["materials"][prim["material"]]["name"] if "material" in prim else ""
+            tail = name.rsplit("__lm", 1)
+            if len(tail) != 2 or not tail[1].isdigit() or "TEXCOORD_1" not in at or "NORMAL" not in at:
+                continue
+            n = accessor(at["NORMAL"], 3).astype(np.float64)
+            if "_INCIDENT" in at:
+                inc = accessor(at["_INCIDENT"], 3).astype(np.float64)
+                flat = (n[:, 1] > 0.95) & (np.linalg.norm(inc, axis=1) > 0.5)
+                total += inc[flat].sum(axis=0)
+            data.append((int(tail[1]), n, accessor(at["TEXCOORD_1"], 2).astype(np.float64)))
+    if not total.any() or not data:
+        return None
+    sun = total / np.linalg.norm(total)
+    shadow, sunlit, colours = [], [], []
+    for page, n, uv in data:
+        if page >= len(pages):
+            continue
+        stem = os.path.splitext(pages[page])[0]
+        lm = image(os.path.join(staging, "textures", pages[page]))
+        bake = image(os.path.join(bake_dir, asset_name("T_", stem) + ".png"))
+        if lm is None or bake is None:
+            continue
+        facing = n @ sun > 0.5
+        rgb = sample(lm, uv)
+        lum = rgb @ [0.2126, 0.7152, 0.0722]
+        vis = sample(bake, uv)[:, 1]
+        shadow.append(lum[facing & (vis < 0.1)])
+        sunlit.append(lum[facing & (vis > 0.9)])
+        colours.append(rgb[facing & (vis > 0.9)])
+    shadow = np.concatenate(shadow) if shadow else np.zeros(0)
+    sunlit = np.concatenate(sunlit) if sunlit else np.zeros(0)
+    if len(shadow) < 50 or len(sunlit) < 50:
+        return None
+    levels = [round(float(np.percentile(shadow, 25)), 3), round(float(np.median(sunlit)), 3)]
+    colour = np.median(np.concatenate(colours), axis=0)
+    return {"levels": levels if levels[1] > levels[0] else None,
+            "colour": [round(float(c), 3) for c in colour / colour.max()] if colour.max() > 0 else None}
+
+
+def environment(template, placement, scene=None, staging=None, bake=None):
     env = json.loads(json.dumps(template))
     rotation = sun_rotation(scene) if scene else None
     if rotation:
         env.setdefault("sun", {})
         env["sun"]["pitch"], env["sun"]["yaw"] = rotation
+    light = (lightmap_sun(scene, staging, bake) if scene and staging and bake else None) or {}
+    if light.get("levels"):
+        env.setdefault("sun", {})["lightmap_sun"] = light["levels"]
     sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
     amb = (sky or {}).get("outdoor_ambient") or {}
     color, power = amb.get("color"), amb.get("power")
@@ -390,7 +489,11 @@ def environment(template, placement, scene=None, staging=None):
         return env
     lum = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]
     k = power * lum / REFERENCE_AMBIENT
-    tint = (lightmap_tint(staging) if staging else None)         or ([round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1])
+    # The sunlit lightmap's colour, else the whole lightmap's: CE lit an
+    # object by the lightmap under it.
+    tint = light.get("colour") or (lightmap_tint(staging) if staging else None)
+    if not tint:
+        tint = [round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1]
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
@@ -456,6 +559,8 @@ def main():
                                      "the map's ambient sound, imported under <root>/Sounds")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
                                     "(default: scene.gltf beside --terrain)")
+    ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
+                                   "(default: bake beside --terrain)")
     ap.add_argument("--no-spawn-points", action="store_true",
                     help="do not place multiplayer spawn-point scenery at the starts")
     ap.add_argument("--game-type", choices=sorted(VEHICLE_SETS), default="all",
@@ -464,6 +569,7 @@ def main():
                     help=f"Halo wu to raise player starts by (default {START_LIFT})")
     a = ap.parse_args()
     scene = a.scene or (os.path.join(os.path.dirname(a.terrain), "scene.gltf") if a.terrain else None)
+    bake = a.bake or (os.path.join(os.path.dirname(a.terrain), "bake") if a.terrain else None)
 
     placement = json.load(open(os.path.join(a.staging, "placement.json")))
     t = json.load(open(a.transform))
@@ -709,7 +815,7 @@ def main():
         # post-process volume keeps everything between them and the screen
         # neutral: fixed exposure, no local exposure, no filmic curve
         # (MJOLNIRLevelLoader "post").
-        "environment": {**environment(blank["environment"], placement, scene, a.staging),
+        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

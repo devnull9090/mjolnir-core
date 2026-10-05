@@ -38,6 +38,11 @@ import sys
 
 CE = "/Game/MJOLNIR/CE"
 
+# The baked corners' strength (lightmap_bake's ambient occlusion, a power on
+# the lightmap: 0 none, 1 as traced). Blood Gulch was approved at 2.5 and
+# found a little dark across the maps (2026-10-04).
+BAKE_AO = 2.0
+
 # shader_transparent_* framebuffer blend functions: alpha blend, multiply,
 # double multiply, add, subtract, component min, component max, alpha-multiply
 # add. Unreal has no subtract/min/max blend; those fall back to alpha blending.
@@ -430,6 +435,11 @@ def main():
         i = args.index("--code")
         code = args[i + 1].upper()
         del args[i:i + 2]
+    bake_dir = None
+    if "--bake" in args:
+        i = args.index("--bake")
+        bake_dir = args[i + 1]
+        del args[i:i + 2]
     staging, name, dest = args[0:3]
     scenes = args[3:] or [os.path.join(staging, "bsp", "bsp_0.gltf")]
     textures_dir = os.path.join(staging, "textures")
@@ -490,6 +500,16 @@ def main():
             textures.setdefault(t, {"file": os.path.abspath(path), "name": t, "lightmap": lightmap})
         return t
 
+    def baked(lightmap):
+        """The bake that goes with a lightmap page (lightmap_bake names its
+        output for the page's texture), as a texture of its own, or None."""
+        png = os.path.join(bake_dir, lightmap + ".png") if bake_dir and lightmap else None
+        if not png or not os.path.exists(png):
+            return None
+        t = lightmap + "_bake"
+        textures.setdefault(t, {"file": os.path.abspath(png), "name": t, "bake": True})
+        return t
+
     materials, slots = [], []
     for mat in gltf["materials"]:
         halo = mat.get("extras", {}).get("halo", {})
@@ -537,6 +557,11 @@ def main():
                 "SelfIllumMap": texture(si.get("map")),
             }
             entry["textures"] = {k: v for k, v in maps.items() if v}
+            bake = baked(maps["Lightmap"])
+            if bake:
+                entry["textures"]["Bake"] = bake
+                entry["scalars"]["HasBake"] = 1.0
+                entry["scalars"]["BakeAO"] = BAKE_AO
             sc = entry["scalars"]
             sc["Type"] = s.get("shader_type", 0)
             sc["Func"] = d.get("function", 0)

@@ -125,8 +125,19 @@ if [ "$cook" = "1" ]; then
   # transparent pieces their precision when they shared one.
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
     --sky "$out/scene_sky.gltf"
+  # What the lightmaps leave out, one texture per lightmap page
+  # (crates/ue-texture lightmap_bake): the corners' ambient occlusion and
+  # where CE's sun reaches, traced against the merged scene. The masters
+  # darken the corners with the one and keep object shadows to the sunlit
+  # ground with the other; gen_ce_level.py measures the lightmap's shadow and
+  # sun levels against it.
+  page0="$(python -c "import json,sys; p=json.load(open(sys.argv[1]))['bsps'][0].get('lightmap_pages') or ['']; print(p[0])" "$staging/manifest.json")"
+  page0="${page0%%[[:space:]]}"
+  if [ -n "$page0" ] && [ -x "$examples/lightmap_bake" -o -x "$examples/lightmap_bake.exe" ]; then
+    "$examples/lightmap_bake" "$out/scene.gltf" "$staging/textures/$page0" "$out/bake" --ao-rays 64 | sed 's/ -> .*//'
+  fi
   # One material per glTF material, i.e. per (shader, lightmap page).
-  python "$here/ce_material_spec.py" --code "$code" "$staging" "$name" "$out/materials.spec.json" \
+  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
   # The three meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky), built from the shipped
