@@ -435,6 +435,8 @@ def main():
             q["uv1"] = np.tile(uv, (len(q["pos"]), 1))
         print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt})")
 
+    out = with_passes(out, shaders)
+
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material
         # slots ask for it, and a rewritten mesh keeps its donor's one slot:
@@ -459,6 +461,31 @@ def main():
     write_gltf(out, a.out)
     print(f"{len(bsp)} BSP section(s) + {placed} scenery placement(s) ({unlit} with no ground below) "
           f"-> {len(out)} primitive(s) in {a.out}")
+
+
+def extra_passes(shader):
+    """The passes a CE shader draws before its own, each a copy of its
+    surface with a material of its own: water flag 1 (base map colour
+    modulates background) multiplies the frame by the base map first."""
+    t = (shader or {}).get("shader", {}).get("tag") or {}
+    cls = (shader or {}).get("shader_class")
+    if cls == "swat" and t.get("flags", 0) & 2:
+        return ["background"]
+    return []
+
+
+def with_passes(prims, shaders):
+    """Each primitive preceded by a copy per extra pass (`extra_passes`),
+    named <material>__<pass> with `pass` in its halo extras: sections of one
+    mesh draw in order, so a pass drawn first comes first."""
+    out = []
+    for p in prims:
+        halo = p["extras"].get("halo", {})
+        for name in extra_passes(shaders.get(halo.get("material", ""))):
+            out.append({**p, "material": f"{p['material']}__{name}",
+                        "extras": {**p["extras"], "halo": {**halo, "pass": name}}})
+        out.append(p)
+    return out
 
 
 def write_gltf(prims, path):

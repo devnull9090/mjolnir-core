@@ -186,6 +186,61 @@ def environment_tag(entry, s, cls):
             sc["HasSICC"] = 1.0
 
 
+def water(entry, s, texture, cube, halo):
+    """shader_transparent_water (docs/ce_map_conversion.md, "Water"): the
+    rippled cube reflection added into the frame (M_CE_Water), replacing it
+    for sky water (M_CE_WaterSky), and with flag 1 the base map's colour
+    multiplied into the frame first, on the copy of the surface
+    merge_ce_scene.py makes for it (M_CE_WaterBackground). Every ripple
+    layer (contribution, angle, velocity, offset, repeats, bitmap index),
+    the global ripple animation and the ripple mipmap fade come from the
+    tag (halo2ue's `tag`); a staging without it keeps the summary's one
+    ripple."""
+    t = s.get("tag") or {}
+    w = s.get("water") or {}
+    sc, vec, tex = entry["scalars"], entry["vectors"], entry["textures"]
+    flags = t.get("flags", w.get("flags", 0))
+    base = texture((t.get("base_map") or {}).get("file") or s.get("base_map"))
+    if base:
+        tex["Base"] = base
+    if halo.get("pass") == "background":
+        entry["parent"] = master("M_CE_WaterBackground")
+        sc["WaterFlags"] = float(flags)
+        return
+    sky = bool(halo.get("sky"))
+    entry["parent"] = master("M_CE_WaterSky" if sky else "M_CE_Water")
+    # Sky water replaces the frame: no base alpha mask (that pass writes
+    # only the destination alpha the reflection would have blended by).
+    sc["WaterFlags"] = float(flags & ~1 if sky else flags)
+    faces = (t.get("reflection_map") or {}).get("faces") or (s.get("reflection") or {}).get("cube_map")
+    cube_map = cube(faces)
+    if cube_map:
+        tex["ReflectionCube"] = cube_map
+    sc["PerpBrightness"] = t.get("view_perpendicular_brightness", w.get("view_perp_brightness", 0.3))
+    sc["ParaBrightness"] = t.get("view_parallel_brightness", w.get("view_para_brightness", 1.0))
+    vec["PerpTint"] = list(t.get("view_perpendicular_tint_color") or w.get("view_perp_tint") or [1, 1, 1]) + [1.0]
+    vec["ParaTint"] = list(t.get("view_parallel_tint_color") or w.get("view_para_tint") or [1, 1, 1]) + [1.0]
+    vec["RippleGlobal"] = [t.get("ripple_animation_angle", w.get("ripple_animation_angle", 0.0)),
+                           t.get("ripple_animation_velocity", w.get("ripple_animation_velocity", 0.0)),
+                           t.get("ripple_scale") or w.get("ripple_scale") or 1.0, 0.0]
+    vec["RippleMip"] = [float(min(max(t.get("ripple_mipmap_levels", 1), 1), 4)),
+                        t.get("ripple_mipmap_fade_factor", 0.0), t.get("ripple_mipmap_detail_bias", 0.0), 0.0]
+    ripples = t.get("ripples") or []
+    files = t.get("ripple_map_files") or {}
+    if not ripples:
+        ripples = [{"contribution_factor": 1.0, "map_repeats": 1, "map_index": 0}]
+        files = {"0": {"file": w.get("ripple_map")}}
+    for k, r in enumerate(ripples[:4]):
+        vec[f"Ripple{k}"] = [r.get("contribution_factor", 0.0), r.get("animation_angle", 0.0),
+                             r.get("animation_velocity", 0.0), float(max(r.get("map_repeats", 1), 1))]
+        off = r.get("map_offset") or [0.0, 0.0]
+        vec[f"Ripple{k}Offset"] = [off[0], off[1], 0.0, 0.0]
+        f = (files.get(str(max(r.get("map_index", 0), 0))) or {}).get("file")
+        rt = texture(f)
+        if rt:
+            tex[f"RippleMap{k}"] = rt
+
+
 def chicago(entry, s, texture, cube):
     """shader_transparent_chicago(_extended) on the transparent masters, every
     field of the tag (halo2ue's `tag`, docs/ce_map_conversion.md,
@@ -328,26 +383,7 @@ def main():
         if cls in ("schi", "scex"):
             chicago(entry, s, texture, cube)
         elif cls == "swat":
-            # shader_transparent_water (M_CE_Water): the reflection cube seen
-            # through rippling, view-tinted water. Its base map is a mask,
-            # never a colour: drawn as one, the sea was an opaque white sheet.
-            w = s.get("water") or {}
-            entry["parent"] = master("M_CE_Water")
-            sc, vec = entry["scalars"], entry["vectors"]
-            maps = {"Base": texture(s.get("base_map")), "Ripple": texture(w.get("ripple_map"))}
-            entry["textures"] = {k: v for k, v in maps.items() if v}
-            cube_map = cube((s.get("reflection") or {}).get("cube_map"))
-            if cube_map:
-                entry["textures"]["ReflectionCube"] = cube_map
-            sc["PerpBrightness"] = w.get("view_perp_brightness", 0.3)
-            sc["ParaBrightness"] = w.get("view_para_brightness", 1.0)
-            vec["PerpTint"] = list(w.get("view_perp_tint") or [1, 1, 1]) + [1.0]
-            vec["ParaTint"] = list(w.get("view_para_tint") or [1, 1, 1]) + [1.0]
-            sc["RippleAngle"] = w.get("ripple_animation_angle", 0.0)
-            sc["RippleVelocity"] = w.get("ripple_animation_velocity", 0.0)
-            sc["RippleRepeat"] = w.get("ripple_scale") or 1.0
-            # Water flag 0: "base map alpha modulates reflection".
-            sc["AlphaFromBase"] = 1.0 if w.get("flags", 0) & 1 and s.get("base_map_has_alpha") else 0.0
+            water(entry, s, texture, cube, halo)
         else:
             flags = s.get("shader_flags", 0)
             if cls == "senv":

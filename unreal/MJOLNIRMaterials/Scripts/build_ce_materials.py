@@ -831,27 +831,45 @@ def build_transparent(name, blend, defaults, two_sided=False):
     eal.save_loaded_asset(m)
 
 
-# shader_transparent_water: the reflection cube map seen through a rippling
-# surface, tinted and faded by the view angle (a steep curve: CE water stays
-# tinted and see-through until close to grazing). Looking straight down the
-# surface takes the perpendicular brightness and tint (Death Island's sea:
-# 0.1, a faint sheen), at a grazing angle the parallel ones (1.0, a mirror).
-# The reflection is added over what is under the water, scaled by the
-# brightness, and with water flag 0 ("base map alpha modulates reflection")
-# by the base map's alpha. Brightness is not opacity: Battle Creek's water is
-# 1.0 at every angle and its creek bed still shows. Flag 1 ("base map colour
-# modulates background") has no additive equivalent and is not drawn. Water
-# planes are horizontal, so the two ripple
-# layers bend a world-up normal directly.
+# shader_transparent_water (docs/ce_map_conversion.md, "Water"), as CE's
+# renderer draws it:
+# - the ripple normal: up to four ripple layers, ripple k at
+#   repeats_k * uv_b + t * velocity_k (cos, sin)(angle_k) + offset_k on the
+#   surface's bump UV uv_b = ripple scale * uv + t * velocity (cos, sin)(angle),
+#   blended by contribution (pairs 0+1 and 2+3, then the pairs by their sums)
+#   and faded towards flat by mip level (ripple mipmap levels, fade factor,
+#   detail bias);
+# - the reflection: the cube map along the eye reflected about that normal,
+#   lerp(c^8, c, tint), the tint between the parallel and perpendicular tint
+#   by how squarely the camera looks down on the water (once per draw in CE:
+#   the camera's forward vector against the surface normal);
+# - flag 0 (base map alpha modulates reflection): times base alpha and the
+#   brightness between parallel and perpendicular by the view angle;
+# - flag 2 (atmospheric fog): times 1 - fog.
+# It is added into the frame (sky water replaces it: M_CE_WaterSky). Flag 1
+# (base map colour modulates background) is a pass of its own before this
+# one: M_CE_WaterBackground, on a copy of the surface (merge_ce_scene.py).
 WATER_UV_CODE = r"""
-float a = Angle + Layer * 1.5708;
-float2 dir = float2(cos(a), sin(a));
-return UV * (Layer > 0.5 ? 0.5 : 1.0) * Repeat + dir * Velocity * Time;
+float2 ub = UV * Global.z + Time * Global.y * float2(cos(Global.x), sin(Global.x));
+return ub * Ripple.w + Time * Ripple.z * float2(cos(Ripple.y), sin(Ripple.y)) + Offset.xy;
 """
 
 WATER_NORMAL_CODE = r"""
-float2 r = (R0.rg * 2.0 - 1.0) + (R1.rg * 2.0 - 1.0) * 0.5;
-return normalize(float3(r * Strength, 1.0));
+float4 c = float4(R0c.x, R1c.x, R2c.x, R3c.x);
+if (c.x + c.y <= 0.0) c.y = 1.0;
+if (c.z + c.w <= 0.0) c.w = 1.0;
+float3 n0 = R0.rgb * 2.0 - 1.0, n1 = R1.rgb * 2.0 - 1.0, n2 = R2.rgb * 2.0 - 1.0, n3 = R3.rgb * 2.0 - 1.0;
+float3 P = (c.x * n0 + c.y * n1) / (c.x + c.y);
+float3 Q = (c.z * n2 + c.w * n3) / (c.z + c.w);
+float wP = (c.z + c.w) / (c.x + c.y + c.z + c.w);
+float3 n = lerp(P, Q, wP);
+// The generated ripple map's mip level here, faded towards flat.
+float2 ub = UV * Global.z;
+float2 fp = max(abs(ddx(ub)), abs(ddy(ub))) * 128.0;
+float levels = clamp(Mip.x, 1.0, 4.0);
+float lod = clamp(log2(max(max(fp.x, fp.y), 1e-6)) - Mip.z, 0.0, levels - 1.0);
+if (levels > 1.0) n = lerp(n, float3(0.0, 0.0, 1.0), lod / (levels - 1.0) * Mip.y);
+return n * rsqrt(max(dot(n, n), 1e-8));
 """
 
 WATER_REFLECT_CODE = r"""
@@ -861,61 +879,101 @@ return float3(R.x, -R.y, R.z);
 """
 
 WATER_CODE = r"""
-float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
-float t = pow(1.0 - saturate(abs(dot(N, E))), FresnelPower);
-float brightness = lerp(PerpBrightness, ParaBrightness, t);
-float3 tint = lerp(PerpTint.rgb, ParaTint.rgb, t);
-float3 frame = Cube.rgb * tint * brightness * (AlphaFromBase > 0.5 ? Base.a : 1.0);
-if (FogDensity > 0.0)
+float3 Nv = normalize(VertexN);
+float r = saturate(-dot(View.ViewForward, Nv));
+float3 tint = lerp(ParaTint.rgb, PerpTint.rgb, r);
+float3 c = Cube.rgb;
+float3 c8 = c * c; c8 *= c8; c8 *= c8;
+float3 frame = lerp(c8, c, tint);
+int flags = (int)Flags;
+if (flags & 1)
 {
-    float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
-    frame *= 1.0 - f;
+    float f = saturate(dot(Nv, normalize(Cam)));
+    frame *= Base.a * lerp(ParaBrightness, PerpBrightness, f);
 }
+if ((flags & 4) && FogDensity > 0.0)
+    frame *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
 frame = max(frame, 0.0) / DisplayGain;
 float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
 return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, 1.0);
 """
 
+# Water flag 1, base map colour modulates background: the frame times the
+# base map's colour (clamped UV), faded towards white by the fog with flag 2.
+WATER_BACKGROUND_CODE = r"""
+float3 k = Base.rgb;
+if (((int)Flags & 4) && FogDensity > 0.0)
+    k = lerp(k, 1.0.xxx, FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0)));
+// A factor on the linear frame: CE multiplied the gamma-space one.
+float3 lo = k / 12.92;
+float3 hi = pow((k + 0.055) / 1.055, 2.4);
+return lerp(hi, lo, step(k, 0.04045));
+"""
 
-def build_water(defaults):
-    m = fresh(ROOT, "M_CE_Water", unreal.Material, unreal.MaterialFactoryNew())
+
+def build_water(defaults, name="M_CE_Water", blend=unreal.BlendMode.BLEND_ADDITIVE):
+    m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
-    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property("blend_mode", blend)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("used_with_static_lighting", False)
     g = Graph(m)
     uv0 = g.uv(0)
     time = g.node(unreal.MaterialExpressionTime)
-    angle = g.scalar("RippleAngle", 0.0)
-    velocity = g.scalar("RippleVelocity", 0.0)
-    repeat = g.scalar("RippleRepeat", 1.0)
-    ripples = []
-    for layer in (0.0, 1.0):
-        uv = g.custom(WATER_UV_CODE, [("UV", uv0, ""), ("Time", time, ""), ("Angle", angle, ""),
-                                      ("Velocity", velocity, ""), ("Repeat", repeat, ""),
-                                      ("Layer", g.node(unreal.MaterialExpressionConstant, x=-1800, r=layer), "")],
-                      output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="CE ripple uv")
-        ripples.append(g.texture("Ripple", defaults["T_CE_Flat"], uv))
-    n = g.custom(WATER_NORMAL_CODE, [("R0", ripples[0], "RGBA"), ("R1", ripples[1], "RGBA"),
-                                     ("Strength", g.scalar("RippleStrength", 0.08), "")],
-                 description="CE ripple normal")
+    glob = g.vector4("RippleGlobal", (0, 0, 1, 0))
+    samples, contribs = [], []
+    for k in range(4):
+        ripple = g.vector4(f"Ripple{k}", (0, 0, 0, 1))
+        uv = g.custom(WATER_UV_CODE, [("UV", uv0, ""), ("Time", time, ""), ("Global", glob, ""),
+                                      ("Ripple", ripple, ""), ("Offset", g.vector4(f"Ripple{k}Offset", (0, 0, 0, 0)), "")],
+                      output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description=f"CE ripple {k} uv")
+        samples.append(g.texture(f"RippleMap{k}", defaults["T_CE_Flat"], uv))
+        contribs.append(ripple)
+    inputs = [(f"R{k}", s, "RGBA") for k, s in enumerate(samples)]
+    inputs += [(f"R{k}c", c, "") for k, c in enumerate(contribs)]
+    inputs += [("UV", uv0, ""), ("Global", glob, ""), ("Mip", g.vector4("RippleMip", (1, 0, 0, 0)), "")]
+    n = g.custom(WATER_NORMAL_CODE, inputs, description="CE ripple normal")
+    nw = g.node(unreal.MaterialExpressionTransform, x=-800,
+                transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
+                transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    link(n, "", nw, "")
     cam = g.node(unreal.MaterialExpressionCameraVectorWS)
-    direction = g.custom(WATER_REFLECT_CODE, [("Cam", cam, ""), ("N", n, "")], description="CE water reflection")
+    direction = g.custom(WATER_REFLECT_CODE, [("Cam", cam, ""), ("N", nw, "")], description="CE water reflection")
     cube = g.cube("ReflectionCube", defaults["T_CE_BlackCube"], direction)
-    base = g.texture("Base", defaults["T_CE_White"], uv0)
-    inputs = [("Cam", cam, ""), ("N", n, ""), ("Cube", cube, "RGB"), ("Base", base, "RGBA"),
+    # The base map is clamped: one map across the surface.
+    clamped = g.custom("return saturate(UV);", [("UV", uv0, "")], output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                       description="CE water base uv")
+    base = g.texture("Base", defaults["T_CE_White"], clamped)
+    vertex_n = g.node(unreal.MaterialExpressionVertexNormalWS)
+    inputs = [("Cam", cam, ""), ("VertexN", vertex_n, ""), ("Cube", cube, "RGB"), ("Base", base, "RGBA"),
               ("PerpBrightness", g.scalar("PerpBrightness", 0.3), ""),
               ("ParaBrightness", g.scalar("ParaBrightness", 1.0), ""),
               ("PerpTint", g.vector("PerpTint"), ""), ("ParaTint", g.vector("ParaTint"), ""),
-              ("AlphaFromBase", g.scalar("AlphaFromBase", 0.0), ""),
-              ("FresnelPower", g.scalar("FresnelPower", 3.0), ""),
+              ("Flags", g.scalar("WaterFlags", 0.0), ""),
               ("Exposure", g.scalar("Exposure", 1.0), ""), ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), "")]
     inputs += fog_inputs(g)
     c = g.custom(WATER_CODE, inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4,
                  description="CE shader_transparent_water")
     mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
                                   unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
+def build_water_background(defaults):
+    m = fresh(ROOT, "M_CE_WaterBackground", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MODULATE)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    clamped = g.custom("return saturate(UV);", [("UV", g.uv(0), "")], output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
+                       description="CE water base uv")
+    base = g.texture("Base", defaults["T_CE_White"], clamped)
+    inputs = [("Base", base, "RGBA"), ("Flags", g.scalar("WaterFlags", 0.0), "")] + fog_inputs(g)
+    c = g.custom(WATER_BACKGROUND_CODE, inputs, description="CE water background")
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -1009,5 +1067,8 @@ for blend_name, blend_mode in (("Add", unreal.BlendMode.BLEND_ADDITIVE),
         build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}",
                           blend_mode, defaults, two_sided=two_sided)
 build_water(defaults)
+# Sky water replaces the frame rather than adding to it.
+build_water(defaults, "M_CE_WaterSky", unreal.BlendMode.BLEND_OPAQUE)
+build_water_background(defaults)
 build_flare(defaults)
 unreal.log("MJOLNIR CE materials built")
