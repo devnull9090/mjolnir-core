@@ -436,6 +436,7 @@ def main():
         print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt})")
 
     out = with_passes(out, shaders)
+    out = with_decal_offset(out, shaders)
 
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material
@@ -495,6 +496,27 @@ def with_passes(prims, shaders):
         for name in extra_passes(shaders.get(halo.get("material", ""))):
             out.append({**p, "material": f"{p['material']}__{name}",
                         "extras": {**p["extras"], "halo": {**halo, "pass": name}}})
+        out.append(p)
+    return out
+
+
+# CE draws a transparent shader flagged "decal" (chicago, generic and glass
+# flag bit 1) with a depth bias over the surface it lies on: light panels and
+# strips, moss. Unreal's materials here can take neither a depth bias nor a
+# scene-depth test of their own (docs/ce_map_conversion.md, "Decals"), so
+# the decal's geometry is lifted off the surface instead: this far along its
+# normals, in metres.
+DECAL_OFFSET = 0.01
+
+
+def with_decal_offset(prims, shaders):
+    """Decal-flagged sections lifted DECAL_OFFSET along their normals."""
+    out = []
+    for p in prims:
+        shader = shaders.get(p["extras"].get("halo", {}).get("material", "")) or {}
+        tag = (shader.get("shader") or {}).get("tag") or {}
+        if shader.get("shader_class") in ("schi", "scex", "sotr", "sgla") and tag.get("flags", 0) & 2:
+            p = {**p, "pos": p["pos"] + p["nrm"] * DECAL_OFFSET}
         out.append(p)
     return out
 
