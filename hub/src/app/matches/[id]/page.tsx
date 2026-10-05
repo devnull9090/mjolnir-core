@@ -22,7 +22,9 @@ import {
 } from "../_components/format";
 import { Avatar } from "../_components/Avatar";
 import { LocalTime } from "../_components/LocalTime";
-import { PositionMap } from "../_components/PositionMap";
+import { MatchReplay } from "../_components/MatchReplay";
+import { positionMarks } from "../_components/positions";
+import mapPreviews from "../_components/map-previews.json";
 
 /**
  * One match: the final scoreboard, the timeline of what happened, and where
@@ -156,6 +158,14 @@ export default async function MatchPage({
     .map((e) => ({ e, text: isExplainedDeath(e, explained) ? null : eventLine(e, nameOf) }))
     .filter((l): l is { e: (typeof match.events)[number]; text: string } => l.text !== null);
   const other = match.events.length - lines.length;
+  const { kills, deaths } = positionMarks(match.events, nameOf, focus);
+  const rows = lines.map(({ e, text }) => ({
+    seq: e.seq,
+    t_ms: e.t_ms,
+    text,
+    strong: e.type === "kill" || e.type === "suicide" || e.type === "death",
+    mine: focus !== null && (e.cause === focus || e.effect === focus),
+  }));
 
   return (
     <>
@@ -198,51 +208,16 @@ export default async function MatchPage({
           <Scoreboard match={match} focus={focus} />
         </section>
 
-        <div className="grid gap-10 lg:grid-cols-2">
-          <section id="map">
-            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
-              Kills and deaths{focus !== null ? ` · ${nameOf(focus)}` : ""}
-            </h2>
-            <PositionMap events={match.events} nameOf={nameOf} focus={focus} />
-          </section>
-
-          <section>
-            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Timeline</h2>
-            {lines.length === 0 ? (
-              <p className="text-sm text-text-muted">Nothing happened.</p>
-            ) : (
-              <ol className="max-h-[560px] overflow-y-auto rounded-xl border border-border divide-y divide-border text-sm">
-                {lines.map(({ e, text }) => (
-                  <li
-                    key={e.seq}
-                    className={`flex gap-3 px-4 py-2 ${focus !== null && (e.cause === focus || e.effect === focus) ? "bg-gold/10" : ""}`}
-                  >
-                    <span className="w-12 shrink-0 tabular-nums text-text-dim">{duration(e.t_ms)}</span>
-                    <span
-                      className={
-                        e.type === "kill" || e.type === "suicide" || e.type === "death"
-                          ? "text-foreground"
-                          : "text-text-muted"
-                      }
-                    >
-                      {text}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {other > 0 && (
-              <p className="mt-2 text-xs text-text-dim">
-                Plus {other} other incidents (spawns, deaths a kill already tells, commendations, lead changes)
-                in the{" "}
-                <a href={`/api/v1/matches/${match.id}`} className="underline hover:text-foreground">
-                  full event data
-                </a>
-                .
-              </p>
-            )}
-          </section>
-        </div>
+        <MatchReplay
+          code={match.map_code in mapPreviews ? match.map_code : null}
+          kills={kills}
+          deaths={deaths}
+          rows={rows}
+          durationMs={match.duration_ms}
+          mapHeading={`Kills and deaths${focus !== null ? ` · ${nameOf(focus)}` : ""}`}
+          matchId={match.id}
+          otherCount={other}
+        />
       </main>
 
       <Footer />
