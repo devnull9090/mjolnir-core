@@ -5,9 +5,9 @@ import { duration, eventLine } from "./format";
 export type Point = [number, number, number];
 
 /** A kill: the killer's position (none for a suicide or no report) and the victim's. */
-export type KillMark = { seq: number; from: Point | null; to: Point; label: string };
+export type KillMark = { seq: number; t_ms: number; from: Point | null; to: Point; label: string };
 /** A death no kill accounts for: falls, suicides, the guardians. */
-export type DeathMark = { seq: number; at: Point; label: string };
+export type DeathMark = { seq: number; t_ms: number; at: Point; label: string };
 
 /**
  * The kills and deaths a position plot draws, with the line each dot's
@@ -27,6 +27,7 @@ export function positionMarks(
     .filter((e) => e.type === "kill" && e.effect_pos && (focus === null || e.cause === focus || e.effect === focus))
     .map((e) => ({
       seq: e.seq,
+      t_ms: e.t_ms,
       from: e.cause_pos && e.cause !== e.effect ? e.cause_pos : null,
       to: e.effect_pos!,
       label: label(e),
@@ -39,6 +40,6 @@ export function positionMarks(
         (focus === null || e.effect === focus) &&
         !killed.has(`${e.effect}:${Math.round(e.t_ms / 1000)}`),
     )
-    .map((e) => ({ seq: e.seq, at: e.effect_pos!, label: label(e) }));
+    .map((e) => ({ seq: e.seq, t_ms: e.t_ms, at: e.effect_pos!, label: label(e) }));
   return { kills, deaths };
 }

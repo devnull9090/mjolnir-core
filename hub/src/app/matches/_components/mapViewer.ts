@@ -10,6 +10,9 @@
  * faces point into the play space, so culling their backs shows the inside
  * of an indoor map from above or outside. A cut plane takes off everything
  * above a height, the floors over a lower one included.
+ *
+ * A replay sets a time: marks after it are hidden, the ones within `fresh`
+ * of it drawn larger and brighter, older ones faded.
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -24,6 +27,8 @@ export type Hover = { x: number; y: number; flip: boolean; text: string } | null
 const KILLER = new THREE.Color("#d4a843");
 const VICTIM = new THREE.Color("#ef4444");
 const LINE = new THREE.Color("#c9d1d9");
+/** What an old mark fades towards in a replay: the page's surface. */
+const FADED = new THREE.Color("#161b22");
 /** Dot radius in the top view, CSS pixels. */
 const DOT_PX = 5;
 /** Dot radius in the 3D view: about a Spartan's half width, metres. */
@@ -50,6 +55,12 @@ export class MapViewer {
   private victimAt: THREE.Vector3[] = [];
   private killerLabel: string[] = [];
   private victimLabel: string[] = [];
+  private killerT: number[] = [];
+  private victimT: number[] = [];
+  /** Each line's time; the lines are in time order. */
+  private lineT: number[] = [];
+  private time: number | null = null;
+  private fresh = 10000;
   private dot = new THREE.SphereGeometry(1, 16, 12);
   private frameRequest = 0;
   private resize: ResizeObserver;
@@ -115,19 +126,25 @@ export class MapViewer {
       if (o instanceof THREE.LineSegments) o.geometry.dispose();
       else o.dispose();
     }
-    const withKiller = kills.filter((k) => k.from);
+    const withKiller = kills.filter((k) => k.from).sort((a, b) => a.t_ms - b.t_ms);
     this.killerAt = withKiller.map((k) => toWorld(k.from!));
     this.killerLabel = withKiller.map((k) => k.label);
+    this.killerT = withKiller.map((k) => k.t_ms);
+    this.lineT = this.killerT;
     this.victimAt = [...kills.map((k) => toWorld(k.to)), ...deaths.map((d) => toWorld(d.at))];
     this.victimLabel = [...kills.map((k) => k.label), ...deaths.map((d) => d.label)];
+    this.victimT = [...kills.map((k) => k.t_ms), ...deaths.map((d) => d.t_ms)];
 
     const dots = (color: THREE.Color, count: number) => {
       const mesh = new THREE.InstancedMesh(
         this.dot,
-        new THREE.MeshBasicMaterial({ color, clippingPlanes: [this.cut] }),
+        new THREE.MeshBasicMaterial({ clippingPlanes: [this.cut] }),
         Math.max(count, 1),
       );
       mesh.count = count;
+      // Per-instance colour, so a replay can fade the old ones.
+      for (let i = 0; i < count; i++) mesh.setColorAt(i, color);
+      mesh.userData.colour = color;
       mesh.renderOrder = 2;
       mesh.frustumCulled = false;
       this.scene.add(mesh);
@@ -137,9 +154,11 @@ export class MapViewer {
     this.victims = dots(VICTIM, this.victimAt.length);
 
     const segments = withKiller.flatMap((k) => [toWorld(k.from!), toWorld(k.to)]);
+    const lineGeometry = new THREE.BufferGeometry().setFromPoints(segments);
+    lineGeometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(segments.length * 3), 3));
     this.lines = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints(segments),
-      new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.45, clippingPlanes: [this.cut] }),
+      lineGeometry,
+      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, clippingPlanes: [this.cut] }),
     );
     this.lines.renderOrder = 1;
     this.lines.frustumCulled = false;
@@ -164,6 +183,14 @@ export class MapViewer {
     this.mode = mode;
     this.applyDepthTest();
     this.reset();
+  }
+
+  /** Show the match as it stood at `time` ms (null: all of it). Marks
+   * within `fresh` ms before it are drawn as just happened. */
+  setTime(time: number | null, fresh = 10000) {
+    this.time = time;
+    this.fresh = Math.max(fresh, 1);
+    this.requestRender();
   }
 
   /** Cut away everything above `t` of the way up the map (1: nothing). */
@@ -256,14 +283,30 @@ export class MapViewer {
     if (this.frameRequest) return;
     this.frameRequest = requestAnimationFrame(() => {
       this.frameRequest = 0;
-      this.scaleDots();
+      this.placeMarks();
       this.renderer.render(this.scene, this.mode === "top" ? this.top : this.persp);
     });
   }
 
-  /** A few pixels across in the top view whatever the zoom; a Spartan's
-   * width in 3D, growing far off so a big map's dots stay visible. */
-  private scaleDots() {
+  /** How far a mark at `t` is into the replay: null when it has not
+   * happened yet, 1 when it just did, 0 once it is old (or with no replay). */
+  private freshness(t: number): number | null {
+    if (this.time === null) return 0;
+    if (t > this.time) return null;
+    return Math.max(0, 1 - (this.time - t) / this.fresh);
+  }
+
+  /** A mark's colour: its own, faded when a replay has moved past it. */
+  private shade(base: THREE.Color, f: number, out: THREE.Color): THREE.Color {
+    out.copy(base);
+    if (this.time !== null) out.lerp(FADED, 0.6 * (1 - f));
+    return out;
+  }
+
+  /** Dots a few pixels across in the top view whatever the zoom; a
+   * Spartan's width in 3D, growing far off so a big map's dots stay
+   * visible. A replay hides what has not happened and grows what just did. */
+  private placeMarks() {
     let radius: number;
     if (this.mode === "top") {
       const perPixel = (this.top.top - this.top.bottom) / this.top.zoom / Math.max(this.container.clientHeight, 1);
@@ -273,16 +316,37 @@ export class MapViewer {
       radius = Math.max(DOT_M, distance * 0.006);
     }
     const m = new THREE.Matrix4();
-    const scale = new THREE.Vector3(radius, radius, radius);
+    const scale = new THREE.Vector3();
     const q = new THREE.Quaternion();
-    for (const [mesh, at] of [
-      [this.killers, this.killerAt],
-      [this.victims, this.victimAt],
+    const c = new THREE.Color();
+    for (const [mesh, at, times] of [
+      [this.killers, this.killerAt, this.killerT],
+      [this.victims, this.victimAt, this.victimT],
     ] as const) {
       if (!mesh) continue;
-      at.forEach((p, i) => mesh.setMatrixAt(i, m.compose(p, q, scale)));
+      at.forEach((p, i) => {
+        const f = this.freshness(times[i]);
+        scale.setScalar(f === null ? 0 : radius * (1 + 1.2 * f));
+        mesh.setMatrixAt(i, m.compose(p, q, scale));
+        mesh.setColorAt(i, this.shade(mesh.userData.colour, f ?? 0, c));
+      });
       mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingSphere();
+    }
+    if (this.lines) {
+      const colours = this.lines.geometry.getAttribute("color") as THREE.BufferAttribute;
+      let shown = 0;
+      this.lineT.forEach((t, i) => {
+        const f = this.freshness(t);
+        if (f === null) return;
+        shown = i + 1;
+        this.shade(LINE, f, c);
+        colours.setXYZ(i * 2, c.r, c.g, c.b);
+        colours.setXYZ(i * 2 + 1, c.r, c.g, c.b);
+      });
+      colours.needsUpdate = true;
+      this.lines.geometry.setDrawRange(0, shown * 2);
     }
   }
 

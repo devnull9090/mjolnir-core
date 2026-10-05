@@ -16,11 +16,16 @@ export function MatchMap({
   code,
   kills,
   deaths,
+  time,
+  fresh,
   fallback,
 }: {
   code: string;
   kills: KillMark[];
   deaths: DeathMark[];
+  /** The replay's time, ms (null: the whole match), and how long a mark looks new. */
+  time: number | null;
+  fresh: number;
   fallback: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -52,6 +57,7 @@ export function MatchMap({
   useEffect(() => viewer?.setMarks(kills, deaths), [viewer, kills, deaths]);
   useEffect(() => viewer?.setMode(mode), [viewer, mode]);
   useEffect(() => viewer?.setCut(cut), [viewer, cut]);
+  useEffect(() => viewer?.setTime(time, fresh), [viewer, time, fresh]);
 
   if (failed) return <>{fallback}</>;
 

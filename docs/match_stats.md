@@ -123,6 +123,13 @@ Prisoner or Chill Out; the map's faces point into the play space, so an
 indoor map is seen through its roof either way. Hovering a dot shows the
 kill. Other maps, and a browser without WebGL, get the plain SVG plot.
 
+Under the map, a replay (`MatchReplay.tsx`): play the match at 10× to 120×
+(the default plays it in about a minute) or scrub it, and the map, either
+kind, shows only what had happened by then, the last moments larger and the
+rest faded. Ticks on the scrub bar mark when each kill (gold) and death
+(red) came. The timeline follows the replay, and a row jumps the replay to
+it. "Show all" goes back to the whole match.
+
 The models are `hub/public/map-previews/<CODE>.glb`, listed in
 `hub/src/app/matches/_components/map-previews.json`, made from a converted
 map's output folder ([ce_map_conversion.md](ce_map_conversion.md)):
