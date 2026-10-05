@@ -83,7 +83,9 @@ the gate does not resolve, and with it the world has the same 35 subsystems
 as B40.
 
 Build the tools first: `cargo build --release -p blam-cli -p ue-asset --example
-mesh_rewrite -p blam-pack --example package_override`.
+mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
+lightmap_bake`. Without `lightmap_bake` the map converts without its baked
+corners and sun.
 
 ### The structure BSP (step 2)
 
@@ -192,6 +194,22 @@ material even though the surfaces carry theirs. Untested.
   position, and the colour is a blend between the permutation's bounds.
   The draw is our own hash, so the mix of colours matches CE but a given
   crate's colour may not.
+- **Machines:** placed like scenery, in their rest pose. A part a machine's
+  `device position` animation moves (Infinity's beam emitters: the beam
+  rises 1,089 wu out of the base and grows from half size to full) draws
+  with a material of its own on a device variant of its master
+  (`M_CE_Transparent…Device`), which moves it as a World Position Offset:
+  the node's offset and scale between the animation's first and last
+  frames, about the node's origin, by the device position. A gear runs its
+  position from 0 to 1 over its position transition time and starts again;
+  any other machine (doors, platforms) is drawn at the position it is
+  placed at, because the simulation moves it and Unreal never hears of it.
+  A part that turns, whose parent node moves, or whose frames leave the
+  line between the first and last stays still, as do opaque parts (no
+  opaque device master yet). The mesh's bounds scale (`bounds_scale` in
+  the spec) keeps it drawn wherever the part goes. halo2ue stages the
+  machine's device and machine fields, its placement's device flags and
+  the animation's frames in `placement.json` (`device`).
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -264,6 +282,7 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m; the lightmap is multiplied by `red ^ BakeAO` (2.0: Blood Gulch was approved at 2.5 and found a little dark across the maps). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
 use the same master with `ModelShader` on, for the terms that differ:
@@ -569,7 +588,18 @@ seconds after the loading screen are dark.
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
-- **Scenery collision** stops players and vehicles, not projectiles.
+- **Scenery collision** stops players and vehicles, not projectiles. Each
+  node of a collision model is placed by its model node's rest pose: before
+  halo2ue did that, a tree's canopy hull sat around its trunk at head
+  height (Infinity, 2026-10-04), so maps converted earlier need converting
+  again.
+- **Object light colour.** Players, vehicles and weapons are lit by the
+  Unreal sun and sky light. On a map with a real sun (its lightmap at 0.8
+  or more where the bake has sun) they take that sunlit lightmap's colour,
+  since CE lit an object by the lightmap under it; otherwise the sky's
+  outdoor ambient colour, or the lightmaps' average when that colour lacks
+  a channel. The sky's colour alone can be anything: Infinity's test sky is
+  (0.5, 0.5, 0), which turned everything yellow.
 - **Approximations in the materials.** CE's noise, jitter and wander
   functions are a value noise; the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the

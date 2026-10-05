@@ -41,7 +41,7 @@ import sys
 import numpy as np
 
 WU_TO_M = 3.048
-TRANSPARENT = ("schi", "scex", "swat")
+TRANSPARENT = ("schi", "scex", "swat", "sgla")
 # The placed objects' lighting, one texel block each (see object_lighting).
 OBJECT_LIGHTING_PAGE = "object_lighting.png"
 LUMA = np.array([0.2126, 0.7152, 0.0722])
@@ -103,6 +103,9 @@ def primitives(g, buf):
                 "uv1": accessor(g, buf, at["TEXCOORD_1"]) if "TEXCOORD_1" in at else None,
                 "tan": accessor(g, buf, at["TANGENT"]) if "TANGENT" in at else None,
                 "inc": accessor(g, buf, at["_INCIDENT"]) if "_INCIDENT" in at else None,
+                # The node each vertex hangs on most (a skinned model's bones
+                # are its nodes, by index), for machines' moving parts.
+                "joint": accessor(g, buf, at["JOINTS_0"])[:, 0] if "JOINTS_0" in at else None,
                 "idx": accessor(g, buf, p["indices"]).reshape(-1),
                 "material": mat["name"], "extras": mat.get("extras", {}),
             })
@@ -113,6 +116,90 @@ def ce_to_gltf(v):
     """CE world units (x, y, z) to glTF metres (x, z, -y)."""
     v = np.asarray(v, dtype=np.float64)
     return np.stack([v[..., 0], v[..., 2], -v[..., 1]], axis=-1) * WU_TO_M
+
+
+def quat_matrix(q):
+    x, y, z, w = q
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def node_rest(g):
+    """Each glTF node's rest pose in model space: (rotation, origin), glTF
+    metres. Halo models export node index = glTF node index."""
+    parent = {c: i for i, n in enumerate(g["nodes"]) for c in n.get("children", [])}
+    rest = {}
+
+    def world(i):
+        if i not in rest:
+            n = g["nodes"][i]
+            r, t = quat_matrix(n.get("rotation", [0, 0, 0, 1])), np.array(n.get("translation", [0, 0, 0]), float)
+            if i in parent:
+                pr, pt = world(parent[i])
+                r, t = pr @ r, pr @ t + pt
+            rest[i] = (r, t)
+        return rest[i]
+
+    for i in range(len(g["nodes"])):
+        world(i)
+    return rest, parent
+
+
+# Device flags on a machine's placement: initially open (position 1),
+# initially off (no power), position reversed.
+DEVICE_OPEN, DEVICE_OFF, DEVICE_REVERSED = 1, 2, 8
+
+
+def device_motion(entry, g, node, rot, origin):
+    """A machine's moving part as its material draws it (the CE device
+    masters' World Position Offset): the node's origin in the world, and
+    its offset and scale at the device position animation's first and last
+    frames, all from its rest pose. A gear runs its position from 0 to 1
+    over its position transition time and starts again; any other machine
+    is drawn at the position it is placed at (the simulation moves it, and
+    Unreal does not hear about it). None when the node turns, its parents
+    move, or the frames between the first and last leave their line."""
+    dev = entry.get("device") or {}
+    frames = (dev.get("animation") or {}).get("frames") or []
+    if len(frames) < 2 or node >= len(frames[0]):
+        return None
+    rest, parent = node_rest(g)
+    # Its ancestors must hold still and it must not turn: the material moves
+    # and scales the part, it does not rotate it.
+    chain, i = [], node
+    while i in parent:
+        i = parent[i]
+        chain.append(i)
+    for f in frames:
+        for k in chain:
+            if f[k]["t"] != frames[0][k]["t"] or f[k]["q"] != frames[0][k]["q"] or f[k]["s"] != frames[0][k]["s"]:
+                return None
+        q = np.array(f[node]["q"], float)
+        if abs(abs(q[3]) - 1.0) > 1e-4:
+            return None
+    nr = g["nodes"][node]
+    rest_t = np.array(nr.get("translation", [0, 0, 0]), float)
+    rest_s = (nr.get("scale") or [1, 1, 1])[0]
+    parent_r = rest[parent[node]][0] if node in parent else np.eye(3)
+
+    def at(f):
+        t = ce_to_gltf(f[node]["t"]) - rest_t
+        return rot @ (parent_r @ t), f[node]["s"] / rest_s
+
+    (t0, s0), (t1, s1) = at(frames[0]), at(frames[-1])
+    for k, f in enumerate(frames[1:-1], 1):
+        t, sc = at(f)
+        x = k / (len(frames) - 1)
+        if np.linalg.norm(t - (t0 + (t1 - t0) * x)) > 0.01 or abs(sc - (s0 + (s1 - s0) * x)) > 1e-3:
+            return None
+    flags = (dev.get("placement") or {}).get("device_flags", 0)
+    if flags & DEVICE_REVERSED:
+        (t0, s0), (t1, s1) = (t1, s1), (t0, s0)
+    running = dev.get("machine_type") == "gear" and not flags & DEVICE_OFF and dev.get("position_transition", 0) > 0
+    return {"pivot": (rot @ rest[node][1] + origin).tolist(), "t0": t0.tolist(), "t1": t1.tolist(),
+            "s0": s0, "s1": s1, "period": dev["position_transition"] if running else 0.0,
+            "position": 0.0 if running else (1.0 if flags & DEVICE_OPEN else 0.0)}
 
 
 def ce_rotation(yaw, pitch, roll):
@@ -343,10 +430,14 @@ def main():
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
     out = list(bsp)
     placed, unlit = 0, 0
-    cache = {}
+    cache, models = {}, {}
     skies_seen = 0
+    devices = 0
     for e in placement["entries"]:
-        if e.get("kind") not in ("scenery", "light_fixture", "sky") or not e.get("model"):
+        # Machines too (Infinity's beam emitters, whose model is the beam):
+        # a part their device animation moves draws with a material of its
+        # own that moves it (device_motion); the rest in their rest pose.
+        if e.get("kind") not in ("scenery", "light_fixture", "machine", "sky") or not e.get("model"):
             continue
         if e["kind"] == "sky":
             # A scenario can list several skies (Gephyrophobia: its night
@@ -359,8 +450,10 @@ def main():
             print(f"  missing {e['model']}", file=sys.stderr)
             continue
         if path not in cache:
-            cache[path] = primitives(*load_gltf(path))
-        if e["kind"] in ("scenery", "light_fixture"):
+            g, buf = load_gltf(path)
+            cache[path] = primitives(g, buf)
+            models[path] = g
+        if e["kind"] in ("scenery", "light_fixture", "machine"):
             r = ce_rotation(*e.get("rot", [0, 0, 0]))
             t = ce_to_gltf(e["pos"])
             # The bounding sphere, which CE samples the ground under.
@@ -375,10 +468,18 @@ def main():
             for p in cache[path]:
                 pos = p["pos"] @ r.T + t
                 nrm = p["nrm"] @ r.T
+                halo = {**p["extras"].get("halo", {}), "lightmap_index": "objects",
+                        "lightmap_texture": OBJECT_LIGHTING_PAGE}
+                material = f"{p['material']}__lmobj"
+                nodes = np.unique(p["joint"]) if e["kind"] == "machine" and p["joint"] is not None else []
+                motion = device_motion(e, models[path], int(nodes[0]), r, t) if len(nodes) == 1 else None
+                if motion:
+                    # One material per placement: each has its own pivot.
+                    devices += 1
+                    material = f"{material}__device{devices}"
+                    halo["device"] = motion
                 prims.append({"pos": pos, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
-                              "tan": tangents_for(nrm), "material": f"{p['material']}__lmobj",
-                              "extras": {"halo": {**p["extras"].get("halo", {}), "lightmap_index": "objects",
-                                                  "lightmap_texture": OBJECT_LIGHTING_PAGE}}})
+                              "tan": tangents_for(nrm), "material": material, "extras": {"halo": halo}})
             # The texel holds the object's brightest lighting; each vertex's
             # incident direction is tilted off its normal until their dot is
             # the vertex's share of that, and at full weight the master's
@@ -435,6 +536,9 @@ def main():
             q["uv1"] = np.tile(uv, (len(q["pos"]), 1))
         print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt})")
 
+    out = with_passes(out, shaders)
+    out = with_decal_offset(out, shaders)
+
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material
         # slots ask for it, and a rewritten mesh keeps its donor's one slot:
@@ -457,8 +561,67 @@ def main():
         write_gltf(clear, a.translucent)
         print(f"  {len(clear)} transparent primitive(s) -> {a.translucent}")
     write_gltf(out, a.out)
+    if devices:
+        print(f"  {devices} machine part(s) drawn moving by their device animation")
     print(f"{len(bsp)} BSP section(s) + {placed} scenery placement(s) ({unlit} with no ground below) "
           f"-> {len(out)} primitive(s) in {a.out}")
+
+
+def extra_passes(shader):
+    """The passes a CE shader draws before its own, each a copy of its
+    surface with a material of its own: water flag 1 (base map colour
+    modulates background) multiplies the frame by the base map first; glass
+    tints the frame, then adds its reflection, before its diffuse pass."""
+    t = (shader or {}).get("shader", {}).get("tag") or {}
+    cls = (shader or {}).get("shader_class")
+    if cls == "swat" and t.get("flags", 0) & 2:
+        return ["background"]
+    if cls == "sgla" and t:
+        # Glass: the tint pass when a tint map or colour is set, the
+        # reflection pass when a brightness and a reflection map are; the
+        # surface itself is the diffuse pass, last.
+        passes = []
+        if t.get("background_tint_map") or any(t.get("background_tint_color") or []):
+            passes.append("tint")
+        if (t.get("perpendicular_brightness", 0) > 0 or t.get("parallel_brightness", 0) > 0) and t.get("reflection_map"):
+            passes.append("reflection")
+        return passes
+    return []
+
+
+def with_passes(prims, shaders):
+    """Each primitive preceded by a copy per extra pass (`extra_passes`),
+    named <material>__<pass> with `pass` in its halo extras: sections of one
+    mesh draw in order, so a pass drawn first comes first."""
+    out = []
+    for p in prims:
+        halo = p["extras"].get("halo", {})
+        for name in extra_passes(shaders.get(halo.get("material", ""))):
+            out.append({**p, "material": f"{p['material']}__{name}",
+                        "extras": {**p["extras"], "halo": {**halo, "pass": name}}})
+        out.append(p)
+    return out
+
+
+# CE draws a transparent shader flagged "decal" (chicago, generic and glass
+# flag bit 1) with a depth bias over the surface it lies on: light panels and
+# strips, moss. Unreal's materials here can take neither a depth bias nor a
+# scene-depth test of their own (docs/ce_map_conversion.md, "Decals"), so
+# the decal's geometry is lifted off the surface instead: this far along its
+# normals, in metres.
+DECAL_OFFSET = 0.01
+
+
+def with_decal_offset(prims, shaders):
+    """Decal-flagged sections lifted DECAL_OFFSET along their normals."""
+    out = []
+    for p in prims:
+        shader = shaders.get(p["extras"].get("halo", {}).get("material", "")) or {}
+        tag = (shader.get("shader") or {}).get("tag") or {}
+        if shader.get("shader_class") in ("schi", "scex", "sotr", "sgla") and tag.get("flags", 0) & 2:
+            p = {**p, "pos": p["pos"] + p["nrm"] * DECAL_OFFSET}
+        out.append(p)
+    return out
 
 
 def write_gltf(prims, path):

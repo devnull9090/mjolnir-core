@@ -29,6 +29,9 @@
 --   mjolnir_level_reload   re-read the level file and respawn decor (dev loop)
 --   mjolnir_level_clear    remove everything this mod spawned
 --   mjolnir_level_rescan   re-read the containers' world lists (native half)
+--   mjolnir_terrain_shadows [on|off] [strength]
+--                          let a converted level's terrain cast shadows (an
+--                          experiment, see TerrainShadows)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -401,18 +404,67 @@ local function importTexture(world, value, linear)
     return result
 end
 
+--- Terrain shadow experiment. A converted level's terrain casts no shadows
+--- (its own are in the CE lightmaps, build_terrain_meshes.py), so nothing in
+--- it blocks the Unreal sun: a player on a platform shadows the ground under
+--- it, and a player under one stands in full sun. `mjolnir_terrain_shadows
+--- on` lets the terrain cast, to see what that costs: the materials still
+--- drop their sun share (ShadowStrength) wherever the sun is blocked, so the
+--- lightmaps' own shadows darken a second time. An optional strength sets
+--- that share on every terrain material, to weigh the one against the other.
+--- `lightmap` instead gives the materials the level's lightmap levels in
+--- CE's shadow and sun (LightmapSun, build_ce_materials.py SUN_WEIGHT_CODE),
+--- so a baked shadow gives up nothing: with the terrain still casting
+--- nothing, an object's shadow no longer shows through a roof onto ground
+--- CE had in shade, and the level otherwise looks as it did (Blood Gulch,
+--- 2026-10-04: the Banshee on the base roof). Until the runtime pack's
+--- masters carry that, it needs the trial masters
+--- (MJ_CE_ROOT=/Game/MJOLNIR/CETrial, chunk 983). Off by default; it lasts
+--- until the game closes, maps loaded later included.
+local TerrainShadows = { cast = false, strength = nil, lightmap = nil, proxy = false, ao = nil }
+local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
+
+--- The level's lightmap levels { shadow, sunlit }: the experiment's, else
+--- the level's own (environment.sun.lightmap_sun), else nil.
+local function lightmapSun()
+    if TerrainShadows.lightmap then return TerrainShadows.lightmap end
+    local env = Current.level and Current.level.environment
+    local sun = type(env) == "table" and env.sun
+    local v = type(sun) == "table" and sun.lightmap_sun
+    if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" then return v end
+    return nil
+end
+
+--- The switch that turns a CE master's texture parameter off.
+local HAS_PARAM = {
+    Primary = "HasPrimary", Secondary = "HasSecondary", Micro = "HasMicro", Bump = "HasBump",
+    Lightmap = "HasLightmap", SelfIllumMap = "HasSelfIllum", Multipurpose = "HasMulti",
+    ReflectionCube = "HasReflection", Bake = "HasBake",
+}
+
 --- A runtime material: `{ "parent": "/Game/.../MI_X.MI_X", "textures":
 --- { "Diffuse": "textures/bgl/ground.png", "Normal": "/Engine/..." },
 --- "scalars": { "RoughnessMult": 1.0 }, "linear": ["Normal"] }`. Texture
 --- parameters named in `linear` are imported without sRGB (normal maps).
 local function runtimeMaterial(world, spec, name)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
-    local parent = type(spec.parent) == "string" and resolveMesh(spec.parent)
+    local parent = nil
+    -- The lightmap experiment draws the CE environment masters with the
+    -- trial build, when it is installed.
+    local master = TerrainShadows.lightmap and type(spec.parent) == "string"
+        and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
+    if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
+    parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
     if not kml or not parent then return nil, "parent material not found: " .. tostring(spec.parent) end
     local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(name), 0)
     if not mid or not mid:IsValid() then return nil, "no dynamic instance" end
     local linear = {}
     for _, p in ipairs(spec.linear or {}) do linear[p] = true end
+    -- A texture the map pack never cooked costs the material that texture,
+    -- not the whole material: dropped, its Has* switch off, the rest drawn
+    -- (Infinity's pack shipped without two multipurpose maps, and its
+    -- boulders and leaves fell back to the donor's flat material).
+    local missing = {}
     for param, value in pairs(spec.textures or {}) do
         local tex, err
         if isObjectPath(value) then
@@ -421,11 +473,41 @@ local function runtimeMaterial(world, spec, name)
         else
             tex, err = importTexture(world, value, linear[param])
         end
-        if not tex then return nil, err end
-        mid:SetTextureParameterValue(FName(param), tex)
+        if tex then
+            mid:SetTextureParameterValue(FName(param), tex)
+        else
+            missing[#missing + 1] = param
+            Log(string.format("material '%s': %s (drawn without it)", name, tostring(err)))
+        end
     end
     for param, value in pairs(spec.scalars or {}) do
         mid:SetScalarParameterValue(FName(param), value)
+    end
+    for _, param in ipairs(missing) do
+        local has = HAS_PARAM[param]
+        if has then mid:SetScalarParameterValue(FName(has), 0.0) end
+        -- A model with no multipurpose map reflects everywhere (CE's rule
+        -- for a shader without one); one whose map went missing would turn
+        -- to chrome, so it loses the reflection instead.
+        if param == "Multipurpose" then mid:SetScalarParameterValue(FName("HasReflection"), 0.0) end
+    end
+    -- The lightmap experiment's baked corners and sun (ue-texture's
+    -- lightmap_bake): one texture per lightmap page, named for the page's
+    -- texture, in bake\ beside this mod.
+    local lightmap = TerrainShadows.lightmap and type(spec.textures) == "table" and spec.textures.Lightmap
+    local leaf = type(lightmap) == "string" and lightmap:match("%.([%w_]+)$")
+    if leaf then
+        local file = "bake\\" .. leaf .. ".png"
+        local f = io.open(textureFile(file), "rb")
+        if f then
+            f:close()
+            local tex = importTexture(world, file, true)
+            if tex then
+                mid:SetTextureParameterValue(FName("Bake"), tex)
+                mid:SetScalarParameterValue(FName("HasBake"), 1.0)
+                mid:SetScalarParameterValue(FName("BakeAO"), TerrainShadows.ao or 1.0)
+            end
+        end
     end
     for param, v in pairs(spec.vectors or {}) do
         if type(v) == "table" then
@@ -452,6 +534,10 @@ local function runtimeMaterial(world, spec, name)
         -- sun is that much dimmer than the light really is.
         mid:SetScalarParameterValue(FName("SunIlluminance"), (sun.intensity or 8.0) * (sun.response or 0.7))
         mid:SetScalarParameterValue(FName("ShadowStrength"), sun.shadow_strength or 0.9)
+        local levels = lightmapSun()
+        if levels then
+            mid:SetVectorParameterValue(FName("LightmapSun"), { R = levels[1], G = levels[2], B = 0, A = 0 })
+        end
     end
     return mid
 end
@@ -459,6 +545,10 @@ end
 local function applyMaterials(comp, list, world, id)
     if type(list) ~= "table" then return 0, 0 end
     local applied, failed = 0, 0
+    -- A machine's moving part is drawn moved by its material (the CE device
+    -- masters' World Position Offset), out past the mesh's own bounds: the
+    -- spec's bounds_scale keeps the mesh drawn wherever the part goes.
+    local bounds = 1.0
     for i, entry in ipairs(list) do
         local mat, err
         if type(entry) == "string" and #entry > 0 then
@@ -467,6 +557,7 @@ local function applyMaterials(comp, list, world, id)
         elseif type(entry) == "table" then
             local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
             mat, err = ok and m or nil, ok and e or m
+            if mat and type(entry.bounds_scale) == "number" then bounds = math.max(bounds, entry.bounds_scale) end
         end
         if mat then
             if pcall(function() comp:SetMaterial(i - 1, mat) end) then
@@ -479,7 +570,112 @@ local function applyMaterials(comp, list, world, id)
             Log(string.format("decor '%s' slot %d: %s", tostring(id), i - 1, tostring(err)))
         end
     end
+    if bounds > 1.0 then
+        local ok = pcall(function() comp:SetBoundsScale(bounds) end)
+        if not ok then ok = pcall(function() comp.BoundsScale = bounds; comp:MarkRenderStateDirty() end) end
+        Log(string.format("decor '%s': bounds scale %.2f for its moving machine parts%s", tostring(id), bounds,
+            ok and "" or " (could not set)"))
+    end
     return applied, failed
+end
+
+--- The pieces build_terrain_meshes.py writes ("<map>_terrain",
+--- "<map>_terrain_1", ...) less the sky, whose dome would shade the whole map.
+local function isTerrain(item)
+    return type(item) == "table" and item.cast_shadow == false and item.sort_priority == nil
+        and type(item.id) == "string" and item.id:find("_terrain", 1, true) ~= nil
+end
+
+--- The sun share to give the terrain materials: the experiment's, else the
+--- level's own (runtimeMaterial), else nil to leave them alone.
+local function terrainShadowStrength()
+    if TerrainShadows.strength then return TerrainShadows.strength end
+    local env = Current.level and Current.level.environment
+    local sun = type(env) == "table" and env.sun
+    if type(sun) == "table" then return sun.shadow_strength or 0.9 end
+    return nil
+end
+
+local function applyTerrainShadows(actor)
+    local comp = actor.StaticMeshComponent
+    -- CE BSP surfaces are one-sided: drawn two-sided into the shadow map, a
+    -- piece seen edge-on or from behind by the sun still blocks it.
+    comp.bCastShadowAsTwoSided = TerrainShadows.cast
+    comp:SetCastShadow(TerrainShadows.cast)
+    pcall(function() comp:MarkRenderStateDirty() end)
+    local strength = terrainShadowStrength()
+    if strength == nil then return end
+    local name = FName("ShadowStrength")
+    -- A transplanted mesh keeps the donor's one slot, so GetNumMaterials says
+    -- 1; the terrain's materials are the component's overrides (55 on Blood
+    -- Gulch, applyMaterials).
+    local count = comp:GetNumMaterials()
+    pcall(function() count = math.max(count, comp.OverrideMaterials:GetArrayNum()) end)
+    for i = 0, count - 1 do
+        local mid = comp:GetMaterial(i)
+        if mid and mid:IsValid() then
+            pcall(function() mid:SetScalarParameterValue(name, strength) end)
+        end
+    end
+end
+
+--- The terrain's hidden shadow copy (`mjolnir_terrain_shadows proxy`): the
+--- solid terrain again, never drawn, casting only, so what stands under a
+--- roof (players, vehicles, weapons) is shaded, which the visible terrain,
+--- casting nothing, cannot do. Its shadow falls on the terrain too, but with
+--- the `lightmap` materials it shows only where CE had sun. Not the
+--- translucent pieces (glass, teleporter fields) or the sky.
+local function isSolidTerrain(item)
+    return isTerrain(item) and type(item.mesh) == "string" and item.mesh:find("_Terrain%.") ~= nil
+end
+
+local function spawnShadowProxy(world, item)
+    local key = item.id .. "__shadow"
+    if Current.actors[key] and Current.actors[key]:IsValid() then return true end
+    local source = Current.actors[item.id]
+    if not (source and source:IsValid()) then return false, "terrain not spawned" end
+    local cls = findObject("/Script/Engine.StaticMeshActor")
+    local l, r = source:K2_GetActorLocation(), source:K2_GetActorRotation()
+    local actor = world:SpawnActor(cls, { X = l.X, Y = l.Y, Z = l.Z },
+        { Pitch = r.Pitch, Yaw = r.Yaw, Roll = r.Roll })
+    if not (actor and actor:IsValid()) then return false, "spawn failed" end
+    Current.actors[key] = actor
+    local src, comp = source.StaticMeshComponent, actor.StaticMeshComponent
+    comp.Mobility = MOBILITY_MOVABLE
+    comp:SetStaticMesh(src.StaticMesh)
+    local s = source:GetActorScale3D()
+    actor:SetActorScale3D({ X = s.X, Y = s.Y, Z = s.Z })
+    comp:SetCollisionEnabled(COLLISION_NONE)
+    -- The terrain's own materials, so masked surfaces (foliage, grates) cut
+    -- their shadows as they are drawn.
+    local count = src:GetNumMaterials()
+    pcall(function() count = math.max(count, src.OverrideMaterials:GetArrayNum()) end)
+    for i = 0, count - 1 do comp:SetMaterial(i, src:GetMaterial(i)) end
+    comp.bCastHiddenShadow = true
+    comp:SetCastShadow(true)
+    comp:SetHiddenInGame(true, false)
+    return true
+end
+
+local function applyShadowProxies(world)
+    local n = 0
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        if isSolidTerrain(item) then
+            local key = item.id .. "__shadow"
+            if TerrainShadows.proxy then
+                local ok, done, err = pcall(spawnShadowProxy, world, item)
+                if ok and done then
+                    n = n + 1
+                else
+                    Log("shadow proxy for '" .. item.id .. "': " .. tostring(ok and err or done))
+                end
+            elseif Current.actors[key] then
+                if Current.actors[key]:IsValid() then pcall(function() Current.actors[key]:K2_DestroyActor() end) end
+                Current.actors[key] = nil
+            end
+        end
+    end
+    return n
 end
 
 local function spawnDecorItem(world, origin, item)
@@ -572,6 +768,10 @@ local function spawnDecorItem(world, origin, item)
                 }
             end
         end
+    end
+    -- After the materials: the strength is set on them.
+    if (TerrainShadows.cast or TerrainShadows.strength) and isTerrain(item) then
+        pcall(applyTerrainShadows, actor)
     end
     return actor
 end
@@ -1512,6 +1712,9 @@ local function spawnDecor(world)
     end
     Log(string.format("level '%s': %d decor spawned, %d failed",
         tostring(level.name), Current.spawned, Current.failed))
+    if TerrainShadows.proxy then
+        Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -1695,6 +1898,94 @@ local function reload()
     Current.fileMissing = false
     local world = getWorld()
     if world then spawnDecor(world) end
+end
+
+--- `mjolnir_terrain_shadows [on|off] [strength]`: see TerrainShadows. No
+--- argument reports the setting; a strength alone keeps the cast setting;
+--- `off` alone puts the level's own strength back.
+--- `mjolnir_terrain_shadows lightmap [shadow sunlit]` respawns the level
+--- with the lightmap levels (the level's own when not given), the terrain
+--- still casting nothing unless `on` says so; `off` undoes that too.
+--- `mjolnir_terrain_shadows proxy [off]` adds (removes) the terrain's hidden
+--- shadow copy (spawnShadowProxy); `off` removes it too.
+--- `mjolnir_terrain_shadows ao <strength>` sets the baked corners' strength
+--- (runtimeMaterial's Bake) on the terrain as it stands.
+local function terrainShadows(args)
+    args = args or {}
+    local mode, value = args[1], tonumber(args[2])
+    local hadLightmap = TerrainShadows.lightmap ~= nil
+    if mode == "ao" then
+        -- The baked corners' strength (BakeAO, a power: 0 none, 1 as baked).
+        TerrainShadows.ao = math.max(0.0, value or 1.0)
+        local n = 0
+        for _, item in ipairs(Current.level and Current.level.decor or {}) do
+            local actor = isTerrain(item) and Current.actors[item.id]
+            if actor and actor:IsValid() then
+                pcall(function()
+                    local comp = actor.StaticMeshComponent
+                    local count = math.max(comp:GetNumMaterials(), comp.OverrideMaterials:GetArrayNum())
+                    for i = 0, count - 1 do
+                        local mid = comp:GetMaterial(i)
+                        if mid and mid:IsValid() then
+                            mid:SetScalarParameterValue(FName("BakeAO"), TerrainShadows.ao)
+                            n = n + 1
+                        end
+                    end
+                end)
+            end
+        end
+        Log(string.format("baked corners: strength %.2f on %d material(s)", TerrainShadows.ao, n))
+        return
+    end
+    if mode == "proxy" or mode == "off" then
+        TerrainShadows.proxy = mode == "proxy" and args[2] ~= "off"
+        local world = getWorld()
+        local n = world and applyShadowProxies(world) or 0
+        Log(string.format("terrain shadow proxy %s (%d)", TerrainShadows.proxy and "ON" or "off", n))
+        if mode == "proxy" then return end
+    end
+    if mode == "lightmap" then
+        local shadow, sunlit = tonumber(args[2]), tonumber(args[3])
+        TerrainShadows.lightmap = nil
+        local levels = (shadow and sunlit) and { shadow, sunlit } or lightmapSun()
+        if not levels or levels[2] <= levels[1] then
+            Log("usage: mjolnir_terrain_shadows lightmap <shadow> <sunlit> (this level names none)")
+            return
+        end
+        TerrainShadows.lightmap = levels
+        if not resolveMesh(TRIAL_MASTERS .. "M_CE_Environment.M_CE_Environment") then
+            Log("lightmap: trial masters (" .. TRIAL_MASTERS .. ", chunk 983) not installed; the shipped masters ignore LightmapSun")
+        end
+        Log(string.format("lightmap: shadow %.3f, sunlit %.3f; respawning the level", levels[1], levels[2]))
+        reload()
+        return
+    end
+    if mode == "on" or mode == "off" then
+        TerrainShadows.cast = mode == "on"
+        if mode == "off" and not value then TerrainShadows.strength = nil end
+        if mode == "off" and hadLightmap then
+            TerrainShadows.lightmap = nil
+            Log("lightmap: off; respawning the level")
+            reload()
+            return
+        end
+    elseif tonumber(mode) then
+        value = tonumber(mode)
+    elseif mode ~= nil then
+        Log("usage: mjolnir_terrain_shadows [on|off] [strength 0..1]")
+        return
+    end
+    if value then TerrainShadows.strength = math.max(0.0, math.min(1.0, value)) end
+    local n = 0
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        local actor = isTerrain(item) and Current.actors[item.id]
+        if actor and actor:IsValid() then
+            local ok, err = pcall(applyTerrainShadows, actor)
+            if ok then n = n + 1 else Log("terrain shadows on '" .. item.id .. "': " .. tostring(err)) end
+        end
+    end
+    Log(string.format("terrain shadows %s, strength %s, %d terrain mesh(es) updated",
+        TerrainShadows.cast and "ON" or "off", tostring(terrainShadowStrength()), n))
 end
 
 --- The native half. The engine turns a mission's SHORT world name into a
@@ -1895,7 +2186,11 @@ local function initialize()
         Log("cleared")
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear")
+    RegisterConsoleCommandHandler("mjolnir_terrain_shadows", function(_, args)
+        terrainShadows(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows")
     watch()
 end
 

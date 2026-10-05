@@ -13,3 +13,6 @@ texture2ddecoder = "0.1"
 # no ISPC toolchain or prebuilt binaries.
 texpresso = "2"
 png = "0.17"
+
+[dev-dependencies]
+serde_json = { workspace = true }
