@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the multiplayer scenery a converted map places: the spawn point at its
-# player starts (objects\multi\spawning\player_spawn) and the two ends of a
-# teleporter at its teleporter flags (objects\multi\teleporters\
-# teleporter_sender and teleporter_receiver).
+# player starts (objects\multi\spawning\player_spawn) and the teleporters at
+# its teleporter flags (objects\multi\teleporters\teleporter_sender,
+# teleporter_receiver and teleporter_2way).
 #
 #   HCE_PAKS=".../Meteorite/Content/Paks" tools/level/build_spawn_point.sh [out dir]
 #
@@ -18,15 +18,18 @@
 #   skips an object whose model does not resolve, and that model has no
 #   collision.
 #
-# The teleporters are built the same way, typed "teleporter sender" (13) and
-# "teleporter receiver" (14): the simulation keeps Reach's multiplayer
-# teleporters, which move what enters a sender's boundary to a receiver on the
-# same teleporter channel. The channel and boundary are set per placement
-# (tools/level/gen_ce_level.py, from the CE teleporter flags).
+# The teleporters are built the same way, typed "teleporter sender" (13),
+# "teleporter receiver" (14) and "teleporter 2way" (12): the simulation keeps
+# Reach's multiplayer teleporters, which move what enters a sender's (or a
+# 2-way's) boundary to a receiver (or another 2-way) on the same teleporter
+# channel. A 2-way stands at a CE pad that both sends and receives, and keeps
+# a map under the simulation's 32 teleporters. The channel and boundary are
+# set per placement (tools/level/gen_ce_level.py, from the CE teleporter
+# flags).
 #
 # The results are mod containers to install beside the map's:
-# pakchunk994-MJOLNIRSPAWN_P, pakchunk993-MJOLNIRTELES_P (sender) and
-# pakchunk992-MJOLNIRTELER_P (receiver).
+# pakchunk994-MJOLNIRSPAWN_P, pakchunk993-MJOLNIRTELES_P (sender),
+# pakchunk992-MJOLNIRTELER_P (receiver) and pakchunk991-MJOLNIRTELE2_P (2-way).
 set -euo pipefail
 out="${1:-.}"
 mjolnir="${MJOLNIR:-target/release/mjolnir}"
@@ -38,7 +41,7 @@ mjolnir="${MJOLNIR:-target/release/mjolnir}"
   --set "object.multiplayer object[0].flags=valid initial player spawn" \
   --out-dir "$out" --name pakchunk994-MJOLNIRSPAWN
 
-for end in sender:TELES:993 receiver:TELER:992; do
+for end in sender:TELES:993 receiver:TELER:992 2way:TELE2:991; do
   IFS=: read -r kind tag chunk <<<"$end"
   "$mjolnir" new-tag --group scenery --from cinematic_anchor \
     --to "objects\\multi\\teleporters\\teleporter_$kind" \

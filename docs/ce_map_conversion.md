@@ -464,10 +464,36 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   teleporters, which pair ends by channel. CE numbers a map's channels freely
   (Gephyrophobia uses 2–7, 13 and 14; Infinity 11–24), so the generator
   renumbers each map's channels from alpha in CE order, across the scenario's
-  26 (alpha to zulu), and warns about a channel missing either end. Chiron
-  TL-34 has 30 channels, more than the enum names. The first version kept
-  only channels 0–5 and dropped the rest silently, which left Gephyrophobia
-  with half its pads.
+  26 (alpha to zulu), and warns about a channel missing either end. Past
+  zulu the field takes the raw number, which pairs just as well: the
+  simulation compares the channel byte. The first version kept only channels
+  0–5 and dropped the rest silently, which left Gephyrophobia with half its
+  pads.
+- **At most 32 teleporters.** The simulation keeps a table of 32
+  teleporters, filled from the map's sender, receiver and 2-way scenery
+  (`HaloSimulation_tag_release.dll` 0x1803e7670 on CU4). An end past the 32nd
+  sends nothing, and nothing lands on it. Chiron TL-34 placed 60 ends, so
+  about half its pads did nothing. The generator warns past 32.
+- **Two-way pads.** CE has no two-way teleporter. A pad that both sends and
+  receives is two channels whose "teleport from" and "teleport to" flags sit
+  on top of each other at both ends. All of Chiron TL-34's pads are like this,
+  as are Gephyrophobia's, Sidewinder's, Boarding Action's and others. Where a
+  channel's "from" flag lands within the sender's boundary of another
+  channel's "to" flag, the reverse holds too, and the facings agree, the
+  generator merges the two channels into one. It places a "teleporter 2way"
+  at each pad, at the "to" flag with its facing. That halves the ends:
+  Chiron's 60 become 30 on 15 channels.
+- **Room to land.** The simulation lands a player at the receiver's (or
+  2-way's) origin, but only if a Spartan fits there. It tests the biped's
+  shape (radius 0.175, standing height 0.65, from 0.2 up) against the
+  collision. A receiver that fails is skipped, and a sender with none left
+  raises `teleporter_blocked`. CE has no such test and puts its "teleport to"
+  flags at the back of their alcoves. Every Chiron TL-34 landing spot had
+  0.17–0.25 to the wall behind it, and pads landing at 0.166 and 0.182 never
+  sent. The generator moves each landing end forward along its exit facing,
+  up to 0.15, until the Spartan clears CE's collision (the staging export's
+  `bsp/collision_N`) by 0.25. On Chiron 28 of 30 move, by 0.02–0.09.
+
   The two games turn the player differently:
   - **CE** turns the player to the "teleport to" flag's facing.
   - **Reach** keeps the facing relative to the sender, whose front faces the

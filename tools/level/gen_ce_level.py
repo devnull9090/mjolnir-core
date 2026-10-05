@@ -26,6 +26,7 @@ import json
 import math
 import os
 import re
+import struct
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -138,6 +139,39 @@ TELEPORTER_CHANNELS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", 
                        "xray", "yankee", "zulu"]
 TELEPORTER_RADIUS = 0.35   # world units
 TELEPORTER_HEIGHT = 0.6
+# The simulation keeps a table of at most 32 teleporters, filled once per
+# tick from the map's sender, receiver and 2-way scenery
+# (HaloSimulation_tag_release.dll 0x1803e7670, CU4). Ends past the 32nd are
+# never in it: they send nothing and nothing lands on them. Chiron TL-34
+# placed 60 ends, so half its pads did nothing (2026-10-04).
+TELEPORTER_MAX = 32
+# CE has no two-way pad: a two-way teleporter is two channels whose "teleport
+# from" and "teleport to" flags sit on top of each other at both pads (all of
+# Chiron TL-34's, Gephyrophobia's and Sidewinder's). Each such pair of channels
+# becomes one channel with a "teleporter 2way" at each pad, which both sends
+# and receives: half the ends, so Chiron's 30 pads fit the 32. Built by
+# tools/level/build_spawn_point.sh.
+TELEPORTER_2WAY = r"objects\multi\teleporters\teleporter_2way"
+# A "teleport from" flag and a "teleport to" flag make one pad when the
+# landing spot is inside the sender's boundary (Chiron's are under 0.06 apart)
+# and the exit faces the way players walk in, turned round, within this.
+TELEPORTER_2WAY_YAW = 45.0   # degrees
+# The simulation lands a player at the receiver's (or 2-way's) origin only if
+# a Spartan fits there: it tests the biped's shape against the collision
+# (0x1803e6ab0 -> 0x1802f7290) and otherwise skips that receiver, and a
+# sender with none left raises teleporter_blocked. CE has no such test and
+# puts its "teleport to" flags at the back of their alcoves: on Chiron TL-34
+# every landing spot had 0.17-0.25 to the wall behind it against the
+# Spartan's 0.175 radius (spartans-biped "radius"), and pads landing at 0.166
+# and 0.182 never sent (2026-10-05). Each landing end moves forward along its
+# exit facing, up to TELEPORTER_NUDGE_MAX, until the Spartan clears the CE
+# collision by TELEPORTER_CLEARANCE over its standing height.
+SPARTAN_RADIUS = 0.175          # world units
+SPARTAN_HEIGHT = 0.65
+SPARTAN_LIFT = 0.2              # 0x1802f7290 tests the shape this far up
+TELEPORTER_CLEARANCE = 0.25     # radius plus margin
+TELEPORTER_NUDGE_MAX = 0.15
+TELEPORTER_NUDGE_STEP = 0.01
 
 # Capture the Flag: a flag stand at each CE CTF flag, owned by the flag's team
 # (CE team 0 is red, the scenario's "defender"; 1 blue, "attacker") and
@@ -516,6 +550,100 @@ def environment(template, placement, scene=None, staging=None, bake=None):
 WU_CM = 304.8
 
 
+def collision_triangles(staging):
+    """The CE collision BSPs' surfaces as triangles in world units, from the
+    staging export's bsp/collision_N.json and .bin; [] without them."""
+    tris = []
+    bsp = os.path.join(staging, "bsp")
+    for name in sorted(os.listdir(bsp)) if os.path.isdir(bsp) else []:
+        if not re.fullmatch(r"collision_\d+\.json", name):
+            continue
+        meta = json.load(open(os.path.join(bsp, name), encoding="utf-8"))
+        data = open(os.path.join(bsp, name[:-5] + ".bin"), "rb").read()
+        arrays, off = {}, 0
+        for key in meta["array_order"]:
+            count = struct.unpack_from("<I", data, off)[0]
+            size = meta["element_sizes"][key]
+            arrays[key] = (data[off + 4:off + 4 + count * size], size, count)
+            off += 4 + count * size
+        vb, vs, vn = arrays["vertices"]
+        verts = [struct.unpack_from("<3f", vb, i * vs) for i in range(vn)]
+        eb, es, en = arrays["edges"]
+        edges = [struct.unpack_from("<6i", eb, i * es) for i in range(en)]
+        sb, ss, sn = arrays["surfaces"]
+        for si in range(sn):
+            first = struct.unpack_from("<i", sb, si * ss + 4)[0]
+            ring, e = [], first
+            for _ in range(64):
+                start, end, forward, reverse, left, _right = edges[e]
+                ring.append(start if left == si else end)
+                e = forward if left == si else reverse
+                if e == first:
+                    break
+            for k in range(1, len(ring) - 1):
+                tris.append((verts[ring[0]], verts[ring[k]], verts[ring[k + 1]]))
+    return tris
+
+
+def point_triangle_distance(p, tri):
+    """Distance from p to the closest point of a triangle (Ericson, Real-Time
+    Collision Detection 5.1.5)."""
+    a, b, c = tri
+    sub = lambda u, v: (u[0] - v[0], u[1] - v[1], u[2] - v[2])
+    dot = lambda u, v: u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+    at = lambda o, u, t: (o[0] + u[0] * t, o[1] + u[1] * t, o[2] + u[2] * t)
+    ab, ac, ap = sub(b, a), sub(c, a), sub(p, a)
+    d1, d2 = dot(ab, ap), dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        q = a
+    else:
+        bp = sub(p, b)
+        d3, d4 = dot(ab, bp), dot(ac, bp)
+        cp = sub(p, c)
+        d5, d6 = dot(ab, cp), dot(ac, cp)
+        vc, vb, va = d1 * d4 - d3 * d2, d5 * d2 - d1 * d6, d3 * d6 - d5 * d4
+        if d3 >= 0 and d4 <= d3:
+            q = b
+        elif d6 >= 0 and d5 <= d6:
+            q = c
+        elif vc <= 0 and d1 >= 0 and d3 <= 0:
+            q = at(a, ab, d1 / (d1 - d3))
+        elif vb <= 0 and d2 >= 0 and d6 <= 0:
+            q = at(a, ac, d2 / (d2 - d6))
+        elif va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0:
+            q = at(b, sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)))
+        else:
+            denom = va + vb + vc
+            q = at(at(a, ab, vb / denom), ac, vc / denom)
+    return math.dist(p, q)
+
+
+def landing_nudge(tris, pos, facing):
+    """How far forward along `facing` (CE radians) a teleporter's landing spot
+    at `pos` (world units, on the floor) moves so a standing Spartan clears
+    the collision by TELEPORTER_CLEARANCE; the clearest spot within reach
+    when none does, 0.0 when it already does."""
+    reach = TELEPORTER_CLEARANCE + TELEPORTER_NUDGE_MAX + SPARTAN_LIFT + SPARTAN_HEIGHT
+    near = [t for t in tris
+            if all(min(v[i] for v in t) - reach <= pos[i] <= max(v[i] for v in t) + reach for i in range(3))]
+    # The sim places the shape SPARTAN_LIFT above the landing spot: sample its
+    # axis from there, so the floor itself is never in the way.
+    heights = [SPARTAN_LIFT + SPARTAN_RADIUS + k * (SPARTAN_HEIGHT - 2 * SPARTAN_RADIUS) / 4
+               for k in range(5)]
+    dx, dy = math.cos(facing), math.sin(facing)
+    best = (-1.0, 0.0)
+    steps = round(TELEPORTER_NUDGE_MAX / TELEPORTER_NUDGE_STEP)
+    for k in range(steps + 1):
+        d = k * TELEPORTER_NUDGE_STEP
+        axis = [(pos[0] + dx * d, pos[1] + dy * d, pos[2] + h) for h in heights]
+        clear = min((point_triangle_distance(p, t) for p in axis for t in near), default=math.inf)
+        if clear >= TELEPORTER_CLEARANCE:
+            return d
+        if clear > best[0] + 1e-6:
+            best = (clear, d)
+    return best[1]
+
+
 def ambient_sounds(sounds_dir, root, to_ue):
     """The level's ambient sound, for MJOLNIRLevelLoader: the BSP's background
     loops (2D, map-wide) and the sound scenery (3D loops at their CE
@@ -731,20 +859,58 @@ def main():
         if ends != set(TELEPORTER_SCENERY):
             print(f"warning: CE teleporter channel {ch} has only {', '.join(sorted(ends))}; it cannot teleport",
                   file=sys.stderr)
+
+    # Two-way pads (TELEPORTER_2WAY): channels a and b, each with one flag
+    # of each kind, where a's "from" sits on b's "to" and b's "from" on a's.
+    def one_each(ch):
+        ends = [f for f in pads if ce_channel(f) == ch]
+        return len(ends) == 2 and {f["type"] for f in ends} == set(TELEPORTER_SCENERY)
+
+    def end(ch, kind):
+        return next(f for f in pads if ce_channel(f) == ch and f["type"] == kind)
+
+    def same_pad(src, dst):
+        turned = abs((sender_yaw(src) - yaw_ue(dst["facing"]) + 180.0) % 360.0 - 180.0)
+        return math.dist(src["pos"], dst["pos"]) < TELEPORTER_RADIUS and turned < TELEPORTER_2WAY_YAW
+
+    links = {}   # CE channel -> the channel key its pads end up on
+    for ch_a in sorted(by_channel):
+        if ch_a in links or not one_each(ch_a):
+            continue
+        for ch_b in sorted(by_channel):
+            if ch_b <= ch_a or ch_b in links or not one_each(ch_b):
+                continue
+            if (same_pad(end(ch_a, "TeleportFrom"), end(ch_b, "TeleportTo"))
+                    and same_pad(end(ch_b, "TeleportFrom"), end(ch_a, "TeleportTo"))):
+                links[ch_a] = links[ch_b] = (ch_a, ch_b)
+                break
+    for ch in by_channel:
+        links.setdefault(ch, (ch,))
+
     # The channel is a char enum naming 26 channels, alpha to zulu. A map
-    # with more (Chiron TL-34 has 30) numbers the rest: the field takes a raw
-    # value, and the engine pairs a sender with receivers by value alone.
-    dense = {ch: i for i, ch in enumerate(sorted(by_channel))}
+    # with more numbers the rest: the field takes a raw value, and the engine
+    # pairs ends by value alone (0x1803e6600 compares the byte).
+    dense = {key: i for i, key in enumerate(sorted(set(links.values())))}
     if len(dense) > 127:
         sys.exit(f"{len(dense)} teleporter channels; a char enum holds 127")
     channel_value = lambda i: TELEPORTER_CHANNELS[i] if i < len(TELEPORTER_CHANNELS) else str(i)
+    collision = collision_triangles(a.staging) if pads else []
+    nudged = []
     for f in pads:
-        tag = TELEPORTER_SCENERY[f["type"]]
-        channel = dense[ce_channel(f)]
+        two_way = len(links[ce_channel(f)]) == 2
+        if two_way and f["type"] == "TeleportFrom":
+            continue   # the pad's 2-way end stands at its "teleport to" flag
+        channel = dense[links[ce_channel(f)]]
+        pos = f["pos"]
+        if f["type"] == "TeleportTo" and collision:
+            d = landing_nudge(collision, pos, f["facing"])
+            if d:
+                pos = [pos[0] + math.cos(f["facing"]) * d, pos[1] + math.sin(f["facing"]) * d, pos[2]]
+                nudged.append(d)
         teleporters.append({
-            "tag": tag,
+            "tag": TELEPORTER_2WAY if two_way else TELEPORTER_SCENERY[f["type"]],
             "group": "scenery",
-            "pos": to_ue(f["pos"]),
+            "pos": to_ue(pos),
             # Reach's teleporter keeps a player's facing relative to the
             # sender: exit = receiver + (player - sender) + 180, the sender's
             # front facing the player who walks in. CE turns the player to the
@@ -752,6 +918,8 @@ def main():
             # way players walk in, so a sender turned round makes walking in
             # head-on exit as CE does. As placed, players had to walk in
             # backwards to exit the right way (2026-10-01, Gephyrophobia).
+            # A 2-way end takes its "teleport to" flag's facing, which
+            # same_pad checked is its "teleport from" flag's turned round.
             "rot": [0, sender_yaw(f), 0],
             "set": {
                 "multiplayer data.teleporter channel": channel_value(channel),
@@ -761,6 +929,12 @@ def main():
                 "multiplayer data.boundary negative height": "0.1",
             },
         })
+    if nudged:
+        print(f"{len(nudged)} teleporter landing spot(s) moved forward to fit a Spartan "
+              f"(up to {max(nudged):.2f} wu)", file=sys.stderr)
+    if len(teleporters) > TELEPORTER_MAX:
+        print(f"warning: {len(teleporters)} teleporter ends; the simulation keeps {TELEPORTER_MAX}, "
+              "and the rest do nothing", file=sys.stderr)
 
     flag_stands = []
     for f in placement["netgame_flags"]:
