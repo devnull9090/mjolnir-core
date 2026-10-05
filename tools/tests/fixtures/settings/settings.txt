@@ -1,0 +1,1 @@
+betrayal_seconds=0;lives=3;map_flags=0;respawn_seconds=10;score=15;social_flags=5;suicide_seconds=15;time_limit=10;trait.camo=4;trait.health=4;trait.shields=1

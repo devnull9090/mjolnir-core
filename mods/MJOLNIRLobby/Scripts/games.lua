@@ -457,6 +457,14 @@ function Games.join(lobby, done)
         -- host's session though it arrives alone in a match under way.
         keepLobby(false)
         stayOnline(true)
+        -- Another host's game settings: what the listing says, or none until
+        -- this host's lobby message brings its own (a match joined under
+        -- way gets no lobby message).
+        local settings = io.open(nativeDir .. "..\\..\\MJOLNIRLevelLoader\\variant_settings.txt", "w")
+        if settings then
+            settings:write(type(data.settings) == "string" and data.settings or "")
+            settings:close()
+        end
         joiningGameType = data.game_type or lobby.game_type
         local f = io.open(nativeDir .. "join_request.txt", "wb")
         if not f then

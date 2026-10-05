@@ -110,6 +110,23 @@ local function base(r)
     end
 end
 
+--- The round time limit in minutes (0 for none), or nil: the misc
+--- options' u8, right after the content header's trailing bit and the
+--- teams flag and its three neighbours.
+function Variant.timeLimit(bytes)
+    if type(bytes) ~= "string" or #bytes < 8 then return nil end
+    local ok, minutes = pcall(function()
+        local r = reader(bytes)
+        local version = r.read(32)
+        if version ~= 0x6a and version ~= 0x6b then error("version") end
+        r.skip(32)
+        contentHeader(r)
+        r.skip(1, 1, 1, 1, 1)
+        return r.read(8)
+    end)
+    return ok and minutes or nil
+end
+
 --- The score to win in a variant's bytes, or nil.
 function Variant.scoreToWin(bytes)
     if type(bytes) ~= "string" or #bytes < 8 then return nil end
