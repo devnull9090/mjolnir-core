@@ -169,12 +169,15 @@ end
 
 --- Refresh after the panel's own rebuild and header update. The blueprint
 --- class loads with the main menu, and RegisterHook on a blueprint class that
---- is not loaded fails silently, so this waits for it.
+--- is not loaded fails silently, so this waits for it. `size` is a number, or
+--- a function asked at each refresh (the host's MAX PLAYERS can change).
 function SquadPanel.hook(size)
     if hooked or not valid(StaticFindObject(WIDGET)) then return end
     hooked = true
     local function later()
-        ExecuteInGameThreadWithDelay(50, function() pcall(SquadPanel.refresh, size) end)
+        ExecuteInGameThreadWithDelay(50, function()
+            pcall(SquadPanel.refresh, type(size) == "function" and size() or size)
+        end)
     end
     for _, fn in ipairs({ "BackingDataChanged", "UpdateHeader" }) do
         pcall(function() RegisterHook(WIDGET .. ":" .. fn, later) end)

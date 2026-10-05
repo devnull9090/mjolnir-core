@@ -86,7 +86,9 @@ hides the main menu beneath, and Back (Escape, B) pops them
 
 - **The lobby:** the map and game type, a description of each, the players
   (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
-  MAP, GAME TYPE (cycles the map's modes) and BACK.
+  MAP, GAME TYPE (cycles the map's modes), PRIVATE / PUBLIC GAME, MAX
+  PLAYERS (2 to 16, host only;
+  [fireteam_join_and_cap.md](fireteam_join_and_cap.md)), FIND GAMES and BACK.
   - Team modes (CTF and Team Slayer) show separate Red/Blue roster sections.
     These reflect the game's team assignments, with an Awaiting assignment
     section when the frontend has no simulation team yet. No local team

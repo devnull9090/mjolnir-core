@@ -176,3 +176,28 @@ player in the game state, one INVITE + row while there is room, and
 
 Removing a `CreatePlayer` guest with `GameplayStatics:RemovePlayer` crashed
 the game.
+
+## MAX PLAYERS (host choice, 2-16)
+
+The lobby's MAX PLAYERS row (`-`, the number, `+`; host only) narrows the
+fireteam below 16. Nothing raises it past 16: the simulation's players array
+is the ceiling, so a larger PlayFab lobby would only let a seventeenth player
+into a lobby the simulation then refuses.
+
+- **PlayFab lobby.** `mjolnir_lobby_max` (native\lobby_max.txt) sets
+  `maxMemberCount` on the lobby the host owns, through `PFLobbyPostUpdate` as
+  its owner (`PFLobbyGetOwner`). It is kept for every lobby the game creates
+  later (the create hook uses it), and an update the game posts with its own
+  size is rewritten to it. This is the one layer every join passes, invite or
+  FIND GAMES. PlayFab answers asynchronously; `mjolnir_lobby_connection`'s
+  `max` line shows what took. The choice never goes below the players already
+  in the fireteam.
+- **Party and presence** stay at 16: they only have to be at least the lobby.
+- **`GameSession.MaxPlayers`** is held at the choice (it was raised to 16).
+- **The hub listing** sends it as `max_players` on create and heartbeat, and
+  reports `full` at that many players; `/join` refuses a full game.
+- The choice is saved in `MJOLNIRLobby\max_players.txt` and applied at startup,
+  before the game creates its lobby at sign-in.
+
+Not yet tested on two PCs: a join refused by a full lobby should reach the
+joiner as "This fireteam is full", the same message a locked lobby gives.

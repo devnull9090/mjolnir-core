@@ -399,9 +399,37 @@ def finish_screen(bp, name):
     unreal.log(f"MJOLNIR UI: {ROOT}/{name} built")
 
 
+def max_players_row(bp, parent):
+    """The host's MAX PLAYERS: - and + either side of the number, which also
+    steps up when clicked (MJOLNIRLobby wraps it from 16 to the fewest). Lua
+    sets MaxPlayersValue, enables the steps and shows the row to the host
+    only. Returns the row's events."""
+    row = widget(bp, unreal.HorizontalBox, "MaxPlayersRow", parent)
+    gap(row, bottom=10)
+    for key, text in (("MaxPlayersDown", "-"), ("MaxPlayers", None), ("MaxPlayersUp", "+")):
+        button = widget(bp, unreal.Button, key, "MaxPlayersRow")
+        button_style(button)
+        if text is None:
+            fill(button, 1)
+            button.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 8, 0))
+            inner = widget(bp, unreal.HorizontalBox, "MaxPlayersInner", key)
+            caption = widget(bp, unreal.TextBlock, "MaxPlayersCaption", "MaxPlayersInner")
+            text_style(caption, "MAX PLAYERS", 20, ACCENT)
+            middle(caption)
+            value = widget(bp, unreal.TextBlock, "MaxPlayersValue", "MaxPlayersInner")
+            text_style(value, "16", 30, WHITE)
+            value.get_editor_property("slot").set_padding(unreal.Margin(14, 0, 0, 0))
+            middle(value)
+        else:
+            text_style(widget(bp, unreal.TextBlock, key + "Label", key), text, 30, WHITE)
+    return [("MaxPlayersDown", "OnClicked", "maxdown"), ("MaxPlayers", "OnClicked", "maxplayers"),
+            ("MaxPlayersUp", "OnClicked", "maxup")]
+
+
 def build_lobby():
-    """The host's lobby: the map and game type, the players, START and
-    INVITE FRIENDS (the game's own Friends screen, cross-platform)."""
+    """The host's lobby: the map and game type, the players, START,
+    INVITE FRIENDS (the game's own Friends screen, cross-platform), PRIVATE /
+    PUBLIC GAME and MAX PLAYERS."""
     name = "WBP_MJOLNIRLobby"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
@@ -419,6 +447,8 @@ def build_lobby():
                        ("Back", "BACK")):
         gap(menu_button(bp, key, label, "Menu", size=30), bottom=10)
         events.append((key, "OnClicked", key.lower()))
+        if key == "Listing":
+            events += max_players_row(bp, "Menu")
 
     card = panel(bp, "Card", "Root")
     place(card, (0.28, 0.28), (0.0, 0.0))

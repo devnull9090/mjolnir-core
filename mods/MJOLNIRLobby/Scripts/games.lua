@@ -21,7 +21,7 @@ local Games = {}
 
 local HEARTBEAT_SECONDS = 30
 local REPLY_TIMEOUT = 20      -- seconds before a hub call counts as failed
-local MAX_PLAYERS = 16
+local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
 local nativeDir, listingFile, Json, Net, log
 local sequence = 0
@@ -35,6 +35,7 @@ local Host = {
     status = "",      -- one line for the lobby's footer
     info = nil,       -- function -> { name, map_code, game_type, players, in_game }
     version = "",
+    maxPlayers = MAX_PLAYERS,   -- the host's MAX PLAYERS
 }
 
 local function readFile(path)
@@ -304,7 +305,7 @@ local function beat()
     end
     local players = math.max(1, info.players or 1)
     local state = info.in_game and "in_game" or "open"
-    if players >= MAX_PLAYERS then state = "full" end
+    if players >= Host.maxPlayers then state = "full" end
     Host.busy = true
     if not Host.id then
         hub("POST", "/lobbies", {
@@ -312,7 +313,7 @@ local function beat()
             map_code = info.map_code,
             game_type = info.game_type,
             players = players,
-            max_players = MAX_PLAYERS,
+            max_players = Host.maxPlayers,
             client_version = Host.version,
             platform = "steam",
             connection_string = conn,
@@ -341,6 +342,7 @@ local function beat()
     hub("POST", "/lobbies/" .. Host.id .. "/heartbeat", {
         token = Host.token,
         players = players,
+        max_players = Host.maxPlayers,
         map_code = info.map_code,
         game_type = info.game_type,
         state = state,
@@ -399,6 +401,14 @@ end
 --- hub on the next tick instead of waiting for the heartbeat.
 function Games.changed()
     if Host.id and not Host.busy then Host.nextBeat = 0 end
+end
+
+--- The host's MAX PLAYERS, which the listing shows and fills up at.
+function Games.setMaxPlayers(size)
+    size = math.max(1, math.min(MAX_PLAYERS, math.floor(tonumber(size) or MAX_PLAYERS)))
+    if size == Host.maxPlayers then return end
+    Host.maxPlayers = size
+    Games.changed()
 end
 
 -------------------------------------------------------------------------------
