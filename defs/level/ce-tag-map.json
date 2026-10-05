@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "comment": "Classic Halo CE tag paths (as halo2ue's placement.json names them, forward slashes) -> the level file's friendly type names (defs/level/palette-map.json). Each value is a list tried in order; the first type the canvas scenario's palette carries wins, and an empty list drops the placement. Custom-map tags are listed so a conversion reports them as dropped on purpose rather than unknown. Used by tools/level/gen_ce_level.py.",
+  "comment": "Classic Halo CE tag paths (as halo2ue's placement.json names them, forward slashes) -> the level file's friendly type names (defs/level/palette-map.json). Each value is a list tried in order; the first type the canvas scenario's palette carries wins, and an empty list drops the placement. Custom-map tags are listed so a conversion reports them as dropped on purpose rather than unknown; a vehicle not listed falls back to its CE vehicle type (halo2ue's vehicle_type) through vehicle_types. Used by tools/level/gen_ce_level.py.",
   "vehicles": {
     "vehicles/warthog/mp_warthog": ["warthog"],
     "vehicles/rwarthog/rwarthog": ["warthog"],
@@ -20,6 +20,15 @@
     "mechs/mythos/mythos": [],
     "mechs/nirvash/nirvash rifle": []
   },
+  "vehicle_types": {
+    "human_jeep": ["warthog"],
+    "human_tank": ["scorpion"],
+    "alien_scout": ["ghost"],
+    "alien_fighter": ["banshee"],
+    "turret": ["shade"],
+    "human_boat": [],
+    "human_plane": []
+  },
   "weapons": {
     "weapons/assault rifle/assault rifle": ["assault_rifle"],
     "weapons/assault rifle/assault rifle test": ["assault_rifle"],
@@ -27,6 +36,7 @@
     "weapons/plasma rifle/plasma rifle": ["plasma_rifle"],
     "weapons/plasma pistol/plasma pistol": ["plasma_pistol"],
     "weapons/needler/mp_needler": ["needler"],
+    "weapons/needler/needler": ["needler"],
     "weapons/sniper rifle/sniper rifle": ["sniper_rifle"],
     "weapons/sniper/sniper": ["sniper_rifle"],
     "weapons/rocket launcher/rocket launcher": ["rocket_launcher"],

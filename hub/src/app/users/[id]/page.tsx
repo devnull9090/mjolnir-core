@@ -13,6 +13,8 @@ import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
 import { ModCard } from "../../components/HubKit";
 import { getUserProfile } from "@/lib/api/queries";
+import { listMatches, playerTotals } from "@/lib/api/matches";
+import { MatchTable, PlayerTotalsStrip } from "../../matches/_components/MatchTable";
 
 /**
  * A public profile: who someone is here, and what they have done.
@@ -83,6 +85,13 @@ export default async function UserProfilePage({
   if (!profile) notFound();
   const { user, mods } = profile;
   const name = user.display_name ?? user.username;
+  // Public matches whose seat this account claimed from its own game (or
+  // hosted): docs/match_stats.md.
+  const { env } = getCloudflareContext();
+  const [totals, { matches }] = await Promise.all([
+    playerTotals(env.DB as never, { user: user.id }),
+    listMatches(env.DB as never, { user: user.id, limit: 10 }),
+  ]);
 
   return (
     <>
@@ -110,6 +119,18 @@ export default async function UserProfilePage({
             </div>
           )}
         </section>
+
+        {totals.matches > 0 && (
+          <section className="mt-10">
+            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
+              Multiplayer · {totals.matches} public match{totals.matches === 1 ? "" : "es"}
+            </h2>
+            <PlayerTotalsStrip totals={totals} />
+            <div className="mt-4">
+              <MatchTable matches={matches} seat />
+            </div>
+          </section>
+        )}
 
         <div className="mt-10 text-xs text-text-dim">
           <Link href="/mods" className="hover:text-foreground">

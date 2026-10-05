@@ -49,7 +49,7 @@ fn main() {
             let mut c = ce::load(std::path::Path::new(&a[1]))
                 .expect("staging")
                 .collision;
-            split::fan_split(&mut c, 4);
+            split::fan_split_fit(&mut c, 4);
             let p = pack16::pack(&c, &(|_: i16| 0i16)).expect("pack");
             let t = Tables {
                 bsp3d_nodes: &p.bsp3d_nodes,

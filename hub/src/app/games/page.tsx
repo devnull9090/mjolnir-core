@@ -68,6 +68,7 @@ export default async function GamesPage({
             FIND GAMES. Ping is an estimate from where you and the host are.
           </p>
           <Link href="/multiplayer" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">Get multiplayer &amp; find your fireteam →</Link>
+          <Link href="/matches" className="mt-4 ml-6 inline-block text-sm font-semibold text-gold hover:underline">Match history →</Link>
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">

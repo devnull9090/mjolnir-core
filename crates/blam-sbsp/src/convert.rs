@@ -246,7 +246,7 @@ pub fn transplant_shell(
     if delta != [0.0; 3] {
         pack16::translate(&mut collision, delta);
     }
-    split::fan_split(&mut collision, 4);
+    split::fan_split_fit(&mut collision, 4);
     collision.fits_16bit()?;
     let bounds = collision
         .bounds()
@@ -442,7 +442,7 @@ pub fn transplant_definition(
     }
     // Shipped definitions are triangles and quads only; larger CE polygons
     // took the simulation down once lookups reached them.
-    let (split, rewired) = split::fan_split(&mut collision, 4);
+    let (split, rewired) = split::fan_split_fit(&mut collision, 4);
     collision.fits_16bit()?;
     let local = collision
         .bounds()

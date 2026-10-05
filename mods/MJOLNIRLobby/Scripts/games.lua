@@ -23,7 +23,7 @@ local HEARTBEAT_SECONDS = 30
 local REPLY_TIMEOUT = 20      -- seconds before a hub call counts as failed
 local MAX_PLAYERS = 16
 
-local nativeDir, Json, Net, log
+local nativeDir, listingFile, Json, Net, log
 local sequence = 0
 
 local Host = {
@@ -78,7 +78,8 @@ local function denull(v)
 end
 
 --- Call the hub API: done(status, decoded body or nil). Status 0 means the
---- hub could not be reached, or did not answer in time.
+--- hub could not be reached, or did not answer in time. `body` is a flat
+--- table, or JSON text sent as it is.
 local function hub(method, path, body, done)
     sequence = sequence + 1
     local id = string.format("g%d%d", os.time() % 100000, sequence)
@@ -87,7 +88,7 @@ local function hub(method, path, body, done)
         done(0, nil)
         return
     end
-    f:write(id, " ", method, " ", path, "\n", body and encode(body) or "")
+    f:write(id, " ", method, " ", path, "\n", type(body) == "string" and body or (body and encode(body)) or "")
     f:close()
     if not native("mjolnir_hub_call") then
         done(0, nil)
@@ -259,6 +260,21 @@ local function setStatus(text)
     Host.status = text or ""
 end
 
+--- The listing's id in listing.txt beside this mod, while there is one:
+--- MJOLNIRHud's match log reads it to know the match is public
+--- (docs/match_stats.md).
+local function noteListing(id)
+    if id then
+        local f = io.open(listingFile, "wb")
+        if f then
+            f:write(id, "\n")
+            f:close()
+        end
+    else
+        os.remove(listingFile)
+    end
+end
+
 local function unlist(why)
     if Host.id then
         local id, token = Host.id, Host.token
@@ -268,6 +284,7 @@ local function unlist(why)
         log("games: unlisted (" .. why .. ")")
     end
     Host.id, Host.token = nil, nil
+    noteListing(nil)
 end
 
 local function beat()
@@ -309,6 +326,7 @@ local function beat()
                     return
                 end
                 Host.id, Host.token = data.id, data.token
+                noteListing(data.id)
                 Host.nextBeat = os.time() + HEARTBEAT_SECONDS
                 setStatus("PUBLIC: listed in FIND GAMES")
                 log("games: listed " .. info.map_code .. " " .. info.game_type)
@@ -333,6 +351,7 @@ local function beat()
         if status == 404 then
             -- Swept, or replaced by a listing from another session: list again.
             Host.id, Host.token = nil, nil
+            noteListing(nil)
             Host.nextBeat = 0
         elseif status ~= 200 then
             setStatus("Listing not updated: " .. explain(status, data))
@@ -360,6 +379,10 @@ end
 
 function Games.isPublic() return Host.public end
 function Games.status() return Host.status end
+
+--- The hub API and what its failures mean, for the match uploader.
+Games.call = hub
+Games.explain = explain
 
 function Games.setPublic(on)
     Host.public = on and true or false
@@ -459,7 +482,10 @@ end
 --- deps: { modDir, json, net, log, version, info }.
 function Games.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
+    listingFile = deps.modDir .. "\\listing.txt"
     Json, Net, log = deps.json, deps.net, deps.log
+    -- Left by a session that ended while listed: that listing is gone.
+    noteListing(nil)
     Host.version = deps.version or ""
     Host.info = deps.info
     keepLobby(false)

@@ -19,6 +19,7 @@ const columns: { title: string; links: { href: string; label: string; external?:
       { href: "/download", label: "Download" },
       { href: "/maps", label: "Classic & Custom Maps" },
       { href: "/games", label: "Games" },
+      { href: "/matches", label: "Matches" },
       { href: "/mods", label: "Mods" },
       { href: "/tools", label: "Tools" },
       { href: "/changelog", label: "Changelog" },

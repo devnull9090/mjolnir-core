@@ -41,6 +41,35 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.10.2",
+      "tag": "launcher-v0.10.2",
+      "title": "Mods that start on slower PCs, and no more Ctrl+R crashes",
+      "date": "2026-10-03",
+      "summary": "UE4SS gets two minutes to start instead of 30 seconds, so mods run on slower PCs, and Ctrl+R no longer reloads every mod mid-game.",
+      "body": "### Fixed\n\n- **Mods no longer fail to start on slower PCs.** UE4SS waits for the game\n  to finish starting before it hooks in. On some PCs that took longer than\n  its 30-second limit, so it gave up and no mods ran. The multiplayer lobby\n  still showed, but none of its buttons did anything. The launcher now\n  raises the limit to two minutes in `UE4SS-settings.ini`, and leaves a\n  longer limit you set yourself alone.\n- **Ctrl+R no longer reloads every mod.** UE4SS's hot reload, meant for\n  people writing mods, restarted every mod when Ctrl+R was pressed. In a\n  match that crashed the host. The launcher now turns it off\n  (`EnableHotReloadSystem = 0`).\n- These are applied when the launcher opens and every time it starts the game,\n  so it holds when you start the game from Steam too. Nothing else in your\n  settings file changes.\n\n### Notes\n\n- If the lobby's buttons still do nothing, send us `ue4ss\\UE4SS.log` from\n  the game's `Meteorite\\Binaries\\Win64` folder.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mods no longer fail to start on slower PCs. UE4SS waits for the game to finish starting before it hooks in. On some PCs that took longer than its 30-second limit, so it gave up and no mods ran. The multiplayer lobby still showed, but none of its buttons did anything. The launcher now raises the limit to two minutes in UE4SS-settings.ini, and leaves a longer limit you set yourself alone.",
+            "Ctrl+R no longer reloads every mod. UE4SS's hot reload, meant for people writing mods, restarted every mod when Ctrl+R was pressed. In a match that crashed the host. The launcher now turns it off (EnableHotReloadSystem = 0).",
+            "These are applied when the launcher opens and every time it starts the game, so it holds when you start the game from Steam too. Nothing else in your settings file changes."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "If the lobby's buttons still do nothing, send us ue4ss\\UE4SS.log from the game's Meteorite\\Binaries\\Win64 folder."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.10.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.10.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.10.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.10.1",
       "tag": "launcher-v0.10.1",
       "title": "No more UE4SS console window, and a tidier header",
@@ -65,6 +94,65 @@
       "path": "/changelog/launcher/0.10.1",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.10.1.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.10.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.14.1",
+      "tag": "mods-v0.14.1",
+      "title": "A lobby that answers its buttons, and a reload that can't crash the host",
+      "date": "2026-10-03",
+      "summary": "The lobby keeps trying to connect its buttons, and reloading mods no longer crashes a game in progress.",
+      "body": "### Fixed\n\n- **MJOLNIRLobby 0.7.1**: the lobby's buttons are hooked up again if the\n  first try at startup failed, and when the lobby opens. Before, one failure\n  left the lobby on screen with buttons that did nothing until the game was\n  restarted.\n- **Reloading mods no longer crashes the game.** MJOLNIRLobby,\n  MJOLNIRLevelLoader and MJOLNIRBlamConsole each load a native DLL that\n  hooks into the game. A UE4SS mod reload (Ctrl+R) unloaded those DLLs while\n  the game still called their hooks, which crashed a host mid-match. The DLLs\n  now stay loaded for the life of the game: MJOLNIRLobby 0.7.1,\n  MJOLNIRLevelLoader 0.1.7 and MJOLNIRBlamConsole 0.2.1.\n- Watching for the lobby is now the first thing the mod sets up, so a problem\n  elsewhere in its startup can't leave the lobby without it.\n\n### Notes\n\n- Most \"the buttons do nothing\" reports were UE4SS itself not starting on\n  slower PCs, which launcher 0.10.2 fixes.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "MJOLNIRLobby 0.7.1: the lobby's buttons are hooked up again if the first try at startup failed, and when the lobby opens. Before, one failure left the lobby on screen with buttons that did nothing until the game was restarted.",
+            "Reloading mods no longer crashes the game. MJOLNIRLobby, MJOLNIRLevelLoader and MJOLNIRBlamConsole each load a native DLL that hooks into the game. A UE4SS mod reload (Ctrl+R) unloaded those DLLs while the game still called their hooks, which crashed a host mid-match. The DLLs now stay loaded for the life of the game: MJOLNIRLobby 0.7.1, MJOLNIRLevelLoader 0.1.7 and MJOLNIRBlamConsole 0.2.1.",
+            "Watching for the lobby is now the first thing the mod sets up, so a problem elsewhere in its startup can't leave the lobby without it."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Most \"the buttons do nothing\" reports were UE4SS itself not starting on slower PCs, which launcher 0.10.2 fixes."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.14.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.14.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.14.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.14.0",
+      "tag": "mods-v0.14.0",
+      "title": "Match history for public games",
+      "date": "2026-10-03",
+      "summary": "Public matches now report their scoreboard and every kill, with where it happened, to mjolnircore.com/matches.",
+      "body": "### Added\n\n- **Match history.** When a public match ends, the host's game sends it to\n  mjolnircore.com: the final scoreboard and every kill, death, spawn, medal\n  and flag capture, in order, with where each player was standing. See every\n  match at mjolnircore.com/matches, with a timeline and a map of where the\n  kills and deaths happened.\n- **Your matches on your profile.** Your own game claims your seat in each\n  public match you play, so your hub profile lists your matches, wins, kills\n  and deaths. Players can also be looked up by in-game name.\n- Private games are not reported.\n\n### Changed\n\n- **MJOLNIRHud 0.4.0** records public matches on the host and claims your seat\n  when you play in someone else's.\n- **MJOLNIRLobby 0.7.0** sends them to the hub with your launcher sign-in.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Match history. When a public match ends, the host's game sends it to mjolnircore.com: the final scoreboard and every kill, death, spawn, medal and flag capture, in order, with where each player was standing. See every match at mjolnircore.com/matches, with a timeline and a map of where the kills and deaths happened.",
+            "Your matches on your profile. Your own game claims your seat in each public match you play, so your hub profile lists your matches, wins, kills and deaths. Players can also be looked up by in-game name.",
+            "Private games are not reported."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRHud 0.4.0 records public matches on the host and claims your seat when you play in someone else's.",
+            "MJOLNIRLobby 0.7.0 sends them to the hub with your launcher sign-in."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.14.0"
     },
     {
       "product": "mods",

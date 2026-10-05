@@ -474,7 +474,15 @@ def build_lobby():
     text_style(hint, "", 19, GREY)
     wrapped(hint)
     gap(hint, top=12)
-    footer(bp)
+    # The main menu pushes this screen without Lua, but only MJOLNIRLobby
+    # answers its buttons. Its first fill replaces this line (and its
+    # colour), so the warning stays only when the mods are not running.
+    # The usual cause is UE4SS giving up at startup (UE4SS.log ends in
+    # "Fatal Error: AOB scans could not be completed"), which a restart
+    # often gets past.
+    text_style(footer(bp), "MJOLNIR MODS DID NOT START, SO THESE BUTTONS DO NOTHING   /   RESTART THE GAME. "
+               "IF IT KEEPS HAPPENING, CHECK MJOLNIRLOBBY IS ON IN THE LAUNCHER AND SEND US ue4ss\\UE4SS.log",
+               22, GOLD)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")

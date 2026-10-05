@@ -34,9 +34,23 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant, client, variantFile)
-    local time, scheduled, incidentHook, held = 5, nil, nil, true
+local function runHUD(variant, client, variantFile, listing)
+    local time, scheduled, held = 5, nil, true
     local written, commands = {}, {}
+    -- Hooks by function path; the match log's files in memory, by path; what
+    -- this machine asked its host over ServerExecRPC.
+    local hooks, files, asked = {}, {}, {}
+    local function memfile(path, mode)
+        if mode:match("^r") then
+            local data = files[path]
+            if not data then return nil end
+            return { read = function() return data end, close = function() end }
+        end
+        if mode:match("^w") or not files[path] then files[path] = "" end
+        return { write = function(_, ...)
+            for _, v in ipairs({ ... }) do files[path] = files[path] .. tostring(v) end
+        end, close = function() end }
+    end
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
     local function block()
         return setmetatable({ IsValid = function() return true end,
@@ -48,7 +62,9 @@ local function runHUD(variant, client, variantFile)
             { __index = function(t, k) local child = block(); rawset(t, k, child); return child end })
     end
     local function biped(index)
-        return { BlamGameTeam = { GetGameTeamString = function()
+        return { IsValid = function() return true end,
+            K2_GetActorLocation = function() return { X = index * 100, Y = 1, Z = 2 } end,
+            BlamGameTeam = { GetGameTeamString = function()
             return { ToString = function() return "EBlamMultiplayerTeam::" .. (teams[index] or "None") end }
         end } }
     end
@@ -64,11 +80,24 @@ local function runHUD(variant, client, variantFile)
         end } } }
     local pc = { IsValid = function() return true end, GetWorld = function() return world end,
         IsInputKeyDown = function() return held end,
+        ServerExecRPC = function(_, msg) asked[#asked + 1] = msg end,
         PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 1 } } }
-    local env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
-        dofile = function(path) return dofile((path:gsub("\\", "/"))) end,
-        print = function() end, os = { clock = function() return time end, time = function() return 1000 end },
+    local env
+    env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
+        -- The HUD's own modules run in this environment too, as in the game.
+        dofile = function(path) return assert(loadfile((path:gsub("\\", "/")), "t", env))() end,
+        print = function() end, os = { clock = function() return time end, time = function() return 1000 end,
+            remove = function(path) files[path] = nil end },
         io = { open = function(path, mode)
+            mode = mode or "r"
+            local own = path:match("MJOLNIRHud[\\/]([%w_]+%.%w+)$")
+            if own and (own:match("^match_") or own:match("^claim_")) then return memfile(path, mode) end
+            if path:match("MJOLNIRLobby[\\/]listing%.txt$") then
+                if listing and mode:match("^r") then
+                    return { read = function() return listing .. "\n" end, close = function() end }
+                end
+                return nil
+            end
             if path:match("last_match.txt$") and mode == "w" then
                 return { write = function(_, ...) for _, v in ipairs({ ... }) do written[#written + 1] = v end end,
                     close = function() end }
@@ -85,8 +114,9 @@ local function runHUD(variant, client, variantFile)
             return { IsValid = function() return true end,
                 GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = pc } } } } }
         end,
-        RegisterHook = function(_, fn) incidentHook = fn end,
+        RegisterHook = function(path, fn) hooks[path] = fn end,
         NotifyOnNewObject = function() end,
+        ExecuteInGameThread = function(fn) fn() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
         StaticFindObject = function(path)
             if path:find("GameplayStatics") then return { GetPlayerController = function() return pc end } end
@@ -101,15 +131,30 @@ local function runHUD(variant, client, variantFile)
     assert(loadfile("mods/MJOLNIRHud/Scripts/main.lua", "t", env))()
     local function poll() time = time + 1.1; scheduled() end
     local function incident(name, cause, effect, value)
+        local incidentHook
+        for path, fn in pairs(hooks) do
+            if path:find("OnIncident_Event", 1, true) then incidentHook = fn end
+        end
         incidentHook(nil, { get = function() return { Name = { ToString = function() return name end },
             CausePlayerAbsoluteIndex = cause, EffectPlayerAbsoluteIndex = effect, CustomValue = value,
-            CauseObjectActor = cause and biped(cause), EffectObjectActor = effect and biped(effect) } end })
+            -- No player, no object: as the game sends index -1.
+            CauseObjectActor = cause and cause >= 0 and biped(cause) or nil,
+            EffectObjectActor = effect and effect >= 0 and biped(effect) or nil } end })
         poll()
     end
     poll()
     return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll,
         hold = function(v) held = v; poll() end,
-        written = function() return table.concat(written) end, commands = commands }
+        written = function() return table.concat(written) end, commands = commands,
+        hooks = hooks, asked = asked,
+        --- The match log's file whose name matches `pattern`, and its name.
+        file = function(pattern)
+            for path, data in pairs(files) do
+                local name = path:match("([^\\/]+)$")
+                if name:match(pattern) then return data, name end
+            end
+            return nil
+        end }
 end
 
 local ctf = runHUD("ctf")
@@ -202,6 +247,89 @@ eq(member.board.Title.text, "BLUE TEAM WINS")
 assert(member.written():find("\nteam\tBlue\t1\n"))
 for _ = 1, 10 do member.poll() end
 eq(#member.commands, 0)
+
+-- The match log (docs/match_stats.md). A private match is recorded and
+-- thrown away: the final standings above left nothing queued.
+assert(not ffa.file("^match_outbox%.txt$"), "a private match was queued")
+assert(not ffa.file("^match_current%.txt$"), "a finished match is still current")
+
+-- A public host's match: every incident in order, with where the cause's and
+-- the effect's bipeds stood, queued for MJOLNIRLobby when it ends.
+local pub = runHUD("slayer", false, nil, "lobby-1")
+local current = pub.file("^match_current%.txt$")
+assert(current and current:match("^%x+$"), "no match being recorded")
+pub.incident("player_spawn", 0, -1, 0)
+pub.incident("Kill", 2, 0, 0)
+pub.incident("respawn_tick", 0, -1, 0) -- the countdown is not kept
+pub.incident("round_over", -1, -1, 0)
+eq(pub.board.Title.text, "CHARLIE WINS") -- the HUD's own end is untouched
+local outbox = pub.file("^match_outbox%.txt$")
+local id = outbox and outbox:match("^match (%x+)\n$")
+assert(id and #id == 32, "outbox: " .. tostring(outbox))
+eq(id, current)
+local record = pub.file("^match_" .. id .. "%.json$")
+assert(record, "no record for " .. id)
+for _, want in ipairs({
+    '"host_match_id":"' .. id .. '"', '"lobby_id":"lobby-1"', '"map_code":"DCN"', '"game_type":"slayer"',
+    '"team_game":false', '"score_to_win":25', '"started_at":1000', '"end_reason":"round_over"',
+    '"host_index":1',
+    '{"t_ms":0,"type":"player_spawn","cause":0,"effect":-1,"value":0,"cause_pos":[0.0,1.0,2.0]}',
+    '"type":"kill","cause":2,"effect":0,"value":0,"cause_pos":[200.0,1.0,2.0],"effect_pos":[0.0,1.0,2.0]}',
+    '"type":"round_over","cause":-1,"effect":-1,"value":0}',
+    '{"index":2,"name":"Charlie","team":null,"score":1,"kills":1,"deaths":0,"suicides":0,"captures":0,"left":false}',
+}) do
+    assert(record:find(want, 1, true), "record lacks " .. want .. "\n" .. record)
+end
+assert(not record:find("respawn_tick", 1, true), "the respawn countdown was recorded")
+assert(not pub.file("^match_current%.txt$"), "a finished match is still current")
+
+-- The host answers a client's question with the client's own seat, and says
+-- nothing while the asker's index is not yet its own: a joiner reads index 0
+-- (the host's) for a moment after the host seats it.
+local host = runHUD("slayer", false, nil, "lobby-1")
+local hostId = host.file("^match_current%.txt$")
+local function ask(index, name)
+    local sent = {}
+    local asker = { IsValid = function() return true end,
+        ClientMessage = function(_, msg, kind) sent[#sent + 1] = kind .. " " .. msg end,
+        PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = index },
+            GetPlayerName = function() return { ToString = function() return name end } end } }
+    host.hooks["/Script/Engine.PlayerController:ServerExecRPC"](
+        { get = function() return asker end },
+        { get = function() return { ToString = function() return "MJOLNIR|matchid" end } end })
+    return sent
+end
+eq(#ask(0, "Charlie"), 0)     -- not yet seated: index 0 is someone else's
+eq(#ask(1, "Bravo"), 0)       -- the host's own seat (LOCAL_PLAYER) is never handed out
+eq(#ask(2, "Somebody"), 0)    -- a seat recorded under another name
+eq(ask(2, "Charlie")[1], "MJOLNIR MJOLNIR|match|" .. hostId .. "|1|2|Charlie")
+
+-- The host answers a client's question for the match id with nothing to
+-- send while it records nothing; a client asks until it is told, then claims
+-- the seat the host named, once.
+local guest = runHUD("slayer", true)
+for _ = 1, 3 do guest.poll() end
+eq(guest.asked[1], "MJOLNIR|matchid")
+local hexId = string.rep("ab", 16)
+local function tell(text)
+    guest.hooks["/Script/Engine.PlayerController:ClientMessage"](nil,
+        { get = function() return { ToString = function() return text end } end },
+        { get = function() return { ToString = function() return "MJOLNIR" end } end })
+    guest.poll()
+end
+tell("MJOLNIR|match|" .. hexId .. "|0|1|Bravo") -- private: nothing to claim yet
+assert(not guest.file("^claim_"), "claimed a seat in a private match")
+tell("MJOLNIR|match|" .. hexId .. "|1|1|Bravo")
+local claim, claimName = guest.file("^claim_")
+eq(claimName, "claim_" .. hexId .. ".json")
+eq(claim, '{"host_match_id":"' .. hexId .. '","player_index":1,"name":"Bravo"}')
+eq(guest.file("^match_outbox%.txt$"), "claim " .. hexId .. "\n")
+local askedBefore = #guest.asked
+tell("MJOLNIR|match|" .. hexId .. "|1|1|Bravo")
+for _ = 1, 20 do guest.poll() end
+eq(guest.file("^match_outbox%.txt$"), "claim " .. hexId .. "\n") -- once
+eq(#guest.asked, askedBefore) -- and no more questions
+print("Multiplayer UI: the match log records public matches with positions and claims seats")
 
 -- Winners: a shared lead, or nobody scoring, is a draw.
 local function match(mode, players, teams)

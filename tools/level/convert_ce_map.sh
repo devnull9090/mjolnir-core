@@ -90,6 +90,9 @@ else
 fi
 name="$(basename "$(cd "$staging" && pwd)")"
 [ "$name" = "staging" ] && name="$(basename "$src" .map)"
+# Custom maps carry spaces and capitals ("Yoyorast Island V2.map"); the name
+# becomes file and asset names, so it is kept to [a-z0-9_].
+name="$(printf '%s' "$name" | tr 'A-Z ' 'a-z_' | tr -cd 'a-z0-9_')"
 
 collision="$staging/bsp/collision_0.json"
 if [ -e "$staging/bsp/collision_1.json" ]; then
@@ -222,7 +225,11 @@ fi
 echo "== 4/6 level file"
 sound_args=()
 [ -f "$out/sounds_out/sounds.json" ] && sound_args=(--sounds "$out/sounds_out")
-python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}"
+# TITLE="Yoyorast Island" names a custom map in the menus (stock maps have
+# theirs in gen_ce_level.py).
+title_args=()
+[ -n "${TITLE:-}" ] && title_args=(--title "$TITLE")
+python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}"
 
 echo "== 5/6 bake"
 bake=("$mjolnir" level bake "$out/$name.level.json" --standalone "$code" --bsp "8=$out/$name.sbsp" --out-dir "$out")
