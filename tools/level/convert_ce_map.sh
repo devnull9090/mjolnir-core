@@ -243,7 +243,7 @@ if [ "$install" = "--install" ]; then
   MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$HCE_PAKS"
   # A stub .pak sibling is what makes the game mount a .utoc/.ucas pair.
   stub="$HCE_PAKS/pakchunk997-MJOLNIRMAP-${code}_P.pak"
-  for c in pakchunk994-MJOLNIRSPAWN pakchunk993-MJOLNIRTELES pakchunk992-MJOLNIRTELER; do
+  for c in pakchunk994-MJOLNIRSPAWN pakchunk993-MJOLNIRTELES pakchunk992-MJOLNIRTELER pakchunk991-MJOLNIRTELE2; do
     cp -f "$stub" "$HCE_PAKS/${c}_P.pak"
   done
   # The terrain meshes: with the cooked materials, the map's own packages
