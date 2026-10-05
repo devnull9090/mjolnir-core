@@ -11,7 +11,7 @@ Halo: Combat Evolved multiplayer maps**, rebuilt to run inside Campaign
 Evolved, and a **MULTIPLAYER** menu to play them from with your fireteam. It's
 an alpha: it works, it has rough edges, and we want you to find them.
 
-![Blood Gulch in Halo Campaign Evolved](/api/v1/media/41a34c3c-7b2d-472d-9041-04567ce64879)
+![Blood Gulch in Halo Campaign Evolved](/api/v1/media/b8a44558-8ced-4ade-b1ac-793db6037205)
 
 ## How to play
 
@@ -46,115 +46,115 @@ Your friends need the same maps installed, so send them the launcher too.
 
 ### Blood Gulch
 
-![Blood Gulch in Halo Campaign Evolved](/api/v1/media/41a34c3c-7b2d-472d-9041-04567ce64879)
+![Blood Gulch in Halo Campaign Evolved](/api/v1/media/b8a44558-8ced-4ade-b1ac-793db6037205)
 
 The box canyon with two bases and vehicles: Halo CE's most played map, rebuilt for Campaign Evolved. *Slayer · Capture the Flag.* [Map page](/mods/ce-blood-gulch)
 
 ### Danger Canyon
 
-![Danger Canyon in Halo Campaign Evolved](/api/v1/media/f6f0ba83-e57f-4953-ba0f-59506cbefcbb)
+![Danger Canyon in Halo Campaign Evolved](/api/v1/media/3ca0f417-6a46-4b07-83d6-183268a84b45)
 
 A wide canyon between two bases, with a central structure and plenty of room for vehicles. From Halo PC. *Slayer · Capture the Flag.* [Map page](/mods/ce-danger-canyon)
 
 ### Gephyrophobia
 
-![Gephyrophobia in Halo Campaign Evolved](/api/v1/media/123acbc2-47f0-4dad-9517-444f6836eb7d)
+![Gephyrophobia in Halo Campaign Evolved](/api/v1/media/ee7856bb-45b7-4da4-8861-cb9c84a75abf)
 
 Two bases on either side of a deep chasm, joined by one long bridge. From Halo PC. *Slayer · Capture the Flag.* [Map page](/mods/ce-gephyrophobia)
 
 ### Battle Creek
 
-![Battle Creek in Halo Campaign Evolved](/api/v1/media/cc2eca2d-d278-4d97-af57-7a3bc8fd557b)
+![Battle Creek in Halo Campaign Evolved](/api/v1/media/fd1a8671-bd56-4ede-a545-347722900236)
 
 Two small bases on either side of a creek. Tight, fast games for small teams. *Slayer · Capture the Flag.* [Map page](/mods/ce-battle-creek)
 
 ### Chill Out
 
-![Chill Out in Halo Campaign Evolved](/api/v1/media/3edcf802-a110-426c-8106-29b8f5744773)
+![Chill Out in Halo Campaign Evolved](/api/v1/media/d34d011f-09f8-4c30-bcc2-431c01f1b4b3)
 
 Close-quarters rooms and ramps around a central chamber. Fast free-for-all. *Slayer · Capture the Flag.* [Map page](/mods/ce-chill-out)
 
 ### Hang 'Em High
 
-![Hang 'Em High in Halo Campaign Evolved](/api/v1/media/252eacfb-2e94-42b5-946e-75717cdeca2e)
+![Hang 'Em High in Halo Campaign Evolved](/api/v1/media/947f0035-7839-4a01-ba81-92a6ecfbae08)
 
 Tombstones, ramps and walkways in a closed arena. A sniper's map for small teams. *Slayer · Capture the Flag.* [Map page](/mods/ce-hang-em-high)
 
 ### Prisoner
 
-![Prisoner in Halo Campaign Evolved](/api/v1/media/893a52eb-a514-41ed-aa31-1d25f469c906)
+![Prisoner in Halo Campaign Evolved](/api/v1/media/91d4880c-5232-412b-95ec-49910e5d829c)
 
 A multi-level prison block of platforms and ramps. Fast free-for-all at every height. *Slayer · Capture the Flag.* [Map page](/mods/ce-prisoner)
 
 ### Rat Race
 
-![Rat Race in Halo Campaign Evolved](/api/v1/media/589a8bd2-c226-48d3-9b08-3aaac9ce66e9)
+![Rat Race in Halo Campaign Evolved](/api/v1/media/e2247323-1e19-4bee-8ec8-ae39a53ffa2d)
 
 A maze of corridors and walkways. Close, fast and full of corners. *Slayer · Capture the Flag.* [Map page](/mods/ce-rat-race)
 
 ### Longest
 
-![Longest in Halo Campaign Evolved](/api/v1/media/9cf0665e-d05a-48b8-9a1b-1ed465777ccb)
+![Longest in Halo Campaign Evolved](/api/v1/media/2a7cee7d-b782-4c55-8281-ccbb5a12e149)
 
 A long, narrow arena with ramps at both ends. Small, loud and quick. *Slayer · Capture the Flag.* [Map page](/mods/ce-longest)
 
 ### Wizard
 
-![Wizard in Halo Campaign Evolved](/api/v1/media/bcbc4063-bee7-4768-910d-86066ec16e03)
+![Wizard in Halo Campaign Evolved](/api/v1/media/8a31bb2e-e792-469d-b6df-baef046b822b)
 
 A small, symmetrical arena around a central structure. A free-for-all classic. *Slayer · Capture the Flag.* [Map page](/mods/ce-wizard)
 
 ### Derelict
 
-![Derelict in Halo Campaign Evolved](/api/v1/media/645ed1d2-db4d-4a30-a7ba-3004f3870e46)
+![Derelict in Halo Campaign Evolved](/api/v1/media/607859f9-a180-4313-bf57-147b4e3a661c)
 
 A structure floating in space. Close-range fights on and around the platform. *Slayer · Capture the Flag.* [Map page](/mods/ce-derelict)
 
 ### Damnation
 
-![Damnation in Halo Campaign Evolved](/api/v1/media/c169fc5e-1a45-4559-b64f-169661873a45)
+![Damnation in Halo Campaign Evolved](/api/v1/media/6237a0c1-3250-4a5a-9f64-a8264db4bd98)
 
 A Covenant facility of waterfalls, catwalks and long sight lines. *Slayer · Capture the Flag.* [Map page](/mods/ce-damnation)
 
 ### Boarding Action
 
-![Boarding Action in Halo Campaign Evolved](/api/v1/media/a571af58-1f5c-4bad-a17a-fbf5280e03c0)
+![Boarding Action in Halo Campaign Evolved](/api/v1/media/9644fbc0-ea05-4ea4-b5b2-85620d8f83e0)
 
 Two huge structures facing each other across open space, joined by bridges and teleporters. *Slayer · Capture the Flag.* [Map page](/mods/ce-boarding-action)
 
 ### Chiron TL-34
 
-![Chiron TL-34 in Halo Campaign Evolved](/api/v1/media/cedd5741-85bb-4d9e-8ce2-cf2902a3d889)
+![Chiron TL-34 in Halo Campaign Evolved](/api/v1/media/c8297398-94ca-4c56-a29c-3f2951965c1c)
 
 Training rooms joined by teleporters. A maze where every door goes somewhere unexpected. *Slayer · Capture the Flag.* [Map page](/mods/ce-chiron-tl-34)
 
 ### Sidewinder
 
-![Sidewinder in Halo Campaign Evolved](/api/v1/media/acda3c19-69e7-4f70-b9b3-bf8c19efd85d)
+![Sidewinder in Halo Campaign Evolved](/api/v1/media/1443b2e7-4473-431f-90ab-b80774573cb9)
 
 A snowy, winding canyon between two bases. Big-team CTF with vehicles. *Slayer · Capture the Flag.* [Map page](/mods/ce-sidewinder)
 
 ### Ice Fields
 
-![Ice Fields in Halo Campaign Evolved](/api/v1/media/c8283038-d079-4408-98fa-4ff7db26467c)
+![Ice Fields in Halo Campaign Evolved](/api/v1/media/dbf758ab-4109-441c-b5bf-4bdd8a0f9814)
 
 A frozen field between two bases. Vehicles and long-range fights. From Halo PC. *Slayer · Capture the Flag.* [Map page](/mods/ce-ice-fields)
 
 ### Timberland
 
-![Timberland in Halo Campaign Evolved](/api/v1/media/02d12a7b-9867-4585-ab79-4cb8b3942194)
+![Timberland in Halo Campaign Evolved](/api/v1/media/a689c638-356a-4c83-a7e9-3d5baa3b4b25)
 
 A forested valley with a river between two bases. Big-team CTF with vehicles. *Slayer · Capture the Flag.* [Map page](/mods/ce-timberland)
 
 ### Death Island
 
-![Death Island in Halo Campaign Evolved](/api/v1/media/2f21b839-c91d-403b-a987-391722ee6958)
+![Death Island in Halo Campaign Evolved](/api/v1/media/a3d6759b-ede0-4ed7-a089-86223f37cc71)
 
 An island ringed by sea and cliffs, with two bases and vehicles for big teams. From Halo PC. *Slayer · Capture the Flag.* [Map page](/mods/ce-death-island)
 
 ### Infinity
 
-![Infinity in Halo Campaign Evolved](/api/v1/media/2ef8c52b-f982-4162-b49c-e394b1fe42d7)
+![Infinity in Halo Campaign Evolved](/api/v1/media/93ac6187-c848-40ef-b927-fafd6971920e)
 
 A huge open map with two bases and vehicles for big teams. From Halo PC. *Slayer · Capture the Flag.* [Map page](/mods/ce-infinity)
 
