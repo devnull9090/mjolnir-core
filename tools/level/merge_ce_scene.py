@@ -346,7 +346,9 @@ def main():
     cache = {}
     skies_seen = 0
     for e in placement["entries"]:
-        if e.get("kind") not in ("scenery", "light_fixture", "sky") or not e.get("model"):
+        # Machines too (Infinity's beam emitters, whose model is the beam):
+        # in their rest pose, since their animations are not staged.
+        if e.get("kind") not in ("scenery", "light_fixture", "machine", "sky") or not e.get("model"):
             continue
         if e["kind"] == "sky":
             # A scenario can list several skies (Gephyrophobia: its night
@@ -360,7 +362,7 @@ def main():
             continue
         if path not in cache:
             cache[path] = primitives(*load_gltf(path))
-        if e["kind"] in ("scenery", "light_fixture"):
+        if e["kind"] in ("scenery", "light_fixture", "machine"):
             r = ce_rotation(*e.get("rot", [0, 0, 0]))
             t = ce_to_gltf(e["pos"])
             # The bounding sphere, which CE samples the ground under.

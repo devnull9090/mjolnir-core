@@ -435,6 +435,13 @@ local function lightmapSun()
     return nil
 end
 
+--- The switch that turns a CE master's texture parameter off.
+local HAS_PARAM = {
+    Primary = "HasPrimary", Secondary = "HasSecondary", Micro = "HasMicro", Bump = "HasBump",
+    Lightmap = "HasLightmap", SelfIllumMap = "HasSelfIllum", Multipurpose = "HasMulti",
+    ReflectionCube = "HasReflection", Bake = "HasBake",
+}
+
 --- A runtime material: `{ "parent": "/Game/.../MI_X.MI_X", "textures":
 --- { "Diffuse": "textures/bgl/ground.png", "Normal": "/Engine/..." },
 --- "scalars": { "RoughnessMult": 1.0 }, "linear": ["Normal"] }`. Texture
@@ -453,6 +460,11 @@ local function runtimeMaterial(world, spec, name)
     if not mid or not mid:IsValid() then return nil, "no dynamic instance" end
     local linear = {}
     for _, p in ipairs(spec.linear or {}) do linear[p] = true end
+    -- A texture the map pack never cooked costs the material that texture,
+    -- not the whole material: dropped, its Has* switch off, the rest drawn
+    -- (Infinity's pack shipped without two multipurpose maps, and its
+    -- boulders and leaves fell back to the donor's flat material).
+    local missing = {}
     for param, value in pairs(spec.textures or {}) do
         local tex, err
         if isObjectPath(value) then
@@ -461,11 +473,23 @@ local function runtimeMaterial(world, spec, name)
         else
             tex, err = importTexture(world, value, linear[param])
         end
-        if not tex then return nil, err end
-        mid:SetTextureParameterValue(FName(param), tex)
+        if tex then
+            mid:SetTextureParameterValue(FName(param), tex)
+        else
+            missing[#missing + 1] = param
+            Log(string.format("material '%s': %s (drawn without it)", name, tostring(err)))
+        end
     end
     for param, value in pairs(spec.scalars or {}) do
         mid:SetScalarParameterValue(FName(param), value)
+    end
+    for _, param in ipairs(missing) do
+        local has = HAS_PARAM[param]
+        if has then mid:SetScalarParameterValue(FName(has), 0.0) end
+        -- A model with no multipurpose map reflects everywhere (CE's rule
+        -- for a shader without one); one whose map went missing would turn
+        -- to chrome, so it loses the reflection instead.
+        if param == "Multipurpose" then mid:SetScalarParameterValue(FName("HasReflection"), 0.0) end
     end
     -- The lightmap experiment's baked corners and sun (ue-texture's
     -- lightmap_bake): one texture per lightmap page, named for the page's
