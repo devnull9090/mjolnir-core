@@ -1,43 +1,18 @@
-import type { MatchEvent } from "@/lib/api/matches";
-import { duration, eventLine } from "./format";
-
-type Point = [number, number, number];
+import type { DeathMark, KillMark, Point } from "./positions";
 
 const SIZE = 560;
 const PAD = 24;
 
 /**
- * Where the kills and deaths happened, seen from above: the map's Unreal X
- * across and Y down, as the editor's top view draws it. A line joins a
- * killer (gold) to the victim (red). With `focus`, only that player's kills
- * and deaths. The first sketch of the heatmaps the positions are kept for.
+ * Where the kills and deaths happened, seen from above, without the map: the
+ * map's Unreal X across and Y down, as the editor's top view draws it. A line
+ * joins a killer (gold) to the victim (red). Drawn for a map the hub has no
+ * preview model of, and while MatchMap cannot draw one (no WebGL).
  */
-export function PositionMap({
-  events,
-  nameOf,
-  focus,
-}: {
-  events: MatchEvent[];
-  nameOf: (index: number) => string;
-  focus: number | null;
-}) {
-  const kills = events.filter(
-    (e) => e.type === "kill" && e.effect_pos && (focus === null || e.cause === focus || e.effect === focus),
-  );
-  // Deaths a kill doesn't account for: falls, suicides, the guardians.
-  const killed = new Set(
-    events.filter((e) => e.type === "kill").map((e) => `${e.effect}:${Math.round(e.t_ms / 1000)}`),
-  );
-  const deaths = events.filter(
-    (e) =>
-      e.type === "death" &&
-      e.effect_pos &&
-      (focus === null || e.effect === focus) &&
-      !killed.has(`${e.effect}:${Math.round(e.t_ms / 1000)}`),
-  );
+export function PositionMap({ kills, deaths }: { kills: KillMark[]; deaths: DeathMark[] }) {
   const points: Point[] = [
-    ...kills.flatMap((e) => [e.effect_pos!, ...(e.cause_pos ? [e.cause_pos] : [])]),
-    ...deaths.map((e) => e.effect_pos!),
+    ...kills.flatMap((k) => (k.from ? [k.to, k.from] : [k.to])),
+    ...deaths.map((d) => d.at),
   ];
   if (points.length === 0) {
     return <p className="text-sm text-text-muted">No positions were reported for this match.</p>;
@@ -59,28 +34,28 @@ export function PositionMap({
         role="img"
         aria-label="Kill and death positions, top-down"
       >
-        {kills.map((e) => {
-          if (!e.cause_pos || e.cause === e.effect) return null;
-          const [x1, y1] = at(e.cause_pos);
-          const [x2, y2] = at(e.effect_pos!);
+        {kills.map((k) => {
+          if (!k.from) return null;
+          const [x1, y1] = at(k.from);
+          const [x2, y2] = at(k.to);
           return (
-            <line key={`l${e.seq}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" className="text-text-dim" strokeOpacity={0.35} strokeWidth={1} />
+            <line key={`l${k.seq}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" className="text-text-dim" strokeOpacity={0.35} strokeWidth={1} />
           );
         })}
-        {kills.map((e) => {
-          if (!e.cause_pos || e.cause === e.effect) return null;
-          const [x, y] = at(e.cause_pos);
+        {kills.map((k) => {
+          if (!k.from) return null;
+          const [x, y] = at(k.from);
           return (
-            <circle key={`k${e.seq}`} cx={x} cy={y} r={4} className="fill-gold" fillOpacity={0.85}>
-              <title>{`${duration(e.t_ms)}  ${eventLine(e, nameOf)}`}</title>
+            <circle key={`k${k.seq}`} cx={x} cy={y} r={4} className="fill-gold" fillOpacity={0.85}>
+              <title>{k.label}</title>
             </circle>
           );
         })}
-        {[...kills, ...deaths].map((e) => {
-          const [x, y] = at(e.effect_pos!);
+        {[...kills.map((k) => ({ seq: k.seq, at: k.to, label: k.label })), ...deaths].map((d) => {
+          const [x, y] = at(d.at);
           return (
-            <circle key={`d${e.seq}`} cx={x} cy={y} r={4.5} fill="#ef4444" fillOpacity={0.8}>
-              <title>{`${duration(e.t_ms)}  ${eventLine(e, nameOf) ?? `${nameOf(e.effect)} died`}`}</title>
+            <circle key={`d${d.seq}`} cx={x} cy={y} r={4.5} fill="#ef4444" fillOpacity={0.8}>
+              <title>{d.label}</title>
             </circle>
           );
         })}

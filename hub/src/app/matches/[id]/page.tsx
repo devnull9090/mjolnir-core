@@ -20,6 +20,9 @@ import {
   winnerText,
 } from "../_components/format";
 import { PositionMap } from "../_components/PositionMap";
+import { MatchMap } from "../_components/MatchMap";
+import { positionMarks } from "../_components/positions";
+import mapPreviews from "../_components/map-previews.json";
 
 /**
  * One match: the final scoreboard, the timeline of what happened, and where
@@ -153,6 +156,9 @@ export default async function MatchPage({
     .map((e) => ({ e, text: isExplainedDeath(e, explained) ? null : eventLine(e, nameOf) }))
     .filter((l): l is { e: (typeof match.events)[number]; text: string } => l.text !== null);
   const other = match.events.length - lines.length;
+  const { kills, deaths } = positionMarks(match.events, nameOf, focus);
+  const plot = <PositionMap kills={kills} deaths={deaths} />;
+  const hasPositions = kills.length + deaths.length > 0;
 
   return (
     <>
@@ -191,7 +197,11 @@ export default async function MatchPage({
             <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
               Kills and deaths{focus !== null ? ` · ${nameOf(focus)}` : ""}
             </h2>
-            <PositionMap events={match.events} nameOf={nameOf} focus={focus} />
+            {hasPositions && match.map_code in mapPreviews ? (
+              <MatchMap code={match.map_code} kills={kills} deaths={deaths} fallback={plot} />
+            ) : (
+              plot
+            )}
           </section>
 
           <section>
