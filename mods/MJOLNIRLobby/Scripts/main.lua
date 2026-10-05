@@ -1404,8 +1404,8 @@ end
 local function drawSettings()
     local s = Tweak.screen
     if not alive(s) then return end
-    local modeName = Game.mode and Game.mode.name or ""
-    setText(s.ModeLine, modeName ~= "" and (modeName .. "   /   THESE RULES APPLY TO THE NEXT GAME") or "")
+    local gameType = Game.mode and Game.mode.name or ""
+    setText(s.ModeLine, gameType ~= "" and (gameType .. "   /   THESE RULES APPLY TO THE NEXT GAME") or "")
     for i = 0, SETTINGS_PAGES - 1 do
         local name = Settings.PAGES[i + 1]
         setShown(s["Page" .. i], name ~= nil)
