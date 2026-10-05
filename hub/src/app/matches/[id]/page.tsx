@@ -15,10 +15,13 @@ import {
   explainedDeaths,
   isExplainedDeath,
   kd,
+  mapHref,
   namer,
-  when,
+  playerHref,
   winnerText,
 } from "../_components/format";
+import { Avatar } from "../_components/Avatar";
+import { LocalTime } from "../_components/LocalTime";
 import { PositionMap } from "../_components/PositionMap";
 
 /**
@@ -51,10 +54,6 @@ const TEAM_STYLE: Record<string, string> = {
   red: "border-l-red-500",
   blue: "border-l-sky-500",
 };
-
-function playerHref(p: MatchPlayer): string {
-  return p.user ? `/users/${p.user.id}` : `/players/${encodeURIComponent(p.name)}`;
-}
 
 function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null }) {
   const groups: { label: string | null; team: string | null; players: MatchPlayer[]; total: number | null }[] =
@@ -101,7 +100,11 @@ function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null
               <tr key={p.index} className={`border-t border-border ${focus === p.index ? "bg-gold/10" : ""}`}>
                 <td className={`px-4 py-3 border-l-4 ${TEAM_STYLE[p.team ?? ""] ?? "border-l-transparent"}`}>
                   <span className="text-text-dim mr-2 tabular-nums">{p.place}.</span>
-                  <Link href={playerHref(p)} className="text-foreground font-medium hover:text-gold">
+                  <Link
+                    href={playerHref(p)}
+                    className="inline-flex items-center gap-2 align-middle text-foreground font-medium hover:text-gold"
+                  >
+                    <Avatar name={p.name} user={p.user} />
                     {p.name}
                   </Link>
                   {p.user && (
@@ -163,9 +166,18 @@ export default async function MatchPage({
           <Link href="/matches" className="text-xs text-text-dim hover:text-foreground">
             ← Match history
           </Link>
-          <h1 className="mt-2 text-3xl md:text-4xl font-black text-foreground">{title(match)}</h1>
+          <h1 className="mt-2 text-3xl md:text-4xl font-black text-foreground">
+            {GAME_TYPE_NAMES[match.game_type] ?? match.game_type} on{" "}
+            {mapHref(match) ? (
+              <Link href={mapHref(match)!} className="hover:text-gold">
+                {match.map_title ?? match.map_code}
+              </Link>
+            ) : (
+              (match.map_title ?? match.map_code)
+            )}
+          </h1>
           <p className="mt-2 text-text-muted">
-            {when(match.ended_at)} · {duration(match.duration_ms)} · {match.player_count} players · hosted by{" "}
+            <LocalTime sql={match.ended_at} /> · {duration(match.duration_ms)} · {match.player_count} players · hosted by{" "}
             {match.host}
             {match.score_to_win ? ` · first to ${match.score_to_win}` : ""}
           </p>
