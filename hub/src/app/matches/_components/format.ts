@@ -10,10 +10,19 @@ export function duration(ms: number): string {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** "2026-10-03 21:14:05" (UTC, SQLite's format) as a short date. */
-export function when(sqlTime: string): string {
+/** "2026-10-03 21:14:05" (UTC, SQLite's format) as a Date, or null. */
+export function sqlDate(sqlTime: string): Date | null {
   const d = new Date(sqlTime.replace(" ", "T") + "Z");
-  if (Number.isNaN(d.getTime())) return sqlTime;
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * A SQLite time as a short UTC date: what the server renders, and what
+ * metadata says. Pages show <LocalTime>, which turns it local in the browser.
+ */
+export function when(sqlTime: string): string {
+  const d = sqlDate(sqlTime);
+  if (!d) return sqlTime;
   return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -36,6 +45,16 @@ export function winnerText(m: Pick<MatchSummary, "winner" | "winner_name" | "end
   if (m.winner === "red") return "Red team";
   if (m.winner === "blue") return "Blue team";
   return m.winner_name ?? `Player ${Number(m.winner) + 1}`;
+}
+
+/** A seat's history: the hub account's when the seat is linked, the in-game name's otherwise. */
+export function playerHref(p: { name: string; user: { id: string } | null }): string {
+  return p.user ? `/users/${p.user.id}` : `/players/${encodeURIComponent(p.name)}`;
+}
+
+/** The map's hub page, when its listing is published. */
+export function mapHref(m: Pick<MatchSummary, "map_slug">): string | null {
+  return m.map_slug ? `/mods/${m.map_slug}` : null;
 }
 
 export function kd(kills: number, deaths: number): string {

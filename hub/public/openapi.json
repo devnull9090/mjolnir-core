@@ -2527,6 +2527,12 @@
               "null"
             ]
           },
+          "map_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "game_type": {
             "type": "string"
           },
@@ -2578,6 +2584,31 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "winner_user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
             ]
           },
           "player_count": {
@@ -2669,6 +2700,7 @@
           "id",
           "map_code",
           "map_title",
+          "map_slug",
           "game_type",
           "team_game",
           "score_to_win",
@@ -2680,6 +2712,7 @@
           "blue_score",
           "winner",
           "winner_name",
+          "winner_user",
           "player_count",
           "event_count",
           "host",
@@ -2696,6 +2729,12 @@
             "type": "string"
           },
           "map_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_slug": {
             "type": [
               "string",
               "null"
@@ -2754,6 +2793,31 @@
               "null"
             ]
           },
+          "winner_user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          },
           "player_count": {
             "type": "number"
           },
@@ -2780,6 +2844,7 @@
           "id",
           "map_code",
           "map_title",
+          "map_slug",
           "game_type",
           "team_game",
           "score_to_win",
@@ -2791,6 +2856,7 @@
           "blue_score",
           "winner",
           "winner_name",
+          "winner_user",
           "player_count",
           "event_count",
           "host",
