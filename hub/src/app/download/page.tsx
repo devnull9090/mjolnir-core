@@ -74,7 +74,7 @@ export default function DownloadPage() {
           <p className="marketing-eyebrow">Installed? Bring your friends.</p>
           <h2 className="mb-7 mt-3 text-2xl font-bold">Set up Campaign Evolved multiplayer</h2>
           <PlaySteps />
-          <p className="mt-6 text-sm leading-7 text-text-muted">Multiplayer is in alpha with up to four players. Tested on Steam; Game Pass is not yet verified. Each player needs their own copy of the game and the same maps.</p>
+          <p className="mt-6 text-sm leading-7 text-text-muted">Multiplayer is in alpha with up to 16 players. Tested on Steam; Game Pass is not yet verified. Each player needs their own copy of the game and the same maps.</p>
           <Link href="/multiplayer#faq" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-gold hover:underline">Multiplayer setup &amp; FAQs <ArrowRight className="size-4" /></Link>
         </section>
 

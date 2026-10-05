@@ -75,7 +75,9 @@ from `work/halo-ce-map-conversion-f72214`. Status as of 2026-10-01.
 
 ## Open questions
 
-- PlayFab may refuse lobbies larger than four (Phase 2 answers it).
+- ~~PlayFab may refuse lobbies larger than four.~~ It doesn't: a 16-member
+  lobby took a fifth player (2026-10-02), and fireteams of 16 shipped in mods
+  0.10.0. The simulation's players array is 16, so that is the ceiling.
 - Where the sim raises its network co-op refusal, and the Party ini values.
 - Whether a client's Megalo variant comes from its own file or from the host.
   The insertion point slot keeps both machines on the same game type either

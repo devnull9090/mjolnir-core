@@ -67,7 +67,7 @@ export default function MultiplayerPage() {
             <aside className="border-l-2 border-gold bg-surface p-6 sm:p-8">
               <h3 className="text-lg font-bold">What to know about the alpha</h3>
               <ul className="mt-4 space-y-3 text-sm leading-7 text-text-muted">
-                <li>Up to four players in a fireteam.</li>
+                <li>Up to 16 players in a fireteam, each on their own PC.</li>
                 <li>Built and tested on Windows with the Steam version. Game Pass is not yet verified.</li>
                 <li>Everyone needs the same maps installed.</li>
                 <li>Community-made multiplayer, separate from official campaign and co-op features.</li>
