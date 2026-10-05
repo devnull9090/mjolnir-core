@@ -2076,6 +2076,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096
+          },
+          "settings": {
+            "type": "string",
+            "maxLength": 400,
+            "pattern": "^([a-z0-9_.]{1,40}=\\d{1,5}(;[a-z0-9_.]{1,40}=\\d{1,5})*)?$",
+            "example": "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1"
           }
         },
         "required": [
@@ -2123,6 +2129,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096
+          },
+          "settings": {
+            "type": "string",
+            "maxLength": 400,
+            "pattern": "^([a-z0-9_.]{1,40}=\\d{1,5}(;[a-z0-9_.]{1,40}=\\d{1,5})*)?$",
+            "example": "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1"
           }
         },
         "required": [
@@ -2194,6 +2206,12 @@
               "null"
             ]
           },
+          "settings": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "type": "string"
           }
@@ -2213,6 +2231,7 @@
           "colo",
           "country",
           "ping_ms",
+          "settings",
           "created_at"
         ]
       },
@@ -6683,12 +6702,19 @@
                     },
                     "game_type": {
                       "type": "string"
+                    },
+                    "settings": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "connection_string",
                     "map_code",
-                    "game_type"
+                    "game_type",
+                    "settings"
                   ]
                 }
               }

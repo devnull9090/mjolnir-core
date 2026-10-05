@@ -2820,6 +2820,7 @@ local function initialize()
                 game_type = Game.mode.id,
                 players = #rosterPlayers(),
                 in_game = not inFrontend(),
+                settings = Settings.variantLine(),
             }
         end,
     })

@@ -33,7 +33,7 @@ local Host = {
     busy = false,     -- a register or heartbeat in flight
     nextBeat = 0,
     status = "",      -- one line for the lobby's footer
-    info = nil,       -- function -> { name, map_code, game_type, players, in_game }
+    info = nil,       -- function -> { name, map_code, game_type, players, in_game, settings }
     version = "",
     maxPlayers = MAX_PLAYERS,   -- the host's MAX PLAYERS
 }
@@ -317,6 +317,9 @@ local function beat()
             client_version = Host.version,
             platform = "steam",
             connection_string = conn,
+            -- The host's game settings: a player joining mid-match gets
+            -- them from /join (docs/host_game_settings.md).
+            settings = info.settings,
         }, function(status, data)
             Host.busy = false
             if status == 201 and data and data.id then
@@ -347,6 +350,7 @@ local function beat()
         game_type = info.game_type,
         state = state,
         connection_string = conn,
+        settings = info.settings,
     }, function(status, data)
         Host.busy = false
         Host.nextBeat = os.time() + HEARTBEAT_SECONDS

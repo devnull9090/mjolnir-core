@@ -187,9 +187,12 @@ for the settings they need.
    keeps the fixtures current); `test_game_settings.lua` patches every
    choice of every option.
 
-Not yet: a player joining a match under way runs the variant's own rules
-until the hub listing carries the host's line (one new field and a
-migration).
+A player who joins from FIND GAMES, including into a match under way, gets
+the line from the hub: a public host sends it with its listing and every
+heartbeat (`settings`, migration 0015), and `/join` returns it, which
+games.lua writes for the loader before the join goes out. A listing from a
+host without settings returns null, and the joiner runs the variant's own
+rules.
 
 A changed variant applies at the next match: test C0 ran straight after C1
 from the post-game vote with the new file.
