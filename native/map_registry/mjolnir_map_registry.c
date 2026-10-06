@@ -30,7 +30,9 @@
 // Megalo engine instead of the campaign, drop the map-variant requirement the
 // campaign flow cannot meet, keep the map variant across the start-up zone
 // switch, and let the variant file loader read a file at all
-// (mjolnir_megalo_variant installs the game mode it reads). Each site is checked for the exact shipped or patched bytes first,
+// (mjolnir_megalo_variant installs the game mode it reads). A seventh, kept
+// even when the switch goes off, lets the game quit from inside a
+// multiplayer match. Each site is checked for the exact shipped or patched bytes first,
 // so a different build is refused rather than corrupted.
 //
 // Everything here is CU4-specific (RVAs below, guarded by the PE timestamp or
@@ -534,7 +536,22 @@ static const code_patch_t MEGALO[] = {
      {0x48, 0x8d, 0x95, 0x08, 0x50, 0x00, 0x00, 0x48, 0x8b, 0xcb, 0xe8, 0x74, 0x69, 0x35, 0x00},
      {0xc7, 0x85, 0x08, 0x50, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0xb0, 0x01, 0x0f, 0x1f, 0x00},
      "variant file reader: size from the buffer, not the closed handle"},
+    // Shell event drain 0xe670, event 0/7 (the exit the Unreal host posts from
+    // its shutdown, exe 0x7b24160, then waits on): with a game in progress it
+    // sets the main loop's exit flag (0x1357023) only when the game options'
+    // mode is campaign, so under a Megalo game the event was dropped, the
+    // simulation kept playing and the host's shutdown slept forever (the
+    // window closed, the process never exited; docs/re/megalo_engine.md,
+    // "Quitting from a match"). Drop the `jne`: a multiplayer game exits the
+    // loop the way a campaign mission already does. The host posts this event
+    // from nowhere else, so this changes nothing but the quit, and
+    // mjolnir_megalo_off leaves it in place.
+    {0xef18, 6, {0x0f, 0x85, 0x0d, 0x05, 0x00, 0x00}, {0x66, 0x0f, 0x1f, 0x44, 0x00, 0x00},
+     "exit event: honoured in a multiplayer game"},
 };
+
+// Sites from this index on stay patched when the switch goes off.
+#define MEGALO_KEEP 6
 
 static int set_megalo(int on) {
     ensure_init();
@@ -555,7 +572,7 @@ static int set_megalo(int on) {
     for (size_t i = 0; i < n; i++) {
         const code_patch_t *p = &MEGALO[i];
         uint8_t *at = sim + p->rva;
-        const uint8_t *want = on ? p->patched : p->shipped;
+        const uint8_t *want = (on || i >= MEGALO_KEEP) ? p->patched : p->shipped;
         if (memcmp(at, want, p->len) == 0) continue;
         DWORD old;
         if (!VirtualProtect(at, p->len, PAGE_EXECUTE_READWRITE, &old)) {
