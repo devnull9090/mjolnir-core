@@ -5,7 +5,8 @@
 //! cargo run --release -p ue-texture --example lightmap_bake -- \
 //!     <scene.gltf> <lightmap page 0.png> <out dir> \
 //!     [--max-size 2048] [--max-scale 16] [--ao-radius 1.0] [--ao-rays 48] \
-//!     [--sun-rays 8] [--threads 6]
+//!     [--sun-rays 8] [--threads 6] [--ao-smooth 0] [--ao-knee 0.85]
+//!     [--ao-curve 1.3] [--sun-mask-cell 1.0]
 //! ```
 //!
 //! CE lit its levels with radiosity lightmaps of a few metres a texel, so the
@@ -16,10 +17,16 @@
 //! the scenery placed on it):
 //!
 //! - R: ambient occlusion, how open the texel is within `--ao-radius`
-//!   (cosine-weighted, hits weighted by closeness), 1 = open;
+//!   (cosine-weighted, hits weighted by closeness), 1 = open, optionally
+//!   smoothed over the surface within `--ao-smooth` metres, then divided by
+//!   `--ao-knee` (capped at 1) and raised to `--ao-curve`, so mild folds read
+//!   as open and real corners keep their darkness;
 //! - G: sun visibility, the share of `--sun-rays` rays inside a 1 degree cone
 //!   around the sun that leave the level, 1 = in the sun;
-//! - B: 255 where a triangle covers the texel, 0 where dilation filled it.
+//! - B: sky visibility, the share of `--sky-rays` cosine-weighted rays that
+//!   leave the level, smoothed over `--sky-fine` m of surface.
+//! - A: the texel's chart (chart_ids, 1-255; 0 none), so the masters'
+//!   filters never reach into a neighbouring chart.
 //!
 //! The sun is CE's own, from the lightmap vertices' incident directions over
 //! flat ground (as `tools/level/gen_ce_level.py` finds it for the Unreal
@@ -254,11 +261,12 @@ struct Settings {
     ao_radius: f32,
     ao_rays: usize,
     sun_rays: usize,
+    sky_rays: usize,
     sun: V3,
 }
 
 /// (ao, sun visibility) for one texel.
-fn bake(bvh: &Bvh, s: &Sample, cfg: &Settings, rng: &mut Rng) -> (f32, f32) {
+fn bake(bvh: &Bvh, s: &Sample, cfg: &Settings, rng: &mut Rng) -> (f32, f32, f32) {
     // Off the surface along its own face, so the ray never meets the
     // triangle it starts on.
     let o = add(s.p, mul(s.face, 0.02));
@@ -306,8 +314,152 @@ fn bake(bvh: &Bvh, s: &Sample, cfg: &Settings, rng: &mut Rng) -> (f32, f32) {
             }
         }
     }
-    (ao, lit as f32 / cfg.sun_rays as f32)
+    // Sky visibility: cosine-weighted about the face, the share of rays that
+    // leave the level at any distance.
+    let mut open = 0;
+    let (ft, fb) = frame(s.face);
+    for _ in 0..cfg.sky_rays {
+        let (u1, u2) = (rng.next(), rng.next());
+        let r = u1.sqrt();
+        let phi = std::f32::consts::TAU * u2;
+        let z = (1.0 - u1).max(0.0).sqrt();
+        let d = norm(add(add(mul(ft, r * phi.cos()), mul(fb, r * phi.sin())), mul(s.face, z)));
+        if bvh.hit(o, d, 1e5, false).is_none() {
+            open += 1;
+        }
+    }
+    let sky = if cfg.sky_rays > 0 { open as f32 / cfg.sky_rays as f32 } else { 1.0 };
+    (ao, lit as f32 / cfg.sun_rays as f32, sky)
 }
+
+/// The covered texels' charts, 4-connected islands of a page, as alpha
+/// values 1..=255 spread so that neighbouring charts differ; 0 is no chart.
+fn chart_ids(have: &[bool], w: usize, h: usize) -> Vec<u8> {
+    let mut label = vec![0u32; w * h];
+    let mut next = 0u32;
+    let mut stack = Vec::new();
+    for start in 0..w * h {
+        if !have[start] || label[start] != 0 {
+            continue;
+        }
+        next += 1;
+        label[start] = next;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i % w, i / w);
+            let mut visit = |j: usize| {
+                if have[j] && label[j] == 0 {
+                    label[j] = next;
+                    stack.push(j);
+                }
+            };
+            if x > 0 { visit(i - 1); }
+            if x + 1 < w { visit(i + 1); }
+            if y > 0 { visit(i - w); }
+            if y + 1 < h { visit(i + w); }
+        }
+    }
+    label
+        .iter()
+        .map(|&l| if l == 0 { 0 } else { (1 + (l.wrapping_mul(97) % 255)) as u8 })
+        .collect()
+}
+
+/// One lightmap page, baked and not yet written.
+struct Baked {
+    page: usize,
+    name: String,
+    lw: usize,
+    lh: usize,
+    scale: usize,
+    w: usize,
+    h: usize,
+    samples: Vec<Sample>,
+    /// (pixel, ao, sun visibility), in `samples`' order.
+    results: Vec<(usize, f32, f32)>,
+    /// Sky visibility, in the same order.
+    sky: Vec<f32>,
+    secs: f32,
+}
+
+/// The corners' occlusion averaged over the surface around each texel, in
+/// world space: a Gaussian out to `radius`, across facets and pages alike,
+/// leaving out surfaces that face away (the far side of a thin wall). Traced
+/// per texel, the occlusion steps at every fold of a low-poly cliff, and
+/// texels of ~0.4 m against a 1 m radius drew a crease's darkest line as
+/// teeth (Blood Gulch, 2026-10-05); CE smoothed its own shading over the
+/// same facets. Only surfaces within 45 degrees of each other blend.
+/// Returns the texels smoothed.
+fn smooth_ao(baked: &mut [Baked], radius: f32, threads: usize) -> usize {
+    let pts: Vec<(V3, V3, f32)> = baked
+        .iter()
+        .flat_map(|b| b.samples.iter().zip(&b.results).map(|(s, r)| (s.p, s.face, r.1)))
+        .collect();
+    let smoothed = world_blur(&pts, radius, threads);
+    let mut k = 0;
+    for b in baked.iter_mut() {
+        for r in b.results.iter_mut() {
+            r.1 = smoothed[k];
+            k += 1;
+        }
+    }
+    k
+}
+
+/// Each point's value averaged over the points around it in world space: a
+/// Gaussian out to `radius`, over surfaces within 45 degrees of its own (so
+/// a wall does not take a floor's values, nor the far side of a thin wall
+/// its near side's), across facets and pages alike.
+fn world_blur(pts: &[(V3, V3, f32)], radius: f32, threads: usize) -> Vec<f32> {
+    use std::collections::HashMap;
+    let key = |p: V3| ((p[0] / radius).floor() as i32, (p[1] / radius).floor() as i32, (p[2] / radius).floor() as i32);
+    let mut grid: HashMap<(i32, i32, i32), Vec<u32>> = HashMap::new();
+    for (i, pt) in pts.iter().enumerate() {
+        grid.entry(key(pt.0)).or_default().push(i as u32);
+    }
+    let two_sigma2 = 2.0 * (radius * 0.5) * (radius * 0.5);
+    let chunk = pts.len().div_ceil(threads.max(1)).max(1);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..pts.len())
+            .collect::<Vec<_>>()
+            .chunks(chunk)
+            .map(|part| {
+                let part = part.to_vec();
+                let grid = &grid;
+                scope.spawn(move || {
+                    part.iter()
+                        .map(|&i| {
+                            let (p, n, own) = pts[i];
+                            let (kx, ky, kz) = key(p);
+                            let (mut sum, mut wsum) = (0.0f32, 0.0f32);
+                            for dx in -1..=1 {
+                                for dy in -1..=1 {
+                                    for dz in -1..=1 {
+                                        let Some(cell) = grid.get(&(kx + dx, ky + dy, kz + dz)) else { continue };
+                                        for &j in cell {
+                                            let (q, m, v) = pts[j as usize];
+                                            let d = sub(q, p);
+                                            let d2 = dot(d, d);
+                                            if d2 > radius * radius || dot(m, n) < 0.707 {
+                                                continue;
+                                            }
+                                            let wt = (-d2 / two_sigma2).exp();
+                                            sum += wt * v;
+                                            wsum += wt;
+                                        }
+                                    }
+                                }
+                            }
+                            if wsum > 0.0 { sum / wsum } else { own }
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+    })
+}
+
 
 fn arg<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T {
     args.iter()
@@ -365,10 +517,20 @@ fn main() {
     let mut tris = Vec::new();
     let mut receivers = Vec::new();
     let mut sun_sum = [0.0f32; 3];
+    // The box over every position, as mesh_rewrite bounds the mesh: the
+    // spawned terrain sits at its centre (SunMask's frame).
+    let mut lo = [f32::MAX; 3];
+    let mut hi = [f32::MIN; 3];
     for mesh in gltf.doc["meshes"].as_array().unwrap() {
         for prim in mesh["primitives"].as_array().unwrap() {
             let at = &prim["attributes"];
             let pos = gltf.floats(at["POSITION"].as_u64().unwrap() as usize, 3);
+            for v in pos.chunks_exact(3) {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(v[k]);
+                    hi[k] = hi[k].max(v[k]);
+                }
+            }
             let nrm = at["NORMAL"].as_u64().map(|i| gltf.floats(i as usize, 3));
             let idx = gltf.indices(prim["indices"].as_u64().unwrap() as usize);
             let v = |i: u32| -> V3 { let i = i as usize * 3; [pos[i], pos[i + 1], pos[i + 2]] };
@@ -410,6 +572,7 @@ fn main() {
         ao_radius: arg(&args, "--ao-radius", 1.0),
         ao_rays: arg(&args, "--ao-rays", 48),
         sun_rays: arg(&args, "--sun-rays", 8),
+        sky_rays: arg(&args, "--sky-rays", 128),
         sun,
     };
 
@@ -418,6 +581,7 @@ fn main() {
     let mut pages: Vec<usize> = receivers.iter().map(|r| r.page).collect();
     pages.sort();
     pages.dedup();
+    let mut baked = Vec::new();
     for page in pages {
         let name = if page == 0 { stem.clone() } else { format!("{stem}_{page}") };
         let Some((lw, lh)) = read_png_size(&dir.join(format!("{name}.png"))) else {
@@ -463,7 +627,7 @@ fn main() {
 
         let started = std::time::Instant::now();
         let chunk = samples.len().div_ceil(threads).max(1);
-        let results: Vec<(usize, f32, f32)> = std::thread::scope(|scope| {
+        let full: Vec<(usize, f32, f32, f32)> = std::thread::scope(|scope| {
             let handles: Vec<_> = samples
                 .chunks(chunk)
                 .enumerate()
@@ -480,8 +644,8 @@ fn main() {
                                     ^ ((page as u64) << 48);
                                 seed ^= seed >> 31;
                                 let mut rng = Rng(seed | 1);
-                                let (ao, vis) = bake(bvh, s, cfg, &mut rng);
-                                (s.pixel, ao, vis)
+                                let (ao, vis, sky) = bake(bvh, s, cfg, &mut rng);
+                                (s.pixel, ao, vis, sky)
                             })
                             .collect::<Vec<_>>()
                     })
@@ -489,22 +653,79 @@ fn main() {
                 .collect();
             handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
         });
+        let results: Vec<(usize, f32, f32)> = full.iter().map(|r| (r.0, r.1, r.2)).collect();
+        let sky: Vec<f32> = full.iter().map(|r| r.3).collect();
+        baked.push(Baked { page, name, lw, lh, scale, w, h, samples, results, sky, secs: started.elapsed().as_secs_f32() });
+    }
+
+    // Off by default: smoothed over the AO radius, a wall's foot lost the
+    // darkness it had and drew dashes (Blood Gulch, 2026-10-06), and the
+    // knee and the masters' 3 x 3 tent already take the cliffs' facets out.
+    // B is the sky visibility itself, smoothed against the rays' noise
+    // (`--sky-fine`). The masters tell a coarse lightmap's sun leak (an open
+    // face) from lamp light (an interior) by it.
+    if cfg.sky_rays > 0 {
+        let pts: Vec<(V3, V3, f32)> = baked
+            .iter()
+            .flat_map(|b| b.samples.iter().zip(&b.sky).map(|(s, &v)| (s.p, s.face, v)))
+            .collect();
+        let smooth = world_blur(&pts, arg(&args, "--sky-fine", 0.5), threads);
+        let mut k = 0;
+        for b in baked.iter_mut() {
+            for v in b.sky.iter_mut() {
+                *v = smooth[k];
+                k += 1;
+            }
+        }
+    }
+    let ao_smooth: f32 = arg(&args, "--ao-smooth", 0.0);
+    if ao_smooth > 0.0 {
+        let started = std::time::Instant::now();
+        let n = smooth_ao(&mut baked, ao_smooth, threads);
+        println!("ao smoothed over {ao_smooth} across {n} texel(s), {:.1}s", started.elapsed().as_secs_f32());
+    }
+    // The knee: occlusion down to it counts as open. A mild fold between two
+    // facets of a cliff (20-40 degrees) occludes 10-20% at its edge, which the
+    // masters' corner strength turned into a dark line along every fold, the
+    // cliffs drawn as their triangles; CE never darkened those. Corners that
+    // close in (a wall's foot, a crevice) go well below it and keep theirs.
+    // Past the knee, `--ao-curve` takes real corners back down to the
+    // darkness they had before it (the knee alone lightened a wall's foot
+    // from 0.5 to 0.59): (0.5 / 0.85)^1.3 = 0.50.
+    let ao_knee: f32 = arg(&args, "--ao-knee", 0.85);
+    let ao_curve: f32 = arg(&args, "--ao-curve", 1.3);
+    if ao_knee > 0.0 && ao_knee < 1.0 {
+        for b in baked.iter_mut() {
+            for r in b.results.iter_mut() {
+                r.1 = (r.1 / ao_knee).min(1.0).powf(ao_curve);
+            }
+        }
+    }
+
+    for b in &baked {
+        let Baked { page, ref name, lw, lh, scale, w, h, ref results, secs, .. } = *b;
+        let detail = &b.sky;
 
         // RGBA, then dilate covered texels outwards so bilinear filtering at
-        // a chart's edge never reads an empty texel.
+        // a chart's edge never reads an empty texel. A: the texel's chart,
+        // so the masters' filters stay inside it (chart_ids).
         let mut rgba = vec![0u8; w * h * 4];
         let mut have = vec![false; w * h];
-        for (pixel, ao, vis) in &results {
+        for (k, (pixel, ao, vis)) in results.iter().enumerate() {
             let at = pixel * 4;
             rgba[at] = (ao.clamp(0.0, 1.0) * 255.0).round() as u8;
             rgba[at + 1] = (vis.clamp(0.0, 1.0) * 255.0).round() as u8;
-            rgba[at + 2] = 255;
-            rgba[at + 3] = 255;
+            rgba[at + 2] = (detail[k].clamp(0.0, 1.0) * 255.0).round() as u8;
             have[*pixel] = true;
         }
-        // Bilinear filtering reaches one texel past a chart; a few more
-        // cover rounding at the chart's own edge.
-        for _ in 0..4 {
+        let ids = chart_ids(&have, w, h);
+        for i in 0..w * h {
+            rgba[i * 4 + 3] = ids[i];
+        }
+        // Bilinear filtering reaches one texel past a chart, the masters'
+        // 3 x 3 filters a few more: a gutter texel takes one chart's values
+        // only (the first neighbour's), never an average of two charts.
+        for _ in 0..6 {
             let prev = have.clone();
             let src = rgba.clone();
             for y in 0..h {
@@ -512,16 +733,18 @@ fn main() {
                     if prev[y * w + x] {
                         continue;
                     }
-                    let (mut r, mut g, mut n) = (0u32, 0u32, 0u32);
+                    let (mut r, mut g, mut bl, mut n, mut id) = (0u32, 0u32, 0u32, 0u32, 0u8);
                     for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
                         let (nx, ny) = (x as i32 + dx, y as i32 + dy);
                         if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
                             continue;
                         }
                         let q = ny as usize * w + nx as usize;
-                        if prev[q] {
+                        if prev[q] && (n == 0 || src[q * 4 + 3] == id) {
+                            id = src[q * 4 + 3];
                             r += src[q * 4] as u32;
                             g += src[q * 4 + 1] as u32;
+                            bl += src[q * 4 + 2] as u32;
                             n += 1;
                         }
                     }
@@ -529,15 +752,17 @@ fn main() {
                         let at = (y * w + x) * 4;
                         rgba[at] = (r / n) as u8;
                         rgba[at + 1] = (g / n) as u8;
-                        rgba[at + 3] = 255;
+                        rgba[at + 2] = (bl / n) as u8;
+                        rgba[at + 3] = id;
                         have[y * w + x] = true;
                     }
                 }
             }
         }
-        for px in rgba.chunks_exact_mut(4) {
-            if px[3] == 0 {
-                px.copy_from_slice(&[255, 255, 0, 255]);
+        for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+            if !have[i] {
+                // Open, sunlit, CE's sky: and chart 0, which no chart is.
+                px.copy_from_slice(&[255, 255, 255, 0]);
             }
         }
 
@@ -554,8 +779,145 @@ fn main() {
             results.len(),
             mean(0),
             mean(1),
-            started.elapsed().as_secs_f32(),
+            secs,
             file.display()
         );
     }
+
+    let cell: f32 = arg(&args, "--sun-mask-cell", 1.0);
+    if cell > 0.0 {
+        let centre = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5];
+        sun_mask(&baked, &dir, &out, &asset_name(&stem), centre, cell);
+    }
+}
+
+/// CE's light seen from above (`<stem>_sunmask.png` and `.json`): per cell
+/// of `cell` metres, the lightmap's luminance on the topmost surface that
+/// faces up, in R (gamma space, as the lightmap holds it), G 255 where a
+/// surface covered the cell or its neighbours filled it. The JSON places it
+/// in Unreal centimetres, x and y relative to the spawned terrain (the box
+/// centre: glTF (x, y, z) is Unreal (x, z, y) times 100). MJOLNIRLevelLoader
+/// puts it on the level's sun as a light function, so the sun leaves alone
+/// what CE drew in shade: its lightmaps hold shadows metres wide and soft,
+/// which the traced geometry knows nothing of, and a player in Blood Gulch's
+/// side passages stood in full sun on ground CE had dark (2026-10-05).
+fn sun_mask(baked: &[Baked], dir: &Path, out: &Path, stem: &str, centre: V3, cell: f32) {
+    let cm = cell * 100.0;
+    let mut pts: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for b in baked {
+        let file = dir.join(format!("{}.png", b.name));
+        let Some((lw, rgb)) = read_png_rgb(&file) else {
+            println!("sun mask: no {}, page {} left out", file.display(), b.page);
+            continue;
+        };
+        for s in &b.samples {
+            if s.face[1] < 0.3 {
+                continue;
+            }
+            let (x, y) = (s.pixel % b.w, s.pixel / b.w);
+            let (lx, ly) = ((x / b.scale).min(b.lw - 1), (y / b.scale).min(b.lh - 1));
+            let at = (ly * lw + lx) * 3;
+            let l = (0.2126 * rgb[at] as f32 + 0.7152 * rgb[at + 1] as f32 + 0.0722 * rgb[at + 2] as f32) / 255.0;
+            pts.push((
+                (s.p[0] - centre[0]) * 100.0,
+                (s.p[2] - centre[2]) * 100.0,
+                (s.p[1] - centre[1]) * 100.0,
+                l,
+            ));
+        }
+    }
+    if pts.is_empty() {
+        println!("sun mask: no up-facing surface, none written");
+        return;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &pts {
+        x0 = x0.min(p.0);
+        y0 = y0.min(p.1);
+        x1 = x1.max(p.0);
+        y1 = y1.max(p.1);
+    }
+    let (w, h) = (((x1 - x0) / cm).ceil() as usize + 1, ((y1 - y0) / cm).ceil() as usize + 1);
+    let mut top = vec![(f32::MIN, 1.0f32); w * h];
+    for p in &pts {
+        let (ix, iy) = (((p.0 - x0) / cm) as usize, ((p.1 - y0) / cm) as usize);
+        let c = &mut top[iy * w + ix];
+        if p.2 > c.0 {
+            *c = (p.2, p.3);
+        }
+    }
+    let mut have: Vec<bool> = top.iter().map(|c| c.0 > f32::MIN).collect();
+    let mut l: Vec<f32> = top.iter().map(|c| c.1).collect();
+    // Gaps between samples (a cell finer than a texel, steep ground) take
+    // their neighbours' light.
+    for _ in 0..3 {
+        let (prev, src) = (have.clone(), l.clone());
+        for y in 0..h {
+            for x in 0..w {
+                if prev[y * w + x] {
+                    continue;
+                }
+                let (mut sum, mut n) = (0.0, 0);
+                for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)] {
+                    let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                    if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h && prev[ny as usize * w + nx as usize] {
+                        sum += src[ny as usize * w + nx as usize];
+                        n += 1;
+                    }
+                }
+                if n > 0 {
+                    l[y * w + x] = sum / n as f32;
+                    have[y * w + x] = true;
+                }
+            }
+        }
+    }
+    let mut rgba = vec![0u8; w * h * 4];
+    for i in 0..w * h {
+        rgba[i * 4] = (l[i].clamp(0.0, 1.0) * 255.0).round() as u8;
+        rgba[i * 4 + 1] = if have[i] { 255 } else { 0 };
+        rgba[i * 4 + 3] = 255;
+    }
+    let png_file = out.join(format!("{stem}_sunmask.png"));
+    let mut enc = png::Encoder::new(std::fs::File::create(&png_file).expect("create png"), w as u32, h as u32);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().unwrap().write_image_data(&rgba).unwrap();
+    let json = format!(
+        "{{
+  \"cell_cm\": {cm},
+  \"width\": {w},
+  \"height\": {h},
+  \"min\": [{x0:.1}, {y0:.1}]
+}}
+"
+    );
+    std::fs::write(out.join(format!("{stem}_sunmask.json")), json).expect("write json");
+    println!("sun mask {w}x{h} at {cell} m from {} surface texel(s) -> {}", pts.len(), png_file.display());
+}
+
+fn read_png_rgb(path: &Path) -> Option<(usize, Vec<u8>)> {
+    let decoder = png::Decoder::new(std::fs::File::open(path).ok()?);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let ch = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        _ => return None,
+    };
+    if info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let mut rgb = Vec::with_capacity(w * h * 3);
+    for px in buf[..w * h * ch].chunks_exact(ch) {
+        match ch {
+            1 | 2 => rgb.extend_from_slice(&[px[0], px[0], px[0]]),
+            _ => rgb.extend_from_slice(&px[..3]),
+        }
+    }
+    Some((w, rgb))
 }

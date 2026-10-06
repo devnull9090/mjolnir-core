@@ -40,8 +40,10 @@ CE = "/Game/MJOLNIR/CE"
 
 # The baked corners' strength (lightmap_bake's ambient occlusion, a power on
 # the lightmap: 0 none, 1 as traced). Blood Gulch was approved at 2.5 and
-# found a little dark across the maps (2026-10-04).
-BAKE_AO = 2.0
+# found a little dark across the maps (2026-10-04); with lightmap_bake's knee
+# and curve (2026-10-06), 2.0 turned Blood Gulch's base interiors black at
+# the wall foot, and 1.4 was chosen there.
+BAKE_AO = 1.4
 
 # shader_transparent_* framebuffer blend functions: alpha blend, multiply,
 # double multiply, add, subtract, component min, component max, alpha-multiply

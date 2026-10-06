@@ -124,6 +124,15 @@ becomes a `DirectionalLight`, `skylight` a real-time-capture `SkyLight`, and
 section, so lighting changes are a `mjolnir_level_reload` away — no re-bake, no
 restart.
 
+A converted CE map also carries `post` (a fixed exposure, docs/re/fork_renderer.md)
+and may carry `light_scale` (default 256). With a fixed exposure, the loader
+multiplies the sun and skylight by the scale and lowers the exposure by
+log2 of it. The CE materials divide the exposure back out, so the level looks
+the same, while the game's own physical lights (headlights, muzzle flashes,
+effects) come down to their designed strength next to it. At scale 1 a
+Warthog headlight was 160 times the sun and turned whatever it reached white.
+`mjolnir_light_scale <k>` tries a value live; `default` hands it back to the file.
+
 `MJOLNIRWorldBuilder` stands down for any world that has a level file, so its
 auto-built sun and floor pad cannot land on top of an authored environment.
 

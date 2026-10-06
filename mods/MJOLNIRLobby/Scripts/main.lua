@@ -2644,7 +2644,10 @@ end
 -- the console, answered in native\auto_state.txt as key=value lines, so a
 -- script can host, list, start and join without anyone at the menus.
 --   mjolnir_auto state                 where this game is
---   mjolnir_auto host <CODE> <mode>    list publicly and start the map
+--   mjolnir_auto host <CODE> <mode> [private]
+--                                      start the map, listed publicly unless
+--                                      `private` (solo testing: a listed test
+--                                      game is joinable by anyone on the hub)
 --   mjolnir_auto public on|off         list or unlist
 --   mjolnir_auto join [host name]      join a listed game (the first, or the host's)
 -------------------------------------------------------------------------------
@@ -2729,9 +2732,11 @@ local AUTO = {
         if not mode then return autoState({ result = "error no mode for " .. map.code }) end
         Game.map, Game.mode = map, mode
         saveGame()
-        Games.setPublic(true)
+        local private = args[3] == "private"
+        Games.setPublic(not private)
         local ok, why = startGame(map, mode)
-        autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id) or ("error " .. tostring(why)) })
+        autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id .. (private and " private" or ""))
+            or ("error " .. tostring(why)) })
     end,
     join = function(args)
         local wanted = args[1] and string.lower(table.concat(args, " ")) or nil
