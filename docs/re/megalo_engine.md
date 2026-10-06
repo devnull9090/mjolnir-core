@@ -316,3 +316,48 @@ unexplained.
 (returns to the frontend), `GetLastBlamErrorName`, `EndCampaign`,
 `BeginCampaign`, `AcknowledgeLastBlamError`. `BlamOnlineSessionSubsystem`
 reflects no properties.
+
+## Quitting from a match (2026-10-05, in game)
+
+**Symptom.** Alt+F4, the window's close button or the console `quit` from
+inside a converted multiplayer match closed the window within seconds, but
+`HaloCampaignEvolved.exe` never exited. The next launch then failed with
+"already running". From the frontend, or after leaving the match for the
+lobby, the same quit exits in about 5 s.
+
+**Why.** On exit the Unreal host asks the simulation to stop and waits for
+it:
+
+| Where | What |
+|---|---|
+| exe `0x7b1d8e0` | the wait: calls the stop request, then loops `Sleep(0)` until the host object's state byte (`+0x1a8`) reads 2 |
+| exe `0x7b24160` | the stop request: state 0 → 1, sets the stop flag (`[obj+0x140]+0xa`), posts shell event 0/7 into the simulation's queue (`[obj+0x1c8]`, vtable `+0x20` then `+8`, `dl = 7`); the only place in the exe that posts this event |
+| sim `0x9e60` | the simulation thread: main loop `0x1af6e0`, then shutdown `0x61f0`, then the host's exit callback, which is what lets the wait end |
+| sim `0x1af6e0` | the main loop runs until the byte at `0x1357023` is set |
+| sim `0xe670` → `0xeeef` | the event drain, case 0/7: if no game is in progress (`0x209a20`), set `0x1357023`; with a game in progress, set it only when the game options' mode byte (`[TLS+0x60]+0x10`) is 1 (campaign) |
+
+So with a Megalo game running (mode 2) the exit event is dropped. It is
+posted only once, so the main loop keeps ticking the match and the host's
+wait never ends. The Unreal host never ran a multiplayer game, so it never
+hit this.
+
+**Fix.** `mjolnir_map_registry.dll` (MJOLNIRLevelLoader 0.3.1) NOPs the
+mode check's `jne` at sim `0xef18` (`0f 85 0d 05 00 00` → `66 0f 1f 44 00
+00`). A multiplayer game then exits the loop the way a campaign mission
+already does. The patch is the seventh in the Megalo switch's table and
+`mjolnir_megalo_off` leaves it in place. Outside a non-campaign game it
+changes nothing, because the branch it removes is taken only there.
+
+Checked on CU4, hosting Blood Gulch (private), with the patched DLL:
+
+| Quit from the match | Before | After |
+|---|---|---|
+| WM_CLOSE (`taskkill` without `/F`) | never exited (90 s+) | exited in 5.2 s |
+| Alt+F4 | never exited | 5.3 s |
+| console `quit` | not tried | 5.8 s |
+
+Every quit was clean: the log ends with `Gauntlet Shutdown` and no crash
+report was written. Before the DLL was changed, setting `0x1357023` by hand
+in a process already stuck this way let it exit in 4.6 s, also cleanly.
+The pause menu in a match has no quit to desktop. Its SAVE AND EXIT goes to
+the frontend and was never affected.
