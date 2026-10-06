@@ -22,6 +22,7 @@ visuals, which is enough to test a conversion by standing on it.
 """
 import argparse
 import collections
+import glob
 import json
 import math
 import os
@@ -509,8 +510,22 @@ def lightmap_sun(scene_gltf, staging, bake_dir):
             "colour": [round(float(c), 3) for c in colour / colour.max()] if colour.max() > 0 else None}
 
 
-def environment(template, placement, scene=None, staging=None, bake=None):
+def sun_mask(bake, root):
+    """lightmap_bake's sun mask as the level's environment.sun_mask: the
+    cooked texture (ce_material_spec.py cooks it under <root>/Textures) and
+    its placement relative to the terrain actor; None without one."""
+    for f in sorted(glob.glob(os.path.join(bake or "", "*_sunmask.json"))):
+        spec = json.load(open(f, encoding="utf-8"))
+        name = os.path.splitext(os.path.basename(f))[0]
+        return {"texture": f"{root}/Textures/{name}.{name}", **spec}
+    return None
+
+
+def environment(template, placement, scene=None, staging=None, bake=None, root=None):
     env = json.loads(json.dumps(template))
+    mask = sun_mask(bake, root) if root else None
+    if mask:
+        env["sun_mask"] = mask
     rotation = sun_rotation(scene) if scene else None
     if rotation:
         env.setdefault("sun", {})
@@ -1005,7 +1020,8 @@ def main():
         # post-process volume keeps everything between them and the screen
         # neutral: fixed exposure, no local exposure, no filmic curve
         # (MJOLNIRLevelLoader "post").
-        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake),
+        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
+                                      f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

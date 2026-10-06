@@ -473,22 +473,20 @@ end
 local TerrainShadows = { cast = false, strength = nil, lightmap = nil, proxy = false, ao = nil }
 local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 
---- Dynamic lights on the terrain (`mjolnir_terrain_lights`, an experiment).
---- The game's own lights (headlights, muzzle flashes, explosions) multiply
---- the terrain's base colour, which holds only the sun's share of the baked
---- light: nothing where CE had shade. `on` gives the CE environment masters
---- (the trial build, with DYNAMIC_ALBEDO_CODE) the surface's albedo there
---- (DynamicAlbedo, a multiplier), puts the terrain on lighting channel 0
---- with the game's lights, and spawns the terrain's shadow copy, so the
---- Unreal sun stays out of CE's shade and the materials need give nothing
---- back there (SunVisBake). `noproxy` leaves the copy out: the sun then
---- reaches everywhere and the albedo in CE's shade is capped by what the
---- emissive can give back. Lasts until the game closes.
+--- Dynamic lights on the terrain (`mjolnir_terrain_lights`), on by default
+--- for converted levels since 2026-10-06. Unreal draws the terrain's direct
+--- light (UnrealLit: the runtime pack's CE environment masters,
+--- build_ce_materials.py SUNLIT_CODE) over CE's sunlit colour and bump map,
+--- CE's lightmap stays its ambient, the terrain joins lighting channel 0 with
+--- the game's lights, its shadow copy keeps the sun out of what the geometry
+--- shades, and the level's sun takes the map's sun mask (environment.sun_mask,
+--- M_CE_SunLight) so CE's broad soft shadows stay. `hybrid` is the earlier
+--- mode (the sun share topped up for the other lights), `trial` the trial
+--- masters (chunk 983) over a bake in bake\ beside this mod, `off` CE's
+--- unlit terrain. Lasts until the game closes.
 --- `margin` sets how far (bake texels) CE's sun and shade are pulled in
 --- from their edges, where the copy's shadow and the bake disagree.
---- `unreal` draws the terrain in Unreal's direct light (UnrealLit,
---- build_ce_materials.py SUNLIT_CODE), with the sun mask keeping CE's shade.
-local TerrainLights = { on = false, albedo = 1.0, proxy = true, margin = nil, fill = false, unreal = false }
+local TerrainLights = { on = true, albedo = 1.0, proxy = true, margin = nil, fill = false, unreal = true, trial = false }
 
 local function proxyWanted()
     return TerrainShadows.proxy or (TerrainLights.on and TerrainLights.proxy)
@@ -549,7 +547,7 @@ local function runtimeMaterial(world, spec, name)
     local parent = nil
     -- The lightmap experiment draws the CE environment masters with the
     -- trial build, when it is installed.
-    local master = (TerrainShadows.lightmap or TerrainLights.on) and type(spec.parent) == "string"
+    local master = (TerrainShadows.lightmap or TerrainLights.trial) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
@@ -862,17 +860,32 @@ local function applySunMask(world)
             break
         end
     end
-    if not (terrain and terrain:IsValid() and stem) then return false, "no terrain with a lightmap" end
-    local raw = readFile(textureFile("bake\\" .. stem .. "_sunmask.json"))
-    if not raw then return false, "no bake\\" .. stem .. "_sunmask.json" end
-    local okJson, spec = pcall(Json.decode, raw)
-    if not okJson or type(spec) ~= "table" or type(spec.min) ~= "table" then return false, "unreadable sun mask json" end
+    if not (terrain and terrain:IsValid()) then return false, "no terrain" end
     local levels = lightmapSun()
-    if not levels then return false, "the level names no lightmap_sun levels" end
-    local tex, err = importTexture(world, "bake\\" .. stem .. "_sunmask.png", true)
-    if not tex then return false, tostring(err) end
-    local master = resolveMesh(TRIAL_MASTERS .. "M_CE_SunLight.M_CE_SunLight")
-    if not master then return false, "trial M_CE_SunLight not installed" end
+    if not levels or levels[2] <= levels[1] then return false, "the level names no lightmap_sun levels (no sun)" end
+    -- The map's cooked mask (environment.sun_mask, gen_ce_level.py), unless a
+    -- trial is running on a bake in bake\ beside this mod.
+    local env = Current.level.environment or {}
+    local spec, tex = env.sun_mask, nil
+    if TerrainLights.trial or type(spec) ~= "table" then
+        if not stem then return false, "no terrain with a lightmap" end
+        local raw = readFile(textureFile("bake\\" .. stem .. "_sunmask.json"))
+        if raw then
+            local okJson, s2 = pcall(Json.decode, raw)
+            if okJson and type(s2) == "table" then
+                local t2 = importTexture(world, "bake\\" .. stem .. "_sunmask.png", true)
+                if t2 then spec, tex = s2, t2 end
+            end
+        end
+    end
+    if type(spec) ~= "table" or type(spec.min) ~= "table" then return false, "the level has no sun mask" end
+    if not tex then
+        tex = resolveMesh(spec.texture)
+        if not tex then return false, "sun mask texture not found: " .. tostring(spec.texture) end
+    end
+    local master = (TerrainLights.trial and resolveMesh(TRIAL_MASTERS .. "M_CE_SunLight.M_CE_SunLight"))
+        or resolveMesh("/Game/MJOLNIR/CE/M_CE_SunLight.M_CE_SunLight")
+    if not master then return false, "M_CE_SunLight not installed (runtime pack too old)" end
     local l = terrain:K2_GetActorLocation()
     local xform = { R = l.X + spec.min[1], G = l.Y + spec.min[2],
                     B = 1.0 / (spec.width * spec.cell_cm), A = 1.0 / (spec.height * spec.cell_cm) }
@@ -2344,14 +2357,17 @@ local function terrainLights(args)
         local function has(word) return args[2] == word or args[3] == word or args[4] == word end
         TerrainLights.proxy = not has("noproxy")
         TerrainLights.fill = has("fill")
-        TerrainLights.unreal = has("unreal")
-        -- Unreal-lit takes the runtime bake with it, so one respawn does both.
-        if TerrainLights.on and TerrainLights.unreal and not TerrainShadows.lightmap then
-            TerrainShadows.lightmap = lightmapSun()
+        TerrainLights.unreal = not has("hybrid")
+        TerrainLights.trial = has("trial")
+        -- A trial runs on the bake in bake\ beside this mod, loaded in the
+        -- same respawn. An indoor level names no lightmap levels: {0, 0}
+        -- still loads the bake, and the masters read it as "no sun levels".
+        if TerrainLights.on and TerrainLights.trial and not TerrainShadows.lightmap then
+            TerrainShadows.lightmap = lightmapSun() or { 0, 0 }
         end
         if TerrainLights.on and not value then TerrainLights.albedo = 1.0 end
         if value then TerrainLights.albedo = math.max(0.0, value) end
-        if TerrainLights.on and not resolveMesh(TRIAL_MASTERS .. "M_CE_Environment.M_CE_Environment") then
+        if TerrainLights.trial and not resolveMesh(TRIAL_MASTERS .. "M_CE_Environment.M_CE_Environment") then
             Log("terrain lights: trial masters (" .. TRIAL_MASTERS .. ", chunk 983) not installed")
         end
         Log(string.format("terrain lights %s%s (albedo %.2f, shadow proxy %s, sky fill %s); respawning the level",
@@ -2370,7 +2386,7 @@ local function terrainLights(args)
         Log(string.format("terrain lights: albedo %.2f on %d material(s)", TerrainLights.albedo, n))
         return
     elseif mode ~= nil then
-        Log("usage: mjolnir_terrain_lights [on|off] [albedo] [noproxy] [fill] [unreal] | margin <texels> | param <Name> <value>")
+        Log("usage: mjolnir_terrain_lights [on|off] [albedo] [noproxy] [fill] [hybrid] [trial] | margin <texels> | param <Name> <value>")
         return
     end
     Log(string.format("terrain lights %s (albedo %.2f, shadow proxy %s)",

@@ -29,6 +29,7 @@ The spec also lists the mesh slots in slot order: `{"name": <slot name>,
 "pattern": "<gltf material>$", "material": <runtime material>}`, for
 mesh_rewrite's --material and the level file.
 """
+import glob
 import json
 import math
 import os
@@ -632,6 +633,13 @@ def main():
             for light in e.get("lights", []):
                 for r in (light.get("lens_flare") or {}).get("reflections", []):
                     texture(r.get("bitmap"))
+
+    # lightmap_bake's sun mask (<page 0>_sunmask.png): cooked with the map,
+    # read by M_CE_SunLight through the level's environment.sun_mask
+    # (gen_ce_level.py).
+    for png in sorted(glob.glob(os.path.join(bake_dir, "*_sunmask.png"))) if bake_dir else []:
+        t = os.path.splitext(os.path.basename(png))[0]
+        textures.setdefault(t, {"file": os.path.abspath(png), "name": t, "sunmask": True})
 
     json.dump({"root": root, "chunk": cook_chunk(code) if code else None,
                "textures": list(textures.values()), "materials": materials, "slots": slots},
