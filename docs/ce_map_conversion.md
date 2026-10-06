@@ -623,15 +623,18 @@ seconds after the loading screen are dark.
   margin <texels>`); between them the colour is CE's. At margin 0 Blood
   Gulch's bases traced their crenellations in black around the wall foot
   (verified on Blood Gulch and Coldsnap, 2026-10-05).
-  `mjolnir_terrain_lights on unreal` (the direction chosen on Blood Gulch,
-  2026-10-06) instead hands the terrain's direct light to Unreal: its base
+  Since 2026-10-06 the default (MJOLNIRLevelLoader 0.4.0, runtime pack
+  1.3.0, maps 1.2.0; `mjolnir_terrain_lights hybrid` brings the mode above
+  back for comparison) hands the terrain's direct light to Unreal: its base
   colour is CE's sunlit colour (the texel's own lightmap level where CE had
   sun, the level's sunlit level in CE's shade), CE's bump map is its normal,
   and its emissive is CE's colour less what Unreal's sun adds, never below
   CE's ambient. The sun mask (`<stem>_sunmask`, CE's lightmap seen from
-  above at 1 m, tent-filtered) is the sun's light function, so CE's broad
-  soft shadows stay and objects darken in them. The same command switches the
-  runtime bake on, so the level respawns once (two quick respawns were
+  above at 1 m, cooked with the map and named by `environment.sun_mask`,
+  tent-filtered) is the sun's light function, so CE's broad
+  soft shadows stay and objects darken in them. A trial
+  (`mjolnir_terrain_lights on trial`) reads the trial masters and a bake in
+  the loader's `bake\` folder in one respawn (two quick respawns were
   followed twice by a GPU crash). `mjolnir_terrain_debug <layer>` shows one
   layer of the terrain's light at a time. Keep the sun's angular size at the
   engine's 0.54 degrees: at 3 the virtual shadow maps leaked light in lines
