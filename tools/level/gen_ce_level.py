@@ -22,6 +22,7 @@ visuals, which is enough to test a conversion by standing on it.
 """
 import argparse
 import collections
+import glob
 import json
 import math
 import os
@@ -509,8 +510,22 @@ def lightmap_sun(scene_gltf, staging, bake_dir):
             "colour": [round(float(c), 3) for c in colour / colour.max()] if colour.max() > 0 else None}
 
 
-def environment(template, placement, scene=None, staging=None, bake=None):
+def sun_mask(bake, root):
+    """lightmap_bake's sun mask as the level's environment.sun_mask: the
+    cooked texture (ce_material_spec.py cooks it under <root>/Textures) and
+    its placement relative to the terrain actor; None without one."""
+    for f in sorted(glob.glob(os.path.join(bake or "", "*_sunmask.json"))):
+        spec = json.load(open(f, encoding="utf-8"))
+        name = os.path.splitext(os.path.basename(f))[0]
+        return {"texture": f"{root}/Textures/{name}.{name}", **spec}
+    return None
+
+
+def environment(template, placement, scene=None, staging=None, bake=None, root=None):
     env = json.loads(json.dumps(template))
+    mask = sun_mask(bake, root) if root else None
+    if mask:
+        env["sun_mask"] = mask
     rotation = sun_rotation(scene) if scene else None
     if rotation:
         env.setdefault("sun", {})
@@ -619,10 +634,13 @@ def point_triangle_distance(p, tri):
 
 
 def landing_nudge(tris, pos, facing):
-    """How far forward along `facing` (CE radians) a teleporter's landing spot
-    at `pos` (world units, on the floor) moves so a standing Spartan clears
-    the collision by TELEPORTER_CLEARANCE; the clearest spot within reach
-    when none does, 0.0 when it already does."""
+    """How far along `facing` (CE radians) a teleporter's landing spot at
+    `pos` (world units, on the floor) moves so a standing Spartan clears the
+    collision by TELEPORTER_CLEARANCE: forward first, then back (negative);
+    the clearest spot within reach when none does, 0.0 when it already does.
+    Gephyrophobia's "teleport to" flags face the narrow mouth of their pads,
+    0.19-0.21 from its sides, so forward only lost room and every pad raised
+    teleporter_blocked (2026-10-07); back towards the pad's middle clears."""
     reach = TELEPORTER_CLEARANCE + TELEPORTER_NUDGE_MAX + SPARTAN_LIFT + SPARTAN_HEIGHT
     near = [t for t in tris
             if all(min(v[i] for v in t) - reach <= pos[i] <= max(v[i] for v in t) + reach for i in range(3))]
@@ -633,7 +651,7 @@ def landing_nudge(tris, pos, facing):
     dx, dy = math.cos(facing), math.sin(facing)
     best = (-1.0, 0.0)
     steps = round(TELEPORTER_NUDGE_MAX / TELEPORTER_NUDGE_STEP)
-    for k in range(steps + 1):
+    for k in [*range(steps + 1), *range(-1, -steps - 1, -1)]:
         d = k * TELEPORTER_NUDGE_STEP
         axis = [(pos[0] + dx * d, pos[1] + dy * d, pos[2] + h) for h in heights]
         clear = min((point_triangle_distance(p, t) for p in axis for t in near), default=math.inf)
@@ -906,7 +924,7 @@ def main():
             d = landing_nudge(collision, pos, f["facing"])
             if d:
                 pos = [pos[0] + math.cos(f["facing"]) * d, pos[1] + math.sin(f["facing"]) * d, pos[2]]
-                nudged.append(d)
+                nudged.append(abs(d))
         teleporters.append({
             "tag": TELEPORTER_2WAY if two_way else TELEPORTER_SCENERY[f["type"]],
             "group": "scenery",
@@ -930,7 +948,7 @@ def main():
             },
         })
     if nudged:
-        print(f"{len(nudged)} teleporter landing spot(s) moved forward to fit a Spartan "
+        print(f"{len(nudged)} teleporter landing spot(s) moved to fit a Spartan "
               f"(up to {max(nudged):.2f} wu)", file=sys.stderr)
     if len(teleporters) > TELEPORTER_MAX:
         print(f"warning: {len(teleporters)} teleporter ends; the simulation keeps {TELEPORTER_MAX}, "
@@ -1005,7 +1023,8 @@ def main():
         # post-process volume keeps everything between them and the screen
         # neutral: fixed exposure, no local exposure, no filmic curve
         # (MJOLNIRLevelLoader "post").
-        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake),
+        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
+                                      f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

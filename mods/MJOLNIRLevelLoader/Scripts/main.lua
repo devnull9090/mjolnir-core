@@ -32,6 +32,14 @@
 --   mjolnir_terrain_shadows [on|off] [strength]
 --                          let a converted level's terrain cast shadows (an
 --                          experiment, see TerrainShadows)
+--   mjolnir_light_scale [k|default]
+--                          how much brighter a converted level's sun and sky
+--                          are than CE's, exposure compensated (lightScale)
+--   mjolnir_terrain_debug [layer|off]
+--                          show one layer of a converted level's terrain light
+--   mjolnir_terrain_lights [on|off] [albedo] [noproxy] [fill]
+--                          let the game's lights light a converted level's
+--                          terrain (an experiment, see TerrainLights)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -208,6 +216,9 @@ local Current = {
     -- Decor whose material follows a CE periodic function (a beacon's flare
     -- pulsing with its light): { mid, param, base, fn, period }.
     pulses = {},
+    -- CE material instances told the sun's illuminance (runtimeMaterial),
+    -- for `mjolnir_light_scale`.
+    sunMids = {},
 }
 
 local function resetState()
@@ -226,6 +237,7 @@ local function resetState()
     Current.tinted = {}
     Current.fileMissing = false
     Current.pulses = {}
+    Current.sunMids = {}
 end
 
 local function clearActors()
@@ -239,6 +251,7 @@ local function clearActors()
         end
     end
     Current.actors = {}
+    Current.sunMids = {}
     Current.spawned = 0
     Current.failed = 0
 end
@@ -373,8 +386,33 @@ local function textureFile(value)
     return MOD_DIR .. "\\" .. value:gsub("/", "\\")
 end
 
+--- A dynamic M_CE_LinearCopy over `tex` (importTexture's linear path), or
+--- nil without the trial masters.
+local function linearCopy(world, tex)
+    local master = resolveMesh("/Game/MJOLNIR/CETrial/M_CE_LinearCopy.M_CE_LinearCopy")
+        or resolveMesh("/Game/MJOLNIR/CE/M_CE_LinearCopy.M_CE_LinearCopy")
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    if not (master and kml) then return nil end
+    local mid = kml:CreateDynamicMaterialInstance(world, master, FName("ce_linear_copy"), 0)
+    if not (mid and mid:IsValid()) then return nil end
+    mid:SetTextureParameterValue(FName("Src"), tex)
+    return mid
+end
+
+--- A file's size, as a cheap signature that it changed on disk.
+local function fileSize(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local n = f:seek("end")
+    f:close()
+    return n
+end
+
 local function importTexture(world, value, linear)
-    local key = value .. (linear and "|linear" or "")
+    -- Keyed by the file's size too: a bake rewritten on disk is read again,
+    -- an unchanged one never is. Every page read again on every respawn
+    -- (dropping the cache) was followed twice by a GPU crash (2026-10-06).
+    local key = value .. (linear and "|linear" or "") .. "|" .. tostring(fileSize(textureFile(value)))
     local cached = Current.textures[key]
     if cached and cached:IsValid() then return cached end
     local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
@@ -394,9 +432,19 @@ local function importTexture(world, value, linear)
         -- UE4SS hands the out parameters back in the first table: the canvas
         -- as `Canvas` (with the size beside it).
         local out, context = {}, {}
+        -- The import is always sRGB, so a linear texture (a bake page, a sun
+        -- mask) goes through M_CE_LinearCopy, which re-encodes what the
+        -- sampler decoded: drawn as it is, 128 in the file arrived as 55.
+        local copy = linear and linearCopy(world, tex)
         krl:BeginDrawCanvasToRenderTarget(world, rt, out, context, {})
-        out.Canvas:K2_DrawTexture(tex, { X = 0, Y = 0 }, { X = w, Y = h }, { X = 0, Y = 0 }, { X = 1, Y = 1 },
-            { R = 1, G = 1, B = 1, A = 1 }, BLEND_OPAQUE, 0.0, { X = 0.5, Y = 0.5 })
+        if copy then
+            out.Canvas:K2_DrawMaterial(copy, { X = 0, Y = 0 }, { X = w, Y = h }, { X = 0, Y = 0 }, { X = 1, Y = 1 },
+                0.0, { X = 0.5, Y = 0.5 })
+        else
+            if linear then Log("texture " .. value .. ": no M_CE_LinearCopy, so it reads sRGB-decoded (too dark)") end
+            out.Canvas:K2_DrawTexture(tex, { X = 0, Y = 0 }, { X = w, Y = h }, { X = 0, Y = 0 }, { X = 1, Y = 1 },
+                { R = 1, G = 1, B = 1, A = 1 }, BLEND_OPAQUE, 0.0, { X = 0.5, Y = 0.5 })
+        end
         krl:EndDrawCanvasToRenderTarget(world, { RenderTarget = rt })
         result = rt
     end)
@@ -425,6 +473,25 @@ end
 local TerrainShadows = { cast = false, strength = nil, lightmap = nil, proxy = false, ao = nil }
 local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 
+--- Dynamic lights on the terrain (`mjolnir_terrain_lights`), on by default
+--- for converted levels since 2026-10-06. Unreal draws the terrain's direct
+--- light (UnrealLit: the runtime pack's CE environment masters,
+--- build_ce_materials.py SUNLIT_CODE) over CE's sunlit colour and bump map,
+--- CE's lightmap stays its ambient, the terrain joins lighting channel 0 with
+--- the game's lights, its shadow copy keeps the sun out of what the geometry
+--- shades, and the level's sun takes the map's sun mask (environment.sun_mask,
+--- M_CE_SunLight) so CE's broad soft shadows stay. `hybrid` is the earlier
+--- mode (the sun share topped up for the other lights), `trial` the trial
+--- masters (chunk 983) over a bake in bake\ beside this mod, `off` CE's
+--- unlit terrain. Lasts until the game closes.
+--- `margin` sets how far (bake texels) CE's sun and shade are pulled in
+--- from their edges, where the copy's shadow and the bake disagree.
+local TerrainLights = { on = true, albedo = 1.0, proxy = true, margin = nil, fill = false, unreal = true, trial = false }
+
+local function proxyWanted()
+    return TerrainShadows.proxy or (TerrainLights.on and TerrainLights.proxy)
+end
+
 --- The level's lightmap levels { shadow, sunlit }: the experiment's, else
 --- the level's own (environment.sun.lightmap_sun), else nil.
 local function lightmapSun()
@@ -434,6 +501,34 @@ local function lightmapSun()
     local v = type(sun) == "table" and sun.lightmap_sun
     if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" then return v end
     return nil
+end
+
+--- The scene's light scale. A converted level is drawn at a fixed exposure
+--- of about 1 (environment.post) under a sun of a few lux, so CE's colours
+--- land on the screen as they are. The game's own lights are physical and
+--- tuned for its auto exposure (EV100 -2.5 to 16, a daylight mission near
+--- 13): a Warthog headlight is 18 EV, some 32,000 cd, 160 times the level's
+--- sun at 5 m, and turned whatever it reached white (Blood Gulch,
+--- 2026-10-05). So the sun and sky light are multiplied by this and the
+--- exposure divided by it: the CE materials divide by the camera's exposure
+--- (and are told the sun's real illuminance, runtimeMaterial), so the level
+--- looks the same, while the game's lights, effects and emissive surfaces
+--- come down to their designed strength against it. 1 is the old scene;
+--- 2^13 would be daylight, where a headlight barely shows. Needs the fixed
+--- exposure: without environment.post the scale is 1.
+local DEFAULT_LIGHT_SCALE = 256
+local LightScale = { value = nil } -- `mjolnir_light_scale`, until the game closes
+
+local function lightScale()
+    local env = Current.level and Current.level.environment
+    if type(env) ~= "table" or type(env.post) ~= "table" or not env.post.manual_exposure then return 1.0 end
+    local k = LightScale.value or env.light_scale or DEFAULT_LIGHT_SCALE
+    return (type(k) == "number" and k > 0) and k or 1.0
+end
+
+--- What the CE masters are told the sun is (runtimeMaterial, SunIlluminance).
+local function sunIlluminance(sun)
+    return (sun.intensity or 8.0) * (sun.response or 0.7) * lightScale()
 end
 
 --- The switch that turns a CE master's texture parameter off.
@@ -452,7 +547,7 @@ local function runtimeMaterial(world, spec, name)
     local parent = nil
     -- The lightmap experiment draws the CE environment masters with the
     -- trial build, when it is installed.
-    local master = TerrainShadows.lightmap and type(spec.parent) == "string"
+    local master = (TerrainShadows.lightmap or TerrainLights.trial) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
@@ -483,6 +578,13 @@ local function runtimeMaterial(world, spec, name)
     end
     for param, value in pairs(spec.scalars or {}) do
         mid:SetScalarParameterValue(FName(param), value)
+    end
+    if TerrainLights.on then
+        mid:SetScalarParameterValue(FName("DynamicAlbedo"), TerrainLights.albedo)
+        mid:SetScalarParameterValue(FName("SunVisBake"), TerrainLights.proxy and 1.0 or 0.0)
+        if TerrainLights.margin then mid:SetScalarParameterValue(FName("BakeMargin"), TerrainLights.margin) end
+        mid:SetScalarParameterValue(FName("UnrealLit"), TerrainLights.unreal and 1.0 or 0.0)
+        for param, v in pairs(TerrainLights.params or {}) do mid:SetScalarParameterValue(FName(param), v) end
     end
     for _, param in ipairs(missing) do
         local has = HAS_PARAM[param]
@@ -532,8 +634,11 @@ local function runtimeMaterial(world, spec, name)
         -- The lit share comes out at about 0.7 of Lambert's prediction in
         -- this renderer (measured on Blood Gulch: sunlit ground matched with
         -- and without the share only at 0.7), so the material is told the
-        -- sun is that much dimmer than the light really is.
-        mid:SetScalarParameterValue(FName("SunIlluminance"), (sun.intensity or 8.0) * (sun.response or 0.7))
+        -- sun is that much dimmer than the light really is. The material
+        -- divides the camera's exposure out of its colour before it works
+        -- the share out, so the scene's light scale goes in as well.
+        mid:SetScalarParameterValue(FName("SunIlluminance"), sunIlluminance(sun))
+        Current.sunMids[#Current.sunMids + 1] = mid
         mid:SetScalarParameterValue(FName("ShadowStrength"), sun.shadow_strength or 0.9)
         local levels = lightmapSun()
         if levels then
@@ -653,6 +758,20 @@ local function spawnShadowProxy(world, item)
     pcall(function() count = math.max(count, src.OverrideMaterials:GetArrayNum()) end)
     for i = 0, count - 1 do comp:SetMaterial(i, src:GetMaterial(i)) end
     comp.bCastHiddenShadow = true
+    -- CE BSP surfaces are one-sided, and the lightmap bake's sun rays stop
+    -- at either side: one-sided, the copy let the sun through the back of
+    -- Blood Gulch's cliffs where CE had shade, which the dynamic albedo
+    -- (TerrainLights) then drew lit (2026-10-05).
+    comp.bCastShadowAsTwoSided = true
+    -- Shadows only. Hidden from the camera, the copy still stood in the
+    -- reflections and indirect light (distance fields, the Lumen scene, ray
+    -- tracing), exactly on the terrain, and the two took turns frame by
+    -- frame: gun glass and windshields flashed the sunlit ground (2026-10-05).
+    comp.bVisibleInRayTracing = false
+    comp.bVisibleInReflectionCaptures = false
+    comp.bVisibleInRealTimeSkyCaptures = false
+    comp.bAffectDynamicIndirectLighting = false
+    comp.bAffectDistanceFieldLighting = false
     comp:SetCastShadow(true)
     comp:SetHiddenInGame(true, false)
     return true
@@ -663,7 +782,7 @@ local function applyShadowProxies(world)
     for _, item in ipairs(Current.level and Current.level.decor or {}) do
         if isSolidTerrain(item) then
             local key = item.id .. "__shadow"
-            if TerrainShadows.proxy then
+            if proxyWanted() then
                 local ok, done, err = pcall(spawnShadowProxy, world, item)
                 if ok and done then
                     n = n + 1
@@ -677,6 +796,122 @@ local function applyShadowProxies(world)
         end
     end
     return n
+end
+
+--- Sky fill (`mjolnir_terrain_lights fill`, an experiment): the sky light
+--- cannot take a light function, so in CE's shade objects kept ~40% of their
+--- sunlit brightness where CE drew them at a few percent. Most of the sky
+--- light moves into three shadowless directional lights 20 degrees above
+--- the horizon, 120 apart, sky-blue, on the sun mask: measured against the
+--- sky light on a grey cube in Blood Gulch's open ground (2026-10-06), 864
+--- each for a sky light of 768 matched it within ~10%. Objects only
+--- (channel 0); the terrain draws its own light.
+local SKY_FILL = { keep = 0.15, per_sky = 1.125, color = { 0.5, 0.62, 1.0 }, pitch = -20.0, yaws = { 0, 120, 240 } }
+
+local function spawnSkyFill(world, lightFunction)
+    local skyActor = Current.actors["__sky"]
+    if not (skyActor and skyActor:IsValid()) then return 0 end
+    local skylight = (Current.level.environment or {}).skylight or {}
+    local sky = (skylight.intensity or 3.0) * lightScale()
+    local cls = findObject("/Script/Engine.DirectionalLight")
+    local n = 0
+    for i, yaw in ipairs(SKY_FILL.yaws) do
+        local key = "__skyfill" .. i
+        local actor = Current.actors[key]
+        if not (actor and actor:IsValid()) then
+            actor = world:SpawnActor(cls, { X = 0, Y = 0, Z = 50000 }, { Pitch = SKY_FILL.pitch, Yaw = yaw, Roll = 0 })
+            Current.actors[key] = actor
+        end
+        local c = actor.LightComponent
+        c.Mobility = MOBILITY_MOVABLE
+        c:SetCastShadows(false)
+        pcall(function() c:SetAtmosphereSunLight(false) end)
+        c:SetLightingChannels(true, false, false)
+        c:SetIntensity(sky * SKY_FILL.per_sky)
+        c:SetLightColor({ R = SKY_FILL.color[1], G = SKY_FILL.color[2], B = SKY_FILL.color[3], A = 1 }, false)
+        c:SetLightFunctionMaterial(lightFunction)
+        pcall(function() c:SetLightFunctionFadeDistance(1.0e7) end)
+        actor:K2_SetActorRotation({ Pitch = SKY_FILL.pitch, Yaw = yaw, Roll = 0 }, false)
+        n = n + 1
+    end
+    skyActor.LightComponent:SetIntensity(sky * SKY_FILL.keep)
+    return n
+end
+
+--- The level's sun mask (TerrainLights): lightmap_bake's <stem>_sunmask,
+--- CE's lightmap seen from above, in bake\ beside this mod. It goes on the
+--- level's sun as a light function (the trial M_CE_SunLight), so the sun
+--- stays out of what CE drew in shade and objects standing there darken; the
+--- terrain's materials get the same mask, to know how much sun reaches them.
+--- Its JSON places it relative to the terrain actor (the mesh's box centre).
+local function applySunMask(world)
+    local terrain, stem
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        if isSolidTerrain(item) then
+            terrain = Current.actors[item.id]
+            for _, m in ipairs(item.materials or {}) do
+                local lm = type(m) == "table" and type(m.textures) == "table" and m.textures.Lightmap
+                local leaf = type(lm) == "string" and lm:match("%.([%w_]+)$")
+                if leaf then
+                    stem = leaf:gsub("_n%d+$", "")
+                    break
+                end
+            end
+            break
+        end
+    end
+    if not (terrain and terrain:IsValid()) then return false, "no terrain" end
+    local levels = lightmapSun()
+    if not levels or levels[2] <= levels[1] then return false, "the level names no lightmap_sun levels (no sun)" end
+    -- The map's cooked mask (environment.sun_mask, gen_ce_level.py), unless a
+    -- trial is running on a bake in bake\ beside this mod.
+    local env = Current.level.environment or {}
+    local spec, tex = env.sun_mask, nil
+    if TerrainLights.trial or type(spec) ~= "table" then
+        if not stem then return false, "no terrain with a lightmap" end
+        local raw = readFile(textureFile("bake\\" .. stem .. "_sunmask.json"))
+        if raw then
+            local okJson, s2 = pcall(Json.decode, raw)
+            if okJson and type(s2) == "table" then
+                local t2 = importTexture(world, "bake\\" .. stem .. "_sunmask.png", true)
+                if t2 then spec, tex = s2, t2 end
+            end
+        end
+    end
+    if type(spec) ~= "table" or type(spec.min) ~= "table" then return false, "the level has no sun mask" end
+    if not tex then
+        tex = resolveMesh(spec.texture)
+        if not tex then return false, "sun mask texture not found: " .. tostring(spec.texture) end
+    end
+    local master = (TerrainLights.trial and resolveMesh(TRIAL_MASTERS .. "M_CE_SunLight.M_CE_SunLight"))
+        or resolveMesh("/Game/MJOLNIR/CE/M_CE_SunLight.M_CE_SunLight")
+    if not master then return false, "M_CE_SunLight not installed (runtime pack too old)" end
+    local l = terrain:K2_GetActorLocation()
+    local xform = { R = l.X + spec.min[1], G = l.Y + spec.min[2],
+                    B = 1.0 / (spec.width * spec.cell_cm), A = 1.0 / (spec.height * spec.cell_cm) }
+    local function place(mid)
+        mid:SetTextureParameterValue(FName("SunMask"), tex)
+        mid:SetVectorParameterValue(FName("SunMaskXform"), xform)
+        mid:SetScalarParameterValue(FName("HasSunMask"), 1.0)
+        mid:SetVectorParameterValue(FName("LightmapSun"), { R = levels[1], G = levels[2], B = 0, A = 0 })
+    end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local light = kml:CreateDynamicMaterialInstance(world, master, FName("ce_sun_light"), 0)
+    place(light)
+    local sun = Current.actors["__sun"]
+    if not (sun and sun:IsValid()) then return false, "no sun" end
+    local c = sun.LightComponent
+    c:SetLightFunctionMaterial(light)
+    -- The fade is for a light function seen from far off; this one is
+    -- the level's own light.
+    pcall(function() c:SetLightFunctionFadeDistance(1.0e7) end)
+    local n = 0
+    for _, mid in ipairs(Current.sunMids) do
+        if mid:IsValid() and pcall(place, mid) then n = n + 1 end
+    end
+    local fills = TerrainLights.fill and spawnSkyFill(world, light) or 0
+    return string.format("%dx%d at %g cm on the sun and %d material(s)%s", spec.width, spec.height, spec.cell_cm, n,
+        fills > 0 and string.format(", %d sky fill light(s)", fills) or "")
 end
 
 local function spawnDecorItem(world, origin, item)
@@ -728,10 +963,12 @@ local function spawnDecorItem(world, origin, item)
         if item.cast_shadow == false then
             comp:SetCastShadow(false)
             -- The CE terrain is lit only to receive object shadows from the
-            -- sun; on lighting channel 1, which only the level's sun shares,
-            -- headlights and muzzle flashes (tuned for the campaign's
-            -- exposure) do not blow it out.
-            comp:SetLightingChannels(false, true, false)
+            -- sun: its base colour is the sun's share of the baked light, so
+            -- another light would brighten only where CE had sun. It stays
+            -- on lighting channel 1, which only the level's sun shares, out
+            -- of the game's lights' way, unless the materials hold the
+            -- surface's albedo for them (TerrainLights).
+            comp:SetLightingChannels(TerrainLights.on, true, false)
         end
     end)
     if not okSetup then
@@ -799,13 +1036,22 @@ local function spawnEnvironment(world)
     end
 
     local sun = env.sun or {}
+    local k = lightScale()
     place("__sun", "/Script/Engine.DirectionalLight",
         { Pitch = sun.pitch or -50.0, Yaw = sun.yaw or 30.0, Roll = 0 },
         function(actor)
             local c = actor.LightComponent
             c.Mobility = MOBILITY_MOVABLE
-            c:SetIntensity(sun.intensity or 8.0)
+            c:SetIntensity((sun.intensity or 8.0) * k)
             pcall(function() c:SetCastShadows(true) end)
+            -- The sun's angular size sets how soft its shadows are. Only a
+            -- level that asks for it: at 3 degrees the virtual shadow maps
+            -- leaked light in thin lines across shaded ground and a halo
+            -- around the first-person gun (Blood Gulch, 2026-10-06), so the
+            -- engine's 0.54 stays the default.
+            if type(sun.source_angle) == "number" then
+                pcall(function() c:SetLightSourceAngle(sun.source_angle) end)
+            end
             -- Channel 0 for objects, channel 1 for the terrain (spawnDecorItem).
             pcall(function() c:SetLightingChannels(true, true, false) end)
             -- The CE materials draw a share of their baked light as this sun
@@ -832,7 +1078,7 @@ local function spawnEnvironment(world)
         local c = actor.LightComponent
         c.Mobility = MOBILITY_MOVABLE
         c.bRealTimeCapture = true
-        c:SetIntensity(skylight.intensity or 3.0)
+        c:SetIntensity((skylight.intensity or 3.0) * k)
         if type(skylight.color) == "table" then
             c:SetLightColor({ R = skylight.color[1], G = skylight.color[2], B = skylight.color[3], A = 1.0 })
         end
@@ -841,7 +1087,8 @@ local function spawnEnvironment(world)
     -- `environment.post`: an unbound post-process volume. Converted CE levels
     -- draw CE's own colours (their materials undo the game's display colour
     -- correction), so they ask for everything between material and screen to
-    -- be neutral: a fixed exposure (manual, bias 0, no physical camera), no
+    -- be neutral: a fixed exposure (manual, no physical camera, its bias
+    -- only the light scale's, which the materials divide back out), no
     -- local exposure (contrast scales 1), and the tonemapper without its
     -- filmic curve, gamut expansion or blue correction. Measured with a grey
     -- probe, docs/re/fork_renderer.md.
@@ -866,7 +1113,8 @@ local function spawnEnvironment(world)
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)
             end
-            set("exposure_bias", "AutoExposureBias", post.exposure_bias)
+            -- Down by the light scale (lightScale), in stops.
+            set("exposure_bias", "AutoExposureBias", (post.exposure_bias or 0.0) - math.log(k, 2))
             set("local_exposure", "LocalExposureHighlightContrastScale", post.local_exposure)
             set("local_exposure", "LocalExposureShadowContrastScale", post.local_exposure)
         end)
@@ -1713,8 +1961,12 @@ local function spawnDecor(world)
     end
     Log(string.format("level '%s': %d decor spawned, %d failed",
         tostring(level.name), Current.spawned, Current.failed))
-    if TerrainShadows.proxy then
+    if proxyWanted() then
         Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
+    end
+    if TerrainLights.on then
+        local ok, done, err = pcall(applySunMask, world)
+        Log("sun mask: " .. tostring(ok and (done or err) or done))
     end
 end
 
@@ -1917,7 +2169,9 @@ local function terrainShadows(args)
     local hadLightmap = TerrainShadows.lightmap ~= nil
     if mode == "ao" then
         -- The baked corners' strength (BakeAO, a power: 0 none, 1 as baked).
-        TerrainShadows.ao = math.max(0.0, value or 1.0)
+        local param = "BakeAO"
+        local amount = math.max(0.0, value or 1.0)
+        TerrainShadows.ao = amount
         local n = 0
         for _, item in ipairs(Current.level and Current.level.decor or {}) do
             local actor = isTerrain(item) and Current.actors[item.id]
@@ -1927,15 +2181,19 @@ local function terrainShadows(args)
                     local count = math.max(comp:GetNumMaterials(), comp.OverrideMaterials:GetArrayNum())
                     for i = 0, count - 1 do
                         local mid = comp:GetMaterial(i)
-                        if mid and mid:IsValid() then
-                            mid:SetScalarParameterValue(FName("BakeAO"), TerrainShadows.ao)
+                        -- One at a time: a slot holding a shipped (constant)
+                        -- material cannot take the parameter, and on Blood
+                        -- Gulch slot 0 does, which stopped the whole terrain.
+                        if mid and mid:IsValid() and pcall(function()
+                            mid:SetScalarParameterValue(FName(param), amount)
+                        end) then
                             n = n + 1
                         end
                     end
                 end)
             end
         end
-        Log(string.format("baked corners: strength %.2f on %d material(s)", TerrainShadows.ao, n))
+        Log(string.format("baked corners: strength %.2f on %d material(s)", amount, n))
         return
     end
     if mode == "proxy" or mode == "off" then
@@ -1987,6 +2245,152 @@ local function terrainShadows(args)
     end
     Log(string.format("terrain shadows %s, strength %s, %d terrain mesh(es) updated",
         TerrainShadows.cast and "ON" or "off", tostring(terrainShadowStrength()), n))
+end
+
+--- `mjolnir_light_scale [k|default]`: see lightScale. Sets the scale on the
+--- level as it stands and on every level loaded later, until the game closes
+--- (`default` hands it back to the level file). No argument reports it.
+local function setLightScale(args)
+    local arg = args and args[1]
+    if arg == "default" then
+        LightScale.value = nil
+    elseif tonumber(arg) and tonumber(arg) > 0 then
+        LightScale.value = tonumber(arg)
+    elseif arg ~= nil then
+        Log("usage: mjolnir_light_scale [k > 0 | default]")
+        return
+    end
+    local k = lightScale()
+    local env = Current.level and Current.level.environment
+    if arg == nil or type(env) ~= "table" then
+        Log(string.format("light scale %g%s", k, LightScale.value and " (set by command)" or ""))
+        return
+    end
+    local function actor(key)
+        local a = Current.actors[key]
+        return a and a:IsValid() and a or nil
+    end
+    local sun, sky, post = actor("__sun"), actor("__sky"), actor("__post")
+    local sunEnv, skyEnv = env.sun or {}, env.skylight or {}
+    if sun then pcall(function() sun.LightComponent:SetIntensity((sunEnv.intensity or 8.0) * k) end) end
+    if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * k) end) end
+    if post then
+        pcall(function()
+            local s = post.Settings
+            s.bOverride_AutoExposureBias = true
+            s.AutoExposureBias = ((env.post or {}).exposure_bias or 0.0) - math.log(k, 2)
+        end)
+    end
+    local n = 0
+    for _, mid in ipairs(Current.sunMids) do
+        if mid:IsValid() and pcall(function() mid:SetScalarParameterValue(FName("SunIlluminance"), sunIlluminance(sunEnv)) end) then
+            n = n + 1
+        end
+    end
+    Log(string.format("light scale %g (exposure bias %.2f), %d CE material(s) updated", k, -math.log(k, 2), n))
+end
+
+--- `mjolnir_terrain_debug [layer]`: the terrain's debug view (the CE
+--- environment masters' DebugView, build_ce_materials.py DEBUG_CODE), one
+--- layer of its light at a time, by number or name; `off` or no argument
+--- goes back. Needs the trial masters (the level as `mjolnir_terrain_lights
+--- on` or `mjolnir_terrain_shadows lightmap` draws it).
+local DEBUG_LAYERS = {
+    off = 0, lightmap = 1, corners = 2, sky = 3, sunvis = 4, mask = 5, sunshare = 6,
+    topup = 7, base = 8, charts = 9, unreal = 10, ce = 11,
+}
+
+local function terrainDebug(args)
+    local arg = args and args[1] or "off"
+    local layer = tonumber(arg) or DEBUG_LAYERS[string.lower(arg)]
+    if not layer then
+        local names = {}
+        for name, n in pairs(DEBUG_LAYERS) do names[#names + 1] = string.format("%d %s", n, name) end
+        table.sort(names, function(a, b) return tonumber(a:match("^%d+")) < tonumber(b:match("^%d+")) end)
+        Log("usage: mjolnir_terrain_debug <layer>: " .. table.concat(names, ", "))
+        return
+    end
+    local n = 0
+    for _, mid in ipairs(Current.sunMids) do
+        if mid:IsValid() and pcall(function() mid:SetScalarParameterValue(FName("DebugView"), layer) end) then
+            n = n + 1
+        end
+    end
+    Log(string.format("terrain debug view %d on %d material(s)", layer, n))
+end
+
+--- `mjolnir_terrain_lights [on|off] [albedo] [noproxy]`: see TerrainLights.
+--- `on`/`off` respawn the level (the masters change); an albedo alone sets
+--- DynamicAlbedo on the materials as they stand, `margin <texels>` their
+--- BakeMargin. No argument reports it.
+local function terrainLights(args)
+    args = args or {}
+    local mode = args[1]
+    local value = tonumber(args[2]) or tonumber(mode)
+    if mode == "param" and args[2] and tonumber(args[3]) then
+        -- Any scalar of the CE environment masters, on the level as it
+        -- stands and on every level loaded later (AlbedoGain, AmbientGain...).
+        TerrainLights.params = TerrainLights.params or {}
+        TerrainLights.params[args[2]] = tonumber(args[3])
+        local n = 0
+        for _, mid in ipairs(Current.sunMids) do
+            if mid:IsValid() and pcall(function() mid:SetScalarParameterValue(FName(args[2]), tonumber(args[3])) end) then
+                n = n + 1
+            end
+        end
+        Log(string.format("terrain lights: %s %g on %d material(s)", args[2], tonumber(args[3]), n))
+        return
+    end
+    if mode == "margin" and tonumber(args[2]) then
+        TerrainLights.margin = math.max(0.0, tonumber(args[2]))
+        local n = 0
+        for _, mid in ipairs(Current.sunMids) do
+            if mid:IsValid() and pcall(function() mid:SetScalarParameterValue(FName("BakeMargin"), TerrainLights.margin) end) then
+                n = n + 1
+            end
+        end
+        Log(string.format("terrain lights: margin %.2f texel(s) on %d material(s)", TerrainLights.margin, n))
+        return
+    end
+    if mode == "on" or mode == "off" then
+        TerrainLights.on = mode == "on"
+        local function has(word) return args[2] == word or args[3] == word or args[4] == word end
+        TerrainLights.proxy = not has("noproxy")
+        TerrainLights.fill = has("fill")
+        TerrainLights.unreal = not has("hybrid")
+        TerrainLights.trial = has("trial")
+        -- A trial runs on the bake in bake\ beside this mod, loaded in the
+        -- same respawn. An indoor level names no lightmap levels: {0, 0}
+        -- still loads the bake, and the masters read it as "no sun levels".
+        if TerrainLights.on and TerrainLights.trial and not TerrainShadows.lightmap then
+            TerrainShadows.lightmap = lightmapSun() or { 0, 0 }
+        end
+        if TerrainLights.on and not value then TerrainLights.albedo = 1.0 end
+        if value then TerrainLights.albedo = math.max(0.0, value) end
+        if TerrainLights.trial and not resolveMesh(TRIAL_MASTERS .. "M_CE_Environment.M_CE_Environment") then
+            Log("terrain lights: trial masters (" .. TRIAL_MASTERS .. ", chunk 983) not installed")
+        end
+        Log(string.format("terrain lights %s%s (albedo %.2f, shadow proxy %s, sky fill %s); respawning the level",
+            TerrainLights.on and "ON" or "off", TerrainLights.unreal and ", Unreal-lit" or "", TerrainLights.albedo,
+            TerrainLights.proxy and "on" or "off", TerrainLights.fill and "on" or "off"))
+        reload()
+        return
+    elseif value then
+        TerrainLights.albedo = math.max(0.0, value)
+        local n = 0
+        for _, mid in ipairs(Current.sunMids) do
+            if mid:IsValid() and pcall(function() mid:SetScalarParameterValue(FName("DynamicAlbedo"), TerrainLights.albedo) end) then
+                n = n + 1
+            end
+        end
+        Log(string.format("terrain lights: albedo %.2f on %d material(s)", TerrainLights.albedo, n))
+        return
+    elseif mode ~= nil then
+        Log("usage: mjolnir_terrain_lights [on|off] [albedo] [noproxy] [fill] [hybrid] [trial] | margin <texels> | param <Name> <value>")
+        return
+    end
+    Log(string.format("terrain lights %s (albedo %.2f, shadow proxy %s)",
+        TerrainLights.on and "ON" or "off", TerrainLights.albedo, TerrainLights.proxy and "on" or "off"))
 end
 
 --- The native half. The engine turns a mission's SHORT world name into a
@@ -2205,7 +2609,19 @@ local function initialize()
         terrainShadows(args)
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows")
+    RegisterConsoleCommandHandler("mjolnir_light_scale", function(_, args)
+        setLightScale(args)
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_terrain_debug", function(_, args)
+        terrainDebug(args)
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_terrain_lights", function(_, args)
+        terrainLights(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights")
     watch()
 end
 

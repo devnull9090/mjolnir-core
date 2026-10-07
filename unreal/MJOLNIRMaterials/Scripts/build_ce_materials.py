@@ -28,8 +28,9 @@ the parameters tools/level/ce_material_spec.py lists.
 The light is CE's: CE lit its levels with baked lightmaps, sampled here on
 UV1, and the game runs with r.AllowStaticLighting=0 so it would bake none of
 its own. The opaque masters are lit only so objects can shadow them: a share
-of the baked colour is drawn as the level's sun (SUN_WEIGHT_CODE), and the
-transparent ones are unlit. The shading is CE's fixed-function math (docs/ce_map_conversion.md,
+of the baked colour is drawn as the level's sun (SUN_WEIGHT_CODE), and, for
+the game's own lights, the base colour can be topped up to its sunlit share
+(DYNAMIC_ALBEDO_CODE); the transparent ones are unlit. The shading is CE's fixed-function math (docs/ce_map_conversion.md,
 "Materials"), done in the bitmaps' own gamma space as the hardware did, then
 divided by the display gain, decoded to linear and divided by the camera's
 exposure (EyeAdaptationInverse). The level's post-process volume (spawned by
@@ -49,8 +50,9 @@ import unreal
 ROOT = "/Game/MJOLNIR/CE"
 # A trial build of the masters (MJ_CE_ROOT=/Game/MJOLNIR/CETrial
 # MJ_CE_CHUNK=983) goes in a folder and chunk of its own, labelled alone, so
-# the runtime pack's 988 is left as it is; MJOLNIRLevelLoader picks the trial
-# masters up with `mjolnir_terrain_shadows lightmap`.
+# the runtime pack's 988 is left as it is; it builds only the environment
+# masters, and MJOLNIRLevelLoader picks them up with
+# `mjolnir_terrain_shadows lightmap` or `mjolnir_terrain_lights on`.
 TRIAL_ROOT = os.environ.get("MJ_CE_ROOT")
 if TRIAL_ROOT:
     ROOT = TRIAL_ROOT.rstrip("/")
@@ -311,7 +313,7 @@ return float3(R.x, -R.y, R.z);
 #   atmospheric fog over the result.
 # Absent maps behave as neutral for their function (grey for the biased
 # ones, white for multiply).
-ENVIRONMENT_CODE = WAVE + r"""
+TEXTURE_PASS_CODE = r"""
 float neutralD = (Func > 0.5 && Func < 1.5) ? 1.0 : 0.5;
 float3 P = HasPrimary > 0.5 ? Primary.rgb : neutralD.xxx;
 float3 Q = HasSecondary > 0.5 ? Secondary.rgb : neutralD.xxx;
@@ -340,6 +342,9 @@ float neutralM = (MicroFunc > 0.5 && MicroFunc < 1.5) ? 1.0 : 0.5;
 float3 M = HasMicro > 0.5 ? Micro.rgb : neutralM.xxx;
 float3 T = MicroFunc < 0.5 ? 2.0 * R * M : (MicroFunc < 1.5 ? R * M : R + 2.0 * M - 1.0);
 T = saturate(T);
+"""
+
+ENVIRONMENT_CODE = WAVE + TEXTURE_PASS_CODE + r"""
 // The specular mask: normal base.a * lerp(secondary.a, primary.a,
 // secondary.a), blended lerp(secondary.a, primary.a, base.a), blended base
 // specular base.a.
@@ -355,7 +360,9 @@ float3 lm = HasLightmap > 0.5 ? Lightmap.rgb : 1.0.xxx;
 // The level's baked corners (lightmap_bake: red, on the lightmap's UVs),
 // which CE's lightmaps are too coarse to hold.
 if (HasBake > 0.5)
-    lm *= pow(saturate(Bake.r), BakeAO);
+{
+    lm *= pow(saturate(BakeRange.z), BakeAO);
+}
 
 float3 S = 0.0.xxx;
 if (HasSelfIllum > 0.5)
@@ -582,11 +589,127 @@ if (HasLightmap > 0.5 && LightmapSun.y > LightmapSun.x)
     // Where the sun reached, traced (lightmap_bake: green) when the level
     // has it, else guessed from the lightmap's brightness, which takes lamp
     // light for sun.
-    float sunlit = HasBake > 0.5 ? Bake.g
+    // With the terrain's shadow copy (SunVisBake), only where the whole
+    // neighbourhood is in the sun (BakeRange.x, BAKE_RANGE_CODE): the copy's
+    // sharp shadow edges and the bake's texel steps do not meet, and a share
+    // taken out between them left black slivers (Blood Gulch's base wall,
+    // 2026-10-05).
+    float sunlit = HasBake > 0.5 ? (SunVisBake > 0.5 ? BakeRange.x : Bake.g)
         : smoothstep(0.5, 0.9, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x));
     w = min(w, sunlit * (1.0 - pow(saturate(LightmapSun.x / l), 2.2)));
 }
 return min(w, min(room.r, min(room.g, room.b)));
+"""
+
+# CE's sun at a world position, from the level's sun mask (lightmap_bake's
+# <stem>_sunmask, CE's lightmap luminance on the topmost upward surface per
+# metre): 0 where CE had shade, 1 where it had sun, by the same guess the sun
+# share makes from a lightmap (LightmapSun's shadow and sunlit levels); 1 off
+# the mask or without one. The level's sun takes it as its light function
+# (M_CE_SunLight), so objects stand in CE's shade, which is metres wide and
+# soft where the traced geometry has none; the environment masters read it to
+# know how much sun really reaches them.
+SUN_MASK_CODE = r"""
+if (HasSunMask < 0.5 || LightmapSun.y <= LightmapSun.x) return 1.0;
+float2 uv = (WorldPos.xy - SunMaskXform.xy) * SunMaskXform.zw;
+if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 1.0;
+// Through a 3 x 3 tent a cell apart: bilinear alone, between 1 m cells and
+// sharpened by the smoothstep below, drew a shadow's edge as scallops
+// (Blood Gulch's base, 2026-10-06).
+uint mw, mh;
+SunMask.GetDimensions(mw, mh);
+float2 cell = 1.0 / float2(max(mw, 1u), max(mh, 1u));
+float4 m = 0.0.xxxx;
+float mwt = 0.0;
+[unroll] for (int i = -1; i <= 1; ++i)
+[unroll] for (int j = -1; j <= 1; ++j)
+{
+    float4 t = Texture2DSampleLevel(SunMask, SunMaskSampler, uv + float2(i, j) * cell, 0.0);
+    float wt = (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0) * t.g;
+    m += t * wt;
+    mwt += wt;
+}
+if (mwt < 0.5) return 1.0;
+m /= mwt;
+// 0.15-0.55 of the way from shade to sun: a sunlit face CE drew dimmer
+// than open ground (Blood Gulch's base roof, about halfway) is still sun.
+return smoothstep(0.15, 0.55, (m.r - LightmapSun.x) / (LightmapSun.y - LightmapSun.x));
+"""
+
+
+def sun_mask_node(g, white):
+    """SUN_MASK_CODE's node: the mask texture and its placement as
+    parameters (MJOLNIRLevelLoader sets them, and LightmapSun)."""
+    mask = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="SunMask",
+                  texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    return g.custom(SUN_MASK_CODE, [
+        ("WorldPos", g.node(unreal.MaterialExpressionWorldPosition), ""), ("SunMask", mask, ""),
+        ("SunMaskXform", g.vector4("SunMaskXform", (0, 0, 0, 0)), ""),
+        ("HasSunMask", g.scalar("HasSunMask", 0.0), ""),
+        ("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), ""),
+    ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE sun mask")
+
+
+# The least and the most sun visibility (the bake's G) in a 3 x 3 texel
+# neighbourhood, BakeMargin texels apart: CE's sun and shade with their
+# edges pulled in by about that much. And the corners' occlusion (R) through
+# a 3 x 3 tent a texel apart: unfiltered, a crease's darkest line followed
+# the texels' steps and came out toothed (Blood Gulch's cliffs).
+BAKE_RANGE_CODE = r"""
+uint w, h;
+Bake.GetDimensions(w, h);
+float2 texel = 1.0 / float2(max(w, 1u), max(h, 1u));
+float2 t = BakeMargin * texel;
+// Only taps in this texel's chart (the bake's alpha, lightmap_bake
+// chart_ids): a tap in the chart packed beside it on the page read another
+// surface's values and drew the chart's edge as a line (Blood Gulch's
+// cliffs, 2026-10-06). A bake without charts has 1 everywhere.
+float id = Texture2DSampleLevel(Bake, BakeSampler, UV, 0.0).a;
+float lo = 1.0, hi = 0.0, ao = 0.0, aw = 0.0;
+[unroll] for (int i = -1; i <= 1; ++i)
+[unroll] for (int j = -1; j <= 1; ++j)
+{
+    float4 s = Texture2DSampleLevel(Bake, BakeSampler, UV + float2(i, j) * t, 0.0);
+    if (abs(s.a - id) < 0.5 / 255.0)
+    {
+        lo = min(lo, s.g);
+        hi = max(hi, s.g);
+    }
+    float4 a = Texture2DSampleLevel(Bake, BakeSampler, UV + float2(i, j) * texel, 0.0);
+    if (abs(a.a - id) < 0.5 / 255.0)
+    {
+        float tent = (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0);
+        ao += tent * a.r;
+        aw += tent;
+    }
+}
+if (hi < lo) { lo = hi = Texture2DSampleLevel(Bake, BakeSampler, UV, 0.0).g; }
+return float4(lo, hi, aw > 0.0 ? ao / aw : 1.0, 0.0);
+"""
+
+# The terrain's debug view (DebugView, MJOLNIRLevelLoader's
+# `mjolnir_terrain_debug`): one layer of the light, as a display value.
+#  1 CE's lightmap  2 baked corners  3 the bake's sky visibility
+#  4 the bake's sun visibility  5 the sun mask  6 the sun share drawn as
+#  Unreal sun  7 the headlight top-up  8 the base colour Unreal lights
+#  9 the bake's charts  (10 Unreal's light alone, 11 CE's alone: below)
+DEBUG_CODE = r"""
+int m = (int)round(DebugView);
+float3 v = 0.0.xxx;
+if (m == 1) v = Lightmap.rgb;
+else if (m == 2) v = pow(saturate(BakeRange.z), BakeAO).xxx;
+else if (m == 3) v = Bake.bbb;
+else if (m == 4) v = Bake.ggg;
+else if (m == 5) v = SunMaskS.xxx;
+else if (m == 6) v = float3(saturate(W * SunMaskS), 0.0, 0.0);
+else if (m == 7) v = sqrt(saturate(Dyn.rgb));
+else if (m == 8) v = sqrt(saturate(Base.rgb));
+else if (m == 9)
+{
+    float a = Bake.a * 255.0;
+    v = frac(float3(a * 0.137, a * 0.291, a * 0.453));
+}
+return pow(saturate(v), 2.2);
 """
 
 SUN_BASE_CODE = r"""
@@ -595,33 +718,306 @@ float3 denom = max(SunIlluminance * ndl * SunColor.rgb, 1e-4);
 return saturate(Screen.rgb * W * 3.14159265 / denom);
 """
 
+# W is the share the sun really draws: the base colour's share (SUN_WEIGHT_CODE)
+# times the sun mask, which the level sun's light function applies too.
 SUN_EMISSIVE_CODE = r"""
-return Screen.rgb * (1.0 - W);
+float3 e = Screen.rgb * (1.0 - W * SunMaskS);
+// The sun's light on the dynamic albedo (DYNAMIC_ALBEDO_CODE) comes back out.
+return max(e - Dyn.rgb * SunIlluminance * SunColor.rgb * Dyn.a / 3.14159265, 0.0);
+"""
+
+# Dynamic lights on a baked level. Every Unreal light multiplies the base
+# colour, which holds only the sun's share (SUN_BASE_CODE): about the
+# surface's colour where CE had sun, nothing where it had shade, so a
+# headlight, muzzle flash or explosion lit only the sunny ground. This tops
+# the base colour up to what the sun share would be if CE had the pixel in
+# full sun: its colour taken to the lightmap's sunlit level (LightmapSun),
+# shared as at that level, so a beam crossing from sun into shade keeps one
+# strength (DynamicAlbedo scales it; 0 leaves the material as it was). Before
+# 2026-10-06 the target was the texture's albedo, about twice the sunlit
+# share, and the beam jumped where the top-up began.
+#
+# The sun must not light the top-up beyond what the emissive gives back.
+# With the terrain's shadow copy (SunVisBake) and a bake: where the bake has
+# shade all round (BakeRange.y) the copy keeps the sun off and nothing comes
+# back; where it has sun the sun reaches as far as the sun mask lets it
+# (SunMaskS) and the emissive gives that back, which caps the top-up; in
+# between, by the bake's sun visibility there. Without the copy the sun reaches everywhere the
+# surface faces it. Either way the level is unchanged where no other light
+# falls. Returns the top-up and, in alpha, the sun's N.L times visibility on
+# it.
+DYNAMIC_ALBEDO_CODE = r"""
+if (DynamicAlbedo <= 0.0 || HasLightmap < 0.5 || LightmapSun.y <= LightmapSun.x) return 0.0.xxxx;
+float ndl = saturate(dot(normalize(N), normalize(SunDir)));
+float l = max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 0.5 * LightmapSun.x);
+float gain = pow(LightmapSun.y / l, 2.2);
+float wFull = ShadowStrength * (1.0 - pow(saturate(LightmapSun.x / LightmapSun.y), 2.2));
+float3 full = saturate(Screen.rgb * gain * wFull * 3.14159265
+    / max(SunIlluminance * max(ndl, 0.3) * SunColor.rgb, 1e-4));
+float3 a = max(full * DynamicAlbedo - Base.rgb, 0.0);
+float lo = 1.0, hi = 1.0;
+if (SunVisBake > 0.5)
+{
+    // Shade by the bake's own value, so no band is left without a top-up
+    // (a black line along every shadow edge under a headlight, Blood
+    // Gulch's base doorways, 2026-10-06). Sun only where the neighbourhood
+    // has it all round (BakeRange.x), as the sun share has: by the bake's
+    // own value, the light given back where the copy's shadow and the
+    // bake's disagree left a dark line along a wall's foot (the base ramps).
+    if (HasBake > 0.5) { lo = BakeRange.x; hi = saturate(Bake.g); }
+    else lo = hi = smoothstep(0.5, 0.9, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x));
+}
+float3 need = a * lo * SunIlluminance * SunMaskS * ndl * SunColor.rgb / 3.14159265;
+float3 left = max(Screen.rgb * (1.0 - W * SunMaskS), 0.0);
+float k = 1.0;
+if (need.r > left.r) k = min(k, left.r / need.r);
+if (need.g > left.g) k = min(k, left.g / need.g);
+if (need.b > left.b) k = min(k, left.b / need.b);
+float shade = SunVisBake > 0.5 ? 1.0 - hi : 0.0;
+float sun = lo * k;
+// The band between (the bake has sun here, but not all round): no sun share
+// either (SUN_WEIGHT_CODE), so without a top-up of its own a headlight drew
+// it as a black line. Nothing is given back for it, so where the sun does
+// reach it would show as a bright strip (Blood Gulch's ramps, 2026-10-06):
+// it fades out as much as the sun mask lets the sun fall on it, so it lives
+// in CE's shade, where headlights matter, and leaves sunlit ground alone.
+float band = max(hi - lo, 0.0) * (1.0 - SunMaskS * saturate(ndl * 1.5));
+float share = shade + sun + band;
+return float4(a * share, share > 0.0 ? sun * SunMaskS * ndl / share : 0.0);
 """
 
 
-def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake):
+# Unreal-lit terrain (UnrealLit 1, MJOLNIRLevelLoader `mjolnir_terrain_lights
+# unreal`): Unreal draws all the direct light, the sun, headlights, flashes
+# and explosions alike, over the surface's own colour, and CE's lightmap
+# keeps only its ambient light (the sky's fill, the bounce, its lamps).
+#
+# The colour (SUNLIT_CODE) is CE's texture pass as CE drew it in full sun:
+# A x (lightmap sunlit level x material colour), its display gain undone and
+# decoded, as screen colour, over the sun the material is told of
+# (SunIlluminance) and flat ground's N.L, times AlbedoGain (0.5: the
+# renderer's response is twice what the material assumes), so flat sunlit
+# ground matches CE, and Unreal's own N.L, with CE's bump map as the normal,
+# shades the rest.
+#
+# The emissive (UNREAL_AMBIENT_CODE) is CE's colour less what Unreal's sun
+# adds unshadowed, so in the sun the frame is CE's; and never below CE's
+# ambient: CE's colour with the lightmap taken
+# down to what CE's sun did not give: where the lightmap is at its sunlit
+# level, to its shadow level (LightmapSun.x, times AmbientGain); where it is
+# darker (shade, a base interior's lamps), as it is; judged from the lightmap
+# alone, not the bake, which knows shadows CE's coarse lightmap never held
+# (by the bake, a cliff face Unreal shades but CE lit kept CE's full sun as
+# its ambient and showed flat and bright, 2026-10-06). The baked corners stay
+# in it, as ambient occlusion should. The terrain takes no Unreal sky or bounce
+# light (ambient occlusion 0), which would count the ambient twice; its
+# emissive still bounces onto everything else through Lumen.
+SUNLIT_CODE = TEXTURE_PASS_CODE + r"""
+float3 A = (model && DetailAfter > 0.5) ? B : T;
+// The lightmap level the surface takes in full sun: its own where the bake
+// has it in the sun (CE drew some sunlit faces darker than others: the base
+// roof at ~0.6 against the open ground's 0.97), the level's sunlit level
+// where the bake has shade (there CE's lightmap holds no sun to go by).
+// Taking the level's everywhere drew the roof nearly white (2026-10-06).
+bool levels = LightmapSun.y > LightmapSun.x;
+float l = HasLightmap > 0.5 ? max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4) : 1.0;
+float reach = HasBake > 0.5 ? saturate(Bake.g) : 1.0;
+// Where CE had sun (its own lightmap, as the sun mask judges it), its
+// brightness there; where CE had shade, the level's sunlit level, for the
+// headlights (the level's sun is masked off there, M_CE_SunLight).
+float ceSun = levels ? smoothstep(0.15, 0.55, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x)) : 1.0;
+float level = levels ? lerp(LightmapSun.y, max(l, LightmapSun.x), ceSun * reach) : 1.0;
+float3 frame = saturate(A * saturate(level * MaterialColor)) / DisplayGain;
+float3 lo = frame / 12.92;
+float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+// Only the sun's part of it: CE's ambient (its shadow level) stays CE's.
+float share = levels ? 1.0 - pow(saturate(LightmapSun.x / level), 2.2) : 1.0;
+return lerp(hi, lo, step(frame, 0.04045)) * Exposure * share;
+"""
+
+UNREAL_BASE_CODE = r"""
+float flat = max(normalize(SunDir).z, 0.3);
+return saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain);
+"""
+
+UNREAL_AMBIENT_CODE = r"""
+if (HasLightmap < 0.5) return Screen.rgb;
+float l = max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4);
+// The shade a leak drops to: CE's own shade nearby where there is any (the
+// darkest lightmap texel within two: a leak's edge then meets the shade
+// beside it), else the level's (LightmapSun.x), so a shadow on open sunlit
+// ground is as dark as CE's shadows are. Taken to the global level alone, a
+// leak's edge drew a dark band above CE's own lighter shade (Blood Gulch's
+// overhang, 2026-10-06).
+uint lw, lh;
+LightmapTex.GetDimensions(lw, lh);
+float2 lt = 1.0 / float2(max(lw, 1u), max(lh, 1u));
+float near = 1.0;
+[unroll] for (int i = -2; i <= 2; ++i)
+[unroll] for (int j = -2; j <= 2; ++j)
+    near = min(near, dot(Texture2DSampleLevel(LightmapTex, LightmapTexSampler, UV1 + float2(i, j) * lt, 0.0).rgb,
+                         float3(0.2126, 0.7152, 0.0722)));
+// CE's shade is brighter the less sky a surface sees (its radiosity): on
+// Blood Gulch the lightmap in shade has a median of 0.18 open to the sky and
+// 0.53 enclosed, against its shadow level of 0.19 (2026-10-06), so the level
+// is scaled by the bake's sky visibility from x 2.8 down to x 1.
+float skyShade = HasBake > 0.5 ? lerp(2.8, 1.0, smoothstep(0.05, 0.6, Bake.b)) : 1.0;
+float global = LightmapSun.y > LightmapSun.x ? LightmapSun.x * skyShade : l;
+float t = LightmapSun.y > LightmapSun.x ? smoothstep(0.6 * LightmapSun.y, 0.9 * LightmapSun.y, near) : 1.0;
+// Where CE has no shade nearby (t 1) it lit the surface though the geometry
+// shades it (the lip under Blood Gulch's overhang): that light is CE's look,
+// so it stays. Taken down to any shade level there, it drew a dark ribbon CE
+// never had, 2026-10-06. Next to CE's shade, it meets that shade.
+// That keeping is for the shut case alone: in the open, Unreal's sun lights
+// the surface, and kept, CE's sun came on top of it and the base roof drew
+// nearly white (2026-10-06).
+float sunlit = LightmapSun.y > LightmapSun.x
+    ? smoothstep(0.3, 0.8, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x)) : 0.0;
+float shadeShut = lerp(max(near, global), l, t) * AmbientGain;
+// In the open, CE's shadow level alone: the darkest texel nearby is the
+// surface itself on uniformly lit ground (the base roof), which kept CE's
+// whole colour under Unreal's sun.
+float shadeOpen = global * AmbientGain;
+float3 floorC = Screen.rgb * pow(saturate(lerp(l, min(l, shadeShut), sunlit) / l), 2.2);
+// In the open, CE's ambient is its shade (what SUNLIT_CODE left out).
+float3 floorO = Screen.rgb * pow(saturate(min(l, shadeOpen) / l), 2.2);
+// What Unreal's sun adds here when nothing shadows it (SunResponse: the
+// renderer's measured response, 2026-10-06: base colour x SunIlluminance / pi
+// reaches the screen at about twice that), and CE's colour beyond it: in the
+// sun the two add up to CE's frame exactly, steep faces and all; in Unreal's
+// shadow the sun's part is gone, down to CE's shade (floorC) at least.
+float ndl = saturate(dot(normalize(N), normalize(SunDir)));
+float flat = max(normalize(SunDir).z, 0.3);
+float3 direct = saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain)
+    * SunIlluminance * ndl * SunColor.rgb / 3.14159265 * SunResponse * SunMaskS;
+// Where the geometry keeps the sun out (the bake's sun visibility; a base
+// interior under its roof), Unreal adds no sun, so nothing comes out of CE's
+// colour but what looks like its sun (sunlit, a coarse lightmap's leak):
+// a lamp-lit floor keeps its lamps.
+float reach = HasBake > 0.5 ? saturate(Bake.g) : 1.0;
+float3 open = max(Screen.rgb - direct, floorO);
+// Only an open face (the bake's sky visibility) can be a leak; an interior's
+// bright lightmap is its lamps.
+float open_sky = HasBake > 0.5 ? smoothstep(0.15, 0.45, Bake.b) : 1.0;
+float3 shut = lerp(Screen.rgb, floorC, sunlit * open_sky);
+return lerp(shut, open, reach);
+"""
+
+
+def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask, dynamic=True,
+              sunlit=None, bump_n=None, lm_default=None):
     """Connects `screen` (the colour to_screen made) to emissive and base
-    colour, split for object shadows (SUN_WEIGHT_CODE)."""
+    colour, split for object shadows (SUN_WEIGHT_CODE), with the base colour
+    topped up for the other lights (DYNAMIC_ALBEDO_CODE) when `dynamic`.
+    `bake_range` is BAKE_RANGE_CODE's node, `sun_mask` SUN_MASK_CODE's. With
+    `sunlit` (SUNLIT_CODE's node, to_screen) and `bump_n`, UnrealLit switches
+    the terrain to Unreal's direct light (UNREAL_BASE_CODE)."""
     n = g.node(unreal.MaterialExpressionVertexNormalWS)
     sun = [("SunDir", g.vector("SunDir", (0.0, 0.0, 1.0, 0.0)), ""),
            ("SunColor", g.vector("SunColor", (1.0, 1.0, 1.0, 1.0)), ""),
            ("SunIlluminance", g.scalar("SunIlluminance", 8.0), ""),
            ("ShadowStrength", g.scalar("ShadowStrength", 0.0), "")]
+    mask = [("SunMaskS", sun_mask, "")]
     baked = [("Lightmap", lightmap, "RGB"), ("HasLightmap", has_lightmap, ""),
              ("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), ""),
-             ("Bake", bake, "RGBA"), ("HasBake", has_bake, "")]
+             ("Bake", bake, "RGBA"), ("HasBake", has_bake, ""), ("BakeRange", bake_range, ""),
+             ("SunVisBake", g.scalar("SunVisBake", 0.0), "")]
     w = g.custom(SUN_WEIGHT_CODE, [("Screen", screen, ""), ("N", n, "")] + sun + baked,
                  output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE sun share")
     base = g.custom(SUN_BASE_CODE, [("Screen", screen, ""), ("N", n, ""), ("W", w, "")] + sun,
                     description="CE sun base colour")
-    emissive = g.custom(SUN_EMISSIVE_CODE, [("Screen", screen, ""), ("W", w, "")], description="CE baked share")
+    if dynamic:
+        dyn = g.custom(DYNAMIC_ALBEDO_CODE, [
+            ("Screen", screen, ""), ("W", w, ""), ("N", n, ""), ("Base", base, ""),
+            ("DynamicAlbedo", g.scalar("DynamicAlbedo", 0.0), ""),
+        ] + sun + baked + mask, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="CE dynamic albedo")
+        topped = g.custom("return saturate(Base.rgb + Dyn.rgb);", [("Base", base, ""), ("Dyn", dyn, "")],
+                          description="CE base colour")
+    else:
+        dyn = g.node(unreal.MaterialExpressionConstant4Vector, x=-300, constant=unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+        topped = base
+    emissive = g.custom(SUN_EMISSIVE_CODE, [("Screen", screen, ""), ("W", w, ""), ("Dyn", dyn, "")] + sun[1:3] + mask,
+                        description="CE baked share")
+    if sunlit is not None:
+        unreal_lit = g.scalar("UnrealLit", 0.0)
+        albedo_gain = g.scalar("AlbedoGain", 0.5)
+        u_base = g.custom(UNREAL_BASE_CODE, [("Sunlit", sunlit, ""), ("AlbedoGain", albedo_gain, "")]
+                          + sun[:3], description="Unreal-lit base colour")
+        lm_obj = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Lightmap",
+                        texture=lm_default, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        u_amb = g.custom(UNREAL_AMBIENT_CODE, [("Screen", screen, ""), ("AmbientGain", g.scalar("AmbientGain", 1.0), ""),
+                         ("LightmapTex", lm_obj, ""), ("UV1", g.uv(1), ""),
+                         ("Sunlit", sunlit, ""), ("N", n, ""), ("AlbedoGain", albedo_gain, ""),
+                         ("SunResponse", g.scalar("SunResponse", 2.0), "")]
+                         + baked + sun[:3] + mask, description="Unreal-lit ambient")
+        pick = "return U > 0.5 ? A.rgb : B.rgb;"
+        topped = g.custom(pick, [("U", unreal_lit, ""), ("A", u_base, ""), ("B", topped, "")], description="base, by mode")
+        emissive = g.custom(pick, [("U", unreal_lit, ""), ("A", u_amb, ""), ("B", emissive, "")],
+                            description="emissive, by mode")
+        normal = g.custom("return U > 0.5 ? N.rgb : float3(0, 0, 1);", [("U", unreal_lit, ""), ("N", bump_n, "")],
+                          description="CE bump normal, Unreal-lit only")
+        mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    debug_view = g.scalar("DebugView", 0.0)
+    debug = g.to_screen(g.custom(DEBUG_CODE, [
+        ("DebugView", debug_view, ""), ("Lightmap", lightmap, "RGB"), ("Bake", bake, "RGBA"),
+        ("BakeRange", bake_range, ""), ("BakeAO", g.scalar("BakeAO", 1.0), ""),
+        ("W", w, ""), ("Dyn", dyn, ""), ("Base", topped, ""),
+    ] + mask, description="CE debug view"))
+    # 10: Unreal's light alone (the base colour, no emissive); 11: CE's
+    # alone (the emissive, no base colour).
+    emissive = g.custom("""
+int m = (int)round(DebugView);
+return m == 0 || m == 11 ? E.rgb : (m == 10 ? 0.0.xxx : D.rgb);
+""", [("DebugView", debug_view, ""), ("E", emissive, ""), ("D", debug, "")], description="CE debug emissive")
+    topped = g.custom("""
+int m = (int)round(DebugView);
+return m == 0 || m == 10 ? B.rgb : 0.0.xxx;
+""", [("DebugView", debug_view, ""), ("B", topped, "")], description="CE debug base")
     mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    mel.connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(topped, "", unreal.MaterialProperty.MP_BASE_COLOR)
     for prop, value in ((unreal.MaterialProperty.MP_SPECULAR, 0.0), (unreal.MaterialProperty.MP_METALLIC, 0.0),
                         (unreal.MaterialProperty.MP_ROUGHNESS, 1.0), (unreal.MaterialProperty.MP_AMBIENT_OCCLUSION, 0.0)):
         c = g.node(unreal.MaterialExpressionConstant, x=-300, r=value)
         mel.connect_material_property(c, "", prop)
+
+
+def build_sun_light(defaults):
+    """M_CE_SunLight: the level sun's light function, CE's sun from the sun
+    mask (SUN_MASK_CODE)."""
+    m = fresh(ROOT, "M_CE_SunLight", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("material_domain", unreal.MaterialDomain.MD_LIGHT_FUNCTION)
+    g = Graph(m)
+    s = sun_mask_node(g, defaults["T_CE_White"])
+    mel.connect_material_property(s, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
+def build_linear_copy(defaults):
+    """M_CE_LinearCopy: MJOLNIRLevelLoader draws a PNG it imported at runtime
+    (ImportFileAsTexture2D, always sRGB) into a linear render target through
+    this, re-encoding what the sampler decoded, so the target holds the
+    file's own bytes. Drawn as it was, a bake page's 128 arrived as 55 and
+    every runtime bake and sun mask read too dark (2026-10-06)."""
+    m = fresh(ROOT, "M_CE_LinearCopy", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("material_domain", unreal.MaterialDomain.MD_UI)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    g = Graph(m)
+    # The default must be sRGB too, as the runtime imports are (a Color
+    # sampler over T_CE_White does not compile).
+    srgb_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture.DefaultTexture")
+    t = g.node(unreal.MaterialExpressionTextureSampleParameter2D, x=-1100, parameter_name="Src",
+               texture=srgb_default, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    link(g.node(unreal.MaterialExpressionTextureCoordinate, x=-1400), "", t, "UVs")
+    c = g.custom(r"""
+float3 c = saturate(C.rgb);
+float3 lo = c * 12.92;
+float3 hi = 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+return lerp(hi, lo, step(c, 0.0031308));
+""", [("C", t, "RGBA")], description="sRGB encode")
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
 
 
 def fog_inputs(g):
@@ -752,8 +1148,22 @@ def build_environment(name, masked, defaults, two_sided=False):
         # keeps all four.
         node = g.vector4(pname, default) if pname.startswith("SelfAnim") else g.vector(pname, default)
         inputs.append((pname, node, ""))
+    bake_obj = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Bake",
+                      texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    bake_range = g.custom(BAKE_RANGE_CODE, [("Bake", bake_obj, ""), ("UV", g.uv(1), ""),
+                                            ("BakeMargin", g.scalar("BakeMargin", 1.5), "")],
+                          output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="CE bake neighbourhood")
+    inputs.append(("BakeRange", bake_range, ""))
     c = g.custom(ENVIRONMENT_CODE, inputs, description="CE shader_environment")
-    sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake)
+    by_name = {name: (src, pin) for name, src, pin in inputs}
+    sunlit = g.to_screen(g.custom(SUNLIT_CODE, [(name, *by_name[name]) for name in (
+        "Base", "Primary", "Secondary", "Micro", "Multi", "Type", "Func", "MicroFunc", "HasPrimary",
+        "HasSecondary", "HasMicro", "HasMulti", "ModelShader", "DetailMask", "DetailAfter", "MaterialColor",
+        "DisplayGain", "Exposure", "Lightmap", "HasLightmap", "Bake", "HasBake")]
+        + [("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), "")],
+        description="CE sunlit colour"))
+    sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask_node(g, white),
+              sunlit=sunlit, bump_n=bump_n, lm_default=white)
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).
@@ -1220,21 +1630,28 @@ build_environment("M_CE_EnvironmentMasked", True, defaults)
 build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=True)
 # shader_model's two-sided flag on an opaque (not alpha-tested) model.
 build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
-# Every framebuffer blend, one- and two-sided (chicago flag bit 2: 38 stock
-# shaders, the teleporter fields).
-for blend_name, blend_mode in (("Add", unreal.BlendMode.BLEND_ADDITIVE),
-                               ("Alpha", unreal.BlendMode.BLEND_TRANSLUCENT),
-                               ("Mul", unreal.BlendMode.BLEND_MODULATE)):
+build_sun_light(defaults)
+build_linear_copy(defaults)
+if TRIAL_ROOT:
+    # MJOLNIRLevelLoader takes only the environment masters from a trial
+    # build (TRIAL_MASTERS); the rest stay the runtime pack's.
+    unreal.log("MJOLNIR CE trial materials built")
+else:
+    # Every framebuffer blend, one- and two-sided (chicago flag bit 2: 38 stock
+    # shaders, the teleporter fields).
+    for blend_name, blend_mode in (("Add", unreal.BlendMode.BLEND_ADDITIVE),
+                                   ("Alpha", unreal.BlendMode.BLEND_TRANSLUCENT),
+                                   ("Mul", unreal.BlendMode.BLEND_MODULATE)):
+        for two_sided in (False, True):
+            for device in (False, True):
+                build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}"
+                                  f"{'Device' if device else ''}",
+                                  blend_mode, defaults, two_sided=two_sided, device=device)
+    build_water(defaults)
+    # Sky water replaces the frame rather than adding to it.
+    build_water(defaults, "M_CE_WaterSky", unreal.BlendMode.BLEND_OPAQUE)
+    build_water_background(defaults)
     for two_sided in (False, True):
-        for device in (False, True):
-            build_transparent(f"M_CE_Transparent{blend_name}{'TwoSided' if two_sided else ''}"
-                              f"{'Device' if device else ''}",
-                              blend_mode, defaults, two_sided=two_sided, device=device)
-build_water(defaults)
-# Sky water replaces the frame rather than adding to it.
-build_water(defaults, "M_CE_WaterSky", unreal.BlendMode.BLEND_OPAQUE)
-build_water_background(defaults)
-for two_sided in (False, True):
-    build_glass(defaults, two_sided)
-build_flare(defaults)
-unreal.log("MJOLNIR CE materials built")
+        build_glass(defaults, two_sided)
+    build_flare(defaults)
+    unreal.log("MJOLNIR CE materials built")

@@ -29,6 +29,7 @@ The spec also lists the mesh slots in slot order: `{"name": <slot name>,
 "pattern": "<gltf material>$", "material": <runtime material>}`, for
 mesh_rewrite's --material and the level file.
 """
+import glob
 import json
 import math
 import os
@@ -40,8 +41,10 @@ CE = "/Game/MJOLNIR/CE"
 
 # The baked corners' strength (lightmap_bake's ambient occlusion, a power on
 # the lightmap: 0 none, 1 as traced). Blood Gulch was approved at 2.5 and
-# found a little dark across the maps (2026-10-04).
-BAKE_AO = 2.0
+# found a little dark across the maps (2026-10-04); with lightmap_bake's knee
+# and curve (2026-10-06), 2.0 turned Blood Gulch's base interiors black at
+# the wall foot, and 1.4 was chosen there.
+BAKE_AO = 1.4
 
 # shader_transparent_* framebuffer blend functions: alpha blend, multiply,
 # double multiply, add, subtract, component min, component max, alpha-multiply
@@ -630,6 +633,13 @@ def main():
             for light in e.get("lights", []):
                 for r in (light.get("lens_flare") or {}).get("reflections", []):
                     texture(r.get("bitmap"))
+
+    # lightmap_bake's sun mask (<page 0>_sunmask.png): cooked with the map,
+    # read by M_CE_SunLight through the level's environment.sun_mask
+    # (gen_ce_level.py).
+    for png in sorted(glob.glob(os.path.join(bake_dir, "*_sunmask.png"))) if bake_dir else []:
+        t = os.path.splitext(os.path.basename(png))[0]
+        textures.setdefault(t, {"file": os.path.abspath(png), "name": t, "sunmask": True})
 
     json.dump({"root": root, "chunk": cook_chunk(code) if code else None,
                "textures": list(textures.values()), "materials": materials, "slots": slots},

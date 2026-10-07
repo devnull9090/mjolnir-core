@@ -282,7 +282,7 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
-| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m; the lightmap is multiplied by `red ^ BakeAO` (2.0: Blood Gulch was approved at 2.5 and found a little dark across the maps). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
+| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m, divided by a knee of 0.85 (`--ao-knee`) and raised to 1.3 (`--ao-curve`), so the mild folds between a cliff's facets read as open while a wall's foot keeps its darkness: as traced, every fold took a dark line and the cliffs showed their triangles (Blood Gulch, 2026-10-05). `--ao-smooth` (world-space smoothing) is off by default; at 1 m it washed out the wall-floor corners and drew dashes along them. The masters read it through a 3 x 3 tent a texel apart. Blue is the sky's detail: sky visibility (`--sky-rays`, to any distance) over its mean across 1.5 m of surface facing the same way, x 0.5, so 0.5 is as CE's lightmap has it; where CE had shade the masters multiply the lightmap by it (`SkyDetail`, clamped to 0.5-1.5; `mjolnir_terrain_shadows sky <strength>`), which shades the overhangs and crevices CE's lightmap is too coarse for. A bake the loader imports at runtime (`mjolnir_terrain_shadows lightmap`) goes through `M_CE_LinearCopy`: `ImportFileAsTexture2D` is always sRGB, and drawn as it was every runtime bake and sun mask arrived sRGB-decoded (128 as 55), too dark. The lightmap is multiplied by `red ^ BakeAO` (1.4: Blood Gulch was approved at 2.5, found a little dark across the maps at 2.0, and with the knee and curve chosen at 1.4). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
 use the same master with `ModelShader` on, for the terms that differ:
@@ -608,8 +608,41 @@ seconds after the loading screen are dark.
   the flare's brightness follows the object function that scales the light
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
   every 40 ms). Dynamic lights
-  (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
-  lit by its lightmaps as in CE. Scenery has CE's object lighting (ambient,
+  (headlights, muzzle flashes, the flashlight) light players, vehicles and
+  weapons but not the terrain: its base colour holds only the sun's share
+  of the baked light (object shadows), and it sits on lighting channel 1,
+  which only the level's sun shares. `mjolnir_terrain_lights on` (an
+  experiment, needing the trial masters in chunk 983) lights it too: the
+  masters top the base colour up to the surface's albedo and take the sun's
+  light on the top-up back out of the baked colour, the terrain joins
+  channel 0, and the terrain's hidden shadow copy, drawn two-sided, keeps the
+  Unreal sun out of CE's shade. The copy's sharp shadow edges and the
+  bake's texel steps never quite meet, so with a bake the sun share is
+  drawn only where the bake is sunlit all round and the top-up only where it
+  is shaded all round (`BakeMargin`, 1.5 texels; `mjolnir_terrain_lights
+  margin <texels>`); between them the colour is CE's. At margin 0 Blood
+  Gulch's bases traced their crenellations in black around the wall foot
+  (verified on Blood Gulch and Coldsnap, 2026-10-05).
+  Since 2026-10-06 the default (MJOLNIRLevelLoader 0.4.0, runtime pack
+  1.3.0, maps 1.2.0; `mjolnir_terrain_lights hybrid` brings the mode above
+  back for comparison) hands the terrain's direct light to Unreal: its base
+  colour is CE's sunlit colour (the texel's own lightmap level where CE had
+  sun, the level's sunlit level in CE's shade), CE's bump map is its normal,
+  and its emissive is CE's colour less what Unreal's sun adds, never below
+  CE's ambient. The sun mask (`<stem>_sunmask`, CE's lightmap seen from
+  above at 1 m, cooked with the map and named by `environment.sun_mask`,
+  tent-filtered) is the sun's light function, so CE's broad
+  soft shadows stay and objects darken in them. A trial
+  (`mjolnir_terrain_lights on trial`) reads the trial masters and a bake in
+  the loader's `bake\` folder in one respawn (two quick respawns were
+  followed twice by a GPU crash). `mjolnir_terrain_debug <layer>` shows one
+  layer of the terrain's light at a time. Keep the sun's angular size at the
+  engine's 0.54 degrees: at 3 the virtual shadow maps leaked light in lines
+  across shaded ground and around the first-person gun. Those lights are physical and tuned
+  for the campaign's exposure, so the level's sun and sky are raised by
+  `environment.light_scale` (256) with the exposure lowered to match
+  (docs/level_format.md); without that a headlight turned what it reached
+  white. Scenery has CE's object lighting (ambient,
   dominant light, floor bounce, reflection tint) but not its shadow colour
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
