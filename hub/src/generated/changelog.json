@@ -39,6 +39,48 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.17.0",
+      "tag": "mods-v0.17.0",
+      "title": "Classic maps lit by Unreal: headlights and shadows on the ground",
+      "date": "2026-10-07",
+      "summary": "Vehicle headlights and other game lights now light the classic maps' ground and walls, and no longer turn players and vehicles white.",
+      "body": "Needs the CE runtime pack 1.3.0 and the 1.2.0 classic map packs.\n\n### Added\n\n- **Unreal-lit terrain** (MJOLNIRLevelLoader 0.4.0). The classic maps'\n  ground, walls and bases are now lit by Unreal Engine's lights while\n  keeping Halo CE's colours and soft shade. A Warthog's headlights light the\n  road and the rock in front of it, and players and vehicles cast shadows on\n  the ground. CE's bump maps give the surfaces their detail under those\n  lights, and corners keep their baked shading.\n- **Halo CE's shade, per map.** Each 1.2.0 map pack carries a sun mask\n  traced from its Halo CE lightmap, so the sun stays out of the passages and\n  overhangs Halo CE kept in shade, and players standing there are shaded too.\n\n### Changed\n\n- **Lights at their real strength** (MJOLNIRLevelLoader 0.4.0). The classic\n  maps' sun and sky are scaled up to the brightness the campaign uses, with\n  the exposure brought down to match, so the maps look the same as before but\n  the game's own lights are no longer far brighter than the sun. Headlights\n  used to turn nearby players, vehicles and weapons white.\n- Solo test games started with `mjolnir_auto host <CODE> <mode> private` stay\n  off FIND GAMES (MJOLNIRLobby 0.8.1).\n\n### Fixed\n\n- Quitting from inside a multiplayer match closes the game. The window used\n  to close while the process kept running in the background.\n- Gephyrophobia's teleporters send players again. Every pad was blocked\n  because the landing spots were too tight for a Spartan; the 1.2.0 map pack\n  moves them back onto the pads.\n\n### Known issues\n\n- Some cliff shadows have sharper edges than in Halo CE.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Unreal-lit terrain (MJOLNIRLevelLoader 0.4.0). The classic maps' ground, walls and bases are now lit by Unreal Engine's lights while keeping Halo CE's colours and soft shade. A Warthog's headlights light the road and the rock in front of it, and players and vehicles cast shadows on the ground. CE's bump maps give the surfaces their detail under those lights, and corners keep their baked shading.",
+            "Halo CE's shade, per map. Each 1.2.0 map pack carries a sun mask traced from its Halo CE lightmap, so the sun stays out of the passages and overhangs Halo CE kept in shade, and players standing there are shaded too."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Lights at their real strength (MJOLNIRLevelLoader 0.4.0). The classic maps' sun and sky are scaled up to the brightness the campaign uses, with the exposure brought down to match, so the maps look the same as before but the game's own lights are no longer far brighter than the sun. Headlights used to turn nearby players, vehicles and weapons white.",
+            "Solo test games started with mjolnirauto host <CODE> <mode> private stay off FIND GAMES (MJOLNIRLobby 0.8.1)."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Quitting from inside a multiplayer match closes the game. The window used to close while the process kept running in the background.",
+            "Gephyrophobia's teleporters send players again. Every pad was blocked because the landing spots were too tight for a Spartan; the 1.2.0 map pack moves them back onto the pads."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Some cliff shadows have sharper edges than in Halo CE."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.17.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.17.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.17.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.3.0",
