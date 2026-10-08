@@ -447,7 +447,13 @@ own.
    - the **looping sounds placed objects carry** as attachments (halo2ue's
      `sounds` on an entry), each an emitter at its marker: the Covenant
      shield generator's and uplink's hum, the teleporters' loop, Wizard's
-     klaxons, the beam emitters;
+     klaxons, the beam emitters. A marker on a machine's moving part moves
+     with it (`marker_motion`, the part's device motion): Infinity's beam
+     loop hangs on the beam, which rises 1089 wu every 15 s, so CE plays it
+     for about a second as the beam fires. Held at the marker's rest it
+     played all the time (2026-10-08). The loader moves it on the world's
+     clock and keeps it PlayWhenSilent: with Restart it did not come back
+     in time;
    - the **background sound**, the looping sounds the BSP block depends on;
    - each looping sound's **tracks** and detail sounds.
 

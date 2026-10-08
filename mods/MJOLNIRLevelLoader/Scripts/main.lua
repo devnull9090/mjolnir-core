@@ -217,6 +217,9 @@ local Current = {
     -- Decor whose material follows a CE periodic function (a beacon's flare
     -- pulsing with its light): { mid, param, base, fn, period }.
     pulses = {},
+    -- Sounds on a machine's moving part (spawnSounds): { comp, pos, pivot,
+    -- t0, t1, s0, s1, period, position }, moved by moveSounds.
+    movingSounds = {},
     -- CE material instances told the sun's illuminance (runtimeMaterial),
     -- for `mjolnir_light_scale`.
     sunMids = {},
@@ -238,6 +241,7 @@ local function resetState()
     Current.tinted = {}
     Current.fileMissing = false
     Current.pulses = {}
+    Current.movingSounds = {}
     Current.sunMids = {}
     -- Flag state is per match: the first drop of a match took the last
     -- match's team.
@@ -258,6 +262,7 @@ local function clearActors()
     end
     Current.actors = {}
     Current.sunMids = {}
+    Current.movingSounds = {}
     Current.spawned = 0
     Current.failed = 0
 end
@@ -1249,18 +1254,37 @@ local function spawnSounds(world)
                 end)
             end
             local origin = Current.level.canvas.origin
+            if type(s.motion) == "table" then
+                -- Out of range most of its cycle, the loop was virtualized
+                -- with Restart (2) and did not come back within the second
+                -- the beam is near (Infinity, 2026-10-08); PlayWhenSilent
+                -- keeps it running.
+                pcall(function() wave.VirtualizationMode = 1 end)
+            end
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
                     { Pitch = 0, Yaw = 0, Roll = 0 }, s.gain or 1.0, 1.0, 0.0, att, nil, false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in)
+            -- On a machine's moving part (Infinity's beams): moved with it
+            -- by moveSounds, as the part's material moves it.
+            local m = s.motion
+            if ok and comp and comp:IsValid() and type(m) == "table" and type(m.t1) == "table" then
+                local o = Current.level.canvas.origin
+                local abs = function(v) return { o[1] + v[1], o[2] + v[2], o[3] + v[3] } end
+                Current.movingSounds[#Current.movingSounds + 1] = {
+                    comp = comp, pos = abs(s.pos), pivot = abs(m.pivot or s.pos), t0 = m.t0 or { 0, 0, 0 },
+                    t1 = m.t1, s0 = m.s0 or 1, s1 = m.s1 or 1, period = m.period or 0, position = m.position or 0,
+                }
+            end
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
         end
     end
-    Log(string.format("ambient sound: %d playing, %d failed", playing, failed))
+    Log(string.format("ambient sound: %d playing, %d failed%s", playing, failed,
+        #Current.movingSounds > 0 and (", " .. #Current.movingSounds .. " on moving parts") or ""))
 end
 
 --- The skull's ghostly fire (BP_SkullEffect) and its whispering, which is
@@ -2338,6 +2362,28 @@ local function watch()
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
     -- 20 ms frame on a converted map.
+    -- Sounds on moving machine parts follow them: p = frac(t / period +
+    -- position) on the world's clock (the materials' Time), a held position
+    -- when the period is 0, as the CE device masters' World Position Offset
+    -- (build_ce_materials.py DEVICE_WPO_CODE).
+    every(100, "moving sounds", function()
+        if #Current.movingSounds == 0 then return end
+        local world = getWorld()
+        local gs = findObject("/Script/Engine.Default__GameplayStatics")
+        if not (world and gs) then return end
+        local now = gs:GetTimeSeconds(world)
+        for _, m in ipairs(Current.movingSounds) do
+            if m.comp:IsValid() then
+                local p = m.period > 0 and ((now / m.period + m.position) % 1.0) or m.position
+                local sc = m.s0 + (m.s1 - m.s0) * p
+                local at = {}
+                for k = 1, 3 do
+                    at[k] = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                end
+                m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, {}, false)
+            end
+        end
+    end)
     local packSweeps = 0
     every(1500, "health packs", function()
         local hp = Current.furnished and healthPackLevel()

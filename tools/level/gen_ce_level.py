@@ -801,13 +801,29 @@ def ambient_sounds(sounds_dir, root, to_ue):
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), "gain": round(track["gain"], 3),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd})
+    origin = to_ue([0.0, 0.0, 0.0])
+
+    def vector(v):
+        """A CE offset in Unreal's axes and centimetres (no translation)."""
+        u = to_ue(v)
+        return [round(u[k] - origin[k], 1) for k in range(3)]
+
     for e in manifest["emitters"]:
         for track, snd in loops(e["sound"]):
-            emitters.append({"pos": to_ue(e["pos"]), "wave": wave(snd["loop"]),
-                             "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
-                             "inner": round(snd["min_distance"] * WU_CM, 1),
-                             "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
-                             "source": e["sound"]})
+            emitter = {"pos": to_ue(e["pos"]), "wave": wave(snd["loop"]),
+                       "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
+                       "inner": round(snd["min_distance"] * WU_CM, 1),
+                       "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
+                       "source": e["sound"]}
+            m = e.get("motion")
+            if m:
+                # On a machine's moving part (ce_sounds.py marker_motion): the
+                # loader moves the sound as the part's material moves it,
+                # (pos - pivot) * (s - 1) + lerp(t0, t1, p) from its rest.
+                emitter["motion"] = {"pivot": to_ue(m["pivot"]), "t0": vector(m["t0"]), "t1": vector(m["t1"]),
+                                     "s0": m["s0"], "s1": m["s1"], "period": m["period"],
+                                     "position": m["position"]}
+            emitters.append(emitter)
     return {"background": background, "emitters": emitters}
 
 
