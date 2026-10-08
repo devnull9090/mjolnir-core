@@ -117,7 +117,8 @@ Vertices accumulate irradiance; elements accumulate unshot energy.
    hold more bounce than a solve stopped there: Death Island's exterior
    pages score 25.6 -> 20.4/255 going from 0.01 to 0.001 and Danger
    Canyon's 15.6 -> 15.4, nothing worsens, so 0.001 is the default
-   (`--stop`), about twice the shots.
+   (`--stop`): two to five times the shots (Gephyrophobia's 1.2 M
+   elements at 4x: 74 k -> 348 k shots, 4 -> 18 minutes on 32 threads).
 4. An emitting surface's own lightmap shows its emission on top of what it
    gathers (a patch's radiosity starts at its emission). A surface whose
    collision material is water is not solved at all: its chart is the
