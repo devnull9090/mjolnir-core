@@ -219,7 +219,23 @@ material even though the surfaces carry theirs. Untested.
 `tools/level/merge_ce_scene.py` puts everything static into the BSP's glTF.
 
 - **Scenery:** every scenery placement's model goes in at its CE position and
-  rotation, lit as CE lights objects. An object has no lightmap of its own:
+  rotation. CE's rotation (yaw, pitch, roll) is (Rz(-yaw) Ry(pitch)
+  Rx(-roll))^-1: yaw about z, then pitch and roll about the world's y and x
+  axes, the Halo Asset Blender Development Toolset's order. The collision
+  merge, the lens flares and the sound emitters use the same order. Until
+  2026-10-08 they pitched and rolled in the object's own frame, so a
+  placement with yaw and a tilt leaned the wrong way: Ice Fields' beacons
+  stood on one edge. Over the 19 maps' tilted scenery, the toolset's order
+  sits a placement's base flatter on the BSP in 58 of the 73 placements
+  where the two differ.
+- **Beacons are seated** (`tools/level/ce_seat.py`). CE leaves some beacons
+  rocking on one edge of their base: upright on a slope, or tilted one way on
+  ground that falls two ways. A beacon whose base spans more than 0.1 m over
+  the BSP is turned onto the plane fitted to the ground under its base,
+  keeping its heading, and set 0.03 m above it, as CE's well-placed ones are.
+  The scene and collision merges and the lens flares all seat from the same
+  placement. On Ice Fields 8 of 51 beacons move.
+- Scenery is lit as CE lights objects. An object has no lightmap of its own:
   CE samples the ground under its bounding sphere's centre and four points
   0.7071 of its radius out, averages the lightmap colour L, the incident
   direction and the floor's base colour, and lights the object with an
@@ -639,7 +655,11 @@ variant the loader ships carries CE's health packs as Megalo script
 - The pack is cloned from the battle rifle ammo pickup (no CE map places
   battle rifle ammo), and the loader puts CE's health pack mesh
   (`/Game/MJOLNIR/CE/Powerups/SM_CE_HealthPack`) on that actor in place of
-  its own.
+  its own. The pack is made 0.1 wu above its spot and falls, so the crate can
+  come to rest tipped on its side. The mesh keeps the world's up and the
+  crate's heading, with its base (CE's model origin) at the crate's lowest
+  corner, which is on the ground, and is seated again 2 s and 5 s after the
+  pack appears.
 
 The actions are Reach's (54/55 get shields/health, 64/65 modify, 66 get
 distance), at the same numbers in CU4's decoder.
