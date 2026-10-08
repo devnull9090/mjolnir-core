@@ -23,6 +23,7 @@ export * from "./ui/CommentThread";
 export * from "./ui/FileDrop";
 export * from "./ui/MediaUploader";
 export * from "./ui/Gallery";
+export * from "./ui/Lightbox";
 export * from "./ui/ReleaseList";
 export * from "./ui/ChangeList";
 export * from "./ui/ReleaseChangesPanel";
