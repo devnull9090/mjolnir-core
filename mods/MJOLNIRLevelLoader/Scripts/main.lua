@@ -1568,12 +1568,56 @@ local function hideAllBut(actor, mine)
     end
 end
 
+--- The crate's box (its own mesh's bounds, in its frame), read once.
+local PackCrate = nil
+
+local function packCrate(actor)
+    if PackCrate then return PackCrate end
+    for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.StaticMeshComponent")) or {}) do
+        pcall(function()
+            if type(c) == "userdata" and c.get then c = c:get() end
+            local sm = c.StaticMesh
+            if sm and sm:IsValid() and sm:GetFName():ToString() == "SM_ammo_pickup_BR" then
+                local b = sm:GetBounds()
+                PackCrate = { o = { b.Origin.X, b.Origin.Y, b.Origin.Z }, e = { b.BoxExtent.X, b.BoxExtent.Y, b.BoxExtent.Z } }
+            end
+        end)
+    end
+    -- As measured on CU4 (2026-10-08), should the mesh not be found.
+    PackCrate = PackCrate or { o = { 3.45, 0, 0 }, e = { 22.74, 11.40, 4.62 } }
+    return PackCrate
+end
+
+--- Stand the pack's mesh upright on the ground under its crate, with the
+--- crate's heading. The crate is a physics object made 0.1 wu above its spot
+--- (blam_megalo::powerups) that can come to rest tipped on its side (Ice
+--- Fields, 2026-10-08: rolled 17 and 40 degrees), while CE's packs stand
+--- upright. CE's model has its origin at its base and the crate has its at
+--- its centre (4.6 cm up when it lies flat), so the base goes to the crate's
+--- lowest corner, which is on the ground.
+local function seatPackMesh(actor, comp, hp)
+    local f, r, u = actor:GetActorForwardVector(), actor:GetActorRightVector(), actor:GetActorUpVector()
+    local box = packCrate(actor)
+    local axes = { f.Z, r.Z, u.Z }
+    local lowest = 0
+    for i = 1, 3 do lowest = lowest + box.o[i] * axes[i] - box.e[i] * math.abs(axes[i]) end
+    -- The mesh's offset above the base (hp.pos, the rewrite's transform),
+    -- straight up from the crate's lowest corner, in the crate's frame.
+    local p = hp.pos or { 0, 0, 0 }
+    local up = (p[3] or 0) + lowest
+    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, {}, false)
+    comp:SetAbsolute(false, true, false)
+    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, {}, false)
+end
+
 local function dressHealthPack(world, actor, hp)
     if not actor:IsValid() then return end
     local key = actor:GetFullName()
     local mine = PackMeshes[key]
     if mine and mine:IsValid() then
         hideAllBut(actor, mine)
+        -- Again once the crate has landed.
+        pcall(seatPackMesh, actor, mine, hp)
         return
     end
     local mesh = resolveMesh(hp.mesh)
@@ -1591,6 +1635,7 @@ local function dressHealthPack(world, actor, hp)
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
         { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
     comp:SetRelativeScale3D({ X = s, Y = s, Z = s })
+    pcall(seatPackMesh, actor, comp, hp)
     PackMeshes[key] = comp
     hideAllBut(actor, comp)
     local applied, failed = applyMaterials(comp, hp.materials, world, "health_pack")
@@ -1604,11 +1649,12 @@ local packsWatched = false
 
 --- Every pack the variant makes (one per spot, again after each pickup) is
 --- dressed as it appears; the game may show the pickup's own mesh again a
---- moment later, so it is hidden again then.
+--- moment later, so it is hidden again then, and the mesh is seated again
+--- once the crate has fallen and settled.
 local function watchHealthPacks()
     if packsWatched or not mayArm("packs") then return end
     packsWatched = pcall(NotifyOnNewObject, HEALTH_PACK_ACTOR_CLASS_PATH, function(actor)
-        for _, ms in ipairs({ 50, 500 }) do
+        for _, ms in ipairs({ 50, 500, 2000, 5000 }) do
             ExecuteInGameThreadWithDelay(ms, function()
                 local hp, world = healthPackLevel(), getWorld()
                 if not (hp and world and actor:IsValid()) then return end
