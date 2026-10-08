@@ -5,8 +5,9 @@ upright, or tilted them one way on ground that falls two ways, so in CE
 those rock on one edge of their base (Ice Fields' red beacon at
 (14.9, 17.5) stands 0.22 m higher on one side whatever its rotation). A
 beacon whose base spans more than SPREAD over the BSP is turned onto the
-plane fitted to the ground under its base, keeping its heading, and set
-CLEARANCE above it, the height CE gives its well-placed ones.
+plane fitted to the ground under its base, keeping its heading, and set a
+little above it (SEATED), the height CE gives its well-placed ones. Flag
+bases, which CE floats 3.4 cm over the floor, are all set down the same way.
 
 Every tool that places a placement's model or what hangs on it (the scene
 and collision merges, the lens flares, the sound emitters) calls seat()
@@ -19,14 +20,18 @@ import numpy as np
 
 from merge_ce_scene import WU_TO_M, ce_rotation, ce_to_gltf, load_gltf, primitives
 
-# The props seated: CE's beacons (mp_beacon_red/blue, small red/blue beacon).
-SEATED = ("beacon",)
+# The props seated, by a substring of their tag path: how far above the
+# ground a seated base sits (metres), and whether every placement is seated
+# or only one whose base spans more than SPREAD over the ground.
+# - CE's beacons (mp_beacon_red/blue, small red/blue beacon): CE's flush
+#   ones stand 0.03 above the ground, and only the rocking ones move.
+# - The CTF flag base: a thin plate CE puts 0.011 wu (3.4 cm) over the floor
+#   on every map, which reads as floating (2026-10-08); all of them go down
+#   to 5 mm.
+SEATED = {"beacon": (0.03, False), "flag_base": (0.005, True)}
 # A base spread (metres, highest point of the base over the ground minus
 # the lowest) above which a beacon is seated. CE's flush ones measure 0-0.09.
 SPREAD = 0.1
-# How far above the ground a seated base sits (metres): CE's flush beacons
-# stand 0.03 above it.
-CLEARANCE = 0.03
 SWAP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)  # glTF = SWAP @ CE
 
 
@@ -93,8 +98,10 @@ def seat(placement, staging, log=print):
     bases = {}
     moved = 0
     for e in placement.get("entries", []):
-        if e.get("kind") != "scenery" or not any(s in e.get("asset", "").lower() for s in SEATED):
+        prop = next((k for k in SEATED if k in e.get("asset", "").lower()), None)
+        if e.get("kind") != "scenery" or prop is None:
             continue
+        clearance, always = SEATED[prop]
         path = os.path.join(staging, e.get("model") or "")
         if not e.get("model") or not os.path.exists(path):
             continue
@@ -126,7 +133,7 @@ def seat(placement, staging, log=print):
         if len(placed) < 0.7 * len(base):
             continue
         spread = max(p[3] for p in placed) - min(p[3] for p in placed)
-        if spread <= SPREAD:
+        if spread <= SPREAD and not always:
             continue
         # The ground's plane under the base: y = a x + b z + c.
         pts = np.array([(x, z, gh) for x, z, gh, _ in placed])
@@ -139,7 +146,7 @@ def seat(placement, staging, log=print):
         after = gaps(r_new, t)
         if not after:
             continue
-        lift = CLEARANCE - float(np.median([p[3] for p in after]))
+        lift = clearance - float(np.median([p[3] for p in after]))
         t_new = t + np.array([0.0, lift, 0.0])
         new_spread = max(p[3] for p in after) - min(p[3] for p in after)
         log(f"  seated   {e['asset'].split(chr(92))[-1]} at ({e['pos'][0]:.1f}, {e['pos'][1]:.1f}): "

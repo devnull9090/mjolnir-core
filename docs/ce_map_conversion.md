@@ -234,7 +234,8 @@ material even though the surfaces carry theirs. Untested.
   the BSP is turned onto the plane fitted to the ground under its base,
   keeping its heading, and set 0.03 m above it, as CE's well-placed ones are.
   The scene and collision merges and the lens flares all seat from the same
-  placement. On Ice Fields 8 of 51 beacons move.
+  placement. On Ice Fields 8 of 51 beacons move. Flag bases, which CE puts
+  0.011 wu (3.4 cm) over the floor on every map, are all set down to 5 mm.
 - Scenery is lit as CE lights objects. An object has no lightmap of its own:
   CE samples the ground under its bounding sphere's centre and four points
   0.7071 of its radius out, averages the lightmap colour L, the incident
