@@ -810,6 +810,9 @@ def main():
     bake = a.bake or (os.path.join(os.path.dirname(a.terrain), "bake") if a.terrain else None)
 
     placement = json.load(open(os.path.join(a.staging, "placement.json")))
+    # A seated beacon's flares go where merge_ce_scene.py put its model (ce_seat.py).
+    from ce_seat import seat
+    seat(placement, a.staging, log=lambda *_: None)
     t = json.load(open(a.transform))
     tag_map = json.load(open(TAG_MAP))
     # Every type the bake knows: it adds what the canvas palette lacks.

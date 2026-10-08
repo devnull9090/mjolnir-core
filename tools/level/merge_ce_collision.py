@@ -219,6 +219,9 @@ def main():
         at += count * size
 
     placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
+    # Placed as merge_ce_scene.py places them (ce_seat.py).
+    from ce_seat import seat
+    seat(placement, staging, log=lambda *_: None)
     planes, surfaces, edges, vertices = arrays["planes"], arrays["surfaces"], arrays["edges"], arrays["vertices"]
     materials = meta.setdefault("materials", [])
     split = split_blended_ground(staging, materials, surfaces, edges, vertices)

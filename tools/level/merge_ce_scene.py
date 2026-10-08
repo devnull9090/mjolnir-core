@@ -442,6 +442,10 @@ def main():
     object_texels, object_prims = [], []
 
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
+    # Beacons that would rock on one edge of their base sit on the ground
+    # (ce_seat.py); the collision merge and the flares seat them the same way.
+    from ce_seat import seat
+    seat(placement, a.staging)
     if a.occluders:
         write_occluders(a.staging, placement, a.occluders)
     if a.lights:
