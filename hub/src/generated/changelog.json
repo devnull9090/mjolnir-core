@@ -41,6 +41,43 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.18.0",
+      "tag": "mods-v0.18.0",
+      "title": "Classic maps re-lit with our own radiosity solver",
+      "date": "2026-10-08",
+      "summary": "The classic maps' lightmaps are solved again at up to eight times Halo CE's resolution: crisp sun shadows, evenly lit scenery, and base interiors lit by their own lights.",
+      "body": "Needs the CE runtime pack 1.4.0 and the 1.3.0 classic map packs.\n\n### Added\n\n- **Lightmaps solved by MJOLNIR** (1.3.0 map packs). Each map's lighting is\n  computed again with our own port of Halo CE's radiosity, at up to eight\n  times the resolution of the pages the game shipped with (Blood Gulch,\n  Danger Canyon and Death Island at eight, Hang 'Em High and Gephyrophobia\n  at four). Halo CE's ambient, sky fill and bounce light are kept texel for\n  texel, and Unreal's sun draws every sun shadow, so a pillar's shadow on a\n  base roof is one crisp edge instead of a soft blob inside a hard one.\n- **Lit interiors.** Death Island's bases are lit by their red and blue light\n  strips and door glyphs, as in Halo CE; the earlier solve had left them\n  near black.\n\n### Changed\n\n- **Scenery is lit the way Halo CE lights it** (MJOLNIRLevelLoader 0.4.1 and\n  the 1.4.0 runtime's materials). Boulders and trees no longer come out half\n  dark where the terrain's shadow copy cut across them; headlights no longer\n  light placed scenery.\n- **Sun colour** (MJOLNIRLevelLoader 0.4.1). The sun and sky fill are set in\n  the right colour space; Gephyrophobia's deck had lost half its red and\n  green.\n- The sea floor on Death Island is lit through the water, as Halo CE has it.\n\n### Known issues\n\n- Death Island's base interiors are a little darker than Halo CE's.\n- Halo CE's placed light fixtures do not light the maps, matching Halo CE's\n  own lightmaps, which carry none of their light either.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Lightmaps solved by MJOLNIR (1.3.0 map packs). Each map's lighting is computed again with our own port of Halo CE's radiosity, at up to eight times the resolution of the pages the game shipped with (Blood Gulch, Danger Canyon and Death Island at eight, Hang 'Em High and Gephyrophobia at four). Halo CE's ambient, sky fill and bounce light are kept texel for texel, and Unreal's sun draws every sun shadow, so a pillar's shadow on a base roof is one crisp edge instead of a soft blob inside a hard one.",
+            "Lit interiors. Death Island's bases are lit by their red and blue light strips and door glyphs, as in Halo CE; the earlier solve had left them near black."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Scenery is lit the way Halo CE lights it (MJOLNIRLevelLoader 0.4.1 and the 1.4.0 runtime's materials). Boulders and trees no longer come out half dark where the terrain's shadow copy cut across them; headlights no longer light placed scenery.",
+            "Sun colour (MJOLNIRLevelLoader 0.4.1). The sun and sky fill are set in the right colour space; Gephyrophobia's deck had lost half its red and green.",
+            "The sea floor on Death Island is lit through the water, as Halo CE has it."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Death Island's base interiors are a little darker than Halo CE's.",
+            "Halo CE's placed light fixtures do not light the maps, matching Halo CE's own lightmaps, which carry none of their light either."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.18.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.18.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.18.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.17.0",
       "tag": "mods-v0.17.0",
       "title": "Classic maps lit by Unreal: headlights and shadows on the ground",
