@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { GAME_TYPE_NAMES, type MapListing } from "@mjolnir/hub-kit";
 import { HUB_SITE, hubClient } from "../hub/client";
-import type { Library } from "../hub/library";
+import { isNewerVersion, type InstalledMod, type Library } from "../hub/library";
 
 interface InstallProgress {
   stage: string;
@@ -21,13 +21,46 @@ function humanSize(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(0)} MB`;
 }
 
+type MapStatus = "installed" | "update" | "missing-files" | "not-installed";
+
+/**
+ * Where one map stands against the hub. "Update" is decided by version, the
+ * way `hub_check_updates` decides it for the Updates tab, not by release id:
+ * the two screens must agree, and a re-published release of the same version
+ * is not something to download again.
+ */
+function mapStatus(
+  listing: MapListing,
+  have: InstalledMod | undefined,
+  filesGone: boolean,
+): MapStatus {
+  if (!have) return "not-installed";
+  if (filesGone) return "missing-files";
+  if (listing.release && isNewerVersion(listing.release.version, have.version)) return "update";
+  return "installed";
+}
+
+const BADGE: Record<MapStatus, { label: string; className: string }> = {
+  installed: { label: "Installed", className: "bg-emerald-500/15 text-emerald-400" },
+  update: { label: "Update", className: "bg-mjolnir-gold/15 text-mjolnir-gold" },
+  "missing-files": { label: "Files missing", className: "bg-red-500/15 text-red-400" },
+  "not-installed": { label: "Not installed", className: "bg-surface-hover text-text-secondary" },
+};
+
 /**
  * The classic maps, and the one button that installs everything they need:
  * every official map pack, the CE runtime pack they share, and the code mods
  * that put MULTIPLAYER on the main menu (hub::install_multiplayer). Running
  * it again updates what moved on and skips the rest.
  */
-export default function Multiplayer({ library }: { library: Library }) {
+export default function Multiplayer({
+  library,
+  onInstalled,
+}: {
+  library: Library;
+  /** Lets the Updates tab drop what this run just installed. */
+  onInstalled?: () => void;
+}) {
   const [maps, setMaps] = useState<MapListing[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -68,15 +101,10 @@ export default function Multiplayer({ library }: { library: Library }) {
     );
   }, [library.state]);
 
-  const installedBySlug = new Map(
-    (library.state?.installed ?? [])
-      .filter((m) => !missingFiles.has(m.slug))
-      .map((m) => [m.slug, m]),
-  );
-  const missing = (maps ?? []).filter((m) => {
-    const have = installedBySlug.get(m.slug);
-    return !have || (m.release && have.release_id !== m.release.id);
-  });
+  const installedBySlug = new Map((library.state?.installed ?? []).map((m) => [m.slug, m]));
+  const statusOf = (m: MapListing) =>
+    mapStatus(m, installedBySlug.get(m.slug), missingFiles.has(m.slug));
+  const missing = (maps ?? []).filter((m) => statusOf(m) !== "installed");
   const download = missing.reduce((sum, m) => sum + (m.release?.file_size ?? 0), 0);
 
   async function installAll() {
@@ -91,6 +119,7 @@ export default function Multiplayer({ library }: { library: Library }) {
       setRunning(false);
       setProgress(null);
       await library.refresh();
+      onInstalled?.();
     }
   }
 
@@ -164,7 +193,8 @@ export default function Multiplayer({ library }: { library: Library }) {
         <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
           {maps.map((m) => {
             const have = installedBySlug.get(m.slug);
-            const current = have && (!m.release || have.release_id === m.release.id);
+            const status = statusOf(m);
+            const latest = m.release?.version;
             return (
               <div
                 key={m.code}
@@ -184,20 +214,27 @@ export default function Multiplayer({ library }: { library: Library }) {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold truncate">{m.title}</span>
                   <span
-                    className={`text-[11px] px-1.5 py-0.5 rounded ${
-                      current
-                        ? "bg-emerald-500/15 text-emerald-400"
-                        : have
-                          ? "bg-mjolnir-gold/15 text-mjolnir-gold"
-                          : "bg-surface-hover text-text-secondary"
-                    }`}
+                    className={`text-[11px] px-1.5 py-0.5 rounded shrink-0 ${BADGE[status].className}`}
                   >
-                    {current ? "Installed" : have ? "Update" : "Not installed"}
+                    {BADGE[status].label}
                   </span>
                 </div>
-                <p className="text-xs text-text-secondary mt-1">
-                  {m.modes.map((mode) => GAME_TYPE_NAMES[mode] ?? mode).join(" · ")}
-                </p>
+                <div className="flex items-center justify-between gap-2 mt-1 text-xs text-text-secondary">
+                  <span className="truncate">
+                    {m.modes.map((mode) => GAME_TYPE_NAMES[mode] ?? mode).join(" · ")}
+                  </span>
+                  <span className="shrink-0 tabular-nums" title={versionTitle(status, have, latest)}>
+                    {status === "update" && have && latest ? (
+                      <>
+                        v{have.version} <span className="text-mjolnir-gold">→ v{latest}</span>
+                      </>
+                    ) : have ? (
+                      `v${have.version}`
+                    ) : latest ? (
+                      `v${latest}`
+                    ) : null}
+                  </span>
+                </div>
                 </div>
               </div>
             );
@@ -206,4 +243,21 @@ export default function Multiplayer({ library }: { library: Library }) {
       )}
     </div>
   );
+}
+
+function versionTitle(
+  status: MapStatus,
+  have: InstalledMod | undefined,
+  latest: string | undefined,
+): string | undefined {
+  switch (status) {
+    case "installed":
+      return `Installed v${have?.version}, the newest on the hub`;
+    case "update":
+      return `Installed v${have?.version}; v${latest} is on the hub`;
+    case "missing-files":
+      return `v${have?.version} was installed but its files are gone; Install puts them back`;
+    case "not-installed":
+      return latest ? `v${latest} is on the hub` : undefined;
+  }
 }

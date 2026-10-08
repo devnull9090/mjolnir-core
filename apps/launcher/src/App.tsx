@@ -59,9 +59,16 @@ function AppBody({
   // Keyed on the callback rather than on the hook's return value, which is a
   // fresh object every render: `useUpdates` keys its apply callback on this.
   const { announce: announceWhatsNew } = whatsNew;
+  const { refresh: refreshLibrary, checkUpdates: checkLibraryUpdates } = library;
   const announce = useCallback(
-    (completed: Parameters<typeof announceWhatsNew>[0]) => void announceWhatsNew(completed),
-    [announceWhatsNew],
+    (completed: Parameters<typeof announceWhatsNew>[0]) => {
+      void announceWhatsNew(completed);
+      // The update manager installs through its own commands, so the library
+      // would otherwise keep the pre-update state and the Multiplayer and My
+      // Mods screens would go on offering what was just installed.
+      void refreshLibrary().then(checkLibraryUpdates);
+    },
+    [announceWhatsNew, refreshLibrary, checkLibraryUpdates],
   );
   const updates = useUpdates(updater, announce);
 
@@ -111,7 +118,9 @@ function AppBody({
                   onGoToBrowse={() => goTo("browse")}
                 />
               )}
-              {activeView === "multiplayer" && <Multiplayer library={library} />}
+              {activeView === "multiplayer" && (
+                <Multiplayer library={library} onInstalled={() => void updates.refresh()} />
+              )}
               {activeView === "tools" && <Tools />}
               {activeView === "browse" && <Browse library={library} onOpenMod={showMod} />}
               {activeView === "updates" && <Updates updates={updates} />}

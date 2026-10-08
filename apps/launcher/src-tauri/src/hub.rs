@@ -1972,10 +1972,15 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
             result.failed.push(format!("{title}: no published release"));
             continue;
         };
-        let have = load_state()
-            .installed
-            .iter()
-            .any(|m| m.slug == slug && m.release_id == release && cache_complete(m));
+        // Current means "not older than the listing", the test the Updates tab
+        // uses (`check_updates`), so a map it just updated is not fetched
+        // again here under a different release id of the same version.
+        let version = map["release"]["version"].as_str().unwrap_or("");
+        let have = load_state().installed.iter().any(|m| {
+            m.slug == slug
+                && (m.release_id == release || !is_newer(version, &m.version))
+                && cache_complete(m)
+        });
         if have {
             if restored.contains(slug) {
                 restoring.push(title);
