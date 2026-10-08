@@ -7,7 +7,6 @@
 //! published hash, and keeps it under the launcher's own data directory.
 
 use std::fs;
-use std::io::Read;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -193,17 +192,7 @@ pub fn install(app: &AppHandle, id: &str) -> Result<(), String> {
     }
 
     let total = resp.content_length().unwrap_or(manifest.size);
-    let mut bytes: Vec<u8> = Vec::with_capacity(total as usize);
-    let mut reader = resp;
-    let mut buf = [0u8; 32768];
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| format!("Download read error: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&buf[..n]);
+    let bytes = crate::transfer::read_body(resp, (total > 0).then_some(total), |got| {
         if total > 0 {
             emit(
                 app,
@@ -211,13 +200,14 @@ pub fn install(app: &AppHandle, id: &str) -> Result<(), String> {
                 "downloading",
                 &format!(
                     "Downloading... {:.1} MB / {:.1} MB",
-                    bytes.len() as f64 / 1_048_576.0,
+                    got as f64 / 1_048_576.0,
                     total as f64 / 1_048_576.0
                 ),
-                5.0 + (bytes.len() as f32 / total as f32) * 80.0,
+                5.0 + (got as f32 / total as f32) * 80.0,
             );
         }
-    }
+    })
+    .map_err(|e| format!("Download read error: {e}"))?;
 
     // Refuse anything that does not match the published hash, so a truncated
     // or tampered download never reaches disk as an executable.
@@ -241,6 +231,7 @@ pub fn install(app: &AppHandle, id: &str) -> Result<(), String> {
     let target = dir.join(&manifest.exe);
     let staged = dir.join(format!("{}.part", manifest.exe));
     fs::write(&staged, &bytes).map_err(|e| format!("Could not write {}: {e}", staged.display()))?;
+    crate::transfer::wrote(bytes.len() as u64);
     if target.exists() {
         let _ = fs::remove_file(&target);
     }
