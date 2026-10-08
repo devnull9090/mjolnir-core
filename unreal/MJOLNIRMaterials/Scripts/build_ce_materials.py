@@ -827,8 +827,12 @@ if (HasSunShare > 0.5)
     // blue ambient). The environment pass is not used for it: its bump
     // modulation against the baked incident direction darkens flat ground's
     // sun share by a third under a 40 degree sun (Blood Gulch, 2026-10-08).
+    // N.L no lower than 0.3 (UNREAL_BASE_CODE divides by the same): this is
+    // the colour every Unreal light multiplies, and at the texel's own N.L
+    // a face turned from the sun had none, so headlights stopped at a hard
+    // line on Death Island's cliffs (2026-10-08).
     float3 amb = saturate(SunShare.rgb);
-    float cosl = saturate(dot(normalize(N), normalize(SunDir)));
+    float cosl = max(dot(normalize(N), normalize(SunDir)), 0.3);
     float3 full = amb + SunCE.rgb * cosl;
     float mx = max(full.r, max(full.g, full.b));
     if (mx > 1.0) full /= mx;
@@ -866,8 +870,10 @@ if (ObjectPage > 0.5) return 0.0.xxx;
 float flat = max(normalize(SunDir).z, 0.3);
 // With the solver's shares the sunlit colour already holds this texel's
 // own N.L (the share was solved with it), so that is what Unreal's N.L
-// must cancel, not flat ground's.
-if (HasSunShare > 0.5) flat = max(dot(normalize(N), normalize(SunDir)), 0.05);
+// must cancel, not flat ground's; no lower than the 0.3 SUNLIT_CODE took
+// it at, so a face turned from the sun keeps its colour for the other
+// lights (Unreal's sun adds nothing there by its own N.L).
+if (HasSunShare > 0.5) flat = max(dot(normalize(N), normalize(SunDir)), 0.3);
 return saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain);
 """
 

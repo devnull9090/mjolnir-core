@@ -112,7 +112,10 @@ and the bake's sun channel (where CE's sun reaches) comes from the solver's
 without the sun) goes to the materials as `SunShare`: the masters run CE's
 texture pass over it for the emissive, so CE's ambient, fill and bounce are
 drawn, rebuild the sunlit lightmap per channel from it and the sky's sun
-(`environment.sun.ce_light`) for the sun's albedo, and Unreal's sun, shadowed
+(`environment.sun.ce_light`) for the sun's albedo (at N.L no lower than 0.3,
+so a face turned from the sun keeps a colour for headlights and flashes:
+at its own N.L it had none, and Death Island's headlights stopped at a hard
+line where a cliff turned away), and Unreal's sun, shadowed
 by the terrain copy, draws every sun shadow; the lightmap's own
 texel-stepped shadow edge never shows inside the crisp one. Such a level has no sun mask (`gen_ce_level.py --no-sun-mask`):
 the copy's shadows are the sun's shadows, and the mask's metre-wide
