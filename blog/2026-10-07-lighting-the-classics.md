@@ -1,13 +1,18 @@
 # Lighting the classics: teaching Unreal Engine to light Halo CE's maps
 
 **Author:** MJOLNIR Core
-**Summary:** The nineteen classic maps are now lit by Unreal Engine while still looking like Halo CE. Warthog headlights light the road, vehicles cast shadows, and Blood Gulch's corners have depth. Here is how we got there.
+**Summary:** The nineteen classic maps are lit by Unreal Engine while still looking like Halo CE, and since 1.3.0 their lightmaps are baked by our own solver at up to eight times Halo CE's resolution. Crisp shadows, lit bases, headlights on the road. Here is how we got there.
 **Tags:** multiplayer, maps, lighting
 
 ![Blood Gulch, lit by Unreal Engine with Halo CE's colours](/blog-images/lighting-the-classics/blood-gulch.jpg)
 
+*Updated 2026-10-08 for classic maps 1.3.0, CE runtime 1.4.0 and mods
+0.18.0. The maps' lightmaps are now computed by a baker of our own instead of
+being read out of Halo CE's. That is the first section below; the rest of the
+post is the 1.2.0 story it builds on.*
+
 When the classic maps came to Halo Campaign Evolved
-[five days ago](/blog/classic-multiplayer-alpha), they looked like Halo CE
+[in the alpha](/blog/classic-multiplayer-alpha), they looked like Halo CE
 because, in a sense, they *were* Halo CE: every surface carried the light
 Bungie baked into it in 2001, painted on like a photograph. That made them
 faithful, and it also made them deaf. Campaign Evolved runs on Unreal Engine 5,
@@ -15,10 +20,10 @@ which has real lights and real shadows, and none of it could reach the
 ground. Switch on a Warthog's headlights and the road stayed dark, while every
 player and vehicle in the beam turned glowing white.
 
-Today's update (classic maps 1.2.0, CE runtime 1.3.0 and mods 0.17.0) changes
-that. The maps keep Halo CE's colours and its soft shade, but the light on them
-now comes from Unreal Engine. Here's the difference between the alpha and now,
-from the same spots:
+The 1.2.0 maps changed that: they keep Halo CE's colours and its soft shade,
+but the light on them comes from Unreal Engine. The 1.3.0 maps go one step
+further and replace Bungie's lightmaps with ones we bake ourselves. Here's the
+difference between the alpha and now, from the same spots:
 
 ![Timberland, alpha and now](/blog-images/lighting-the-classics/timberland-alpha-vs-now.jpg)
 
@@ -26,11 +31,95 @@ from the same spots:
 
 ![Death Island, alpha and now](/blog-images/lighting-the-classics/death-island-alpha-vs-now.jpg)
 
-Some of that came in last week's 1.1.0 maps (shading baked into corners,
-Halo CE's own glass and water, and rocks that had been drawn black), and the
-rest is new today. The rest of this post is the story of the new part: what
-was wrong, and the handful of fixes it took. It gets technical in places, but
-you don't need to know anything about graphics to follow it.
+## Baking the light ourselves
+
+Halo CE's lightmaps were computed once, in 2001, by a tool in Bungie's
+editing kit, and stored in the map files at the resolution a 2001 PC could
+afford: a whole base shares a 256-pixel page, so one texel of light covers a
+metre of wall. Everything we did in 1.2.0 had to work from those pages. Unreal
+drew its own sharp sun shadow on the ground, but the lightmap underneath still
+carried Halo CE's blurry copy of the same shadow, and on a Blood Gulch base
+roof you could see both: a soft, stepped blob inside a crisp edge.
+
+![A pillar's shadow on a Blood Gulch base roof, 1.2.0 and 1.3.0](/blog-images/lighting-the-classics/blood-gulch-roof-shadow.jpg)
+
+The only real fix was to compute the light again, at a resolution of our
+choosing. So we wrote a radiosity solver that does what Bungie's tool did.
+The algorithm was recovered by reading the tool's own code: the sky's sun and
+fill lights as small grids of directional lights, the ambient light per
+cluster, every surface cut into patches that shoot their light at every patch
+they can see, patches that split themselves where the light changes quickly,
+and shadow rays traced through the map's collision model. The constants are
+the tool's own. We know we got it right because at Halo CE's own resolution
+our pages match Bungie's texel for texel, to within about 3 percent on most
+maps.
+
+Ours runs on every core and is quick: a map that took Bungie's tool three and
+a half minutes takes three seconds, which is what lets us run it at up to
+eight times the resolution. Blood Gulch, Danger Canyon and Death Island are
+solved at eight times, Hang 'Em High and Gephyrophobia at four. The sun and
+the sky's fill are evaluated again at every single texel, so a shadow's edge
+lands exactly where the geometry puts it.
+
+![Part of a Death Island lightmap page: Halo CE's, and ours at eight times the size](/blog-images/lighting-the-classics/lightmap-resolution.jpg)
+
+With our own pages we could also stop guessing about the sun. The solver
+writes two extra pages beside each lightmap: how much of the sun reaches each
+texel, and the light the texel holds *without* the sun, which is Halo CE's
+ambient, sky fill and bounce. The maps draw that second page as their glow,
+and Unreal's sun, shadowed by the invisible copy of the level described
+below, draws every sun shadow by itself. The one-metre sun mask of 1.2.0 is
+gone, and with it the soft fade along every shadow.
+
+### Rocks that were half dark
+
+Placed objects (boulders, trees, Covenant crates) are lit differently from
+the ground in Halo CE: the game samples the lightmap under the object and
+shades the whole object with that. In 1.2.0 our materials lit them with
+Unreal's sun as well, and the invisible level copy cast shadows across them,
+so a rock under a tree came out half dark and the tree's own boughs shadowed
+each other in ways Halo CE never drew. The 1.3.0 materials light scenery
+exactly the way Halo CE does and leave Unreal's sun off it.
+
+![Danger Canyon's rocks and trees, before and after](/blog-images/lighting-the-classics/danger-canyon-scenery.jpg)
+
+### Lighting the inside of a base
+
+Our first solves left Death Island's bases almost black. The strips of red
+and blue light along the pillars are surfaces that emit light in Halo CE, and
+in the solver they are supposed to shoot it at the walls. They never did. The
+solver stops when the average unshot light across the map drops below a
+threshold, and on an island the size of Death Island that average was met
+before thirty square metres of strip ever got their turn. Now every emitting
+surface shoots first, and the bases glow as they should.
+
+![Inside a Death Island base, 1.2.0 and 1.3.0](/blog-images/lighting-the-classics/death-island-interior.jpg)
+
+Along the way we built the map's placed light fixtures into the solver,
+twenty of them on Death Island, only to find that Halo CE's own lightmaps
+carry none of their light: the walls beside each fixture are no brighter
+than the walls elsewhere. Bungie's tool read those lights and, as far as its
+output shows, ignored them. So do we, by default.
+
+Two smaller things fell out of the same comparison. Halo CE lights its sea
+floors with a constant colour rather than a solve, so ours do too, and the
+water's surface no longer blocks the sun on the way down: a rendered surface
+that has no collision, like water or a light strip, is not in a ray's way.
+
+### Gephyrophobia's deck
+
+![Gephyrophobia's deck, 1.2.0 and 1.3.0](/blog-images/lighting-the-classics/gephyrophobia-deck.jpg)
+
+Gephyrophobia's deck was blue-purple in 1.2.0. It should not have been. The
+level loader handed Unreal the sun's colour in the wrong colour space, which
+kept half the red and green out of every sun on every map. On a near-white
+sun nobody noticed; under Gephyrophobia's dusk it tinted the whole bridge.
+Fixed in the 0.18.0 mods.
+
+Some of what follows came in last week's 1.1.0 maps (shading baked into
+corners, Halo CE's own glass and water, and rocks that had been drawn black),
+and the rest came with 1.2.0. It gets technical in places, but you don't need
+to know anything about graphics to follow it.
 
 ## Why headlights turned everything white
 
@@ -70,9 +159,11 @@ Unreal-lit terrain splits that photograph back into parts:
   normals. Every rock and panel has real relief that any light can catch.
 - **The sun, from Unreal.** Unreal's sun now lights that surface directly,
   the same way it lights players and vehicles.
-- **Everything else, from Halo CE.** Whatever Halo CE's lightmap has that
-  Unreal's sun can't explain (sky light, bounce, coloured lamps) is added back
-  as a glow, so the total still matches Halo CE.
+- **Everything else, from Halo CE.** Whatever the lightmap has that Unreal's
+  sun can't explain (sky light, bounce, coloured lamps) is added back as a
+  glow, so the total still matches Halo CE. Since 1.3.0 that glow is a page
+  of its own from our solver rather than a guess made from the finished
+  lightmap.
 
 Put those back together and the map looks like Halo CE with nothing switched
 on. When a headlight, or any other light the game makes, adds light, it now
@@ -104,19 +195,24 @@ bounced light fixed it.
 
 ## Keeping Halo CE's shade
 
+*This is how 1.2.0 did it. The 1.3.0 maps no longer need a sun mask, because
+the solver's own pages say exactly where the sun reaches.*
+
 Halo CE's shadows are soft and wide. Its lightmaps were computed at a coarse
 resolution and blurred, so the shade under Blood Gulch's bases spreads metres
 from the walls. Unreal's shadows are sharp and exact. Let Unreal's sun decide
 where shade falls and a lot of Halo CE's character disappears: a passage Halo
 CE kept dim comes out sunny.
 
-So every map now carries a **sun mask**: a map of the level, one metre square
-per cell, saying how much of Halo CE's sun reached each spot. It's traced from
-Halo CE's own lightmap when the map is converted, and Unreal's sun is filtered
-through it. Where Halo CE was in shade, the sun stays off, for the ground and
-for anyone standing there. A one-metre grid draws its own stair-step pattern
-along shadow edges, so the mask is blended over neighbouring cells, which
-turns the steps into a soft fade like Halo CE's.
+So every 1.2.0 map carried a **sun mask**: a map of the level, one metre
+square per cell, saying how much of Halo CE's sun reached each spot. It was
+traced from Halo CE's own lightmap when the map was converted, and Unreal's
+sun was filtered through it. Where Halo CE was in shade, the sun stayed off,
+for the ground and for anyone standing there. A one-metre grid draws its own
+stair-step pattern along shadow edges, so the mask was blended over
+neighbouring cells, which turned the steps into a soft fade like Halo CE's.
+That fade is what you see on the left of the roof picture above, and it is
+why the sun mask had to go once we could solve the light ourselves.
 
 ## Corners, and the trouble with triangles
 
@@ -162,7 +258,9 @@ A few smaller fixes made the difference between "interesting" and "done":
 To find these quickly, the materials gained a debug view that shows one
 lighting layer at a time on screen: the ambient occlusion, the sun mask, Halo
 CE's original lightmap and Unreal's part. Most of the bugs above were spotted
-in it before anyone guessed at a fix.
+in it before anyone guessed at a fix. The solver has its own: run at Halo CE's
+resolution it scores every page against Bungie's, and most of the 1.3.0
+findings above started as a number that was too high.
 
 ## More from the alpha to now
 
@@ -178,14 +276,16 @@ in it before anyone guessed at a fix.
 
 ## Still rough
 
-- Some cliff shadows have harder edges than Halo CE's.
+- Death Island's base interiors are a little darker than Halo CE's.
+- The 1.3.0 map packs are larger: lightmaps at eight times the resolution
+  cost a few megabytes per map, and more video memory.
 - Players standing in deep shade can still look a little brighter than Halo CE
   would draw them, because Unreal's sky light reaches them there.
 
 ## Getting it
 
 Open the launcher and, on the **Multiplayer** page, press **Install
-multiplayer** again. It fetches the 1.2.0 maps, the 1.3.0 runtime they need and
-the 0.17.0 mods. Everyone in your fireteam needs the update, so the maps
-match. Then go find a Warthog
-and wait for dusk on Timberland.
+multiplayer** again. It fetches the 1.3.0 maps, the 1.4.0 runtime they need and
+the 0.18.0 mods. Everyone in your fireteam needs the update, so the maps
+match. Then go stand on a Blood Gulch base roof at noon, or walk into a
+Death Island base.
