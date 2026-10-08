@@ -127,7 +127,17 @@ if [ "$cook" = "1" ]; then
   # The sky is a mesh of its own: kilometres across, it cost the map's
   # transparent pieces their precision when they shared one.
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
-    --sky "$out/scene_sky.gltf"
+    --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf"
+  # The lightmaps re-solved (crates/blam-radiosity: tool.exe's radiosity on
+  # every core, the sun and fill per texel) at LIGHTMAP_SCALE times the
+  # shipped pages' size; the shipped pages are 1x and blur every shadow
+  # edge. LIGHTMAP_SCALE=0 keeps the shipped pages.
+  lightmaps_args=()
+  lightmap_scale="${LIGHTMAP_SCALE:-2}"
+  if [ "$lightmap_scale" != "0" ]; then
+    "$mjolnir" level lightmaps "$staging" "$out/scene.gltf" "$out/lightmaps" --scale "$lightmap_scale" \
+      && lightmaps_args=(--lightmaps "$out/lightmaps")
+  fi
   # What the lightmaps leave out, one texture per lightmap page
   # (crates/ue-texture lightmap_bake): the corners' ambient occlusion and
   # where CE's sun reaches, traced against the merged scene. The masters
@@ -137,10 +147,18 @@ if [ "$cook" = "1" ]; then
   page0="$(python -c "import json,sys; p=json.load(open(sys.argv[1]))['bsps'][0].get('lightmap_pages') or ['']; print(p[0])" "$staging/manifest.json")"
   page0="${page0%%[[:space:]]}"
   if [ -n "$page0" ] && [ -x "$examples/lightmap_bake" -o -x "$examples/lightmap_bake.exe" ]; then
-    "$examples/lightmap_bake" "$out/scene.gltf" "$staging/textures/$page0" "$out/bake" --ao-rays 64 | sed 's/ -> .*//'
+    # The sun from the sky tag (gen_ce_level.py sky_sun), when it has one:
+    # the lightmap's incident average sits far too steep (2026-10-07).
+    sun_args=()
+    sky_sun="$(python "$here/gen_ce_level.py" --sky-sun "$staging" "$out/$name.sbsp.transform.json" /dev/null 2>/dev/null | tr -d '')"
+    [ -n "$sky_sun" ] && sun_args=(--sun "$sky_sun")
+    # The bake's pages match the lightmaps' size.
+    size_page="$staging/textures/$page0"
+    [ -f "$out/lightmaps/$page0" ] && size_page="$out/lightmaps/$page0"
+    "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" | sed 's/ -> .*//'
   fi
   # One material per glTF material, i.e. per (shader, lightmap page).
-  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "$staging" "$name" "$out/materials.spec.json" \
+  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
   # The three meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky), built from the shipped

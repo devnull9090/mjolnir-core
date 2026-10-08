@@ -87,6 +87,15 @@ mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
 lightmap_bake`. Without `lightmap_bake` the map converts without its baked
 corners and sun.
 
+Step 3 also re-solves the map's lightmaps (`mjolnir level lightmaps`,
+[crates/blam-radiosity](../crates/blam-radiosity/README.md): tool.exe's own
+radiosity, on every core, the sun and sky fill evaluated per texel) at
+`LIGHTMAP_SCALE` times the shipped pages' size, 2 by default; the shipped
+pages are 1x and blur every shadow edge. `LIGHTMAP_SCALE=0` keeps the
+shipped pages. The solved pages replace the shipped ones in the material
+spec (`ce_material_spec.py --lightmaps`), and the bake's pages take their
+size.
+
 ### The structure BSP (step 2)
 
 Built on `BSP_03_1_Chasm_old`, a small shipped BSP with one kd supernode, one

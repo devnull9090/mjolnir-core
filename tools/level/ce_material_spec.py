@@ -2,6 +2,11 @@
 """Describe a staged CE map's materials for the Unreal project to build.
 
     ce_material_spec.py <staging dir> <map name> <spec.json> [scene.gltf ...] [--code CODE]
+                        [--bake DIR] [--lightmaps DIR]
+
+With --lightmaps, a lightmap page is taken from that directory (`mjolnir
+level lightmaps`: the shipped page's name at a multiple of its size) when it
+is there, and from the staging otherwise.
 
 With --code, the map's packages go under /Game/MJOLNIR/Maps/<CODE> and cook
 into a chunk of their own (`cook_chunk`), which a map pack ships as
@@ -443,6 +448,11 @@ def main():
         i = args.index("--bake")
         bake_dir = args[i + 1]
         del args[i:i + 2]
+    lightmaps_dir = None
+    if "--lightmaps" in args:
+        i = args.index("--lightmaps")
+        lightmaps_dir = args[i + 1]
+        del args[i:i + 2]
     staging, name, dest = args[0:3]
     scenes = args[3:] or [os.path.join(staging, "bsp", "bsp_0.gltf")]
     textures_dir = os.path.join(staging, "textures")
@@ -492,6 +502,8 @@ def main():
         if not png:
             return None
         path = os.path.join(textures_dir, png)
+        if lightmap and lightmaps_dir and os.path.exists(os.path.join(lightmaps_dir, png)):
+            path = os.path.join(lightmaps_dir, png)
         if not os.path.exists(path):
             print(f"  missing {png}", file=sys.stderr)
             return None

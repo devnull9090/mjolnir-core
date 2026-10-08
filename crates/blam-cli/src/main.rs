@@ -19,6 +19,7 @@ mod hsc;
 mod index;
 mod level;
 mod level_collision;
+mod level_lightmaps;
 mod live;
 mod map;
 mod megalo;

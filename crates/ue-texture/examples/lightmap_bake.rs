@@ -6,7 +6,7 @@
 //!     <scene.gltf> <lightmap page 0.png> <out dir> \
 //!     [--max-size 2048] [--max-scale 16] [--ao-radius 1.0] [--ao-rays 48] \
 //!     [--sun-rays 8] [--threads 6] [--ao-smooth 0] [--ao-knee 0.85]
-//!     [--ao-curve 1.3] [--sun-mask-cell 1.0]
+//!     [--ao-curve 1.3] [--sun-mask-cell 1.0] [--sun x,y,z]
 //! ```
 //!
 //! CE lit its levels with radiosity lightmaps of a few metres a texel, so the
@@ -506,6 +506,12 @@ fn main() {
     let max_size: usize = arg(&args, "--max-size", 2048);
     let max_scale: usize = arg(&args, "--max-scale", 16);
     let threads: usize = arg(&args, "--threads", 6);
+    // `--sun-mask-only`: no trace and no bake pages, only the sun mask, from
+    // the pages in `--sun-mask-pages` (default: page 0's folder) at whatever
+    // size they are (sharpen_lightmap.py's, at the bake's resolution).
+    let mask_only = args.iter().any(|a| a == "--sun-mask-only");
+    let mask_pages: Option<PathBuf> =
+        args.iter().position(|a| a == "--sun-mask-pages").and_then(|i| args.get(i + 1)).map(PathBuf::from);
 
     // Every triangle occludes; the ones on a lightmap page are also baked.
     struct Receiver {
@@ -565,7 +571,19 @@ fn main() {
             }
         }
     }
-    let sun = norm(sun_sum);
+    // `--sun x,y,z`: the direction towards the sun in glTF space (metres, y
+    // up), e.g. from the sky tag's own sun. Without it, the lightmap
+    // vertices' incident directions over flat ground, which blend the sun
+    // with the sky's fill and sit far too steep (Danger Canyon 87 against
+    // the sky tag's 35 degrees, 2026-10-07).
+    let sun = match args.iter().position(|a| a == "--sun").and_then(|i| args.get(i + 1)) {
+        Some(v) => {
+            let c: Vec<f32> = v.split(',').map(|x| x.trim().parse().expect("--sun x,y,z")).collect();
+            assert!(c.len() == 3, "--sun takes x,y,z");
+            norm([c[0], c[1], c[2]])
+        }
+        None => norm(sun_sum),
+    };
     println!("{} triangle(s), {} on lightmap pages; sun (towards) {:?}", tris.len(), receivers.len(), sun);
     let bvh = Bvh::build(tris);
     let cfg = Settings {
@@ -626,6 +644,10 @@ fn main() {
         }
 
         let started = std::time::Instant::now();
+        if mask_only {
+            baked.push(Baked { page, name, lw, lh, scale, w, h, samples, results: Vec::new(), sky: Vec::new(), secs: 0.0 });
+            continue;
+        }
         let chunk = samples.len().div_ceil(threads).max(1);
         let full: Vec<(usize, f32, f32, f32)> = std::thread::scope(|scope| {
             let handles: Vec<_> = samples
@@ -664,7 +686,7 @@ fn main() {
     // B is the sky visibility itself, smoothed against the rays' noise
     // (`--sky-fine`). The masters tell a coarse lightmap's sun leak (an open
     // face) from lamp light (an interior) by it.
-    if cfg.sky_rays > 0 {
+    if cfg.sky_rays > 0 && !mask_only {
         let pts: Vec<(V3, V3, f32)> = baked
             .iter()
             .flat_map(|b| b.samples.iter().zip(&b.sky).map(|(s, &v)| (s.p, s.face, v)))
@@ -702,7 +724,7 @@ fn main() {
         }
     }
 
-    for b in &baked {
+    for b in baked.iter().filter(|_| !mask_only) {
         let Baked { page, ref name, lw, lh, scale, w, h, ref results, secs, .. } = *b;
         let detail = &b.sky;
 
@@ -787,7 +809,7 @@ fn main() {
     let cell: f32 = arg(&args, "--sun-mask-cell", 1.0);
     if cell > 0.0 {
         let centre = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5];
-        sun_mask(&baked, &dir, &out, &asset_name(&stem), centre, cell);
+        sun_mask(&baked, mask_pages.as_deref().unwrap_or(&dir), &out, &asset_name(&stem), centre, cell);
     }
 }
 
@@ -810,12 +832,14 @@ fn sun_mask(baked: &[Baked], dir: &Path, out: &Path, stem: &str, centre: V3, cel
             println!("sun mask: no {}, page {} left out", file.display(), b.page);
             continue;
         };
+        // The page at its own size: CE's, or a sharpened one at the bake's.
+        let lh = rgb.len() / 3 / lw.max(1);
         for s in &b.samples {
             if s.face[1] < 0.3 {
                 continue;
             }
             let (x, y) = (s.pixel % b.w, s.pixel / b.w);
-            let (lx, ly) = ((x / b.scale).min(b.lw - 1), (y / b.scale).min(b.lh - 1));
+            let (lx, ly) = ((x * lw / b.w).min(lw - 1), (y * lh / b.h).min(lh - 1));
             let at = (ly * lw + lx) * 3;
             let l = (0.2126 * rgb[at] as f32 + 0.7152 * rgb[at + 1] as f32 + 0.0722 * rgb[at + 2] as f32) / 255.0;
             pts.push((

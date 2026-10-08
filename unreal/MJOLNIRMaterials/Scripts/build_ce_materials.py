@@ -843,69 +843,44 @@ return saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.r
 UNREAL_AMBIENT_CODE = r"""
 if (HasLightmap < 0.5) return Screen.rgb;
 float l = max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4);
-// The shade a leak drops to: CE's own shade nearby where there is any (the
-// darkest lightmap texel within two: a leak's edge then meets the shade
-// beside it), else the level's (LightmapSun.x), so a shadow on open sunlit
-// ground is as dark as CE's shadows are. Taken to the global level alone, a
-// leak's edge drew a dark band above CE's own lighter shade (Blood Gulch's
-// overhang, 2026-10-06).
-uint lw, lh;
-LightmapTex.GetDimensions(lw, lh);
-float2 lt = 1.0 / float2(max(lw, 1u), max(lh, 1u));
-float near = 1.0;
-[unroll] for (int i = -2; i <= 2; ++i)
-[unroll] for (int j = -2; j <= 2; ++j)
-    near = min(near, dot(Texture2DSampleLevel(LightmapTex, LightmapTexSampler, UV1 + float2(i, j) * lt, 0.0).rgb,
-                         float3(0.2126, 0.7152, 0.0722)));
 // CE's shade is brighter the less sky a surface sees (its radiosity): on
 // Blood Gulch the lightmap in shade has a median of 0.18 open to the sky and
 // 0.53 enclosed, against its shadow level of 0.19 (2026-10-06), so the level
 // is scaled by the bake's sky visibility from x 2.8 down to x 1.
 float skyShade = HasBake > 0.5 ? lerp(2.8, 1.0, smoothstep(0.05, 0.6, Bake.b)) : 1.0;
 float global = LightmapSun.y > LightmapSun.x ? LightmapSun.x * skyShade : l;
-float t = LightmapSun.y > LightmapSun.x ? smoothstep(0.6 * LightmapSun.y, 0.9 * LightmapSun.y, near) : 1.0;
-// Where CE has no shade nearby (t 1) it lit the surface though the geometry
-// shades it (the lip under Blood Gulch's overhang): that light is CE's look,
-// so it stays. Taken down to any shade level there, it drew a dark ribbon CE
-// never had, 2026-10-06. Next to CE's shade, it meets that shade.
-// That keeping is for the shut case alone: in the open, Unreal's sun lights
-// the surface, and kept, CE's sun came on top of it and the base roof drew
-// nearly white (2026-10-06).
-float sunlit = LightmapSun.y > LightmapSun.x
-    ? smoothstep(0.3, 0.8, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x)) : 0.0;
-float shadeShut = lerp(max(near, global), l, t) * AmbientGain;
-// In the open, CE's shadow level alone: the darkest texel nearby is the
-// surface itself on uniformly lit ground (the base roof), which kept CE's
-// whole colour under Unreal's sun.
+// In the open, CE's shadow level, so a shadow on open sunlit ground is as
+// dark as CE's shadows are.
 float shadeOpen = global * AmbientGain;
-float3 floorC = Screen.rgb * pow(saturate(lerp(l, min(l, shadeShut), sunlit) / l), 2.2);
 // In the open, CE's ambient is its shade (what SUNLIT_CODE left out).
 float3 floorO = Screen.rgb * pow(saturate(min(l, shadeOpen) / l), 2.2);
 // What Unreal's sun adds here when nothing shadows it (SunResponse: the
 // renderer's measured response, 2026-10-06: base colour x SunIlluminance / pi
 // reaches the screen at about twice that), and CE's colour beyond it: in the
 // sun the two add up to CE's frame exactly, steep faces and all; in Unreal's
-// shadow the sun's part is gone, down to CE's shade (floorC) at least.
+// shadow the sun's part is gone, down to CE's shade.
 float ndl = saturate(dot(normalize(N), normalize(SunDir)));
 float flat = max(normalize(SunDir).z, 0.3);
 float3 direct = saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain)
     * SunIlluminance * ndl * SunColor.rgb / 3.14159265 * SunResponse * SunMaskS;
-// Where the geometry keeps the sun out (the bake's sun visibility; a base
-// interior under its roof), Unreal adds no sun, so nothing comes out of CE's
-// colour but what looks like its sun (sunlit, a coarse lightmap's leak):
-// a lamp-lit floor keeps its lamps.
-float reach = HasBake > 0.5 ? saturate(Bake.g) : 1.0;
 float3 open = max(Screen.rgb - direct, floorO);
-// Only an open face (the bake's sky visibility) can be a leak; an interior's
-// bright lightmap is its lamps.
-float open_sky = HasBake > 0.5 ? smoothstep(0.15, 0.45, Bake.b) : 1.0;
-float3 shut = lerp(Screen.rgb, floorC, sunlit * open_sky);
-return lerp(shut, open, reach);
+// Where the geometry keeps the sun out (the bake's sun visibility), Unreal
+// adds no sun and CE's colour stays as CE drew it, its lamps and its leaks
+// alike (the lip under Blood Gulch's overhang). Until 2026-10-07 a leak next
+// to CE's shade was taken down to that shade, judged from the darkest
+// lightmap texel within two; but a page packs CE's charts edge to edge and
+// many cliff triangles are charts of their own, so read across a chart's
+// edge it took an unrelated surface's shade (Danger Canyon's cliffs: an L
+// and a line along chart edges), and kept inside the chart it changed at
+// every seam (whole triangles stepped dark). Knowing CE's shade nearby needs
+// a neighbourhood on the surface, not on the page.
+float reach = HasBake > 0.5 ? saturate(Bake.g) : 1.0;
+return lerp(Screen.rgb, open, reach);
 """
 
 
 def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask, dynamic=True,
-              sunlit=None, bump_n=None, lm_default=None):
+              sunlit=None, bump_n=None):
     """Connects `screen` (the colour to_screen made) to emissive and base
     colour, split for object shadows (SUN_WEIGHT_CODE), with the base colour
     topped up for the other lights (DYNAMIC_ALBEDO_CODE) when `dynamic`.
@@ -943,10 +918,7 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
         albedo_gain = g.scalar("AlbedoGain", 0.5)
         u_base = g.custom(UNREAL_BASE_CODE, [("Sunlit", sunlit, ""), ("AlbedoGain", albedo_gain, "")]
                           + sun[:3], description="Unreal-lit base colour")
-        lm_obj = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Lightmap",
-                        texture=lm_default, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
         u_amb = g.custom(UNREAL_AMBIENT_CODE, [("Screen", screen, ""), ("AmbientGain", g.scalar("AmbientGain", 1.0), ""),
-                         ("LightmapTex", lm_obj, ""), ("UV1", g.uv(1), ""),
                          ("Sunlit", sunlit, ""), ("N", n, ""), ("AlbedoGain", albedo_gain, ""),
                          ("SunResponse", g.scalar("SunResponse", 2.0), "")]
                          + baked + sun[:3] + mask, description="Unreal-lit ambient")
@@ -1163,7 +1135,7 @@ def build_environment(name, masked, defaults, two_sided=False):
         + [("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), "")],
         description="CE sunlit colour"))
     sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask_node(g, white),
-              sunlit=sunlit, bump_n=bump_n, lm_default=white)
+              sunlit=sunlit, bump_n=bump_n)
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).
