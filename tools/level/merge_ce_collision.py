@@ -41,14 +41,16 @@ TWO_SIDED = 1
 
 def ce_rotation(yaw, pitch, roll):
     cy, sy, cp, sp, cr, sr = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch), math.cos(roll), math.sin(roll)
-    # yaw about z, then pitch, then roll (CE object rotation), row-major.
+    # CE object rotation, row-major: yaw about z, then pitch and roll about
+    # the world's y and x axes (merge_ce_scene.py ce_rotation, which the
+    # render geometry uses: the two must agree).
     rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
     ry = [[cp, 0, -sp], [0, 1, 0], [sp, 0, cp]]
     rx = [[1, 0, 0], [0, cr, -sr], [0, sr, cr]]
 
     def mul(a, b):
         return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    return mul(mul(rz, ry), rx)
+    return mul(mul(rx, ry), rz)
 
 
 # Scenery collision models carry no shader, so their material is picked by

@@ -203,13 +203,19 @@ def device_motion(entry, g, node, rot, origin):
 
 
 def ce_rotation(yaw, pitch, roll):
-    """CE's object rotation (yaw about z, then pitch, then roll), as a matrix
-    acting on glTF-space vectors."""
+    """CE's object rotation, as a matrix acting on glTF-space vectors: yaw
+    about z, then pitch and roll about the world's y and x axes, i.e.
+    (Rz(-yaw) Ry(pitch) Rx(-roll))^-1, the Halo Asset Blender Development
+    Toolset's convention (generate_h1_scenario.get_rotation_euler). Rolled
+    and pitched in the object's own frame instead (Rz Ry Rx), tilted scenery
+    leaned the wrong way: Ice Fields' beacons stood on one edge, and over 19
+    maps the toolset's order sits a placement's base flatter on the BSP in
+    58 of the 73 placements where the two differ (2026-10-08)."""
     cy, sy, cp, sp, cr, sr = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch), math.cos(roll), math.sin(roll)
     rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
     ry = np.array([[cp, 0, -sp], [0, 1, 0], [sp, 0, cp]])
     rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
-    r_ce = rz @ ry @ rx
+    r_ce = rx @ ry @ rz
     # glTF (x, y, z) = CE (x, z, -y)
     swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
     return swap @ r_ce @ swap.T

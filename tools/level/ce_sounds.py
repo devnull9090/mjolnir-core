@@ -333,7 +333,8 @@ def extract_events(sounds_path, out):
 
 
 def object_rotation(yaw, pitch, roll):
-    """CE object rotation, row-major (as gen_ce_level.py has it)."""
+    """CE object rotation, row-major (as gen_ce_level.py has it): yaw about
+    z, then pitch and roll about the world's y and x axes."""
     cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch),
                               math.cos(roll), math.sin(roll))
     rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
@@ -342,7 +343,7 @@ def object_rotation(yaw, pitch, roll):
 
     def mul(a, b):
         return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    return mul(mul(rz, ry), rx)
+    return mul(mul(rx, ry), rz)
 
 
 def main():
