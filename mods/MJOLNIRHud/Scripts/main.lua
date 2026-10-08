@@ -337,8 +337,26 @@ HANDLERS.respawn_final_tick = function(inc)
     Match.dead = false
 end
 
+--- The round clock (a time limit set in the host's game settings). The
+--- engine counts it down but shows nothing, so the HUD keeps its own: from
+--- the first spawn, which comes about a second before the round clock starts
+--- (2026-10-04: spawn 00:05:58.8, round over 00:06:59.5 on a one-minute
+--- limit), set right by the engine's own countdown incidents, and on a
+--- fireteam client by the host's (see hookMatchLog).
+local CLOCK_LAG = 0.8
+
+local function clockFrom(remaining, at)
+    if Match and (Match.mode.timeLimit or 0) > 0 then Match.clockEnd = (at or now()) + remaining end
+end
+
+HANDLERS["30_seconds_remaining"] = function(inc) clockFrom(30, inc.at) end
+HANDLERS["10_seconds_remaining"] = function(inc) clockFrom(10, inc.at) end
+
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
+    if inc.cause == LOCAL_PLAYER and not Match.clockEnd then
+        clockFrom((Match.mode.timeLimit or 0) * 60 + CLOCK_LAG, inc.at)
+    end
     -- The spawn names the player's new biped, which knows its team.
     if type(inc.cause) == "number" and inc.cause >= 0 and inc.biped then
         stats(inc.cause).biped = inc.biped
@@ -576,6 +594,22 @@ local function drawScoreStrip()
     end
 end
 
+--- The clock under TO WIN, `M:SS`, redrawn only when it changes; hidden
+--- with no time limit (and in a runtime pack from before it, which has no
+--- MatchClock).
+local function drawClock()
+    if not (Feed and Feed:IsValid()) then return end
+    local text = ""
+    if Match.clockEnd and not Match.over then
+        local left = math.max(0, math.ceil(Match.clockEnd - now()))
+        text = string.format("%d:%02d", math.floor(left / 60), left % 60)
+    end
+    if text == Match.clockText then return end
+    Match.clockText = text
+    setText(Feed.MatchClock, text)
+    setVisible(Feed.MatchClock, text ~= "")
+end
+
 local function drawBoard()
     if not (Board and Board:IsValid()) then return end
     local mode = Match.mode
@@ -639,6 +673,12 @@ end
 local ASK = "MJOLNIR|matchid"
 local logHooked = false
 local Told = {}       -- host answers waiting for the game thread
+local ClockTold = {}  -- { seconds remaining, when heard } from the host
+-- How often the host tells its fireteam the round clock: one controller
+-- scan each time (a scan costs ~20 ms on a converted map; FindAllOf in a
+-- fast loop made maps unplayable), for players who joined mid-match and
+-- have no first spawn to count from.
+local CLOCK_SHARE_SECONDS = 30
 
 local function isHostWorld(pc)
     local ok, yes = pcall(function() return pc:GetWorld().AuthorityGameMode:IsValid() end)
@@ -674,6 +714,13 @@ local function hookMatchLog()
             if okS and type(text) == "string" and text:sub(1, 14) == "MJOLNIR|match|" and #Told < 8 then
                 Told[#Told + 1] = text
             end
+            -- The round clock from the host: its own count every
+            -- CLOCK_SHARE_SECONDS, and the engine's countdown incidents
+            -- MJOLNIRLevelLoader relays.
+            local remaining = okS and type(text) == "string" and (tonumber(text:match("^MJOLNIR|clock|([%d%.]+)$") or "")
+                or (text:match("^MJOLNIR|event|30_seconds_remaining|") and 30)
+                or (text:match("^MJOLNIR|event|10_seconds_remaining|") and 10))
+            if remaining and #ClockTold < 8 then ClockTold[#ClockTold + 1] = { remaining, now() } end
         end)
     end)
     if not logHooked then Log("match log: could not hook the controller RPCs") end
@@ -705,6 +752,24 @@ local function matchLogTick(pc)
             Match.claimed = claimed
             -- A private match may go public: ask again now and then.
             Match.nextAsk = now() + (claimed and math.huge or 30)
+        end
+    end
+    -- The round clock: a client takes the host's; the host shares its own.
+    local clock = ClockTold
+    ClockTold = {}
+    local host = isHostWorld(pc)
+    if not host then
+        for _, c in ipairs(clock) do clockFrom(c[1], c[2]) end
+    elseif Match.clockEnd and not Match.over and now() >= (Match.nextClockShare or 0) then
+        Match.nextClockShare = now() + CLOCK_SHARE_SECONDS
+        local msg = string.format("MJOLNIR|clock|%.1f", math.max(0, Match.clockEnd - now()))
+        local kind = FName("MJOLNIR")
+        for _, other in ipairs(FindAllOf("PlayerController") or {}) do
+            pcall(function()
+                if not other:IsValid() or other:IsLocalController() then return end
+                if not (other.Player:IsValid() and other.PlayerState:IsValid()) then return end
+                other:ClientMessage(msg, kind, 0)
+            end)
         end
     end
     if not MatchLog.recording() and not Match.claimed and not Match.over and now() >= Match.nextAsk
@@ -781,15 +846,20 @@ local function sweepTags()
     end
 end
 
---- The game type: the HUD's model of it, with the score to win read from the
---- variant the simulation loads (MJOLNIRLevelLoader's variants/<mode>.mglo)
---- rather than assumed.
+--- The game type: the HUD's model of it, with the score to win and the time
+--- limit read from the variant the simulation loads rather than assumed.
+--- That is the level loader's staged copy (native\variant.mglo), which holds
+--- the host's game settings; the installed variants/<mode>.mglo before one
+--- is staged.
 local function modeFor(variant)
     local mode = {}
     for k, v in pairs(MODES[variant] or MODES.slayer) do mode[k] = v end
     local name = tostring(variant or ""):match("^[%w_]+$")
-    local toWin = name and Variant.scoreToWin(readFile(LOADER_DIR .. "\\variants\\" .. name .. ".mglo"))
+    local bytes = readFile(LOADER_DIR .. "\\native\\variant.mglo")
+        or (name and readFile(LOADER_DIR .. "\\variants\\" .. name .. ".mglo"))
+    local toWin = Variant.scoreToWin(bytes)
     if toWin and toWin > 0 then mode.toWin = toWin end
+    mode.timeLimit = Variant.timeLimit(bytes) or 0
     return mode
 end
 
@@ -889,6 +959,7 @@ local function tick()
     drain()
     sweepTags()
     drawFeed()
+    drawClock()
     local held = boardHeld(pc) or Match.over ~= nil
     if Match.travelAt and now() >= Match.travelAt then
         Match.travelAt = nil

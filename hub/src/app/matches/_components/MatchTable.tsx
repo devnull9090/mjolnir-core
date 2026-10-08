@@ -3,7 +3,14 @@ import { Swords } from "lucide-react";
 
 import { GAME_TYPE_NAMES } from "@/kit/types";
 import type { MatchSummary, PlayerTotals } from "@/lib/api/matches";
-import { duration, kd, weaponName, when, winnerText } from "./format";
+import { Avatar } from "./Avatar";
+import { LocalTime } from "./LocalTime";
+import { duration, kd, mapHref, playerHref, weaponName, winnerText } from "./format";
+
+const TEAM_DOT: Record<string, string> = {
+  red: "bg-red-500",
+  blue: "bg-sky-500",
+};
 
 const OUTCOME_STYLE: Record<string, string> = {
   win: "text-emerald-400",
@@ -53,10 +60,18 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
             <tr key={m.id} className="border-t border-border hover:bg-surface-raised/50">
               <td className="px-4 py-3 whitespace-nowrap">
                 <Link href={`/matches/${m.id}`} className="text-foreground font-medium hover:text-gold">
-                  {when(m.ended_at)}
+                  <LocalTime sql={m.ended_at} />
                 </Link>
               </td>
-              <td className="px-4 py-3 text-text-muted">{m.map_title ?? m.map_code}</td>
+              <td className="px-4 py-3 text-text-muted">
+                {mapHref(m) ? (
+                  <Link href={mapHref(m)!} className="hover:text-gold">
+                    {m.map_title ?? m.map_code}
+                  </Link>
+                ) : (
+                  (m.map_title ?? m.map_code)
+                )}
+              </td>
               <td className="px-4 py-3 text-text-muted">{GAME_TYPE_NAMES[m.game_type] ?? m.game_type}</td>
               {seat && m.player ? (
                 <>
@@ -74,7 +89,7 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
               ) : (
                 <>
                   <td className="px-4 py-3 text-foreground">
-                    {winnerText(m)}
+                    <Winner match={m} />
                     {m.team_game && m.red_score !== null && (
                       <span className="ml-2 text-xs text-text-dim">
                         {m.red_score}–{m.blue_score}
@@ -90,6 +105,26 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Who won: the player's face and a link to their history, or the team's colour. */
+function Winner({ match: m }: { match: MatchSummary }) {
+  // winner_name is set only for a free-for-all win (a seat index).
+  if (m.end_reason !== "abandoned" && m.winner_name) {
+    return (
+      <Link href={playerHref({ name: m.winner_name, user: m.winner_user })} className="inline-flex items-center gap-2 hover:text-gold">
+        <Avatar name={m.winner_name} user={m.winner_user} />
+        {m.winner_name}
+      </Link>
+    );
+  }
+  const dot = m.end_reason === "abandoned" ? undefined : TEAM_DOT[m.winner ?? ""];
+  return (
+    <span className="inline-flex items-center gap-2">
+      {dot && <span className={`inline-block w-2.5 h-2.5 rounded-full ${dot}`} />}
+      {winnerText(m)}
+    </span>
   );
 }
 

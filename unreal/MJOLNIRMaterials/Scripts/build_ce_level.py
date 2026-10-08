@@ -76,6 +76,19 @@ for t in spec["textures"]:
         tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
         tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
         tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    if t.get("bake"):
+        # lightmap_bake's corners and sun: our own, up to 2048 a page at 8 or
+        # 16 times its lightmap, so block compressed (BC1, linear) with mips
+        # rather than kept raw (Blood Gulch's pages are ~20M texels).
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_DEFAULT)
+        tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+        tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    if t.get("sunmask"):
+        # CE's light seen from above, a metre a texel: raw, one mip, clamped
+        # (M_CE_SunLight filters it itself).
+        tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+        tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+        tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
     eal.save_loaded_asset(tex)
     textures[t["name"]] = tex
 

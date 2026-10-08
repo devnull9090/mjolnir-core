@@ -133,6 +133,8 @@ const MatchSummarySchema = z
     id: z.string(),
     map_code: z.string(),
     map_title: z.string().nullable(),
+    /** The map's hub page (/mods/{slug}), when its listing is published. */
+    map_slug: z.string().nullable(),
     game_type: z.string(),
     team_game: z.boolean(),
     score_to_win: z.number().nullable(),
@@ -145,6 +147,8 @@ const MatchSummarySchema = z
     /** 'red', 'blue', 'draw', a player index, or null when abandoned. */
     winner: z.string().nullable(),
     winner_name: z.string().nullable(),
+    /** The free-for-all winner's hub account, when their seat is linked. */
+    winner_user: LinkedUserSchema.nullable(),
     player_count: z.number(),
     event_count: z.number(),
     host: z.string(),
@@ -282,16 +286,25 @@ function playerFromRow(r: Row): Omit<MatchPlayer, "user"> {
 }
 
 const SUMMARY_COLUMNS = `
-  m.*, ml.title AS map_title,
+  m.*, ml.title AS map_title, mo.slug AS map_slug,
   COALESCE(h.display_name, h.discord_username) AS host,
-  (SELECT wp.name FROM match_players wp
-    WHERE wp.match_id = m.id AND CAST(wp.player_index AS TEXT) = m.winner) AS winner_name`;
+  wp.name AS winner_name, wu.id AS w_id, wu.display_name AS w_display_name,
+  wu.discord_username AS w_username, wu.discord_id AS w_discord_id, wu.discord_avatar AS w_avatar`;
+
+/** The host, the map's listing and page, and a free-for-all winner's seat and account. */
+const SUMMARY_JOINS = `
+  JOIN users h ON h.id = m.reporter_user_id
+  LEFT JOIN map_listings ml ON ml.code = m.map_code
+  LEFT JOIN mods mo ON mo.id = ml.mod_id AND mo.status = 'published'
+  LEFT JOIN match_players wp ON wp.match_id = m.id AND CAST(wp.player_index AS TEXT) = m.winner
+  LEFT JOIN users wu ON wu.id = wp.user_id AND wu.banned_at IS NULL`;
 
 function summaryFromRow(r: Row): MatchSummary {
   return {
     id: r.id as string,
     map_code: r.map_code as string,
     map_title: (r.map_title as string) ?? null,
+    map_slug: (r.map_slug as string) ?? null,
     game_type: r.game_type as string,
     team_game: r.team_game === 1,
     score_to_win: (r.score_to_win as number) ?? null,
@@ -303,6 +316,7 @@ function summaryFromRow(r: Row): MatchSummary {
     blue_score: (r.blue_score as number) ?? null,
     winner: (r.winner as string) ?? null,
     winner_name: (r.winner_name as string) ?? null,
+    winner_user: linkedUser(r, "w_"),
     player_count: r.player_count as number,
     event_count: r.event_count as number,
     host: (r.host as string) ?? "",
@@ -348,8 +362,7 @@ export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches:
       `SELECT ${SUMMARY_COLUMNS}${seat}
        FROM matches m
        ${join}
-       JOIN users h ON h.id = m.reporter_user_id
-       LEFT JOIN map_listings ml ON ml.code = m.map_code
+       ${SUMMARY_JOINS}
        ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
        ORDER BY m.ended_at DESC LIMIT ${limit + 1}`,
     )
@@ -366,8 +379,7 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
     db.prepare(
       `SELECT ${SUMMARY_COLUMNS}
        FROM matches m
-       JOIN users h ON h.id = m.reporter_user_id
-       LEFT JOIN map_listings ml ON ml.code = m.map_code
+       ${SUMMARY_JOINS}
        WHERE m.id = ?1`,
     ).bind(id),
     db.prepare(

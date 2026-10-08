@@ -80,6 +80,17 @@ pub enum Number {
     PlayerScore(u8),
     /// Kind 16: the variant's score to win.
     ScoreToWin,
+    /// Kind 19: the round time limit in minutes (the misc options' u8;
+    /// Reach's numbering, inferred from kind 16).
+    RoundTimeLimit,
+}
+
+/// A timer operand (`u3` kind; `0x4239e0`). Kinds 4 and up carry nothing
+/// more; Reach orders them round, sudden death, grace period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timer {
+    /// Kind 4: the round's clock, which counts down from the time limit.
+    Round,
 }
 
 /// A player operand (`u2` kind 0: a player reference; `0x41fab0`).
@@ -142,6 +153,8 @@ pub enum ConditionKind {
     /// Type 3: bit `1 << death type` of this tick's death record for the
     /// player.
     KillerTypeIs { player: Player, flags: u8 },
+    /// Type 5: the timer has run down to zero.
+    TimerIsZero(Timer),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,9 +348,160 @@ pub struct Filter {
     pub label: u8,
 }
 
+/// Player traits: Reach's five groups (defence, offence, movement,
+/// appearance, sensors), every field by name and width, in stream order.
+/// A value of 0 means "unchanged" everywhere; the other values index
+/// Reach's per-trait tables (ReachVariantTool's player traits), not yet
+/// verified one by one on CU4 (docs/host_game_settings.md).
+pub const TRAITS: [(&str, u32); 34] = [
+    ("damage_resistance", 4),
+    ("health", 3),
+    ("health_regen", 4),
+    ("shields", 3),
+    ("shield_regen", 4),
+    ("overshield_regen", 4),
+    ("headshot_immunity", 2),
+    ("vampirism", 3),
+    ("assassination_immunity", 2),
+    ("cannot_die", 2),
+    ("damage", 4),
+    ("melee_damage", 4),
+    ("primary_weapon", 8),
+    ("secondary_weapon", 8),
+    ("grenades", 4),
+    ("infinite_ammo", 2),
+    ("grenade_regen", 2),
+    ("weapon_pickup", 2),
+    ("ability_usage", 2),
+    ("abilities_drop", 2),
+    ("infinite_ability", 2),
+    ("ability", 8),
+    ("speed", 5),
+    ("gravity", 4),
+    ("vehicle_use", 4),
+    ("double_jump", 2),
+    ("camo", 3),
+    ("waypoint", 2),
+    ("name_visible", 2),
+    ("aura", 3),
+    ("forced_color", 4),
+    ("radar", 3),
+    ("radar_range", 3),
+    ("directional_damage", 2),
+];
+
+/// The movement group's optional u9 jump height sits before this field
+/// (the appearance group's first): a set bit, then the value, when present.
+const JUMP_HEIGHT_AFTER: usize = 26;
+
+/// One set of player traits, values in [`TRAITS`] order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Traits {
+    pub values: [u8; 34],
+    pub jump_height: Option<u16>,
+}
+
+impl Default for Traits {
+    fn default() -> Self {
+        Traits {
+            values: [0; 34],
+            jump_height: None,
+        }
+    }
+}
+
+impl Traits {
+    /// Set a trait by its [`TRAITS`] name.
+    pub fn set(&mut self, name: &str, value: u8) -> Result<(), Error> {
+        let i = TRAITS
+            .iter()
+            .position(|&(n, _)| n == name)
+            .ok_or_else(|| Error::Unsupported(format!("no player trait {name}")))?;
+        let bits = TRAITS[i].1;
+        if u32::from(value) >> bits != 0 {
+            return Err(Error::TooWide {
+                value: value as i64,
+                bits,
+            });
+        }
+        self.values[i] = value;
+        Ok(())
+    }
+
+    /// The traits set away from "unchanged", by name.
+    pub fn changed(&self) -> Vec<(&'static str, u8)> {
+        TRAITS
+            .iter()
+            .zip(self.values)
+            .filter(|&(_, v)| v != 0)
+            .map(|(&(n, _), v)| (n, v))
+            .collect()
+    }
+}
+
+/// The base variant options a host can change: what CE called its player,
+/// item and teamplay options, in Reach's encoding. The defaults are what
+/// MJOLNIR's variants have always written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseOptions {
+    /// Minutes before the round ends; 0 for no limit (misc u8).
+    pub time_limit: u8,
+    /// Sudden death seconds, stored plus one (misc u7 at `o+0x2bc`): 0
+    /// decodes to -1, unlimited.
+    pub sudden_death_raw: u8,
+    /// Lives per round; 0 for unlimited (respawn u6).
+    pub lives: u8,
+    /// Lives per team; 0 for unlimited (respawn u7).
+    pub team_lives: u8,
+    /// Seconds before a respawn (u8).
+    pub respawn_seconds: u8,
+    /// Seconds added after a suicide (u8).
+    pub suicide_seconds: u8,
+    /// Seconds added after killing a teammate (u8).
+    pub betrayal_seconds: u8,
+    /// Seconds added to each successive respawn (u4).
+    pub respawn_growth: u8,
+    /// Seconds the respawn traits last (u6).
+    pub respawn_traits_seconds: u8,
+    pub respawn_traits: Traits,
+    /// Social options: team changing (u2), then five flags (u5) whose order
+    /// is unverified on CU4; which bit is friendly fire is the first thing
+    /// to find (docs/host_game_settings.md).
+    pub team_changing: u8,
+    pub social_flags: u8,
+    /// What the map variant may place ([`MAP_FLAGS`]).
+    pub map_flags: u8,
+    /// Every player's traits (the map overrides' base traits).
+    pub player_traits: Traits,
+}
+
+impl Default for BaseOptions {
+    fn default() -> Self {
+        BaseOptions {
+            time_limit: 0,
+            sudden_death_raw: 0,
+            lives: 0,
+            team_lives: 0,
+            respawn_seconds: 5,
+            suicide_seconds: 5,
+            betrayal_seconds: 5,
+            respawn_growth: 0,
+            respawn_traits_seconds: 0,
+            respawn_traits: Traits::default(),
+            team_changing: 0,
+            social_flags: 0,
+            map_flags: MAP_FLAGS,
+            player_traits: Traits::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variant {
     pub score_to_win: u16,
+    /// The base options a host can change (time limit, lives, respawn,
+    /// friendly fire, player traits ...).
+    pub base: BaseOptions,
     /// Teams on: teams 0 (red) and 1 (blue) are enabled.
     pub teams: bool,
     /// Seconds before a round's first spawn (the respawn options' loadout
@@ -366,6 +530,7 @@ impl Variant {
     pub fn empty(score_to_win: u16) -> Variant {
         Variant {
             score_to_win,
+            base: BaseOptions::default(),
             teams: false,
             initial_spawn_delay: 0,
             rounds: 1,
@@ -544,22 +709,17 @@ fn put_opt(w: &mut BitWriter, v: Option<u64>, bits: u32) -> Result<(), Error> {
     }
 }
 
-/// The five trait groups, all "unchanged".
-const TRAIT_FIELDS: [&[u32]; 5] = [
-    &[4, 3, 4, 3, 4, 4, 2, 3, 2, 2],
-    &[4, 4, 8, 8, 4, 2, 2, 2, 2, 2, 2, 8],
-    &[5, 4, 4, 2],
-    &[3, 2, 2, 3, 4],
-    &[3, 3, 2],
-];
-
-fn write_traits(w: &mut BitWriter) -> Result<(), Error> {
-    zeros(w, TRAIT_FIELDS[0])?;
-    zeros(w, TRAIT_FIELDS[1])?;
-    zeros(w, TRAIT_FIELDS[2])?;
-    w.bool(false); // no u9 movement value
-    zeros(w, TRAIT_FIELDS[3])?;
-    zeros(w, TRAIT_FIELDS[4])
+fn write_traits(w: &mut BitWriter, t: &Traits) -> Result<(), Error> {
+    for (i, &(_, bits)) in TRAITS.iter().enumerate() {
+        if i == JUMP_HEIGHT_AFTER {
+            w.bool(t.jump_height.is_some());
+            if let Some(h) = t.jump_height {
+                put(w, h as u64, 9)?;
+            }
+        }
+        put(w, t.values[i] as u64, bits)?;
+    }
+    Ok(())
 }
 
 /// A string table: every string present in all twelve languages at the
@@ -632,44 +792,45 @@ const MAP_FLAGS: u8 = 0b01_1111;
 
 fn write_base(
     w: &mut BitWriter,
+    b: &BaseOptions,
     teams: bool,
     initial_spawn_delay: u8,
     rounds: u8,
 ) -> Result<(), Error> {
     write_content_header(w, "MJOLNIR")?;
     w.bool(false);
-    // misc: teams on/off and 3 flags, no time limit, the rounds, u4, no
+    // misc: teams on/off and 3 flags, the time limit, the rounds, u4, no
     // sudden death, no grace
     w.bool(teams);
     zeros(w, &[1, 1, 1])?;
-    put(w, 0, 8)?;
+    put(w, b.time_limit as u64, 8)?;
     put(w, rounds as u64, 5)?;
     put(w, 0, 4)?;
-    put(w, 0, 7)?;
+    put(w, b.sudden_death_raw as u64, 7)?;
     put(w, 0, 5)?;
-    // respawn: 4 flags, unlimited lives, 5 s respawn and penalties
+    // respawn: 4 flags, lives, respawn time and penalties
     zeros(w, &[1, 1, 1, 1])?;
-    put(w, 0, 6)?;
-    put(w, 0, 7)?;
-    put(w, 5, 8)?;
-    put(w, 5, 8)?;
-    put(w, 5, 8)?;
-    put(w, 0, 4)?; // respawn growth
+    put(w, b.lives as u64, 6)?;
+    put(w, b.team_lives as u64, 7)?;
+    put(w, b.respawn_seconds as u64, 8)?;
+    put(w, b.suicide_seconds as u64, 8)?;
+    put(w, b.betrayal_seconds as u64, 8)?;
+    put(w, b.respawn_growth as u64, 4)?;
     put(w, initial_spawn_delay as u64, 4)?; // loadout camera time
-    put(w, 0, 6)?;
-    write_traits(w)?;
+    put(w, b.respawn_traits_seconds as u64, 6)?;
+    write_traits(w, &b.respawn_traits)?;
     w.bool(false);
     // social
-    put(w, 0, 2)?;
-    zeros(w, &[1, 1, 1, 1, 1])?;
+    put(w, b.team_changing as u64, 2)?;
+    put(w, b.social_flags as u64, 5)?;
     // map: what the map variant may place, base traits, weapon and vehicle
     // sets -2 ("as placed"), powerups
-    put(w, MAP_FLAGS as u64, 6)?;
-    write_traits(w)?;
+    put(w, b.map_flags as u64, 6)?;
+    write_traits(w, &b.player_traits)?;
     put(w, 0xfe, 8)?;
     put(w, 0xfe, 8)?;
     for _ in 0..3 {
-        write_traits(w)?;
+        write_traits(w, &Traits::default())?;
     }
     zeros(w, &[7, 7, 7])?;
     // teams: with teams on, red and blue are enabled (flag bit 0)
@@ -763,6 +924,13 @@ fn write_number(w: &mut BitWriter, n: &Number) -> Result<(), Error> {
             put(w, *p as u64, 5)
         }
         Number::ScoreToWin => put(w, 16, 6),
+        Number::RoundTimeLimit => put(w, 19, 6),
+    }
+}
+
+fn write_timer(w: &mut BitWriter, t: Timer) -> Result<(), Error> {
+    match t {
+        Timer::Round => put(w, 4, 3),
     }
 }
 
@@ -810,6 +978,7 @@ fn write_condition(w: &mut BitWriter, c: &Condition) -> Result<(), Error> {
         ConditionKind::Compare { .. } => 1,
         ConditionKind::InBoundary { .. } => 2,
         ConditionKind::KillerTypeIs { .. } => 3,
+        ConditionKind::TimerIsZero(_) => 5,
     };
     put(w, ty, 5)?;
     w.bool(c.negate);
@@ -829,6 +998,7 @@ fn write_condition(w: &mut BitWriter, c: &Condition) -> Result<(), Error> {
             write_player(w, *player)?;
             put(w, *flags as u64, 5)
         }
+        ConditionKind::TimerIsZero(t) => write_timer(w, *t),
     }
 }
 
@@ -1038,7 +1208,13 @@ impl Variant {
         let mut w = BitWriter::new();
         put(&mut w, VERSION as u64, 32)?;
         put(&mut w, 0, 32)?;
-        write_base(&mut w, self.teams, self.initial_spawn_delay, self.rounds)?;
+        write_base(
+            &mut w,
+            &self.base,
+            self.teams,
+            self.initial_spawn_delay,
+            self.rounds,
+        )?;
         put(&mut w, 0, 5)?; // player traits
         put(&mut w, 0, 5)?; // user options
         write_strings(&mut w, &self.strings, 7, 15, 15)?; // main string table
@@ -1149,15 +1325,15 @@ fn skip(r: &mut BitReader, fields: &[u32]) -> Result<(), Error> {
     Ok(())
 }
 
-fn read_traits(r: &mut BitReader) -> Result<(), Error> {
-    skip(r, TRAIT_FIELDS[0])?;
-    skip(r, TRAIT_FIELDS[1])?;
-    skip(r, TRAIT_FIELDS[2])?;
-    if r.bool()? {
-        r.read(9)?;
+fn read_traits(r: &mut BitReader) -> Result<Traits, Error> {
+    let mut t = Traits::default();
+    for (i, &(_, bits)) in TRAITS.iter().enumerate() {
+        if i == JUMP_HEIGHT_AFTER && r.bool()? {
+            t.jump_height = Some(get(r, 9)? as u16);
+        }
+        t.values[i] = get(r, bits)? as u8;
     }
-    skip(r, TRAIT_FIELDS[3])?;
-    skip(r, TRAIT_FIELDS[4])
+    Ok(t)
 }
 
 /// A string table, each string read at its first language's offset.
@@ -1247,21 +1423,31 @@ fn read_content_header(r: &mut BitReader) -> Result<(), Error> {
 
 /// The base section; returns whether teams are on, the initial spawn delay
 /// and the rounds.
-fn read_base(r: &mut BitReader) -> Result<(bool, u8, u8), Error> {
+fn read_base(r: &mut BitReader) -> Result<(BaseOptions, bool, u8, u8), Error> {
     read_content_header(r)?;
     r.bool()?;
     let teams = r.bool()?;
-    skip(r, &[1, 1, 1, 8])?;
+    skip(r, &[1, 1, 1])?;
+    let time_limit = get(r, 8)? as u8;
     let rounds = get(r, 5)? as u8;
-    skip(r, &[4, 7, 5])?;
-    skip(r, &[1, 1, 1, 1, 6, 7, 8, 8, 8, 4])?;
+    r.read(4)?;
+    let sudden_death_raw = get(r, 7)? as u8;
+    r.read(5)?;
+    skip(r, &[1, 1, 1, 1])?;
+    let lives = get(r, 6)? as u8;
+    let team_lives = get(r, 7)? as u8;
+    let respawn_seconds = get(r, 8)? as u8;
+    let suicide_seconds = get(r, 8)? as u8;
+    let betrayal_seconds = get(r, 8)? as u8;
+    let respawn_growth = get(r, 4)? as u8;
     let initial_spawn_delay = get(r, 4)? as u8;
-    r.read(6)?;
-    read_traits(r)?;
+    let respawn_traits_seconds = get(r, 6)? as u8;
+    let respawn_traits = read_traits(r)?;
     r.bool()?;
-    skip(r, &[2, 1, 1, 1, 1, 1])?;
-    r.read(6)?;
-    read_traits(r)?;
+    let team_changing = get(r, 2)? as u8;
+    let social_flags = get(r, 5)? as u8;
+    let map_flags = get(r, 6)? as u8;
+    let player_traits = read_traits(r)?;
     skip(r, &[8, 8])?;
     for _ in 0..3 {
         read_traits(r)?;
@@ -1281,7 +1467,23 @@ fn read_base(r: &mut BitReader) -> Result<(bool, u8, u8), Error> {
         }
         skip(r, &[8, 8, 8, 4])?;
     }
-    Ok((teams, initial_spawn_delay, rounds))
+    let base = BaseOptions {
+        time_limit,
+        sudden_death_raw,
+        lives,
+        team_lives,
+        respawn_seconds,
+        suicide_seconds,
+        betrayal_seconds,
+        respawn_growth,
+        respawn_traits_seconds,
+        respawn_traits,
+        team_changing,
+        social_flags,
+        map_flags,
+        player_traits,
+    };
+    Ok((base, teams, initial_spawn_delay, rounds))
 }
 
 fn read_player(r: &mut BitReader) -> Result<Player, Error> {
@@ -1327,8 +1529,16 @@ fn read_number(r: &mut BitReader) -> Result<Number, Error> {
         7 => Number::TeamScore(get_minus_one(r, 5)? as i8),
         8 => Number::PlayerScore(get(r, 5)? as u8),
         16 => Number::ScoreToWin,
+        19 => Number::RoundTimeLimit,
         kind => return Err(Error::Unsupported(format!("number operand kind {kind}"))),
     })
+}
+
+fn read_timer(r: &mut BitReader) -> Result<Timer, Error> {
+    match get(r, 3)? {
+        4 => Ok(Timer::Round),
+        kind => Err(Error::Unsupported(format!("timer operand kind {kind}"))),
+    }
 }
 
 fn read_var(r: &mut BitReader) -> Result<Var, Error> {
@@ -1410,6 +1620,7 @@ fn read_condition(r: &mut BitReader) -> Result<Condition, Error> {
                 flags: get(r, 5)? as u8,
             }
         }
+        5 => ConditionKind::TimerIsZero(read_timer(r)?),
         other => return Err(Error::Unsupported(format!("condition type {other}"))),
     };
     Ok(Condition {
@@ -1618,7 +1829,7 @@ impl Variant {
             return Err(Error::Unsupported(format!("encoding version {version:#x}")));
         }
         r.read(32)?;
-        let (teams, initial_spawn_delay, rounds) = read_base(&mut r)?;
+        let (base, teams, initial_spawn_delay, rounds) = read_base(&mut r)?;
         if get(&mut r, 5)? != 0 || get(&mut r, 5)? != 0 {
             return Err(Error::Unsupported("player traits or user options".into()));
         }
@@ -1734,6 +1945,7 @@ impl Variant {
         }
         Ok(Variant {
             score_to_win,
+            base,
             teams,
             initial_spawn_delay,
             rounds,
@@ -1805,9 +2017,128 @@ pub(crate) mod tests {
     const SLAYER_FINGERPRINT: (usize, u32) = (1131, 0xa122_35a1);
 
     #[test]
+    fn base_options_read_back_exactly() {
+        let mut v = Variant::slayer(10);
+        v.base.time_limit = 15;
+        v.base.sudden_death_raw = 11;
+        v.base.lives = 3;
+        v.base.team_lives = 9;
+        v.base.respawn_seconds = 10;
+        v.base.suicide_seconds = 15;
+        v.base.betrayal_seconds = 0;
+        v.base.respawn_growth = 5;
+        v.base.respawn_traits_seconds = 3;
+        v.base.respawn_traits.set("camo", 4).unwrap();
+        v.base.team_changing = 2;
+        v.base.social_flags = 0b1_0101;
+        v.base.map_flags = 0b10_0110;
+        for (name, bits) in TRAITS {
+            // Each field at its widest value, so a width or order slip shows.
+            v.base.player_traits.set(name, ((1u32 << bits) - 1) as u8).unwrap();
+        }
+        v.base.player_traits.jump_height = Some(300);
+        let bytes = v.write().unwrap();
+        assert_eq!(Variant::read(&bytes).unwrap(), v);
+    }
+
+    #[test]
+    fn a_trait_too_wide_for_its_field_is_refused() {
+        let mut t = Traits::default();
+        assert!(t.set("shields", 8).is_err());
+        assert!(t.set("shields", 7).is_ok());
+        assert!(t.set("no_such_trait", 1).is_err());
+    }
+
+    #[test]
     fn the_stream_starts_with_the_version_word() {
         let bytes = Variant::empty(1).write().unwrap();
         assert_eq!(&bytes[..4], &VERSION.to_be_bytes());
+    }
+
+    /// The settings line tools/tests/test_variant_settings.lua applies to
+    /// the `*_default.mglo` fixtures; the result must equal `*_settings.mglo`.
+    const FIXTURE_SETTINGS: &str = "betrayal_seconds=0;lives=3;map_flags=0;respawn_seconds=10;\
+        score=15;social_flags=5;suicide_seconds=15;time_limit=10;trait.camo=4;trait.health=4;\
+        trait.shields=1";
+
+    fn fixture_variants() -> Vec<(&'static str, Variant)> {
+        let ctf = Variant::ctf(crate::ctf::Ctf {
+            flag_type: 18,
+            score_to_win: 3,
+            reset_ticks: 900,
+            debug: false,
+        });
+        vec![
+            ("slayer", Variant::slayer(25).with_time_limit()),
+            ("ctf", ctf.with_time_limit()),
+        ]
+    }
+
+    fn with_fixture_settings(mut v: Variant) -> Variant {
+        for pair in FIXTURE_SETTINGS.split(';') {
+            let (key, value) = pair.split_once('=').unwrap();
+            let value: u16 = value.parse().unwrap();
+            let b = &mut v.base;
+            match key {
+                "score" => v.score_to_win = value,
+                "time_limit" => b.time_limit = value as u8,
+                "lives" => b.lives = value as u8,
+                "respawn_seconds" => b.respawn_seconds = value as u8,
+                "suicide_seconds" => b.suicide_seconds = value as u8,
+                "betrayal_seconds" => b.betrayal_seconds = value as u8,
+                "social_flags" => b.social_flags = value as u8,
+                "map_flags" => b.map_flags = value as u8,
+                _ => {
+                    let name = key.strip_prefix("trait.").unwrap();
+                    b.player_traits.set(name, value as u8).unwrap();
+                }
+            }
+        }
+        v
+    }
+
+    /// Writes the fixtures with `MJOLNIR_UPDATE_FIXTURES=1`, else checks
+    /// them, so the Lua patcher is always tested against this writer.
+    #[test]
+    fn settings_fixtures_are_current() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/tests/fixtures/settings");
+        let update = std::env::var_os("MJOLNIR_UPDATE_FIXTURES").is_some();
+        let mut files = vec![("settings.txt".to_string(), FIXTURE_SETTINGS.as_bytes().to_vec())];
+        for (name, v) in fixture_variants() {
+            files.push((format!("{name}_default.mglo"), v.write().unwrap()));
+            files.push((format!("{name}_settings.mglo"), with_fixture_settings(v).write().unwrap()));
+        }
+        for (file, bytes) in files {
+            let path = dir.join(&file);
+            if update {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(&path, &bytes).unwrap();
+            } else {
+                let on_disk = std::fs::read(&path).unwrap_or_default();
+                assert!(
+                    on_disk == bytes,
+                    "{file} is stale: run MJOLNIR_UPDATE_FIXTURES=1 cargo test -p blam-megalo"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_time_limit_trigger_reads_back_exactly() {
+        for v in [
+            Variant::slayer(25).with_time_limit(),
+            Variant::ctf(crate::ctf::Ctf {
+                flag_type: 18,
+                score_to_win: 3,
+                reset_ticks: 900,
+                debug: false,
+            })
+            .with_time_limit(),
+        ] {
+            check_ranges(&v);
+            let bytes = v.write().unwrap();
+            assert_eq!(Variant::read(&bytes).unwrap(), v);
+        }
     }
 
     #[test]

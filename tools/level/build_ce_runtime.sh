@@ -19,8 +19,8 @@
 #   pakchunk990-MJOLNIRFLAG_P, -STAND_P, -MOTL_P   the CTF flag, its stand,
 #                                    and the object type list that adds it
 #                                    (build_ctf_flag.sh)
-#   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P
-#                                    spawn point and teleporter scenery
+#   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P,
+#   991-MJOLNIRTELE2_P               spawn point and teleporter scenery
 #                                    (build_spawn_point.sh)
 #   pakchunk985-MJOLNIRMENU_P        the main menu with its own MULTIPLAYER
 #                                    button, which opens the lobby in chunk 984

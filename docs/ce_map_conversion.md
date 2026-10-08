@@ -83,7 +83,44 @@ the gate does not resolve, and with it the world has the same 35 subsystems
 as B40.
 
 Build the tools first: `cargo build --release -p blam-cli -p ue-asset --example
-mesh_rewrite -p blam-pack --example package_override`.
+mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
+lightmap_bake`. Without `lightmap_bake` the map converts without its baked
+corners and sun.
+
+Step 3 also re-solves the map's lightmaps (`mjolnir level lightmaps`,
+[crates/blam-radiosity](../crates/blam-radiosity/README.md): tool.exe's own
+radiosity, on every core, the sun and sky fill evaluated per texel) at
+`LIGHTMAP_SCALE` times the shipped pages' size (`auto` by default: the
+power of two that brings the lit surfaces' median texel density to 4 per
+metre, no page over 2048; Blood Gulch comes out at 8x, Danger Canyon at
+8x, Hang 'Em High at 4x); the shipped pages are 1x and blur every shadow
+edge, and at 2x a pillar's shadow on a base roof was still a soft blob
+beside the traced shadow's hard edge. `LIGHTMAP_SCALE=0` keeps the
+shipped pages. A map's interior light is its emitting shaders' (Death
+Island's red and blue strips, the door glyphs): they shoot before the
+progressive loop, which would otherwise starve them on a large map, and
+their bounce fills the bases as CE's pages have them. The `light` tags
+placed objects carry go to `scene_lights.json` (`merge_ce_scene.py
+--lights`) but light nothing unless `--placed-lights`: tool.exe's own
+pages show no pool beside Death Island's twenty fixtures. Surfaces whose
+collision material is water take tool.exe's constant (230 230 255), and a
+rendered surface with no collision (water, strips) never blocks a ray, so
+the sea floor is lit through the water. The solved pages replace the shipped ones in the material
+spec (`ce_material_spec.py --lightmaps`), the bake's pages take their size,
+and the bake's sun channel (where CE's sun reaches) comes from the solver's
+`<page>_sunvis.png`. The solver's `<page>_sunshare.png` (each texel's light
+without the sun) goes to the materials as `SunShare`: the masters run CE's
+texture pass over it for the emissive, so CE's ambient, fill and bounce are
+drawn, rebuild the sunlit lightmap per channel from it and the sky's sun
+(`environment.sun.ce_light`) for the sun's albedo, and Unreal's sun, shadowed
+by the terrain copy, draws every sun shadow; the lightmap's own
+texel-stepped shadow edge never shows inside the crisp one. Such a level has no sun mask (`gen_ce_level.py --no-sun-mask`):
+the copy's shadows are the sun's shadows, and the mask's metre-wide
+transition would soften them. Placed scenery stays as CE lights it: the
+light sampled under each object from the lightmap, shaded by its incident
+direction, with no Unreal sun on it. CE never shadowed scenery dynamically,
+and under the copy's shadows a boulder beneath a tree drew half bright and
+half black, and boughs shadowed each other black.
 
 ### The structure BSP (step 2)
 
@@ -202,6 +239,22 @@ material even though the surfaces carry theirs. Untested.
   position, and the colour is a blend between the permutation's bounds.
   The draw is our own hash, so the mix of colours matches CE but a given
   crate's colour may not.
+- **Machines:** placed like scenery, in their rest pose. A part a machine's
+  `device position` animation moves (Infinity's beam emitters: the beam
+  rises 1,089 wu out of the base and grows from half size to full) draws
+  with a material of its own on a device variant of its master
+  (`M_CE_Transparent…Device`), which moves it as a World Position Offset:
+  the node's offset and scale between the animation's first and last
+  frames, about the node's origin, by the device position. A gear runs its
+  position from 0 to 1 over its position transition time and starts again;
+  any other machine (doors, platforms) is drawn at the position it is
+  placed at, because the simulation moves it and Unreal never hears of it.
+  A part that turns, whose parent node moves, or whose frames leave the
+  line between the first and last stays still, as do opaque parts (no
+  opaque device master yet). The mesh's bounds scale (`bounds_scale` in
+  the spec) keeps it drawn wherever the part goes. halo2ue stages the
+  machine's device and machine fields, its placement's device flags and
+  the animation's frames in `placement.json` (`device`).
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
   is 3 km away (the ring ends up about 46 km out).
@@ -274,6 +327,7 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m, divided by a knee of 0.85 (`--ao-knee`) and raised to 1.3 (`--ao-curve`), so the mild folds between a cliff's facets read as open while a wall's foot keeps its darkness: as traced, every fold took a dark line and the cliffs showed their triangles (Blood Gulch, 2026-10-05). `--ao-smooth` (world-space smoothing) is off by default; at 1 m it washed out the wall-floor corners and drew dashes along them. The masters read it through a 3 x 3 tent a texel apart. Blue is the sky's detail: sky visibility (`--sky-rays`, to any distance) over its mean across 1.5 m of surface facing the same way, x 0.5, so 0.5 is as CE's lightmap has it; where CE had shade the masters multiply the lightmap by it (`SkyDetail`, clamped to 0.5-1.5; `mjolnir_terrain_shadows sky <strength>`), which shades the overhangs and crevices CE's lightmap is too coarse for. A bake the loader imports at runtime (`mjolnir_terrain_shadows lightmap`) goes through `M_CE_LinearCopy`: `ImportFileAsTexture2D` is always sRGB, and drawn as it was every runtime bake and sun mask arrived sRGB-decoded (128 as 55), too dark. The lightmap is multiplied by `red ^ BakeAO` (1.4: Blood Gulch was approved at 2.5, found a little dark across the maps at 2.0, and with the knee and curve chosen at 1.4). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
 use the same master with `ModelShader` on, for the terms that differ:
@@ -471,10 +525,36 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   teleporters, which pair ends by channel. CE numbers a map's channels freely
   (Gephyrophobia uses 2–7, 13 and 14; Infinity 11–24), so the generator
   renumbers each map's channels from alpha in CE order, across the scenario's
-  26 (alpha to zulu), and warns about a channel missing either end. Chiron
-  TL-34 has 30 channels, more than the enum names. The first version kept
-  only channels 0–5 and dropped the rest silently, which left Gephyrophobia
-  with half its pads.
+  26 (alpha to zulu), and warns about a channel missing either end. Past
+  zulu the field takes the raw number, which pairs just as well: the
+  simulation compares the channel byte. The first version kept only channels
+  0–5 and dropped the rest silently, which left Gephyrophobia with half its
+  pads.
+- **At most 32 teleporters.** The simulation keeps a table of 32
+  teleporters, filled from the map's sender, receiver and 2-way scenery
+  (`HaloSimulation_tag_release.dll` 0x1803e7670 on CU4). An end past the 32nd
+  sends nothing, and nothing lands on it. Chiron TL-34 placed 60 ends, so
+  about half its pads did nothing. The generator warns past 32.
+- **Two-way pads.** CE has no two-way teleporter. A pad that both sends and
+  receives is two channels whose "teleport from" and "teleport to" flags sit
+  on top of each other at both ends. All of Chiron TL-34's pads are like this,
+  as are Gephyrophobia's, Sidewinder's, Boarding Action's and others. Where a
+  channel's "from" flag lands within the sender's boundary of another
+  channel's "to" flag, the reverse holds too, and the facings agree, the
+  generator merges the two channels into one. It places a "teleporter 2way"
+  at each pad, at the "to" flag with its facing. That halves the ends:
+  Chiron's 60 become 30 on 15 channels.
+- **Room to land.** The simulation lands a player at the receiver's (or
+  2-way's) origin, but only if a Spartan fits there. It tests the biped's
+  shape (radius 0.175, standing height 0.65, from 0.2 up) against the
+  collision. A receiver that fails is skipped, and a sender with none left
+  raises `teleporter_blocked`. CE has no such test and puts its "teleport to"
+  flags at the back of their alcoves. Every Chiron TL-34 landing spot had
+  0.17–0.25 to the wall behind it, and pads landing at 0.166 and 0.182 never
+  sent. The generator moves each landing end forward along its exit facing,
+  up to 0.15, until the Spartan clears CE's collision (the staging export's
+  `bsp/collision_N`) by 0.25. On Chiron 28 of 30 move, by 0.02–0.09.
+
   The two games turn the player differently:
   - **CE** turns the player to the "teleport to" flag's facing.
   - **Reach** keeps the facing relative to the sender, whose front faces the
@@ -589,20 +669,63 @@ seconds after the loading screen are dark.
   the flare's brightness follows the object function that scales the light
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
   every 40 ms). Dynamic lights
-  (muzzle flashes, the flashlight) do not light the terrain: it is unlit,
-  lit by its lightmaps as in CE. Scenery has CE's object lighting (ambient,
+  (headlights, muzzle flashes, the flashlight) light players, vehicles and
+  weapons but not the terrain: its base colour holds only the sun's share
+  of the baked light (object shadows), and it sits on lighting channel 1,
+  which only the level's sun shares. `mjolnir_terrain_lights on` (an
+  experiment, needing the trial masters in chunk 983) lights it too: the
+  masters top the base colour up to the surface's albedo and take the sun's
+  light on the top-up back out of the baked colour, the terrain joins
+  channel 0, and the terrain's hidden shadow copy, drawn two-sided, keeps the
+  Unreal sun out of CE's shade. The copy's sharp shadow edges and the
+  bake's texel steps never quite meet, so with a bake the sun share is
+  drawn only where the bake is sunlit all round and the top-up only where it
+  is shaded all round (`BakeMargin`, 1.5 texels; `mjolnir_terrain_lights
+  margin <texels>`); between them the colour is CE's. At margin 0 Blood
+  Gulch's bases traced their crenellations in black around the wall foot
+  (verified on Blood Gulch and Coldsnap, 2026-10-05).
+  Since 2026-10-06 the default (MJOLNIRLevelLoader 0.4.0, runtime pack
+  1.3.0, maps 1.2.0; `mjolnir_terrain_lights hybrid` brings the mode above
+  back for comparison) hands the terrain's direct light to Unreal: its base
+  colour is CE's sunlit colour (the texel's own lightmap level where CE had
+  sun, the level's sunlit level in CE's shade), CE's bump map is its normal,
+  and its emissive is CE's colour less what Unreal's sun adds, never below
+  CE's ambient. The sun mask (`<stem>_sunmask`, CE's lightmap seen from
+  above at 1 m, cooked with the map and named by `environment.sun_mask`,
+  tent-filtered) is the sun's light function, so CE's broad
+  soft shadows stay and objects darken in them. A trial
+  (`mjolnir_terrain_lights on trial`) reads the trial masters and a bake in
+  the loader's `bake\` folder in one respawn (two quick respawns were
+  followed twice by a GPU crash). `mjolnir_terrain_debug <layer>` shows one
+  layer of the terrain's light at a time. Keep the sun's angular size at the
+  engine's 0.54 degrees: at 3 the virtual shadow maps leaked light in lines
+  across shaded ground and around the first-person gun. Those lights are physical and tuned
+  for the campaign's exposure, so the level's sun and sky are raised by
+  `environment.light_scale` (256) with the exposure lowered to match
+  (docs/level_format.md); without that a headlight turned what it reached
+  white. Scenery has CE's object lighting (ambient,
   dominant light, floor bounce, reflection tint) but not its shadow colour
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
 - **Scenery collision** stops players, vehicles and, since 2026-10-03,
-  projectiles (checked offline, `scenery_probe`; not yet in game). The trees
-  cost table space: Danger Canyon's 43,646 scenery triangles need 17 scenery
-  instances instead of 6, and the maps that keep scenery in the BSP grow
-  their 2D references several times over (Blood Gulch 55,634 and Boarding
-  Action 58,539 of the 65,535 limit; a map past it moves its scenery to
-  instances of its own). See `ce_terrain_collision.md`, "Scenery in the
-  tree".
+  projectiles (checked offline, `scenery_probe`; not yet in game). Each
+  node of a collision model is placed by its model node's rest pose: before
+  halo2ue did that, a tree's canopy hull sat around its trunk at head
+  height (Infinity, 2026-10-04), so maps converted earlier need converting
+  again. The trees cost table space: Danger Canyon's 43,646 scenery
+  triangles need 17 scenery instances instead of 6, and the maps that keep
+  scenery in the BSP grow their 2D references several times over (Blood
+  Gulch 55,634 and Boarding Action 58,539 of the 65,535 limit; a map past it
+  moves its scenery to instances of its own). See `ce_terrain_collision.md`,
+  "Scenery in the tree".
+- **Object light colour.** Players, vehicles and weapons are lit by the
+  Unreal sun and sky light. On a map with a real sun (its lightmap at 0.8
+  or more where the bake has sun) they take that sunlit lightmap's colour,
+  since CE lit an object by the lightmap under it; otherwise the sky's
+  outdoor ambient colour, or the lightmaps' average when that colour lacks
+  a channel. The sky's colour alone can be anything: Infinity's test sky is
+  (0.5, 0.5, 0), which turned everything yellow.
 - **Approximations in the materials.** CE's noise, jitter and wander
   functions are a value noise; the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the

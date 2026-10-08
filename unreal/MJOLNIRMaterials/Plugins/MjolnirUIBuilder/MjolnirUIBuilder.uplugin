@@ -3,7 +3,7 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "MJOLNIR UI Builder",
-	"Description": "Builds Widget Blueprints from Python: the widget tree, and the few graph nodes MJOLNIR's widgets need (a button's click calling a function, a function setting a text block). Editor only: the widgets it builds reference engine classes alone, so they cook for the game without it.",
+	"Description": "Builds Widget Blueprints from Python: the widget tree, and the few graph nodes MJOLNIR's widgets need (a button's click calling a function, a function setting a text block); and wires the one material input Python cannot reach (World Position Offset). Editor only: the widgets it builds reference engine classes alone, so they cook for the game without it.",
 	"Category": "MJOLNIR",
 	"CreatedBy": "MJOLNIR",
 	"CanContainContent": false,

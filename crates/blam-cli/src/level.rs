@@ -55,6 +55,10 @@ pub enum LevelCommand {
     /// into a canvas structure BSP the simulation walks on, and write the
     /// transform that places everything else on it.
     Collision(crate::level_collision::CollisionArgs),
+    /// Re-solve a classic map's lightmaps (tool.exe's radiosity on every
+    /// core) at a multiple of the shipped pages' size, for
+    /// `ce_material_spec.py --lightmaps`.
+    Lightmaps(crate::level_lightmaps::LightmapsArgs),
     /// Rebuild the registration container and the multiplayer menu's map list
     /// from every installed map: the map packs in `ue4ss/MJOLNIRMaps` and the
     /// maps installed by `bake --install-test` (docs/map_distribution.md).
@@ -167,6 +171,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::Bake(a) => bake(a),
         LevelCommand::Export(a) => export(a),
         LevelCommand::Collision(a) => crate::level_collision::run(a),
+        LevelCommand::Lightmaps(a) => crate::level_lightmaps::run(a),
         LevelCommand::Register(a) => register(a),
     }
 }

@@ -10,6 +10,8 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "MjolnirUIBuilderLibrary.generated.h"
 
+class UMaterial;
+class UMaterialExpression;
 class UWidget;
 class UUserWidget;
 class UWidgetBlueprint;
@@ -50,4 +52,12 @@ public:
 	/** Compile; false when it fails. The caller saves the asset. */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|UI")
 	static bool CompileWidget(UWidgetBlueprint* Blueprint);
+
+	/**
+	 * Connect From's output OutputName ("" for the first) to Material's World
+	 * Position Offset. Python's MaterialProperty enum leaves that input out, so
+	 * the CE device masters (Scripts/build_ce_materials.py) wire it here.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool ConnectWorldPositionOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
 };

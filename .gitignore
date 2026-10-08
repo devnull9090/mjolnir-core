@@ -80,3 +80,6 @@ mods/MJOLNIRHud/claim_*.json
 mods/MJOLNIRHud/match_outbox.txt
 mods/MJOLNIRHud/match_current.txt
 mods/MJOLNIRLobby/listing.txt
+
+# The classic Halo Editing Kit (Gearbox 2004) and its tags, installed beside the repo for lightmap work
+/hek*/

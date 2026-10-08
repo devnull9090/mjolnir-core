@@ -22,10 +22,12 @@ visuals, which is enough to test a conversion by standing on it.
 """
 import argparse
 import collections
+import glob
 import json
 import math
 import os
 import re
+import struct
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -158,6 +160,39 @@ TELEPORTER_CHANNELS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", 
                        "xray", "yankee", "zulu"]
 TELEPORTER_RADIUS = 0.35   # world units
 TELEPORTER_HEIGHT = 0.6
+# The simulation keeps a table of at most 32 teleporters, filled once per
+# tick from the map's sender, receiver and 2-way scenery
+# (HaloSimulation_tag_release.dll 0x1803e7670, CU4). Ends past the 32nd are
+# never in it: they send nothing and nothing lands on them. Chiron TL-34
+# placed 60 ends, so half its pads did nothing (2026-10-04).
+TELEPORTER_MAX = 32
+# CE has no two-way pad: a two-way teleporter is two channels whose "teleport
+# from" and "teleport to" flags sit on top of each other at both pads (all of
+# Chiron TL-34's, Gephyrophobia's and Sidewinder's). Each such pair of channels
+# becomes one channel with a "teleporter 2way" at each pad, which both sends
+# and receives: half the ends, so Chiron's 30 pads fit the 32. Built by
+# tools/level/build_spawn_point.sh.
+TELEPORTER_2WAY = r"objects\multi\teleporters\teleporter_2way"
+# A "teleport from" flag and a "teleport to" flag make one pad when the
+# landing spot is inside the sender's boundary (Chiron's are under 0.06 apart)
+# and the exit faces the way players walk in, turned round, within this.
+TELEPORTER_2WAY_YAW = 45.0   # degrees
+# The simulation lands a player at the receiver's (or 2-way's) origin only if
+# a Spartan fits there: it tests the biped's shape against the collision
+# (0x1803e6ab0 -> 0x1802f7290) and otherwise skips that receiver, and a
+# sender with none left raises teleporter_blocked. CE has no such test and
+# puts its "teleport to" flags at the back of their alcoves: on Chiron TL-34
+# every landing spot had 0.17-0.25 to the wall behind it against the
+# Spartan's 0.175 radius (spartans-biped "radius"), and pads landing at 0.166
+# and 0.182 never sent (2026-10-05). Each landing end moves forward along its
+# exit facing, up to TELEPORTER_NUDGE_MAX, until the Spartan clears the CE
+# collision by TELEPORTER_CLEARANCE over its standing height.
+SPARTAN_RADIUS = 0.175          # world units
+SPARTAN_HEIGHT = 0.65
+SPARTAN_LIFT = 0.2              # 0x1802f7290 tests the shape this far up
+TELEPORTER_CLEARANCE = 0.25     # radius plus margin
+TELEPORTER_NUDGE_MAX = 0.15
+TELEPORTER_NUDGE_STEP = 0.01
 
 # Capture the Flag: a flag stand at each CE CTF flag, owned by the flag's team
 # (CE team 0 is red, the scenario's "defender"; 1 blue, "attacker") and
@@ -318,9 +353,40 @@ def ctf_section(stands):
 # vehicles, weapons (the CE terrain carries its own baked light). Their level
 # follows the CE sky's outdoor ambient light (colour x power): the template's
 # sun 8 and sky light 3 are what Blood Gulch's ambient (0.87, 0.84, 0.75) x
-# 0.2 looks right with, and other maps scale from there, so a night map's
-# dim blue ambient gives a dim blue sun.
+# 0.2 looks right with, and other maps scale from there. Their colour is the
+# lightmaps' (lightmap_tint): CE lit an object by the lightmap under it, and
+# the sky's ambient colour can be anything (Infinity's test sky is pure
+# yellow, (0.5, 0.5, 0), and its weapons and players came out yellow).
 REFERENCE_AMBIENT = 0.2 * (0.2126 * 0.871 + 0.7152 * 0.843 + 0.0722 * 0.753)
+
+
+def sky_sun(placement):
+    """CE's sun from the sky tag (halo2ue's placement.json, the sky entry's
+    `lights`): the exterior light with the narrowest diameter (the sky's
+    fill lights are tens of degrees wide and straight up). Returns
+    `{"gltf": [x, y, z] towards the sun in glTF space, "rotation": (pitch,
+    yaw) for the Unreal light, "color", "power"}`, or None without one.
+
+    CE gives a light's direction as yaw and pitch, z up: towards the sun is
+    (cos p cos y, cos p sin y, sin p); glTF is (x, z, -y) of that. Checked
+    against CE's own lightmaps on Danger Canyon (2026-10-07): traced sun
+    shadows cover 99% of CE's dark texels with this reading, 82-91% with the
+    mirrored ones, and 93% with the lightmap's incident average, which blends
+    the sun with the sky's fill and sits far too steep (87 against 35
+    degrees there)."""
+    sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
+    lights = [l for l in (sky or {}).get("lights", []) if l.get("affects_exteriors") and l.get("power", 0) > 0]
+    if not lights:
+        return None
+    l = min(lights, key=lambda l: (l.get("diameter", 0.0), -l.get("power", 0.0)))
+    yaw, pitch = l["yaw"], l["pitch"]
+    cx, cy, cz = math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)
+    # Unreal: (x, -y, z) of CE; the light shines along its forward vector,
+    # away from the sun (sun_rotation's convention).
+    ue_pitch = -math.degrees(pitch)
+    ue_yaw = math.degrees(math.atan2(cy, -cx))
+    return {"gltf": [cx, cz, -cy], "rotation": (round(ue_pitch, 1), round(ue_yaw, 1)),
+            "color": l.get("color"), "power": l.get("power")}
 
 
 def sun_rotation(scene_gltf):
@@ -369,12 +435,166 @@ def sun_rotation(scene_gltf):
     return round(pitch, 1), round(yaw, 1)
 
 
-def environment(template, placement, scene=None):
+def lightmap_tint(staging):
+    """The colour of a map's light: its lightmap pages' mean over the texels
+    that are lit (luminance over 0.05) and not clipped (no channel at 1),
+    scaled to a maximum of 1. None without the pages or Pillow."""
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        manifest = json.load(open(os.path.join(staging, "manifest.json"), encoding="utf-8"))
+    except OSError:
+        return None
+    total, count = np.zeros(3), 0
+    for bsp in manifest.get("bsps", []):
+        for page in bsp.get("lightmap_pages", []):
+            path = os.path.join(staging, "textures", page)
+            if not os.path.exists(path):
+                continue
+            a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64).reshape(-1, 3) / 255.0
+            lit = (a @ [0.2126, 0.7152, 0.0722] > 0.05) & (a.max(axis=1) < 0.99)
+            total += a[lit].sum(axis=0)
+            count += int(lit.sum())
+    if not count or total.max() <= 0:
+        return None
+    return [round(float(c), 3) for c in total / total.max()]
+
+
+def lightmap_sun(scene_gltf, staging, bake_dir, sun=None):
+    """The level's lightmap in CE's shadow and in its sun, from lightmapped
+    vertices facing the sun, split by the bake's traced sun visibility
+    (lightmap_bake, green: under 0.1 shadow, over 0.9 sun): `levels`, the
+    luminance in each (MJOLNIRMaterials SUN_WEIGHT_CODE's LightmapSun), and
+    `colour`, the sunlit lightmap's colour scaled to a maximum of 1.
+
+    The shadow level is the lower quartile, not the median: the bake has
+    lamp-lit interiors in shadow too (Blood Gulch's median 0.42, its quartile
+    0.19, the level picked by eye). A texel near it gives up none of its
+    colour to the Unreal sun, so an object's shadow there does not darken a
+    baked one a second time. None without the scene, the bake or enough of
+    either."""
+    try:
+        import numpy as np
+        from PIL import Image
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from ce_material_spec import asset_name
+    except ImportError:
+        return None
+    try:
+        g = json.load(open(scene_gltf, encoding="utf-8"))
+        pages = json.load(open(os.path.join(staging, "manifest.json"), encoding="utf-8"))["bsps"][0]["lightmap_pages"]
+    except (OSError, KeyError, IndexError):
+        return None
+    if not pages or not os.path.isdir(bake_dir or ""):
+        return None
+    base = os.path.dirname(scene_gltf)
+    bufs = [open(os.path.join(base, b["uri"]), "rb").read() for b in g["buffers"]]
+
+    def accessor(i, n):
+        a = g["accessors"][i]
+        bv = g["bufferViews"][a["bufferView"]]
+        off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+        return np.frombuffer(bufs[bv["buffer"]], dtype="f4", count=a["count"] * n, offset=off).reshape(-1, n)
+
+    images = {}
+
+    def image(path):
+        if path not in images:
+            try:
+                images[path] = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64) / 255.0
+            except OSError:
+                images[path] = None
+        return images[path]
+
+    def sample(img, uv):
+        h, w = img.shape[:2]
+        x = np.clip((uv[:, 0] % 1.0 * w).astype(int), 0, w - 1)
+        y = np.clip((uv[:, 1] % 1.0 * h).astype(int), 0, h - 1)
+        return img[y, x]
+
+    # CE's sun, as sun_rotation finds it (glTF space, towards the sun).
+    total, data = np.zeros(3), []
+    for mesh in g["meshes"]:
+        for prim in mesh["primitives"]:
+            at = prim["attributes"]
+            name = g["materials"][prim["material"]]["name"] if "material" in prim else ""
+            tail = name.rsplit("__lm", 1)
+            if len(tail) != 2 or not tail[1].isdigit() or "TEXCOORD_1" not in at or "NORMAL" not in at:
+                continue
+            n = accessor(at["NORMAL"], 3).astype(np.float64)
+            if "_INCIDENT" in at:
+                inc = accessor(at["_INCIDENT"], 3).astype(np.float64)
+                flat = (n[:, 1] > 0.95) & (np.linalg.norm(inc, axis=1) > 0.5)
+                total += inc[flat].sum(axis=0)
+            data.append((int(tail[1]), n, accessor(at["TEXCOORD_1"], 2).astype(np.float64)))
+    if not data or (sun is None and not total.any()):
+        return None
+    # The sky tag's sun when known (sky_sun), else the incident average.
+    sun = np.asarray(sun, dtype=np.float64) if sun is not None else total / np.linalg.norm(total)
+    shadow, sunlit, colours = [], [], []
+    for page, n, uv in data:
+        if page >= len(pages):
+            continue
+        stem = os.path.splitext(pages[page])[0]
+        lm = image(os.path.join(staging, "textures", pages[page]))
+        bake = image(os.path.join(bake_dir, asset_name("T_", stem) + ".png"))
+        if lm is None or bake is None:
+            continue
+        facing = n @ sun > 0.5
+        rgb = sample(lm, uv)
+        lum = rgb @ [0.2126, 0.7152, 0.0722]
+        vis = sample(bake, uv)[:, 1]
+        shadow.append(lum[facing & (vis < 0.1)])
+        sunlit.append(lum[facing & (vis > 0.9)])
+        colours.append(rgb[facing & (vis > 0.9)])
+    shadow = np.concatenate(shadow) if shadow else np.zeros(0)
+    sunlit = np.concatenate(sunlit) if sunlit else np.zeros(0)
+    if len(shadow) < 50 or len(sunlit) < 50:
+        return None
+    levels = [round(float(np.percentile(shadow, 25)), 3), round(float(np.median(sunlit)), 3)]
+    colour = np.median(np.concatenate(colours), axis=0)
+    return {"levels": levels if levels[1] > levels[0] else None,
+            "colour": [round(float(c), 3) for c in colour / colour.max()] if colour.max() > 0 else None}
+
+
+def sun_mask(bake, root):
+    """lightmap_bake's sun mask as the level's environment.sun_mask: the
+    cooked texture (ce_material_spec.py cooks it under <root>/Textures) and
+    its placement relative to the terrain actor; None without one."""
+    for f in sorted(glob.glob(os.path.join(bake or "", "*_sunmask.json"))):
+        spec = json.load(open(f, encoding="utf-8"))
+        name = os.path.splitext(os.path.basename(f))[0]
+        return {"texture": f"{root}/Textures/{name}.{name}", **spec}
+    return None
+
+
+# `--no-sun-mask`: a level whose lightmaps the solver drew (its materials
+# carry the sun's shares) leaves the sun mask out: the terrain copy's shadows
+# are the sun's shadows there, and the mask's metre-wide transition would
+# soften every one of them.
+NO_SUN_MASK = False
+
+
+def environment(template, placement, scene=None, staging=None, bake=None, root=None):
     env = json.loads(json.dumps(template))
-    rotation = sun_rotation(scene) if scene else None
+    mask = sun_mask(bake, root) if root and not NO_SUN_MASK else None
+    if mask:
+        env["sun_mask"] = mask
+    elif NO_SUN_MASK:
+        # Explicit: the loader must not fall back to a trial's mask beside it.
+        env["sun_mask"] = False
+    sky_light = sky_sun(placement)
+    rotation = sky_light["rotation"] if sky_light else (sun_rotation(scene) if scene else None)
     if rotation:
         env.setdefault("sun", {})
         env["sun"]["pitch"], env["sun"]["yaw"] = rotation
+    light = (lightmap_sun(scene, staging, bake, sun=sky_light and sky_light["gltf"])
+             if scene and staging and bake else None) or {}
+    if light.get("levels"):
+        env.setdefault("sun", {})["lightmap_sun"] = light["levels"]
     sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
     amb = (sky or {}).get("outdoor_ambient") or {}
     color, power = amb.get("color"), amb.get("power")
@@ -382,10 +602,25 @@ def environment(template, placement, scene=None):
         return env
     lum = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]
     k = power * lum / REFERENCE_AMBIENT
-    tint = [round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1]
+    # Where the level has a real sun, the sunlit lightmap's colour: CE lit an
+    # object by the lightmap under it. Otherwise the sky's ambient colour,
+    # unless that is no colour of light at all (Infinity's test sky is
+    # (0.5, 0.5, 0)): then the lightmaps' average. A dim "sunlit" level is sky
+    # light (Danger Canyon's 0.42 came out blue), and an indoor map's average
+    # is its lamps (Longest's purple).
+    sunny = (light.get("levels") or [0, 0])[1] >= 0.8
+    tint = light.get("colour") if sunny else None
+    if not tint:
+        tint = [round(c / max(color), 3) for c in color] if max(color) > 0 else [1, 1, 1]
+        if min(tint) < 0.25:
+            tint = (lightmap_tint(staging) if staging else None) or tint
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
+    # CE's own sun (colour x power, CE lightmap units): with the solver's
+    # ambient page the masters rebuild each texel's sunlit lightmap from it.
+    if sky_light and sky_light.get("color") and sky_light.get("power"):
+        env["sun"]["ce_light"] = [round(c * sky_light["power"], 4) for c in sky_light["color"]]
     env.setdefault("skylight", {})
     env["skylight"]["intensity"] = round(env["skylight"].get("intensity", 3.0) * k, 3)
     env["skylight"]["color"] = tint
@@ -394,6 +629,103 @@ def environment(template, placement, scene=None):
 
 # CE world units to centimetres.
 WU_CM = 304.8
+
+
+def collision_triangles(staging):
+    """The CE collision BSPs' surfaces as triangles in world units, from the
+    staging export's bsp/collision_N.json and .bin; [] without them."""
+    tris = []
+    bsp = os.path.join(staging, "bsp")
+    for name in sorted(os.listdir(bsp)) if os.path.isdir(bsp) else []:
+        if not re.fullmatch(r"collision_\d+\.json", name):
+            continue
+        meta = json.load(open(os.path.join(bsp, name), encoding="utf-8"))
+        data = open(os.path.join(bsp, name[:-5] + ".bin"), "rb").read()
+        arrays, off = {}, 0
+        for key in meta["array_order"]:
+            count = struct.unpack_from("<I", data, off)[0]
+            size = meta["element_sizes"][key]
+            arrays[key] = (data[off + 4:off + 4 + count * size], size, count)
+            off += 4 + count * size
+        vb, vs, vn = arrays["vertices"]
+        verts = [struct.unpack_from("<3f", vb, i * vs) for i in range(vn)]
+        eb, es, en = arrays["edges"]
+        edges = [struct.unpack_from("<6i", eb, i * es) for i in range(en)]
+        sb, ss, sn = arrays["surfaces"]
+        for si in range(sn):
+            first = struct.unpack_from("<i", sb, si * ss + 4)[0]
+            ring, e = [], first
+            for _ in range(64):
+                start, end, forward, reverse, left, _right = edges[e]
+                ring.append(start if left == si else end)
+                e = forward if left == si else reverse
+                if e == first:
+                    break
+            for k in range(1, len(ring) - 1):
+                tris.append((verts[ring[0]], verts[ring[k]], verts[ring[k + 1]]))
+    return tris
+
+
+def point_triangle_distance(p, tri):
+    """Distance from p to the closest point of a triangle (Ericson, Real-Time
+    Collision Detection 5.1.5)."""
+    a, b, c = tri
+    sub = lambda u, v: (u[0] - v[0], u[1] - v[1], u[2] - v[2])
+    dot = lambda u, v: u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+    at = lambda o, u, t: (o[0] + u[0] * t, o[1] + u[1] * t, o[2] + u[2] * t)
+    ab, ac, ap = sub(b, a), sub(c, a), sub(p, a)
+    d1, d2 = dot(ab, ap), dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        q = a
+    else:
+        bp = sub(p, b)
+        d3, d4 = dot(ab, bp), dot(ac, bp)
+        cp = sub(p, c)
+        d5, d6 = dot(ab, cp), dot(ac, cp)
+        vc, vb, va = d1 * d4 - d3 * d2, d5 * d2 - d1 * d6, d3 * d6 - d5 * d4
+        if d3 >= 0 and d4 <= d3:
+            q = b
+        elif d6 >= 0 and d5 <= d6:
+            q = c
+        elif vc <= 0 and d1 >= 0 and d3 <= 0:
+            q = at(a, ab, d1 / (d1 - d3))
+        elif vb <= 0 and d2 >= 0 and d6 <= 0:
+            q = at(a, ac, d2 / (d2 - d6))
+        elif va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0:
+            q = at(b, sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)))
+        else:
+            denom = va + vb + vc
+            q = at(at(a, ab, vb / denom), ac, vc / denom)
+    return math.dist(p, q)
+
+
+def landing_nudge(tris, pos, facing):
+    """How far along `facing` (CE radians) a teleporter's landing spot at
+    `pos` (world units, on the floor) moves so a standing Spartan clears the
+    collision by TELEPORTER_CLEARANCE: forward first, then back (negative);
+    the clearest spot within reach when none does, 0.0 when it already does.
+    Gephyrophobia's "teleport to" flags face the narrow mouth of their pads,
+    0.19-0.21 from its sides, so forward only lost room and every pad raised
+    teleporter_blocked (2026-10-07); back towards the pad's middle clears."""
+    reach = TELEPORTER_CLEARANCE + TELEPORTER_NUDGE_MAX + SPARTAN_LIFT + SPARTAN_HEIGHT
+    near = [t for t in tris
+            if all(min(v[i] for v in t) - reach <= pos[i] <= max(v[i] for v in t) + reach for i in range(3))]
+    # The sim places the shape SPARTAN_LIFT above the landing spot: sample its
+    # axis from there, so the floor itself is never in the way.
+    heights = [SPARTAN_LIFT + SPARTAN_RADIUS + k * (SPARTAN_HEIGHT - 2 * SPARTAN_RADIUS) / 4
+               for k in range(5)]
+    dx, dy = math.cos(facing), math.sin(facing)
+    best = (-1.0, 0.0)
+    steps = round(TELEPORTER_NUDGE_MAX / TELEPORTER_NUDGE_STEP)
+    for k in [*range(steps + 1), *range(-1, -steps - 1, -1)]:
+        d = k * TELEPORTER_NUDGE_STEP
+        axis = [(pos[0] + dx * d, pos[1] + dy * d, pos[2] + h) for h in heights]
+        clear = min((point_triangle_distance(p, t) for p in axis for t in near), default=math.inf)
+        if clear >= TELEPORTER_CLEARANCE:
+            return d
+        if clear > best[0] + 1e-6:
+            best = (clear, d)
+    return best[1]
 
 
 def ambient_sounds(sounds_dir, root, to_ue):
@@ -451,14 +783,30 @@ def main():
                                      "the map's ambient sound, imported under <root>/Sounds")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
                                     "(default: scene.gltf beside --terrain)")
+    ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
+                                   "(default: bake beside --terrain)")
+    ap.add_argument("--no-sun-mask", action="store_true",
+                    help="leave the sun mask out of the level (the solver's lightmaps: the terrain copy's shadows "
+                         "are the sun's shadows, and the mask would soften them)")
     ap.add_argument("--no-spawn-points", action="store_true",
                     help="do not place multiplayer spawn-point scenery at the starts")
     ap.add_argument("--game-type", choices=sorted(VEHICLE_SETS), default="all",
                     help="whose default vehicle set to place (default all: every vehicle)")
     ap.add_argument("--start-lift", type=float, default=START_LIFT,
                     help=f"Halo wu to raise player starts by (default {START_LIFT})")
+    ap.add_argument("--sky-sun", action="store_true",
+                    help="print the sky tag's sun as 'x,y,z' towards it in glTF space (lightmap_bake --sun) "
+                         "and exit; nothing when the sky has no sun")
     a = ap.parse_args()
+    global NO_SUN_MASK
+    NO_SUN_MASK = bool(a.no_sun_mask)
+    if a.sky_sun:
+        s = sky_sun(json.load(open(os.path.join(a.staging, "placement.json"))))
+        if s:
+            print(",".join(f"{c:.6f}" for c in s["gltf"]))
+        return
     scene = a.scene or (os.path.join(os.path.dirname(a.terrain), "scene.gltf") if a.terrain else None)
+    bake = a.bake or (os.path.join(os.path.dirname(a.terrain), "bake") if a.terrain else None)
 
     placement = json.load(open(os.path.join(a.staging, "placement.json")))
     t = json.load(open(a.transform))
@@ -612,20 +960,58 @@ def main():
         if ends != set(TELEPORTER_SCENERY):
             print(f"warning: CE teleporter channel {ch} has only {', '.join(sorted(ends))}; it cannot teleport",
                   file=sys.stderr)
+
+    # Two-way pads (TELEPORTER_2WAY): channels a and b, each with one flag
+    # of each kind, where a's "from" sits on b's "to" and b's "from" on a's.
+    def one_each(ch):
+        ends = [f for f in pads if ce_channel(f) == ch]
+        return len(ends) == 2 and {f["type"] for f in ends} == set(TELEPORTER_SCENERY)
+
+    def end(ch, kind):
+        return next(f for f in pads if ce_channel(f) == ch and f["type"] == kind)
+
+    def same_pad(src, dst):
+        turned = abs((sender_yaw(src) - yaw_ue(dst["facing"]) + 180.0) % 360.0 - 180.0)
+        return math.dist(src["pos"], dst["pos"]) < TELEPORTER_RADIUS and turned < TELEPORTER_2WAY_YAW
+
+    links = {}   # CE channel -> the channel key its pads end up on
+    for ch_a in sorted(by_channel):
+        if ch_a in links or not one_each(ch_a):
+            continue
+        for ch_b in sorted(by_channel):
+            if ch_b <= ch_a or ch_b in links or not one_each(ch_b):
+                continue
+            if (same_pad(end(ch_a, "TeleportFrom"), end(ch_b, "TeleportTo"))
+                    and same_pad(end(ch_b, "TeleportFrom"), end(ch_a, "TeleportTo"))):
+                links[ch_a] = links[ch_b] = (ch_a, ch_b)
+                break
+    for ch in by_channel:
+        links.setdefault(ch, (ch,))
+
     # The channel is a char enum naming 26 channels, alpha to zulu. A map
-    # with more (Chiron TL-34 has 30) numbers the rest: the field takes a raw
-    # value, and the engine pairs a sender with receivers by value alone.
-    dense = {ch: i for i, ch in enumerate(sorted(by_channel))}
+    # with more numbers the rest: the field takes a raw value, and the engine
+    # pairs ends by value alone (0x1803e6600 compares the byte).
+    dense = {key: i for i, key in enumerate(sorted(set(links.values())))}
     if len(dense) > 127:
         sys.exit(f"{len(dense)} teleporter channels; a char enum holds 127")
     channel_value = lambda i: TELEPORTER_CHANNELS[i] if i < len(TELEPORTER_CHANNELS) else str(i)
+    collision = collision_triangles(a.staging) if pads else []
+    nudged = []
     for f in pads:
-        tag = TELEPORTER_SCENERY[f["type"]]
-        channel = dense[ce_channel(f)]
+        two_way = len(links[ce_channel(f)]) == 2
+        if two_way and f["type"] == "TeleportFrom":
+            continue   # the pad's 2-way end stands at its "teleport to" flag
+        channel = dense[links[ce_channel(f)]]
+        pos = f["pos"]
+        if f["type"] == "TeleportTo" and collision:
+            d = landing_nudge(collision, pos, f["facing"])
+            if d:
+                pos = [pos[0] + math.cos(f["facing"]) * d, pos[1] + math.sin(f["facing"]) * d, pos[2]]
+                nudged.append(abs(d))
         teleporters.append({
-            "tag": tag,
+            "tag": TELEPORTER_2WAY if two_way else TELEPORTER_SCENERY[f["type"]],
             "group": "scenery",
-            "pos": to_ue(f["pos"]),
+            "pos": to_ue(pos),
             # Reach's teleporter keeps a player's facing relative to the
             # sender: exit = receiver + (player - sender) + 180, the sender's
             # front facing the player who walks in. CE turns the player to the
@@ -633,6 +1019,8 @@ def main():
             # way players walk in, so a sender turned round makes walking in
             # head-on exit as CE does. As placed, players had to walk in
             # backwards to exit the right way (2026-10-01, Gephyrophobia).
+            # A 2-way end takes its "teleport to" flag's facing, which
+            # same_pad checked is its "teleport from" flag's turned round.
             "rot": [0, sender_yaw(f), 0],
             "set": {
                 "multiplayer data.teleporter channel": channel_value(channel),
@@ -642,6 +1030,12 @@ def main():
                 "multiplayer data.boundary negative height": "0.1",
             },
         })
+    if nudged:
+        print(f"{len(nudged)} teleporter landing spot(s) moved to fit a Spartan "
+              f"(up to {max(nudged):.2f} wu)", file=sys.stderr)
+    if len(teleporters) > TELEPORTER_MAX:
+        print(f"warning: {len(teleporters)} teleporter ends; the simulation keeps {TELEPORTER_MAX}, "
+              "and the rest do nothing", file=sys.stderr)
 
     flag_stands = []
     for f in placement["netgame_flags"]:
@@ -712,7 +1106,8 @@ def main():
         # post-process volume keeps everything between them and the screen
         # neutral: fixed exposure, no local exposure, no filmic curve
         # (MJOLNIRLevelLoader "post").
-        "environment": {**environment(blank["environment"], placement, scene),
+        "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
+                                      f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

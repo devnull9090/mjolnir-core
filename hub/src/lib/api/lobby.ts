@@ -35,6 +35,17 @@ const MAX_LISTED = 100;
 const GAME_TYPE = z.string().regex(/^[a-z_]{1,24}$/);
 const MAP_CODE = z.string().regex(/^[A-Z0-9]{3}$/);
 const STATES = ["open", "in_game", "full"] as const;
+/**
+ * The host's game settings (docs/host_game_settings.md): `key=value;...`
+ * of Megalo variant fields, empty for the variant's own rules. Only the
+ * shape is checked here; each player's level loader refuses a field it does
+ * not know.
+ */
+const SETTINGS = z
+  .string()
+  .max(400)
+  .regex(/^([a-z0-9_.]{1,40}=\d{1,5}(;[a-z0-9_.]{1,40}=\d{1,5})*)?$/)
+  .openapi({ example: "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1" });
 
 const LobbyCreateSchema = z
   .object({
@@ -47,6 +58,7 @@ const LobbyCreateSchema = z
     game_build: z.string().max(80).optional(),
     platform: z.enum(["steam", "gamepass", "other"]).optional(),
     connection_string: z.string().min(1).max(4096),
+    settings: SETTINGS.optional(),
   })
   .openapi("LobbyCreate");
 
@@ -59,6 +71,7 @@ const LobbyUpdateSchema = z
     game_type: GAME_TYPE.optional(),
     state: z.enum(STATES).optional(),
     connection_string: z.string().min(1).max(4096).optional(),
+    settings: SETTINGS.optional(),
   })
   .openapi("LobbyHeartbeat");
 
@@ -79,6 +92,8 @@ const LobbySchema = z
     country: z.string().nullable(),
     /** Estimated round trip from the caller, in ms; null without locations. */
     ping_ms: z.number().nullable(),
+    /** The host's game settings; null from a host without them. */
+    settings: z.string().nullable(),
     created_at: z.string(),
   })
   .openapi("Lobby");
@@ -207,6 +222,7 @@ export async function listLobbies(
         latitude: (r.latitude as number) ?? null,
         longitude: (r.longitude as number) ?? null,
       }),
+      settings: (r.settings as string) ?? null,
       created_at: r.created_at as string,
     }))
     .filter((l) => q.max_ping === undefined || (l.ping_ms !== null && l.ping_ms <= q.max_ping))
@@ -261,8 +277,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `INSERT INTO lobbies (id, host_user_id, host_token_hash, name, map_code, game_type,
              players, max_players, client_version, game_build, platform, connection_string,
-             colo, country, latitude, longitude)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+             colo, country, latitude, longitude, settings)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
         ).bind(
           id,
           auth.user.id,
@@ -280,6 +296,7 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           where.country,
           where.latitude,
           where.longitude,
+          body.settings ?? null,
         ),
       ]);
       sweep(c);
@@ -324,6 +341,7 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
            game_type = COALESCE(?5, game_type),
            state = COALESCE(?6, state),
            connection_string = COALESCE(?7, connection_string),
+           settings = COALESCE(?8, settings),
            last_heartbeat = datetime('now')
          WHERE id = ?1`,
       )
@@ -335,6 +353,7 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           body.game_type ?? null,
           body.state ?? null,
           body.connection_string ?? null,
+          body.settings ?? null,
         )
         .run();
       return c.json({ ok: true }, 200);
@@ -421,6 +440,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
                 connection_string: z.string(),
                 map_code: z.string(),
                 game_type: z.string(),
+                /** The host's game settings, to play the match by its rules. */
+                settings: z.string().nullable(),
               }),
             },
           },
@@ -439,7 +460,7 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
       }
       const { id } = c.req.valid("param");
       const row = await c.env.DB.prepare(
-        `SELECT connection_string, map_code, game_type, players, max_players, state
+        `SELECT connection_string, map_code, game_type, players, max_players, state, settings
          FROM lobbies WHERE id = ?1 AND last_heartbeat >= datetime('now', ?2)`,
       )
         .bind(id, `-${STALE_SECONDS} seconds`)
@@ -450,13 +471,19 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           players: number;
           max_players: number;
           state: string;
+          settings: string | null;
         }>();
       if (!row) return c.json({ error: "not_found" }, 404);
       if (row.state === "full" || row.players >= row.max_players) {
         return c.json({ error: "full", message: "That game is full." }, 409);
       }
       return c.json(
-        { connection_string: row.connection_string, map_code: row.map_code, game_type: row.game_type },
+        {
+          connection_string: row.connection_string,
+          map_code: row.map_code,
+          game_type: row.game_type,
+          settings: row.settings ?? null,
+        },
         200,
       );
     },

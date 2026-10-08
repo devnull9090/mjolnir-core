@@ -1,5 +1,5 @@
 {
-  "version": "0.7.1",
+  "version": "0.8.1",
   "summary": "Adds MULTIPLAYER to the main menu: host a classic CE map with a game type for your fireteam, from screens made of the game's own widgets.",
   "category": "multiplayer"
 }

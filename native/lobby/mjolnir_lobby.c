@@ -108,6 +108,10 @@ static const char *bind_one(unsigned long long widget, const char *property, uns
  * package.loadlib(dll, "mjolnir_fireteam_open") reads the size from
  * native\fireteam_request.txt (default 16) and logs to native\fireteam.log.
  * Installing twice is harmless.
+ *
+ * The host's MAX PLAYERS (mjolnir_lobby_max) narrows only the PlayFab lobby:
+ * Party and the presence session stay at the fireteam size, and the lobby
+ * turns away anyone past the host's choice, however they join.
  */
 #define FIRETEAM_DEFAULT 16
 #define FIRETEAM_MAX 32
@@ -118,6 +122,9 @@ typedef long(__stdcall *create_network_t)(void *, void *, void *, unsigned, void
 static create_join_lobby_t real_create_join_lobby;
 static create_network_t real_create_network;
 static unsigned fireteam_size = FIRETEAM_DEFAULT;
+/* The host's MAX PLAYERS, 0 until it chooses one. */
+static volatile LONG lobby_max;
+#define LOBBY_MIN 2
 
 static void fireteam_log(const char *fmt, ...) {
     if (!dir[0]) find_dir();
@@ -163,8 +170,10 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
                                             void *lobby) {
     if (config) {
         unsigned *max_members = (unsigned *)config;
-        fireteam_log("lobby: maxMemberCount %u -> %u", *max_members, at_least(*max_members, fireteam_size));
-        *max_members = at_least(*max_members, fireteam_size);
+        unsigned chosen = (unsigned)lobby_max;
+        unsigned size = chosen ? chosen : at_least(*max_members, fireteam_size);
+        fireteam_log("lobby: maxMemberCount %u -> %u%s", *max_members, size, chosen ? " (the host's MAX PLAYERS)" : "");
+        *max_members = size;
     }
     /* PFLobbyCreateConfiguration: maxMemberCount, ownerMigrationPolicy,
        accessPolicy, searchPropertyCount (+12), keys (+16), values (+24),
@@ -312,9 +321,12 @@ typedef long(__stdcall *get_max_members_t)(void *, unsigned *);
 static join_lobby_t real_join_lobby;
 static lobby_leave_t real_lobby_leave;
 static void *volatile current_lobby;
+/* Whether current_lobby is one this game created: only its owner can resize it. */
+static volatile LONG lobby_owned;
 
 static void track_lobby(void *lobby, const char *how) {
     current_lobby = lobby;
+    InterlockedExchange(&lobby_owned, strcmp(how, "created") == 0);
     fireteam_log("lobby: %s %p", how, lobby);
 }
 
@@ -381,6 +393,7 @@ static long __stdcall hook_lobby_leave(void *lobby, void *user, void *context) {
 typedef long(__stdcall *lobby_post_update_t)(void *, void *, const void *, const void *, void *);
 
 enum { MEMBERSHIP_UNLOCKED = 0, MEMBERSHIP_LOCKED = 1 };
+#define LOBBY_UPDATE_MAX 1  /* maxMemberCount's index among the four leading pointers */
 #define LOBBY_UPDATE_LOCK 3 /* membershipLock's index among the four leading pointers */
 #define LOBBY_UPDATE_SIZE 80
 
@@ -424,17 +437,29 @@ static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fireteam_log("lobby: properties unreadable");
     }
-    if (!keep_lobby) {
+    /* A size the game asks for on its own lobby gives way to the host's MAX
+       PLAYERS. */
+    static unsigned chosen_size;
+    const unsigned *size = ((const unsigned *const *)update)[LOBBY_UPDATE_MAX];
+    int resize = size && lobby_max && lobby_owned && lobby == current_lobby && *size != (unsigned)lobby_max;
+    if (!keep_lobby && !resize) {
         const unsigned *lock = ((const unsigned *const *)update)[LOBBY_UPDATE_LOCK];
         if (lock) fireteam_log("lobby: membership %s for %p", *lock == MEMBERSHIP_LOCKED ? "locked" : "unlocked", lobby);
         return real_lobby_post_update(lobby, user, update, member, context);
     }
 
-    /* A public game: a copy of the update, with the lock left open and the
-       join flags kept on. */
-    static const unsigned unlocked = MEMBERSHIP_UNLOCKED;
     __declspec(align(8)) unsigned char copy[LOBBY_UPDATE_SIZE];
     memcpy(copy, update, sizeof copy);
+    if (resize) {
+        chosen_size = (unsigned)lobby_max;
+        ((const unsigned **)copy)[LOBBY_UPDATE_MAX] = &chosen_size;
+        fireteam_log("lobby: maxMemberCount %u asked for %p, kept at %u (the host's MAX PLAYERS)", *size, lobby,
+                     chosen_size);
+    }
+    if (!keep_lobby) return real_lobby_post_update(lobby, user, copy, member, context);
+
+    /* A public game: the lock left open and the join flags kept on. */
+    static const unsigned unlocked = MEMBERSHIP_UNLOCKED;
     const unsigned *lock = ((const unsigned *const *)copy)[LOBBY_UPDATE_LOCK];
     if (lock && *lock == MEMBERSHIP_LOCKED) {
         ((const unsigned **)copy)[LOBBY_UPDATE_LOCK] = &unlocked;
@@ -647,6 +672,61 @@ static void write_reply(const char *name, const char *text, size_t length) {
     fwrite(text, 1, length, f);
     fclose(f);
     MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* native\lobby_max.txt: the host's MAX PLAYERS (2 to the fireteam size). Kept
+   for every lobby this game creates from now on, and applied at once to the
+   one it owns, through PFLobbyPostUpdate as its owner. PlayFab answers
+   asynchronously: mjolnir_lobby_connection's "max" line shows what took.
+   Reply, native\lobby_max_reply.txt: "ok <n>", "kept <n>" (no lobby of ours
+   yet) or "error <why>". */
+typedef long(__stdcall *get_owner_t)(void *, const void **);
+
+__declspec(dllexport) int mjolnir_lobby_max(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], out[128];
+    snprintf(path, sizeof path, "%slobby_max.txt", dir);
+    FILE *f = fopen(path, "r");
+    unsigned size = 0;
+    if (f) {
+        if (fscanf(f, "%u", &size) != 1) size = 0;
+        fclose(f);
+    }
+    if (size < LOBBY_MIN || size > fireteam_size) {
+        snprintf(out, sizeof out, "error %u is not between %u and %u\n", size, LOBBY_MIN, fireteam_size);
+        write_reply("lobby_max_reply.txt", out, strlen(out));
+        return 0;
+    }
+    InterlockedExchange(&lobby_max, (LONG)size);
+    void *lobby = current_lobby;
+    lobby_post_update_t post =
+        real_lobby_post_update ? real_lobby_post_update : (lobby_post_update_t)playfab("PFLobbyPostUpdate");
+    get_owner_t get_owner = (get_owner_t)playfab("PFLobbyGetOwner");
+    const void *owner = NULL;
+    long hr = 0;
+    if (!lobby || !lobby_owned) {
+        snprintf(out, sizeof out, "kept %u\n", size);
+        fireteam_log("lobby: MAX PLAYERS %u, for the next lobby this game creates", size);
+    } else if (!post || !get_owner) {
+        snprintf(out, sizeof out, "error PFLobbyPostUpdate or PFLobbyGetOwner not found\n");
+    } else if ((hr = get_owner(lobby, &owner)) < 0 || !owner) {
+        snprintf(out, sizeof out, "error no lobby owner (0x%08lx)\n", (unsigned long)hr);
+    } else {
+        /* PFLobbyDataUpdate with only maxMemberCount set; PlayFab copies it
+           before the call returns. */
+        __declspec(align(8)) unsigned char update[LOBBY_UPDATE_SIZE] = {0};
+        unsigned members = size;
+        ((const unsigned **)update)[LOBBY_UPDATE_MAX] = &members;
+        hr = post(lobby, (void *)owner, update, NULL, NULL);
+        fireteam_log("lobby: MAX PLAYERS %u for %p: 0x%08lx", size, lobby, (unsigned long)hr);
+        if (hr < 0)
+            snprintf(out, sizeof out, "error PFLobbyPostUpdate 0x%08lx\n", (unsigned long)hr);
+        else
+            snprintf(out, sizeof out, "ok %u\n", size);
+    }
+    write_reply("lobby_max_reply.txt", out, strlen(out));
+    return 0;
 }
 
 /* The current lobby's connection string, membership lock and size, for a host
