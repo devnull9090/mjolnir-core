@@ -166,6 +166,32 @@ export function useHubLibrary(): Library {
   };
 }
 
+/**
+ * True when `candidate` is strictly newer than `installed`, by the same rule
+ * as `is_newer` in hub.rs: dotted numbers compared in order, and a
+ * pre-release tag (`1.3.0-beta`) sorting below the plain version. The
+ * Updates tab asks the Rust side; anything deciding "update" in the UI has to
+ * give the same answer or the two screens disagree.
+ */
+export function isNewerVersion(candidate: string, installed: string): boolean {
+  const key = (v: string) => {
+    const dash = v.indexOf("-");
+    const core = dash < 0 ? v : v.slice(0, dash);
+    const tag = dash < 0 ? "" : v.slice(dash + 1);
+    return { parts: core.split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : 0)), tag };
+  };
+  const a = key(candidate);
+  const b = key(installed);
+  // Vec<u64> ordering: element by element, then the shorter one is smaller.
+  for (let i = 0; i < Math.min(a.parts.length, b.parts.length); i++) {
+    if (a.parts[i] !== b.parts[i]) return a.parts[i] > b.parts[i];
+  }
+  if (a.parts.length !== b.parts.length) return a.parts.length > b.parts.length;
+  // No tag is a release, which outranks any pre-release of the same numbers.
+  if (!a.tag !== !b.tag) return !a.tag;
+  return a.tag > b.tag;
+}
+
 /** Conflicts touching one mod, resolved from release ids to slugs. */
 export function conflictsFor(
   slug: string,
