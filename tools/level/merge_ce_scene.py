@@ -367,6 +367,11 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--translucent", help="write the transparent shaders' sections (schi, scex, swat: the sky, "
                                           "lights, teleporter fields) here instead, as a mesh of their own")
+    ap.add_argument("--occluders", help="write the placed objects' collision models here, placed, as a mesh "
+                                        "of their own: what tool.exe's radiosity traces for their shadows "
+                                        "(blam-radiosity), trunks rather than alpha-tested boughs")
+    ap.add_argument("--lights", help="write the placed objects' lights (the light tags their attachments carry, "
+                                     "placed at their markers) here as JSON for blam-radiosity: CE's light fixtures")
     ap.add_argument("--sky", help="write the sky's sections here instead, as a mesh of their own (with "
                                   "--translucent: the sky is kilometres across, and sharing one normalised mesh "
                                   "with the map's transparent pieces cost those centimetres of precision)")
@@ -399,6 +404,9 @@ def main():
         if px is None:
             return np.full(3, 0.5)
         hgt, wid = px.shape[:2]
+        if not (np.isfinite(uv[0]) and np.isfinite(uv[1])):
+            # A chart tool.exe left without UVs (seen on a re-solved map).
+            return np.full(3, 0.5)
         x = min(wid - 1, max(0, int(uv[0] % 1.0 * wid)))
         y = min(hgt - 1, max(0, int(uv[1] % 1.0 * hgt)))
         return px[y, x]
@@ -428,6 +436,10 @@ def main():
     object_texels, object_prims = [], []
 
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
+    if a.occluders:
+        write_occluders(a.staging, placement, a.occluders)
+    if a.lights:
+        write_lights(placement, a.lights)
     out = list(bsp)
     placed, unlit = 0, 0
     cache, models = {}, {}
@@ -622,6 +634,101 @@ def with_decal_offset(prims, shaders):
             p = {**p, "pos": p["pos"] + p["nrm"] * DECAL_OFFSET}
         out.append(p)
     return out
+
+
+def write_lights(placement, path):
+    """The lights the placed objects carry (halo2ue's `lights` on a placement:
+    a `light` tag at a marker), each in the world: position (glTF metres),
+    the marker's forward axis (a spot's direction), the tag's radiosity
+    colour and intensity, its radius (world units) and cone (radians). Only
+    lights with a radiosity intensity count: a beacon's glow is a lens
+    flare, not light."""
+    out = []
+    for e in placement["entries"]:
+        if e.get("kind") not in ("scenery", "light_fixture", "machine", "control", "device"):
+            continue
+        lights = e.get("lights") or []
+        if not lights:
+            continue
+        r = ce_rotation(*e.get("rot", [0, 0, 0]))
+        t = ce_to_gltf(e["pos"])
+        swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+        for l in lights:
+            intensity = float(l.get("intensity") or 0.0)
+            colour = [float(c) for c in (l.get("color_rgb") or [0, 0, 0])]
+            if intensity <= 0.0 or max(colour) <= 0.0:
+                continue
+            pos = ce_to_gltf(l.get("offset") or [0, 0, 0]) @ r.T + t
+            d = np.asarray(l.get("direction") or [1, 0, 0], dtype=np.float64)
+            d = r @ (swap @ d)
+            n = np.linalg.norm(d)
+            d = (d / n).tolist() if n > 1e-6 else None
+            out.append({
+                "name": e.get("asset", "").split(chr(92))[-1] + ":" + (l.get("marker") or ""),
+                "tag": l.get("tag_path"),
+                "pos": [float(x) for x in pos],
+                "dir": d,
+                "colour": colour,
+                "intensity": intensity,
+                "radius": float(l.get("radius") or 0.0),
+                "falloff_angle": float(l.get("falloff_angle") or 0.0),
+                "cutoff_angle": float(l.get("cutoff_angle") or 0.0),
+            })
+    json.dump({"lights": out}, open(path, "w", encoding="utf-8"), indent=1)
+    print(f"{len(out)} placed light(s) -> {path}")
+
+
+def write_occluders(staging, placement, path):
+    """Every placed object's collision triangles (halo2ue's
+    collision/<model>.json, world units in the object's frame), rotated and
+    placed like its model, as one glTF mesh of positions."""
+    pos, idx, n = [], [], 0
+    for e in placement["entries"]:
+        rel = e.get("collision")
+        if not rel or e.get("kind") not in ("scenery", "light_fixture", "machine", "control", "device"):
+            continue
+        try:
+            tris = np.asarray(json.load(open(os.path.join(staging, rel), encoding="utf-8"))["triangles"], dtype=np.float64).reshape(-1, 3)
+        except (OSError, KeyError, ValueError):
+            continue
+        if not len(tris):
+            continue
+        r = ce_rotation(*e.get("rot", [0, 0, 0]))
+        t = ce_to_gltf(e["pos"])
+        p = ce_to_gltf(tris) @ r.T + t
+        pos.append(p.astype(np.float32))
+        idx.append(np.arange(n, n + len(p), dtype=np.uint32))
+        n += len(p)
+    if not pos:
+        print("  no object collision to write", file=sys.stderr)
+        return
+    pos = np.vstack(pos)
+    idx = np.concatenate(idx)
+    pbytes, ibytes = pos.tobytes(), idx.tobytes()
+    bin_path = os.path.splitext(path)[0] + ".bin"
+    with open(bin_path, "wb") as f:
+        f.write(pbytes)
+        f.write(ibytes)
+    g = {
+        "asset": {"version": "2.0", "generator": "merge_ce_scene.py"},
+        "buffers": [{"uri": os.path.basename(bin_path), "byteLength": len(pbytes) + len(ibytes)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(pbytes)},
+            {"buffer": 0, "byteOffset": len(pbytes), "byteLength": len(ibytes)},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": len(pos), "type": "VEC3",
+             "min": pos.min(axis=0).tolist(), "max": pos.max(axis=0).tolist()},
+            {"bufferView": 1, "componentType": 5125, "count": len(idx), "type": "SCALAR"},
+        ],
+        "materials": [{"name": "collision__occluder"}],
+        "meshes": [{"name": "occluders", "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}]}],
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+        "scene": 0,
+    }
+    json.dump(g, open(path, "w", encoding="utf-8"))
+    print(f"{len(idx) // 3} collision triangle(s) of placed objects -> {path}")
 
 
 def write_gltf(prims, path):

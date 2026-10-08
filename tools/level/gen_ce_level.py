@@ -340,6 +340,35 @@ def ctf_section(stands):
 REFERENCE_AMBIENT = 0.2 * (0.2126 * 0.871 + 0.7152 * 0.843 + 0.0722 * 0.753)
 
 
+def sky_sun(placement):
+    """CE's sun from the sky tag (halo2ue's placement.json, the sky entry's
+    `lights`): the exterior light with the narrowest diameter (the sky's
+    fill lights are tens of degrees wide and straight up). Returns
+    `{"gltf": [x, y, z] towards the sun in glTF space, "rotation": (pitch,
+    yaw) for the Unreal light, "color", "power"}`, or None without one.
+
+    CE gives a light's direction as yaw and pitch, z up: towards the sun is
+    (cos p cos y, cos p sin y, sin p); glTF is (x, z, -y) of that. Checked
+    against CE's own lightmaps on Danger Canyon (2026-10-07): traced sun
+    shadows cover 99% of CE's dark texels with this reading, 82-91% with the
+    mirrored ones, and 93% with the lightmap's incident average, which blends
+    the sun with the sky's fill and sits far too steep (87 against 35
+    degrees there)."""
+    sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
+    lights = [l for l in (sky or {}).get("lights", []) if l.get("affects_exteriors") and l.get("power", 0) > 0]
+    if not lights:
+        return None
+    l = min(lights, key=lambda l: (l.get("diameter", 0.0), -l.get("power", 0.0)))
+    yaw, pitch = l["yaw"], l["pitch"]
+    cx, cy, cz = math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)
+    # Unreal: (x, -y, z) of CE; the light shines along its forward vector,
+    # away from the sun (sun_rotation's convention).
+    ue_pitch = -math.degrees(pitch)
+    ue_yaw = math.degrees(math.atan2(cy, -cx))
+    return {"gltf": [cx, cz, -cy], "rotation": (round(ue_pitch, 1), round(ue_yaw, 1)),
+            "color": l.get("color"), "power": l.get("power")}
+
+
 def sun_rotation(scene_gltf):
     """The directional light's (pitch, yaw) from CE's own lighting.
 
@@ -414,7 +443,7 @@ def lightmap_tint(staging):
     return [round(float(c), 3) for c in total / total.max()]
 
 
-def lightmap_sun(scene_gltf, staging, bake_dir):
+def lightmap_sun(scene_gltf, staging, bake_dir, sun=None):
     """The level's lightmap in CE's shadow and in its sun, from lightmapped
     vertices facing the sun, split by the bake's traced sun visibility
     (lightmap_bake, green: under 0.1 shadow, over 0.9 sun): `levels`, the
@@ -481,9 +510,10 @@ def lightmap_sun(scene_gltf, staging, bake_dir):
                 flat = (n[:, 1] > 0.95) & (np.linalg.norm(inc, axis=1) > 0.5)
                 total += inc[flat].sum(axis=0)
             data.append((int(tail[1]), n, accessor(at["TEXCOORD_1"], 2).astype(np.float64)))
-    if not total.any() or not data:
+    if not data or (sun is None and not total.any()):
         return None
-    sun = total / np.linalg.norm(total)
+    # The sky tag's sun when known (sky_sun), else the incident average.
+    sun = np.asarray(sun, dtype=np.float64) if sun is not None else total / np.linalg.norm(total)
     shadow, sunlit, colours = [], [], []
     for page, n, uv in data:
         if page >= len(pages):
@@ -521,16 +551,28 @@ def sun_mask(bake, root):
     return None
 
 
+# `--no-sun-mask`: a level whose lightmaps the solver drew (its materials
+# carry the sun's shares) leaves the sun mask out: the terrain copy's shadows
+# are the sun's shadows there, and the mask's metre-wide transition would
+# soften every one of them.
+NO_SUN_MASK = False
+
+
 def environment(template, placement, scene=None, staging=None, bake=None, root=None):
     env = json.loads(json.dumps(template))
-    mask = sun_mask(bake, root) if root else None
+    mask = sun_mask(bake, root) if root and not NO_SUN_MASK else None
     if mask:
         env["sun_mask"] = mask
-    rotation = sun_rotation(scene) if scene else None
+    elif NO_SUN_MASK:
+        # Explicit: the loader must not fall back to a trial's mask beside it.
+        env["sun_mask"] = False
+    sky_light = sky_sun(placement)
+    rotation = sky_light["rotation"] if sky_light else (sun_rotation(scene) if scene else None)
     if rotation:
         env.setdefault("sun", {})
         env["sun"]["pitch"], env["sun"]["yaw"] = rotation
-    light = (lightmap_sun(scene, staging, bake) if scene and staging and bake else None) or {}
+    light = (lightmap_sun(scene, staging, bake, sun=sky_light and sky_light["gltf"])
+             if scene and staging and bake else None) or {}
     if light.get("levels"):
         env.setdefault("sun", {})["lightmap_sun"] = light["levels"]
     sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
@@ -555,6 +597,10 @@ def environment(template, placement, scene=None, staging=None, bake=None, root=N
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
+    # CE's own sun (colour x power, CE lightmap units): with the solver's
+    # ambient page the masters rebuild each texel's sunlit lightmap from it.
+    if sky_light and sky_light.get("color") and sky_light.get("power"):
+        env["sun"]["ce_light"] = [round(c * sky_light["power"], 4) for c in sky_light["color"]]
     env.setdefault("skylight", {})
     env["skylight"]["intensity"] = round(env["skylight"].get("intensity", 3.0) * k, 3)
     env["skylight"]["color"] = tint
@@ -719,13 +765,26 @@ def main():
                                     "(default: scene.gltf beside --terrain)")
     ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
                                    "(default: bake beside --terrain)")
+    ap.add_argument("--no-sun-mask", action="store_true",
+                    help="leave the sun mask out of the level (the solver's lightmaps: the terrain copy's shadows "
+                         "are the sun's shadows, and the mask would soften them)")
     ap.add_argument("--no-spawn-points", action="store_true",
                     help="do not place multiplayer spawn-point scenery at the starts")
     ap.add_argument("--game-type", choices=sorted(VEHICLE_SETS), default="all",
                     help="whose default vehicle set to place (default all: every vehicle)")
     ap.add_argument("--start-lift", type=float, default=START_LIFT,
                     help=f"Halo wu to raise player starts by (default {START_LIFT})")
+    ap.add_argument("--sky-sun", action="store_true",
+                    help="print the sky tag's sun as 'x,y,z' towards it in glTF space (lightmap_bake --sun) "
+                         "and exit; nothing when the sky has no sun")
     a = ap.parse_args()
+    global NO_SUN_MASK
+    NO_SUN_MASK = bool(a.no_sun_mask)
+    if a.sky_sun:
+        s = sky_sun(json.load(open(os.path.join(a.staging, "placement.json"))))
+        if s:
+            print(",".join(f"{c:.6f}" for c in s["gltf"]))
+        return
     scene = a.scene or (os.path.join(os.path.dirname(a.terrain), "scene.gltf") if a.terrain else None)
     bake = a.bake or (os.path.join(os.path.dirname(a.terrain), "bake") if a.terrain else None)
 

@@ -2,6 +2,11 @@
 """Describe a staged CE map's materials for the Unreal project to build.
 
     ce_material_spec.py <staging dir> <map name> <spec.json> [scene.gltf ...] [--code CODE]
+                        [--bake DIR] [--lightmaps DIR]
+
+With --lightmaps, a lightmap page is taken from that directory (`mjolnir
+level lightmaps`: the shipped page's name at a multiple of its size) when it
+is there, and from the staging otherwise.
 
 With --code, the map's packages go under /Game/MJOLNIR/Maps/<CODE> and cook
 into a chunk of their own (`cook_chunk`), which a map pack ships as
@@ -443,6 +448,11 @@ def main():
         i = args.index("--bake")
         bake_dir = args[i + 1]
         del args[i:i + 2]
+    lightmaps_dir = None
+    if "--lightmaps" in args:
+        i = args.index("--lightmaps")
+        lightmaps_dir = args[i + 1]
+        del args[i:i + 2]
     staging, name, dest = args[0:3]
     scenes = args[3:] or [os.path.join(staging, "bsp", "bsp_0.gltf")]
     textures_dir = os.path.join(staging, "textures")
@@ -487,11 +497,16 @@ def main():
             textures[t] = {"file": dds, "name": t, "lightmap": False, "cube": True}
         return t
 
+    lightmap_png = {}
+
     def texture(png, lightmap=False):
         """The asset name a bitmap imports as, or None if it was not staged."""
         if not png:
             return None
         path = os.path.join(textures_dir, png)
+        if lightmap and lightmaps_dir and os.path.exists(os.path.join(lightmaps_dir, png)):
+            path = os.path.join(lightmaps_dir, png)
+            lightmap_png[asset_name("T_", os.path.splitext(png)[0])] = png
         if not os.path.exists(path):
             print(f"  missing {png}", file=sys.stderr)
             return None
@@ -501,6 +516,21 @@ def main():
             textures.setdefault(t, {"file": os.path.abspath(mips), "name": t, "lightmap": False, "mips": True})
         else:
             textures.setdefault(t, {"file": os.path.abspath(path), "name": t, "lightmap": lightmap})
+        return t
+
+    def sunshare(lightmap):
+        """The sun's shares that go with a solved lightmap page (`mjolnir
+        level lightmaps`: <page>_sunshare.png beside it), as a texture of its
+        own, or None. The masters then draw CE's ambient and bounce and leave
+        every sun shadow on the terrain to Unreal (HasSunShare)."""
+        png = lightmap_png.get(lightmap)
+        if not png or not lightmaps_dir:
+            return None
+        path = os.path.join(lightmaps_dir, os.path.splitext(png)[0] + "_sunshare.png")
+        if not os.path.exists(path):
+            return None
+        t = lightmap + "_sunshare"
+        textures.setdefault(t, {"file": os.path.abspath(path), "name": t, "lightmap": True})
         return t
 
     def baked(lightmap):
@@ -565,6 +595,10 @@ def main():
                 entry["textures"]["Bake"] = bake
                 entry["scalars"]["HasBake"] = 1.0
                 entry["scalars"]["BakeAO"] = BAKE_AO
+            share = sunshare(maps["Lightmap"])
+            if share:
+                entry["textures"]["SunShare"] = share
+                entry["scalars"]["HasSunShare"] = 1.0
             sc = entry["scalars"]
             sc["Type"] = s.get("shader_type", 0)
             sc["Func"] = d.get("function", 0)

@@ -87,6 +87,41 @@ mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
 lightmap_bake`. Without `lightmap_bake` the map converts without its baked
 corners and sun.
 
+Step 3 also re-solves the map's lightmaps (`mjolnir level lightmaps`,
+[crates/blam-radiosity](../crates/blam-radiosity/README.md): tool.exe's own
+radiosity, on every core, the sun and sky fill evaluated per texel) at
+`LIGHTMAP_SCALE` times the shipped pages' size (`auto` by default: the
+power of two that brings the lit surfaces' median texel density to 4 per
+metre, no page over 2048; Blood Gulch comes out at 8x, Danger Canyon at
+8x, Hang 'Em High at 4x); the shipped pages are 1x and blur every shadow
+edge, and at 2x a pillar's shadow on a base roof was still a soft blob
+beside the traced shadow's hard edge. `LIGHTMAP_SCALE=0` keeps the
+shipped pages. A map's interior light is its emitting shaders' (Death
+Island's red and blue strips, the door glyphs): they shoot before the
+progressive loop, which would otherwise starve them on a large map, and
+their bounce fills the bases as CE's pages have them. The `light` tags
+placed objects carry go to `scene_lights.json` (`merge_ce_scene.py
+--lights`) but light nothing unless `--placed-lights`: tool.exe's own
+pages show no pool beside Death Island's twenty fixtures. Surfaces whose
+collision material is water take tool.exe's constant (230 230 255), and a
+rendered surface with no collision (water, strips) never blocks a ray, so
+the sea floor is lit through the water. The solved pages replace the shipped ones in the material
+spec (`ce_material_spec.py --lightmaps`), the bake's pages take their size,
+and the bake's sun channel (where CE's sun reaches) comes from the solver's
+`<page>_sunvis.png`. The solver's `<page>_sunshare.png` (each texel's light
+without the sun) goes to the materials as `SunShare`: the masters run CE's
+texture pass over it for the emissive, so CE's ambient, fill and bounce are
+drawn, rebuild the sunlit lightmap per channel from it and the sky's sun
+(`environment.sun.ce_light`) for the sun's albedo, and Unreal's sun, shadowed
+by the terrain copy, draws every sun shadow; the lightmap's own
+texel-stepped shadow edge never shows inside the crisp one. Such a level has no sun mask (`gen_ce_level.py --no-sun-mask`):
+the copy's shadows are the sun's shadows, and the mask's metre-wide
+transition would soften them. Placed scenery stays as CE lights it: the
+light sampled under each object from the lightmap, shaded by its incident
+direction, with no Unreal sun on it. CE never shadowed scenery dynamically,
+and under the copy's shadows a boulder beneath a tree drew half bright and
+half black, and boughs shadowed each other black.
+
 ### The structure BSP (step 2)
 
 Built on `BSP_03_1_Chasm_old`, a small shipped BSP with one kd supernode, one
