@@ -8,8 +8,8 @@
 //! a chart's edge never reads an empty texel.
 
 use crate::elements::{Element, Elements, Patch};
-use crate::math::{add, mul, norm, V3};
-use crate::transport::{direct_light, Light, Occluders, Options, Set};
+use crate::math::{add, luma, mul, norm, V3};
+use crate::transport::{direct_terms_placed, Light, Occluders, Options, PlacedLights, Set};
 use rayon::prelude::*;
 
 /// One lightmap page, RGB in 0..1 with a coverage mask.
@@ -18,6 +18,9 @@ pub struct Page {
     pub height: usize,
     pub rgb: Vec<V3>,
     pub covered: Vec<bool>,
+    /// Covered by a drawn patch, before the dilation (which fills `covered`
+    /// outwards): where a chart really is, what `--compare` scores.
+    pub drawn: Vec<bool>,
 }
 
 /// tool.exe's vertex colour: divided by its largest channel when that
@@ -30,7 +33,7 @@ pub fn vertex_colour(total: V3) -> V3 {
 
 impl Page {
     pub fn new(width: usize, height: usize) -> Page {
-        Page { width, height, rgb: vec![[0.0; 3]; width * height], covered: vec![false; width * height] }
+        Page { width, height, rgb: vec![[0.0; 3]; width * height], covered: vec![false; width * height], drawn: vec![false; width * height] }
     }
 
     /// Every texel a triangle (UVs in 0..1) touches, with its barycentric
@@ -115,6 +118,7 @@ impl Page {
                     let i = y * w + x;
                     out.rgb[i] = mul(sum, 1.0 / n as f32);
                     out.covered[i] = true;
+                    out.drawn[i] = true;
                 }
             }
         }
@@ -160,6 +164,22 @@ impl Page {
         }
     }
 
+    /// RGB from `self`, alpha from `alpha`'s red channel (a page of the
+    /// same size).
+    pub fn write_png_rgba(&self, alpha: &Page, path: &std::path::Path) -> Result<(), String> {
+        if alpha.width != self.width || alpha.height != self.height {
+            return Err(format!("{}: alpha page {}x{} against {}x{}", path.display(), alpha.width, alpha.height, self.width, self.height));
+        }
+        let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), self.width as u32, self.height as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().map_err(|e| e.to_string())?;
+        let q = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let data: Vec<u8> = self.rgb.iter().zip(&alpha.rgb).flat_map(|(c, a)| [q(c[0]), q(c[1]), q(c[2]), q(a[0])]).collect();
+        w.write_image_data(&data).map_err(|e| e.to_string())
+    }
+
     pub fn write_png(&self, path: &std::path::Path) -> Result<(), String> {
         let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut enc = png::Encoder::new(std::io::BufWriter::new(file), self.width as u32, self.height as u32);
@@ -188,8 +208,14 @@ pub struct Draw<'a> {
     pub occluders: Option<&'a Occluders>,
     /// The exterior and interior sets' lights.
     pub lights: Option<&'a (Vec<Light>, Vec<Light>)>,
+    /// The placed lights, re-evaluated per texel like the sun.
+    pub placed: Option<&'a PlacedLights>,
     pub cluster_sets: Option<&'a [Set]>,
     pub options: &'a Options,
+    /// Dilation rounds after the draw: the charts' padding grows with the
+    /// page scale, and a mip chain averages whatever is left empty into the
+    /// charts' edges (8 per unit of scale).
+    pub dilate: usize,
 }
 
 fn leaves(e: &Element) -> &[Patch] {
@@ -200,8 +226,17 @@ fn leaves(e: &Element) -> &[Patch] {
     }
 }
 
-/// Every lightmap page of the solve.
-pub fn pages(draw: &Draw) -> Vec<Page> {
+/// Every lightmap page of the solve and, with the per-texel pass, three
+/// companions per page of the same size and coverage: the sun's visibility
+/// (grey); the texel's light without the sun (CE's ambient, fill and
+/// bounce, as a lightmap page of its own: no shadow edge crosses it); and
+/// the sun's potential (grey: of the light the texel would hold with the
+/// sun unblocked, the sun's share), for the masters that draw CE's ambient
+/// and leave every sun shadow to Unreal. The ambient is its own page rather
+/// than a share of the lightmap because two bilinear samples multiplied are
+/// not the bilinear sample of the product: a share drew a bright rim along
+/// every shadow's texel contour (Blood Gulch, 2026-10-08).
+pub fn pages(draw: &Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
     let el = draw.elements;
     let k = draw.supersample.max(1);
     let per_texel = draw.occluders.is_some() && draw.lights.is_some() && draw.options.texel_direct;
@@ -210,23 +245,35 @@ pub fn pages(draw: &Draw) -> Vec<Page> {
     let value = |v: u32| -> V3 {
         let vert = &el.pool.vertices[v as usize];
         if per_texel {
-            [vert.total[0] - vert.sun[0], vert.total[1] - vert.sun[1], vert.total[2] - vert.sun[2]]
+            [
+                vert.total[0] - vert.sun[0] - vert.placed[0],
+                vert.total[1] - vert.sun[1] - vert.placed[1],
+                vert.total[2] - vert.sun[2] - vert.placed[2],
+            ]
         } else {
             vert.total
         }
     };
     let mut hi: Vec<Page> = draw.sizes.iter().map(|&(w, h)| Page::new((w * k).max(1), (h * k).max(1))).collect();
     for e in &el.elements {
-        let page = el.materials[e.material as usize].page;
-        let Some(p) = hi.get_mut(page) else { continue };
+        let m = &el.materials[e.material as usize];
+        let Some(p) = hi.get_mut(m.page) else { continue };
         for patch in leaves(e) {
-            p.triangle(patch.uv1, [value(patch.v[0]), value(patch.v[1]), value(patch.v[2])]);
+            match m.fixed {
+                Some(c) => p.triangle(patch.uv1, [c; 3]),
+                None => p.triangle(patch.uv1, [value(patch.v[0]), value(patch.v[1]), value(patch.v[2])]),
+            }
         }
     }
 
+    let mut sun_hi: Vec<Page> = Vec::new();
+    let mut ambient_hi: Vec<Page> = Vec::new();
+    let mut potential_hi: Vec<Page> = Vec::new();
     if per_texel {
         let occ = draw.occluders.unwrap();
         let (exterior, interior) = draw.lights.unwrap();
+        let none = PlacedLights::default();
+        let placed = draw.placed.unwrap_or(&none);
         let sets = draw.cluster_sets.unwrap_or(&[]);
         // Per page at the drawn resolution: every texel's position, normal
         // and light set from the patches covering it (inside a patch takes
@@ -234,10 +281,10 @@ pub fn pages(draw: &Draw) -> Vec<Page> {
         // direct light at each in parallel, added before the box filter so
         // the shadow edge is antialiased like the rest.
         for (pi, page) in hi.iter_mut().enumerate() {
-            let mut sample: Vec<Option<(V3, V3, Set)>> = vec![None; page.width * page.height];
+            let mut sample: Vec<Option<(V3, V3, Set, i32)>> = vec![None; page.width * page.height];
             let mut owned: Vec<bool> = vec![false; page.width * page.height];
             for e in &el.elements {
-                if el.materials[e.material as usize].page != pi {
+                if el.materials[e.material as usize].page != pi || el.materials[e.material as usize].fixed.is_some() {
                     continue;
                 }
                 let set = if e.cluster >= 0 { sets.get(e.cluster as usize).copied().unwrap_or(Set::Exterior) } else { Set::Exterior };
@@ -251,41 +298,94 @@ pub fn pages(draw: &Draw) -> Vec<Page> {
                         if inside || !owned[i] {
                             let p = add(add(mul(pv[0].p, w[0]), mul(pv[1].p, w[1])), mul(pv[2].p, w[2]));
                             let n = norm(add(add(mul(pv[0].n, w[0]), mul(pv[1].n, w[1])), mul(pv[2].n, w[2])));
-                            sample[i] = Some((p, n, set));
+                            sample[i] = Some((p, n, set, e.cluster));
                             owned[i] = inside;
                         }
                     });
                 }
             }
-            let direct: Vec<Option<V3>> = sample
+            let direct: Vec<Option<(V3, V3, V3, f32)>> = sample
                 .par_iter()
                 .map(|s| {
-                    s.map(|(p, n, set)| {
+                    s.map(|(p, n, set, cluster)| {
                         let lights = match set {
                             Set::Exterior => exterior,
                             Set::Interior => interior,
                         };
-                        direct_light(occ, lights, p, n, draw.options)
+                        direct_terms_placed(occ, lights, placed, cluster, p, n, draw.options)
                     })
                 })
                 .collect();
-            for (i, d) in direct.iter().enumerate() {
-                if let Some(d) = d {
-                    page.rgb[i] = add(page.rgb[i], *d);
-                    page.covered[i] = true;
+            let mut sun = Page::new(page.width, page.height);
+            let mut ambient = Page::new(page.width, page.height);
+            let mut potential_page = Page::new(page.width, page.height);
+            // A fixed material's texels: the constant on the ambient page
+            // too, no sun on the companions.
+            for e in &el.elements {
+                let m = &el.materials[e.material as usize];
+                if m.page != pi {
+                    continue;
+                }
+                if let Some(c) = m.fixed {
+                    for patch in leaves(e) {
+                        ambient.triangle(patch.uv1, [c; 3]);
+                        sun.triangle(patch.uv1, [[0.0; 3]; 3]);
+                        potential_page.triangle(patch.uv1, [[0.0; 3]; 3]);
+                    }
                 }
             }
+            for (i, d) in direct.iter().enumerate() {
+                if let Some((all, sun_part, potential, vis)) = d {
+                    // What the vertices hold here is the bounce, ambient and
+                    // (per texel) the fill: the texel's light without the sun.
+                    let without = add(page.rgb[i], [all[0] - sun_part[0], all[1] - sun_part[1], all[2] - sun_part[2]]);
+                    let total = add(without, *sun_part);
+                    let full = add(without, *potential);
+                    // The sun's potential as a share of the page's values,
+                    // clamped as tool.exe clamps (a sunlit texel saturates):
+                    // the ambient page's value divided by (1 - G) is the
+                    // texel's light with the sun unblocked. Neither side has
+                    // a shadow edge, so the share interpolates cleanly.
+                    let (lw, lf) = (luma(vertex_colour(without)), luma(vertex_colour(full)));
+                    let g = if lf > 1e-6 { (1.0 - lw / lf).clamp(0.0, 1.0) } else { 0.0 };
+                    page.rgb[i] = total;
+                    page.covered[i] = true;
+                    sun.rgb[i] = [*vis; 3];
+                    sun.covered[i] = true;
+                    ambient.rgb[i] = without;
+                    ambient.covered[i] = true;
+                    potential_page.rgb[i] = [g; 3];
+                    potential_page.covered[i] = true;
+                }
+            }
+            sun_hi.push(sun);
+            ambient_hi.push(ambient);
+            potential_hi.push(potential_page);
         }
     }
     let mut out: Vec<Page> = hi
         .iter()
-        .map(|p| if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone() } })
+        .map(|p| if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone(), drawn: p.covered.clone() } })
         .collect();
     for p in out.iter_mut() {
         for c in p.rgb.iter_mut() {
             *c = vertex_colour(*c);
         }
-        p.dilate(8);
+        p.drawn = p.covered.clone();
+        p.dilate(draw.dilate.max(1));
     }
-    out
+    let finish = |hi: &Vec<Page>, clamp: bool| -> Vec<Page> {
+        let mut v: Vec<Page> = hi.iter().map(|p| if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone(), drawn: p.covered.clone() } }).collect();
+        for p in v.iter_mut() {
+            if clamp {
+                for c in p.rgb.iter_mut() {
+                    *c = vertex_colour(*c);
+                }
+            }
+            p.drawn = p.covered.clone();
+            p.dilate(draw.dilate.max(1));
+        }
+        v
+    };
+    (out, finish(&sun_hi, false), finish(&ambient_hi, true), finish(&potential_hi, false))
 }

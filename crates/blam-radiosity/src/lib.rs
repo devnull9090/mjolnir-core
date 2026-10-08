@@ -30,6 +30,9 @@ pub struct Job<'a> {
     /// Extra opaque occluders: the placed objects' collision models
     /// (`merge_ce_scene.py --occluders`).
     pub occluders: Option<&'a Path>,
+    /// The placed lights (`merge_ce_scene.py --lights`): CE's light
+    /// fixtures and the lamps its scenery carries.
+    pub lights: Option<&'a Path>,
     pub options: transport::Options,
     /// Page size multiple over the shipped lightmap pages.
     pub scale: usize,
@@ -47,11 +50,22 @@ pub struct Job<'a> {
 
 pub struct Solved {
     pub pages: Vec<raster::Page>,
+    /// Per page, the sun's visibility (grey, same size and coverage), from
+    /// the per-texel pass; empty without it.
+    pub sun_pages: Vec<raster::Page>,
+    /// Per page, the texel's light without the sun (CE's ambient, fill and
+    /// bounce), a lightmap page of its own; from the per-texel pass.
+    pub ambient_pages: Vec<raster::Page>,
+    /// Per page, the sun's potential (grey): its share of the light the
+    /// texel would hold with the sun unblocked; from the per-texel pass.
+    pub potential_pages: Vec<raster::Page>,
     /// The solved elements and vertices themselves.
     pub detail: elements::Elements,
     /// Emitting elements, and how many of them have no cluster.
     pub emitters: usize,
     pub emitters_unplaced: usize,
+    /// How many placed lights lit the scene.
+    pub placed_lights: usize,
     /// Per cluster set, the vertex count (exterior, interior).
     pub set_vertices: (usize, usize),
     pub elements: usize,
@@ -78,6 +92,10 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     }
     let elements = elements::Elements::build(&scene, translucent.as_ref(), &staging, &job.options.quality, job.flat_reflectance);
     let mut solver = transport::Solver::new(&staging, &occluders, elements);
+    let placed_lights = match job.lights {
+        Some(p) if p.exists() => solver.load_placed(p)?,
+        _ => 0,
+    };
     solver.run(&job.options);
     let sizes: Vec<(usize, usize)> = page_sizes.iter().map(|&(w, h)| (w * job.scale, h * job.scale)).collect();
     let lights = (
@@ -87,12 +105,14 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     let cluster_sets: Vec<transport::Set> = (0..staging.clusters.as_ref().map(|c| c.clusters.len()).unwrap_or(0))
         .map(|c| transport::cluster_set(&staging, c as i32))
         .collect();
-    let pages = raster::pages(&raster::Draw {
+    let (pages, sun_pages, ambient_pages, potential_pages) = raster::pages(&raster::Draw {
         elements: &solver.elements,
         sizes: &sizes,
         supersample: job.supersample,
+        dilate: 8 * job.scale.max(1),
         occluders: Some(&occluders),
         lights: Some(&lights),
+        placed: Some(&solver.placed),
         cluster_sets: Some(&cluster_sets),
         options: &job.options,
     });
@@ -105,9 +125,13 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     let (n_elements, n_vertices) = (detail.elements.len(), detail.pool.vertices.len());
     Ok(Solved {
         pages,
+        sun_pages,
+        ambient_pages,
+        potential_pages,
         detail,
         emitters,
         emitters_unplaced,
+        placed_lights,
         set_vertices,
         elements: n_elements,
         vertices: n_vertices,

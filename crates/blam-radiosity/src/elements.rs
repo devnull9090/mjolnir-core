@@ -83,6 +83,9 @@ pub struct Vertex {
     pub sun: V3,
     /// ... and the ambient.
     pub ambient: V3,
+    /// What the placed lights gave directly (re-evaluated per texel, as
+    /// the sun is).
+    pub placed: V3,
     /// The face normals of the elements meeting here. A ray leaving the
     /// vertex into any of them starts inside the level's solid, where
     /// tool.exe's BSP walk reports a block; the rendered mesh has no far
@@ -139,6 +142,9 @@ pub struct Element {
 pub struct MaterialInfo {
     pub shader: String,
     pub page: usize,
+    /// Drawn as this constant instead of the solve: tool.exe's water
+    /// material surfaces (`Staging::water_shaders`).
+    pub fixed: Option<V3>,
     pub detail_level: usize,
     pub ignore_normals: bool,
     pub emission: V3,
@@ -170,7 +176,7 @@ impl Pool {
             return i;
         }
         let i = self.vertices.len() as u32;
-        self.vertices.push(Vertex { p, n, total: [0.0; 3], dir: [0.0; 3], sun: [0.0; 3], ambient: [0.0; 3], faces: Vec::new() });
+        self.vertices.push(Vertex { p, n, total: [0.0; 3], dir: [0.0; 3], sun: [0.0; 3], ambient: [0.0; 3], placed: [0.0; 3], faces: Vec::new() });
         self.index.insert(key, i);
         i
     }
@@ -394,6 +400,7 @@ impl Elements {
                 materials.push(MaterialInfo {
                     shader: mat.shader.clone(),
                     page,
+                    fixed: staging.water_shaders.contains(&mat.shader).then_some([0.9, 0.9, 1.0]),
                     detail_level: shader.detail_level,
                     ignore_normals: shader.ignore_normals,
                     emission: shader.emission,

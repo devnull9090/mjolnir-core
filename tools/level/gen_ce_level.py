@@ -551,11 +551,21 @@ def sun_mask(bake, root):
     return None
 
 
+# `--no-sun-mask`: a level whose lightmaps the solver drew (its materials
+# carry the sun's shares) leaves the sun mask out: the terrain copy's shadows
+# are the sun's shadows there, and the mask's metre-wide transition would
+# soften every one of them.
+NO_SUN_MASK = False
+
+
 def environment(template, placement, scene=None, staging=None, bake=None, root=None):
     env = json.loads(json.dumps(template))
-    mask = sun_mask(bake, root) if root else None
+    mask = sun_mask(bake, root) if root and not NO_SUN_MASK else None
     if mask:
         env["sun_mask"] = mask
+    elif NO_SUN_MASK:
+        # Explicit: the loader must not fall back to a trial's mask beside it.
+        env["sun_mask"] = False
     sky_light = sky_sun(placement)
     rotation = sky_light["rotation"] if sky_light else (sun_rotation(scene) if scene else None)
     if rotation:
@@ -587,6 +597,10 @@ def environment(template, placement, scene=None, staging=None, bake=None, root=N
     env.setdefault("sun", {})
     env["sun"]["intensity"] = round(env["sun"].get("intensity", 8.0) * k, 3)
     env["sun"]["color"] = tint
+    # CE's own sun (colour x power, CE lightmap units): with the solver's
+    # ambient page the masters rebuild each texel's sunlit lightmap from it.
+    if sky_light and sky_light.get("color") and sky_light.get("power"):
+        env["sun"]["ce_light"] = [round(c * sky_light["power"], 4) for c in sky_light["color"]]
     env.setdefault("skylight", {})
     env["skylight"]["intensity"] = round(env["skylight"].get("intensity", 3.0) * k, 3)
     env["skylight"]["color"] = tint
@@ -751,6 +765,9 @@ def main():
                                     "(default: scene.gltf beside --terrain)")
     ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
                                    "(default: bake beside --terrain)")
+    ap.add_argument("--no-sun-mask", action="store_true",
+                    help="leave the sun mask out of the level (the solver's lightmaps: the terrain copy's shadows "
+                         "are the sun's shadows, and the mask would soften them)")
     ap.add_argument("--no-spawn-points", action="store_true",
                     help="do not place multiplayer spawn-point scenery at the starts")
     ap.add_argument("--game-type", choices=sorted(VEHICLE_SETS), default="all",
@@ -761,6 +778,8 @@ def main():
                     help="print the sky tag's sun as 'x,y,z' towards it in glTF space (lightmap_bake --sun) "
                          "and exit; nothing when the sky has no sun")
     a = ap.parse_args()
+    global NO_SUN_MASK
+    NO_SUN_MASK = bool(a.no_sun_mask)
     if a.sky_sun:
         s = sky_sun(json.load(open(os.path.join(a.staging, "placement.json"))))
         if s:

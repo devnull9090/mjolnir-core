@@ -185,6 +185,15 @@ fn minus_one() -> i32 {
 pub struct Staging {
     pub dir: PathBuf,
     pub shaders: HashMap<String, Shader>,
+    /// The shaders the collision BSP's surfaces carry (`bsp/collision_0.json`
+    /// `materials`, as materials.json names them): what tool.exe's shadow
+    /// rays can meet. A rendered surface with no collision (water, light
+    /// strips, glow decals) is not in a ray's way at all.
+    pub collision_shaders: std::collections::HashSet<String>,
+    /// The shaders of collision surfaces whose material type is water
+    /// (28): tool.exe gives their charts a constant (0.9, 0.9, 1.0) instead
+    /// of a solve (Death Island's sea floor, every texel 230 230 255).
+    pub water_shaders: std::collections::HashSet<String>,
     pub sky: Sky,
     pub clusters: Option<Clusters>,
     /// The lightmap pages' file names, page 0 first.
@@ -266,11 +275,28 @@ impl Staging {
             Ok(bytes) => Some(serde_json::from_slice(&bytes).map_err(|e| format!("clusters_0.json: {e}"))?),
             Err(_) => None,
         };
+        let collision_materials: Vec<(String, u64)> = std::fs::read(dir.join("bsp").join("collision_0.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|c| {
+                c["materials"].as_array().map(|ms| {
+                    ms.iter()
+                        .filter_map(|m| {
+                            let path = m["shader_path"].as_str()?;
+                            let name = path.chars().map(|ch| if ch == '\\' || ch == '/' || ch == ' ' { '_' } else { ch }).collect::<String>();
+                            Some((name, m["material_type"].as_u64().unwrap_or(0)))
+                        })
+                        .collect()
+                })
+            })
+            .unwrap_or_default();
+        let collision_shaders = collision_materials.iter().map(|(n, _)| n.clone()).collect();
+        let water_shaders = collision_materials.iter().filter(|(_, t)| *t == 28).map(|(n, _)| n.clone()).collect();
         let bsp_material_names = std::fs::read(dir.join("bsp").join("bsp_0.gltf"))
             .ok()
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
             .and_then(|g| g["materials"].as_array().map(|ms| ms.iter().map(|m| m["name"].as_str().unwrap_or("").to_string()).collect()))
             .unwrap_or_default();
-        Ok(Staging { dir: dir.to_path_buf(), shaders, sky, clusters, pages, bsp_material_names })
+        Ok(Staging { dir: dir.to_path_buf(), shaders, collision_shaders, water_shaders, sky, clusters, pages, bsp_material_names })
     }
 }

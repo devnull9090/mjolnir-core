@@ -631,6 +631,13 @@ local function runtimeMaterial(world, spec, name)
             { R = -math.cos(p) * math.cos(y), G = -math.cos(p) * math.sin(y), B = -math.sin(p), A = 0 })
         local c = type(sun.color) == "table" and sun.color or { 1, 1, 1 }
         mid:SetVectorParameterValue(FName("SunColor"), { R = c[1], G = c[2], B = c[3], A = 1 })
+        -- CE's own sun (the sky light's colour x power, environment.sun.ce_light,
+        -- gen_ce_level.py): with the solver's ambient page the masters rebuild
+        -- each texel's sunlit lightmap from it, per channel, at the texel's N.L.
+        local ce = type(sun.ce_light) == "table" and sun.ce_light
+        if ce then
+            mid:SetVectorParameterValue(FName("SunCE"), { R = ce[1] or 0, G = ce[2] or 0, B = ce[3] or 0, A = 1 })
+        end
         -- The lit share comes out at about 0.7 of Lambert's prediction in
         -- this renderer (measured on Blood Gulch: sunlit ground matched with
         -- and without the share only at 0.7), so the material is told the
@@ -828,7 +835,7 @@ local function spawnSkyFill(world, lightFunction)
         pcall(function() c:SetAtmosphereSunLight(false) end)
         c:SetLightingChannels(true, false, false)
         c:SetIntensity(sky * SKY_FILL.per_sky)
-        c:SetLightColor({ R = SKY_FILL.color[1], G = SKY_FILL.color[2], B = SKY_FILL.color[3], A = 1 }, false)
+        c:SetLightColor({ R = SKY_FILL.color[1], G = SKY_FILL.color[2], B = SKY_FILL.color[3], A = 1 }, true)
         c:SetLightFunctionMaterial(lightFunction)
         pcall(function() c:SetLightFunctionFadeDistance(1.0e7) end)
         actor:K2_SetActorRotation({ Pitch = SKY_FILL.pitch, Yaw = yaw, Roll = 0 }, false)
@@ -867,6 +874,10 @@ local function applySunMask(world)
     -- trial is running on a bake in bake\ beside this mod.
     local env = Current.level.environment or {}
     local spec, tex = env.sun_mask, nil
+    -- A level whose lightmaps the solver drew says so (sun_mask false,
+    -- gen_ce_level.py --no-sun-mask): the terrain copy's shadows are the
+    -- sun's shadows, and a trial's mask beside this mod must not stand in.
+    if spec == false then return false, "the level names no sun mask (the solver's lightmaps)" end
     if TerrainLights.trial or type(spec) ~= "table" then
         if not stem then return false, "no terrain with a lightmap" end
         local raw = readFile(textureFile("bake\\" .. stem .. "_sunmask.json"))
@@ -1067,7 +1078,12 @@ local function spawnEnvironment(world)
             end)
             pcall(function() c:SetAtmosphereSunLight(false) end)
             if type(sun.color) == "table" then
-                c:SetLightColor({ R = sun.color[1], G = sun.color[2], B = sun.color[3], A = 1.0 }, false)
+                -- bSRGB true: the component keeps an 8-bit colour the renderer
+                -- decodes as sRGB, so the linear colour the level names must be
+                -- encoded going in. With false, (0.44, 0.54, 1.0) lit the world
+                -- at (0.17, 0.25, 1.0): Gephyrophobia's deck drew at half the
+                -- red and green the masters were told to expect (2026-10-08).
+                c:SetLightColor({ R = sun.color[1], G = sun.color[2], B = sun.color[3], A = 1.0 }, true)
             end
         end)
     if env.atmosphere ~= false then

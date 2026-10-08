@@ -702,6 +702,9 @@ else if (m == 3) v = Bake.bbb;
 else if (m == 4) v = Bake.ggg;
 else if (m == 5) v = SunMaskS.xxx;
 else if (m == 6) v = float3(saturate(W * SunMaskS), 0.0, 0.0);
+else if (m == 12) v = SunShare.rgb;
+else if (m == 14) v = Full.rgb;
+else if (m == 15) v = Amb.rgb;
 else if (m == 7) v = sqrt(saturate(Dyn.rgb));
 else if (m == 8) v = sqrt(saturate(Base.rgb));
 else if (m == 9)
@@ -814,6 +817,28 @@ return float4(a * share, share > 0.0 ? sun * SunMaskS * ndl / share : 0.0);
 # emissive still bounces onto everything else through Lumen.
 SUNLIT_CODE = TEXTURE_PASS_CODE + r"""
 float3 A = (model && DetailAfter > 0.5) ? B : T;
+if (HasSunShare > 0.5)
+{
+    // The sun's part of CE's frame, per channel: the texture pass at the
+    // solver's ambient page with the sky's sun (SunCE, colour x power) put
+    // back at this texel's N.L, clamped as tool.exe clamps, less the pass at
+    // the ambient page alone. Per channel because the lightmap adds in its
+    // own space and the screen does not (a luma share drew a grey sun over a
+    // blue ambient). The environment pass is not used for it: its bump
+    // modulation against the baked incident direction darkens flat ground's
+    // sun share by a third under a 40 degree sun (Blood Gulch, 2026-10-08).
+    float3 amb = saturate(SunShare.rgb);
+    float cosl = saturate(dot(normalize(N), normalize(SunDir)));
+    float3 full = amb + SunCE.rgb * cosl;
+    float mx = max(full.r, max(full.g, full.b));
+    if (mx > 1.0) full /= mx;
+    full = saturate(full);
+    float3 f1 = saturate(A * saturate(full * MaterialColor)) / DisplayGain;
+    float3 f0 = saturate(A * saturate(amb * MaterialColor)) / DisplayGain;
+    float3 s1 = lerp(pow((f1 + 0.055) / 1.055, 2.4), f1 / 12.92, step(f1, 0.04045));
+    float3 s0 = lerp(pow((f0 + 0.055) / 1.055, 2.4), f0 / 12.92, step(f0, 0.04045));
+    return max(s1 - s0, 0.0) * Exposure;
+}
 // The lightmap level the surface takes in full sun: its own where the bake
 // has it in the sun (CE drew some sunlit faces darker than others: the base
 // roof at ~0.6 against the open ground's 0.97), the level's sunlit level
@@ -827,21 +852,45 @@ float reach = HasBake > 0.5 ? saturate(Bake.g) : 1.0;
 // headlights (the level's sun is masked off there, M_CE_SunLight).
 float ceSun = levels ? smoothstep(0.15, 0.55, (l - LightmapSun.x) / (LightmapSun.y - LightmapSun.x)) : 1.0;
 float level = levels ? lerp(LightmapSun.y, max(l, LightmapSun.x), ceSun * reach) : 1.0;
+float shadeL = LightmapSun.x;
 float3 frame = saturate(A * saturate(level * MaterialColor)) / DisplayGain;
 float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
 // Only the sun's part of it: CE's ambient (its shadow level) stays CE's.
-float share = levels ? 1.0 - pow(saturate(LightmapSun.x / level), 2.2) : 1.0;
+float share = levels ? 1.0 - pow(saturate(shadeL / level), 2.2) : 1.0;
 return lerp(hi, lo, step(frame, 0.04045)) * Exposure * share;
 """
 
 UNREAL_BASE_CODE = r"""
+if (ObjectPage > 0.5) return 0.0.xxx;
 float flat = max(normalize(SunDir).z, 0.3);
+// With the solver's shares the sunlit colour already holds this texel's
+// own N.L (the share was solved with it), so that is what Unreal's N.L
+// must cancel, not flat ground's.
+if (HasSunShare > 0.5) flat = max(dot(normalize(N), normalize(SunDir)), 0.05);
 return saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain);
 """
 
 UNREAL_AMBIENT_CODE = r"""
 if (HasLightmap < 0.5) return Screen.rgb;
+// A placed object (ObjectPage) draws CE's own lighting for it: the light
+// sampled under it from the lightmap, the tree's soft shadow and all, shaded
+// by its incident direction (merge_ce_scene.py). Unreal's sun does not
+// light it (UNREAL_BASE_CODE): CE never shadowed scenery dynamically, and
+// under the terrain copy's shadows a boulder under a tree drew half bright
+// and half black, and boughs shadowed each other black (Danger Canyon,
+// 2026-10-08).
+if (ObjectPage > 0.5) return Screen.rgb;
+if (HasSunShare > 0.5)
+{
+    // CE's frame drawn from the texel's light without the sun (Ambient:
+    // the texture pass over the solver's ambient page): CE's ambient, fill
+    // and bounce, which no shadow edge crosses. Unreal's sun and the terrain
+    // copy's shadows draw the rest, so the lightmap's own shadow edge (its
+    // texels, bilinear, scalloped at any scale) never shows inside the
+    // crisp one (Blood Gulch's base roof, 2026-10-08).
+    return Ambient.rgb * AmbientGain;
+}
 float l = max(dot(Lightmap.rgb, float3(0.2126, 0.7152, 0.0722)), 1e-4);
 // CE's shade is brighter the less sky a surface sees (its radiosity): on
 // Blood Gulch the lightmap in shade has a median of 0.18 open to the sky and
@@ -852,6 +901,7 @@ float global = LightmapSun.y > LightmapSun.x ? LightmapSun.x * skyShade : l;
 // In the open, CE's shadow level, so a shadow on open sunlit ground is as
 // dark as CE's shadows are.
 float shadeOpen = global * AmbientGain;
+
 // In the open, CE's ambient is its shade (what SUNLIT_CODE left out).
 float3 floorO = Screen.rgb * pow(saturate(min(l, shadeOpen) / l), 2.2);
 // What Unreal's sun adds here when nothing shadows it (SunResponse: the
@@ -880,7 +930,7 @@ return lerp(Screen.rgb, open, reach);
 
 
 def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask, dynamic=True,
-              sunlit=None, bump_n=None):
+              sunlit=None, bump_n=None, sunshare=None, has_sunshare=None, ambient=None, debug_extra=None):
     """Connects `screen` (the colour to_screen made) to emissive and base
     colour, split for object shadows (SUN_WEIGHT_CODE), with the base colour
     topped up for the other lights (DYNAMIC_ALBEDO_CODE) when `dynamic`.
@@ -893,10 +943,15 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
            ("SunIlluminance", g.scalar("SunIlluminance", 8.0), ""),
            ("ShadowStrength", g.scalar("ShadowStrength", 0.0), "")]
     mask = [("SunMaskS", sun_mask, "")]
+    if sunshare is None:
+        sunshare = g.node(unreal.MaterialExpressionConstant4Vector, x=-300, constant=unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+    if has_sunshare is None:
+        has_sunshare = g.node(unreal.MaterialExpressionConstant, x=-300, r=0.0)
     baked = [("Lightmap", lightmap, "RGB"), ("HasLightmap", has_lightmap, ""),
              ("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), ""),
              ("Bake", bake, "RGBA"), ("HasBake", has_bake, ""), ("BakeRange", bake_range, ""),
-             ("SunVisBake", g.scalar("SunVisBake", 0.0), "")]
+             ("SunVisBake", g.scalar("SunVisBake", 0.0), ""),
+             ("SunShare", sunshare, "RGBA"), ("HasSunShare", has_sunshare, "")]
     w = g.custom(SUN_WEIGHT_CODE, [("Screen", screen, ""), ("N", n, "")] + sun + baked,
                  output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE sun share")
     base = g.custom(SUN_BASE_CODE, [("Screen", screen, ""), ("N", n, ""), ("W", w, "")] + sun,
@@ -916,11 +971,15 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
     if sunlit is not None:
         unreal_lit = g.scalar("UnrealLit", 0.0)
         albedo_gain = g.scalar("AlbedoGain", 0.5)
-        u_base = g.custom(UNREAL_BASE_CODE, [("Sunlit", sunlit, ""), ("AlbedoGain", albedo_gain, "")]
+        u_base = g.custom(UNREAL_BASE_CODE, [("Sunlit", sunlit, ""), ("AlbedoGain", albedo_gain, ""), ("N", n, ""),
+                                             ("HasSunShare", has_sunshare, ""), ("ObjectPage", g.scalar("ObjectPage", 0.0), "")]
                           + sun[:3], description="Unreal-lit base colour")
+        if ambient is None:
+            ambient = screen
         u_amb = g.custom(UNREAL_AMBIENT_CODE, [("Screen", screen, ""), ("AmbientGain", g.scalar("AmbientGain", 1.0), ""),
                          ("Sunlit", sunlit, ""), ("N", n, ""), ("AlbedoGain", albedo_gain, ""),
-                         ("SunResponse", g.scalar("SunResponse", 2.0), "")]
+                         ("SunResponse", g.scalar("SunResponse", 2.0), ""), ("Ambient", ambient, ""),
+                         ("ObjectPage", g.scalar("ObjectPage", 0.0), "")]
                          + baked + sun[:3] + mask, description="Unreal-lit ambient")
         pick = "return U > 0.5 ? A.rgb : B.rgb;"
         topped = g.custom(pick, [("U", unreal_lit, ""), ("A", u_base, ""), ("B", topped, "")], description="base, by mode")
@@ -933,8 +992,10 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
     debug = g.to_screen(g.custom(DEBUG_CODE, [
         ("DebugView", debug_view, ""), ("Lightmap", lightmap, "RGB"), ("Bake", bake, "RGBA"),
         ("BakeRange", bake_range, ""), ("BakeAO", g.scalar("BakeAO", 1.0), ""),
-        ("W", w, ""), ("Dyn", dyn, ""), ("Base", topped, ""),
-    ] + mask, description="CE debug view"))
+        ("W", w, ""), ("Dyn", dyn, ""), ("Base", topped, ""), ("SunShare", sunshare, "RGBA"),
+    ] + mask + (debug_extra or [("Full", g.node(unreal.MaterialExpressionConstant4Vector, x=-300, constant=unreal.LinearColor(0.0, 0.0, 0.0, 0.0)), ""),
+                                ("Amb", g.node(unreal.MaterialExpressionConstant4Vector, x=-300, constant=unreal.LinearColor(0.0, 0.0, 0.0, 0.0)), "")]),
+    description="CE debug view"))
     # 10: Unreal's light alone (the base colour, no emissive); 11: CE's
     # alone (the emissive, no base colour).
     emissive = g.custom("""
@@ -1046,6 +1107,11 @@ def build_environment(name, masked, defaults, two_sided=False):
     # tools: crates/ue-texture/examples/lightmap_bake.rs, on the same UVs.
     bake = g.texture("Bake", white, g.uv(1))
     has_bake = g.scalar("HasBake", 0.0)
+    # The solver's sun shares on the lightmap's UVs (ce_material_spec.py
+    # SunShare, from `mjolnir level lightmaps`): R the sun's share of the
+    # texel's light, G its share with the sun unblocked.
+    sunshare = g.texture("SunShare", white, g.uv(1))
+    has_sunshare = g.scalar("HasSunShare", 0.0)
     # A placed object's lightmap is its block of the object lighting page
     # (tools/level/merge_ce_scene.py): its light in the first of eight
     # columns, its reflection tint in the second, change colours A-D in the
@@ -1101,7 +1167,8 @@ def build_environment(name, masked, defaults, two_sided=False):
     ] + fog_inputs(g)
     has_lightmap = g.scalar("HasLightmap", 0.0)
     inputs.append(("HasLightmap", has_lightmap, ""))
-    inputs += [("Bake", bake, "RGBA"), ("HasBake", has_bake, ""), ("BakeAO", g.scalar("BakeAO", 1.0), "")]
+    inputs += [("Bake", bake, "RGBA"), ("HasBake", has_bake, ""), ("BakeAO", g.scalar("BakeAO", 1.0), ""),
+               ("SunShare", sunshare, "RGBA"), ("HasSunShare", has_sunshare, "")]
     for pname, default in (("Type", 0.0), ("Func", 0.0), ("MicroFunc", 0.0), ("HasPrimary", 0.0),
                            ("HasSecondary", 0.0), ("HasMicro", 0.0),
                            ("HasSelfIllum", 0.0), ("SpecLightmap", 0.0), ("ExtraShiny", 0.0),
@@ -1131,11 +1198,22 @@ def build_environment(name, masked, defaults, two_sided=False):
     sunlit = g.to_screen(g.custom(SUNLIT_CODE, [(name, *by_name[name]) for name in (
         "Base", "Primary", "Secondary", "Micro", "Multi", "Type", "Func", "MicroFunc", "HasPrimary",
         "HasSecondary", "HasMicro", "HasMulti", "ModelShader", "DetailMask", "DetailAfter", "MaterialColor",
-        "DisplayGain", "Exposure", "Lightmap", "HasLightmap", "Bake", "HasBake")]
-        + [("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), "")],
+        "DisplayGain", "Exposure", "Lightmap", "HasLightmap", "Bake", "HasBake", "SunShare", "HasSunShare")]
+        + [("LightmapSun", g.vector("LightmapSun", (0.0, 0.0, 0.0, 0.0)), ""),
+           ("N", vertex_n, ""),
+           ("SunDir", g.vector("SunDir", (0.0, 0.0, 1.0, 0.0)), ""),
+           ("SunCE", g.vector("SunCE", (0.0, 0.0, 0.0, 0.0)), "")],
         description="CE sunlit colour"))
+    # The same pass over the solver's ambient page (SunShare.rgb: the
+    # texel's light without the sun): CE's frame as it is in the sun's
+    # shadow, the terrain's emissive under Unreal's sun (UNREAL_AMBIENT_CODE).
+    amb_raw = g.custom(ENVIRONMENT_CODE,
+                       [(name, (sunshare if name == "Lightmap" else src), pin) for name, src, pin in inputs],
+                       description="CE shader_environment, ambient")
+    ambient = g.to_screen(amb_raw)
     sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask_node(g, white),
-              sunlit=sunlit, bump_n=bump_n)
+              sunlit=sunlit, bump_n=bump_n, sunshare=sunshare, has_sunshare=has_sunshare, ambient=ambient,
+              debug_extra=[("Full", sunlit, ""), ("Amb", amb_raw, "")])
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).

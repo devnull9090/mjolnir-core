@@ -72,7 +72,7 @@ terrain_material="${TERRAIN_MATERIAL:-/Game/Env/Bio/Rock/Canyon/Materials/MI_Roc
 # colour texture ("Diffuse") and one normal map ("Normal") on UV0 and nothing
 # else, from the synchronisation-test prototypes nothing in the game places.
 texture_parent="${TEXTURE_PARENT:-/Game/_Prototypes/SynchronizationTestContent/Assets/weapons/dmr/M_dmr_Inst.M_dmr_Inst}"
-exporter="${HALO2UE_EXPORT:-$HOME/prj/HalcyonRing/tools/halo2ue/exporter/target/release/halo2ue-export}"
+exporter="${HALO2UE_EXPORT:-$HOME/prj/HalcyonRing-devnull9090/tools/halo2ue/exporter/target/release/halo2ue-export}"
 : "${HCE_PAKS:?set HCE_PAKS to Meteorite/Content/Paks in the game install}"
 
 if [ "${#code}" -ne 3 ]; then
@@ -121,19 +121,21 @@ ue_editor="C:/Program Files/Epic Games/UE_5.5/Engine/Binaries/Win64/UnrealEditor
 cook="${CE_COOK:-$([ -x "$ue_editor" ] && echo 1 || echo 0)}"
 if [ "$cook" = "1" ]; then
   # The scenery the scenario places and the sky join the BSP's sections
-  # (tools/level/merge_ce_scene.py); the transparent ones (sky, lights,
+  # (tools/level/merge_ce_scene.py, which also writes the placed lights the
+  # solver puts into the pages); the transparent ones (sky, lights,
   # teleporter fields) are a mesh of their own, because a rewritten mesh
   # enters Unreal's translucency pass only through its single donor slot.
   # The sky is a mesh of its own: kilometres across, it cost the map's
   # transparent pieces their precision when they shared one.
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
-    --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf"
+    --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json"
   # The lightmaps re-solved (crates/blam-radiosity: tool.exe's radiosity on
   # every core, the sun and fill per texel) at LIGHTMAP_SCALE times the
-  # shipped pages' size; the shipped pages are 1x and blur every shadow
-  # edge. LIGHTMAP_SCALE=0 keeps the shipped pages.
+  # shipped pages' size (auto: the power of two that brings the texel
+  # density to 4/m, pages capped at 2048); the shipped pages are 1x and
+  # blur every shadow edge. LIGHTMAP_SCALE=0 keeps the shipped pages.
   lightmaps_args=()
-  lightmap_scale="${LIGHTMAP_SCALE:-2}"
+  lightmap_scale="${LIGHTMAP_SCALE:-auto}"
   if [ "$lightmap_scale" != "0" ]; then
     "$mjolnir" level lightmaps "$staging" "$out/scene.gltf" "$out/lightmaps" --scale "$lightmap_scale" \
       && lightmaps_args=(--lightmaps "$out/lightmaps")
@@ -247,7 +249,11 @@ sound_args=()
 # theirs in gen_ce_level.py).
 title_args=()
 [ -n "${TITLE:-}" ] && title_args=(--title "$TITLE")
-python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}"
+# With the solver's lightmaps the terrain copy's shadows are the sun's
+# shadows; the sun mask would soften every one (gen_ce_level.py).
+mask_args=()
+[ -n "${lightmaps_args+x}" ] && [ "${#lightmaps_args[@]}" -gt 0 ] && mask_args=(--no-sun-mask)
+python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}"
 
 echo "== 5/6 bake"
 bake=("$mjolnir" level bake "$out/$name.level.json" --standalone "$code" --bsp "8=$out/$name.sbsp" --out-dir "$out")

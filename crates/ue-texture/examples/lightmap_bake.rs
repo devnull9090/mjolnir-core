@@ -724,6 +724,33 @@ fn main() {
         }
     }
 
+    // The sun's visibility from the lightmap solver (`<page>_sunvis.png`
+    // beside the pages, `mjolnir level lightmaps`): the same rays that lit
+    // the page, antialiased over its supersamples, so the masters' Unreal
+    // sun share and the lightmap's shadow share one edge. Our own trace is
+    // a hard per-texel test, and its stair-stepped edge against the shadow
+    // proxy's darkened a sliver twice (Blood Gulch base roof, 2026-10-08).
+    for b in baked.iter_mut().filter(|_| !mask_only) {
+        let file = dir.join(format!("{}_sunvis.png", b.name));
+        let Some((sw, rgb)) = read_png_rgb(&file) else { continue };
+        let sh = rgb.len() / 3 / sw.max(1);
+        if sw == 0 || sh == 0 {
+            continue;
+        }
+        let at = |x: usize, y: usize| rgb[(y.min(sh - 1) * sw + x.min(sw - 1)) * 3] as f32 / 255.0;
+        for r in b.results.iter_mut() {
+            let (x, y) = (r.0 % b.w, r.0 / b.w);
+            let u = (x as f32 + 0.5) / b.w as f32 * sw as f32 - 0.5;
+            let v = (y as f32 + 0.5) / b.h as f32 * sh as f32 - 0.5;
+            let (x0, y0) = (u.floor().max(0.0) as usize, v.floor().max(0.0) as usize);
+            let (fx, fy) = ((u - x0 as f32).clamp(0.0, 1.0), (v - y0 as f32).clamp(0.0, 1.0));
+            let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+            let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+            r.2 = top * (1.0 - fy) + bottom * fy;
+        }
+        println!("page {}: sun visibility from {}", b.page, file.display());
+    }
+
     for b in baked.iter().filter(|_| !mask_only) {
         let Baked { page, ref name, lw, lh, scale, w, h, ref results, secs, .. } = *b;
         let detail = &b.sky;

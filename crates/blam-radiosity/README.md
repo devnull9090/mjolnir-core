@@ -25,6 +25,11 @@ tool.exe's lightmap texel for texel within a small tolerance.
 - `bsp/clusters_0.json`: each cluster's sky index (-1 = interior), each
   surface's cluster, and the cluster visibility rows (the PVS tool.exe
   computed at structure build).
+- `bsp/collision_0.json`: the collision BSP (the solid test below) and its
+  materials: which shaders a shadow ray can meet at all, and which are
+  water (material type 28).
+- `scene_lights.json` beside the scene (`merge_ce_scene.py --lights`): the
+  `light` tags placed objects carry, only with `--placed-lights` (below).
 
 ## Elements
 
@@ -68,9 +73,19 @@ Vertices accumulate irradiance; elements accumulate unshot energy.
    spread `-diameter..+diameter` radians in yaw and pitch with `power / n^2`
    each, travelling along `-(cos yaw cos pitch, sin yaw cos pitch, sin pitch)`
    (z up: yaw and pitch point at the sun), then one ambient light of the set's
-   ambient colour x power. Placed `light` objects and light fixtures become
-   point or spot lights (`1/d^2`, radius `sqrt(255 x power)`, a cosine ramp
-   between the cutoff and falloff angles) in their own cluster. A directional
+   ambient colour x power. Then every emitting element (a shader with a
+   radiosity power: lamps, light strips, door glyphs) shoots, each one,
+   before the progressive loop: its stop is an area-weighted mean, which on a
+   large map is met before a few bright square metres ever shoot (Death
+   Island's strips, 29 m2 at power 60, never shot while tool.exe's pages
+   carry their light; with them shooting first the base interior's pages
+   score 20-48/255 -> 9-17). tool.exe's code reads placed `light` objects
+   as point or spot lights (`1/d^2`, radius `sqrt(255 x power)`, a cosine
+   ramp between the cutoff and falloff angles); its pages show none of it:
+   Death Island's twenty fixtures (intensity 3, white) leave no pool on the
+   walls beside them (shipped 0.13-0.34 within 1.5 m, our solve without
+   them 0.09-0.25, with them at any scale worse), so they are off unless
+   `--placed-lights`. A directional
    light tests visibility with one ray towards the sun; ambient needs none.
    The light's colour reaches the vertex times the ray's transmission and the
    receiver cosine (the code as read shows none, but without it Danger
@@ -87,14 +102,27 @@ Vertices accumulate irradiance; elements accumulate unshot energy.
    `F = sum cos_s cos_r (A/3) / (pi r^2 + A/3)` over the samples that face the
    receiver and are visible from it, clamped to [0, 1]; a ray that meets a
    two-sided collision surface carrying a rendered material passes on
-   attenuated by that shader's `tint_color`, anything else blocks. The
+   attenuated by that shader's `tint_color`, anything else blocks. A
+   rendered surface the collision BSP does not carry (water, light strips,
+   glow decals) is not in a ray's way at all: Death Island's sea floor is
+   lit through its water (page 1: 59/255 -> 18 once the water stopped
+   blocking the sun). The
    receiver cosine is 1 for `ignore normals` shaders. The vertex gains
    `F x unshot` as irradiance and `direction x luma(gain)` into its incident
    accumulator; each receiving patch's element gains
    `(patch area / element area) x F_mean x reflectance` as unshot energy
    (`F_mean` the three corners' mean); the shooter's unshot energy is zeroed.
 3. Stop when the area-weighted mean unshot energy `(r+g+b)` drops below the
-   stop threshold (tool.exe: 0.01 final).
+   stop threshold. tool.exe prints 0.01 as its final target, but its pages
+   hold more bounce than a solve stopped there: Death Island's exterior
+   pages score 25.6 -> 20.4/255 going from 0.01 to 0.001 and Danger
+   Canyon's 15.6 -> 15.4, nothing worsens, so 0.001 is the default
+   (`--stop`), about twice the shots.
+4. An emitting surface's own lightmap shows its emission on top of what it
+   gathers (a patch's radiosity starts at its emission). A surface whose
+   collision material is water is not solved at all: its chart is the
+   constant (0.9, 0.9, 1.0), every texel of Death Island's sea floor being
+   230 230 255 in the shipped pages.
 
 ## Output
 
@@ -114,13 +142,37 @@ way, and written as PNGs the conversion cooks in place of the shipped pages.
 
 ## Running it
 
-`mjolnir level lightmaps <staging> <scene.gltf> <out> [--scale 2] [--finer 2]`
-(`crates/blam-cli/src/level_lightmaps.rs`) solves and writes the pages;
-`tools/level/convert_ce_map.sh` runs it at `LIGHTMAP_SCALE` (default 2, 0
+`mjolnir level lightmaps <staging> <scene.gltf> <out> [--scale auto|N] [--finer 2] [--placed-lights] [--verbose]`
+(`crates/blam-cli/src/level_lightmaps.rs`) solves and writes the pages
+(`--verbose` also reports each emitting shader: its elements, energy, what
+stayed unshot, and how lit the surfaces within 1.5 m ended up)
+(`auto`: the power of two that brings the lit surfaces' median texel
+density to `--density` 4/m within `--max-page` 2048 and `--max-texels`
+48 M; the dilation grows with the scale so a mip chain never averages the
+empty page into a chart);
+it also writes two companions per page from the same rays, antialiased:
+`<page>_sunvis.png`, the sun's visibility, which `lightmap_bake` takes as its
+green channel in place of its own hard per-texel trace; and
+`<page>_sunshare.png`, the texel's light without the sun (CE's ambient,
+fill and bounce as a lightmap page of its own). With that page
+(`ce_material_spec.py` SunShare, HasSunShare) the runtime masters run CE's
+texture pass over it for the terrain's emissive, rebuild each texel's sunlit
+lightmap per channel from it and the sky's sun (`environment.sun.ce_light`,
+colour x power, at the texel's N.L, clamped as tool.exe clamps) for the sun's
+albedo, and leave every sun shadow to Unreal's sun and the terrain copy's
+shadows, so the lightmap's own
+shadow edge (its texels, bilinear, scalloped at any scale) never shows
+inside the crisp one, and the level carries no sun mask (gen_ce_level.py
+`--no-sun-mask`), whose metre-wide transition would soften each edge. The
+ambient is a page and not a share of the lightmap because two bilinear
+samples multiplied are not the bilinear sample of the product: a share drew
+a bright rim along every shadow's texel contour;
+`tools/level/convert_ce_map.sh` runs it at `LIGHTMAP_SCALE` (default auto, 0
 keeps the shipped pages) and hands the directory to `ce_material_spec.py
 --lightmaps`. `--scale 1 --finer 1 --compare` is the acceptance test against
-the shipped pages: Danger Canyon scores a mean difference of 13/255 over the
-drawn texels (median 3), the remainder being tool.exe's placed-object
+the shipped pages: Danger Canyon scores a mean difference of 15/255 over the
+drawn texels and Death Island 16.5/255 (its base interior's pages 6-17,
+its sea floor under 2), the remainder being tool.exe's placed-object
 shadows and its own chart raster.
 
 The example `radiosity_bake` is the same solve with every knob exposed

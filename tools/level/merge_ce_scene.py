@@ -370,6 +370,8 @@ def main():
     ap.add_argument("--occluders", help="write the placed objects' collision models here, placed, as a mesh "
                                         "of their own: what tool.exe's radiosity traces for their shadows "
                                         "(blam-radiosity), trunks rather than alpha-tested boughs")
+    ap.add_argument("--lights", help="write the placed objects' lights (the light tags their attachments carry, "
+                                     "placed at their markers) here as JSON for blam-radiosity: CE's light fixtures")
     ap.add_argument("--sky", help="write the sky's sections here instead, as a mesh of their own (with "
                                   "--translucent: the sky is kilometres across, and sharing one normalised mesh "
                                   "with the map's transparent pieces cost those centimetres of precision)")
@@ -436,6 +438,8 @@ def main():
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
     if a.occluders:
         write_occluders(a.staging, placement, a.occluders)
+    if a.lights:
+        write_lights(placement, a.lights)
     out = list(bsp)
     placed, unlit = 0, 0
     cache, models = {}, {}
@@ -630,6 +634,48 @@ def with_decal_offset(prims, shaders):
             p = {**p, "pos": p["pos"] + p["nrm"] * DECAL_OFFSET}
         out.append(p)
     return out
+
+
+def write_lights(placement, path):
+    """The lights the placed objects carry (halo2ue's `lights` on a placement:
+    a `light` tag at a marker), each in the world: position (glTF metres),
+    the marker's forward axis (a spot's direction), the tag's radiosity
+    colour and intensity, its radius (world units) and cone (radians). Only
+    lights with a radiosity intensity count: a beacon's glow is a lens
+    flare, not light."""
+    out = []
+    for e in placement["entries"]:
+        if e.get("kind") not in ("scenery", "light_fixture", "machine", "control", "device"):
+            continue
+        lights = e.get("lights") or []
+        if not lights:
+            continue
+        r = ce_rotation(*e.get("rot", [0, 0, 0]))
+        t = ce_to_gltf(e["pos"])
+        swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+        for l in lights:
+            intensity = float(l.get("intensity") or 0.0)
+            colour = [float(c) for c in (l.get("color_rgb") or [0, 0, 0])]
+            if intensity <= 0.0 or max(colour) <= 0.0:
+                continue
+            pos = ce_to_gltf(l.get("offset") or [0, 0, 0]) @ r.T + t
+            d = np.asarray(l.get("direction") or [1, 0, 0], dtype=np.float64)
+            d = r @ (swap @ d)
+            n = np.linalg.norm(d)
+            d = (d / n).tolist() if n > 1e-6 else None
+            out.append({
+                "name": e.get("asset", "").split(chr(92))[-1] + ":" + (l.get("marker") or ""),
+                "tag": l.get("tag_path"),
+                "pos": [float(x) for x in pos],
+                "dir": d,
+                "colour": colour,
+                "intensity": intensity,
+                "radius": float(l.get("radius") or 0.0),
+                "falloff_angle": float(l.get("falloff_angle") or 0.0),
+                "cutoff_angle": float(l.get("cutoff_angle") or 0.0),
+            })
+    json.dump({"lights": out}, open(path, "w", encoding="utf-8"), indent=1)
+    print(f"{len(out)} placed light(s) -> {path}")
 
 
 def write_occluders(staging, placement, path):

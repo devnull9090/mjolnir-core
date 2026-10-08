@@ -53,6 +53,7 @@ fn main() {
         scene: &scene,
         translucent: Some(&translucent),
         occluders: Some(&occluders),
+        lights: None,
         options: Options {
             quality,
             stop: arg(&args, "--stop", 0.01),
