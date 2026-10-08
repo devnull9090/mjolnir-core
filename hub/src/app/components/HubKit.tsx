@@ -17,6 +17,7 @@ export {
   CommentThread,
   FileDropzone,
   Gallery,
+  Lightbox,
   MediaGallery,
   MediaUploader,
   ModCard,

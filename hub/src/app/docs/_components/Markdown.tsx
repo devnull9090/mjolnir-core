@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { slugify } from "@/lib/docs";
+import { ZoomableImages } from "./ZoomableImages";
 
 /**
  * Only the props that carry meaning are forwarded to the DOM. Spreading
@@ -79,6 +80,9 @@ const components: Components = {
    * need `fill` plus a sized wrapper to render a screenshot whose size is only
    * known at author time. These are pre-sized and small; the alt text becomes
    * the caption, since a guide's screenshots are worth labelling.
+   *
+   * The button is the lightbox's trigger: <ZoomableImages> below catches its
+   * click, so this stays server-rendered.
    */
   img: ({ src, alt }: { src?: string | Blob; alt?: string }) => {
     if (typeof src !== "string") return null;
@@ -87,13 +91,20 @@ const components: Components = {
     // reports as a hydration error.
     return (
       <span className="mt-6 block">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt ?? ""}
-          loading="lazy"
-          className="block w-full border border-border bg-surface"
-        />
+        <button
+          type="button"
+          data-zoom
+          aria-label={alt ? `Enlarge: ${alt}` : "Enlarge image"}
+          className="block w-full cursor-zoom-in"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt ?? ""}
+            loading="lazy"
+            className="block w-full border border-border bg-surface transition-colors hover:border-gold/50"
+          />
+        </button>
         {alt && <span className="mt-2 block text-xs leading-6 text-text-dim">{alt}</span>}
       </span>
     );
@@ -151,13 +162,15 @@ const components: Components = {
 export function Markdown({ children }: { children: string }) {
   return (
     <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSlug]}
-        components={components}
-      >
-        {children}
-      </ReactMarkdown>
+      <ZoomableImages>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeSlug]}
+          components={components}
+        >
+          {children}
+        </ReactMarkdown>
+      </ZoomableImages>
     </div>
   );
 }
