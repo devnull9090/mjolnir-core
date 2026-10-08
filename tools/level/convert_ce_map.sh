@@ -297,9 +297,9 @@ if [ "$install" = "--install" ]; then
   # hands it to the simulation's variant loader when the map starts.
   variants="$HCE_PAKS/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader/variants"
   mkdir -p "$variants"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --out "$variants/slayer.mglo"
+  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$variants/slayer.mglo"
 else
   MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --out "$out/slayer.mglo"
+  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$out/slayer.mglo"
 fi
 echo "done: $out"

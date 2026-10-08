@@ -422,8 +422,8 @@ gamut expansion and blue correction off, so the tonemapper leaves it as it is.
   in the same blob;
 - cube maps as six faces, plus the specular colours, the three
   self-illumination channels, every chicago stage and the sky's fog;
-- each vehicle's per-game-type spawn flags, so the level places only the
-  game type's default vehicle set (`gen_ce_level.py --game-type`).
+- each vehicle's team and per-game-type spawn flags, from which a match
+  picks CE's vehicle sets (see "Vehicle sets").
 
 Without the Unreal editor (`CE_COOK=0`) the converter falls back to
 `tools/level/ce_textures.py`: one composited texture per shader on a shipped
@@ -513,11 +513,9 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   tags a palette lists. A model variant gets an entry of its own. Grenades,
   the overshield and camouflage also need the game variant's map options
   (grenades, equipment and powerups on map), which `megalo write` sets.
-- **Vehicles:** every vehicle the CE scenario places (`--game-type all`), as
-  CE's "all vehicles" sets did. Most Ghosts, Banshees, Scorpions and rocket
-  Warthogs are in no game type's default set (spawn flags `0xf00`), so a
-  default set left the big maps nearly empty; no stock map stacks two
-  vehicles on one spot. The rocket Warthog spawns as the chaingun Warthog
+- **Vehicles:** every vehicle the CE scenario places (`--game-type all`),
+  hidden until a match's vehicle set picks it (see "Vehicle sets" below).
+  The rocket Warthog spawns as the chaingun Warthog
   (`VEHICLE_VARIANTS` is empty): as the Warthog's `rocket` model variant
   (`permutation data.variant name`) its turret had no Unreal actor
   Blueprint, so the gun was invisible and the gunner vanished (playtest,
@@ -536,7 +534,11 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   placement's, else its item collection's (halo2ue's
   `collection_spawn_time`), else 30 s. Vehicles respawn after 30 s and are
   given back 30 s after being left away from their spot. A map variant object
-  with spawn time 0 never came back.
+  with spawn time 0 never came back. Every respawn time is spread by 0-10 s
+  per placement (`RESPAWN_SPREAD`): with flat times, every object the
+  simulation had not placed came back in the same tick, and on Death Island
+  that stall reset the round every ~34 s, putting every player at a spawn
+  point without a death (2026-10-08).
 - **Teleporters:** a sender at every CE "teleport from" flag and a receiver at
   every "teleport to" flag. The simulation keeps Reach's multiplayer
   teleporters, which pair ends by channel. CE numbers a map's channels freely
@@ -632,6 +634,51 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
   which this layered material never reads, so it must be set by info. A
   respawn reuses the actor and puts the stock armour back, so the loader
   re-tints after every spawn.
+
+### Vehicle sets
+
+CE decides a map's vehicles per game type. Each scenario vehicle has a team
+index (0 red, 1 blue) and spawn flags: bits `0x1`-`0x8` put it in Slayer's,
+CTF's, King's and Oddball's **default** set, bits `0x100`-`0x800` **allow**
+it when a game variant uses custom vehicle settings. A game variant picks a
+set per team: DEFAULT, NONE, one type (WARTHOGS, GHOSTS, SCORPIONS, ROCKET
+WARTHOGS, BANSHEES, GUN TURRETS), or CUSTOM (0-4 of each type). Placing
+every game type's vehicles at once put 46 on Death Island, more than the
+simulation keeps, and it reset the round every ~34 s (2026-10-08).
+
+Reach does the same with Megalo labels:
+
+- `gen_ce_level.py` places every vehicle with the spawn flag "hide unless
+  megalo required" (`0x4`), its CE team as the owner team (defender/attacker),
+  and a label `ce_<type>_<rank>`. The type is CE's set category (a rocket
+  Warthog stays `rwarthog`). Within a team, a type's vehicles rank by how
+  many game types they are default in, and the k-th of each team share the
+  label. The level's `vehicle_sets` lists every vehicle's type, team, label
+  and CE's default and allowed game types.
+- The simulation places a hidden object only if the game variant has an
+  object filter on its label; a filter with a team constraint places only
+  that team's (both seen on Death Island, 2026-10-08). The variant holds 16
+  filters: 17 put every object out of play and lost the GPU device, and so
+  did a filter minimum count above 0. Hence the shared labels: the stock
+  maps' sets are symmetric, and a default set needs at most 9 filters.
+- `mjolnir megalo write --vehicle-label-pool` writes every label
+  (`ce_<type>_1..10`) into the variant's string table and a
+  `<mode>.layout.json` beside it: the bit the filters start at (they end the
+  stream), the variant's own filters, and each label's string index.
+- When a match starts, MJOLNIRLevelLoader (`vehicle_sets.lua`) reads the
+  host's vehicle settings from the settings line (`vehicles.<team>`,
+  `vehicles.<team>.<type>`), picks each team's labels, and appends one filter
+  per label: none of a team constraint if both teams take it, else the team's.
+  A custom count takes the lowest ranks CE allows in the game type; filters
+  past 16 are left out, highest ranks first, and logged. Every machine
+  computes the same filters from the same line and level.
+- The host sets them on the RED VEHICLES and BLUE VEHICLES pages of GAME
+  SETTINGS (`MJOLNIRLobby/Scripts/settings.lua`).
+
+Death Island places Banshees and Warthogs when the round begins, and its
+Ghosts, Scorpions and Shades only when their respawn time (30-40 s) runs out,
+with or without labels; Infinity places everything at once. Not yet
+explained.
 
 ### Health packs
 

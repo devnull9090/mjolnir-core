@@ -60,6 +60,7 @@ end
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
+local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -2742,14 +2743,41 @@ local function loadMegaloSwitch()
             -- host and on every fireteam client), patched into the copy the
             -- simulation loads, so every machine runs the same rules.
             local settingsText = readFile(MOD_DIR .. "\\variant_settings.txt")
+            local parsed = VariantSettings.parse(settingsText)
             if bytes and settingsText and settingsText:match("%S") then
-                local settings = VariantSettings.forMode(VariantSettings.parse(settingsText), name)
+                local settings = VariantSettings.forMode(parsed, name)
                 local patched, why = VariantSettings.apply(bytes, settings)
                 if patched then
                     bytes = patched
                     Log("multiplayer switch: game settings " .. VariantSettings.format(settings))
                 else
                     Log("multiplayer switch: game settings not applied (" .. tostring(why) .. "); the variant's own rules run")
+                end
+            end
+            -- CE's vehicle sets: the map places its vehicles hidden, and
+            -- the variant requires the labels of the ones the host's vehicle
+            -- settings pick (vehicle_sets.lua). Every machine computes the
+            -- same filters from the same settings line and level.
+            if bytes and type(level.vehicle_sets) == "table" then
+                local layout
+                local rawLayout = readFile(MOD_DIR .. "\\variants\\" .. name .. ".layout.json")
+                if rawLayout then
+                    local okL, l = pcall(Json.decode, rawLayout)
+                    if okL then layout = l end
+                end
+                local choices = VehicleSets.fromSettings(parsed)
+                local okV, out, added, dropped = pcall(function()
+                    return VehicleSets.apply(bytes, layout,
+                        VehicleSets.filters(level.vehicle_sets, name, choices))
+                end)
+                if okV and out then
+                    bytes = out
+                    Log(string.format("multiplayer switch: vehicles %s: %d label filter(s)%s",
+                        VehicleSets.describe(choices), added,
+                        dropped > 0 and (", " .. dropped .. " left out (the variant holds 16 filters)") or ""))
+                else
+                    Log("multiplayer switch: vehicle sets not applied (" .. tostring(okV and added or out)
+                        .. "); the map's vehicles stay hidden")
                 end
             end
             local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")

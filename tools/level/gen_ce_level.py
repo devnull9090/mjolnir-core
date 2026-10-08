@@ -56,6 +56,54 @@ START_TYPES = ("Slayer", "Ctf", "AllGames", "AllGamesExceptCtf", "AllGamesExcept
 # Infinity's, is 1.4 wu apart).
 VEHICLE_SETS = {"slayer": 1 << 0, "ctf": 1 << 1, "king": 1 << 2, "oddball": 1 << 3, "all": 0xfff}
 
+# CE's vehicle sets per game type, decided when the match starts (docs/
+# ce_map_conversion.md, "Vehicle sets"). Every vehicle is placed with the
+# spawn flag "hide unless megalo required" and a Megalo label,
+# `ce_<type>_<rank>`, which its counterpart on the other team shares: the
+# simulation places it only if the game variant has an object filter on the
+# label, with a team constraint when the two teams' sets differ (the owner
+# team is CE's team index). The variant holds at most 16 filters, so a label
+# per vehicle did not fit (Death Island's Slayer set alone is 16). Within a
+# team, a type's vehicles rank by how many game types they are default in,
+# so CE's (symmetric) default sets take few labels. The level's
+# `vehicle_sets` lists every vehicle with its label, team and CE's default
+# and allowed game types, and MJOLNIRLevelLoader adds the filters for the
+# host's vehicle settings (default: the game type's CE default set). The
+# type is CE's vehicle set category: a rocket Warthog stays "rwarthog"
+# though it spawns as the chaingun Warthog (VEHICLE_VARIANTS).
+VEHICLE_SET_TYPES = (("rwarthog", "rwarthog"), ("rocket", "rwarthog"), ("warthog", "warthog"),
+                     ("scorpion", "scorpion"), ("ghost", "ghost"), ("banshee", "banshee"),
+                     ("turret", "turret"))
+CE_VEHICLE_TYPE_SETS = {"human_jeep": "warthog", "human_tank": "scorpion", "alien_scout": "ghost",
+                        "alien_fighter": "banshee", "alien_turret": "turret", "human_turret": "turret"}
+CE_TEAMS = {0: "red", 1: "blue"}
+CE_OWNER_TEAMS = {"red": "defender", "blue": "attacker"}   # scenario owner team 0 and 1
+VEHICLE_SET_RANKS = 10   # crates/blam-cli megalo.rs: labels in the variants' pool
+HIDE_UNLESS_REQUIRED = "0x4"   # scenario multiplayer data spawn flags bit 2
+# Staging from before halo2ue read the spawn flags: every game type, both ways.
+ALL_GAME_TYPES = 0x0F0F
+
+# Respawn times are spread over RESPAWN_SPREAD seconds, deterministic per
+# object: a flat 30 s brought every vehicle and weapon the simulation had
+# not placed back in the same tick, a stall long enough on Death Island
+# that the simulation reset the round every ~34 s (2026-10-08).
+RESPAWN_SPREAD = 11
+
+
+def vehicle_set_type(asset, ce_type):
+    """CE's vehicle set category for a vehicle: by tag name, else by the
+    tag's vehicle type."""
+    name = asset.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    for key, kind in VEHICLE_SET_TYPES:
+        if key in name:
+            return kind
+    return CE_VEHICLE_TYPE_SETS.get(ce_type or "", "other")
+
+
+def spread(seconds, k):
+    """A respawn time spread by placement: `seconds` plus 0..RESPAWN_SPREAD-1."""
+    return seconds + (k * 7) % RESPAWN_SPREAD
+
 # CE vehicles that are a model variant of a Campaign Evolved one, by CE tag:
 # the rocket Warthog would be the Warthog with its "rocket" turret
 # (warthog-model variants: default, gauss, troop, rocket, ...). Empty for now,
@@ -879,29 +927,35 @@ def main():
             })
 
     vehicles, weapons, equipment, health_spots = [], [], [], []
+    vehicle_sets = []
     for e in placement["entries"]:
         asset = norm(e.get("asset", ""))
         if e["kind"] == "vehicle":
             # A CE scenario stacks every game type's vehicles on the same
-            # spots and spawns only the set its game type selects; placing
-            # them all piles them up. Staging that predates the spawn-flag
-            # fix reads 0 for every vehicle, so 0 keeps them all.
-            flags = e.get("spawn_flags", 0)
-            if flags and not flags & VEHICLE_SETS[a.game_type]:
+            # spots and spawns only the set its game type selects. Staging
+            # that predates the spawn-flag fix reads 0 for every vehicle.
+            flags = e.get("spawn_flags", 0) or ALL_GAME_TYPES
+            if not flags & VEHICLE_SETS[a.game_type]:
                 dropped[f"{asset} (not in {a.game_type}'s vehicle set)"] += 1
                 continue
             kind = resolve("vehicles", asset, e.get("vehicle_type"))
             if kind:
                 lift = VEHICLE_LIFT.get(kind, VEHICLE_LIFT_DEFAULT)
                 pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
+                set_type = vehicle_set_type(asset, e.get("vehicle_type"))
+                team = CE_TEAMS.get(e.get("team"), "neutral")
                 v = {"type": kind, "pos": to_ue(pos), "yaw": yaw_ue(e["rot"]),
-                     "set": {"multiplayer data.spawn time": str(DEFAULT_RESPAWN),
-                             "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT)}}
+                     "set": {"multiplayer data.spawn time": str(spread(DEFAULT_RESPAWN, len(vehicles))),
+                             "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT),
+                             "multiplayer data.owner team": CE_OWNER_TEAMS.get(team, "neutral"),
+                             "multiplayer data.spawn flags": HIDE_UNLESS_REQUIRED}}
                 if lift:
                     v["set"].update(NOT_AT_REST)
                 if asset in VEHICLE_VARIANTS:
                     v["set"]["permutation data.variant name"] = VEHICLE_VARIANTS[asset]
                 vehicles.append(v)
+                vehicle_sets.append({"type": set_type, "team": team,
+                                     "default": flags & 0xF, "allowed": (flags >> 8) & 0xF})
         elif e["kind"] == "netgame_equipment":
             if asset == HEALTH_PACK:
                 health_spots.append({
@@ -922,10 +976,25 @@ def main():
             item = {"type": kind, "pos": to_ue(pos)}
             if section == "weapons":
                 item["yaw"] = yaw_ue(e.get("rot", [0, 0, 0]))
-            item["set"] = {"multiplayer data.spawn time": str(spawn_seconds(e) or DEFAULT_RESPAWN)}
+            item["set"] = {"multiplayer data.spawn time":
+                           str(spread(spawn_seconds(e) or DEFAULT_RESPAWN, len(weapons) + len(equipment)))}
             if lift:
                 item["set"].update(NOT_AT_REST)
             (weapons if section == "weapons" else equipment).append(item)
+
+    # The vehicle set labels: by type and team, the vehicles default in the
+    # most game types first, then CE's order; the k-th of each team share
+    # `ce_<type>_<k>`.
+    ranked = collections.defaultdict(list)
+    for i, vs in enumerate(vehicle_sets):
+        ranked[(vs["type"], vs["team"])].append(i)
+    for members in ranked.values():
+        members.sort(key=lambda i: (-bin(vehicle_sets[i]["default"]).count("1"), -vehicle_sets[i]["default"],
+                                    -vehicle_sets[i]["allowed"], i))
+        for rank, i in enumerate(members, 1):
+            label = f"ce_{vehicle_sets[i]['type']}_{min(rank, VEHICLE_SET_RANKS)}"
+            vehicle_sets[i]["label"] = label
+            vehicles[i]["set"]["multiplayer data.megalo label"] = label
 
     single_bsp = bool(t.get("own_bsp")) and t.get("scenario_bsp_index") == 0
     wb = t["world_bounds"]
@@ -1152,6 +1221,8 @@ def main():
                                        if f["type"] == "CtfFlag" and f["team"] in CTF_TEAMS])
     if health_spots:
         level["health_pack"] = dict(HEALTH_PACK_MESH, materials=[ce_model_material("healthpack.png")])
+    if vehicle_sets:
+        level["vehicle_sets"] = vehicle_sets
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)

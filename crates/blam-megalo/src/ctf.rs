@@ -155,7 +155,7 @@ impl Variant {
                 .map(String::from)
                 .collect(),
             filters: (0..2 + SPAWN_LABELS.len() as u8)
-                .map(|label| Filter { label })
+                .map(|label| Filter { label, team: None })
                 .collect(),
             object_types: vec![c.flag_type],
             ..Variant::empty(c.score_to_win)

@@ -29,6 +29,7 @@ jobs:
         run: |
           lua5.4 tools/tests/test_variant_settings.lua
           lua5.4 tools/tests/test_game_settings.lua
+          lua5.4 tools/tests/test_vehicle_sets.lua
 
       - name: Lint Lua scripts
         run: |

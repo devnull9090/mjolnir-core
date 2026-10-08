@@ -21,7 +21,7 @@ end
 -- Defaults: the rules MJOLNIR's variants have always had.
 eq(Settings.variantLine(),
     "map_flags=31;respawn_seconds=5;score.ctf=3;score.slayer=25;score.team_slayer=50;suicide_seconds=5;"
-        .. "time_limit=0;trait.camo=0;trait.shields=0",
+        .. "time_limit=0;trait.camo=0;trait.shields=0;vehicles.blue=0;vehicles.red=0",
     "defaults")
 -- The loader keeps the score of the game type it stages.
 local forCtf = VariantSettings.forMode(VariantSettings.parse(Settings.variantLine()), "ctf")
@@ -47,7 +47,7 @@ end
 Settings.step(Settings.option("respawn"), -1)
 local line = Settings.variantLine()
 eq(line, "map_flags=22;respawn_seconds=0;score.ctf=3;score.slayer=50;score.team_slayer=50;suicide_seconds=5;"
-    .. "time_limit=5;trait.camo=4;trait.shields=1", "changed line")
+    .. "time_limit=5;trait.camo=4;trait.shields=1;vehicles.blue=0;vehicles.red=0", "changed line")
 eq(table.concat(Settings.changes("slayer"), "|"),
     "KILLS TO WIN: 50|TIME LIMIT: 5 MINUTES|RESPAWN TIME: INSTANT|SHIELDS: OFF|INVISIBLE PLAYERS: YES|"
         .. "GRENADES ON MAP: NO|POWERUPS ON MAP: NO", "the lobby card's rules")
@@ -59,6 +59,27 @@ Settings.reset()
 eq(#Settings.changes("slayer"), 0, "reset")
 Settings.load(saved)
 eq(Settings.variantLine(), line, "save and load")
+
+-- Vehicle sets: a team's counts show, count and travel only while its set
+-- is CUSTOM, and a client reads them back.
+Settings.reset()
+eq(#Settings.page(4, "slayer"), 1, "red's page: the set alone")
+local red = Settings.option("vehicles.red")
+for _ = 1, 8 do Settings.step(red, 1) end
+eq(Settings.text(red), "CUSTOM", "eight steps to CUSTOM")
+eq(#Settings.page(4, "slayer"), 7, "red's page: the set and six counts")
+eq(#Settings.page(5, "slayer"), 1, "blue's page untouched")
+Settings.step(Settings.option("vehicles.red.ghost"), 1)
+Settings.step(Settings.option("vehicles.red.ghost"), 1)
+Settings.step(Settings.option("vehicles.blue"), 1)
+local vline = Settings.variantLine()
+assert(vline:find("vehicles.red=8", 1, true) and vline:find("vehicles.red.ghost=2", 1, true)
+    and vline:find("vehicles.red.warthog=0", 1, true) and vline:find("vehicles.blue=1", 1, true)
+    and not vline:find("vehicles.blue.", 1, true), "vehicle keys in the line: " .. vline)
+eq(table.concat(Settings.changes("slayer"), "|"), "VEHICLE SET: CUSTOM|GHOSTS: 2|VEHICLE SET: NONE", "vehicle changes")
+eq(table.concat(Settings.describe(vline, "slayer"), "|"), table.concat(Settings.changes("slayer"), "|"),
+    "describe(vehicle line)")
+Settings.reset()
 
 -- Every line patches into the real variants, at every choice of every option.
 local variants = {

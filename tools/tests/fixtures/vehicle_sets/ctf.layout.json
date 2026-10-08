@@ -1,0 +1,102 @@
+{
+  "filters": [
+    {
+      "label": 0,
+      "team": null
+    },
+    {
+      "label": 1,
+      "team": null
+    },
+    {
+      "label": 2,
+      "team": null
+    },
+    {
+      "label": 3,
+      "team": null
+    },
+    {
+      "label": 4,
+      "team": null
+    },
+    {
+      "label": 5,
+      "team": null
+    }
+  ],
+  "filters_at": 35654,
+  "labels": {
+    "ce_banshee_1": 46,
+    "ce_banshee_10": 55,
+    "ce_banshee_2": 47,
+    "ce_banshee_3": 48,
+    "ce_banshee_4": 49,
+    "ce_banshee_5": 50,
+    "ce_banshee_6": 51,
+    "ce_banshee_7": 52,
+    "ce_banshee_8": 53,
+    "ce_banshee_9": 54,
+    "ce_ghost_1": 36,
+    "ce_ghost_10": 45,
+    "ce_ghost_2": 37,
+    "ce_ghost_3": 38,
+    "ce_ghost_4": 39,
+    "ce_ghost_5": 40,
+    "ce_ghost_6": 41,
+    "ce_ghost_7": 42,
+    "ce_ghost_8": 43,
+    "ce_ghost_9": 44,
+    "ce_other_1": 66,
+    "ce_other_10": 75,
+    "ce_other_2": 67,
+    "ce_other_3": 68,
+    "ce_other_4": 69,
+    "ce_other_5": 70,
+    "ce_other_6": 71,
+    "ce_other_7": 72,
+    "ce_other_8": 73,
+    "ce_other_9": 74,
+    "ce_rwarthog_1": 16,
+    "ce_rwarthog_10": 25,
+    "ce_rwarthog_2": 17,
+    "ce_rwarthog_3": 18,
+    "ce_rwarthog_4": 19,
+    "ce_rwarthog_5": 20,
+    "ce_rwarthog_6": 21,
+    "ce_rwarthog_7": 22,
+    "ce_rwarthog_8": 23,
+    "ce_rwarthog_9": 24,
+    "ce_scorpion_1": 26,
+    "ce_scorpion_10": 35,
+    "ce_scorpion_2": 27,
+    "ce_scorpion_3": 28,
+    "ce_scorpion_4": 29,
+    "ce_scorpion_5": 30,
+    "ce_scorpion_6": 31,
+    "ce_scorpion_7": 32,
+    "ce_scorpion_8": 33,
+    "ce_scorpion_9": 34,
+    "ce_turret_1": 56,
+    "ce_turret_10": 65,
+    "ce_turret_2": 57,
+    "ce_turret_3": 58,
+    "ce_turret_4": 59,
+    "ce_turret_5": 60,
+    "ce_turret_6": 61,
+    "ce_turret_7": 62,
+    "ce_turret_8": 63,
+    "ce_turret_9": 64,
+    "ce_warthog_1": 6,
+    "ce_warthog_10": 15,
+    "ce_warthog_2": 7,
+    "ce_warthog_3": 8,
+    "ce_warthog_4": 9,
+    "ce_warthog_5": 10,
+    "ce_warthog_6": 11,
+    "ce_warthog_7": 12,
+    "ce_warthog_8": 13,
+    "ce_warthog_9": 14
+  },
+  "max_filters": 16
+}
