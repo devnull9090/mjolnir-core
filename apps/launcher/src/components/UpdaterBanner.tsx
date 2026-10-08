@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { check, Update } from "@tauri-apps/plugin-updater";
 
+import { reportTransfer } from "../updates/useTransfers";
+
 export type UpdateStatus = "idle" | "checking" | "available" | "dismissed" | "downloading" | "done" | "error";
 
 export interface UpdateState {
@@ -61,15 +63,18 @@ export function useUpdater(): UpdateState {
     try {
       setStatus("downloading");
       let downloaded = 0;
+      let total: number | null = null;
 
       await update.downloadAndInstall((event) => {
         switch (event.event) {
           case "Started":
-            setTotalBytes(event.data.contentLength || 0);
+            total = event.data.contentLength || null;
+            setTotalBytes(total ?? 0);
             break;
           case "Progress":
             downloaded += event.data.chunkLength;
             setDownloadedBytes(downloaded);
+            reportTransfer({ task: "launcher", received: downloaded, total, written: 0 });
             break;
           case "Finished":
             setStatus("done");

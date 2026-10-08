@@ -11,6 +11,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ActionButton, Badge, ErrorNote, RefreshIcon, Spinner } from "@mjolnir/hub-kit";
 
 import { KIND_LABEL, type UpdateKind, type UpdatesState } from "../updates/useUpdates";
+import {
+  formatBytes,
+  formatDuration,
+  formatRate,
+  useTransfers,
+  type TaskTransfer,
+} from "../updates/useTransfers";
+import TransferPanel from "./TransferPanel";
 
 const KIND_TONE: Record<UpdateKind, "gold" | "blue" | "green" | "neutral"> = {
   launcher: "gold",
@@ -21,7 +29,8 @@ const KIND_TONE: Record<UpdateKind, "gold" | "blue" | "green" | "neutral"> = {
 };
 
 export default function Updates({ updates }: { updates: UpdatesState }) {
-  const { items, loading, warnings, progress, applying } = updates;
+  const { items, loading, warnings, progress, run, applying } = updates;
+  const transfers = useTransfers(applying);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -88,6 +97,10 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
         </div>
       </div>
 
+      {(applying || transfers.received > 0) && (
+        <TransferPanel stats={transfers} applying={applying} run={run} progress={progress} />
+      )}
+
       {warnings.length > 0 && (
         <p className="text-sm text-amber-400/90 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
           Could not check {warnings.join(", ")}. Anything listed below is still accurate.
@@ -116,6 +129,7 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
         <div className="space-y-1.5">
           {items.map((item) => {
             const state = progress[item.key]?.status ?? "idle";
+            const moved = transfers.tasks[item.key];
             const isOpen = expanded === item.key;
             return (
               <div
@@ -165,11 +179,14 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                       </button>
                     )}
                     {state === "running" ? (
-                      <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-                        <Spinner className="w-3.5 h-3.5" /> Updating…
+                      <span className="flex items-center gap-1.5 text-xs text-text-secondary tabular-nums">
+                        <Spinner className="w-3.5 h-3.5" />
+                        {moved && moved.rate >= 1024 ? formatRate(moved.rate) : "Updating…"}
                       </span>
                     ) : state === "done" ? (
-                      <span className="text-xs text-accent-green">Updated</span>
+                      <span className="text-xs text-accent-green">
+                        Updated{moved?.received ? ` · ${formatBytes(moved.received)}` : ""}
+                      </span>
                     ) : state === "failed" ? (
                       <ActionButton
                         size="sm"
@@ -191,6 +208,8 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                   </div>
                 </div>
 
+                {state === "running" && <RowProgress moved={moved} />}
+
                 {state === "failed" && (
                   <p className="mt-2 text-xs text-accent-red break-words">
                     {progress[item.key]?.error}
@@ -210,3 +229,43 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
     </div>
   );
 }
+
+/**
+ * One row's download: a bar, how much of how much, and how long is left.
+ * Nothing reported yet means the installer is still asking the server what
+ * to fetch; everything received means it is writing to disk.
+ */
+function RowProgress({ moved }: { moved: TaskTransfer | undefined }) {
+  const total = moved?.total ?? null;
+  const received = moved?.received ?? 0;
+  const known = total !== null && total > 0;
+  const fraction = known ? Math.min(1, received / total) : 0;
+  const installing = known && received >= total;
+  const left = known && moved && moved.rate >= 1024 ? (total - received) / moved.rate : null;
+
+  return (
+    <div className="mt-2.5 pl-7">
+      <div className="h-1.5 rounded-full bg-surface-hover overflow-hidden">
+        <div
+          className={`h-full rounded-full bg-mjolnir-gold transition-[width] duration-300 ease-out ${
+            installing || !known ? "animate-pulse" : ""
+          }`}
+          style={{ width: known ? `${fraction * 100}%` : received > 0 ? "100%" : "0%" }}
+        />
+      </div>
+      <p className="mt-1 flex justify-between gap-3 text-[11px] text-text-secondary font-mono tabular-nums">
+        <span>
+          {!moved || (received === 0 && !known)
+            ? "Starting…"
+            : installing
+              ? `Installing · ${formatBytes(total)}`
+              : known
+                ? `${formatBytes(received)} / ${formatBytes(total)} · ${Math.floor(fraction * 100)}%`
+                : formatBytes(received)}
+        </span>
+        {left !== null && !installing && <span>{formatDuration(left * 1000)} left</span>}
+      </p>
+    </div>
+  );
+}
+
