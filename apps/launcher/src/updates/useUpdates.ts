@@ -52,6 +52,8 @@ export interface UpdatesState {
   /** Sources that could not be checked, e.g. offline. Not an error state. */
   warnings: string[];
   progress: Record<string, UpdateProgress>;
+  /** The keys of the current apply run, or the last one, in the order run. */
+  run: string[];
   applying: boolean;
   refresh: () => Promise<void>;
   apply: (keys: string[]) => Promise<void>;
@@ -101,6 +103,7 @@ export function useUpdates(
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<Record<string, UpdateProgress>>({});
+  const [run, setRun] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -127,7 +130,7 @@ export function useUpdates(
           from: m.installed_version,
           to: m.latest_version,
           detail: `UE4SS ${m.latest_ue4ss_version} · ${m.file_count} files. This is the framework every other mod runs on.`,
-          apply: () => invoke("install_modpack"),
+          apply: () => invoke("install_modpack", { task: "modpack" }),
         });
       }
     } else {
@@ -145,7 +148,11 @@ export function useUpdates(
           detail: u.changelog,
           prerelease: u.channel === "beta",
           apply: () =>
-            invoke("hub_install", { slug: u.slug, releaseId: u.latest_release_id }),
+            invoke("hub_install", {
+              slug: u.slug,
+              releaseId: u.latest_release_id,
+              task: `content:${u.slug}`,
+            }),
         });
       }
     } else {
@@ -165,7 +172,7 @@ export function useUpdates(
           detail: status.signature_verified
             ? m.summary || null
             : "The signed set does not verify — this will refuse to install.",
-          apply: () => invoke("code_mods_install", { id: m.id }),
+          apply: () => invoke("code_mods_install", { id: m.id, task: `code:${m.id}` }),
         });
       }
     } else {
@@ -182,7 +189,7 @@ export function useUpdates(
           from: t.installed_version,
           to: t.latest_version,
           detail: null,
-          apply: () => invoke("install_tool", { id: t.id }),
+          apply: () => invoke("install_tool", { id: t.id, task: `tool:${t.id}` }),
         });
       }
     } else {
@@ -224,6 +231,7 @@ export function useUpdates(
         .map((k) => items.find((i) => i.key === k))
         .filter((i): i is UpdateItem => !!i)
         .sort((a, b) => Number(a.restarts ?? false) - Number(b.restarts ?? false));
+      setRun(queue.map((i) => i.key));
 
       const completed: UpdateItem[] = [];
       for (const item of queue) {
@@ -247,7 +255,7 @@ export function useUpdates(
     [applying, items, refresh, onApplied],
   );
 
-  return { items, loading, warnings, progress, applying, refresh, apply };
+  return { items, loading, warnings, progress, run, applying, refresh, apply };
 }
 
 export const KIND_LABEL: Record<UpdateKind, string> = {

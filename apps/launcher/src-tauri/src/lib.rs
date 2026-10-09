@@ -9,6 +9,7 @@ mod changelog;
 mod hub;
 mod maps;
 mod tools;
+mod transfer;
 
 // ─── Runtime bundle ─────────────────────────────────────────────────────
 //
@@ -1159,11 +1160,14 @@ fn verify_install() -> Result<VerifyResult, String> {
     })
 }
 
+// The installers below take an optional `task`: the Updates screen names
+// each run so the bytes it moves land on the right row (see transfer.rs).
+
 #[tauri::command]
-async fn install_modpack(app: AppHandle) -> Result<(), String> {
+async fn install_modpack(app: AppHandle, task: Option<String>) -> Result<(), String> {
     // Run the blocking download/extract/verify on a background thread
     let result = tauri::async_runtime::spawn_blocking(move || {
-        install_modpack_blocking(&app)
+        transfer::scoped(&app, task, || install_modpack_blocking(&app))
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?;
@@ -1185,8 +1189,10 @@ async fn get_tools() -> Result<Vec<tools::ToolStatus>, String> {
 }
 
 #[tauri::command]
-async fn install_tool(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || tools::install(&app, &id))
+async fn install_tool(app: AppHandle, id: String, task: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        transfer::scoped(&app, task, || tools::install(&app, &id))
+    })
         .await
         .map_err(|e| format!("Task join error: {e}"))?
 }
@@ -1222,8 +1228,15 @@ async fn hub_api(
 }
 
 #[tauri::command]
-async fn hub_install(slug: String, release_id: Option<String>) -> Result<hub::HubState, String> {
-    tauri::async_runtime::spawn_blocking(move || hub::install(slug, release_id))
+async fn hub_install(
+    app: AppHandle,
+    slug: String,
+    release_id: Option<String>,
+    task: Option<String>,
+) -> Result<hub::HubState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        transfer::scoped(&app, task, || hub::install(slug, release_id))
+    })
         .await
         .map_err(|e| format!("Task join error: {e}"))?
 }
@@ -1357,8 +1370,14 @@ async fn code_mods_status() -> Result<hub::CodeModsStatus, String> {
 }
 
 #[tauri::command]
-async fn code_mods_install(id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || hub::code_mods_install(id))
+async fn code_mods_install(
+    app: AppHandle,
+    id: String,
+    task: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        transfer::scoped(&app, task, || hub::code_mods_install(id))
+    })
         .await
         .map_err(|e| format!("Task join error: {e}"))?
 }
@@ -1469,22 +1488,7 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
     }
 
     let total_size = zip_resp.content_length().unwrap_or(0);
-    let mut zip_bytes: Vec<u8> = Vec::new();
-
-    let mut reader = zip_resp;
-    let mut downloaded = 0u64;
-    let mut buf = [0u8; 32768];
-
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| format!("Download read error: {}", e))?;
-        if n == 0 {
-            break;
-        }
-        zip_bytes.extend_from_slice(&buf[..n]);
-        downloaded += n as u64;
-
+    let zip_bytes = transfer::read_body(zip_resp, (total_size > 0).then_some(total_size), |downloaded| {
         if total_size > 0 {
             let pct = 5.0 + (downloaded as f32 / total_size as f32) * 55.0;
             emit_progress(
@@ -1498,7 +1502,8 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
                 pct,
             );
         }
-    }
+    })
+    .map_err(|e| format!("Download read error: {}", e))?;
 
     emit_progress(app, "downloading", "Download complete.", 60.0);
 
@@ -1557,8 +1562,9 @@ fn install_modpack_blocking(app: &AppHandle) -> Result<(), String> {
         let mut out_file = fs::File::create(&out_path)
             .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
 
-        io::copy(&mut file, &mut out_file)
+        let copied = io::copy(&mut file, &mut out_file)
             .map_err(|e| format!("Failed to write {}: {}", out_path.display(), e))?;
+        transfer::wrote(copied);
 
         let pct = 62.0 + (i as f32 / total_entries as f32) * 25.0;
         emit_progress(

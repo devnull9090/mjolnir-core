@@ -39,6 +39,63 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.11.1",
+      "tag": "launcher-v0.11.1",
+      "title": "Multiplayer shows what you have installed",
+      "date": "2026-10-08",
+      "summary": "Multiplayer stops offering updates you already installed from Updates, and each map shows its installed version.",
+      "body": "### Fixed\n\n- **No more false \"Update\" badges on Multiplayer.** After you ran every\n  update on the Updates tab, Multiplayer still marked each map \"Update\"\n  until you restarted the launcher. The two tabs now refresh each other\n  after an install, so each one reflects what the other just did.\n- **Multiplayer decides \"Update\" the way Updates does.** A map needs an\n  update only when the hub has a newer version than the one you have.\n  Install multiplayer uses the same rule, so it does not download a map\n  again that Updates just brought up to date.\n\n### Added\n\n- **Map versions on Multiplayer.** Each map card shows the version you have\n  installed, or `v1.2.0 → v1.3.0` when a newer one is out. A map you have\n  not installed shows the version on the hub.\n- **A \"Files missing\" badge** for a map that was installed but whose files\n  were deleted. Install multiplayer puts them back.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "No more false \"Update\" badges on Multiplayer. After you ran every update on the Updates tab, Multiplayer still marked each map \"Update\" until you restarted the launcher. The two tabs now refresh each other after an install, so each one reflects what the other just did.",
+            "Multiplayer decides \"Update\" the way Updates does. A map needs an update only when the hub has a newer version than the one you have. Install multiplayer uses the same rule, so it does not download a map again that Updates just brought up to date."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "Map versions on Multiplayer. Each map card shows the version you have installed, or v1.2.0 → v1.3.0 when a newer one is out. A map you have not installed shows the version on the hub.",
+            "A \"Files missing\" badge for a map that was installed but whose files were deleted. Install multiplayer puts them back."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.11.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.11.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.11.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.11.0",
+      "tag": "launcher-v0.11.0",
+      "title": "See your updates download",
+      "date": "2026-10-08",
+      "summary": "Updates now shows each download's progress, speed and time left, with a speed graph of the last minute above the list.",
+      "body": "### Added\n\n- **Progress on every update.** A row that is updating shows a bar, how much\n  has downloaded out of how much, its speed, and the time left. When the\n  download is done it says \"Installing\" while the files are written.\n  Finished rows show how much they downloaded.\n- **A speed graph above the list**, in the style of Steam's downloads page.\n  Download speed shows as bars and disk writes as a line, over the last\n  minute. Beside it are the current and peak speed, the total downloaded and\n  the disk speed. Below it, a bar for the whole batch shows how many updates\n  are done and how long the run has taken. It stays up as a summary when the\n  run finishes.\n\n### Notes\n\n- There is a time-left estimate for each update but not for the whole batch.\n  The launcher only learns how big an update is when its download starts.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Progress on every update. A row that is updating shows a bar, how much has downloaded out of how much, its speed, and the time left. When the download is done it says \"Installing\" while the files are written. Finished rows show how much they downloaded.",
+            "A speed graph above the list, in the style of Steam's downloads page. Download speed shows as bars and disk writes as a line, over the last minute. Beside it are the current and peak speed, the total downloaded and the disk speed. Below it, a bar for the whole batch shows how many updates are done and how long the run has taken. It stays up as a summary when the run finishes."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "There is a time-left estimate for each update but not for the whole batch. The launcher only learns how big an update is when its download starts."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.11.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.11.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.11.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.19.0",

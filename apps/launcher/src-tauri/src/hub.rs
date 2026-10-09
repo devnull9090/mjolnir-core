@@ -287,8 +287,9 @@ fn materialize(state: &HubState) -> Result<(), String> {
 
     for m in &mounts {
         for ext in ["utoc", "ucas"] {
-            fs::copy(m.cached(ext), m.in_paks(&paks, ext))
+            let copied = fs::copy(m.cached(ext), m.in_paks(&paks, ext))
                 .map_err(|e| format!("{}: {e}", m.slug))?;
+            crate::transfer::wrote(copied);
         }
         // A container without a `.pak` sibling is never discovered, so an
         // empty one rides along.
@@ -687,12 +688,12 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
     if let Some(auth) = load_auth() {
         request = request.bearer_auth(auth.key);
     }
-    let mut resp = request.send().map_err(|e| e.to_string())?;
+    let resp = request.send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Download failed: {}", resp.status()));
     }
-    let mut bytes = Vec::new();
-    resp.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    let total = resp.content_length();
+    let bytes = crate::transfer::read_body(resp, total, |_| {}).map_err(|e| e.to_string())?;
     let actual = sha256_hex(&bytes);
     if actual != expected {
         return Err(format!(
@@ -817,6 +818,7 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         };
         container_hashes.insert(format!("{stem}.{ext}"), sha256_hex(data));
         fs::write(release_cache.join(format!("{stem}.{ext}")), data).map_err(|e| e.to_string())?;
+        crate::transfer::wrote(data.len() as u64);
         if ext == "utoc" {
             containers.push(stem);
         }
@@ -1795,12 +1797,12 @@ fn code_mods_dir() -> Result<PathBuf, String> {
 /// looping over the single-mod entry point would multiply all of that by N.
 fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     let id = &entry.id;
-    let mut resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
+    let resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Download failed: {}", resp.status()));
     }
-    let mut bytes = Vec::new();
-    resp.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    let total = resp.content_length();
+    let bytes = crate::transfer::read_body(resp, total, |_| {}).map_err(|e| e.to_string())?;
     let actual = sha256_hex(&bytes);
     if actual != entry.sha256 {
         return Err(format!(
@@ -1827,7 +1829,8 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
         }
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
-        fs::write(&dest, data).map_err(|e| e.to_string())?;
+        fs::write(&dest, &data).map_err(|e| e.to_string())?;
+        crate::transfer::wrote(data.len() as u64);
     }
 
     // Register with UE4SS if mods.txt does not know it yet.
@@ -1969,10 +1972,15 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
             result.failed.push(format!("{title}: no published release"));
             continue;
         };
-        let have = load_state()
-            .installed
-            .iter()
-            .any(|m| m.slug == slug && m.release_id == release && cache_complete(m));
+        // Current means "not older than the listing", the test the Updates tab
+        // uses (`check_updates`), so a map it just updated is not fetched
+        // again here under a different release id of the same version.
+        let version = map["release"]["version"].as_str().unwrap_or("");
+        let have = load_state().installed.iter().any(|m| {
+            m.slug == slug
+                && (m.release_id == release || !is_newer(version, &m.version))
+                && cache_complete(m)
+        });
         if have {
             if restored.contains(slug) {
                 restoring.push(title);
