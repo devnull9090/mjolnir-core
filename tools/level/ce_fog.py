@@ -14,8 +14,7 @@ Layouts (H1 public definitions, checked on the 19 stock maps): the
 scenario's structure BSPs at 0x5A4 (32 bytes: file offset, size, address,
 pad, ref; the BSP block starts with a pointer to the sbsp root, in the
 block's own address space); sbsp fog planes at 376 (32 bytes: front region
-i16, pad 2, plane i, j, k, d, vertices block of x, y, z floats: the fog's
-polygon), fog regions at 388 (40: pad
+i16, pad 2, plane i, j, k, d, vertices block), fog regions at 388 (40: pad
 36, fog palette i16, weather palette i16), fog palette at 400 (136: name 32,
 fog reference 16, ...). fog: flags u32 at 0 (bit 0 is water), maximum
 density at 88, opaque distance at 96, opaque depth at 104, colour at 120.
@@ -61,16 +60,8 @@ def planar_fog(m):
             continue
         f = m.off(t["doff"])
         flags, = struct.unpack_from("<I", d, f)
-        # The plane's polygon (its vertices block): the fog's surface. It
-        # covers only its region (Chill Out's is 7.5 x 9 wu of a much larger
-        # floor at the plane's height), so the masters fog inside its
-        # footprint only.
-        vn, vp = struct.unpack_from("<II", d, e + 20)
-        verts = [struct.unpack_from("<3f", d, conv(vp) + 12 * v) for v in range(vn)]
         out.append({
             "plane": plane,
-            "bounds": ([min(v[0] for v in verts), min(v[1] for v in verts),
-                        max(v[0] for v in verts), max(v[1] for v in verts)] if verts else None),
             "fog": fog_path,
             "water": bool(flags & 1),
             "max_density": struct.unpack_from("<f", d, f + 88)[0],

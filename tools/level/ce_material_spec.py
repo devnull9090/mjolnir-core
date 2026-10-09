@@ -113,16 +113,7 @@ def planar_fog(staging, delta):
     i, j, k, d = p["plane"]
     n = [i, -j, k]
     p0 = [(i * d + delta[0]) * WU_TO_CM, -(j * d + delta[1]) * WU_TO_CM, (k * d + delta[2]) * WU_TO_CM]
-    # The polygon's footprint (x0, y0, x1, y1 cm, y mirrored), half a world
-    # unit wider for the walls at its edge; all zero fogs the whole map.
-    box = [0.0, 0.0, 0.0, 0.0]
-    if p.get("bounds"):
-        x0, y0, x1, y1 = p["bounds"]
-        m = 0.5
-        box = [(x0 - m + delta[0]) * WU_TO_CM, -(y1 + m + delta[1]) * WU_TO_CM,
-               (x1 + m + delta[0]) * WU_TO_CM, -(y0 - m + delta[1]) * WU_TO_CM]
     return {"PlanarFogPlane": n + [sum(a * b for a, b in zip(n, p0))],
-            "PlanarFogBox": box,
             "PlanarFogColor": list(p["color"]) + [1.0],
             "PlanarFogParams": [p["max_density"], max(p["opaque_distance"], 1e-3) * WU_TO_CM,
                                 max(p["opaque_depth"], 1e-3) * WU_TO_CM, 1.0]}
