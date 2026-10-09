@@ -39,6 +39,60 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.19.0",
+      "tag": "mods-v0.19.0",
+      "title": "Classic vehicle sets, fog, MCC's shaders and the playtest fixes",
+      "date": "2026-10-09",
+      "summary": "Classic maps place Halo CE's vehicles per game type and team, draw their fog and MCC's teleporter and sky shaders, and CTF, headshots and event sounds behave again.",
+      "body": "Needs the CE runtime pack 1.5.0 and the 1.4.0 classic map packs. The maps and\nthese mods go together: the 1.4.0 maps keep their vehicles hidden until this\nMJOLNIRLevelLoader places them.\n\n### Added\n\n- **Halo CE's vehicle sets** (MJOLNIRLevelLoader 0.5.0, MJOLNIRLobby 0.9.0).\n  Each game type places the vehicles Halo CE gives it, per team, instead of\n  every game type's vehicles at once. Death Island had 46 vehicles out, which\n  stalled the game and moved players to a spawn point about every 34\n  seconds. The host picks each team's vehicles on the new RED VEHICLES and\n  BLUE VEHICLES pages: Default, None, one type, or Custom, as in Halo CE.\n- **Fog** (1.4.0 map packs, CE runtime 1.5.0). Damnation's shaft,\n  Gephyrophobia's chasm, the water on Battle Creek, Chill Out and Death\n  Island are fogged as Halo CE fogs them.\n- **MCC's transparent shaders** (1.4.0 map packs, CE runtime 1.5.0).\n  Teleporter fields, power-ups, light volumes and the night sky's ring and\n  planet draw MCC's originals, not the soft stand-ins Halo CE for PC\n  shipped with. The teleporters ripple again.\n\n### Changed\n\n- **Maps are no longer drawn too bright** (CE runtime 1.5.0). Every classic\n  surface drew about 1.7 times too bright; Death Island's bases were white\n  where MCC draws them grey.\n- **Headlights light cliffs turned away from the sun** (CE runtime 1.5.0).\n  They stopped at a hard line.\n- **The sky sits where Halo CE draws it** (1.4.0 map packs, CE runtime\n  1.5.0). It was centred 525 metres under Gephyrophobia's bridge, and its\n  ring tore where its strips met.\n- **Scenery sits flat** (1.4.0 map packs). Tilted rocks and Ice Fields'\n  beacons lean the way Halo CE has them; beacons and flag bases sit on the\n  ground; health packs stand upright (MJOLNIRLevelLoader 0.5.0).\n- **Infinity's energy beam** is heard as it fires, from the beam, instead of\n  looping (MJOLNIRLevelLoader 0.5.0).\n- **F7 hides our HUD too** (MJOLNIRHud 0.5.1): the kill feed, scoreboard and\n  name tags go with the game's HUD.\n\n### Fixed\n\n- **CTF stutter** (MJOLNIRLobby 0.9.0). Matches no longer hitch every few\n  seconds; flags keep their team colours, first-person flag included.\n- **Every bullet a headshot** (CE runtime 1.5.0). The Spartan's body counted\n  as its head; body shots are body shots again.\n- **\"Slayer\" at the main menu** after a match (MJOLNIRLobby 0.9.0).\n- **Late sounds on clients** (MJOLNIRLobby 0.9.0): teleports and kills are\n  heard as they happen.\n- **Weapons stuck in the floor** on Blood Gulch and Danger Canyon (1.4.0 map\n  packs).\n- **Covenant shields** on Danger Canyon, Gephyrophobia and Rat Race stop shots\n  from both sides, and so do rocks and trees (1.4.0 map packs, CE runtime\n  1.5.0).\n- **Damnation's lights** no longer strobe.\n\n### Known issues\n\n- Rocket Warthogs spawn as chaingun Warthogs.\n- Death Island's Ghosts, Scorpions and Shades appear 30 to 40 seconds into\n  a match.\n- Players, vehicles and weapons are not fogged.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Halo CE's vehicle sets (MJOLNIRLevelLoader 0.5.0, MJOLNIRLobby 0.9.0). Each game type places the vehicles Halo CE gives it, per team, instead of every game type's vehicles at once. Death Island had 46 vehicles out, which stalled the game and moved players to a spawn point about every 34 seconds. The host picks each team's vehicles on the new RED VEHICLES and BLUE VEHICLES pages: Default, None, one type, or Custom, as in Halo CE.",
+            "Fog (1.4.0 map packs, CE runtime 1.5.0). Damnation's shaft, Gephyrophobia's chasm, the water on Battle Creek, Chill Out and Death Island are fogged as Halo CE fogs them.",
+            "MCC's transparent shaders (1.4.0 map packs, CE runtime 1.5.0). Teleporter fields, power-ups, light volumes and the night sky's ring and planet draw MCC's originals, not the soft stand-ins Halo CE for PC shipped with. The teleporters ripple again."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Maps are no longer drawn too bright (CE runtime 1.5.0). Every classic surface drew about 1.7 times too bright; Death Island's bases were white where MCC draws them grey.",
+            "Headlights light cliffs turned away from the sun (CE runtime 1.5.0). They stopped at a hard line.",
+            "The sky sits where Halo CE draws it (1.4.0 map packs, CE runtime 1.5.0). It was centred 525 metres under Gephyrophobia's bridge, and its ring tore where its strips met.",
+            "Scenery sits flat (1.4.0 map packs). Tilted rocks and Ice Fields' beacons lean the way Halo CE has them; beacons and flag bases sit on the ground; health packs stand upright (MJOLNIRLevelLoader 0.5.0).",
+            "Infinity's energy beam is heard as it fires, from the beam, instead of looping (MJOLNIRLevelLoader 0.5.0).",
+            "F7 hides our HUD too (MJOLNIRHud 0.5.1): the kill feed, scoreboard and name tags go with the game's HUD."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "CTF stutter (MJOLNIRLobby 0.9.0). Matches no longer hitch every few seconds; flags keep their team colours, first-person flag included.",
+            "Every bullet a headshot (CE runtime 1.5.0). The Spartan's body counted as its head; body shots are body shots again.",
+            "\"Slayer\" at the main menu after a match (MJOLNIRLobby 0.9.0).",
+            "Late sounds on clients (MJOLNIRLobby 0.9.0): teleports and kills are heard as they happen.",
+            "Weapons stuck in the floor on Blood Gulch and Danger Canyon (1.4.0 map packs).",
+            "Covenant shields on Danger Canyon, Gephyrophobia and Rat Race stop shots from both sides, and so do rocks and trees (1.4.0 map packs, CE runtime 1.5.0).",
+            "Damnation's lights no longer strobe."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Rocket Warthogs spawn as chaingun Warthogs.",
+            "Death Island's Ghosts, Scorpions and Shades appear 30 to 40 seconds into a match.",
+            "Players, vehicles and weapons are not fogged."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.19.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.19.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.19.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.11.1",
@@ -94,60 +148,6 @@
       "path": "/changelog/launcher/0.11.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.11.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.11.0"
-    },
-    {
-      "product": "mods",
-      "productName": "MJOLNIR Code Mods",
-      "version": "0.19.0",
-      "tag": "mods-v0.19.0",
-      "title": "Classic vehicle sets, fog, MCC's shaders and the playtest fixes",
-      "date": "2026-10-09",
-      "summary": "Classic maps place Halo CE's vehicles per game type and team, draw their fog and MCC's teleporter and sky shaders, and CTF, headshots and event sounds behave again.",
-      "body": "Needs the CE runtime pack 1.5.0 and the 1.4.0 classic map packs. The maps and\nthese mods go together: the 1.4.0 maps keep their vehicles hidden until this\nMJOLNIRLevelLoader places them.\n\n### Added\n\n- **Halo CE's vehicle sets** (MJOLNIRLevelLoader 0.5.0, MJOLNIRLobby 0.9.0).\n  Each game type places the vehicles Halo CE gives it, per team, instead of\n  every game type's vehicles at once. Death Island had 46 vehicles out, which\n  stalled the game and moved players to a spawn point about every 34\n  seconds. The host picks each team's vehicles on the new RED VEHICLES and\n  BLUE VEHICLES pages: Default, None, one type, or Custom, as in Halo CE.\n- **Fog** (1.4.0 map packs, CE runtime 1.5.0). Damnation's shaft,\n  Gephyrophobia's chasm, the water on Battle Creek, Chill Out and Death\n  Island are fogged as Halo CE fogs them.\n- **MCC's transparent shaders** (1.4.0 map packs, CE runtime 1.5.0).\n  Teleporter fields, power-ups, light volumes and the night sky's ring and\n  planet draw MCC's originals, not the soft stand-ins Halo CE for PC\n  shipped with. The teleporters ripple again.\n\n### Changed\n\n- **Maps are no longer drawn too bright** (CE runtime 1.5.0). Every classic\n  surface drew about 1.7 times too bright; Death Island's bases were white\n  where MCC draws them grey.\n- **Headlights light cliffs turned away from the sun** (CE runtime 1.5.0).\n  They stopped at a hard line.\n- **The sky sits where Halo CE draws it** (1.4.0 map packs, CE runtime\n  1.5.0). It was centred 525 metres under Gephyrophobia's bridge, and its\n  ring tore where its strips met.\n- **Scenery sits flat** (1.4.0 map packs). Tilted rocks and Ice Fields'\n  beacons lean the way Halo CE has them; beacons and flag bases sit on the\n  ground; health packs stand upright (MJOLNIRLevelLoader 0.5.0).\n- **Infinity's energy beam** is heard as it fires, from the beam, instead of\n  looping (MJOLNIRLevelLoader 0.5.0).\n- **F7 hides our HUD too** (MJOLNIRHud 0.5.1): the kill feed, scoreboard and\n  name tags go with the game's HUD.\n\n### Fixed\n\n- **CTF stutter** (MJOLNIRLobby 0.9.0). Matches no longer hitch every few\n  seconds; flags keep their team colours, first-person flag included.\n- **Every bullet a headshot** (CE runtime 1.5.0). The Spartan's body counted\n  as its head; body shots are body shots again.\n- **\"Slayer\" at the main menu** after a match (MJOLNIRLobby 0.9.0).\n- **Late sounds on clients** (MJOLNIRLobby 0.9.0): teleports and kills are\n  heard as they happen.\n- **Weapons stuck in the floor** on Blood Gulch and Danger Canyon (1.4.0 map\n  packs).\n- **Covenant shields** on Danger Canyon, Gephyrophobia and Rat Race stop shots\n  from both sides, and so do rocks and trees (1.4.0 map packs, CE runtime\n  1.5.0).\n- **Damnation's lights** no longer strobe.\n\n### Known issues\n\n- Rocket Warthogs spawn as chaingun Warthogs.\n- Death Island's Ghosts, Scorpions and Shades appear 30 to 40 seconds into\n  a match.\n- Players, vehicles and weapons are not fogged.",
-      "sections": [
-        {
-          "heading": "Added",
-          "items": [
-            "Halo CE's vehicle sets (MJOLNIRLevelLoader 0.5.0, MJOLNIRLobby 0.9.0). Each game type places the vehicles Halo CE gives it, per team, instead of every game type's vehicles at once. Death Island had 46 vehicles out, which stalled the game and moved players to a spawn point about every 34 seconds. The host picks each team's vehicles on the new RED VEHICLES and BLUE VEHICLES pages: Default, None, one type, or Custom, as in Halo CE.",
-            "Fog (1.4.0 map packs, CE runtime 1.5.0). Damnation's shaft, Gephyrophobia's chasm, the water on Battle Creek, Chill Out and Death Island are fogged as Halo CE fogs them.",
-            "MCC's transparent shaders (1.4.0 map packs, CE runtime 1.5.0). Teleporter fields, power-ups, light volumes and the night sky's ring and planet draw MCC's originals, not the soft stand-ins Halo CE for PC shipped with. The teleporters ripple again."
-          ]
-        },
-        {
-          "heading": "Changed",
-          "items": [
-            "Maps are no longer drawn too bright (CE runtime 1.5.0). Every classic surface drew about 1.7 times too bright; Death Island's bases were white where MCC draws them grey.",
-            "Headlights light cliffs turned away from the sun (CE runtime 1.5.0). They stopped at a hard line.",
-            "The sky sits where Halo CE draws it (1.4.0 map packs, CE runtime 1.5.0). It was centred 525 metres under Gephyrophobia's bridge, and its ring tore where its strips met.",
-            "Scenery sits flat (1.4.0 map packs). Tilted rocks and Ice Fields' beacons lean the way Halo CE has them; beacons and flag bases sit on the ground; health packs stand upright (MJOLNIRLevelLoader 0.5.0).",
-            "Infinity's energy beam is heard as it fires, from the beam, instead of looping (MJOLNIRLevelLoader 0.5.0).",
-            "F7 hides our HUD too (MJOLNIRHud 0.5.1): the kill feed, scoreboard and name tags go with the game's HUD."
-          ]
-        },
-        {
-          "heading": "Fixed",
-          "items": [
-            "CTF stutter (MJOLNIRLobby 0.9.0). Matches no longer hitch every few seconds; flags keep their team colours, first-person flag included.",
-            "Every bullet a headshot (CE runtime 1.5.0). The Spartan's body counted as its head; body shots are body shots again.",
-            "\"Slayer\" at the main menu after a match (MJOLNIRLobby 0.9.0).",
-            "Late sounds on clients (MJOLNIRLobby 0.9.0): teleports and kills are heard as they happen.",
-            "Weapons stuck in the floor on Blood Gulch and Danger Canyon (1.4.0 map packs).",
-            "Covenant shields on Danger Canyon, Gephyrophobia and Rat Race stop shots from both sides, and so do rocks and trees (1.4.0 map packs, CE runtime 1.5.0).",
-            "Damnation's lights no longer strobe."
-          ]
-        },
-        {
-          "heading": "Known issues",
-          "items": [
-            "Rocket Warthogs spawn as chaingun Warthogs.",
-            "Death Island's Ghosts, Scorpions and Shades appear 30 to 40 seconds into a match.",
-            "Players, vehicles and weapons are not fogged."
-          ]
-        }
-      ],
-      "path": "/changelog/mods/0.19.0",
-      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.19.0.md",
-      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.19.0"
     },
     {
       "product": "mods",
