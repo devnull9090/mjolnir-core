@@ -332,8 +332,42 @@ def extract_events(sounds_path, out):
     print(f"{len(sounds)} sound(s), {len(events)} event(s) -> {os.path.join(out, 'sounds.json')}, events.json")
 
 
+def marker_motion(staging, entry, marker):
+    """How a machine's marker moves with the device position animation: the
+    node it hangs on as merge_ce_scene.py draws it (device_motion: the
+    node's pivot, offsets and scales at the first and last frames, the gear's
+    period and the held position), in CE world units; None for a marker that
+    does not move. Infinity's beam emitters carry their loop on the beam's
+    node, 1089 wu of travel every 15 s: CE's sound rises with the beam, and
+    held at the marker's rest it played at full volume all the time
+    (2026-10-08)."""
+    if entry.get("kind") != "machine" or not entry.get("device") or not entry.get("model") or not marker:
+        return None
+    from merge_ce_scene import WU_TO_M, ce_rotation, ce_to_gltf, device_motion, load_gltf
+    try:
+        g, _ = load_gltf(os.path.join(staging, entry["model"]))
+    except OSError:
+        return None
+    want = "marker_" + marker
+    at = next((i for i, n in enumerate(g["nodes"])
+               if n.get("name") == want or str(n.get("name", "")).startswith(want + "_")), None)
+    parent = {c: i for i, n in enumerate(g["nodes"]) for c in n.get("children", [])}
+    if at is None or at not in parent:
+        return None
+    m = device_motion(entry, g, parent[at], ce_rotation(*(entry.get("rot") or [0, 0, 0])), ce_to_gltf(entry["pos"]))
+    if not m or (m["t0"] == m["t1"] and m["s0"] == m["s1"]):
+        return None
+
+    def ce(v):
+        # glTF metres (x, y, z) are CE (x, z, -y) world units times WU_TO_M.
+        return [round(v[0] / WU_TO_M, 4), round(-v[2] / WU_TO_M, 4), round(v[1] / WU_TO_M, 4)]
+    return {"pivot": ce(m["pivot"]), "t0": ce(m["t0"]), "t1": ce(m["t1"]), "s0": round(m["s0"], 5),
+            "s1": round(m["s1"], 5), "period": m["period"], "position": m["position"]}
+
+
 def object_rotation(yaw, pitch, roll):
-    """CE object rotation, row-major (as gen_ce_level.py has it)."""
+    """CE object rotation, row-major (as gen_ce_level.py has it): yaw about
+    z, then pitch and roll about the world's y and x axes."""
     cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch),
                               math.cos(roll), math.sin(roll))
     rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
@@ -342,7 +376,7 @@ def object_rotation(yaw, pitch, roll):
 
     def mul(a, b):
         return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    return mul(mul(rz, ry), rx)
+    return mul(mul(rx, ry), rz)
 
 
 def main():
@@ -357,7 +391,7 @@ def main():
                 for e in placement["entries"] if e.get("kind") == "sound_scenery"]
     # Looping sounds placed objects carry (halo2ue's `sounds`: the Covenant
     # shield generator's and uplink's hum, the teleporters' loop, klaxons),
-    # at the attachment's marker.
+    # at the attachment's marker; on a machine's moving part, moving with it.
     for e in placement["entries"]:
         if e.get("kind") == "sound_scenery":
             continue
@@ -365,8 +399,12 @@ def main():
         for s in e.get("sounds") or []:
             o = s.get("offset") or [0, 0, 0]
             pos = [e["pos"][k] + sum(r[k][j] * o[j] for j in range(3)) for k in range(3)]
-            emitters.append({"pos": pos, "rot": e.get("rot", [0, 0, 0]), "sound": s["sound"],
-                             "attached_to": e.get("asset")})
+            emitter = {"pos": pos, "rot": e.get("rot", [0, 0, 0]), "sound": s["sound"],
+                       "attached_to": e.get("asset")}
+            motion = marker_motion(staging, e, s.get("marker") or "")
+            if motion:
+                emitter["motion"] = motion
+            emitters.append(emitter)
     background = m.background_sounds()
 
     loops = {}

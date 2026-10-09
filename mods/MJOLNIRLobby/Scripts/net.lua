@@ -36,16 +36,41 @@ local function isLocal(pc)
     return ok and yes
 end
 
+--- The local player's controller, read through the engine (its first local
+--- player): a few property reads, where FindAllOf("PlayerController") walks
+--- every object in the game, ~19 ms on a converted map. Net.isHost ran that
+--- walk for every message either hook saw, the level loader's relayed event
+--- sounds included (playtest, 2026-10-03).
+local Engine = nil
+local function localController()
+    if not valid(Engine) then
+        Engine = FindFirstOf("GameEngine")
+        if not valid(Engine) then return nil end
+    end
+    local ok, pc = pcall(function()
+        return Engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+    end)
+    if ok and valid(pc) then return pc end
+    return nil
+end
+
 --- This machine runs the game the fireteam plays: the frontend's or the
 --- map's game mode exists only on the host (and on a player alone).
 function Net.isHost()
     local ok, yes = pcall(function()
-        for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
-            if valid(pc) and isLocal(pc) then return pc:GetWorld().AuthorityGameMode:IsValid() end
-        end
-        return false
+        local pc = localController()
+        return pc ~= nil and pc:GetWorld().AuthorityGameMode:IsValid()
     end)
     return ok and yes == true
+end
+
+--- Whether `text` is one of our messages with a handler here. Checked before
+--- anything else in the hooks: the same message type carries the level
+--- loader's event sounds and the HUD's match questions, which are not ours.
+local function handled(text)
+    if type(text) ~= "string" or text:sub(1, #PREFIX) ~= PREFIX then return false end
+    local verb = text:sub(#PREFIX + 1):match("^([^|]*)")
+    return verb ~= nil and handlers[verb] ~= nil
 end
 
 local function compose(verb, ...)
@@ -86,16 +111,16 @@ function Net.hook()
     hooked = pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
-            if not okM or not Net.isHost() then return end
+            if not okM or not handled(text) or not Net.isHost() then return end
             local sender = "?"
             pcall(function() sender = self:get().PlayerState:GetPlayerName():ToString() end)
             dispatch(text, sender)
         end)
         RegisterHook("/Script/Engine.PlayerController:ClientMessage", function(_, s, kind)
             local okK, name = pcall(function() return kind:get():ToString() end)
-            if not okK or name ~= TYPE or Net.isHost() then return end
+            if not okK or name ~= TYPE then return end
             local okS, text = pcall(function() return s:get():ToString() end)
-            if okS then dispatch(text, nil) end
+            if okS and handled(text) and not Net.isHost() then dispatch(text, nil) end
         end)
     end)
     if not hooked then log("messages: could not hook the controller RPCs") end
@@ -105,12 +130,8 @@ end
 --- To the host (from the host too).
 function Net.toHost(verb, ...)
     local msg = compose(verb, ...)
-    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
-        if valid(pc) and isLocal(pc) then
-            pcall(function() pc:ServerExecRPC(msg) end)
-            return
-        end
-    end
+    local pc = localController()
+    if pc then pcall(function() pc:ServerExecRPC(msg) end) end
 end
 
 --- To one client's controller (on the host); true when sent.

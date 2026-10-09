@@ -159,6 +159,9 @@ if [ "$cook" = "1" ]; then
     [ -f "$out/lightmaps/$page0" ] && size_page="$out/lightmaps/$page0"
     "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" | sed 's/ -> .*//'
   fi
+  # The map's planar fog (Damnation's shaft, the water), which halo2ue does
+  # not stage: fog.json beside the staging, for the material spec.
+  [ -f "$src" ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
@@ -297,9 +300,9 @@ if [ "$install" = "--install" ]; then
   # hands it to the simulation's variant loader when the map starts.
   variants="$HCE_PAKS/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader/variants"
   mkdir -p "$variants"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --out "$variants/slayer.mglo"
+  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$variants/slayer.mglo"
 else
   MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --out "$out/slayer.mglo"
+  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$out/slayer.mglo"
 fi
 echo "done: $out"

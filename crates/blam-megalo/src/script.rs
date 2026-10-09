@@ -130,7 +130,10 @@ impl Builder {
         match v.filters.iter().position(|f| f.label == string) {
             Some(i) => i as u8,
             None => {
-                v.filters.push(crate::variant::Filter { label: string });
+                v.filters.push(crate::variant::Filter {
+                    label: string,
+                    team: None,
+                });
                 v.filters.len() as u8 - 1
             }
         }

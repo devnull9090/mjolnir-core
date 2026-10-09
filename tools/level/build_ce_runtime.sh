@@ -22,6 +22,10 @@
 #   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P,
 #   991-MJOLNIRTELE2_P               spawn point and teleporter scenery
 #                                    (build_spawn_point.sh)
+#   pakchunk990-MJOLNIRSPARTAN_P     the Spartan model with its body material on
+#                                    the body damage section (it ships on the
+#                                    head section, so every bullet hit was a
+#                                    headshot: docs/playtest_2026-10-03.md, 6)
 #   pakchunk985-MJOLNIRMENU_P        the main menu with its own MULTIPLAYER
 #                                    button, which opens the lobby in chunk 984
 #                                    (`mjolnir ue menu-button`; rebuild after
@@ -90,9 +94,16 @@ MSYS2_ARG_CONV_EXCL="/Game" "$examples/package_add" "$HCE_PAKS" "$(cygpath -m "$
   --name pakchunk990-MJOLNIRHPMESH_P \
   --package "/Game/MJOLNIR/CE/Powerups/SM_CE_HealthPack=$(cygpath -m "$out/mesh/SM_CE_HealthPack.uasset")" | tail -1
 
-echo "== 5/5 the multiplayer scenery, the CTF tags and the main menu's MULTIPLAYER button"
+echo "== 5/5 the multiplayer scenery, the CTF tags, the Spartan's damage sections and the main menu's MULTIPLAYER button"
 MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out" > "$out/spawn_point.log"
 MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
+# The shipped Spartan model puts both its materials, body and head, on damage
+# section 1 ("head", headshot-able), so a bullet anywhere on a Spartan was a
+# headshot: a sniper round to the leg killed a shielded Spartan. The Elite's
+# body material is on section 0 ("body"); the Spartan's goes there too.
+"$mjolnir" pack --group model --tag Spartans/spartans-model \
+  --set 'model materials[0].damage section=#0' \
+  --out-dir "$(cygpath -m "$out")" --name pakchunk990-MJOLNIRSPARTAN_P > "$out/spartan_model.log"
 "$mjolnir" ue menu-button --out-dir "$(cygpath -m "$out")" | tail -1
 rm -f "$out"/*.pak
 ls "$out"/*.utoc

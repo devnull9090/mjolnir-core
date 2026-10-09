@@ -56,16 +56,84 @@ START_TYPES = ("Slayer", "Ctf", "AllGames", "AllGamesExceptCtf", "AllGamesExcept
 # Infinity's, is 1.4 wu apart).
 VEHICLE_SETS = {"slayer": 1 << 0, "ctf": 1 << 1, "king": 1 << 2, "oddball": 1 << 3, "all": 0xfff}
 
-# CE vehicles that are a model variant of a Campaign Evolved one: the rocket
-# Warthog is the Warthog with its "rocket" turret (warthog-model variants:
-# default, gauss, troop, rocket, ...).
-VEHICLE_VARIANTS = {"vehicles/rwarthog/rwarthog": "rocket"}
+# CE's vehicle sets per game type, decided when the match starts (docs/
+# ce_map_conversion.md, "Vehicle sets"). Every vehicle is placed with the
+# spawn flag "hide unless megalo required" and a Megalo label,
+# `ce_<type>_<rank>`, which its counterpart on the other team shares: the
+# simulation places it only if the game variant has an object filter on the
+# label, with a team constraint when the two teams' sets differ (the owner
+# team is CE's team index). The variant holds at most 16 filters, so a label
+# per vehicle did not fit (Death Island's Slayer set alone is 16). Within a
+# team, a type's vehicles rank by how many game types they are default in,
+# so CE's (symmetric) default sets take few labels. The level's
+# `vehicle_sets` lists every vehicle with its label, team and CE's default
+# and allowed game types, and MJOLNIRLevelLoader adds the filters for the
+# host's vehicle settings (default: the game type's CE default set). The
+# type is CE's vehicle set category: a rocket Warthog stays "rwarthog"
+# though it spawns as the chaingun Warthog (VEHICLE_VARIANTS).
+VEHICLE_SET_TYPES = (("rwarthog", "rwarthog"), ("rocket", "rwarthog"), ("warthog", "warthog"),
+                     ("scorpion", "scorpion"), ("ghost", "ghost"), ("banshee", "banshee"),
+                     ("turret", "turret"))
+CE_VEHICLE_TYPE_SETS = {"human_jeep": "warthog", "human_tank": "scorpion", "alien_scout": "ghost",
+                        "alien_fighter": "banshee", "alien_turret": "turret", "human_turret": "turret"}
+CE_TEAMS = {0: "red", 1: "blue"}
+CE_OWNER_TEAMS = {"red": "defender", "blue": "attacker"}   # scenario owner team 0 and 1
+VEHICLE_SET_RANKS = 10   # crates/blam-cli megalo.rs: labels in the variants' pool
+HIDE_UNLESS_REQUIRED = "0x4"   # scenario multiplayer data spawn flags bit 2
+# Staging from before halo2ue read the spawn flags: every game type, both ways.
+ALL_GAME_TYPES = 0x0F0F
+
+# Respawn times are spread over RESPAWN_SPREAD seconds, deterministic per
+# object: a flat 30 s brought every vehicle and weapon the simulation had
+# not placed back in the same tick, a stall long enough on Death Island
+# that the simulation reset the round every ~34 s (2026-10-08).
+RESPAWN_SPREAD = 11
+
+
+def vehicle_set_type(asset, ce_type):
+    """CE's vehicle set category for a vehicle: by tag name, else by the
+    tag's vehicle type."""
+    name = asset.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    for key, kind in VEHICLE_SET_TYPES:
+        if key in name:
+            return kind
+    return CE_VEHICLE_TYPE_SETS.get(ce_type or "", "other")
+
+
+def spread(seconds, k):
+    """A respawn time spread by placement: `seconds` plus 0..RESPAWN_SPREAD-1."""
+    return seconds + (k * 7) % RESPAWN_SPREAD
+
+# CE vehicles that are a model variant of a Campaign Evolved one, by CE tag:
+# the rocket Warthog would be the Warthog with its "rocket" turret
+# (warthog-model variants: default, gauss, troop, rocket, ...). Empty for now,
+# so rocket hogs spawn as chaingun hogs, as gen_bloodgulch_level.py does: the
+# rocket turret (warthog_rocket) has no Unreal actor Blueprint, so its gun was
+# invisible and its gunner vanished (playtest, 2026-10-03). The real fix points
+# its tag wrapper at the chaingun turret's Blueprint (crates/ue-asset
+# tagwrap); the mapping code below stays so the variant can come back:
+#   "vehicles/rwarthog/rwarthog": "rocket"
+VEHICLE_VARIANTS = {}
+
+# The bake creates every placed object "at rest" (placement flag 0x20). This
+# override clears it, so an object placed above the floor falls into place
+# instead of hanging where it was put.
+NOT_AT_REST = {"object data.placement flags": "0x0"}
 
 # Vehicles that start inside the floor at CE's height: Blood Gulch's
 # Banshees on the base roofs and its Scorpions were thrown on their sides
 # (2026-10-01). They start this many wu higher and fall into place (not
-# "create at rest", which would leave them hanging there).
+# "create at rest", which would leave them hanging there). Every other
+# vehicle starts VEHICLE_LIFT_DEFAULT higher: CE places vehicles and items
+# 0.001 wu over the floor, which leaves the part below their origin in it.
 VEHICLE_LIFT = {"banshee": 0.3, "scorpion": 0.3}
+VEHICLE_LIFT_DEFAULT = 0.05
+
+# Weapons and equipment start this many wu over their CE height and fall into
+# place: created at rest at CE's height, the part of a weapon below its origin
+# stayed in the floor (playtest, 2026-10-03). Levitating powerups (CE's
+# `levitate` flag) stay at rest where CE put them.
+ITEM_LIFT = 0.05
 
 # The canvas's structure designs (B40's three soft-ceiling exports) carry
 # Reach's soft ceilings and soft-kill volumes for the mission's own space. A
@@ -226,7 +294,8 @@ FLARE_GAIN = 0.6   # the CE transparent masters' display gain
 
 
 def ce_rotation(yaw, pitch, roll):
-    """CE object rotation, row-major (as merge_ce_collision.py has it)."""
+    """CE object rotation, row-major (as merge_ce_collision.py has it): yaw
+    about z, then pitch and roll about the world's y and x axes."""
     cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch),
                               math.cos(roll), math.sin(roll))
     rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
@@ -235,7 +304,7 @@ def ce_rotation(yaw, pitch, roll):
 
     def mul(a, b):
         return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    return mul(mul(rz, ry), rx)
+    return mul(mul(rx, ry), rz)
 
 
 def flare_decor(placement, texture_root, to_ue):
@@ -732,13 +801,29 @@ def ambient_sounds(sounds_dir, root, to_ue):
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), "gain": round(track["gain"], 3),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd})
+    origin = to_ue([0.0, 0.0, 0.0])
+
+    def vector(v):
+        """A CE offset in Unreal's axes and centimetres (no translation)."""
+        u = to_ue(v)
+        return [round(u[k] - origin[k], 1) for k in range(3)]
+
     for e in manifest["emitters"]:
         for track, snd in loops(e["sound"]):
-            emitters.append({"pos": to_ue(e["pos"]), "wave": wave(snd["loop"]),
-                             "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
-                             "inner": round(snd["min_distance"] * WU_CM, 1),
-                             "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
-                             "source": e["sound"]})
+            emitter = {"pos": to_ue(e["pos"]), "wave": wave(snd["loop"]),
+                       "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
+                       "inner": round(snd["min_distance"] * WU_CM, 1),
+                       "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
+                       "source": e["sound"]}
+            m = e.get("motion")
+            if m:
+                # On a machine's moving part (ce_sounds.py marker_motion): the
+                # loader moves the sound as the part's material moves it,
+                # (pos - pivot) * (s - 1) + lerp(t0, t1, p) from its rest.
+                emitter["motion"] = {"pivot": to_ue(m["pivot"]), "t0": vector(m["t0"]), "t1": vector(m["t1"]),
+                                     "s0": m["s0"], "s1": m["s1"], "period": m["period"],
+                                     "position": m["position"]}
+            emitters.append(emitter)
     return {"background": background, "emitters": emitters}
 
 
@@ -789,6 +874,9 @@ def main():
     bake = a.bake or (os.path.join(os.path.dirname(a.terrain), "bake") if a.terrain else None)
 
     placement = json.load(open(os.path.join(a.staging, "placement.json")))
+    # A seated beacon's flares go where merge_ce_scene.py put its model (ce_seat.py).
+    from ce_seat import seat
+    seat(placement, a.staging, log=lambda *_: None)
     t = json.load(open(a.transform))
     tag_map = json.load(open(TAG_MAP))
     # Every type the bake knows: it adds what the canvas palette lacks.
@@ -855,29 +943,35 @@ def main():
             })
 
     vehicles, weapons, equipment, health_spots = [], [], [], []
+    vehicle_sets = []
     for e in placement["entries"]:
         asset = norm(e.get("asset", ""))
         if e["kind"] == "vehicle":
             # A CE scenario stacks every game type's vehicles on the same
-            # spots and spawns only the set its game type selects; placing
-            # them all piles them up. Staging that predates the spawn-flag
-            # fix reads 0 for every vehicle, so 0 keeps them all.
-            flags = e.get("spawn_flags", 0)
-            if flags and not flags & VEHICLE_SETS[a.game_type]:
+            # spots and spawns only the set its game type selects. Staging
+            # that predates the spawn-flag fix reads 0 for every vehicle.
+            flags = e.get("spawn_flags", 0) or ALL_GAME_TYPES
+            if not flags & VEHICLE_SETS[a.game_type]:
                 dropped[f"{asset} (not in {a.game_type}'s vehicle set)"] += 1
                 continue
             kind = resolve("vehicles", asset, e.get("vehicle_type"))
             if kind:
-                lift = VEHICLE_LIFT.get(kind, 0.0)
+                lift = VEHICLE_LIFT.get(kind, VEHICLE_LIFT_DEFAULT)
                 pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
+                set_type = vehicle_set_type(asset, e.get("vehicle_type"))
+                team = CE_TEAMS.get(e.get("team"), "neutral")
                 v = {"type": kind, "pos": to_ue(pos), "yaw": yaw_ue(e["rot"]),
-                     "set": {"multiplayer data.spawn time": str(DEFAULT_RESPAWN),
-                             "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT)}}
+                     "set": {"multiplayer data.spawn time": str(spread(DEFAULT_RESPAWN, len(vehicles))),
+                             "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT),
+                             "multiplayer data.owner team": CE_OWNER_TEAMS.get(team, "neutral"),
+                             "multiplayer data.spawn flags": HIDE_UNLESS_REQUIRED}}
                 if lift:
-                    v["set"]["object data.placement flags"] = "0x0"
+                    v["set"].update(NOT_AT_REST)
                 if asset in VEHICLE_VARIANTS:
                     v["set"]["permutation data.variant name"] = VEHICLE_VARIANTS[asset]
                 vehicles.append(v)
+                vehicle_sets.append({"type": set_type, "team": team,
+                                     "default": flags & 0xF, "allowed": (flags >> 8) & 0xF})
         elif e["kind"] == "netgame_equipment":
             if asset == HEALTH_PACK:
                 health_spots.append({
@@ -893,11 +987,30 @@ def main():
             kind = resolve(section, asset)
             if not kind:
                 continue
-            item = {"type": kind, "pos": to_ue(e["pos"])}
+            lift = 0.0 if e.get("levitate") else ITEM_LIFT
+            pos = [e["pos"][0], e["pos"][1], e["pos"][2] + lift]
+            item = {"type": kind, "pos": to_ue(pos)}
             if section == "weapons":
                 item["yaw"] = yaw_ue(e.get("rot", [0, 0, 0]))
-            item["set"] = {"multiplayer data.spawn time": str(spawn_seconds(e) or DEFAULT_RESPAWN)}
+            item["set"] = {"multiplayer data.spawn time":
+                           str(spread(spawn_seconds(e) or DEFAULT_RESPAWN, len(weapons) + len(equipment)))}
+            if lift:
+                item["set"].update(NOT_AT_REST)
             (weapons if section == "weapons" else equipment).append(item)
+
+    # The vehicle set labels: by type and team, the vehicles default in the
+    # most game types first, then CE's order; the k-th of each team share
+    # `ce_<type>_<k>`.
+    ranked = collections.defaultdict(list)
+    for i, vs in enumerate(vehicle_sets):
+        ranked[(vs["type"], vs["team"])].append(i)
+    for members in ranked.values():
+        members.sort(key=lambda i: (-bin(vehicle_sets[i]["default"]).count("1"), -vehicle_sets[i]["default"],
+                                    -vehicle_sets[i]["allowed"], i))
+        for rank, i in enumerate(members, 1):
+            label = f"ce_{vehicle_sets[i]['type']}_{min(rank, VEHICLE_SET_RANKS)}"
+            vehicle_sets[i]["label"] = label
+            vehicles[i]["set"]["multiplayer data.megalo label"] = label
 
     single_bsp = bool(t.get("own_bsp")) and t.get("scenario_bsp_index") == 0
     wb = t["world_bounds"]
@@ -1124,6 +1237,8 @@ def main():
                                        if f["type"] == "CtfFlag" and f["team"] in CTF_TEAMS])
     if health_spots:
         level["health_pack"] = dict(HEALTH_PACK_MESH, materials=[ce_model_material("healthpack.png")])
+    if vehicle_sets:
+        level["vehicle_sets"] = vehicle_sets
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)

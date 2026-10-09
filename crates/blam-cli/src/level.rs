@@ -225,6 +225,12 @@ pub struct LevelFile {
     /// loader puts on the pack's actor; opaque to the bake.
     #[serde(default)]
     pub health_pack: Option<serde_json::Value>,
+    /// CE's vehicle sets: each vehicle's Megalo label with the game types
+    /// it is in by default and allowed in (tools/level/gen_ce_level.py),
+    /// from which the loader picks the labels the game variant requires;
+    /// opaque to the bake.
+    #[serde(default)]
+    pub vehicle_sets: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]

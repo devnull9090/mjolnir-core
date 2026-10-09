@@ -2217,8 +2217,10 @@ end
 
 local function watchPostGame()
     local function poll()
+        local started = os.clock()
         local ok, err = pcall(postTick)
         if not ok then log("post-game: " .. tostring(err)) end
+        UI.reportSlow("post-game", started)
         ExecuteInGameThreadWithDelay(250, poll)
     end
     ExecuteInGameThreadWithDelay(250, poll)
@@ -2314,6 +2316,7 @@ local menuHook = false
 --- 140 ms every 1.5 s (2026-10-02).
 local function watchMainMenu()
     local function poll()
+        local started = os.clock()
         local ok, err = pcall(function()
             pcall(holdFireteamSize)
             if not inFrontend() then return end
@@ -2349,6 +2352,7 @@ local function watchMainMenu()
             end
         end)
         if not ok then log("main menu watch: " .. tostring(err)) end
+        UI.reportSlow("main menu watch", started)
         ExecuteInGameThreadWithDelay(1500, poll)
     end
     ExecuteInGameThreadWithDelay(1500, poll)
@@ -2620,6 +2624,7 @@ end
 --- RETURN TO LOBBY once the frontend's main menu is up.
 local function watchHost()
     local function poll()
+        local started = os.clock()
         pcall(function()
             if not pauseHooked and not inFrontend() then hookPauseMenu() end
             if not Net.isHost() then return end
@@ -2634,6 +2639,7 @@ local function watchHost()
                 end
             end
         end)
+        UI.reportSlow("host watch", started)
         ExecuteInGameThreadWithDelay(5000, poll)
     end
     ExecuteInGameThreadWithDelay(5000, poll)

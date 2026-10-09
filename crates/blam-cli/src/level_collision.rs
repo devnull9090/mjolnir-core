@@ -191,33 +191,34 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         // Each surface keeps its CE material, and the BSP gets the game's
         // material for each (write_collision_materials).
         let materials = staged.manifest.materials.clone();
-        // A map whose scenery collision overflows one definition's 16-bit
-        // tables (Timberland's trees) keeps the BSP in definition 0 and puts
-        // the scenery behind instances of its own, 8,192 surfaces each so
-        // every surface keeps a key of its own in the structure body.
+        // Scenery collision goes into the BSP tree, where projectiles meet
+        // it (blam_sbsp::scenery; bullets went through the Covenant shields,
+        // playtest 2026-10-03). A map whose scenery overflows one
+        // definition's 16-bit tables (Timberland's trees) keeps the BSP in
+        // definition 0 and puts the scenery behind instances of its own, at
+        // most 8,192 surfaces each so every surface keeps a key of its own in
+        // the structure body, each piece with a tree of its own.
         let mut collision = staged.collision;
         let mut scenery = Vec::new();
-        // Judged after the fan split the transplant does (Coldsnap fits
-        // before it and not after).
-        let fits = {
-            let mut split = collision.clone();
-            blam_sbsp::split::fan_split_fit(&mut split, 4);
-            split.fits_16bit()
-        };
-        if let (Err(why), Some(tail)) = (fits, staged.manifest.scenery_surfaces) {
+        if let Some(tail) = staged.manifest.scenery_surfaces {
             let first = collision.surfaces.len().saturating_sub(tail.surfaces);
-            scenery = blam_sbsp::split::split_standalone(
-                &mut collision,
-                first,
-                convert::MAX_SURFACE_KEYS,
-            )
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-            println!(
-                "  scenery  {why}: {} scenery surface(s) of {} object(s) go to {} instance(s) of their own",
-                tail.surfaces,
-                tail.objects,
-                scenery.len()
-            );
+            let (c, pieces, placed) =
+                blam_sbsp::scenery::place(collision, first, convert::MAX_SURFACE_KEYS)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            collision = c;
+            scenery = pieces;
+            match placed {
+                blam_sbsp::scenery::Placed::Tree(r) => println!(
+                    "  scenery  {} scenery surface(s) of {} object(s) in the BSP tree: {} leaf split(s), nodes {} -> {}, leaves {} -> {}, 2D references {} -> {}",
+                    r.surfaces, tail.objects, r.splits, r.nodes.0, r.nodes.1, r.leaves.0, r.leaves.1, r.references.0, r.references.1
+                ),
+                blam_sbsp::scenery::Placed::Pieces(why) => println!(
+                    "  scenery  {why}: {} scenery surface(s) of {} object(s) go to {} instance(s) of their own",
+                    tail.surfaces,
+                    tail.objects,
+                    scenery.len()
+                ),
+            }
         }
         let scenario_bsp = a.bsp_index.unwrap_or(canvas.bsp_index as u8);
         let (mut out, r) = convert::convert_own(

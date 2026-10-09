@@ -35,10 +35,11 @@ the game's own lights, the base colour can be topped up to its sunlit share
 divided by the display gain, decoded to linear and divided by the camera's
 exposure (EyeAdaptationInverse). The level's post-process volume (spawned by
 the loader) fixes the exposure and turns the filmic curve and local exposure
-off, so the one transform left after the material is the game's own display
-colour correction: at its default brightness that multiplies the displayed
-(sRGB) colour by about 0.6 (measured: docs/re/fork_renderer.md), which
-`DisplayGain` undoes, so CE's colours reach the screen as CE drew them. There
+off, so on a converted map's own world nothing is left between material and
+screen and `DisplayGain` is 1. (Inside B40's world the game's colour
+correction multiplied the shown sRGB colour by about 0.6, which `DisplayGain`
+used to undo: docs/re/fork_renderer.md.) CE's colours reach the screen as CE
+drew them. There
 are no static switches: one shader map per parent.
 """
 import os
@@ -58,9 +59,13 @@ if TRIAL_ROOT:
     ROOT = TRIAL_ROOT.rstrip("/")
 CHUNK = int(os.environ.get("MJ_CE_CHUNK", "988"))
 
-# The game's display colour correction at its default brightness
-# (ColorCorrectionBrightness 0.5) scales the shown sRGB colour by this much.
-DISPLAY_GAIN = 0.6
+# What happens to the shown sRGB colour after the material. Inside B40's world
+# the game's colour correction scaled it by 0.6 (docs/re/fork_renderer.md);
+# a converted map runs on a world of its own (since 2026-09-11), where the
+# path is identity: a debug view of 1.0 shows 255 and a lightmap of 0.91
+# shows 0.91. At 0.6 every CE surface drew 1/0.6 too bright, and Death
+# Island's base came out white where MCC draws it grey (2026-10-08).
+DISPLAY_GAIN = 1.0
 
 assets = unreal.AssetToolsHelpers.get_asset_tools()
 mel = unreal.MaterialEditingLibrary
@@ -247,7 +252,9 @@ class Graph:
 # (docs/ce_map_conversion.md, "Periodic functions"). Cosine is
 # 0.5 + 0.5 cos 2 pi x, 1 at x = 0; diagonal is a triangle from 0 at x = 0;
 # slide is frac(x). The variable-period forms use their nominal period, and
-# noise, jitter and wander a smooth value noise at different rates. Spark
+# noise, jitter and wander a smooth value noise at different rates (4, 8
+# and 1 a period: jitter as a new random value 30 times a period strobed
+# Damnation's volume lights, 0.6 s, at 50 Hz, 2026-10-09). Spark
 # rises over the first 35% of the period and decays over the rest: a hard
 # on/off blip made Gephyrophobia's energy ropes flash every 5 s where CE's
 # pulse (2026-10-02).
@@ -258,7 +265,7 @@ class Graph:
 WAVE = r"""
 #define CE_HASH(n) frac(sin(n) * 43758.5453)
 #define CE_VNOISE(x) lerp(CE_HASH(floor(x)), CE_HASH(floor(x) + 1.0), smoothstep(0.0, 1.0, frac(x)))
-#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 + 0.5 * cos(6.2831853 * (x))     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0)     : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x)     : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
+#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 + 0.5 * cos(6.2831853 * (x))     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0)     : (fn) < 9.5 ? CE_VNOISE((x) * 8.0) : (fn) < 10.5 ? CE_VNOISE(x)     : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
 #define CE_PHASE(anim, t) (((t) + (anim).z) / (abs((anim).y) > 1e-6 ? (anim).y : 1.0))
 """
 
@@ -518,6 +525,8 @@ float flags[4] = { S0.w, S1.w, S2.w, S3.w };
 if (FirstType > 0.5) maps[0] = Cube;
 float4 cur = saturate(maps[0]);
 int count = (int)Count;
+// MCC's shader_transparent_generic in place of the chicago chain (GENERIC_CODE).
+if (GenCount > 0.5) { cur = saturate(Gen); count = 0; }
 [unroll] for (int i = 0; i < 3; ++i)
 {
     if (i + 1 >= count) break;
@@ -542,6 +551,9 @@ float ndv = abs(dot(normalize(VertexN), normalize(Cam)));
 if (FadeMode > 0.5) F = FadeMode < 1.5 ? 1.0 - ndv : ndv;
 if (FogDensity > 0.0)
     F *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+// CE's planar fog fades a transparent out as the atmospheric fog does
+// (PLANAR_FOG_CODE).
+F *= 1.0 - PlanarF;
 if (((int)ChicagoFlags & 1) && alpha <= 127.0 / 255.0) F = 0.0;
 int blend = (int)Blend;
 if (blend == 0) alpha *= F;
@@ -556,6 +568,91 @@ float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
 return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
 """
+
+# shader_transparent_generic: the Xbox's register combiners, which the PC port
+# replaced with chicago shaders; MCC's tags keep them (tools/level/mcc_tags.py,
+# docs/ce_map_conversion.md "MCC's generic shaders"). A port of MCC's
+# transparent_generic_shader.psh with the stages as parameters instead of
+# compiled in. Registers R: t0-t3 (the maps), v0 (0, 0, 0, 1: no fog or fade
+# here), v1 (|N.V| x3, 1 - |N.V|: CE's fade terms), r0 (alpha starts as t0's,
+# as on the Xbox), r1, c0 and c1 (the stage's constants). Each stage reads
+# four colour and four alpha inputs, each through its input mapping, forms
+# A*B (or A.B) and C*D (or C.D) and their sum or mux (by r0's alpha), clamps,
+# applies its output mapping and writes the three results to the registers
+# its outputs name. The result is r0.
+#
+# Per stage s: GenCI/GenAI the colour and alpha inputs (input + 32 *
+# mapping, inputs a-d); GenCO (ab output + 16 * ab function, cd output + 16 *
+# cd function, ab-cd output, output mapping); GenAO (ab, cd and ab-cd
+# outputs, output mapping); GenK0/GenK0Hi colour 0's animation bounds, RGBA;
+# GenK1 colour 1; GenKA (colour 0's periodic function, its period, stage
+# flags: 1 colour mux, 2 alpha mux).
+GENERIC_STAGES = 7
+GENERIC_CODE = WAVE + r"""
+#define CEG_IN(v, m) ((m) == 0 ? max(v, 0.0) : (m) == 1 ? 1.0 - saturate(v) : (m) == 2 ? 2.0 * max(v, 0.0) - 1.0 \
+    : (m) == 3 ? -2.0 * max(v, 0.0) + 1.0 : (m) == 4 ? max(v, 0.0) - 0.5 : (m) == 5 ? 0.5 - max(v, 0.0) \
+    : (m) == 6 ? (v) : -(v))
+#define CEG_OUT(v, m) ((m) == 1 ? (v) * 0.5 : (m) == 2 ? (v) * 2.0 : (m) == 3 ? (v) * 4.0 \
+    : (m) == 4 ? (v) - 0.5 : (m) == 5 ? ((v) - 0.5) * 2.0 : (v))
+// An output register's index in R, or -1 for discard.
+#define CEG_REG(o) ((o) == 1 ? 6 : (o) == 2 ? 7 : (o) == 3 ? 4 : (o) == 4 ? 5 : (o) >= 5 && (o) <= 8 ? (o) - 5 : -1)
+float4 CI[7] = { CI0, CI1, CI2, CI3, CI4, CI5, CI6 };
+float4 AI[7] = { AI0, AI1, AI2, AI3, AI4, AI5, AI6 };
+float4 CO[7] = { CO0, CO1, CO2, CO3, CO4, CO5, CO6 };
+float4 AO[7] = { AO0, AO1, AO2, AO3, AO4, AO5, AO6 };
+float4 K0[7] = { K00, K01, K02, K03, K04, K05, K06 };
+float4 KH[7] = { KH0, KH1, KH2, KH3, KH4, KH5, KH6 };
+float4 K1[7] = { K10, K11, K12, K13, K14, K15, K16 };
+float4 KA[7] = { KA0, KA1, KA2, KA3, KA4, KA5, KA6 };
+float4 t0 = FirstType > 0.5 ? Cube : M0;
+float ndv = abs(dot(normalize(VertexN), normalize(Cam)));
+float4 R[10] = { t0, M1, M2, M3, float4(0, 0, 0, 1), float4(ndv.xxx, 1.0 - ndv),
+                 float4(0, 0, 0, t0.a), 0.0.xxxx, 0.0.xxxx, 0.0.xxxx };
+int n = (int)GenCount;
+[loop] for (int s = 0; s < 7; ++s)
+{
+    if (s >= n) break;
+    float4 ka = KA[s];
+    R[8] = lerp(K0[s], KH[s], CE_WAVE(ka.x, ka.y > 1e-6 ? Time / ka.y : 0.0));
+    R[9] = K1[s];
+    float3 cv[4];
+    float av[4];
+    [unroll] for (int k = 0; k < 4; ++k)
+    {
+        int id = (int)fmod(CI[s][k], 32.0), m = (int)(CI[s][k] / 32.0);
+        float3 x = id == 0 ? 0.0.xxx : id == 1 ? 1.0.xxx : id == 2 ? 0.5.xxx : id == 3 ? -1.0.xxx
+            : id == 4 ? -0.5.xxx : id <= 14 ? R[clamp(id - 5, 0, 9)].rgb : R[clamp(id - 15, 0, 9)].aaa;
+        cv[k] = CEG_IN(x, m);
+        int ida = (int)fmod(AI[s][k], 32.0), ma = (int)(AI[s][k] / 32.0);
+        float y = ida == 0 ? 0.0 : ida == 1 ? 1.0 : ida == 2 ? 0.5 : ida == 3 ? -1.0 : ida == 4 ? -0.5
+            : ida <= 14 ? R[clamp(ida - 5, 0, 9)].a : R[clamp(ida - 15, 0, 9)].b;
+        av[k] = CEG_IN(y, ma);
+    }
+    int flags = (int)ka.z;
+    int abo = (int)fmod(CO[s].x, 16.0), abf = (int)(CO[s].x / 16.0);
+    int cdo = (int)fmod(CO[s].y, 16.0), cdf = (int)(CO[s].y / 16.0);
+    int sumo = (int)CO[s].z, cm = (int)CO[s].w;
+    float3 ab = abf == 1 ? dot(cv[0], cv[1]).xxx : clamp(cv[0] * cv[1], -1.0, 1.0);
+    float3 cd = cdf == 1 ? dot(cv[2], cv[3]).xxx : clamp(cv[2] * cv[3], -1.0, 1.0);
+    float3 abcd = clamp((flags & 1) ? (R[6].a >= 0.5 ? cd : ab) : ab + cd, -1.0, 1.0);
+    ab = CEG_OUT(ab, cm); cd = CEG_OUT(cd, cm); abcd = CEG_OUT(abcd, cm);
+    float aab = clamp(av[0] * av[1], -1.0, 1.0), acd = clamp(av[2] * av[3], -1.0, 1.0);
+    float aabcd = clamp((flags & 2) ? (R[6].a >= 0.5 ? acd : aab) : aab + acd, -1.0, 1.0);
+    int am = (int)AO[s].w;
+    aab = CEG_OUT(aab, am); acd = CEG_OUT(acd, am); aabcd = CEG_OUT(aabcd, am);
+    int r;
+    r = CEG_REG(abo); if (r >= 0) R[r].rgb = ab;
+    r = CEG_REG(cdo); if (r >= 0) R[r].rgb = cd;
+    r = CEG_REG(sumo); if (r >= 0) R[r].rgb = abcd;
+    r = CEG_REG((int)AO[s].x); if (r >= 0) R[r].a = aab;
+    r = CEG_REG((int)AO[s].y); if (r >= 0) R[r].a = acd;
+    r = CEG_REG((int)AO[s].z); if (r >= 0) R[r].a = aabcd;
+}
+#undef CEG_IN
+#undef CEG_OUT
+#undef CEG_REG
+return R[6];
+""" + WAVE_END
 
 
 # Object shadows on a baked level. CE's colour T (what reaches the screen, the
@@ -827,8 +924,12 @@ if (HasSunShare > 0.5)
     // blue ambient). The environment pass is not used for it: its bump
     // modulation against the baked incident direction darkens flat ground's
     // sun share by a third under a 40 degree sun (Blood Gulch, 2026-10-08).
+    // N.L no lower than 0.3 (UNREAL_BASE_CODE divides by the same): this is
+    // the colour every Unreal light multiplies, and at the texel's own N.L
+    // a face turned from the sun had none, so headlights stopped at a hard
+    // line on Death Island's cliffs (2026-10-08).
     float3 amb = saturate(SunShare.rgb);
-    float cosl = saturate(dot(normalize(N), normalize(SunDir)));
+    float cosl = max(dot(normalize(N), normalize(SunDir)), 0.3);
     float3 full = amb + SunCE.rgb * cosl;
     float mx = max(full.r, max(full.g, full.b));
     if (mx > 1.0) full /= mx;
@@ -866,8 +967,10 @@ if (ObjectPage > 0.5) return 0.0.xxx;
 float flat = max(normalize(SunDir).z, 0.3);
 // With the solver's shares the sunlit colour already holds this texel's
 // own N.L (the share was solved with it), so that is what Unreal's N.L
-// must cancel, not flat ground's.
-if (HasSunShare > 0.5) flat = max(dot(normalize(N), normalize(SunDir)), 0.05);
+// must cancel, not flat ground's; no lower than the 0.3 SUNLIT_CODE took
+// it at, so a face turned from the sun keeps its colour for the other
+// lights (Unreal's sun adds nothing there by its own N.L).
+if (HasSunShare > 0.5) flat = max(dot(normalize(N), normalize(SunDir)), 0.3);
 return saturate(Sunlit.rgb * 3.14159265 / max(SunIlluminance * flat * SunColor.rgb, 1e-4) * AlbedoGain);
 """
 
@@ -988,6 +1091,18 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
         normal = g.custom("return U > 0.5 ? N.rgb : float3(0, 0, 1);", [("U", unreal_lit, ""), ("N", bump_n, "")],
                           description="CE bump normal, Unreal-lit only")
         mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    # CE's planar fog over the whole surface (PLANAR_FOG_CODE): the colour CE
+    # draws fades to the fog's (as screen colour, like every CE colour), and
+    # the share Unreal's lights draw fades with it.
+    pf = planar_fog_node(g)
+    fog_screen = g.to_screen(g.custom("float3 frame = PlanarFogColor.rgb;\n" + SRGB_TO_LINEAR, [
+        ("PlanarFogColor", g.vector("PlanarFogColor", (0.0, 0.0, 0.0, 1.0)), ""),
+        ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), ""), ("Exposure", g.scalar("Exposure", 1.0), ""),
+    ], description="CE planar fog colour"))
+    emissive = g.custom("return E.rgb * (1.0 - P) + C.rgb * P;", [("E", emissive, ""), ("P", pf, ""), ("C", fog_screen, "")],
+                        description="CE planar fog over the emissive")
+    topped = g.custom("return B.rgb * (1.0 - P);", [("B", topped, ""), ("P", pf, "")],
+                      description="CE planar fog over the lit share")
     debug_view = g.scalar("DebugView", 0.0)
     debug = g.to_screen(g.custom(DEBUG_CODE, [
         ("DebugView", debug_view, ""), ("Lightmap", lightmap, "RGB"), ("Bake", bake, "RGBA"),
@@ -1051,6 +1166,43 @@ return lerp(hi, lo, step(c, 0.0031308));
     mel.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
+
+
+# CE's planar fog (docs/ce_map_conversion.md, "Planar fog"; tools/level/ce_fog.py):
+# below a plane (Damnation's shaft, Gephyrophobia's chasm, the water of Battle
+# Creek, Chill Out and Death Island) a colour thickens with the point's depth
+# under the plane (x, against the fog's opaque depth) and its distance from
+# the eye (y, against the opaque distance), as MCC's environment_fog shaders
+# do it: A = (1 - min((1-x)^2 + (1-y)^2, 1))^2 with the eye above the fog,
+# B = (1 - (1-y)^2)^2 with it inside, mixed by the eye's own depth, times the
+# maximum density. PlanarFogPlane is (normal, offset) in Unreal cm, the fog
+# below it; PlanarFogParams (maximum density, opaque distance cm, opaque
+# depth cm, on). Returns Pf, the fog's share of the pixel.
+PLANAR_FOG_CODE = r"""
+if (PlanarFogParams.w < 0.5) return 0.0;
+float3 n = PlanarFogPlane.xyz;
+float depth = max(PlanarFogPlane.w - dot(n, WorldPos), 0.0);
+float eyeDepth = max(PlanarFogPlane.w - dot(n, CameraPos), 0.0);
+float x = saturate(depth / max(PlanarFogParams.z, 1.0));
+float y = saturate(distance(WorldPos, CameraPos) / max(PlanarFogParams.y, 1.0));
+float ex = 1.0 - x, ey = 1.0 - y;
+float a = 1.0 - min(ex * ex + ey * ey, 1.0);
+a *= a;
+float b = 1.0 - ey * ey;
+b *= b;
+float eye = saturate(eyeDepth / max(PlanarFogParams.z, 1.0));
+return saturate((eye * (b - a) + a) * PlanarFogParams.x);
+"""
+
+
+def planar_fog_node(g):
+    """PLANAR_FOG_CODE's node, Pf."""
+    return g.custom(PLANAR_FOG_CODE, [
+        ("PlanarFogPlane", g.vector4("PlanarFogPlane", (0, 0, 1, 0)), ""),
+        ("PlanarFogParams", g.vector4("PlanarFogParams", (0, 1, 1, 0)), ""),
+        ("WorldPos", g.node(unreal.MaterialExpressionWorldPosition), ""),
+        ("CameraPos", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
+    ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE planar fog")
 
 
 def fog_inputs(g):
@@ -1261,6 +1413,31 @@ def device_offset(g, m):
         raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
 
 
+# CE draws the sky around the camera: it moves with the eye, and only turns.
+# Ours is a mesh kilometres out around the CE sky's origin (merge_ce_scene.py:
+# the BSP's box centre, 525 m under Gephyrophobia's bridge, in its chasm),
+# and seen from anywhere but that origin its layers part: the ring's strips
+# and rails are quads at different depths that line up from the origin only.
+# SkyFollow 1 (the spec's sky sections) moves the vertices with the camera,
+# the origin onto the eye; SkyOrigin is the CE origin from the actor, in cm.
+SKY_WPO_CODE = r"""
+return SkyFollow * (CameraPos - (ActorPos + SkyOrigin.xyz));
+"""
+
+
+def sky_offset(g, m):
+    """Wire SKY_WPO_CODE into the material's World Position Offset (through
+    the MjolnirUIBuilder plugin, as device_offset)."""
+    wpo = g.custom(SKY_WPO_CODE, [
+        ("SkyFollow", g.scalar("SkyFollow", 0.0), ""),
+        ("CameraPos", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
+        ("ActorPos", g.node(unreal.MaterialExpressionActorPositionWS), ""),
+        ("SkyOrigin", g.vector4("SkyOrigin", (0, 0, 0, 0)), ""),
+    ], description="CE sky around the camera")
+    if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, wpo, ""):
+        raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
+
+
 def build_transparent(name, blend, defaults, two_sided=False, device=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
@@ -1296,8 +1473,23 @@ def build_transparent(name, blend, defaults, two_sided=False, device=False):
                                            ("WorldPos", world_pos, ""), ("ObjectPos", object_pos, ""),
                                            ("CameraPos", camera_pos, "")], description="CE first map cube direction")
     cube = g.cube("Map0Cube", defaults["T_CE_BlackCube"], direction)
+    # MCC's shader_transparent_generic (GENERIC_CODE): GenericStages > 0 takes
+    # the place of the chicago chain.
+    gen_count = g.scalar("GenericStages", 0.0)
+    gen_inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
+    gen_inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""), ("GenCount", gen_count, ""),
+                   ("Time", time, ""), ("VertexN", vertex_n, ""), ("Cam", cam, "")]
+    for prefix, param, default in (("CI", "GenCI", (0, 0, 0, 0)), ("AI", "GenAI", (0, 0, 0, 0)),
+                                   ("CO", "GenCO", (0, 0, 0, 0)), ("AO", "GenAO", (0, 0, 0, 0)),
+                                   ("K0", "GenK0", (0, 0, 0, 0)), ("KH", "GenK0Hi", (0, 0, 0, 0)),
+                                   ("K1", "GenK1", (0, 0, 0, 0)), ("KA", "GenKA", (0, 0, 0, 0))):
+        for s in range(GENERIC_STAGES):
+            gen_inputs.append((f"{prefix}{s}", g.vector4(f"{param}{s}", default), ""))
+    gen = g.custom(GENERIC_CODE, gen_inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                   description="CE shader_transparent_generic")
     inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
     inputs += [(f"S{i}", misc, "") for i, misc in enumerate(miscs)]
+    inputs += [("Gen", gen, ""), ("GenCount", gen_count, ""), ("PlanarF", planar_fog_node(g), "")]
     inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""),
                ("Fn", g.vector4("StageColorFunctions", (0, 0, 0, 0)), ""),
                ("AFn", g.vector4("StageAlphaFunctions", (0, 0, 0, 0)), ""),
@@ -1320,6 +1512,8 @@ def build_transparent(name, blend, defaults, two_sided=False, device=False):
         mel.connect_material_property(g.mask(c, a=True), "", unreal.MaterialProperty.MP_OPACITY)
     if device:
         device_offset(g, m)
+    else:
+        sky_offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -1450,6 +1644,7 @@ def build_water(defaults, name="M_CE_Water", blend=unreal.BlendMode.BLEND_ADDITI
                  description="CE shader_transparent_water")
     mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
                                   unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    sky_offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 

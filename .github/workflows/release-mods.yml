@@ -93,8 +93,11 @@ jobs:
           set -euo pipefail
           cargo build --release -q -p blam-cli
           mkdir -p variants
-          ./target/release/mjolnir megalo write --mode slayer --out variants/slayer.mglo
-          ./target/release/mjolnir megalo write --mode ctf --out variants/ctf.mglo
+          # --vehicle-label-pool: CE's vehicle set labels and each variant's
+          # layout.json, from which MJOLNIRLevelLoader adds a map's vehicle
+          # filters (docs/ce_map_conversion.md, "Vehicle sets").
+          ./target/release/mjolnir megalo write --mode slayer --vehicle-label-pool --out variants/slayer.mglo
+          ./target/release/mjolnir megalo write --mode ctf --vehicle-label-pool --out variants/ctf.mglo
           for f in variants/*.mglo; do
             ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
             echo "$(basename "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
@@ -103,7 +106,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: game_types
-          path: variants/*.mglo
+          path: |
+            variants/*.mglo
+            variants/*.layout.json
           if-no-files-found: error
 
   release:
@@ -146,7 +151,8 @@ jobs:
             test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
             sha256sum "$dll"
           done
-          for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo; do
+          for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo \
+                      mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json; do
             test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
             sha256sum "$mglo"
           done

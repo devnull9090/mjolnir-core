@@ -81,6 +81,20 @@ pub struct WriteArgs {
     /// Simulation ticks per second (the CTF reset counts ticks).
     #[arg(long, default_value_t = 30)]
     pub tick_rate: u16,
+    /// A Megalo label the map's "hide unless megalo required" objects must
+    /// carry to be placed (repeatable): an object filter on the label, which
+    /// the script itself never uses. CE's vehicle sets per game type
+    /// (docs/ce_map_conversion.md, "Vehicle sets").
+    #[arg(long = "require-label", value_name = "LABEL")]
+    pub require_labels: Vec<String>,
+    /// Put CE's vehicle set labels (`ce_<type>_<rank>`, VEHICLE_SET_TYPES x
+    /// 1..=VEHICLE_SET_RANKS) in the string table, and write
+    /// `<out>.layout.json` beside the variant: the bit its object filters
+    /// begin at, the filters it has, and each label's string index, from
+    /// which MJOLNIRLevelLoader adds a map's vehicle set filters when a
+    /// match starts.
+    #[arg(long)]
+    pub vehicle_label_pool: bool,
     #[command(flatten)]
     pub base: BaseArgs,
     #[arg(long)]
@@ -144,7 +158,8 @@ fn set_traits(t: &mut blam_megalo::variant::Traits, pairs: &[String]) -> Result<
         let value: u8 = value
             .parse()
             .with_context(|| format!("{pair}: the value is not a number"))?;
-        t.set(name, value).map_err(|e| anyhow::anyhow!("{pair}: {e}"))?;
+        t.set(name, value)
+            .map_err(|e| anyhow::anyhow!("{pair}: {e}"))?;
     }
     Ok(())
 }
@@ -174,6 +189,17 @@ impl BaseArgs {
         set_traits(&mut b.respawn_traits, &self.respawn_traits)
     }
 }
+
+/// Object filters the simulation holds (see `--require-label`).
+pub const MAX_FILTERS: usize = 16;
+
+/// CE's vehicle set categories, as tools/level/gen_ce_level.py labels them.
+pub const VEHICLE_SET_TYPES: [&str; 7] = [
+    "warthog", "rwarthog", "scorpion", "ghost", "banshee", "turret", "other",
+];
+/// Ranks per category and team (`ce_<type>_<rank>`); a map's further ones
+/// share the last.
+pub const VEHICLE_SET_RANKS: u8 = 10;
 
 pub fn run(a: MegaloArgs) -> Result<()> {
     match a.command {
@@ -212,7 +238,73 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("{e}"))?
             };
-            let bytes = v.write().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut v = v;
+            for spec in &w.require_labels {
+                // `LABEL` or `LABEL@TEAM` (0-based team: 0 red, 1 blue).
+                let (label, team) = match spec.split_once('@') {
+                    Some((l, t)) => (
+                        l,
+                        Some(
+                            t.parse::<u8>()
+                                .with_context(|| format!("{spec}: team must be a number"))?,
+                        ),
+                    ),
+                    None => (spec.as_str(), None),
+                };
+                let label = &label.to_string();
+                let s = match v.strings.iter().position(|s| s == label) {
+                    Some(i) => i,
+                    None => {
+                        v.strings.push(label.clone());
+                        v.strings.len() - 1
+                    }
+                };
+                let s = u8::try_from(s).context("too many strings for a label")?;
+                let f = blam_megalo::variant::Filter { label: s, team };
+                if !v.filters.contains(&f) {
+                    v.filters.push(f);
+                }
+            }
+            // The format counts to 31, but the simulation holds 16: 17 put
+            // every object out of play and lost the GPU device (Death
+            // Island, 2026-10-08); 9 were fine.
+            let mut pool = serde_json::Map::new();
+            if w.vehicle_label_pool {
+                for t in VEHICLE_SET_TYPES {
+                    for r in 1..=VEHICLE_SET_RANKS {
+                        let label = format!("ce_{t}_{r}");
+                        let i = match v.strings.iter().position(|s| *s == label) {
+                            Some(i) => i,
+                            None => {
+                                v.strings.push(label.clone());
+                                v.strings.len() - 1
+                            }
+                        };
+                        pool.insert(label, serde_json::json!(i));
+                    }
+                }
+                if v.strings.len() > 127 {
+                    anyhow::bail!("{} strings; the table holds at most 127", v.strings.len());
+                }
+            }
+            if v.filters.len() > MAX_FILTERS {
+                anyhow::bail!(
+                    "{} object filters; the simulation holds at most {MAX_FILTERS}",
+                    v.filters.len()
+                );
+            }
+            let (bytes, filters_at) = v.write_layout().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if w.vehicle_label_pool {
+                let layout = serde_json::json!({
+                    "filters_at": filters_at,
+                    "max_filters": MAX_FILTERS,
+                    "filters": v.filters.iter().map(|f| serde_json::json!({"label": f.label, "team": f.team})).collect::<Vec<_>>(),
+                    "labels": pool,
+                });
+                let path = w.out.with_extension("layout.json");
+                std::fs::write(&path, serde_json::to_string_pretty(&layout)?)
+                    .with_context(|| format!("writing {}", path.display()))?;
+            }
             // Read back through the decoder's grammar before anything ships.
             Variant::read(&bytes).map_err(|e| anyhow::anyhow!("reads back wrong: {e}"))?;
             std::fs::write(&w.out, &bytes)

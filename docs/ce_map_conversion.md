@@ -112,7 +112,10 @@ and the bake's sun channel (where CE's sun reaches) comes from the solver's
 without the sun) goes to the materials as `SunShare`: the masters run CE's
 texture pass over it for the emissive, so CE's ambient, fill and bounce are
 drawn, rebuild the sunlit lightmap per channel from it and the sky's sun
-(`environment.sun.ce_light`) for the sun's albedo, and Unreal's sun, shadowed
+(`environment.sun.ce_light`) for the sun's albedo (at N.L no lower than 0.3,
+so a face turned from the sun keeps a colour for headlights and flashes:
+at its own N.L it had none, and Death Island's headlights stopped at a hard
+line where a cliff turned away), and Unreal's sun, shadowed
 by the terrain copy, draws every sun shadow; the lightmap's own
 texel-stepped shadow edge never shows inside the crisp one. Such a level has no sun mask (`gen_ce_level.py --no-sun-mask`):
 the copy's shadows are the sun's shadows, and the mask's metre-wide
@@ -171,8 +174,15 @@ scenery's own collision models to the BSP's collision first:
 - every placement's triangles go in as standalone two-sided surfaces;
 - the compiled MOPP gives every surface a key, so players and vehicles stand
   on and run into rocks and trees as in CE;
-- no BSP leaf references the added surfaces, so queries that walk the BSP
-  tree, such as projectiles, pass through them.
+- `mjolnir level collision` puts them into the BSP tree as well
+  (`blam_sbsp::scenery`), so queries that walk the tree, projectiles among
+  them, meet them too: every leaf a scenery triangle passes through is split
+  on the triangle's plane into two flagged copies of itself that name the
+  triangle, the rule the simulation's line test uses for two-sided surfaces
+  between open leaves. Where the scenery does not fit the BSP's 16-bit tables
+  it goes to instances of its own, each with such a tree (until 2026-10-03 no
+  leaf named a scenery surface, and bullets went through the Covenant
+  shields).
 
 **Surface materials.** The game picks footstep sounds, tire dust and bullet
 impacts from each collision surface's material. Each surface keeps its CE
@@ -198,7 +208,10 @@ up in `globals`.
   points (low alpha shows the secondary detail). Surfaces that are mostly
   grass get `tough_terrain_grass`, 1,178 of 2,423 on Blood Gulch.
 - **Scenery** carries no shader, so its material comes from its name: rock,
-  wood or plant.
+  wood or plant, and the Covenant shield (`c_field_generator`) takes the
+  Jackal shield's `energy_shield_thick_cov_jackal`, an energy material made to
+  stop small-arms fire (`energy_hologram` is the hologram decoy's). Whether
+  every projectile stops on it is still to be seen in game.
 
 Gephyrophobia has more than 8,191 surfaces, so its `structure_physics` uses
 one whole-instance key (see above). Havok contacts there may report one
@@ -209,7 +222,24 @@ material even though the surfaces carry theirs. Untested.
 `tools/level/merge_ce_scene.py` puts everything static into the BSP's glTF.
 
 - **Scenery:** every scenery placement's model goes in at its CE position and
-  rotation, lit as CE lights objects. An object has no lightmap of its own:
+  rotation. CE's rotation (yaw, pitch, roll) is (Rz(-yaw) Ry(pitch)
+  Rx(-roll))^-1: yaw about z, then pitch and roll about the world's y and x
+  axes, the Halo Asset Blender Development Toolset's order. The collision
+  merge, the lens flares and the sound emitters use the same order. Until
+  2026-10-08 they pitched and rolled in the object's own frame, so a
+  placement with yaw and a tilt leaned the wrong way: Ice Fields' beacons
+  stood on one edge. Over the 19 maps' tilted scenery, the toolset's order
+  sits a placement's base flatter on the BSP in 58 of the 73 placements
+  where the two differ.
+- **Beacons are seated** (`tools/level/ce_seat.py`). CE leaves some beacons
+  rocking on one edge of their base: upright on a slope, or tilted one way on
+  ground that falls two ways. A beacon whose base spans more than 0.1 m over
+  the BSP is turned onto the plane fitted to the ground under its base,
+  keeping its heading, and set 0.03 m above it, as CE's well-placed ones are.
+  The scene and collision merges and the lens flares all seat from the same
+  placement. On Ice Fields 8 of 51 beacons move. Flag bases, which CE puts
+  0.011 wu (3.4 cm) over the floor on every map, are all set down to 5 mm.
+- Scenery is lit as CE lights objects. An object has no lightmap of its own:
   CE samples the ground under its bounding sphere's centre and four points
   0.7071 of its radius out, averages the lightmap colour L, the incident
   direction and the floor's base colour, and lights the object with an
@@ -247,7 +277,15 @@ material even though the surfaces carry theirs. Untested.
   the animation's frames in `placement.json` (`device`).
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
-  is 3 km away (the ring ends up about 46 km out).
+  is 3 km away (the ring ends up about 46 km out). CE draws the sky around
+  the camera, and so do the masters: a sky section moves its vertices with
+  the camera (`SkyFollow`, World Position Offset `SKY_WPO_CODE`), the CE
+  origin onto the eye, from where it lies relative to the sky mesh's actor
+  (`SkyOrigin`, cm; `merge_ce_scene.py` writes it to
+  `scene_sky.origin.json`). Left fixed, the sky was seen from wherever the
+  player stood. The map's centre is its BSP's box centre, 525 m under
+  Gephyrophobia's bridge, in its chasm, so the ring stood a few degrees off
+  where CE draws it (2026-10-09).
 
 The scene becomes two meshes, written into shipped basic shapes in the game's
 own serialisation ([ue_mesh_write.md](ue_mesh_write.md)). Each is normalised
@@ -317,6 +355,7 @@ gamma space as the hardware did.
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
 | Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+| Planar fog | Below a BSP fog plane (Damnation's shaft, Gephyrophobia's chasm, the water of Battle Creek, Chill Out and Death Island), as MCC's environment fog shaders: x = depth under the plane / opaque depth, y = distance from the eye / opaque distance, `A = (1 − min((1−x)² + (1−y)², 1))²`, `B = (1 − (1−y)²)²`, `Pf = (eye density × (B − A) + A) × max density`, the eye density being the eye's own depth under the plane / opaque depth. Everything under the plane's height is fogged, not just what lies under the plane's polygon: CE fogs every cluster of the fog region, which reaches past the polygon (MCC fogs all of Chill Out's lower floor; clipping to the polygon's footprint drew a hard-edged slab there, 2026-10-09). The surface's colour goes to the fog's by Pf, the share Unreal's lights draw included; transparents fade by 1 − Pf. `tools/level/ce_fog.py` reads the planes and fog tags from the map (halo2ue does not stage them) into `fog.json`; `ce_material_spec.py` puts the first plane on every environment and transparent material (`PlanarFogPlane`, `PlanarFogColor`, `PlanarFogParams`). Players, vehicles and weapons, drawn with the game's own materials, are not fogged. Boarding Action's red fog has no plane and is not drawn. |
 | Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m, divided by a knee of 0.85 (`--ao-knee`) and raised to 1.3 (`--ao-curve`), so the mild folds between a cliff's facets read as open while a wall's foot keeps its darkness: as traced, every fold took a dark line and the cliffs showed their triangles (Blood Gulch, 2026-10-05). `--ao-smooth` (world-space smoothing) is off by default; at 1 m it washed out the wall-floor corners and drew dashes along them. The masters read it through a 3 x 3 tent a texel apart. Blue is the sky's detail: sky visibility (`--sky-rays`, to any distance) over its mean across 1.5 m of surface facing the same way, x 0.5, so 0.5 is as CE's lightmap has it; where CE had shade the masters multiply the lightmap by it (`SkyDetail`, clamped to 0.5-1.5; `mjolnir_terrain_shadows sky <strength>`), which shades the overhangs and crevices CE's lightmap is too coarse for. A bake the loader imports at runtime (`mjolnir_terrain_shadows lightmap`) goes through `M_CE_LinearCopy`: `ImportFileAsTexture2D` is always sRGB, and drawn as it was every runtime bake and sun mask arrived sRGB-decoded (128 as 55), too dark. The lightmap is multiplied by `red ^ BakeAO` (1.4: Blood Gulch was approved at 2.5, found a little dark across the maps at 2.0, and with the knee and curve chosen at 1.4). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
@@ -351,7 +390,46 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
 - a shader with no bitmap on any stage (Danger Canyon's and Ice Fields'
   light shaders reference none) draws nothing, as in CE: it is added at a
   zero tint. Drawn with the master's default white map, it was a solid
-  white box.
+  white box;
+- a shader with CE's two-sided flag (bit 2: the Covenant shields, the
+  teleporter shields and cones, the powerups) takes a two-sided master,
+  `M_CE_Transparent{Add,Alpha,Mul}TwoSided`, since an instance cannot turn
+  two-sided on. With one-sided masters the shields drew from one side only
+  (playtest, 2026-10-03). halo2ue's `double_sided` is true for every
+  transparent shader, so only the flag decides.
+
+**MCC's generic shaders.** The Xbox drew many of these with
+`shader_transparent_generic`, up to seven register-combiner stages over four
+maps. The PC port could not, so a classic Custom Edition map carries
+Gearbox's chicago stand-in: Death Island's teleporter field is two grey dust
+maps tiled once, a soft green blob, where MCC draws the Xbox's wavy energy.
+MCC's Halo CE editing kit (HCEEK) ships the original tags, so where it has a
+`shader_transparent_generic` at a chicago shader's tag path,
+`ce_material_spec.py` draws that instead (`MCC_GENERIC=0` turns it off;
+`MCC_TAGS` points elsewhere than the Steam install):
+
+- `tools/level/mcc_tags.py` reads the big-endian source tags (the generic
+  shader and its bitmaps) and writes each bitmap as `mcc_<path>.png` and
+  `.dds` beside the map's own, with the tag's own mip chain;
+- each map keeps a chicago map's transform and animation fields;
+- the stages go to the same transparent masters as parameters
+  (`GenericStages`, `GenCI`/`GenAI`/`GenCO`/`GenAO`/`GenK*` per stage), where
+  `GENERIC_CODE` runs them as MCC's `transparent_generic_shader.psh` does:
+  four colour and four alpha inputs through their input mappings, A·B and
+  C·D (or dot products), their sum or mux, the output mapping, and the three
+  results written to the registers the stage names; the result is r0;
+- a shader whose first map is a cube map, or whose bitmap cannot be exported,
+  stays the chicago one. So does one with a stage whose colour 0 follows one
+  of the object's functions (source A-D out: the field generator's shield,
+  the power-ups, the holo controls, the door blinker): the material cannot
+  read the object's live state, and drawn without it the shield came out
+  white or red where Halo PC's chicago shader and MCC both draw it purple. So does one with no stages (73 of the 97 our maps
+  use: most skies and lights), which MCC's combiner shader would draw black;
+  MCC must draw those another way, still to be checked.
+
+Teleporter fields, the turret's beam tendril, the beacons, the light
+volumes, the waves and the night sky's ring and planet take MCC's shaders
+this way (15 of the 24 shaders with stages over the 19 maps).
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
@@ -389,8 +467,8 @@ gamut expansion and blue correction off, so the tonemapper leaves it as it is.
   in the same blob;
 - cube maps as six faces, plus the specular colours, the three
   self-illumination channels, every chicago stage and the sky's fog;
-- each vehicle's per-game-type spawn flags, so the level places only the
-  game type's default vehicle set (`gen_ce_level.py --game-type`).
+- each vehicle's team and per-game-type spawn flags, from which a match
+  picks CE's vehicle sets (see "Vehicle sets").
 
 Without the Unreal editor (`CE_COOK=0`) the converter falls back to
 `tools/level/ce_textures.py`: one composited texture per shader on a shipped
@@ -414,7 +492,13 @@ own.
    - the **looping sounds placed objects carry** as attachments (halo2ue's
      `sounds` on an entry), each an emitter at its marker: the Covenant
      shield generator's and uplink's hum, the teleporters' loop, Wizard's
-     klaxons, the beam emitters;
+     klaxons, the beam emitters. A marker on a machine's moving part moves
+     with it (`marker_motion`, the part's device motion): Infinity's beam
+     loop hangs on the beam, which rises 1089 wu every 15 s, so CE plays it
+     for about a second as the beam fires. Held at the marker's rest it
+     played all the time (2026-10-08). The loader moves it on the world's
+     clock and keeps it PlayWhenSilent: with Restart it did not come back
+     in time;
    - the **background sound**, the looping sounds the BSP block depends on;
    - each looping sound's **tracks** and detail sounds.
 
@@ -480,20 +564,32 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   tags a palette lists. A model variant gets an entry of its own. Grenades,
   the overshield and camouflage also need the game variant's map options
   (grenades, equipment and powerups on map), which `megalo write` sets.
-- **Vehicles:** every vehicle the CE scenario places (`--game-type all`), as
-  CE's "all vehicles" sets did. Most Ghosts, Banshees, Scorpions and rocket
-  Warthogs are in no game type's default set (spawn flags `0xf00`), so a
-  default set left the big maps nearly empty; no stock map stacks two
-  vehicles on one spot. The rocket Warthog is the Warthog with its `rocket`
-  model variant (`permutation data.variant name`); its turret has no Unreal
-  actor of its own. Banshees start 0.3 wu above CE's height and fall into
-  place (`VEHICLE_LIFT`): at CE's height on Blood Gulch's roofs they started
-  inside them and were thrown on their sides.
+- **Vehicles:** every vehicle the CE scenario places (`--game-type all`),
+  hidden until a match's vehicle set picks it (see "Vehicle sets" below).
+  The rocket Warthog spawns as the chaingun Warthog
+  (`VEHICLE_VARIANTS` is empty): as the Warthog's `rocket` model variant
+  (`permutation data.variant name`) its turret had no Unreal actor
+  Blueprint, so the gun was invisible and the gunner vanished (playtest,
+  2026-10-03). Banshees and Scorpions start 0.3 wu above CE's height and
+  every other vehicle 0.05 wu (`VEHICLE_LIFT`), with the at-rest placement
+  flag cleared so they fall into place: at CE's height on Blood Gulch's roofs
+  the Banshees started inside them and were thrown on their sides.
+- **Weapons and equipment** start 0.05 wu above CE's height (`ITEM_LIFT`)
+  with the at-rest flag cleared, and fall into place. CE places items
+  0.001 wu over the floor, and the bake creates objects at rest (placement
+  flag `0x20`), so the part of a weapon below its origin stayed in the floor
+  (playtest, 2026-10-03). Levitating powerups (CE's `levitate`, on Battle
+  Creek, Hang 'Em High, Rat Race and Timberland) stay at rest where CE put
+  them.
 - **Respawn times.** Each weapon and pickup respawns after CE's time: its
   placement's, else its item collection's (halo2ue's
   `collection_spawn_time`), else 30 s. Vehicles respawn after 30 s and are
   given back 30 s after being left away from their spot. A map variant object
-  with spawn time 0 never came back.
+  with spawn time 0 never came back. Every respawn time is spread by 0-10 s
+  per placement (`RESPAWN_SPREAD`): with flat times, every object the
+  simulation had not placed came back in the same tick, and on Death Island
+  that stall reset the round every ~34 s, putting every player at a spawn
+  point without a death (2026-10-08).
 - **Teleporters:** a sender at every CE "teleport from" flag and a receiver at
   every "teleport to" flag. The simulation keeps Reach's multiplayer
   teleporters, which pair ends by channel. CE numbers a map's channels freely
@@ -590,6 +686,51 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
   respawn reuses the actor and puts the stock armour back, so the loader
   re-tints after every spawn.
 
+### Vehicle sets
+
+CE decides a map's vehicles per game type. Each scenario vehicle has a team
+index (0 red, 1 blue) and spawn flags: bits `0x1`-`0x8` put it in Slayer's,
+CTF's, King's and Oddball's **default** set, bits `0x100`-`0x800` **allow**
+it when a game variant uses custom vehicle settings. A game variant picks a
+set per team: DEFAULT, NONE, one type (WARTHOGS, GHOSTS, SCORPIONS, ROCKET
+WARTHOGS, BANSHEES, GUN TURRETS), or CUSTOM (0-4 of each type). Placing
+every game type's vehicles at once put 46 on Death Island, more than the
+simulation keeps, and it reset the round every ~34 s (2026-10-08).
+
+Reach does the same with Megalo labels:
+
+- `gen_ce_level.py` places every vehicle with the spawn flag "hide unless
+  megalo required" (`0x4`), its CE team as the owner team (defender/attacker),
+  and a label `ce_<type>_<rank>`. The type is CE's set category (a rocket
+  Warthog stays `rwarthog`). Within a team, a type's vehicles rank by how
+  many game types they are default in, and the k-th of each team share the
+  label. The level's `vehicle_sets` lists every vehicle's type, team, label
+  and CE's default and allowed game types.
+- The simulation places a hidden object only if the game variant has an
+  object filter on its label; a filter with a team constraint places only
+  that team's (both seen on Death Island, 2026-10-08). The variant holds 16
+  filters: 17 put every object out of play and lost the GPU device, and so
+  did a filter minimum count above 0. Hence the shared labels: the stock
+  maps' sets are symmetric, and a default set needs at most 9 filters.
+- `mjolnir megalo write --vehicle-label-pool` writes every label
+  (`ce_<type>_1..10`) into the variant's string table and a
+  `<mode>.layout.json` beside it: the bit the filters start at (they end the
+  stream), the variant's own filters, and each label's string index.
+- When a match starts, MJOLNIRLevelLoader (`vehicle_sets.lua`) reads the
+  host's vehicle settings from the settings line (`vehicles.<team>`,
+  `vehicles.<team>.<type>`), picks each team's labels, and appends one filter
+  per label: none of a team constraint if both teams take it, else the team's.
+  A custom count takes the lowest ranks CE allows in the game type; filters
+  past 16 are left out, highest ranks first, and logged. Every machine
+  computes the same filters from the same line and level.
+- The host sets them on the RED VEHICLES and BLUE VEHICLES pages of GAME
+  SETTINGS (`MJOLNIRLobby/Scripts/settings.lua`).
+
+Death Island places Banshees and Warthogs when the round begins, and its
+Ghosts, Scorpions and Shades only when their respawn time (30-40 s) runs out,
+with or without labels; Infinity places everything at once. Not yet
+explained.
+
 ### Health packs
 
 This game ships no health pack (no object, no Unreal asset, none placed in
@@ -613,7 +754,11 @@ variant the loader ships carries CE's health packs as Megalo script
 - The pack is cloned from the battle rifle ammo pickup (no CE map places
   battle rifle ammo), and the loader puts CE's health pack mesh
   (`/Game/MJOLNIR/CE/Powerups/SM_CE_HealthPack`) on that actor in place of
-  its own.
+  its own. The pack is made 0.1 wu above its spot and falls, so the crate can
+  come to rest tipped on its side. The mesh keeps the world's up and the
+  crate's heading, with its base (CE's model origin) at the crate's lowest
+  corner, which is on the ground, and is seated again 2 s and 5 s after the
+  pack appears.
 
 The actions are Reach's (54/55 get shields/health, 64/65 modify, 66 get
 distance), at the same numbers in CU4's decoder.
@@ -682,11 +827,17 @@ seconds after the loading screen are dark.
   or point lights; a self-illumination colour that takes a change colour
   does not take it. One converted
   map installed at a time: its meshes override the two donor shapes.
-- **Scenery collision** stops players and vehicles, not projectiles. Each
+- **Scenery collision** stops players, vehicles and, since 2026-10-03,
+  projectiles (checked offline, `scenery_probe`; not yet in game). Each
   node of a collision model is placed by its model node's rest pose: before
   halo2ue did that, a tree's canopy hull sat around its trunk at head
   height (Infinity, 2026-10-04), so maps converted earlier need converting
-  again.
+  again. The trees cost table space: Danger Canyon's 43,646 scenery
+  triangles need 17 scenery instances instead of 6, and the maps that keep
+  scenery in the BSP grow their 2D references several times over (Blood
+  Gulch 55,634 and Boarding Action 58,539 of the 65,535 limit; a map past it
+  moves its scenery to instances of its own). See `ce_terrain_collision.md`,
+  "Scenery in the tree".
 - **Object light colour.** Players, vehicles and weapons are lit by the
   Unreal sun and sky light. On a map with a real sun (its lightmap at 0.8
   or more where the bake has sun) they take that sunlit lightmap's colour,
@@ -695,7 +846,8 @@ seconds after the loading screen are dark.
   a channel. The sky's colour alone can be anything: Infinity's test sky is
   (0.5, 0.5, 0), which turned everything yellow.
 - **Approximations in the materials.** CE's noise, jitter and wander
-  functions are a value noise; the variable-period functions use their
+  functions are a value noise (4, 8 and 1 changes a period: jitter as a new
+  random value 30 times a period strobed Damnation's volume lights); the variable-period functions use their
   nominal period. The plasma self-illumination band's width and the
   "add signed" chicago functions are estimates. The reflection's view term
   uses the per-pixel eye vector where CE used the camera's forward vector.
@@ -710,6 +862,9 @@ seconds after the loading screen are dark.
   copy of its first).
 - **The canvas palette.** Weapons and vehicles the canvas mission never
   places (shotgun, flamethrower, fuel rod, health packs) are dropped.
+- **No rocket Warthog.** Rocket hogs spawn as chaingun hogs until the rocket
+  turret's tag wrapper points at an actor Blueprint (the chaingun turret's,
+  via `ue-asset` tagwrap, or a rewritten mesh with CE's rocket pod).
 - **Extent.** Keep a map inside the canvas level's overall extent: lifted 800 wu
   above B40, Havok flung objects hundreds of wu.
 - **Game modes.** Slayer only (`mjolnir megalo write --mode slayer --score N

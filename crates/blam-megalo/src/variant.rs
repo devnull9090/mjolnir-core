@@ -346,6 +346,8 @@ pub struct Variables {
 pub struct Filter {
     /// Index into [`Variant::strings`].
     pub label: u8,
+    /// Only objects of this team (0-based; the stream's `u4` is team + 1).
+    pub team: Option<u8>,
 }
 
 /// Player traits: Reach's five groups (defence, offence, movement,
@@ -1184,6 +1186,15 @@ impl Variant {
     /// The variant as the simulation's decoder reads it, zero-padded to a
     /// whole byte.
     pub fn write(&self) -> Result<Vec<u8>, Error> {
+        self.write_layout().map(|(bytes, _)| bytes)
+    }
+
+    /// The stream, and the bit at which its object filters begin (their
+    /// `u5` count). The filters end the stream, so a reader can replace them
+    /// without re-encoding the rest: MJOLNIRLevelLoader adds a map's vehicle
+    /// set labels when a match starts (docs/ce_map_conversion.md, "Vehicle
+    /// sets").
+    pub fn write_layout(&self) -> Result<(Vec<u8>, usize), Error> {
         let v = &self.vars;
         for (value, max, bits) in [
             (v.global_numbers, 12, 4),
@@ -1290,13 +1301,19 @@ impl Variant {
         for word in words {
             put(&mut w, word as u64, 32)?;
         }
+        let filters_at = w.len();
         put(&mut w, self.filters.len() as u64, 5)?;
         for f in &self.filters {
             put_minus_one(&mut w, f.label as i64, 7)?;
-            put(&mut w, 0, 3)?; // no type, team or number constraint
+            // Constraints: 1 object type, 2 team, 4 number; only the team
+            // is written.
+            put(&mut w, if f.team.is_some() { 2 } else { 0 }, 3)?;
+            if let Some(team) = f.team {
+                put(&mut w, team as u64 + 1, 4)?;
+            }
             put(&mut w, 0, 7)?; // minimum count
         }
-        Ok(w.finish())
+        Ok((w.finish(), filters_at))
     }
 }
 
@@ -1923,12 +1940,20 @@ impl Variant {
         for _ in 0..n {
             let label = get_minus_one(&mut r, 7)?;
             let flags = get(&mut r, 3)?;
-            if flags != 0 {
-                return Err(Error::Unsupported("a filter with constraints".into()));
+            if flags & !2 != 0 {
+                return Err(Error::Unsupported(
+                    "a filter with a type or number constraint".into(),
+                ));
             }
+            let team = if flags & 2 != 0 {
+                Some(get_minus_one(&mut r, 4)?.max(0) as u8)
+            } else {
+                None
+            };
             r.read(7)?;
             filters.push(Filter {
                 label: label.max(0) as u8,
+                team,
             });
         }
         if version >= 0x6b {
@@ -2034,7 +2059,10 @@ pub(crate) mod tests {
         v.base.map_flags = 0b10_0110;
         for (name, bits) in TRAITS {
             // Each field at its widest value, so a width or order slip shows.
-            v.base.player_traits.set(name, ((1u32 << bits) - 1) as u8).unwrap();
+            v.base
+                .player_traits
+                .set(name, ((1u32 << bits) - 1) as u8)
+                .unwrap();
         }
         v.base.player_traits.jump_height = Some(300);
         let bytes = v.write().unwrap();
@@ -2101,12 +2129,19 @@ pub(crate) mod tests {
     /// them, so the Lua patcher is always tested against this writer.
     #[test]
     fn settings_fixtures_are_current() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/tests/fixtures/settings");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tools/tests/fixtures/settings");
         let update = std::env::var_os("MJOLNIR_UPDATE_FIXTURES").is_some();
-        let mut files = vec![("settings.txt".to_string(), FIXTURE_SETTINGS.as_bytes().to_vec())];
+        let mut files = vec![(
+            "settings.txt".to_string(),
+            FIXTURE_SETTINGS.as_bytes().to_vec(),
+        )];
         for (name, v) in fixture_variants() {
             files.push((format!("{name}_default.mglo"), v.write().unwrap()));
-            files.push((format!("{name}_settings.mglo"), with_fixture_settings(v).write().unwrap()));
+            files.push((
+                format!("{name}_settings.mglo"),
+                with_fixture_settings(v).write().unwrap(),
+            ));
         }
         for (file, bytes) in files {
             let path = dir.join(&file);

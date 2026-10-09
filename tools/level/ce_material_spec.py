@@ -67,11 +67,14 @@ def write_cube_dds(path, faces):
     from PIL import Image
     imgs = [Image.open(f).convert("RGBA") for f in faces]
     size = imgs[0].size[0]
+    # 128 bytes (mcc_tags.write_bitmap): 12 more bytes of padding shifted
+    # every face 3 texels, the next face's first texels showing at its end.
     header = struct.pack(
-        "<4sIIIIIII44sIIIIIIIIIIIII12x",
+        "<4sIIIIIII44sIIIIIIIIIIIII",
         b"DDS ", 124, 0x1007, size, size, size * 4, 0, 0, bytes(44),
         32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000,
         0x1008, 0xFE00, 0, 0, 0)
+    assert len(header) == 128
     with open(path, "wb") as f:
         f.write(header)
         for im in imgs:
@@ -93,6 +96,27 @@ def sky_fog(staging):
                                 "FogOpaque": fog["opaque_distance"] * WU_TO_CM},
                     "vectors": {"FogColor": list(fog["color"]) + [1.0]}}
     return {}
+
+
+def planar_fog(staging, delta):
+    """The map's planar fog (ce_fog.py's fog.json) as material parameters, or
+    {}: the plane in Unreal centimetres (normal, offset), the colour, and
+    (maximum density, opaque distance cm, opaque depth cm, on). One plane per
+    map is all the stock maps have; a second is left out."""
+    try:
+        planes = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8")).get("planes") or []
+    except FileNotFoundError:
+        return {}
+    if not planes:
+        return {}
+    p = planes[0]
+    i, j, k, d = p["plane"]
+    n = [i, -j, k]
+    p0 = [(i * d + delta[0]) * WU_TO_CM, -(j * d + delta[1]) * WU_TO_CM, (k * d + delta[2]) * WU_TO_CM]
+    return {"PlanarFogPlane": n + [sum(a * b for a, b in zip(n, p0))],
+            "PlanarFogColor": list(p["color"]) + [1.0],
+            "PlanarFogParams": [p["max_density"], max(p["opaque_distance"], 1e-3) * WU_TO_CM,
+                                max(p["opaque_depth"], 1e-3) * WU_TO_CM, 1.0]}
 
 
 def master(name):
@@ -323,7 +347,8 @@ def chicago(entry, s, texture, cube):
     no bitmap keeps its place (CE binds a white default)."""
     t = s.get("tag") or {}
     blend = t.get("framebuffer_blend_function", s.get("framebuffer_blend_function", 0))
-    flags = t.get("flags", 0)
+    # A staging from before halo2ue wrote `tag` has the flags as shader_flags.
+    flags = t.get("flags", s.get("shader_flags", 0))
     # Two-sided (bit 2) is a master variant: an instance cannot change it.
     variant = "TwoSided" if flags & 4 else ""
     entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}{variant}")
@@ -383,6 +408,101 @@ def chicago(entry, s, texture, cube):
         vec["Tint"] = [0.0, 0.0, 0.0, 1.0]
     for k in [k for k, v in tex.items() if not v]:
         del tex[k]
+
+
+def argb_to_rgba(c):
+    """A tag's ARGB colour (a, r, g, b) as RGBA."""
+    c = list(c or [0.0, 0.0, 0.0, 0.0])
+    return [c[1], c[2], c[3], c[0]]
+
+
+def generic(entry, tag_path, texture, textures_dir):
+    """MCC's shader_transparent_generic for a chicago shader the PC port made
+    of it (mcc_tags.py; docs/ce_map_conversion.md, "MCC's generic shaders"),
+    on the same transparent masters (GENERIC_CODE): each map's bitmap from
+    MCC's tags (exported beside the map's own as `mcc_...`), transform and
+    animation as a chicago map's, and every combiner stage. False, and the
+    entry untouched, when MCC has no such shader or a map's bitmap cannot be
+    exported (a cube map, a missing tag): the chicago shader is drawn."""
+    import mcc_tags
+    if os.environ.get("MCC_GENERIC", "1") == "0" or not tag_path:
+        return False
+    try:
+        t = mcc_tags.generic_shader(tag_path)
+    except (OSError, ValueError, struct.error) as e:
+        print(f"  MCC generic {tag_path}: {e}", file=sys.stderr)
+        return False
+    if not t or not t.get("stages") or t.get("first_map_type", 0):
+        return False
+    # A stage whose colour 0 follows one of the object's functions (source A-D
+    # out: the field generator's shield, the power-ups, the holo controls)
+    # needs the object's live state, which the material cannot read: drawn
+    # without it the shield came out white or red where Halo PC's chicago
+    # stand-in and MCC both draw it purple (Gephyrophobia, 2026-10-09). The
+    # chicago shader is drawn instead.
+    if any(st.get("color0_source") for st in t["stages"]):
+        return False
+    maps = (t.get("maps") or [])[:4]
+    files = []
+    for m in maps:
+        ref = (m.get("map") or {}).get("path")
+        if not ref:
+            files.append(None)
+            continue
+        # Written every run, so a fix to the writer reaches a rebuild.
+        png = mcc_tags.write_bitmap(ref, textures_dir, mcc_tags.stem_for(ref))
+        if not png:
+            print(f"  MCC generic {tag_path}: bitmap {ref} not exported, drawn as chicago", file=sys.stderr)
+            return False
+        files.append(png)
+    blend = t.get("framebuffer_blend_function", 0)
+    flags = t.get("flags", 0)
+    variant = "TwoSided" if flags & 4 else ""
+    entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}{variant}")
+    sc, vec, tex = entry["scalars"], entry["vectors"], entry["textures"]
+    for i, (m, png) in enumerate(zip(maps, files)):
+        if png:
+            tex[f"Map{i}"] = texture(png)
+        vec[f"Stage{i}Xform"] = [m.get("map_u_scale") or 1.0, m.get("map_v_scale") or 1.0,
+                                 m.get("map_u_offset", 0.0), m.get("map_v_offset", 0.0)]
+        for axis, key in (("U", "u"), ("V", "v"), ("R", "rotation")):
+            vec[f"Stage{i}{axis}Anim"] = [m.get(f"{key}_animation_function", 0), m.get(f"{key}_animation_period", 0.0),
+                                          m.get(f"{key}_animation_phase", 0.0), m.get(f"{key}_animation_scale", 0.0)]
+        centre = m.get("rotation_animation_center") or [0.0, 0.0]
+        # A generic map's flags are unfiltered, u-clamped, v-clamped (bits
+        # 0-2); the masters read a chicago map's (clamps at bits 2 and 3).
+        mf = m.get("flags", 0)
+        vec[f"Stage{i}Misc"] = [m.get("map_rotation", 0.0), centre[0], centre[1],
+                                float((mf & 1) | ((mf & 6) << 1))]
+    stages = t["stages"][:7]
+    for s, st in enumerate(stages):
+        packed = lambda kind: [float(st[f"{kind}_input_{x}"] + 32 * st[f"{kind}_input_{x}_mapping"]) for x in "abcd"]
+        vec[f"GenCI{s}"] = packed("color")
+        vec[f"GenAI{s}"] = packed("alpha")
+        vec[f"GenCO{s}"] = [float(st["color_output_ab"] + 16 * st["color_output_ab_function"]),
+                            float(st["color_output_cd"] + 16 * st["color_output_cd_function"]),
+                            float(st["color_output_ab_cd_mux_sum"]), float(st["color_output_mapping"])]
+        vec[f"GenAO{s}"] = [float(st["alpha_output_ab"]), float(st["alpha_output_cd"]),
+                            float(st["alpha_output_ab_cd_mux_sum"]), float(st["alpha_output_mapping"])]
+        vec[f"GenK0{s}"] = argb_to_rgba(st["color0_animation_lower_bound"])
+        vec[f"GenK0Hi{s}"] = argb_to_rgba(st["color0_animation_upper_bound"])
+        vec[f"GenK1{s}"] = argb_to_rgba(st["color1"])
+        vec[f"GenKA{s}"] = [float(st["color0_animation_function"]), st["color0_animation_period"],
+                            float(st["flags"]), 0.0]
+    sc["GenericStages"] = float(len(stages))
+    sc["StageCount"] = float(len(maps))
+    sc["ChicagoFlags"] = float(flags)
+    sc["BlendFunction"] = float(blend)
+    # MCC's generic pixel shader applies no framebuffer fade of its own; a
+    # stage that wants one reads v1.
+    sc["FadeMode"] = 0.0
+    if blend == 2:
+        vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
+    if blend == 7:
+        sc["Premultiply"] = 1.0
+    for k in [k for k, v in tex.items() if not v]:
+        del tex[k]
+    return True
 
 
 def device(entry, motion, part, mesh, delta):
@@ -479,6 +599,11 @@ def main():
 
     textures = {}
     fog = sky_fog(staging)
+    planar = planar_fog(staging, delta)
+    # The CE sky's origin from its mesh's actor (merge_ce_scene.py): the
+    # masters draw the sky around the camera, as CE does (SKY_WPO_CODE).
+    sky_origin = os.path.join(os.path.dirname(os.path.abspath(dest)), "scene_sky.origin.json")
+    sky_origin = json.load(open(sky_origin, encoding="utf-8"))["sky_origin_cm"] if os.path.exists(sky_origin) else None
     cubes_dir = os.path.join(os.path.dirname(os.path.abspath(dest)), "cubes")
 
     def cube(faces):
@@ -554,7 +679,9 @@ def main():
         cls = s["shader_class"]
         entry = {"name": mi, "scalars": {}, "vectors": {}, "textures": {}}
         if cls in ("schi", "scex"):
-            chicago(entry, s, texture, cube)
+            # MCC's original where the PC port left a chicago stand-in.
+            if not generic(entry, mat_info.get("tag_path") or s.get("tag_path"), texture, textures_dir):
+                chicago(entry, s, texture, cube)
         elif cls == "swat":
             water(entry, s, texture, cube, halo)
         elif cls == "sgla" and s.get("tag"):
@@ -649,10 +776,16 @@ def main():
             # A placed object: its light, reflection tint and change colours
             # are its block of the object lighting page (merge_ce_scene.py).
             entry["scalars"]["ObjectPage"] = 1.0
+        if halo.get("sky") and sky_origin and leaf.startswith(("M_CE_Transparent", "M_CE_WaterSky")):
+            entry["scalars"]["SkyFollow"] = 1.0
+            entry["vectors"]["SkyOrigin"] = sky_origin + [0.0]
         if not halo.get("sky"):
             # CE fogs the level, not its sky.
             entry["scalars"].update(fog.get("scalars", {}))
             entry["vectors"].update(fog.get("vectors", {}))
+            # The planar fog (ce_fog.py): the masters that draw it.
+            if leaf.startswith(("M_CE_Environment", "M_CE_Transparent")):
+                entry["vectors"].update(planar)
         entry["textures"] = {k: f"{root}/Textures/{v}.{v}" for k, v in entry["textures"].items() if v}
         runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors", "bounds_scale") if entry.get(k)}
         materials.append(entry)

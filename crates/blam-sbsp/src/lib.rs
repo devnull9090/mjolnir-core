@@ -14,6 +14,7 @@ pub mod convert;
 pub mod mopp;
 pub mod pack16;
 pub mod raytest;
+pub mod scenery;
 pub mod split;
 pub mod transplant;
 pub mod unpack16;

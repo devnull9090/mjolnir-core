@@ -573,6 +573,9 @@ definition 0. Maps that fit are built exactly as before.
 Timberland (4 scenery instances), Danger Canyon (6), Death Island (3) and
 Infinity (8) build this way.
 
+Since 2026-10-03 each piece has a real tree instead (below), and a piece
+holds as many surfaces as its tables allow, at most 8,192.
+
 A child of "none" in a bsp3d node is **solid**, not empty. The first version
 gave each piece a node with "none" on both sides, so every point of the map
 was inside solid scenery: a player was killed by the guardians
@@ -593,3 +596,56 @@ triangles, 18,707 quads, 1,860 polygons of five to eight vertices) becomes
 scenery moves to instances of its own after this split, not before (Coldsnap
 fits before it and not after). `ray_probe packed` on Coldsnap gives the same
 result as on the unsplit CE tables (no misses).
+
+## Scenery in the tree, for projectiles (2026-10-03)
+
+Bullets went through the Covenant shields on Danger Canyon, Gephyrophobia and
+Rat Race (`playtest_2026-10-03.md`, issue 5): Havok stands on every surface
+through the MOPP, but a line test walks the bsp3d tree, and no leaf named a
+scenery surface. `blam_sbsp::scenery` puts them in the tree, by the rule of
+the simulation's own leaf handler (`fn_2eb3d0`, `docs/re/collision_bsp/`).
+Between two open leaves it looks for a surface only when both carry leaf flag
+bit 0 (two-sided); it takes a 2D reference on the crossed plane from the leaf
+the ray left, only if the reference's sign matches the direction of travel
+(no sign: against the plane's normal), and tests the point against the
+surface's polygon. CE's own two-sided surfaces are stored that way: positive
+reference in the front leaf, negated in the back one.
+
+- Every leaf a scenery triangle passes through is split on its plane into two
+  copies of itself, both flagged, both keeping the leaf's own references,
+  front naming the triangle positive and back negated. Nothing becomes
+  "none", so the inside test is unchanged.
+- A triangle on a plane the tree already splits on gets references on that
+  plane, not a coincident node.
+- A leaf more than 12 triangle parts reach is first cut along the axes
+  between them, so tree meshes do not slice each other to pieces.
+- Leaves cut from one leaf share its references in pairs:
+  `[scenery A, own, scenery B]`.
+- `split_standalone` gives each scenery piece the same tree (root on the
+  first triangle's plane between two open leaves) and fills each piece as far
+  as its 2D references (65,535) allow.
+
+`raytest` now walks by the same rule; on Damnation's staged BSP its displaced
+hits went from 35 to 0 and phantoms from 81 to 0 (`ray_probe ce`, step 2).
+`examples/scenery_probe.rs` casts rays through every scenery triangle and the
+BSP's floors before and after: every miss left has an end in solid (a
+triangle buried in the ground), and no floor ray is lost.
+
+| map | scenery | where | nodes | 2D references |
+|---|---|---|---|---|
+| Rat Race | 280 | BSP | 2,646 -> 3,526 | 3,251 -> 9,291 |
+| Gephyrophobia | 1,120 | BSP | 15,771 -> 18,888 | 18,084 -> 36,263 |
+| Blood Gulch | 1,794 | BSP | 12,159 -> 18,483 | 13,221 -> 55,634 |
+| Boarding Action | 5,670 | BSP | 5,154 -> 12,545 | 5,879 -> 58,539 |
+| Danger Canyon | 43,646 | 17 instances (was 6) | ~23,000 each | ~64,000 each |
+
+Scenery that no longer fits the BSP's tables once linked moves to instances
+of its own, so two maps change route: Sidewinder (3,190 triangles, 105,065
+references in the tree) to 1 instance and Ice Fields (11,718) to 3. The maps
+that already split take more instances: Timberland 11 (was 4), Death Island
+7 (was 3), Infinity 25 (was 8). All of them hit every scenery ray in open
+space offline (2026-10-03); none has been loaded with its scenery linked.
+
+Both judgements (in the tree, or in instances) are made after the transplant's
+fan split (`fan_split_fit`), as for the quads above. Coldsnap and Yoyorast Island
+have not been run with their scenery linked.

@@ -224,16 +224,15 @@ pub fn fan_split_into(c: &mut Collision, max: usize, piece: usize) -> (usize, us
 /// They are the scenery `tools/level/merge_ce_collision.py` appends after a
 /// staged BSP's own surfaces: polygons the BSP tree never reaches, each with
 /// its own plane, edge ring and vertices, appended after the BSP's. Havok
-/// reaches them through a MOPP over the surfaces, so a piece needs no real
-/// tree: one node with the same empty leaf on both sides, so every point is
-/// open space. (A child of "none" is solid: pieces built that way put the
-/// whole map inside solid scenery, and every player who moved was killed by
-/// the guardians, Danger Canyon 2026-10-01.) What stays in `c`
-/// is the BSP as staged, its tables cut back to what its own tree and
-/// surfaces use. Fails if the surfaces are not such a tail.
-/// Leaf 0 as a bsp3d child (`0x8000_0000 | leaf`).
-const EMPTY_LEAF: i32 = i32::MIN;
-
+/// reaches them through a MOPP over the surfaces; projectiles walk the tree,
+/// so each piece gets one in which every point is open space and every
+/// surface is reachable ([`crate::scenery::link`]). (A child of "none" is
+/// solid: pieces built that way put the whole map inside solid scenery, and
+/// every player who moved was killed by the guardians, Danger Canyon
+/// 2026-10-01.) A piece whose tree would overflow the 16-bit tables takes
+/// fewer surfaces. What stays in `c` is the BSP as staged, its tables cut back
+/// to what its own tree and surfaces use. Fails if the surfaces are not such
+/// a tail.
 pub fn split_standalone(
     c: &mut Collision,
     first: usize,
@@ -272,56 +271,6 @@ pub fn split_standalone(
         .min()
         .unwrap_or(c.vertices.len());
 
-    let mut pieces: Vec<Collision> = Vec::new();
-    for (k, (s, l)) in c.surfaces[first..].iter().zip(&loops).enumerate() {
-        if k % max == 0 {
-            pieces.push(Collision {
-                bsp3d_nodes: vec![Bsp3dNode {
-                    plane: 0,
-                    back: EMPTY_LEAF,
-                    front: EMPTY_LEAF,
-                }],
-                leaves: vec![Leaf {
-                    flags: 0,
-                    reference_count: 0,
-                    first_reference: 0,
-                }],
-                ..Default::default()
-            });
-        }
-        let piece = pieces.last_mut().unwrap();
-        let surface = piece.surfaces.len() as i32;
-        let plane = piece.planes.len() as i32;
-        piece.planes.push(c.planes[plane_of(s.plane)]);
-        let (v0, e0, n) = (
-            piece.vertices.len() as i32,
-            piece.edges.len() as i32,
-            l.verts.len() as i32,
-        );
-        for (j, &v) in l.verts.iter().enumerate() {
-            piece.vertices.push(Vertex {
-                point: c.vertices[v as usize].point,
-                first_edge: e0 + j as i32,
-            });
-        }
-        for j in 0..n {
-            // A ring walked from the surface's left, as the merge writes it.
-            piece.edges.push(Edge {
-                start: v0 + j,
-                end: v0 + (j + 1) % n,
-                forward: e0 + (j + 1) % n,
-                reverse: -1,
-                left: surface,
-                right: -1,
-            });
-        }
-        piece.surfaces.push(Surface {
-            plane: plane | (s.plane & i32::MIN),
-            first_edge: e0,
-            ..*s
-        });
-    }
-
     // What the BSP itself uses must sit below the cuts.
     let max_plane = c
         .bsp3d_nodes
@@ -355,11 +304,121 @@ pub fn split_standalone(
             "surfaces {first}..{total} are not a standalone tail (planes from {cut_planes}, edges from {cut_edges}, vertices from {cut_vertices})"
         )));
     }
+    let items: Vec<(Surface, &Loop)> = c.surfaces[first..].iter().copied().zip(&loops).collect();
+    let pieces = pieces_of(c, &items, max)?;
     c.surfaces.truncate(first);
     c.planes.truncate(cut_planes);
     c.edges.truncate(cut_edges);
     c.vertices.truncate(cut_vertices);
     Ok(pieces)
+}
+
+/// Leaf `l` as a bsp3d child (`0x8000_0000 | leaf`).
+const fn leaf_child(l: u32) -> i32 {
+    (0x8000_0000 | l) as i32
+}
+
+/// One piece holding `items` (surfaces of `c` and their edge loops), with a
+/// tree that reaches every one: a root on the first surface's plane between
+/// two open leaves, and each surface linked in from there.
+fn piece_of(c: &Collision, items: &[(Surface, &Loop)]) -> Collision {
+    let plane_of = |p: i32| (p as u32 & 0x7fff_ffff) as usize;
+    let mut piece = Collision {
+        bsp3d_nodes: vec![Bsp3dNode {
+            plane: 0,
+            back: leaf_child(0),
+            front: leaf_child(1),
+        }],
+        leaves: vec![
+            Leaf {
+                flags: 0,
+                reference_count: 0,
+                first_reference: 0,
+            };
+            2
+        ],
+        ..Default::default()
+    };
+    for (s, l) in items {
+        let surface = piece.surfaces.len() as i32;
+        let plane = piece.planes.len() as i32;
+        piece.planes.push(c.planes[plane_of(s.plane)]);
+        let (v0, e0, n) = (
+            piece.vertices.len() as i32,
+            piece.edges.len() as i32,
+            l.verts.len() as i32,
+        );
+        for (j, &v) in l.verts.iter().enumerate() {
+            piece.vertices.push(Vertex {
+                point: c.vertices[v as usize].point,
+                first_edge: e0 + j as i32,
+            });
+        }
+        for j in 0..n {
+            // A ring walked from the surface's left, as the merge writes it.
+            piece.edges.push(Edge {
+                start: v0 + j,
+                end: v0 + (j + 1) % n,
+                forward: e0 + (j + 1) % n,
+                reverse: -1,
+                left: surface,
+                right: -1,
+            });
+        }
+        piece.surfaces.push(Surface {
+            plane: plane | (s.plane & i32::MIN),
+            first_edge: e0,
+            ..*s
+        });
+    }
+    crate::scenery::link(&mut piece, 0);
+    piece
+}
+
+/// Build `items` into pieces of at most `max` surfaces, in order, each as
+/// full as its tree lets it be: a piece whose tree overflows the 16-bit
+/// tables takes the longest run that fits, found by bisection to within
+/// 1/32. (Linked, Danger Canyon's trees take ~28 2D references a triangle,
+/// so the reference table, not the surface count, sets a piece's size.)
+fn pieces_of(
+    c: &Collision,
+    items: &[(Surface, &Loop)],
+    max: usize,
+) -> Result<Vec<Collision>, Error> {
+    let mut out = Vec::new();
+    let mut rest = items;
+    while !rest.is_empty() {
+        let n = rest.len().min(max);
+        let piece = piece_of(c, &rest[..n]);
+        let (piece, n) = match piece.fits_16bit() {
+            Ok(()) => (piece, n),
+            Err(why) => {
+                // `lo` surfaces fit (its piece is `best`), `hi` do not.
+                let (mut lo, mut hi, mut best) = (0, n, None);
+                while hi - lo > (hi / 32).max(1) {
+                    let mid = (lo + hi) / 2;
+                    let p = piece_of(c, &rest[..mid]);
+                    if p.fits_16bit().is_ok() {
+                        (lo, best) = (mid, Some(p));
+                    } else {
+                        hi = mid;
+                    }
+                }
+                match best {
+                    Some(p) => (p, lo),
+                    None if hi == 1 => return Err(why),
+                    None => {
+                        let p = piece_of(c, &rest[..1]);
+                        p.fits_16bit()?;
+                        (p, 1)
+                    }
+                }
+            }
+        };
+        out.push(piece);
+        rest = &rest[n..];
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -435,13 +494,52 @@ mod tests {
         assert_eq!(p.surfaces[0].material, 2);
         assert_eq!(p.planes[0].d, 2.0);
         assert_eq!(p.vertices[0].point, [0.0, 0.0, 2.0]);
-        // Open space on both sides of the one node: never solid.
+        // Open space on both sides of the root, on the surface's plane:
+        // never solid, and the surface is named from both leaves, positive
+        // in front and negated behind.
         assert_eq!(
             (p.bsp3d_nodes[0].back, p.bsp3d_nodes[0].front),
-            (EMPTY_LEAF, EMPTY_LEAF)
+            (leaf_child(0), leaf_child(1))
         );
-        assert_eq!((p.leaves.len(), p.leaves[0].reference_count), (1, 0));
+        assert_eq!(p.leaves.len(), 2);
+        let names = |l: usize| {
+            let lf = p.leaves[l];
+            assert_eq!(lf.flags & 1, 1);
+            p.bsp2d_references[lf.first_reference as usize..][..lf.reference_count as usize]
+                .iter()
+                .map(|r| (r.plane as u32, r.node as u32))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(0), vec![(0x8000_0000, 0x8000_0000)]);
+        assert_eq!(names(1), vec![(0, 0x8000_0000)]);
         assert!(p.fits_16bit().is_ok());
+    }
+
+    /// A ray through a piece's triangle hits it, from either side; beside
+    /// it, nothing.
+    #[test]
+    fn a_ray_meets_scenery_in_its_piece() {
+        use crate::scenery::tests::{add_polygon, ray};
+        let mut c = with_tail();
+        add_polygon(
+            &mut c,
+            &[[5.0, 0.0, 0.0], [5.0, 1.0, 0.0], [5.0, 0.0, 1.0]],
+            1,
+        );
+        let pieces = split_standalone(&mut c, 1, 8).unwrap();
+        assert_eq!(pieces.len(), 1);
+        let p = &pieces[0];
+        let hit = ray(p, [4.0, 0.2, 0.2], [6.0, 0.2, 0.2]).expect("hit");
+        assert_eq!(hit.surface, 2);
+        assert!((hit.t - 0.5).abs() < 1e-4);
+        assert_eq!(
+            ray(p, [6.0, 0.2, 0.2], [4.0, 0.2, 0.2]).map(|h| h.surface),
+            Some(2)
+        );
+        assert!(ray(p, [4.0, 0.9, 0.9], [6.0, 0.9, 0.9]).is_none());
+        // Down through the flat triangles at z 1 and 2.
+        let hit = ray(p, [0.9, 0.5, 3.0], [0.9, 0.5, -1.0]).expect("down");
+        assert_eq!(hit.surface, 1);
     }
 
     #[test]

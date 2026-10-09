@@ -9,7 +9,7 @@
 
 local Settings = {}
 
-Settings.PAGES = { "GAME", "PLAYERS", "ITEMS" }
+Settings.PAGES = { "GAME", "PLAYERS", "ITEMS", "RED VEHICLES", "BLUE VEHICLES" }
 
 local function seconds(n) return n == 0 and "INSTANT" or (n .. " SECONDS") end
 local function penalty(n) return n == 0 and "NONE" or (n .. " SECONDS") end
@@ -79,6 +79,37 @@ Settings.OPTIONS = {
     },
 }
 
+-- CE's vehicle sets, one per team (MJOLNIRLevelLoader's vehicle_sets.lua
+-- places them; the settings line carries `vehicles.<team>=<set>` and, for a
+-- custom set, `vehicles.<team>.<type>=<count>`). The map's own vehicles for
+-- the game type are DEFAULT; a one-type set places every one of that type the
+-- map allows in the game type; CUSTOM places up to a count of each.
+local VEHICLE_SETS = { "DEFAULT", "NONE", "WARTHOGS", "GHOSTS", "SCORPIONS", "ROCKET WARTHOGS",
+    "BANSHEES", "GUN TURRETS", "CUSTOM" }
+local VEHICLE_CUSTOM = 8
+local VEHICLE_TYPES = {
+    { "warthog", "WARTHOGS" }, { "ghost", "GHOSTS" }, { "scorpion", "SCORPIONS" },
+    { "rwarthog", "ROCKET WARTHOGS" }, { "banshee", "BANSHEES" }, { "turret", "GUN TURRETS" },
+}
+for page, team in ipairs({ "red", "blue" }) do
+    local name = team:upper()
+    Settings.OPTIONS[#Settings.OPTIONS + 1] = {
+        id = "vehicles." .. team, page = 3 + page, label = "VEHICLE SET",
+        choices = choices({ 0, 1, 2, 3, 4, 5, 6, 7, 8 }, function(v) return VEHICLE_SETS[v + 1] end), default = 0,
+        help = "The vehicles on " .. name .. "'s side. DEFAULT is the map's own for the game type, as in CE; "
+            .. "CUSTOM sets a count of each type.",
+    }
+    for _, t in ipairs(VEHICLE_TYPES) do
+        Settings.OPTIONS[#Settings.OPTIONS + 1] = {
+            id = "vehicles." .. team .. "." .. t[1], page = 3 + page, label = t[2],
+            team = team,   -- shown only while the team's set is CUSTOM
+            choices = choices({ 0, 1, 2, 3, 4 }, tostring), default = 0,   -- CE's 0-4
+            help = "With a CUSTOM set: how many " .. t[2]:lower() .. " " .. name
+                .. " gets, up to as many as the map has for the game type.",
+        }
+    end
+end
+
 --- The option `id` as shown for game type `mode` (the score depends on it),
 --- or nil when it does not apply to that game type.
 function Settings.option(id, mode)
@@ -94,12 +125,19 @@ function Settings.option(id, mode)
     return nil
 end
 
+--- Whether `opt` is on screen: a custom vehicle count only while its
+--- team's set is CUSTOM.
+local function shown(opt)
+    if not opt.team then return true end
+    return Settings.value(Settings.option("vehicles." .. opt.team)) == VEHICLE_CUSTOM
+end
+
 --- The options on `page` (1-based) for game type `mode`, in order.
 function Settings.page(page, mode)
     local out = {}
     for _, o in ipairs(Settings.OPTIONS) do
         local opt = Settings.option(o.id, mode)
-        if opt and opt.page == page then out[#out + 1] = opt end
+        if opt and opt.page == page and shown(opt) then out[#out + 1] = opt end
     end
     return out
 end
@@ -178,6 +216,17 @@ function Settings.variantLine()
     if Settings.value(Settings.option("grenades")) == 0 then map = map - MAP_GRENADES end
     if Settings.value(Settings.option("powerups")) == 0 then map = map - MAP_POWERUPS end
     f.map_flags = map
+    -- Each team's vehicle set, and its counts when it is CUSTOM.
+    for _, team in ipairs({ "red", "blue" }) do
+        local set = Settings.value(Settings.option("vehicles." .. team))
+        f["vehicles." .. team] = set
+        if set == VEHICLE_CUSTOM then
+            for _, t in ipairs(VEHICLE_TYPES) do
+                local key = "vehicles." .. team .. "." .. t[1]
+                f[key] = Settings.value(Settings.option(key))
+            end
+        end
+    end
     local keys = {}
     for k in pairs(f) do keys[#keys + 1] = k end
     table.sort(keys)
@@ -192,7 +241,7 @@ function Settings.changes(mode)
     local out = {}
     for _, o in ipairs(Settings.OPTIONS) do
         local opt = Settings.option(o.id, mode)
-        if opt and Settings.value(opt) ~= opt.default then
+        if opt and shown(opt) and Settings.value(opt) ~= opt.default then
             out[#out + 1] = opt.label .. ": " .. Settings.text(opt)
         end
     end
@@ -217,6 +266,9 @@ function Settings.describe(line, mode)
     if f.map_flags then
         values.grenades = math.floor(f.map_flags / MAP_GRENADES) % 2
         values.powerups = math.floor(f.map_flags / MAP_POWERUPS) % 2
+    end
+    for k, v in pairs(f) do
+        if k:sub(1, 9) == "vehicles." then values[k] = v end
     end
     local out = Settings.changes(mode)
     values = saved

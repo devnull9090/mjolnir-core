@@ -140,9 +140,10 @@ Megalo script or user options; **data** = new tag data in the runtime pack;
 | CTF assault, single flag, flag must reset, flag at home | script (CTF script options) | |
 | Oddball, King and their options | script + data (ball object, hill boundaries) | |
 | Weapon sets (snipers only etc.) | data: remap tables in the object type list we ship, selected by the variant's weapon set | needs RE of where the sim applies the remap |
-| Vehicle set, vehicle respawn | data: vehicle remap tables, or script deleting vehicles; respawn is baked at conversion | |
+| Vehicle set, per team (CE's default, none, one type, custom 0-4) | data + patch: Megalo labels on the map's vehicles and object filters appended at match start (ce_map_conversion.md, "Vehicle sets") | built 2026-10-08 |
+| Vehicle respawn time | respawn is baked at conversion (30-40 s) | |
 | Starting equipment | patch (spawn weapon traits) | encoding unverified |
-| FF shields-only / explosives-only, per-team vehicle sets, Race | none without major work | |
+| FF shields-only / explosives-only, Race | none without major work | |
 
 ## Design
 

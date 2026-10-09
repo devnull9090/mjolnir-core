@@ -814,10 +814,21 @@ local function teamOfName(name)
     return nil
 end
 
+--- Whether the game's HUD is shown: the HUD actor's bShowHUD, which
+--- MJOLNIRFlyCam's F7 (and anything else that hides the HUD) turns off.
+--- Our widgets follow it, so a screenshot without the game's HUD has none of
+--- ours either.
+local HudHidden = false
+
+local function hudShown(pc)
+    local ok, shown = pcall(function() return pc.MyHUD.bShowHUD end)
+    return not ok or shown ~= false
+end
+
 local function applyTag(tag)
     if not Match then return end
     local show = false
-    if Match.mode.teams then
+    if Match.mode.teams and not HudHidden then
         local okN, name = pcall(function() return tag.PlayerNameValue:GetText():ToString() end)
         local mine = Match.players[LOCAL_PLAYER] and Match.players[LOCAL_PLAYER].team
         show = okN and mine ~= nil and teamOfName(name) == mine
@@ -901,7 +912,10 @@ local function ensureWidgets()
     widgetTries = widgetTries + 1
     if not (Feed and Feed:IsValid()) then
         Feed = createWidget(FEED_CLASS, 40)
-        if Feed then setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)) end
+        if Feed then
+            setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR))
+            if HudHidden then setVisible(Feed, false) end
+        end
     end
     if not (Board and Board:IsValid()) then
         Board = createWidget(BOARD_CLASS, 45)
@@ -971,8 +985,19 @@ local function tick()
     if held ~= boardShown then
         boardShown = held
         if held then boardDirty = true end
-        setVisible(Board, held)
+        setVisible(Board, held and not HudHidden)
         if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held) end
+    end
+    -- The game's HUD hidden (MJOLNIRFlyCam's F7): ours goes with it, and
+    -- comes back as it was.
+    local hidden = not hudShown(pc)
+    if hidden ~= HudHidden then
+        HudHidden = hidden
+        if Feed and Feed:IsValid() then setVisible(Feed, not hidden) end
+        if Board and Board:IsValid() then setVisible(Board, boardShown and not hidden) end
+        for address, tag in pairs(Tags) do
+            if tag:IsValid() then applyTag(tag) else Tags[address] = nil end
+        end
     end
     if boardDirty then
         boardDirty = false
@@ -981,9 +1006,19 @@ local function tick()
     end
 end
 
+--- A tick that holds the game thread past 50 ms is logged (at most every
+--- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said
+--- which mod's loop it was (playtest, 2026-10-03).
+local slowReportedAt = -100
 local function poll()
+    local started = os.clock()
     local ok, err = pcall(tick)
     if not ok then Log("tick: " .. tostring(err)) end
+    local took = os.clock() - started
+    if took > 0.05 and started - slowReportedAt > 30 then
+        slowReportedAt = started
+        Log(string.format("slow: the HUD tick held the game thread %.0f ms", took * 1000))
+    end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
 
