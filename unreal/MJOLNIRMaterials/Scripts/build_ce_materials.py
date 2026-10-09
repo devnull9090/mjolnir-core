@@ -252,7 +252,9 @@ class Graph:
 # (docs/ce_map_conversion.md, "Periodic functions"). Cosine is
 # 0.5 + 0.5 cos 2 pi x, 1 at x = 0; diagonal is a triangle from 0 at x = 0;
 # slide is frac(x). The variable-period forms use their nominal period, and
-# noise, jitter and wander a smooth value noise at different rates. Spark
+# noise, jitter and wander a smooth value noise at different rates (4, 8
+# and 1 a period: jitter as a new random value 30 times a period strobed
+# Damnation's volume lights, 0.6 s, at 50 Hz, 2026-10-09). Spark
 # rises over the first 35% of the period and decays over the rest: a hard
 # on/off blip made Gephyrophobia's energy ropes flash every 5 s where CE's
 # pulse (2026-10-02).
@@ -263,7 +265,7 @@ class Graph:
 WAVE = r"""
 #define CE_HASH(n) frac(sin(n) * 43758.5453)
 #define CE_VNOISE(x) lerp(CE_HASH(floor(x)), CE_HASH(floor(x) + 1.0), smoothstep(0.0, 1.0, frac(x)))
-#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 + 0.5 * cos(6.2831853 * (x))     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0)     : (fn) < 9.5 ? CE_HASH(floor((x) * 30.0)) : (fn) < 10.5 ? CE_VNOISE(x)     : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
+#define CE_WAVE(fn, x) ((fn) < 0.5 ? 1.0 : (fn) < 1.5 ? 0.0 : (fn) < 3.5 ? 0.5 + 0.5 * cos(6.2831853 * (x))     : (fn) < 5.5 ? 1.0 - abs(2.0 * frac(x) - 1.0) : (fn) < 7.5 ? frac(x) : (fn) < 8.5 ? CE_VNOISE((x) * 4.0)     : (fn) < 9.5 ? CE_VNOISE((x) * 8.0) : (fn) < 10.5 ? CE_VNOISE(x)     : (frac(x) < 0.35 ? smoothstep(0.0, 0.35, frac(x)) : 1.0 - smoothstep(0.35, 1.0, frac(x))))
 #define CE_PHASE(anim, t) (((t) + (anim).z) / (abs((anim).y) > 1e-6 ? (anim).y : 1.0))
 """
 
@@ -549,6 +551,9 @@ float ndv = abs(dot(normalize(VertexN), normalize(Cam)));
 if (FadeMode > 0.5) F = FadeMode < 1.5 ? 1.0 - ndv : ndv;
 if (FogDensity > 0.0)
     F *= 1.0 - FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
+// CE's planar fog fades a transparent out as the atmospheric fog does
+// (PLANAR_FOG_CODE).
+F *= 1.0 - PlanarF;
 if (((int)ChicagoFlags & 1) && alpha <= 127.0 / 255.0) F = 0.0;
 int blend = (int)Blend;
 if (blend == 0) alpha *= F;
@@ -1086,6 +1091,18 @@ def sun_split(g, screen, lightmap, has_lightmap, bake, has_bake, bake_range, sun
         normal = g.custom("return U > 0.5 ? N.rgb : float3(0, 0, 1);", [("U", unreal_lit, ""), ("N", bump_n, "")],
                           description="CE bump normal, Unreal-lit only")
         mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    # CE's planar fog over the whole surface (PLANAR_FOG_CODE): the colour CE
+    # draws fades to the fog's (as screen colour, like every CE colour), and
+    # the share Unreal's lights draw fades with it.
+    pf = planar_fog_node(g)
+    fog_screen = g.to_screen(g.custom("float3 frame = PlanarFogColor.rgb;\n" + SRGB_TO_LINEAR, [
+        ("PlanarFogColor", g.vector("PlanarFogColor", (0.0, 0.0, 0.0, 1.0)), ""),
+        ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), ""), ("Exposure", g.scalar("Exposure", 1.0), ""),
+    ], description="CE planar fog colour"))
+    emissive = g.custom("return E.rgb * (1.0 - P) + C.rgb * P;", [("E", emissive, ""), ("P", pf, ""), ("C", fog_screen, "")],
+                        description="CE planar fog over the emissive")
+    topped = g.custom("return B.rgb * (1.0 - P);", [("B", topped, ""), ("P", pf, "")],
+                      description="CE planar fog over the lit share")
     debug_view = g.scalar("DebugView", 0.0)
     debug = g.to_screen(g.custom(DEBUG_CODE, [
         ("DebugView", debug_view, ""), ("Lightmap", lightmap, "RGB"), ("Bake", bake, "RGBA"),
@@ -1149,6 +1166,43 @@ return lerp(hi, lo, step(c, 0.0031308));
     mel.connect_material_property(c, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
+
+
+# CE's planar fog (docs/ce_map_conversion.md, "Planar fog"; tools/level/ce_fog.py):
+# below a plane (Damnation's shaft, Gephyrophobia's chasm, the water of Battle
+# Creek, Chill Out and Death Island) a colour thickens with the point's depth
+# under the plane (x, against the fog's opaque depth) and its distance from
+# the eye (y, against the opaque distance), as MCC's environment_fog shaders
+# do it: A = (1 - min((1-x)^2 + (1-y)^2, 1))^2 with the eye above the fog,
+# B = (1 - (1-y)^2)^2 with it inside, mixed by the eye's own depth, times the
+# maximum density. PlanarFogPlane is (normal, offset) in Unreal cm, the fog
+# below it; PlanarFogParams (maximum density, opaque distance cm, opaque
+# depth cm, on). Returns Pf, the fog's share of the pixel.
+PLANAR_FOG_CODE = r"""
+if (PlanarFogParams.w < 0.5) return 0.0;
+float3 n = PlanarFogPlane.xyz;
+float depth = max(PlanarFogPlane.w - dot(n, WorldPos), 0.0);
+float eyeDepth = max(PlanarFogPlane.w - dot(n, CameraPos), 0.0);
+float x = saturate(depth / max(PlanarFogParams.z, 1.0));
+float y = saturate(distance(WorldPos, CameraPos) / max(PlanarFogParams.y, 1.0));
+float ex = 1.0 - x, ey = 1.0 - y;
+float a = 1.0 - min(ex * ex + ey * ey, 1.0);
+a *= a;
+float b = 1.0 - ey * ey;
+b *= b;
+float eye = saturate(eyeDepth / max(PlanarFogParams.z, 1.0));
+return saturate((eye * (b - a) + a) * PlanarFogParams.x);
+"""
+
+
+def planar_fog_node(g):
+    """PLANAR_FOG_CODE's node, Pf."""
+    return g.custom(PLANAR_FOG_CODE, [
+        ("PlanarFogPlane", g.vector4("PlanarFogPlane", (0, 0, 1, 0)), ""),
+        ("PlanarFogParams", g.vector4("PlanarFogParams", (0, 1, 1, 0)), ""),
+        ("WorldPos", g.node(unreal.MaterialExpressionWorldPosition), ""),
+        ("CameraPos", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
+    ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE planar fog")
 
 
 def fog_inputs(g):
@@ -1410,7 +1464,7 @@ def build_transparent(name, blend, defaults, two_sided=False, device=False):
                    description="CE shader_transparent_generic")
     inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
     inputs += [(f"S{i}", misc, "") for i, misc in enumerate(miscs)]
-    inputs += [("Gen", gen, ""), ("GenCount", gen_count, "")]
+    inputs += [("Gen", gen, ""), ("GenCount", gen_count, ""), ("PlanarF", planar_fog_node(g), "")]
     inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""),
                ("Fn", g.vector4("StageColorFunctions", (0, 0, 0, 0)), ""),
                ("AFn", g.vector4("StageAlphaFunctions", (0, 0, 0, 0)), ""),

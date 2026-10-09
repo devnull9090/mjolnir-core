@@ -95,6 +95,27 @@ def sky_fog(staging):
     return {}
 
 
+def planar_fog(staging, delta):
+    """The map's planar fog (ce_fog.py's fog.json) as material parameters, or
+    {}: the plane in Unreal centimetres (normal, offset), the colour, and
+    (maximum density, opaque distance cm, opaque depth cm, on). One plane per
+    map is all the stock maps have; a second is left out."""
+    try:
+        planes = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8")).get("planes") or []
+    except FileNotFoundError:
+        return {}
+    if not planes:
+        return {}
+    p = planes[0]
+    i, j, k, d = p["plane"]
+    n = [i, -j, k]
+    p0 = [(i * d + delta[0]) * WU_TO_CM, -(j * d + delta[1]) * WU_TO_CM, (k * d + delta[2]) * WU_TO_CM]
+    return {"PlanarFogPlane": n + [sum(a * b for a, b in zip(n, p0))],
+            "PlanarFogColor": list(p["color"]) + [1.0],
+            "PlanarFogParams": [p["max_density"], max(p["opaque_distance"], 1e-3) * WU_TO_CM,
+                                max(p["opaque_depth"], 1e-3) * WU_TO_CM, 1.0]}
+
+
 def master(name):
     return f"{CE}/{name}.{name}"
 
@@ -569,6 +590,7 @@ def main():
 
     textures = {}
     fog = sky_fog(staging)
+    planar = planar_fog(staging, delta)
     cubes_dir = os.path.join(os.path.dirname(os.path.abspath(dest)), "cubes")
 
     def cube(faces):
@@ -745,6 +767,9 @@ def main():
             # CE fogs the level, not its sky.
             entry["scalars"].update(fog.get("scalars", {}))
             entry["vectors"].update(fog.get("vectors", {}))
+            # The planar fog (ce_fog.py): the masters that draw it.
+            if leaf.startswith(("M_CE_Environment", "M_CE_Transparent")):
+                entry["vectors"].update(planar)
         entry["textures"] = {k: f"{root}/Textures/{v}.{v}" for k, v in entry["textures"].items() if v}
         runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors", "bounds_scale") if entry.get(k)}
         materials.append(entry)

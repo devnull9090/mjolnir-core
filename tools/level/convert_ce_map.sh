@@ -159,6 +159,9 @@ if [ "$cook" = "1" ]; then
     [ -f "$out/lightmaps/$page0" ] && size_page="$out/lightmaps/$page0"
     "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" | sed 's/ -> .*//'
   fi
+  # The map's planar fog (Damnation's shaft, the water), which halo2ue does
+  # not stage: fog.json beside the staging, for the material spec.
+  [ -f "$src" ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
