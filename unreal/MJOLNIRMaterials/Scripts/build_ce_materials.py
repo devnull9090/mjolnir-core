@@ -1413,6 +1413,31 @@ def device_offset(g, m):
         raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
 
 
+# CE draws the sky around the camera: it moves with the eye, and only turns.
+# Ours is a mesh kilometres out around the CE sky's origin (merge_ce_scene.py:
+# the BSP's box centre, 525 m under Gephyrophobia's bridge, in its chasm),
+# and seen from anywhere but that origin its layers part: the ring's strips
+# and rails are quads at different depths that line up from the origin only.
+# SkyFollow 1 (the spec's sky sections) moves the vertices with the camera,
+# the origin onto the eye; SkyOrigin is the CE origin from the actor, in cm.
+SKY_WPO_CODE = r"""
+return SkyFollow * (CameraPos - (ActorPos + SkyOrigin.xyz));
+"""
+
+
+def sky_offset(g, m):
+    """Wire SKY_WPO_CODE into the material's World Position Offset (through
+    the MjolnirUIBuilder plugin, as device_offset)."""
+    wpo = g.custom(SKY_WPO_CODE, [
+        ("SkyFollow", g.scalar("SkyFollow", 0.0), ""),
+        ("CameraPos", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
+        ("ActorPos", g.node(unreal.MaterialExpressionActorPositionWS), ""),
+        ("SkyOrigin", g.vector4("SkyOrigin", (0, 0, 0, 0)), ""),
+    ], description="CE sky around the camera")
+    if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, wpo, ""):
+        raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
+
+
 def build_transparent(name, blend, defaults, two_sided=False, device=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
@@ -1487,6 +1512,8 @@ def build_transparent(name, blend, defaults, two_sided=False, device=False):
         mel.connect_material_property(g.mask(c, a=True), "", unreal.MaterialProperty.MP_OPACITY)
     if device:
         device_offset(g, m)
+    else:
+        sky_offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -1617,6 +1644,7 @@ def build_water(defaults, name="M_CE_Water", blend=unreal.BlendMode.BLEND_ADDITI
                  description="CE shader_transparent_water")
     mel.connect_material_property(g.to_screen(g.mask(c, r=True, g=True, b=True)), "",
                                   unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    sky_offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 

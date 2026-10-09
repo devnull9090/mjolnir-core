@@ -307,11 +307,16 @@ def write_bitmap(tag_path, out_dir, stem, index=0):
     png = stem + ".png"
     Image.fromarray(levels[0], "RGBA").save(os.path.join(out_dir, png))
     h, w = levels[0].shape[:2]
+    # 128 bytes: magic, the 124-byte header (7 fields, 44 reserved, the
+    # 32-byte pixel format, caps 1-4 and a reserved word). 12 more bytes of
+    # padding once shifted every MCC texture 3 texels (Gephyrophobia's ring
+    # tore where a vertical strip met a horizontal one, 2026-10-09).
     header = struct.pack(
-        "<4sIIIIIII44sIIIIIIIIIIIII12x",
+        "<4sIIIIIII44sIIIIIIIIIIIII",
         b"DDS ", 124, 0x2100F, h, w, w * 4, 0, len(levels), bytes(44),
         32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000,
         0x401008, 0, 0, 0, 0)
+    assert len(header) == 128
     with open(os.path.join(out_dir, stem + ".dds"), "wb") as f:
         f.write(header)
         for lv in levels:

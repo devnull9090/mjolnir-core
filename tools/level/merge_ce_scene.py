@@ -454,6 +454,7 @@ def main():
     placed, unlit = 0, 0
     cache, models = {}, {}
     skies_seen = 0
+    sky_origin = np.zeros(3)
     devices = 0
     for e in placement["entries"]:
         # Machines too (Infinity's beam emitters, whose model is the beam):
@@ -527,6 +528,7 @@ def main():
             scale = a.sky_radius / max(nearest, 1e-3)
             bsp_pos = np.concatenate([p["pos"] for p in bsp])
             map_centre = (bsp_pos.max(0) + bsp_pos.min(0)) / 2
+            sky_origin = map_centre
             # First in the mesh: translucent sections of one mesh draw in
             # section order, and the sky must be under everything in front
             # of it (the teleporter fields, the lights).
@@ -580,6 +582,17 @@ def main():
             out = [p for p in out if not is_sky(p)]
             write_gltf(sky, a.sky)
             print(f"  {len(sky)} sky primitive(s) -> {a.sky}")
+            if sky:
+                # Where the CE sky's origin sits from the sky mesh's actor
+                # (the mesh is spawned at its box centre), in Unreal cm
+                # (glTF metres, Y up -> X, Z, Y): the masters draw the sky
+                # around the camera from it (SKY_WPO_CODE, SkyOrigin).
+                allsky = np.concatenate([p["pos"] for p in sky])
+                d = sky_origin - (allsky.max(0) + allsky.min(0)) / 2
+                origin = os.path.splitext(a.sky)[0] + ".origin.json"
+                with open(origin, "w") as f:
+                    json.dump({"sky_origin_cm": [float(d[0]) * 100, float(d[2]) * 100, float(d[1]) * 100]}, f)
+                print(f"  sky origin {d.round(1).tolist()} m from the sky mesh's centre -> {origin}")
         write_gltf(clear, a.translucent)
         print(f"  {len(clear)} transparent primitive(s) -> {a.translucent}")
     write_gltf(out, a.out)

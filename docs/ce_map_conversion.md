@@ -277,7 +277,15 @@ material even though the surfaces carry theirs. Untested.
   the animation's frames in `placement.json` (`device`).
 - **Sky:** the sky model (dome, ring, clouds, horizon) goes in with its
   origin, the viewer, at the map's centre. It is scaled so its nearest layer
-  is 3 km away (the ring ends up about 46 km out).
+  is 3 km away (the ring ends up about 46 km out). CE draws the sky around
+  the camera, and so do the masters: a sky section moves its vertices with
+  the camera (`SkyFollow`, World Position Offset `SKY_WPO_CODE`), the CE
+  origin onto the eye, from where it lies relative to the sky mesh's actor
+  (`SkyOrigin`, cm; `merge_ce_scene.py` writes it to
+  `scene_sky.origin.json`). Left fixed, the sky was seen from wherever the
+  player stood. The map's centre is its BSP's box centre, 525 m under
+  Gephyrophobia's bridge, in its chasm, so the ring stood a few degrees off
+  where CE draws it (2026-10-09).
 
 The scene becomes two meshes, written into shipped basic shapes in the game's
 own serialisation ([ue_mesh_write.md](ue_mesh_write.md)). Each is normalised

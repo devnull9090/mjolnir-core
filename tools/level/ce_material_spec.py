@@ -67,11 +67,14 @@ def write_cube_dds(path, faces):
     from PIL import Image
     imgs = [Image.open(f).convert("RGBA") for f in faces]
     size = imgs[0].size[0]
+    # 128 bytes (mcc_tags.write_bitmap): 12 more bytes of padding shifted
+    # every face 3 texels, the next face's first texels showing at its end.
     header = struct.pack(
-        "<4sIIIIIII44sIIIIIIIIIIIII12x",
+        "<4sIIIIIII44sIIIIIIIIIIIII",
         b"DDS ", 124, 0x1007, size, size, size * 4, 0, 0, bytes(44),
         32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000,
         0x1008, 0xFE00, 0, 0, 0)
+    assert len(header) == 128
     with open(path, "wb") as f:
         f.write(header)
         for im in imgs:
@@ -446,10 +449,8 @@ def generic(entry, tag_path, texture, textures_dir):
         if not ref:
             files.append(None)
             continue
-        stem = mcc_tags.stem_for(ref)
-        png = stem + ".png"
-        if not os.path.exists(os.path.join(textures_dir, png)):
-            png = mcc_tags.write_bitmap(ref, textures_dir, stem)
+        # Written every run, so a fix to the writer reaches a rebuild.
+        png = mcc_tags.write_bitmap(ref, textures_dir, mcc_tags.stem_for(ref))
         if not png:
             print(f"  MCC generic {tag_path}: bitmap {ref} not exported, drawn as chicago", file=sys.stderr)
             return False
@@ -599,6 +600,10 @@ def main():
     textures = {}
     fog = sky_fog(staging)
     planar = planar_fog(staging, delta)
+    # The CE sky's origin from its mesh's actor (merge_ce_scene.py): the
+    # masters draw the sky around the camera, as CE does (SKY_WPO_CODE).
+    sky_origin = os.path.join(os.path.dirname(os.path.abspath(dest)), "scene_sky.origin.json")
+    sky_origin = json.load(open(sky_origin, encoding="utf-8"))["sky_origin_cm"] if os.path.exists(sky_origin) else None
     cubes_dir = os.path.join(os.path.dirname(os.path.abspath(dest)), "cubes")
 
     def cube(faces):
@@ -771,6 +776,9 @@ def main():
             # A placed object: its light, reflection tint and change colours
             # are its block of the object lighting page (merge_ce_scene.py).
             entry["scalars"]["ObjectPage"] = 1.0
+        if halo.get("sky") and sky_origin and leaf.startswith(("M_CE_Transparent", "M_CE_WaterSky")):
+            entry["scalars"]["SkyFollow"] = 1.0
+            entry["vectors"]["SkyOrigin"] = sky_origin + [0.0]
         if not halo.get("sky"):
             # CE fogs the level, not its sky.
             entry["scalars"].update(fog.get("scalars", {}))
