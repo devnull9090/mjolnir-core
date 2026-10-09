@@ -431,6 +431,14 @@ def generic(entry, tag_path, texture, textures_dir):
         return False
     if not t or not t.get("stages") or t.get("first_map_type", 0):
         return False
+    # A stage whose colour 0 follows one of the object's functions (source A-D
+    # out: the field generator's shield, the power-ups, the holo controls)
+    # needs the object's live state, which the material cannot read: drawn
+    # without it the shield came out white or red where Halo PC's chicago
+    # stand-in and MCC both draw it purple (Gephyrophobia, 2026-10-09). The
+    # chicago shader is drawn instead.
+    if any(st.get("color0_source") for st in t["stages"]):
+        return False
     maps = (t.get("maps") or [])[:4]
     files = []
     for m in maps:

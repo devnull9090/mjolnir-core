@@ -411,13 +411,17 @@ MCC's Halo CE editing kit (HCEEK) ships the original tags, so where it has a
   C·D (or dot products), their sum or mux, the output mapping, and the three
   results written to the registers the stage names; the result is r0;
 - a shader whose first map is a cube map, or whose bitmap cannot be exported,
-  stays the chicago one. So does one with no stages (73 of the 97 our maps
+  stays the chicago one. So does one with a stage whose colour 0 follows one
+  of the object's functions (source A-D out: the field generator's shield,
+  the power-ups, the holo controls, the door blinker): the material cannot
+  read the object's live state, and drawn without it the shield came out
+  white or red where Halo PC's chicago shader and MCC both draw it purple. So does one with no stages (73 of the 97 our maps
   use: most skies and lights), which MCC's combiner shader would draw black;
   MCC must draw those another way, still to be checked.
 
-Teleporter fields, the field generator shield, the power-ups, the turret's
-beam tendril, the beacons, the holo controls and the light volumes take
-MCC's shaders this way (24 shaders with stages over the 19 maps).
+Teleporter fields, the turret's beam tendril, the beacons, the light
+volumes, the waves and the night sky's ring and planet take MCC's shaders
+this way (15 of the 24 shaders with stages over the 19 maps).
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
