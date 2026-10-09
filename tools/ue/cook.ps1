@@ -18,9 +18,17 @@ $project = Join-Path $PSScriptRoot "..\..\unreal\MJOLNIRMaterials" | Resolve-Pat
 $log = Join-Path $project "Saved_cook.log"
 $uat = "C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles\RunUAT.bat"
 $args = "/c `"`"$uat`" BuildCookRun -project=`"$project\Meteorite.uproject`" -noP4 -platform=Win64 -clientconfig=Shipping -cook -stage -pak -iostore -skipbuild -unattended -utf8output -skipcookingeditorcontent > `"$log`" 2>&1`""
-$p = Start-Process -FilePath cmd.exe -ArgumentList $args -PassThru -WindowStyle Hidden
-if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
-$p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
-$p.WaitForExit()
-"cook exit $($p.ExitCode)"
-Select-String -Path $log -Pattern "fork layouts:|Shader compiler errors|BUILD SUCCESSFUL|BUILD FAILED" | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
+# One Unreal process on the project at a time: conversions may run side by
+# side (their staging, collision, lightmaps and bakes are their own), but the
+# editor imports and the cook share unreal/MJOLNIRMaterials and its staging
+# folder, so every editor commandlet and cook waits for this named mutex.
+$lock = New-Object System.Threading.Mutex($false, "MjolnirMeteoriteProject")
+try { [void]$lock.WaitOne() } catch [System.Threading.AbandonedMutexException] { }
+try {
+    $p = Start-Process -FilePath cmd.exe -ArgumentList $args -PassThru -WindowStyle Hidden
+    if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
+    $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+    $p.WaitForExit()
+    "cook exit $($p.ExitCode)"
+    Select-String -Path $log -Pattern "fork layouts:|Shader compiler errors|BUILD SUCCESSFUL|BUILD FAILED" | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
+} finally { $lock.ReleaseMutex() }

@@ -13,9 +13,17 @@ $Script = Join-Path $project $Script
 $log = Join-Path $project ("Saved_" + [IO.Path]::GetFileNameWithoutExtension($Script) + ".log")
 $exe = "C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 $cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=`"$Script`" -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput > `"$log`" 2>&1`""
-$p = Start-Process -FilePath cmd.exe -ArgumentList $cmd -PassThru -WindowStyle Hidden -WorkingDirectory $project
-if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
-$p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
-$p.WaitForExit()
-"editor exit $($p.ExitCode), log $log"
-Select-String -Path $log -Pattern "fork shaders:|fork layouts:|MJOLNIR|Error:|LogPython: Error" | Select-Object -First 30 | ForEach-Object { $_.Line }
+# One Unreal process on the project at a time: conversions may run side by
+# side (their staging, collision, lightmaps and bakes are their own), but the
+# editor imports and the cook share unreal/MJOLNIRMaterials and its staging
+# folder, so every editor commandlet and cook waits for this named mutex.
+$lock = New-Object System.Threading.Mutex($false, "MjolnirMeteoriteProject")
+try { [void]$lock.WaitOne() } catch [System.Threading.AbandonedMutexException] { }
+try {
+    $p = Start-Process -FilePath cmd.exe -ArgumentList $cmd -PassThru -WindowStyle Hidden -WorkingDirectory $project
+    if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
+    $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+    $p.WaitForExit()
+    "editor exit $($p.ExitCode), log $log"
+    Select-String -Path $log -Pattern "fork shaders:|fork layouts:|MJOLNIR|Error:|LogPython: Error" | Select-Object -First 30 | ForEach-Object { $_.Line }
+} finally { $lock.ReleaseMutex() }
