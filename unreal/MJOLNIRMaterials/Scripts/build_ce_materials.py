@@ -1181,8 +1181,14 @@ return lerp(hi, lo, step(c, 0.0031308));
 PLANAR_FOG_CODE = r"""
 if (PlanarFogParams.w < 0.5) return 0.0;
 float3 n = PlanarFogPlane.xyz;
-float depth = max(PlanarFogPlane.w - dot(n, WorldPos), 0.0);
-float eyeDepth = max(PlanarFogPlane.w - dot(n, CameraPos), 0.0);
+// The fog's polygon footprint (x0, y0, x1, y1; all zero: everywhere): CE
+// fogs its region only, not everything under the plane's height.
+float4 box = PlanarFogBox;
+bool bounded = box.z > box.x;
+float inW = bounded ? step(box.x, WorldPos.x) * step(WorldPos.x, box.z) * step(box.y, WorldPos.y) * step(WorldPos.y, box.w) : 1.0;
+float inE = bounded ? step(box.x, CameraPos.x) * step(CameraPos.x, box.z) * step(box.y, CameraPos.y) * step(CameraPos.y, box.w) : 1.0;
+float depth = max(PlanarFogPlane.w - dot(n, WorldPos), 0.0) * inW;
+float eyeDepth = max(PlanarFogPlane.w - dot(n, CameraPos), 0.0) * inE;
 float x = saturate(depth / max(PlanarFogParams.z, 1.0));
 float y = saturate(distance(WorldPos, CameraPos) / max(PlanarFogParams.y, 1.0));
 float ex = 1.0 - x, ey = 1.0 - y;
@@ -1199,6 +1205,7 @@ def planar_fog_node(g):
     """PLANAR_FOG_CODE's node, Pf."""
     return g.custom(PLANAR_FOG_CODE, [
         ("PlanarFogPlane", g.vector4("PlanarFogPlane", (0, 0, 1, 0)), ""),
+        ("PlanarFogBox", g.vector4("PlanarFogBox", (0, 0, 0, 0)), ""),
         ("PlanarFogParams", g.vector4("PlanarFogParams", (0, 1, 1, 0)), ""),
         ("WorldPos", g.node(unreal.MaterialExpressionWorldPosition), ""),
         ("CameraPos", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
