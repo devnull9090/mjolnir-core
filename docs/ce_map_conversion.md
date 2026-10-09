@@ -389,6 +389,35 @@ Transparent chicago shaders (lights, the teleporter field) work like this:
   (playtest, 2026-10-03). halo2ue's `double_sided` is true for every
   transparent shader, so only the flag decides.
 
+**MCC's generic shaders.** The Xbox drew many of these with
+`shader_transparent_generic`, up to seven register-combiner stages over four
+maps. The PC port could not, so a classic Custom Edition map carries
+Gearbox's chicago stand-in: Death Island's teleporter field is two grey dust
+maps tiled once, a soft green blob, where MCC draws the Xbox's wavy energy.
+MCC's Halo CE editing kit (HCEEK) ships the original tags, so where it has a
+`shader_transparent_generic` at a chicago shader's tag path,
+`ce_material_spec.py` draws that instead (`MCC_GENERIC=0` turns it off;
+`MCC_TAGS` points elsewhere than the Steam install):
+
+- `tools/level/mcc_tags.py` reads the big-endian source tags (the generic
+  shader and its bitmaps) and writes each bitmap as `mcc_<path>.png` and
+  `.dds` beside the map's own, with the tag's own mip chain;
+- each map keeps a chicago map's transform and animation fields;
+- the stages go to the same transparent masters as parameters
+  (`GenericStages`, `GenCI`/`GenAI`/`GenCO`/`GenAO`/`GenK*` per stage), where
+  `GENERIC_CODE` runs them as MCC's `transparent_generic_shader.psh` does:
+  four colour and four alpha inputs through their input mappings, A·B and
+  C·D (or dot products), their sum or mux, the output mapping, and the three
+  results written to the registers the stage names; the result is r0;
+- a shader whose first map is a cube map, or whose bitmap cannot be exported,
+  stays the chicago one. So does one with no stages (73 of the 97 our maps
+  use: most skies and lights), which MCC's combiner shader would draw black;
+  MCC must draw those another way, still to be checked.
+
+Teleporter fields, the field generator shield, the power-ups, the turret's
+beam tendril, the beacons, the holo controls and the light volumes take
+MCC's shaders this way (24 shaders with stages over the 19 maps).
+
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
 

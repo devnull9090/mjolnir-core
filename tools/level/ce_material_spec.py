@@ -386,6 +386,95 @@ def chicago(entry, s, texture, cube):
         del tex[k]
 
 
+def argb_to_rgba(c):
+    """A tag's ARGB colour (a, r, g, b) as RGBA."""
+    c = list(c or [0.0, 0.0, 0.0, 0.0])
+    return [c[1], c[2], c[3], c[0]]
+
+
+def generic(entry, tag_path, texture, textures_dir):
+    """MCC's shader_transparent_generic for a chicago shader the PC port made
+    of it (mcc_tags.py; docs/ce_map_conversion.md, "MCC's generic shaders"),
+    on the same transparent masters (GENERIC_CODE): each map's bitmap from
+    MCC's tags (exported beside the map's own as `mcc_...`), transform and
+    animation as a chicago map's, and every combiner stage. False, and the
+    entry untouched, when MCC has no such shader or a map's bitmap cannot be
+    exported (a cube map, a missing tag): the chicago shader is drawn."""
+    import mcc_tags
+    if os.environ.get("MCC_GENERIC", "1") == "0" or not tag_path:
+        return False
+    try:
+        t = mcc_tags.generic_shader(tag_path)
+    except (OSError, ValueError, struct.error) as e:
+        print(f"  MCC generic {tag_path}: {e}", file=sys.stderr)
+        return False
+    if not t or not t.get("stages") or t.get("first_map_type", 0):
+        return False
+    maps = (t.get("maps") or [])[:4]
+    files = []
+    for m in maps:
+        ref = (m.get("map") or {}).get("path")
+        if not ref:
+            files.append(None)
+            continue
+        stem = mcc_tags.stem_for(ref)
+        png = stem + ".png"
+        if not os.path.exists(os.path.join(textures_dir, png)):
+            png = mcc_tags.write_bitmap(ref, textures_dir, stem)
+        if not png:
+            print(f"  MCC generic {tag_path}: bitmap {ref} not exported, drawn as chicago", file=sys.stderr)
+            return False
+        files.append(png)
+    blend = t.get("framebuffer_blend_function", 0)
+    flags = t.get("flags", 0)
+    variant = "TwoSided" if flags & 4 else ""
+    entry["parent"] = master(f"M_CE_Transparent{BLEND_PARENTS.get(blend, 'Alpha')}{variant}")
+    sc, vec, tex = entry["scalars"], entry["vectors"], entry["textures"]
+    for i, (m, png) in enumerate(zip(maps, files)):
+        if png:
+            tex[f"Map{i}"] = texture(png)
+        vec[f"Stage{i}Xform"] = [m.get("map_u_scale") or 1.0, m.get("map_v_scale") or 1.0,
+                                 m.get("map_u_offset", 0.0), m.get("map_v_offset", 0.0)]
+        for axis, key in (("U", "u"), ("V", "v"), ("R", "rotation")):
+            vec[f"Stage{i}{axis}Anim"] = [m.get(f"{key}_animation_function", 0), m.get(f"{key}_animation_period", 0.0),
+                                          m.get(f"{key}_animation_phase", 0.0), m.get(f"{key}_animation_scale", 0.0)]
+        centre = m.get("rotation_animation_center") or [0.0, 0.0]
+        # A generic map's flags are unfiltered, u-clamped, v-clamped (bits
+        # 0-2); the masters read a chicago map's (clamps at bits 2 and 3).
+        mf = m.get("flags", 0)
+        vec[f"Stage{i}Misc"] = [m.get("map_rotation", 0.0), centre[0], centre[1],
+                                float((mf & 1) | ((mf & 6) << 1))]
+    stages = t["stages"][:7]
+    for s, st in enumerate(stages):
+        packed = lambda kind: [float(st[f"{kind}_input_{x}"] + 32 * st[f"{kind}_input_{x}_mapping"]) for x in "abcd"]
+        vec[f"GenCI{s}"] = packed("color")
+        vec[f"GenAI{s}"] = packed("alpha")
+        vec[f"GenCO{s}"] = [float(st["color_output_ab"] + 16 * st["color_output_ab_function"]),
+                            float(st["color_output_cd"] + 16 * st["color_output_cd_function"]),
+                            float(st["color_output_ab_cd_mux_sum"]), float(st["color_output_mapping"])]
+        vec[f"GenAO{s}"] = [float(st["alpha_output_ab"]), float(st["alpha_output_cd"]),
+                            float(st["alpha_output_ab_cd_mux_sum"]), float(st["alpha_output_mapping"])]
+        vec[f"GenK0{s}"] = argb_to_rgba(st["color0_animation_lower_bound"])
+        vec[f"GenK0Hi{s}"] = argb_to_rgba(st["color0_animation_upper_bound"])
+        vec[f"GenK1{s}"] = argb_to_rgba(st["color1"])
+        vec[f"GenKA{s}"] = [float(st["color0_animation_function"]), st["color0_animation_period"],
+                            float(st["flags"]), 0.0]
+    sc["GenericStages"] = float(len(stages))
+    sc["StageCount"] = float(len(maps))
+    sc["ChicagoFlags"] = float(flags)
+    sc["BlendFunction"] = float(blend)
+    # MCC's generic pixel shader applies no framebuffer fade of its own; a
+    # stage that wants one reads v1.
+    sc["FadeMode"] = 0.0
+    if blend == 2:
+        vec["Tint"] = [2.0, 2.0, 2.0, 1.0]
+    if blend == 7:
+        sc["Premultiply"] = 1.0
+    for k in [k for k, v in tex.items() if not v]:
+        del tex[k]
+    return True
+
+
 def device(entry, motion, part, mesh, delta):
     """A machine's moving part (merge_ce_scene.py device_motion) on the
     device variant of its master: the motion in Unreal centimetres, and the
@@ -555,7 +644,9 @@ def main():
         cls = s["shader_class"]
         entry = {"name": mi, "scalars": {}, "vectors": {}, "textures": {}}
         if cls in ("schi", "scex"):
-            chicago(entry, s, texture, cube)
+            # MCC's original where the PC port left a chicago stand-in.
+            if not generic(entry, mat_info.get("tag_path") or s.get("tag_path"), texture, textures_dir):
+                chicago(entry, s, texture, cube)
         elif cls == "swat":
             water(entry, s, texture, cube, halo)
         elif cls == "sgla" and s.get("tag"):

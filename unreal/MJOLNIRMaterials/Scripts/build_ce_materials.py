@@ -523,6 +523,8 @@ float flags[4] = { S0.w, S1.w, S2.w, S3.w };
 if (FirstType > 0.5) maps[0] = Cube;
 float4 cur = saturate(maps[0]);
 int count = (int)Count;
+// MCC's shader_transparent_generic in place of the chicago chain (GENERIC_CODE).
+if (GenCount > 0.5) { cur = saturate(Gen); count = 0; }
 [unroll] for (int i = 0; i < 3; ++i)
 {
     if (i + 1 >= count) break;
@@ -561,6 +563,91 @@ float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
 return float4(lerp(hi, lo, step(frame, 0.04045)) * Exposure, alpha);
 """
+
+# shader_transparent_generic: the Xbox's register combiners, which the PC port
+# replaced with chicago shaders; MCC's tags keep them (tools/level/mcc_tags.py,
+# docs/ce_map_conversion.md "MCC's generic shaders"). A port of MCC's
+# transparent_generic_shader.psh with the stages as parameters instead of
+# compiled in. Registers R: t0-t3 (the maps), v0 (0, 0, 0, 1: no fog or fade
+# here), v1 (|N.V| x3, 1 - |N.V|: CE's fade terms), r0 (alpha starts as t0's,
+# as on the Xbox), r1, c0 and c1 (the stage's constants). Each stage reads
+# four colour and four alpha inputs, each through its input mapping, forms
+# A*B (or A.B) and C*D (or C.D) and their sum or mux (by r0's alpha), clamps,
+# applies its output mapping and writes the three results to the registers
+# its outputs name. The result is r0.
+#
+# Per stage s: GenCI/GenAI the colour and alpha inputs (input + 32 *
+# mapping, inputs a-d); GenCO (ab output + 16 * ab function, cd output + 16 *
+# cd function, ab-cd output, output mapping); GenAO (ab, cd and ab-cd
+# outputs, output mapping); GenK0/GenK0Hi colour 0's animation bounds, RGBA;
+# GenK1 colour 1; GenKA (colour 0's periodic function, its period, stage
+# flags: 1 colour mux, 2 alpha mux).
+GENERIC_STAGES = 7
+GENERIC_CODE = WAVE + r"""
+#define CEG_IN(v, m) ((m) == 0 ? max(v, 0.0) : (m) == 1 ? 1.0 - saturate(v) : (m) == 2 ? 2.0 * max(v, 0.0) - 1.0 \
+    : (m) == 3 ? -2.0 * max(v, 0.0) + 1.0 : (m) == 4 ? max(v, 0.0) - 0.5 : (m) == 5 ? 0.5 - max(v, 0.0) \
+    : (m) == 6 ? (v) : -(v))
+#define CEG_OUT(v, m) ((m) == 1 ? (v) * 0.5 : (m) == 2 ? (v) * 2.0 : (m) == 3 ? (v) * 4.0 \
+    : (m) == 4 ? (v) - 0.5 : (m) == 5 ? ((v) - 0.5) * 2.0 : (v))
+// An output register's index in R, or -1 for discard.
+#define CEG_REG(o) ((o) == 1 ? 6 : (o) == 2 ? 7 : (o) == 3 ? 4 : (o) == 4 ? 5 : (o) >= 5 && (o) <= 8 ? (o) - 5 : -1)
+float4 CI[7] = { CI0, CI1, CI2, CI3, CI4, CI5, CI6 };
+float4 AI[7] = { AI0, AI1, AI2, AI3, AI4, AI5, AI6 };
+float4 CO[7] = { CO0, CO1, CO2, CO3, CO4, CO5, CO6 };
+float4 AO[7] = { AO0, AO1, AO2, AO3, AO4, AO5, AO6 };
+float4 K0[7] = { K00, K01, K02, K03, K04, K05, K06 };
+float4 KH[7] = { KH0, KH1, KH2, KH3, KH4, KH5, KH6 };
+float4 K1[7] = { K10, K11, K12, K13, K14, K15, K16 };
+float4 KA[7] = { KA0, KA1, KA2, KA3, KA4, KA5, KA6 };
+float4 t0 = FirstType > 0.5 ? Cube : M0;
+float ndv = abs(dot(normalize(VertexN), normalize(Cam)));
+float4 R[10] = { t0, M1, M2, M3, float4(0, 0, 0, 1), float4(ndv.xxx, 1.0 - ndv),
+                 float4(0, 0, 0, t0.a), 0.0.xxxx, 0.0.xxxx, 0.0.xxxx };
+int n = (int)GenCount;
+[loop] for (int s = 0; s < 7; ++s)
+{
+    if (s >= n) break;
+    float4 ka = KA[s];
+    R[8] = lerp(K0[s], KH[s], CE_WAVE(ka.x, ka.y > 1e-6 ? Time / ka.y : 0.0));
+    R[9] = K1[s];
+    float3 cv[4];
+    float av[4];
+    [unroll] for (int k = 0; k < 4; ++k)
+    {
+        int id = (int)fmod(CI[s][k], 32.0), m = (int)(CI[s][k] / 32.0);
+        float3 x = id == 0 ? 0.0.xxx : id == 1 ? 1.0.xxx : id == 2 ? 0.5.xxx : id == 3 ? -1.0.xxx
+            : id == 4 ? -0.5.xxx : id <= 14 ? R[clamp(id - 5, 0, 9)].rgb : R[clamp(id - 15, 0, 9)].aaa;
+        cv[k] = CEG_IN(x, m);
+        int ida = (int)fmod(AI[s][k], 32.0), ma = (int)(AI[s][k] / 32.0);
+        float y = ida == 0 ? 0.0 : ida == 1 ? 1.0 : ida == 2 ? 0.5 : ida == 3 ? -1.0 : ida == 4 ? -0.5
+            : ida <= 14 ? R[clamp(ida - 5, 0, 9)].a : R[clamp(ida - 15, 0, 9)].b;
+        av[k] = CEG_IN(y, ma);
+    }
+    int flags = (int)ka.z;
+    int abo = (int)fmod(CO[s].x, 16.0), abf = (int)(CO[s].x / 16.0);
+    int cdo = (int)fmod(CO[s].y, 16.0), cdf = (int)(CO[s].y / 16.0);
+    int sumo = (int)CO[s].z, cm = (int)CO[s].w;
+    float3 ab = abf == 1 ? dot(cv[0], cv[1]).xxx : clamp(cv[0] * cv[1], -1.0, 1.0);
+    float3 cd = cdf == 1 ? dot(cv[2], cv[3]).xxx : clamp(cv[2] * cv[3], -1.0, 1.0);
+    float3 abcd = clamp((flags & 1) ? (R[6].a >= 0.5 ? cd : ab) : ab + cd, -1.0, 1.0);
+    ab = CEG_OUT(ab, cm); cd = CEG_OUT(cd, cm); abcd = CEG_OUT(abcd, cm);
+    float aab = clamp(av[0] * av[1], -1.0, 1.0), acd = clamp(av[2] * av[3], -1.0, 1.0);
+    float aabcd = clamp((flags & 2) ? (R[6].a >= 0.5 ? acd : aab) : aab + acd, -1.0, 1.0);
+    int am = (int)AO[s].w;
+    aab = CEG_OUT(aab, am); acd = CEG_OUT(acd, am); aabcd = CEG_OUT(aabcd, am);
+    int r;
+    r = CEG_REG(abo); if (r >= 0) R[r].rgb = ab;
+    r = CEG_REG(cdo); if (r >= 0) R[r].rgb = cd;
+    r = CEG_REG(sumo); if (r >= 0) R[r].rgb = abcd;
+    r = CEG_REG((int)AO[s].x); if (r >= 0) R[r].a = aab;
+    r = CEG_REG((int)AO[s].y); if (r >= 0) R[r].a = acd;
+    r = CEG_REG((int)AO[s].z); if (r >= 0) R[r].a = aabcd;
+}
+#undef CEG_IN
+#undef CEG_OUT
+#undef CEG_REG
+return R[6];
+""" + WAVE_END
 
 
 # Object shadows on a baked level. CE's colour T (what reaches the screen, the
@@ -1307,8 +1394,23 @@ def build_transparent(name, blend, defaults, two_sided=False, device=False):
                                            ("WorldPos", world_pos, ""), ("ObjectPos", object_pos, ""),
                                            ("CameraPos", camera_pos, "")], description="CE first map cube direction")
     cube = g.cube("Map0Cube", defaults["T_CE_BlackCube"], direction)
+    # MCC's shader_transparent_generic (GENERIC_CODE): GenericStages > 0 takes
+    # the place of the chicago chain.
+    gen_count = g.scalar("GenericStages", 0.0)
+    gen_inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
+    gen_inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""), ("GenCount", gen_count, ""),
+                   ("Time", time, ""), ("VertexN", vertex_n, ""), ("Cam", cam, "")]
+    for prefix, param, default in (("CI", "GenCI", (0, 0, 0, 0)), ("AI", "GenAI", (0, 0, 0, 0)),
+                                   ("CO", "GenCO", (0, 0, 0, 0)), ("AO", "GenAO", (0, 0, 0, 0)),
+                                   ("K0", "GenK0", (0, 0, 0, 0)), ("KH", "GenK0Hi", (0, 0, 0, 0)),
+                                   ("K1", "GenK1", (0, 0, 0, 0)), ("KA", "GenKA", (0, 0, 0, 0))):
+        for s in range(GENERIC_STAGES):
+            gen_inputs.append((f"{prefix}{s}", g.vector4(f"{param}{s}", default), ""))
+    gen = g.custom(GENERIC_CODE, gen_inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                   description="CE shader_transparent_generic")
     inputs = [(f"M{i}", s, "RGBA") for i, s in enumerate(samples)]
     inputs += [(f"S{i}", misc, "") for i, misc in enumerate(miscs)]
+    inputs += [("Gen", gen, ""), ("GenCount", gen_count, "")]
     inputs += [("Cube", cube, "RGBA"), ("FirstType", first_type, ""),
                ("Fn", g.vector4("StageColorFunctions", (0, 0, 0, 0)), ""),
                ("AFn", g.vector4("StageAlphaFunctions", (0, 0, 0, 0)), ""),
