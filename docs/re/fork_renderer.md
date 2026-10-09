@@ -125,10 +125,18 @@ How converted levels deal with it:
 - **The level's post-process volume** (MJOLNIRLevelLoader `environment.post`)
   turns off the filmic curve, gamut expansion, blue correction and local
   exposure, and fixes the exposure.
-- **The CE masters** divide by `DisplayGain` (0.6) before decoding to linear.
+- **The CE masters** divided by `DisplayGain` (0.6) before decoding to linear.
 
-With both, a CE colour reaches the screen as CE drew it: 126 against 128. The
-player's brightness slider still applies on top.
+With both, a CE colour reached the screen as CE drew it: 126 against 128.
+
+**Converted maps on their own worlds (re-measured 2026-10-08).** That probe
+ran while converted levels still loaded into B40's world. Since a converted
+map runs on a world of its own (2026-09-11), the 0.6 is gone: on Death
+Island a debug view of linear 1.0 showed 255, and the lightmap view showed a
+0.91 lightmap texel as 0.91. The correction most likely came with B40's own
+post-processing. Kept at 0.6, `DisplayGain` drew every CE surface 1/0.6 too
+bright (the base walls white, the floor 0.82 where MCC shows 0.48), so the
+masters now use 1.0.
 
 ## 5. A rewritten mesh is drawn only in its donor slot's passes
 

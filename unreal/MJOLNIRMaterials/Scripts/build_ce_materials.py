@@ -35,10 +35,11 @@ the game's own lights, the base colour can be topped up to its sunlit share
 divided by the display gain, decoded to linear and divided by the camera's
 exposure (EyeAdaptationInverse). The level's post-process volume (spawned by
 the loader) fixes the exposure and turns the filmic curve and local exposure
-off, so the one transform left after the material is the game's own display
-colour correction: at its default brightness that multiplies the displayed
-(sRGB) colour by about 0.6 (measured: docs/re/fork_renderer.md), which
-`DisplayGain` undoes, so CE's colours reach the screen as CE drew them. There
+off, so on a converted map's own world nothing is left between material and
+screen and `DisplayGain` is 1. (Inside B40's world the game's colour
+correction multiplied the shown sRGB colour by about 0.6, which `DisplayGain`
+used to undo: docs/re/fork_renderer.md.) CE's colours reach the screen as CE
+drew them. There
 are no static switches: one shader map per parent.
 """
 import os
@@ -58,9 +59,13 @@ if TRIAL_ROOT:
     ROOT = TRIAL_ROOT.rstrip("/")
 CHUNK = int(os.environ.get("MJ_CE_CHUNK", "988"))
 
-# The game's display colour correction at its default brightness
-# (ColorCorrectionBrightness 0.5) scales the shown sRGB colour by this much.
-DISPLAY_GAIN = 0.6
+# What happens to the shown sRGB colour after the material. Inside B40's world
+# the game's colour correction scaled it by 0.6 (docs/re/fork_renderer.md);
+# a converted map runs on a world of its own (since 2026-09-11), where the
+# path is identity: a debug view of 1.0 shows 255 and a lightmap of 0.91
+# shows 0.91. At 0.6 every CE surface drew 1/0.6 too bright, and Death
+# Island's base came out white where MCC draws it grey (2026-10-08).
+DISPLAY_GAIN = 1.0
 
 assets = unreal.AssetToolsHelpers.get_asset_tools()
 mel = unreal.MaterialEditingLibrary
