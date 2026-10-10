@@ -872,8 +872,11 @@ seconds after the loading screen are dark.
   per surface. Verified on Sidewinder: players walk and vehicles rest on it.
 - **One BSP per map.** A map's second BSP is not converted (Coldsnap's is a
   copy of its first).
-- **The canvas palette.** Weapons and vehicles the canvas mission never
-  places (shotgun, flamethrower, fuel rod, health packs) are dropped.
+- **Weapons the game lacks.** The bake adds any type the game ships to the
+  canvas palette (the shotgun, fuel rod, battle rifle, SMG); what the game
+  doesn't ship is dropped: the flamethrower, and custom weapons
+  `defs/level/ce-tag-map.json` doesn't map (see
+  [ce_custom_content.md](ce_custom_content.md)).
 - **No rocket Warthog.** Rocket hogs spawn as chaingun hogs until the rocket
   turret's tag wrapper points at an actor Blueprint (the chaingun turret's,
   via `ue-asset` tagwrap, or a rewritten mesh with CE's rocket pod).

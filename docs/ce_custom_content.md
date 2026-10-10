@@ -74,6 +74,20 @@ Banshees, the one aircraft players fly here; the shared Pelicans and
 Wraiths as the game's own. Whether players can drive this game's Pelican
 and Wraith is the open question for those two.
 
+**Checked in game (2026-10-10, Night-Lockout, a 9.0-rated halomaps map with
+the battle rifle, SMG, energy sword, beam rifle and brute plasma rifle):**
+every placed weapon spawns in the simulation (`mjolnir live objects`), and
+each has its own Unreal actor at its spot, drawn with the game's art
+(`BP_BattleRifle_WeaponActor_C` with its scope and ammo display,
+`BP_SMG_WeaponActor_C`, `BP_Shotgun_WeaponActor_C`,
+`BP_EnergySword_WeaponActor_C`). Picking them up and firing them is still
+to be played.
+
+A vehicle with spawn flags 0 is in no game type's set: only a script
+creates it. Coldsnap's and Hugeass's fighter-bomber wreck pieces are
+vehicle tags of that kind (CE type `human_jeep`), and used to be placed as
+14 extra Warthogs; they are dropped now, until scripts are converted.
+
 ## Scripts
 
 ### Reading them
