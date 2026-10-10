@@ -5,7 +5,7 @@
 //! memory.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use blam_tag::TagFile;
@@ -202,6 +202,11 @@ struct CompileArgs {
     /// Recovered scripting corpus, which supplies the function table.
     #[arg(long, default_value = "defs/hce/scripting.json")]
     corpus: PathBuf,
+    /// The engine's own function table (`mjolnir console`). Functions the
+    /// campaign never calls compile with the signatures it declares; `none`
+    /// keeps to the corpus alone.
+    #[arg(long, default_value = "defs/hce/console.json")]
+    console: PathBuf,
     /// Print the tree the compiler produced, decompiled.
     #[arg(long)]
     show: bool,
@@ -2708,18 +2713,71 @@ fn walk_difference(
     None
 }
 
+/// Add the functions of the engine's table (`defs/hce/console.json`, written
+/// by `mjolnir console`) that the corpus lacks. Fails when the two disagree
+/// about an opcode: they are from different builds.
+fn add_engine_table(corpus: &mut blam_hsc::ScriptCorpus, path: &Path) -> Result<usize> {
+    #[derive(serde::Deserialize)]
+    struct Table {
+        functions: Vec<Entry>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        index: u16,
+        name: String,
+        returns: String,
+        parameters: Vec<String>,
+        flags: u32,
+        stub: bool,
+    }
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let table: Table =
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let functions: Vec<blam_hsc::EngineFunction> = table
+        .functions
+        .into_iter()
+        .map(|e| blam_hsc::EngineFunction {
+            opcode: e.index,
+            name: e.name,
+            returns: e.returns,
+            parameters: e.parameters,
+            special_form: e.flags & 2 != 0,
+            stub: e.stub,
+        })
+        .collect();
+    let (added, clashes) = corpus.add_engine_functions(&functions);
+    if let Some(blam_hsc::EngineSkip::OpcodeTaken {
+        opcode,
+        corpus: c,
+        table: t,
+    }) = clashes.first()
+    {
+        anyhow::bail!(
+            "{} opcode(s) differ between the corpus and {} (0x{opcode:04x}: {c} against {t}); they are from different builds",
+            clashes.len(),
+            path.display()
+        );
+    }
+    Ok(added)
+}
+
 /// Compile `.hsc` files from disk.
 ///
 /// Needs no game installation: the function table and both enums come from the
 /// committed corpus, so a mod author can check a script without one.
 fn compile(a: CompileArgs) -> Result<()> {
-    let corpus =
+    let mut corpus =
         blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
             format!(
                 "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
                 a.corpus.display()
             )
         })?;
+    if a.console.as_os_str() != "none" {
+        let added = add_engine_table(&mut corpus, &resolve_data_path(&a.console))?;
+        println!("  {added} function(s) from the engine's table");
+    }
 
     let mut sources = Vec::new();
     for path in &a.files {

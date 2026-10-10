@@ -1223,6 +1223,7 @@ mod tests {
                 .collect(),
             call_sites: 10,
             scenarios: 1,
+            from_engine: false,
         }
     }
 

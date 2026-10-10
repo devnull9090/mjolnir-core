@@ -158,13 +158,19 @@ pub struct FunctionDef {
     /// How many calls this was seen at, and how many scenarios called it.
     pub call_sites: u32,
     pub scenarios: u32,
+    /// The signature was read from the engine's own function table
+    /// ([`ScriptCorpus::add_engine_functions`]), not inferred from calls: the
+    /// campaign never calls this function.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_engine: bool,
 }
 
 impl FunctionDef {
     /// Whether there is enough evidence to treat this signature as the
-    /// function's real one rather than one caller's habit.
+    /// function's real one rather than one caller's habit. A signature from
+    /// the engine's table needs none.
     pub fn well_attested(&self) -> bool {
-        self.call_sites >= WELL_ATTESTED
+        self.from_engine || self.call_sites >= WELL_ATTESTED
     }
 
     /// Whether the argument count varies between call sites.
@@ -228,6 +234,91 @@ impl ScriptCorpus {
             .filter(|(_, f)| !f.well_attested())
             .map(|(op, f)| (*op, f))
             .collect()
+    }
+}
+
+/// One function as the engine's table declares it: what `mjolnir console`
+/// reads out of the simulation DLL (`defs/hce/console.json`).
+#[derive(Debug, Clone)]
+pub struct EngineFunction {
+    /// The function's slot in the table, which is its opcode.
+    pub opcode: u16,
+    pub name: String,
+    /// Value-type names.
+    pub returns: String,
+    pub parameters: Vec<String>,
+    /// A special form (`begin`, `if`, `sleep_until`): its arguments are
+    /// parsed by hand, so the table lists none.
+    pub special_form: bool,
+    /// Compiled out of this build: it evaluates to nothing.
+    pub stub: bool,
+}
+
+/// Why an engine function was not added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineSkip {
+    /// The corpus has a different function at this opcode: the table and the
+    /// corpus are not from the same build.
+    OpcodeTaken {
+        opcode: u16,
+        corpus: String,
+        table: String,
+    },
+}
+
+impl ScriptCorpus {
+    /// Add every function the engine's table has and the campaign never
+    /// calls, with the table's own signature, so a script may call it.
+    ///
+    /// Special forms are left out: the table carries no parameter types for
+    /// them, and the ones scripts use are all in the corpus. Stubs are left
+    /// out too, so a script calling one fails to compile rather than calling
+    /// something that does nothing. A corpus function is never replaced: its
+    /// observed types are the ones the campaign's compiler actually emitted.
+    /// Returns how many were added, and any opcode clash, which means the two
+    /// files come from different builds.
+    pub fn add_engine_functions(&mut self, table: &[EngineFunction]) -> (usize, Vec<EngineSkip>) {
+        let mut added = 0;
+        let mut skipped = Vec::new();
+        for f in table {
+            if let Some(have) = self.functions.get(&f.opcode) {
+                if have.name != f.name {
+                    skipped.push(EngineSkip::OpcodeTaken {
+                        opcode: f.opcode,
+                        corpus: have.name.clone(),
+                        table: f.name.clone(),
+                    });
+                }
+                continue;
+            }
+            if f.special_form || f.stub {
+                continue;
+            }
+            self.functions.insert(
+                f.opcode,
+                FunctionDef {
+                    name: f.name.clone(),
+                    returns: BTreeMap::from([(f.returns.clone(), 1)]),
+                    min_args: f.parameters.len(),
+                    max_args: f.parameters.len(),
+                    parameters: f
+                        .parameters
+                        .iter()
+                        .map(|t| ParameterDef {
+                            types: BTreeMap::from([(t.clone(), 1)]),
+                            always_present: true,
+                            quoted: None,
+                            quoting: QuotedEvidence::default(),
+                        })
+                        .collect(),
+                    call_sites: 0,
+                    scenarios: 0,
+                    from_engine: true,
+                },
+            );
+            added += 1;
+        }
+        (added, skipped)
     }
 }
 
@@ -446,6 +537,7 @@ impl CorpusBuilder {
                         .collect(),
                     call_sites: o.call_sites,
                     scenarios: o.scenarios.len() as u32,
+                    from_engine: false,
                 };
                 (*op, def)
             })

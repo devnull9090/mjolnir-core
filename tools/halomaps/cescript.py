@@ -84,6 +84,14 @@ VEHICLE_TYPES = ["human_tank", "human_jeep", "human_boat", "human_plane", "alien
                  "alien_fighter", "turret"]
 
 
+def ident(name: str) -> str:
+    """A script or global name as source can spell it. Protection tools
+    rename scripts with spaces in them (Yoyorast Island V2's
+    "is_server check"); the calls name them the same way, so both sides
+    come out the same."""
+    return "_".join(name.split()) or "_"
+
+
 def value_type(n: int) -> str:
     return VALUE_TYPES[n] if n < len(VALUE_TYPES) else f"type_{n}"
 
@@ -206,6 +214,8 @@ class Scenario:
             return "none"
         if kind == 9 and not flags & GLOBAL_REF:  # a string constant
             return '"' + t.replace('"', '\\"') + '"'
+        if flags & GLOBAL_REF or vtype == FUNCTION_NAME:
+            return ident(t)
         return t
 
     def source(self, handle: int, indent: int = 0, depth: int = 0) -> str:
@@ -224,7 +234,7 @@ class Scenario:
     def hsc(self) -> str:
         lines = []
         for g in self.globals():
-            lines.append(f"(global {g['type']} {g['name']} {self.source(g['init'], 1)})")
+            lines.append(f"(global {g['type']} {ident(g['name'])} {self.source(g['init'], 1)})")
         if lines:
             lines.append("")
         for s in self.scripts():
@@ -238,7 +248,7 @@ class Scenario:
                 body = body[1:]
             else:
                 body = [s["root"]]
-            lines.append(f"{head} {s['name']}")
+            lines.append(f"{head} {ident(s['name'])}")
             lines += ["    " + self.source(b, 1) for b in body]
             lines[-1] += ")"
             lines.append("")
