@@ -4,7 +4,7 @@ Classic Halo CE lit its levels with a progressive-refinement radiosity solver
 in the HEK's `tool.exe lightmaps`. This crate re-solves that lighting from a
 converted map's staging (the halo2ue export merged by
 `tools/level/merge_ce_scene.py`) so the lightmaps can be rendered at any
-resolution, on every core, and later on the GPU. The algorithm below is what
+resolution, on every core or on the GPU (`--gpu`). The algorithm below is what
 tool.exe does, recovered from its code (2026-10-07, Ghidra over the MCC and
 2004 builds; the constants are the binary's own), and its output is the
 acceptance test: run at tool.exe's own element density the solver must match
@@ -175,6 +175,45 @@ the shipped pages: Danger Canyon scores a mean difference of 15/255 over the
 drawn texels and Death Island 16.5/255 (its base interior's pages 6-17,
 its sea floor under 2), the remainder being tool.exe's placed-object
 shadows and its own chart raster.
+
+## Cost, and the GPU
+
+The CLI's `time:` line splits a solve: the light phase; `select`, choosing
+each batch's shooters and their receivers; `gather`, the receivers' form
+factors and their visibility rays; `settle`, adding the gathered light and
+splitting patches; and the page draw, of which the per-texel sun and fill.
+Profiled 2026-10-09, the rays were the smaller part: of Gephyrophobia's
+1239 s, 219 s gathered and 938 s went to bookkeeping that walked every
+element once per 64-shooter batch (re-sorting them all to pick the
+shooters, cloning every element's patch list, rescanning every patch for
+the receivers' vertices). That walk, not the rays, is what grew with the
+square of the element count. The solver now keeps each element's unshot
+energy beside it (the shooters are a top-k over it, in the stable sort's
+order), settles in one parallel pass, and keeps the last few receiver sets
+with their vertices, grown by the splits; dilation visits only the
+frontier. The CPU path's pages are byte-identical to before (Night-Lockout,
+all 93 of Danger Canyon x4's).
+
+`--gpu` (this crate's `gpu` feature, on in the CLI) casts the gather's and
+the per-texel pass's rays with wgpu compute shaders (`src/gpu.rs`,
+`gpu.wgsl`): through the GPU's ray tracing hardware where wgpu reaches it
+(ray queries, Vulkan: the opaque triangles commit, the glass comes back as
+candidates for its tint), else through the CPU's BVH in a compute shader
+(`BLAM_RADIOSITY_GPU=bvh` forces that); with no adapter the solve runs on
+the CPU. Everything else stays on the CPU. Each ray is set up in the CPU's
+own arithmetic (f64 rounded to f32 at every step, `gpu_exact_f64.wgsl`):
+a ray grazing Gephyrophobia's bridge walls starts a few ulps off a
+collision plane, and the GPU's fused f32 flipped whole sunvis charts. What
+remains is the triangle test itself on rays the sun barely grazes, which
+are speckled on the CPU too. `examples/gpu_check` compares the kernels
+with the CPU ray for ray.
+
+GPU_TABLE
+
+`--batch` is the lever left: every batch walks every element, whatever its
+size, so where the rays are cheap fewer, larger batches are faster; the
+brightest then shoot together rather than in turn, which moves single
+texels (the scores against tool.exe do not change).
 
 The example `radiosity_bake` is the same solve with every knob exposed
 (`--no-sun-cosine`, `--no-bsp-solid`, `--fill-spread`, `--dump <csv>` of

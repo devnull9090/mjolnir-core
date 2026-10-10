@@ -40,6 +40,20 @@ fn xdot(a: vec3f, b: vec3f) -> f32 {
     return xadd(xadd(xmul(a.x, b.x), xmul(a.y, b.y)), xmul(a.z, b.z));
 }
 
+// The sign of `dot(a, b) - w` as the CPU finds it: plain f32 when the
+// value is clear of zero by more than f32's error on it (a few ulps of the
+// terms' magnitude, here bounded by 1e-5 of it), the CPU's own rounding
+// otherwise. f64 runs at a sliver of f32's rate on most GPUs, and nearly
+// every plane test is far from its plane.
+fn plane_side(a: vec3f, b: vec3f, w: f32) -> f32 {
+    let fast = a.x * b.x + a.y * b.y + a.z * b.z - w;
+    let size = abs(a.x * b.x) + abs(a.y * b.y) + abs(a.z * b.z) + abs(w);
+    if (abs(fast) > 1e-5 * size) {
+        return fast;
+    }
+    return xsub(xdot(a, b), w);
+}
+
 // collision.rs `in_solid`: a glTF point (metres) in the BSP's solid.
 fn in_solid(p: vec3f) -> bool {
     let q = vec3f(xdiv(p.x, WU_TO_M), xdiv(-p.z, WU_TO_M), xdiv(p.y, WU_TO_M));
@@ -59,7 +73,7 @@ fn in_solid(p: vec3f) -> bool {
             return false;
         }
         let pl = solid_planes[u32(plane)];
-        let d = xsub(xdot(pl.xyz, q), pl.w);
+        let d = plane_side(pl.xyz, q, pl.w);
         node = select(solid_nodes[3u * u32(node) + 1u], solid_nodes[3u * u32(node) + 2u], d >= 0.0);
     }
     return false;
@@ -137,7 +151,7 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
     for (var s = 0u; s < gp.shooters; s++) {
         let sh = shooters[s];
         let n = sh.normal.xyz;
-        if (xsub(xdot(n, rp), sh.v1.w) <= 0.0) {
+        if (plane_side(n, rp, sh.v1.w) <= 0.0) {
             continue;
         }
         let ignore = sh.normal.w != 0.0;
@@ -147,7 +161,9 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
         for (var k = 0u; k < 3u; k++) {
             let u = su[k];
             let w = sv[k];
-            let q = xadd3(xadd3(xscale3(sh.v0.xyz, xsub(xsub(1.0, u), w)), xscale3(sh.v1.xyz, u)), xscale3(sh.v2.xyz, w));
+            // The sample point in plain f32 for the tests below; in the CPU's
+            // arithmetic for the ray, which only the survivors cast.
+            let q = sh.v0.xyz * (1.0 - u - w) + sh.v1.xyz * u + sh.v2.xyz * w;
             let v = q - rp;
             if (dot(v, rn) <= 0.0 && !ignore) {
                 continue;
@@ -166,7 +182,8 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
             if (fi * sh.v2.w <= gp.cull) {
                 continue;
             }
-            let t = transmission(rp, q, true);
+            let qx = xadd3(xadd3(xscale3(sh.v0.xyz, xsub(xsub(1.0, u), w)), xscale3(sh.v1.xyz, u)), xscale3(sh.v2.xyz, w));
+            let t = transmission(rp, qx, true);
             if (all(t <= vec3f(0.0))) {
                 continue;
             }
