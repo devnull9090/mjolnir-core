@@ -39,6 +39,59 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.12.0",
+      "tag": "launcher-v0.12.0",
+      "title": "Installs maps for the running game",
+      "date": "2026-10-10",
+      "summary": "The game can ask the launcher to install a map while you play, the same signed install the Maps tab does, so joining a server never needs a restart.",
+      "body": "### Added\n\n- **Map installs for the running game.** MJOLNIRLobby 0.10.0 starts the\n  launcher without a window to install a map a game needs: one you don't\n  have, or the exact version a host runs. It's the same install as the Maps\n  tab: the hub's hash, the author's signature, and the same files and load\n  order. Your next launch therefore has nothing to copy.\n  - It never replaces a file the game has open. An update goes in beside\n    the old copy, and the game swaps between them.\n  - Any other copy of the same map is removed, so two versions are never\n    loaded together.\n  - Code mods aren't touched.\n- **The launcher records where it's installed** each time it starts, so the\n  game can find it. Open this version once after updating, and in-game\n  downloads work from then on.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Map installs for the running game. MJOLNIRLobby 0.10.0 starts the launcher without a window to install a map a game needs: one you don't have, or the exact version a host runs. It's the same install as the Maps tab: the hub's hash, the author's signature, and the same files and load order. Your next launch therefore has nothing to copy.",
+            "The launcher records where it's installed each time it starts, so the game can find it. Open this version once after updating, and in-game downloads work from then on."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.12.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.12.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.12.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.20.0",
+      "tag": "mods-v0.20.0",
+      "title": "Download maps in game and join right away",
+      "date": "2026-10-10",
+      "summary": "Join a server on a map you don't have and download it in game, with its screenshot and details: no restart, even to update to the host's version.",
+      "body": "Needs MJOLNIR Launcher 0.12.0, which does the download and checks the map's\nsignature. The new screens and screenshots come with CE runtime pack 1.6.0.\nWith an older runtime pack the downloads still work, through a plainer\nscreen.\n\n### Added\n\n- **Download a map without leaving the game** (MJOLNIRLobby 0.10.0,\n  MJOLNIRLevelLoader 0.5.1). When a game needs a map you don't have, a\n  screen shows its hub screenshot, author, rating, downloads, size, version\n  and game types. DOWNLOAD installs it from mjolnircore.com and loads it\n  into the running game, and you carry on. Maps are signed by their authors\n  and checked before they install. The screen comes up when:\n  - you join a server from FIND GAMES (DOWNLOAD AND JOIN), including a match\n    already under way;\n  - the host picks a map you don't have, or the post-game vote does;\n  - you press DOWNLOAD MAP in the lobby, if you closed the screen.\n- **The host waits for downloads.** The lobby and the post-game screen say\n  \"WAITING FOR 1 PLAYER TO DOWNLOAD …\". The vote's countdown holds for up to\n  three minutes. In the lobby, a second START starts without them.\n- **Everyone plays the host's version.** A player with another version of\n  the map, older or newer, is offered an UPDATE to the host's exact version.\n  It's applied in the running game: no restart.\n- **Hub screenshots on the map screens.** The map select shows the\n  screenshot, author, downloads and version. The lobby card, FIND GAMES and\n  the post-game vote show the screenshot of the map they name.\n\n### Fixed\n\n- **Games with players who have different maps installed now start.** The\n  game identifies a fireteam's map by its position in a list that differs\n  between players. A host with a map a guest didn't have, or one installed\n  later, loaded the world for everyone and never started it. The host now\n  tells every player where the map is.\n- **A player without the map no longer holds up everyone's start.** The\n  host's first START names them, and a second START sends them back to\n  their own menu. A player told the host is starting a map they don't have\n  leaves the fireteam on their own.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Download a map without leaving the game (MJOLNIRLobby 0.10.0, MJOLNIRLevelLoader 0.5.1). When a game needs a map you don't have, a screen shows its hub screenshot, author, rating, downloads, size, version and game types. DOWNLOAD installs it from mjolnircore.com and loads it into the running game, and you carry on. Maps are signed by their authors and checked before they install. The screen comes up when:",
+            "The host waits for downloads. The lobby and the post-game screen say \"WAITING FOR 1 PLAYER TO DOWNLOAD …\". The vote's countdown holds for up to three minutes. In the lobby, a second START starts without them.",
+            "Everyone plays the host's version. A player with another version of the map, older or newer, is offered an UPDATE to the host's exact version. It's applied in the running game: no restart.",
+            "Hub screenshots on the map screens. The map select shows the screenshot, author, downloads and version. The lobby card, FIND GAMES and the post-game vote show the screenshot of the map they name."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Games with players who have different maps installed now start. The game identifies a fireteam's map by its position in a list that differs between players. A host with a map a guest didn't have, or one installed later, loaded the world for everyone and never started it. The host now tells every player where the map is.",
+            "A player without the map no longer holds up everyone's start. The host's first START names them, and a second START sends them back to their own menu. A player told the host is starting a map they don't have leaves the fireteam on their own."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.20.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.20.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.20.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.19.0",
