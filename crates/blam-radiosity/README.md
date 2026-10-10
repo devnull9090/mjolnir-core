@@ -4,7 +4,7 @@ Classic Halo CE lit its levels with a progressive-refinement radiosity solver
 in the HEK's `tool.exe lightmaps`. This crate re-solves that lighting from a
 converted map's staging (the halo2ue export merged by
 `tools/level/merge_ce_scene.py`) so the lightmaps can be rendered at any
-resolution, on every core or on the GPU (`--gpu`). The algorithm below is what
+resolution, on the GPU (or every core, `--cpu`). The algorithm below is what
 tool.exe does, recovered from its code (2026-10-07, Ghidra over the MCC and
 2004 builds; the constants are the binary's own), and its output is the
 acceptance test: run at tool.exe's own element density the solver must match
@@ -194,8 +194,9 @@ with their vertices, grown by the splits; dilation visits only the
 frontier. The CPU path's pages are byte-identical to before (Night-Lockout,
 all 93 of Danger Canyon x4's).
 
-`--gpu` (this crate's `gpu` feature, on in the CLI) casts the gather's and
-the per-texel pass's rays with wgpu compute shaders (`src/gpu.rs`,
+The CLI casts the gather's and
+the per-texel pass's rays on the GPU by default (this crate's `gpu`
+feature; `--cpu` keeps them on the CPU) with wgpu compute shaders (`src/gpu.rs`,
 `gpu.wgsl`): through the GPU's ray tracing hardware where wgpu reaches it
 (ray queries, Vulkan: the opaque triangles commit, the glass comes back as
 candidates for its tint), else through the CPU's BVH in a compute shader
@@ -212,7 +213,7 @@ Seconds per solve at `--scale auto` (32 threads, RTX 5090, 2026-10-10;
 another solve ran beside these, so they are an upper bound); "before" is
 the solver before the bookkeeping rework:
 
-| map | elements | before | CPU | `--gpu` | `--gpu --batch 256` |
+| map | elements | before | `--cpu` | GPU (default) | GPU, `--batch 256` |
 |---|---|---|---|---|---|
 | Night-Lockout | 181 k | 128 | 25 | 12 | 6.5 |
 | Death Island | 86 k | | 75 | 12 | 10.5 |

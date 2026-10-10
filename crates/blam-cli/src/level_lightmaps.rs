@@ -78,10 +78,14 @@ pub struct LightmapsArgs {
     /// under each patch.
     #[arg(long)]
     pub flat_reflectance: bool,
-    /// Cast the rays on the GPU (wgpu: Vulkan, DX12 or Metal): the
-    /// receivers' gather and the per-texel sun and fill. The CPU path stays
-    /// the reference and runs when no adapter is found.
+    /// Cast every ray on the CPU. By default the receivers' gather and the
+    /// per-texel sun and fill run on the GPU (wgpu: Vulkan, DX12 or Metal,
+    /// its ray tracing hardware when it has some) and fall back to the CPU
+    /// when there is no adapter; the CPU path is the reference.
     #[arg(long)]
+    pub cpu: bool,
+    /// The GPU, the default (kept so older scripts' `--gpu` still parses).
+    #[arg(long, hide = true, conflicts_with = "cpu")]
     pub gpu: bool,
     /// No element edge shorter than this many of its own lightmap texels at
     /// the drawn page size (0: tool.exe's rows, divided by `--finer`, only).
@@ -260,7 +264,7 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
         supersample: a.supersample.max(1),
         flat_reflectance: a.flat_reflectance,
         bsp_solid: !a.no_bsp_solid,
-        gpu: a.gpu,
+        gpu: !a.cpu,
         texel_elements: a.texel_elements,
     };
 
