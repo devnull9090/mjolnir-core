@@ -30,6 +30,10 @@ export interface Mod {
   owner_id: string;
   /** Discord CDN avatar of the owner, when they have one. */
   author_avatar: string | null;
+  /** The first approved still in the gallery (a hub-relative URL), for the card. */
+  cover_url: string | null;
+  /** The map's three-character codename, when the mod is a map pack. */
+  map_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +54,8 @@ export interface ModListQuery {
   sort?: ModSort;
   cursor?: string;
   limit?: number;
+  /** true: only map packs; false: everything but them; absent: both. */
+  map?: boolean;
 }
 
 export interface Release {
@@ -230,6 +236,8 @@ export interface UserStats {
   ratings_given: number;
   comments_posted: number;
   media_contributed: number;
+  /** Player reports against them a moderator has not dismissed. */
+  player_reports: number;
 }
 
 export interface UserProfile {
@@ -306,6 +314,72 @@ export interface ConflictPair {
   sample_chunk_ids: string[];
 }
 
+/** A hub account as multiplayer shows it (docs/player_identity.md). */
+export interface Player {
+  id: string;
+  /** Display name, or the Discord username. */
+  name: string;
+  username: string;
+  avatar_url: string | null;
+  /** The avatar through the hub, below /api/v1, for the game. */
+  avatar_path: string;
+}
+
+export type PlayerReportReason =
+  | "cheating"
+  | "betraying"
+  | "harassment"
+  | "griefing"
+  | "quitting"
+  | "name"
+  | "other";
+
+export interface MatchmakingBan {
+  reason: string;
+  created_at: string;
+  /** Null for a permanent ban. */
+  expires_at: string | null;
+}
+
+export interface PlayerReport {
+  id: string;
+  reporter: Player;
+  reason: PlayerReportReason;
+  detail: string | null;
+  /** The name the reporter saw in game. */
+  subject_name: string | null;
+  host_match_id: string | null;
+  /** The hub's match, once the host reported it. */
+  match_id: string | null;
+  /** Null when the match is not on the hub. */
+  reporter_in_match: boolean | null;
+  subject_in_match: boolean | null;
+  status: "open" | "upheld" | "dismissed";
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string;
+}
+
+/** A reported player as the moderation queue groups it. */
+export interface ReportedPlayer {
+  player: Player;
+  open_reports: number;
+  /** The public count: every report not dismissed. */
+  counted_reports: number;
+  ban: MatchmakingBan | null;
+  reports: PlayerReport[];
+}
+
+export interface BannedPlayer {
+  id: string;
+  player: Player;
+  reason: string;
+  banned_by: string | null;
+  created_at: string;
+  expires_at: string | null;
+}
+
 export type ReportSubject = "mod" | "release" | "comment" | "media" | "user";
 export type ReportReason = "malware" | "stolen" | "broken" | "nsfw" | "spam" | "other";
 
@@ -327,6 +401,12 @@ export interface DevicePoll {
 
 // ── Maps and lobbies (docs/multiplayer_release_plan.md) ──────────────
 
+export type MapSize = "small" | "medium" | "large";
+/** classic: a converted stock Halo CE map; custom_edition: a converted
+ *  Custom Edition map; original: made for Campaign Evolved. */
+export type MapOrigin = "classic" | "custom_edition" | "original";
+export type MapSort = "newest" | "downloads" | "rating" | "title";
+
 /** A map in the catalog: an official classic or a community map. */
 export interface MapListing {
   code: string;
@@ -336,10 +416,21 @@ export interface MapListing {
   slug: string;
   summary: string | null;
   owner: string;
+  /** Discord CDN avatar of the owner, when they have one. */
+  owner_avatar: string | null;
   download_count: number;
+  rating_count: number;
   rating_mean: number | null;
   /** The first approved screenshot in the map's gallery (a hub-relative URL). */
   cover_url: string | null;
+  /** Catalog metadata; null where the map's author never said. */
+  size: MapSize | null;
+  players_min: number | null;
+  players_max: number | null;
+  vehicles: boolean | null;
+  origin: MapOrigin | null;
+  /** When the map's mod was created. */
+  created_at: string;
   /** The latest published release, the one to install. */
   release: {
     id: string;
@@ -349,6 +440,41 @@ export interface MapListing {
     created_at: string;
   } | null;
 }
+
+/**
+ * A catalog search. With no `sort` and no `limit` it is the full listing,
+ * official first then by title; `players` keeps maps with no declared range.
+ */
+export interface MapQuery {
+  q?: string;
+  official?: boolean;
+  mode?: string;
+  size?: MapSize;
+  vehicles?: boolean;
+  origin?: MapOrigin;
+  players?: number;
+  sort?: MapSort;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface MapList {
+  maps: MapListing[];
+  next_cursor: string | null;
+}
+
+/** A map's catalog metadata, as PATCH /maps/{code} sets and returns it. */
+export interface MapMetadata {
+  code: string;
+  size: MapSize | null;
+  players_min: number | null;
+  players_max: number | null;
+  vehicles: boolean | null;
+  origin: MapOrigin | null;
+}
+
+/** Fields to change: absent keeps a field, null clears it. */
+export type MapMetadataPatch = Partial<Omit<MapMetadata, "code">>;
 
 /** A community release waiting for a moderator. */
 export interface QueuedRelease {
@@ -404,4 +530,18 @@ export const GAME_TYPE_NAMES: Record<string, string> = {
   ctf: "Capture the Flag",
   koth: "King of the Hill",
   oddball: "Oddball",
+};
+
+/** Display names for a map's size. */
+export const MAP_SIZES: Record<MapSize, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+/** Display names for where a map came from. */
+export const MAP_ORIGIN_NAMES: Record<MapOrigin, string> = {
+  classic: "Halo CE classic",
+  custom_edition: "Custom Edition",
+  original: "Original",
 };

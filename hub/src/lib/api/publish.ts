@@ -435,12 +435,34 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         }
       }
       if (map && scan.verdict === "pass") {
+        // Catalog metadata is optional in the manifest, so a release that
+        // leaves a field out keeps what the listing says (an earlier
+        // release's, or a moderator's). A moderator's `classic` origin is
+        // never overwritten by an author's.
         statements.push(
           c.env.DB.prepare(
-            `INSERT INTO map_listings (mod_id, code, title, modes) VALUES (?1, ?2, ?3, ?4)
+            `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
+                                       vehicles, origin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
+               size = COALESCE(excluded.size, size),
+               players_min = COALESCE(excluded.players_min, players_min),
+               players_max = COALESCE(excluded.players_max, players_max),
+               vehicles = COALESCE(excluded.vehicles, vehicles),
+               origin = CASE WHEN origin = 'classic' THEN origin
+                             ELSE COALESCE(excluded.origin, origin) END,
                updated_at = datetime('now')`,
-          ).bind(release.mod_id as string, map.code, map.title, JSON.stringify(map.modes)),
+          ).bind(
+            release.mod_id as string,
+            map.code,
+            map.title,
+            JSON.stringify(map.modes),
+            map.size ?? null,
+            map.players?.min ?? null,
+            map.players?.max ?? null,
+            map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
+            map.origin ?? null,
+          ),
         );
       }
       if (held) {

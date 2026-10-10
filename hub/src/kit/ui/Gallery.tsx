@@ -216,6 +216,9 @@ export function MediaGallery({
 
   const items = media.map((m) => ({
     ...toItem(m),
+    // Media URLs are hub-relative: fine on the website, but the launcher's
+    // page lives on its own origin and has to be pointed at the hub.
+    url: client.absolute(m.url),
     // Your own unreviewed submissions, always; anything at all when you are
     // the moderator who curates this gallery.
     onRemove:

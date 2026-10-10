@@ -32,7 +32,7 @@ Three rules shape everything below:
 
 | Piece | Kind | Published by | Holds |
 |---|---|---|---|
-| A map, e.g. `ce-blood-gulch` | hub `map` | map author | the map's containers, level file, registration record |
+| A map, e.g. `ce-blood-gulch` | hub `content`, with a map listing | map author | the map's containers, level file, registration record |
 | `mjolnir-ce-runtime` | hub `content` | us | everything every converted map shares |
 | MJOLNIRLevelLoader, MJOLNIRLobby | code mods | signed CI | the loader, the multiplayer menu, the game types (`.mglo`) |
 
@@ -75,7 +75,14 @@ The manifest's map block:
   "name": "Blood Gulch",
   "version": "1.0.0",
   "type": "map",
-  "map": { "code": "BGL", "title": "Blood Gulch", "modes": ["slayer", "ctf"] },
+  "map": {
+    "code": "BGL",
+    "title": "Blood Gulch",
+    "modes": ["slayer", "ctf"],
+    "size": "large",
+    "players": { "min": 4, "max": 16 },
+    "vehicles": true
+  },
   "compat": { "min_build": "2026.06.26.1097863.1" },
   "deps": [{ "slug": "mjolnir-ce-runtime", "range": "^1.0.0" }]
 }
@@ -85,6 +92,11 @@ The manifest's map block:
   hub, which rejects a second map claiming a code someone else's map holds.
 - `modes` lists the game types the multiplayer menu offers. Each one must be
   a variant the loader ships (`slayer`, `ctf`, ...).
+- `size`, `players`, `vehicles` and `origin` are optional catalog metadata,
+  what players filter the hub's map list by ([below](#the-catalog)). A
+  release that leaves one out keeps the value the listing already has.
+  `origin` is `custom_edition` or `original`; `classic` is set by
+  moderators only. Field rules are in [mjolnir_format.md](mjolnir_format.md#map-archives).
 - The registration record is what `mjolnir level bake --standalone` writes
   beside its output as `<CODE>.registration.json`: the codename, the canvas
   scenario it was cloned from, the title, the description and the world
@@ -216,22 +228,79 @@ mjolnir map pack out/bgl --code BGL --version 1.0.0 --sign
 Players publish the same way. Until the Rust cook lands, they need the
 Unreal Editor and the MJOLNIRMaterials project, which in practice means us.
 
-**Review.** A `map` release does not go live on a passing scan. It waits in
-a review queue (`pending_review`) until a moderator approves it, because a
-map carries game-derived bytes and names game types the loader will run.
-Content releases keep auto-publishing.
+**Review.** A map release from a new author does not go live on a passing
+scan. The release stays `pending` with a row in `release_reviews` until a
+moderator approves it (`/moderation/releases`), because a map carries
+game-derived bytes and names game types the loader will run. Moderators and
+authors at trust level 2 or higher skip the queue. Content releases keep
+auto-publishing.
 
-## Hub changes
+## On the hub
 
-- `mods.type` accepts `map`; `POST /mods` takes it from the request.
-- The scanner, for type `map`:
-  - allows `map/level.json` and `map/registration.json`;
-  - validates both JSON files against their schemas;
-  - requires the `map` block, and rejects a `code` another mod already holds;
-  - raises the size limit to 128 MiB (a map's containers are 7 to 8 MB, its
-    cooked textures about 15 MB, and loose textures would be much larger).
-- The release status gains `pending_review`; moderators approve or reject.
-- `deps` are recorded in `release_deps` and returned with the release.
+A map is a `content` mod. `mods.type` is a trust tier and stays `content`;
+what makes a mod a map is its row in `map_listings` (migration 0012), keyed
+by the mod and holding the code, title, game types, whether it is an
+official classic, and the catalog metadata (migration 0017). `GET
+/mods/{slug}` reports a map pack as `type: "map"` with its `map_code`.
+
+- The scanner, for a manifest of type `map`:
+  - requires the `map` block, and only a map archive may carry one;
+  - requires `map/level.json` and `map/registration.json`, as valid JSON;
+  - warns about containers not named for the map (`-<CODE>_P`);
+  - rejects a `code` another mod already holds (`map_code_taken`).
+- The archive limit is the same 50 MiB as any content release.
+- A passing map release writes its `map_listings` row; a held one
+  ([review](#players-maps)) writes it too, but the listing stays out of
+  the catalog until the mod is published.
+- `deps` are recorded in `release_deps`.
+
+### The catalog
+
+`GET /api/v1/maps` lists published maps with their newest release, cover
+image, and metadata:
+
+| Field | Values |
+|---|---|
+| `size` | `small`, `medium`, `large`, or null |
+| `players_min`, `players_max` | 1 to 16, or null |
+| `vehicles` | true, false, or null |
+| `origin` | `classic` (the 19 converted stock maps), `custom_edition`, `original`, or null |
+
+Migration 0017 fills these for the 19 classics. Authors set them in the
+manifest, and the mod's owner, its authors and moderators change them with
+`PATCH /api/v1/maps/{code}` (only moderators may set or change `classic`).
+
+With no parameters, `/maps` returns every map (up to 500) in one list: the
+official classics first, then by title. The launcher's **Install
+multiplayer** (`/maps?official=1`) and the game's map list rely on that
+form, so filters and paging are opt-in:
+
+| Parameter | Effect |
+|---|---|
+| `official` | `1` official maps only, `0` community maps only |
+| `mode` | maps offering this game type |
+| `q` | title, code or summary contains this (up to 80 characters) |
+| `size`, `vehicles`, `origin` | exact match; a map that never declared the field is left out |
+| `players` | maps whose player range includes this count; a map with no range is kept |
+| `sort` | `newest`, `downloads`, `rating` or `title`; absent keeps official first, then title |
+| `limit`, `cursor` | page size 1 to 100, and the `next_cursor` of the previous page |
+
+The response is `{ maps, next_cursor }`. `next_cursor` is null on the last
+page. The website's `/maps` page is built on the same query. `GET /mods`
+takes `map=0` to leave map packs out (the website's `/mods` page does) and
+`map=1` to list only them; every mod carries `cover_url` and `map_code` for
+its card.
+
+### Launcher links
+
+The website hands off to the desktop launcher through the `mjolnir://`
+scheme, which launcher 0.13.0 and newer register:
+
+| Link | Opens |
+|---|---|
+| `mjolnir://map/<CODE>` | the map, ready to install (map cards and map pages) |
+| `mjolnir://mod/<slug>` | a mod's page in the launcher (mod pages) |
+| `mjolnir://join/<lobby id>` | joins a listed game (`/games`, and the live strip on `/matches`) |
 
 ## Phases
 
@@ -239,7 +308,7 @@ Content releases keep auto-publishing.
    `ue4ss/MJOLNIRMaps`; `mjolnir level register` builds the registration
    container and `maps.json` from the records there.
 2. **Map packs.** `mjolnir map pack`; the tag editor's map publishing; the
-   hub's `map` type, scanner rules and review queue.
+   hub's map listings, scanner rules and review queue.
 3. **The launcher (done).** It installs maps, resolves dependencies, and
    builds the registration container on every change.
 4. **The CE runtime pack, and our maps.** The shared containers move into the

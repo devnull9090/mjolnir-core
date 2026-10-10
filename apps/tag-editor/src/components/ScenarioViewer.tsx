@@ -6,6 +6,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import {
   api,
   type ModelGeometry,
+  type ScenarioSquad,
   type ScenarioWorldView,
 } from "../lib/api";
 import { buildModelGroup, hueOf, parseSbspWorld } from "../lib/three-model";
@@ -81,12 +82,22 @@ export function ScenarioViewer() {
   return <World key={index} view={view} worlds={worlds} scenarioIndex={index!} />;
 }
 
-type Selected = {
-  category: number;
-  element: number;
-  /** The placement's group in the scene. */
+/** What the gizmo is on: a placed object, or one squad spawn point. Spawn
+ *  `squad` and `point` are positions in the view's own squad list; their
+ *  `element` fields give the tag paths. */
+type Pick =
+  | { kind: "placement"; category: number; element: number }
+  | { kind: "spawn"; squad: number; point: number };
+
+type Selected = Pick & {
+  /** The placement's group, or the stand-in a spawn point is dragged by. */
   object: THREE.Group;
 };
+
+/** How far a duplicated spawn point steps sideways, in world units. */
+const DUP_STEP = 0.3;
+/** The squad definition's limit on spawn points. */
+const SPAWN_POINTS_MAX = 128;
 
 /** Category display colours, keyed by block name; anything else is hashed. */
 const CATEGORY_HUES: Record<string, number> = {
@@ -118,7 +129,9 @@ function World(props: {
   scenarioIndex: number;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [selected, setSelected] = useState<{ category: number; element: number } | null>(null);
+  const [selected, setSelected] = useState<Pick | null>(null);
+  // Bumped when the view's own squad copy changes, so the panel re-reads it.
+  const [squadsVersion, setSquadsVersion] = useState(0);
   const [mode, setMode] = useState<"translate" | "rotate">("translate");
   const [hidden, setHidden] = useState<Set<string>>(new Set(["trigger volumes"]));
   const [saving, setSaving] = useState<string | null>(null);
@@ -145,9 +158,15 @@ function World(props: {
     placements: THREE.Group;
     gizmo: TransformControls;
     highlight: THREE.BoxHelper;
+    duplicateSpawn: () => Promise<void>;
+    setCellCount: (squad: number, cell: number, count: number) => Promise<void>;
   } | null>(null);
 
   const layout = props.view.layout;
+  // The squads as this view has edited them: spawn points move, duplicate
+  // and renumber here without reading the whole scenario back.
+  const [firstSquads] = useState(() => structuredClone(layout.squads));
+  const squadsRef = useRef<ScenarioSquad[]>(firstSquads);
 
   // Everything three.js lives in one effect keyed by the loaded data; the
   // cheap toggles poke into it through refs.
@@ -344,36 +363,49 @@ function World(props: {
     }
     overlays.push(["trigger volumes", triggers]);
 
+    // Spawn points: one instanced cone each, coloured by squad, built from
+    // the view's own squad copy so a duplicate can rebuild it in place.
+    squadsRef.current = structuredClone(layout.squads);
     const spawns = new THREE.Group();
     const spawnGeo = new THREE.ConeGeometry(0.12, 0.4, 6);
     // Cones point +Y; rotate to tag-space +Z so they stand up.
     spawnGeo.rotateX(Math.PI / 2);
-    const spawnCount = layout.squads.reduce((n, s) => n + s.spawn_points.length, 0);
-    if (spawnCount > 0) {
-      const mesh = new THREE.InstancedMesh(
-        spawnGeo,
-        new THREE.MeshStandardMaterial({ flatShading: true }),
-        spawnCount,
-      );
-      let at = 0;
-      const m = new THREE.Matrix4();
-      for (const squad of layout.squads) {
-        const color = new THREE.Color().setHSL(hueOf(squad.name), 0.6, 0.55);
-        for (const p of squad.spawn_points) {
-          m.makeRotationZ(p.facing[0]).setPosition(
-            p.position[0],
-            p.position[1],
-            p.position[2] + 0.2,
-          );
-          mesh.setMatrixAt(at, m);
-          mesh.setColorAt(at, color);
-          at++;
-        }
+    const spawnMat = new THREE.MeshStandardMaterial({ flatShading: true });
+    let spawnMesh: THREE.InstancedMesh | null = null;
+    // Instance id -> which squad and point it draws.
+    let spawnAt: { squad: number; point: number }[] = [];
+    const spawnMatrix = (position: number[], yaw: number) =>
+      new THREE.Matrix4()
+        .makeRotationZ(yaw)
+        .setPosition(position[0], position[1], position[2] + 0.2);
+    const buildSpawns = () => {
+      if (spawnMesh) {
+        spawns.remove(spawnMesh);
+        spawnMesh.dispose();
+        spawnMesh = null;
       }
+      spawnAt = [];
+      squadsRef.current.forEach((squad, s) =>
+        squad.spawn_points.forEach((_, p) => spawnAt.push({ squad: s, point: p })),
+      );
+      if (spawnAt.length === 0) return;
+      const mesh = new THREE.InstancedMesh(spawnGeo, spawnMat, spawnAt.length);
+      spawnAt.forEach(({ squad, point }, i) => {
+        const sq = squadsRef.current[squad];
+        const p = sq.spawn_points[point];
+        mesh.setMatrixAt(i, spawnMatrix(p.position, p.facing[0]));
+        mesh.setColorAt(i, new THREE.Color().setHSL(hueOf(sq.name), 0.6, 0.55));
+      });
       mesh.instanceMatrix.needsUpdate = true;
       spawns.add(mesh);
-    }
+      spawnMesh = mesh;
+    };
+    buildSpawns();
     overlays.push(["spawn points", spawns]);
+
+    // The ring a selected spawn point wears, inside its drag stand-in.
+    const ringGeo = new THREE.TorusGeometry(0.28, 0.03, 6, 24);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xf0d060 });
 
     const starts = new THREE.Group();
     if (layout.player_starts.length > 0) {
@@ -408,9 +440,25 @@ function World(props: {
       controls.enabled = !(e as unknown as { value: boolean }).value;
       if (!(e as unknown as { value: boolean }).value) commitTransform();
     });
+    // A spawn point's cone follows its stand-in while it is dragged.
+    gizmo.addEventListener("objectChange", () => {
+      const sel = selectedRef.current;
+      if (sel?.kind !== "spawn" || !spawnMesh) return;
+      const i = spawnAt.findIndex((a) => a.squad === sel.squad && a.point === sel.point);
+      if (i < 0) return;
+      const o = sel.object;
+      spawnMesh.setMatrixAt(i, spawnMatrix([o.position.x, o.position.y, o.position.z], yawOf(o)));
+      spawnMesh.instanceMatrix.needsUpdate = true;
+    });
     scene.add(gizmo.getHelper());
 
-    sceneRef.current = { placements, gizmo, highlight };
+    // The stand-in a selected spawn point is dragged by, in tag space.
+    const spawnHandle = new THREE.Group();
+    spawnHandle.add(new THREE.Mesh(ringGeo, ringMat));
+    spawnHandle.visible = false;
+    model.add(spawnHandle);
+
+    sceneRef.current = { placements, gizmo, highlight, duplicateSpawn, setCellCount };
 
     const raycaster = new THREE.Raycaster();
     let downAt: [number, number] | null = null;
@@ -428,14 +476,29 @@ function World(props: {
         -((e.clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, camera);
-      const hits = raycaster.intersectObjects(placements.children, true);
-      for (const hit of hits) {
+      // The nearest of a placement and a spawn point wins.
+      let placementHit: { distance: number; object: THREE.Group } | null = null;
+      for (const hit of raycaster.intersectObjects(placements.children, true)) {
         let o: THREE.Object3D | null = hit.object;
         while (o && !o.userData.placement) o = o.parent;
-        if (o?.userData.placement && o.visible) {
-          select(o.userData.placement.category, o.userData.placement.element, o as THREE.Group);
-          return;
+        if (o?.userData.placement && o.visible && o.parent?.visible) {
+          placementHit = { distance: hit.distance, object: o as THREE.Group };
+          break;
         }
+      }
+      const spawnHit =
+        spawnMesh && spawns.visible
+          ? raycaster.intersectObject(spawnMesh, false).find((h) => h.instanceId !== undefined)
+          : undefined;
+      if (spawnHit && (!placementHit || spawnHit.distance < placementHit.distance)) {
+        const at = spawnAt[spawnHit.instanceId!];
+        selectSpawn(at.squad, at.point);
+        return;
+      }
+      if (placementHit) {
+        const p = placementHit.object.userData.placement;
+        select(p.category, p.element, placementHit.object);
+        return;
       }
       select(null);
     };
@@ -456,53 +519,154 @@ function World(props: {
     };
     renderer.domElement.addEventListener("dblclick", onDouble);
 
+    function clearSelection() {
+      selectedRef.current = null;
+      gizmo.detach();
+      highlight.visible = false;
+      spawnHandle.visible = false;
+      setSelected(null);
+    }
+
     function select(category: number | null, element?: number, object?: THREE.Group) {
       if (category === null || element === undefined || !object) {
-        selectedRef.current = null;
-        gizmo.detach();
-        highlight.visible = false;
-        setSelected(null);
+        clearSelection();
         return;
       }
-      selectedRef.current = { category, element, object };
+      spawnHandle.visible = false;
+      selectedRef.current = { kind: "placement", category, element, object };
+      gizmo.showX = gizmo.showY = gizmo.showZ = true;
       gizmo.attach(object);
       highlight.setFromObject(object);
       highlight.visible = true;
-      setSelected({ category, element });
+      setSelected({ kind: "placement", category, element });
+    }
+
+    /** A spawn point only turns about the up axis (three's Y, tag Z). */
+    function applySpawnAxes() {
+      const rotating = gizmo.getMode() === "rotate";
+      gizmo.showX = gizmo.showZ = !rotating;
+      gizmo.showY = true;
+    }
+
+    /** Put the gizmo on one spawn point, by its squad and point position. */
+    function selectSpawn(squad: number, point: number) {
+      const p = squadsRef.current[squad]?.spawn_points[point];
+      if (!p) {
+        clearSelection();
+        return;
+      }
+      spawnHandle.position.set(p.position[0], p.position[1], p.position[2]);
+      spawnHandle.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), p.facing[0]);
+      spawnHandle.visible = true;
+      highlight.visible = false;
+      selectedRef.current = { kind: "spawn", squad, point, object: spawnHandle };
+      gizmo.attach(spawnHandle);
+      applySpawnAxes();
+      setSelected({ kind: "spawn", squad, point });
     }
 
     function commitTransform() {
       const sel = selectedRef.current;
       if (!sel) return;
-      const p = sel.object.position;
-      const posPath = `${layout.categories[sel.category].block}[${sel.element}].object data.position`;
-      const posValue = `(${fmt(p.x)}, ${fmt(p.y)}, ${fmt(p.z)})`;
-      const euler = new THREE.Euler().setFromQuaternion(sel.object.quaternion, "ZYX");
-      const rotPath = `${layout.categories[sel.category].block}[${sel.element}].object data.rotation`;
-      const rotValue = `(${fmt(euler.z)}, ${fmt(euler.y)}, ${fmt(euler.x)})`;
-      highlight.setFromObject(sel.object);
-      void writeBack(posPath, posValue, rotPath, rotValue);
+      const o = sel.object;
+      if (sel.kind === "spawn") {
+        const sq = squadsRef.current[sel.squad];
+        const p = sq.spawn_points[sel.point];
+        p.position = [o.position.x, o.position.y, o.position.z];
+        p.facing = [yawOf(o), p.facing[1]];
+        const base = `squads[${sq.element}].spawn points[${p.element}]`;
+        void writeBack([
+          [`${base}.position`, vec(p.position)],
+          [`${base}.facing (yaw, pitch)`, `(${fmt(p.facing[0])}, ${fmt(p.facing[1])})`],
+        ]);
+        return;
+      }
+      const p = o.position;
+      const block = `${layout.categories[sel.category].block}[${sel.element}]`;
+      const euler = new THREE.Euler().setFromQuaternion(o.quaternion, "ZYX");
+      highlight.setFromObject(o);
+      void writeBack([
+        [`${block}.object data.position`, `(${fmt(p.x)}, ${fmt(p.y)}, ${fmt(p.z)})`],
+        [`${block}.object data.rotation`, `(${fmt(euler.z)}, ${fmt(euler.y)}, ${fmt(euler.x)})`],
+      ]);
     }
 
-    async function writeBack(
-      posPath: string,
-      posValue: string,
-      rotPath: string,
-      rotValue: string,
-    ) {
+    /** Record field edits through the same pipeline as the form view. */
+    async function writeBack(edits: [string, string][]): Promise<boolean> {
       setSaving("saving…");
       try {
-        await api.setField(props.scenarioIndex, posPath, posValue);
-        await api.setField(props.scenarioIndex, rotPath, rotValue);
-        useEditor.setState((s) => ({
-          dirtyTags: { ...s.dirtyTags, [props.scenarioIndex]: true },
-        }));
-        const store = useEditor.getState();
-        if (store.project) void store.refreshProject();
+        for (const [path, value] of edits) {
+          await api.setField(props.scenarioIndex, path, value);
+        }
+        afterEdit();
         setSaving(null);
+        return true;
       } catch (e) {
         setSaving(String(e));
+        return false;
       }
+    }
+
+    function afterEdit() {
+      useEditor.setState((s) => ({
+        dirtyTags: { ...s.dirtyTags, [props.scenarioIndex]: true },
+      }));
+      const store = useEditor.getState();
+      if (store.project) void store.refreshProject();
+    }
+
+    /**
+     * Copy the selected spawn point into the same squad and cell, a step to
+     * its side, and select the copy. The copy's name is cleared so a script
+     * naming the original still finds exactly one point.
+     */
+    async function duplicateSpawn() {
+      const sel = selectedRef.current;
+      if (sel?.kind !== "spawn") return;
+      const sq = squadsRef.current[sel.squad];
+      const p = sq.spawn_points[sel.point];
+      const list = `squads[${sq.element}].spawn points`;
+      const yaw = p.facing[0];
+      const position: [number, number, number] = [
+        p.position[0] - Math.sin(yaw) * DUP_STEP,
+        p.position[1] + Math.cos(yaw) * DUP_STEP,
+        p.position[2],
+      ];
+      setSaving("duplicating…");
+      try {
+        await api.duplicateElement(props.scenarioIndex, list, p.element);
+      } catch (e) {
+        setSaving(String(e));
+        return;
+      }
+      // The copy sits directly after the original; everything after it in
+      // this squad moves up one.
+      for (const q of sq.spawn_points) if (q.element > p.element) q.element += 1;
+      const copy = { ...p, element: p.element + 1, name: "", position };
+      sq.spawn_points.splice(sel.point + 1, 0, copy);
+      buildSpawns();
+      selectSpawn(sel.squad, sel.point + 1);
+      setSquadsVersion((v) => v + 1);
+      afterEdit();
+      const ok = await writeBack([
+        [`${list}[${copy.element}].position`, vec(position)],
+        [`${list}[${copy.element}].name`, ""],
+      ]);
+      if (ok) void useEditor.getState().refreshTag();
+    }
+
+    /** Set how many actors one designer cell of a squad spawns. */
+    async function setCellCount(squad: number, cell: number, count: number) {
+      const sq = squadsRef.current[squad];
+      const c = sq?.cells[cell];
+      if (!c || count < 0) return;
+      const ok = await writeBack([
+        [`squads[${sq.element}].designer.cells[${cell}].normal diff count`, String(count)],
+      ]);
+      if (!ok) return;
+      c.normal_count = count;
+      setSquadsVersion((v) => v + 1);
+      void useEditor.getState().refreshTag();
     }
 
     // Frame the whole world.
@@ -542,6 +706,8 @@ function World(props: {
       renderer.domElement.removeEventListener("dblclick", onDouble);
       gizmo.dispose();
       controls.dispose();
+      spawnGeo.dispose();
+      spawnMat.dispose();
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
           o.geometry.dispose();
@@ -561,7 +727,14 @@ function World(props: {
 
   // Gizmo mode + visibility toggles.
   useEffect(() => {
-    sceneRef.current?.gizmo.setMode(mode);
+    const gizmo = sceneRef.current?.gizmo;
+    if (!gizmo) return;
+    gizmo.setMode(mode);
+    // A spawn point only turns about the up axis (three's Y, tag Z).
+    if (selectedRef.current?.kind === "spawn") {
+      gizmo.showX = gizmo.showZ = mode !== "rotate";
+      gizmo.showY = true;
+    }
   }, [mode]);
   useEffect(() => {
     for (const [name, group] of categoryGroups.current) {
@@ -572,8 +745,20 @@ function World(props: {
     }
   }, [hidden]);
 
+  const spawnInfo = useMemo(() => {
+    if (selected?.kind !== "spawn") return null;
+    const squad = squadsRef.current[selected.squad];
+    const point = squad?.spawn_points[selected.point];
+    if (!squad || !point) return null;
+    const cell = point.cell >= 0 ? squad.cells[point.cell] : undefined;
+    const cellPoints = squad.spawn_points.filter((p) => p.cell === point.cell).length;
+    return { squad, point, cell, cellPoints, full: squad.spawn_points.length >= SPAWN_POINTS_MAX };
+    // squadsVersion: the copy is edited in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, squadsVersion]);
+
   const selectedInfo = useMemo(() => {
-    if (!selected) return null;
+    if (selected?.kind !== "placement") return null;
     const cat = layout.categories[selected.category];
     const p = cat?.placements.find((x) => x.element === selected.element);
     if (!cat || !p) return null;
@@ -596,7 +781,7 @@ function World(props: {
     ["trigger volumes", `trigger volumes · ${layout.trigger_volumes.length}`] as const,
     [
       "spawn points",
-      `spawn points · ${layout.squads.reduce((n, s) => n + s.spawn_points.length, 0)}`,
+      `spawn points · ${squadsRef.current.reduce((n, s) => n + s.spawn_points.length, 0)}`,
     ] as const,
     ["player starts", `player starts · ${layout.player_starts.length}`] as const,
     ["invisible surfaces", "invisible surfaces"] as const,
@@ -677,6 +862,77 @@ function World(props: {
             </p>
           </div>
         )}
+        {selected?.kind === "spawn" && spawnInfo && (
+          <div className="absolute right-2 top-2 w-72 border border-border-subtle bg-surface-primary/90 p-2 font-mono text-[10px]">
+            <p className="text-mjolnir-gold">
+              squads[{spawnInfo.squad.element}].spawn points[{spawnInfo.point.element}]
+            </p>
+            <p className="truncate text-text-secondary" title={spawnInfo.squad.name}>
+              squad: {spawnInfo.squad.name || <em>unnamed</em>}
+            </p>
+            {spawnInfo.point.name && (
+              <p className="truncate text-text-secondary">point: {spawnInfo.point.name}</p>
+            )}
+            {spawnInfo.cell ? (
+              <div className="mt-1 flex items-center gap-1.5 text-text-secondary">
+                <span className="min-w-0 truncate" title={spawnInfo.cell.name}>
+                  cell {spawnInfo.cell.name || spawnInfo.point.cell}:
+                </span>
+                <button
+                  type="button"
+                  className="border border-border-subtle px-1 hover:bg-surface-hover disabled:opacity-40"
+                  disabled={spawnInfo.cell.normal_count <= 0}
+                  title="Spawn one fewer actor from this cell"
+                  onClick={() =>
+                    void sceneRef.current?.setCellCount(
+                      selected.squad,
+                      spawnInfo.point.cell,
+                      spawnInfo.cell!.normal_count - 1,
+                    )
+                  }
+                >
+                  −
+                </button>
+                <span className="text-text-primary">{spawnInfo.cell.normal_count}</span>
+                <button
+                  type="button"
+                  className="border border-border-subtle px-1 hover:bg-surface-hover"
+                  title="Spawn one more actor from this cell (normal diff count)"
+                  onClick={() =>
+                    void sceneRef.current?.setCellCount(
+                      selected.squad,
+                      spawnInfo.point.cell,
+                      spawnInfo.cell!.normal_count + 1,
+                    )
+                  }
+                >
+                  +
+                </button>
+                <span className="text-text-dim">
+                  actors · {spawnInfo.cellPoints} point{spawnInfo.cellPoints === 1 ? "" : "s"}
+                </span>
+              </div>
+            ) : (
+              <p className="mt-1 text-text-dim">no designer cell</p>
+            )}
+            <div className="mt-1.5 flex items-center gap-2">
+              <button
+                type="button"
+                className="border border-border-subtle px-1.5 py-0.5 text-text-secondary hover:bg-surface-hover hover:text-mjolnir-gold disabled:opacity-40"
+                disabled={spawnInfo.full}
+                title={
+                  spawnInfo.full
+                    ? `A squad holds at most ${SPAWN_POINTS_MAX} spawn points`
+                    : "Copy this spawn point a step to its side, in the same squad and cell"
+                }
+                onClick={() => void sceneRef.current?.duplicateSpawn()}
+              >
+                dup
+              </button>
+              <span className="text-text-dim">drag to move · rotate turns the facing</span>
+            </div>
+          </div>
+        )}
         <p className="absolute bottom-2 left-2 font-mono text-[10px] text-text-dim">
           click: select · double-click: focus camera · drag gizmo: edit
         </p>
@@ -687,4 +943,13 @@ function World(props: {
 
 function fmt(v: number): string {
   return Number.isFinite(v) ? v.toFixed(6) : "0";
+}
+
+function vec(v: [number, number, number]): string {
+  return `(${fmt(v[0])}, ${fmt(v[1])}, ${fmt(v[2])})`;
+}
+
+/** Yaw of an object turned only about tag-space Z. */
+function yawOf(o: THREE.Object3D): number {
+  return new THREE.Euler().setFromQuaternion(o.quaternion, "ZYX").z;
 }

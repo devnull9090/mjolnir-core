@@ -76,6 +76,12 @@ A message is `MJOLNIR|<verb>|<field>...`:
 | `ballot` | anyone, the host included | id, option |
 | `cancel` | host | id |
 | `lobby` | host, while its lobby is up | map code, game type |
+| `reporting` | anyone on the post-game screen | 1 when the report panel opens, 0 when it closes: the host holds the vote |
+| `iam` | a client | its identity ticket ([player_identity.md](player_identity.md)) |
+| `whois` | a client with no roster yet | none |
+| `ids` | host | its hub account, the roster of in-game name to hub account |
+
+The vote's ninth field is 1 while the countdown is held for a report.
 
 Hooks on both functions (native, with parameters) ran on CU4 without trouble
 (2026-10-02). The host never sends a client RPC to a controller with no

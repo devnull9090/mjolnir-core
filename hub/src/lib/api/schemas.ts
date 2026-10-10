@@ -49,6 +49,15 @@ export function avatarUrl(discordId: string, hash: string | null | undefined): s
   return hash ? `https://cdn.discordapp.com/avatars/${discordId}/${hash}.png` : null;
 }
 
+/**
+ * Where a gallery item is served from, hub-relative. Derived from the id
+ * rather than stored, like an avatar; clients outside the site resolve it
+ * against the hub's origin.
+ */
+export function mediaUrl(id: string): string {
+  return `/api/v1/media/${id}`;
+}
+
 export const UserSchema = z
   .object({
     id: z.string().openapi({ example: "0198c2f4-6c1e-7c33-a1b0-9a1c2d3e4f56" }),
@@ -92,6 +101,11 @@ export const UserStatsSchema = z
     media_contributed: z.number().int().openapi({
       description: "Approved gallery items this account submitted.",
     }),
+    player_reports: z.number().int().openapi({
+      description:
+        "Reports other players filed against this account in multiplayer, less those a " +
+        "moderator dismissed. Only the number is public.",
+    }),
   })
   .openapi("UserStats");
 
@@ -131,6 +145,15 @@ export const ModSchema = z
     author_avatar: z.string().nullable().openapi({
       description: "Discord CDN avatar of the owner, when they have one.",
     }),
+    cover_url: z.string().nullable().openapi({
+      description:
+        "The first approved screenshot in the mod's gallery, for its card. Hub-relative " +
+        "(`/api/v1/media/{id}`); null when the gallery has no still.",
+    }),
+    map_code: z.string().nullable().openapi({
+      description: "The map's three-character codename, when the mod is a map pack.",
+      example: "BGL",
+    }),
     created_at: z.string(),
     updated_at: z.string(),
   })
@@ -145,10 +168,6 @@ export const ModDetailSchema = ModSchema.extend({
     description:
       "`map` for a map pack (a content-tier mod with a map listing); otherwise the trust tier, " +
       "as on the list endpoints.",
-  }),
-  map_code: z.string().nullable().openapi({
-    description: "The map's three-character codename, for a map pack.",
-    example: "BGL",
   }),
   description_md: z.string().nullable().openapi({
     description: "Full mod page body, Markdown.",
@@ -179,6 +198,11 @@ export const ModListQuerySchema = CursorQuerySchema.extend({
   category: z.string().optional(),
   type: z.enum(["content", "script", "native"]).optional(),
   sort: z.enum(["newest", "downloads", "rating"]).default("newest"),
+  map: z.enum(["0", "1"]).optional().openapi({
+    description:
+      "`1` lists only map packs, `0` everything but them; absent lists both. Maps have " +
+      "their own catalog at /maps.",
+  }),
 });
 
 // ── Releases ──────────────────────────────────────────────────────────
@@ -477,6 +501,16 @@ export const OWNER_COLUMNS = `COALESCE(u.display_name, u.discord_username) AS au
        u.id AS owner_id, u.discord_id AS author_discord_id,
        u.discord_avatar AS author_discord_avatar`;
 
+/**
+ * What a mod's card shows beyond its row: the cover still and, for a map
+ * pack, its codename. Subqueries rather than joins so the fragment drops
+ * into any query that names its mods `m`, whatever else it joins.
+ */
+export const CARD_COLUMNS = `(SELECT md.id FROM media md
+          WHERE md.mod_id = m.id AND md.status = 'approved' AND md.kind <> 'video'
+          ORDER BY md.position, md.created_at LIMIT 1) AS cover_id,
+       (SELECT ml.code FROM map_listings ml WHERE ml.mod_id = m.id) AS map_code`;
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export function modFromRow(r: any): z.infer<typeof ModSchema> {
@@ -498,6 +532,9 @@ export function modFromRow(r: any): z.infer<typeof ModSchema> {
     // Joined in by the queries that select against `users`; a row that did
     // not join reports no avatar rather than inventing one.
     author_avatar: avatarUrl(r.author_discord_id, r.author_discord_avatar),
+    // CARD_COLUMNS; a query that skipped them reports no cover and no map.
+    cover_url: r.cover_id ? mediaUrl(r.cover_id) : null,
+    map_code: r.map_code ?? null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };

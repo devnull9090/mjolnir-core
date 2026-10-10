@@ -278,6 +278,9 @@ struct NodeView {
     max_count: Option<u32>,
     /// Elements this block really has; `children` may hold fewer.
     count: Option<u32>,
+    /// The element index `children[0]` is: past zero when a window paged the
+    /// block beyond its first elements.
+    first: u32,
     /// A field the engine recomputes when the tag loads (`runtime …`), so
     /// the UI shows it read-only. See `blam_defs::runtime`.
     runtime: bool,
@@ -369,6 +372,7 @@ fn to_view(node: &blam_tag::view::Node) -> NodeView {
         block: node.block_name.clone(),
         max_count: node.max_count,
         count: node.count,
+        first: node.first,
         runtime: node.kind == blam_tag::view::Kind::Field
             && blam_defs::runtime::is_runtime_field(&node.name, &node.type_name),
         feeds: Vec::new(),
@@ -1066,7 +1070,8 @@ fn find_node<'a>(
         found = Some(node);
         current = match index {
             Some(i) => {
-                let element = node.children.get(i)?;
+                // A paged block's children start at element `first`.
+                let element = node.children.get(i.checked_sub(node.first as usize)?)?;
                 found = Some(element);
                 &element.children
             }
@@ -1125,11 +1130,14 @@ fn element_recipe(
 }
 
 /// Read a tag's value tree as it currently stands, then hand the block node at
-/// `path` to `f`.
+/// `path` to `f`. The block is paged so `element` is built, however far past
+/// the first page it sits, and so is every block the path passes through
+/// (`bsp[70].surfaces` needs element 70 of `bsp`).
 fn with_block<T>(
     state: &State<'_, AppState>,
     index: usize,
     path: &str,
+    element: usize,
     f: impl FnOnce(&catalog::TagEntry, &blam_tag::view::Node) -> Result<T, String>,
 ) -> Result<T, String> {
     let key = tag_key(state, index)?;
@@ -1140,7 +1148,13 @@ fn with_block<T>(
         let tag = blam_tag::TagFile::parse(&file, Some(file.len())).map_err(|e| e.to_string())?;
         let layout = tag.layout().map_err(|e| e.to_string())?;
         let block = tag.read_data(&layout).map_err(|e| e.to_string())?;
-        let nodes = blam_tag::view::root(&layout, &block);
+        let nodes = blam_tag::view::root_windowed(
+            &layout,
+            &block,
+            blam_tag::view::DEFAULT_MAX_ELEMENTS,
+            false,
+            &blam_tag::view::windows_to(path, element),
+        );
         let node = find_node(&nodes, path).ok_or_else(|| format!("{path}: no such field"))?;
         if !matches!(node.kind, blam_tag::view::Kind::Block) {
             return Err(format!("{path} is not a block"));
@@ -1157,10 +1171,10 @@ fn copy_element(
     element: usize,
     state: State<'_, AppState>,
 ) -> Result<ElementClip, String> {
-    with_block(&state, index, &path, |entry, node| {
-        let el = node
-            .children
-            .get(element)
+    with_block(&state, index, &path, element, |entry, node| {
+        let el = element
+            .checked_sub(node.first as usize)
+            .and_then(|k| node.children.get(k))
             .ok_or_else(|| format!("{path} has no element {element}"))?;
         let mut fields = Vec::new();
         let mut skipped = Vec::new();
@@ -1217,7 +1231,7 @@ fn paste_element(
     state: State<'_, AppState>,
 ) -> Result<PasteReport, String> {
     let key = tag_key(&state, index)?;
-    let (count, block) = with_block(&state, index, &path, |_, node| {
+    let (count, block) = with_block(&state, index, &path, 0, |_, node| {
         Ok((
             node.count.unwrap_or(node.children.len() as u32) as usize,
             node.block_name.clone().unwrap_or_default(),
@@ -1255,7 +1269,7 @@ fn paste_element(
 /// flattened, nested blocks left out), one row per element.
 #[tauri::command]
 fn copy_block_tsv(index: usize, path: String, state: State<'_, AppState>) -> Result<String, String> {
-    with_block(&state, index, &path, |_, node| {
+    with_block(&state, index, &path, 0, |_, node| {
         let first = node
             .children
             .first()
@@ -1315,7 +1329,7 @@ fn paste_block_tsv(
     if rows.is_empty() {
         return Err("the text has a header but no rows".into());
     }
-    let mut count = with_block(&state, index, &path, |_, node| {
+    let mut count = with_block(&state, index, &path, 0, |_, node| {
         Ok(node.count.unwrap_or(node.children.len() as u32) as usize)
     })?;
     {
@@ -1978,12 +1992,17 @@ fn export_tag(index: usize, dest: String, state: State<'_, AppState>) -> Result<
     })
 }
 
+/// `windows` maps a block's field path to the element the form has selected
+/// there; that block is built from the page holding it rather than from its
+/// first element, so a selection past the first 64 can be shown and edited.
 #[tauri::command]
 fn read_tag(
     index: usize,
     expert: Option<bool>,
+    windows: Option<std::collections::HashMap<String, usize>>,
     state: State<'_, AppState>,
 ) -> Result<TagView, String> {
+    let windows = windows.unwrap_or_default();
     let key = tag_key(&state, index)?;
     let pending = pending_for(&state, &key)?;
     let edited: Vec<String> = pending.iter().map(|e| e.path.clone()).collect();
@@ -2014,15 +2033,13 @@ fn read_tag(
                 Ok(block) => {
                     let exact = block.consumed == data_size as usize;
                     // Expert view: padding and markers too, as raw bytes.
-                    let nodes = if expert.unwrap_or(false) {
-                        blam_tag::view::root_expert(
-                            layout,
-                            &block,
-                            blam_tag::view::DEFAULT_MAX_ELEMENTS,
-                        )
-                    } else {
-                        blam_tag::view::root(layout, &block)
-                    };
+                    let nodes = blam_tag::view::root_windowed(
+                        layout,
+                        &block,
+                        blam_tag::view::DEFAULT_MAX_ELEMENTS,
+                        expert.unwrap_or(false),
+                        &windows,
+                    );
                     (
                         to_views(&nodes),
                         exact,
@@ -5564,6 +5581,7 @@ mod tests {
             block: None,
             max_count: None,
             count: None,
+            first: 0,
             runtime: blam_defs::runtime::is_runtime_field(name, type_name),
             feeds: Vec::new(),
             children,
@@ -5734,6 +5752,7 @@ mod tests {
             block_name: None,
             max_count: None,
             count: None,
+            first: 0,
             children: Vec::new(),
         };
         let element = |fields: Vec<Node>| Node {
@@ -5747,6 +5766,7 @@ mod tests {
             block_name: None,
             max_count: None,
             count: None,
+            first: 0,
             children: fields,
         };
         let block = Node {
@@ -5760,6 +5780,7 @@ mod tests {
             block_name: Some("weapon_barrels".into()),
             max_count: Some(2),
             count: Some(2),
+            first: 0,
             children: vec![element(vec![leaf("spread")]), element(vec![leaf("spread")])],
         };
         let nodes = vec![leaf("mass"), block];
@@ -5816,6 +5837,7 @@ mod tests {
                 block_name: None,
                 max_count: None,
                 count: None,
+                first: 0,
                 children: nodes,
             };
             let mut steps = Vec::new();
@@ -5923,6 +5945,108 @@ mod tests {
             }
         }
         check(&expert);
+    }
+
+    /// Two Betrayals ships 61 vehicles; a fourth add made the 65th element,
+    /// which the form could neither show nor edit ("1 more not loaded"). A
+    /// window on `vehicles` builds it, finds it by path, and every field
+    /// path under it resolves for an edit.
+    #[test]
+    fn a_window_reaches_a_vehicle_added_past_the_first_page() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let t = c
+            .tags_in("scenario", usize::MAX)
+            .into_iter()
+            .find(|t| t.short.to_ascii_lowercase().contains("c45"))
+            .expect("C45 scenario");
+        let pending: Vec<PendingEdit> = (0..4).map(|_| edit("vehicles", "add")).collect();
+        let file = patched_bytes(&c, t.index, &pending).unwrap();
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len())).unwrap();
+        let layout = tag.layout().unwrap();
+        let block = tag.read_data(&layout).unwrap();
+
+        let plain = blam_tag::view::root(&layout, &block);
+        let vehicles = find_node(&plain, "vehicles").unwrap();
+        assert_eq!(vehicles.count, Some(65));
+        assert_eq!(vehicles.children.len(), 64);
+        assert!(find_node(&plain, "vehicles[64]").is_none());
+
+        let windows = std::collections::HashMap::from([("vehicles".to_string(), 64)]);
+        let paged = blam_tag::view::root_windowed(
+            &layout,
+            &block,
+            blam_tag::view::DEFAULT_MAX_ELEMENTS,
+            false,
+            &windows,
+        );
+        let vehicles = find_node(&paged, "vehicles").unwrap();
+        assert_eq!(vehicles.first, 64);
+        assert_eq!(vehicles.children.len(), 1);
+        let added = find_node(&paged, "vehicles[64]").expect("element 64 is built");
+        assert_eq!(added.name, "[64]");
+
+        let mut steps = Vec::new();
+        let mut skipped = Vec::new();
+        element_recipe(added, "vehicles[64].", false, &mut steps, &mut skipped);
+        assert!(!steps.is_empty());
+        for step in &steps {
+            blam_tag::patch::resolve(&layout, &file, &block, &step.path)
+                .unwrap_or_else(|e| panic!("{}: {e}", step.path));
+        }
+    }
+
+    /// The World view's spawn-point edits, on Two Betrayals: the layout names
+    /// every squad and carries its cells, and the exact edits a drag, a dup
+    /// and a count change send all apply and read back.
+    #[test]
+    fn spawn_point_edits_from_the_world_view_apply() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let t = c
+            .tags_in("scenario", usize::MAX)
+            .into_iter()
+            .find(|t| t.short.to_ascii_lowercase().contains("c45"))
+            .expect("C45 scenario");
+        let shipped = geometry::scenario_layout(&c.read_tag(t.index).unwrap()).unwrap();
+        assert_eq!(shipped.squads.len(), 251);
+        let sq = &shipped.squads[0];
+        assert_eq!(sq.element, 0);
+        assert_eq!(sq.name, "sq_e61_a_empa", "a squad's name is an inline string");
+        assert_eq!(sq.cells[0].normal_count, 2);
+        assert_eq!(sq.spawn_points.len(), 2);
+        assert_eq!(sq.spawn_points[0].cell, 0);
+        assert_eq!(sq.spawn_points[1].element, 1);
+
+        let list = "squads[0].spawn points";
+        let pending = vec![
+            edit(list, "duplicate 0"),
+            edit(&format!("{list}[1].position"), "(1.500000, 2.500000, 3.500000)"),
+            edit(&format!("{list}[1].name"), ""),
+            edit(&format!("{list}[1].facing (yaw, pitch)"), "(1.250000, 0.000000)"),
+            edit("squads[0].designer.cells[0].normal diff count", "3"),
+        ];
+        let file = patched_bytes(&c, t.index, &pending).unwrap();
+        let (_, outcomes) = apply_pending(c.read_tag(t.index).unwrap(), &pending).unwrap();
+        for o in &outcomes {
+            assert!(o.applied, "{} = {:?} did not apply", o.path, o.value);
+        }
+        let edited = geometry::scenario_layout(&file).unwrap();
+        let sq = &edited.squads[0];
+        assert_eq!(sq.spawn_points.len(), 3);
+        assert_eq!(sq.cells[0].normal_count, 3);
+        let copy = &sq.spawn_points[1];
+        assert_eq!(copy.element, 1);
+        assert_eq!(copy.cell, 0, "the copy stays in the original's cell");
+        assert_eq!(copy.name, "");
+        assert_eq!(copy.position, [1.5, 2.5, 3.5]);
+        assert!((copy.facing[0] - 1.25).abs() < 1e-6);
+        assert_eq!(sq.spawn_points[0].name, shipped.squads[0].spawn_points[0].name);
+        assert_eq!(sq.spawn_points[2].position, shipped.squads[0].spawn_points[1].position);
     }
 
     /// The diff and the reference tree on real tags: a tag against itself

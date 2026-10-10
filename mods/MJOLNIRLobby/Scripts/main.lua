@@ -43,6 +43,7 @@ local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
+local Identity = dofile(MOD_DIR .. "\\Scripts\\identity.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -334,6 +335,9 @@ local Tweak = { screen = nil, page = 1, row = 1 }
 -- nil after a failed one, true once registered. noUI: the lobby class does
 -- not load (no pakchunk984), so there is nothing to watch.
 local screenEvents = { hooked = {}, watching = false, noUI = false }
+-- Hub avatars and the post-game report panel: their functions, one table
+-- (the main chunk is at Lua's limit of 200 locals; docs/player_identity.md).
+local Report = {}
 
 local function setText(block, text)
     pcall(function() block:SetText(FText(text or "")) end)
@@ -958,7 +962,9 @@ local function drawLobby()
         local members = {}
         for _, player in ipairs(roster) do
             if (not teams and group == "FFA") or (teams and player.team == group) then
-                members[#members + 1] = player.name
+                -- The hub account, once known (docs/player_identity.md).
+                local hub = Identity.lookup(player.name)
+                members[#members + 1] = { name = hub and hub.name or player.name, id = hub and hub.id }
             end
         end
         setShown(Lobby[group .. "Roster"], (group == "FFA" and not teams) or
@@ -967,8 +973,16 @@ local function drawLobby()
             (group == "Unassigned" and "AWAITING ASSIGNMENT" or string.upper(group) .. " TEAM")
         setText(Lobby[group .. "Heading"], title .. "  /  " .. tostring(#members))
         for i = 0, ROSTER_ROWS - 1 do
-            setText(Lobby[group .. "Player" .. i], members[i + 1] or "")
-            setShown(Lobby[group .. "Player" .. i], members[i + 1] ~= nil)
+            local member = members[i + 1]
+            setText(Lobby[group .. "Player" .. i], member and member.name or "")
+            setShown(Lobby[group .. "Player" .. i], member ~= nil)
+            -- A UI container with hub avatars has a row around the name: it
+            -- shows and hides, and holds the avatar.
+            local okR, row = pcall(function() return Lobby[group .. "PlayerRow" .. i] end)
+            if okR and UI.valid(row) then
+                setShown(row, member ~= nil)
+                Report.showAvatar(Lobby[group .. "PlayerAvatar" .. i], member and member.id)
+            end
         end
     end
 end
@@ -1067,6 +1081,7 @@ end
 
 -- One block, so its locals stay out of the main chunk's (Lua allows 200).
 local openFindGames, onFindEvent, tickFind, modeName
+local pickUpJoin -- Joining from a link, below
 local openSettings -- GAME SETTINGS, below
 do
 local FIND_PREFS = MOD_DIR .. "\\find_games.txt"
@@ -1580,6 +1595,8 @@ local function drawFind()
     showGame(shownGame())
 end
 
+local joinWanted -- Joining from a link, below
+
 local function refreshFind()
     if Found.loading then return end
     Found.loading = true
@@ -1598,6 +1615,12 @@ local function refreshFind()
         if alive(Find) and not Found.focused and Found.games[1] and tableLayout() then
             Found.focused = true
             pcall(function() Find.Game0:SetFocus() end)
+        end
+        -- A lobby a link asked for: looked up in this list, or in the next
+        -- one when this fetch failed.
+        if games and Found.wanted then
+            local ok, err = pcall(joinWanted)
+            if not ok then log("join link: " .. tostring(err)) end
         end
     end)
 end
@@ -1676,6 +1699,86 @@ end
 
 local function joinChosen()
     joinGame(Found.chosen)
+end
+
+-------------------------------------------------------------------------------
+-- Joining from a link
+-------------------------------------------------------------------------------
+--
+-- A website's mjolnir://join/<lobby> link reaches the MJOLNIR launcher, which
+-- leaves the lobby's hub id here and starts the game if it is not running
+-- (docs/live_map_install.md, "Joining from a link"). native\pending_join.txt,
+-- key=value lines:
+--
+--   lobby=<the hub's lobby id: letters, digits and dashes>
+--   at=<unix seconds, when the link was clicked>
+--
+-- The main menu's poll picks it up once the player is signed in (a main menu
+-- has been up: nothing starts before "press start") and is in the frontend;
+-- during a match it stays where it is until they are back. It is read once
+-- and deleted, and dropped when malformed or older than JOIN_LINK_TTL. FIND
+-- GAMES then opens, and when its list arrives the lobby is chosen and joined
+-- as JOIN would join it: DOWNLOAD AND JOIN, a full game and another version
+-- are handled as usual.
+
+local PENDING_JOIN = MOD_DIR .. "\\native\\pending_join.txt"
+local JOIN_LINK_TTL = 600   -- seconds
+
+--- The list is in: join the lobby the link named, if it is listed.
+function joinWanted()
+    local wanted = Found.wanted
+    Found.wanted = nil
+    if os.time() - wanted.at > JOIN_LINK_TTL then return end
+    if not alive(Find) then
+        log("join link: FIND GAMES was closed before " .. wanted.lobby .. " was found")
+        return
+    end
+    for _, g in ipairs(Found.all) do
+        if g.id == wanted.lobby then
+            log("join link: joining " .. tostring(g.name or g.host) .. " (" .. wanted.lobby .. ")")
+            Found.chosen, Found.hovered = g, nil
+            drawFind()
+            joinGame(g)
+            return
+        end
+    end
+    log("join link: " .. wanted.lobby .. " is not listed")
+    findNote("That game has ended or is no longer listed.")
+end
+
+--- From the main menu's poll, while signed in and in the frontend.
+--- `hookEvents` is hookScreenEvents (defined below this block): FIND GAMES
+--- opened with no lobby behind it still needs its buttons' hook.
+function pickUpJoin(hookEvents)
+    local raw = readFile(PENDING_JOIN)
+    if not raw then return end
+    os.remove(PENDING_JOIN)
+    local fields = {}
+    for k, v in raw:gmatch("([%w_]+)=([^\r\n]*)") do fields[k] = v end
+    local lobby, at = fields.lobby, tonumber(fields.at)
+    if not (lobby and #lobby <= 64 and lobby:match("^[%w%-]+$") and at) then
+        log("join link: ignored a malformed pending_join.txt")
+        return
+    end
+    local age = os.time() - at
+    if age > JOIN_LINK_TTL then
+        log(string.format("join link: %s is %d s old; dropped", lobby, age))
+        return
+    end
+    if not hasFindGames() then
+        log("join link: the installed UI container has no FIND GAMES")
+        return
+    end
+    log("join link: looking for " .. lobby)
+    pcall(hookEvents)
+    Found.wanted = { lobby = lobby, at = at }
+    if alive(Find) then
+        -- Up already: the list being fetched, or a new one, answers it.
+        refreshFind()
+    else
+        openFindGames()
+        if not Find then Found.wanted = nil end   -- the screen did not push
+    end
 end
 
 --- QUICK JOIN: of the games the filters show, one that can be joined (its
@@ -2124,7 +2227,8 @@ end
 -- Remix's slot, its click bound through the native half (Scripts/ui.lua).
 
 local MAIN_MENU = "/Game/UI/Frontend/MainMenu/Widgets/WBP_MainMenu.WBP_MainMenu_C"
-local entry = { menu = nil, button = nil }
+-- signedIn: a main menu has been up this session (watchMainMenu).
+local entry = { menu = nil, button = nil, signedIn = false }
 local nativeSeen = nil
 
 --- The main menu on screen. FindFirstOf could hand back the previous
@@ -2210,7 +2314,9 @@ local TEAM_TINT = {
 }
 
 --- { screen, results, vote = { id, options, ballots, counts, mine, chosen,
---- left, endsAt, host }, dismissed = vote id }, or nil.
+--- left, endsAt, host, holds, held, heldFor }, dismissed = vote id,
+--- rowPlayers = { [row] = player }, report = { player, reason, sending },
+--- reported = { [account id] = true } }, or nil.
 local Post = nil
 local seenResults = nil
 local postHooked = false
@@ -2241,8 +2347,10 @@ local function modeById(map, id)
 end
 
 --- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
---- endedAt, teams = { {team, total} }, players = { {name, score, kills,
---- deaths, team, you} } } in standing order (scoreboard.lua, Board.results).
+--- endedAt, matchId, teams = { {team, total} }, players = { {name, score,
+--- kills, deaths, team, you, userId, hubName, reports} } } in standing order
+--- (scoreboard.lua, Board.results). A HUD from before hub identities writes
+--- no account fields; the lobby's roster may still know the player.
 local function readResults()
     local raw = readFile(RESULTS)
     if not raw then return nil end
@@ -2253,11 +2361,17 @@ local function readResults()
         if f[1] == "match" then
             r.code, r.variant, r.title, r.modeTitle, r.winner = f[2], f[3], f[4], f[5], f[6]
             r.endedAt = tonumber(f[7])
+            r.matchId = f[8] and f[8]:match("^%x+$") or nil
         elseif f[1] == "team" then
             r.teams[#r.teams + 1] = { team = f[2], total = tonumber(f[3]) or 0 }
         elseif f[1] == "player" then
-            r.players[#r.players + 1] = { name = f[2], score = f[3], kills = f[4], deaths = f[5],
-                team = f[6] ~= "-" and f[6] or nil, you = f[7] == "1" }
+            local p = { name = f[2], score = f[3], kills = f[4], deaths = f[5],
+                team = f[6] ~= "-" and f[6] or nil, you = f[7] == "1",
+                userId = f[8] and f[8]:match("^%x[%x%-]+$") or nil, hubName = f[9] ~= "" and f[9] ~= "-" and f[9] or nil,
+                reports = tonumber(f[10] or "") }
+            local known = not p.userId and Identity.lookup(p.name)
+            if known then p.userId, p.hubName, p.reports = known.id, known.name, known.reports end
+            r.players[#r.players + 1] = p
         end
     end
     return r.code and r or nil
@@ -2333,8 +2447,21 @@ local function broadcastVote()
     local index = chosen and MapLive.register(chosen.code) and MapLive.place(chosen.code)
     -- The seventh and eighth: its hub release and version (Live.offerHostMap).
     local release = chosen and MapLive.release(chosen.code) or {}
+    -- The ninth: whether the countdown is held for a report being filed.
     Net.toClients("vote", v.id, math.max(0, math.ceil(v.left or 0)), encodeOptions(v.options),
-        table.concat(counts(v), ","), v.chosen or "", index or "", release.id or "", release.version or "")
+        table.concat(counts(v), ","), v.chosen or "", index or "", release.id or "", release.version or "",
+        v.held and 1 or 0)
+end
+
+--- An avatar Image: the account's cached picture, hidden (keeping its
+--- space) until there is one.
+function Report.showAvatar(image, userId)
+    if not UI.valid(image) then return end
+    local tex = userId and Identity.avatar(userId)
+    pcall(function()
+        if tex then image:SetBrushFromTexture(tex, false) end
+        image:SetVisibility(tex and 3 or 2) -- HitTestInvisible, Hidden
+    end)
 end
 
 local function drawResults()
@@ -2372,6 +2499,7 @@ local function drawResults()
     else
         for _, p in ipairs(r.players) do rows[#rows + 1] = { player = p } end
     end
+    Post.rowPlayers = {}
     for i = 0, RESULT_ROWS - 1 do
         local item, row = rows[i + 1], s["Row" .. i]
         setShown(row, item ~= nil)
@@ -2380,7 +2508,14 @@ local function drawResults()
             local tint = item.team and item.team ~= "Unassigned" and TEAM_TINT[item.team] or nil
             local heading = (item.team == "Unassigned" and "AWAITING ASSIGNMENT" or
                 string.upper(item.team or "") .. " TEAM") .. "  /  " .. tostring(item.count)
-            setText(s["Name" .. i], p and p.name or heading)
+            setText(s["Name" .. i], p and (p.hubName or p.name) or heading)
+            -- The hub account's avatar, and a click to report anyone else
+            -- with an account (docs/player_identity.md). A screen from an
+            -- older UI container has neither.
+            Report.showAvatar(s["Avatar" .. i], p and p.userId)
+            local reportable = p and not p.you and p.userId ~= nil
+            Post.rowPlayers[i] = reportable and p or nil
+            pcall(function() s["RowButton" .. i]:SetIsEnabled(reportable and true or false) end)
             setText(s["Marker" .. i], p and p.you and "YOU" or "")
             setText(s["Score" .. i], p and p.score or (item.total and tostring(item.total) or ""))
             setText(s["Kills" .. i], p and p.kills or "")
@@ -2439,6 +2574,8 @@ local function drawVote()
     end
     if v.chosen and v.options[v.chosen] then
         setText(s.VoteTimer, "NEXT  /  " .. optionLabel(v.options[v.chosen]))
+    elseif v.held then
+        setText(s.VoteTimer, "VOTING PAUSED  /  A PLAYER IS FILING A REPORT")
     else
         setText(s.VoteTimer, string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0))))
     end
@@ -2468,10 +2605,131 @@ local function drawVote()
     Live.showCover(s, (next_ or lead or {}).code)
 end
 
+-------------------------------------------------------------------------------
+-- Reporting a player from the post-game screen (docs/player_identity.md)
+-------------------------------------------------------------------------------
+--
+-- A player row with a hub account behind it (not your own) opens the report
+-- panel: a reason, what happened, SEND REPORT. The report goes to the hub
+-- with the account the host resolved for that seat and the match's id; a
+-- moderator reviews it. While anyone has the panel open the host holds the
+-- vote's countdown, up to Report.HOLD seconds a vote, so nobody has to rush.
+
+-- The hub's reasons, in the order of the panel's Reason<k> buttons.
+Report.REASONS = { "cheating", "betraying", "harassment", "griefing", "quitting", "name", "other" }
+Report.HOLD = 90         -- seconds a vote may be held for reports, in all
+Report.HOLD_EACH = 120   -- a player's hold lapses after this (a crashed panel)
+Report.DETAIL_MAX = 1000
+
+function Report.draw()
+    local s, rep_ = Post.screen, Post.report
+    local panel = s.Report
+    if not UI.valid(panel) then return end
+    setShown(panel, rep_ ~= nil)
+    if not rep_ then return end
+    local p = rep_.player
+    setText(s.ReportName, p.hubName or p.name)
+    local n = tonumber(p.reports or "") or 0
+    local seen = p.hubName and p.hubName ~= p.name and ("IN GAME AS " .. string.upper(p.name) .. "   /   ") or ""
+    setText(s.ReportCount, seen .. (n == 1 and "1 REPORT" or (tostring(n) .. " REPORTS")) .. " ON THE HUB")
+    Report.showAvatar(s.ReportAvatar, p.userId)
+    for k = 1, #Report.REASONS do
+        local chosen = rep_.reason == k
+        pcall(function()
+            s["Reason" .. (k - 1)]:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
+            s["Reason" .. (k - 1) .. "Label"]:SetColorAndOpacity({ SpecifiedColor = chosen and GOLD or WHITE,
+                ColorUseRule = 0 })
+            s["Reason" .. (k - 1)]:SetIsEnabled(not rep_.sending and not rep_.done)
+        end)
+    end
+    pcall(function()
+        s.ReportSend:SetIsEnabled(rep_.reason ~= nil and not rep_.sending and not rep_.done)
+        s.ReportText:SetIsReadOnly(rep_.sending or rep_.done or false)
+    end)
+    setText(s.ReportStatus, rep_.status or (rep_.reason and "" or "PICK A REASON."))
+end
+
+function Report.close()
+    if not (Post and Post.report) then return end
+    Post.report = nil
+    Net.toHost("reporting", 0)
+    if alive(Post.screen) then
+        Report.draw()
+        pcall(function() Post.screen.Vote0:SetFocus() end)
+    end
+end
+
+function Report.open(p)
+    if not (Post and alive(Post.screen) and p and p.userId) then return end
+    if not UI.valid(Post.screen.Report) then return end
+    Post.reported = Post.reported or {}
+    Post.report = { player = p }
+    if Post.reported[p.userId] then
+        Post.report.done = true
+        Post.report.status = "YOU REPORTED THIS PLAYER FOR THIS MATCH."
+    end
+    pcall(function() Post.screen.ReportText:SetText(FText("")) end)
+    Net.toHost("reporting", 1)
+    Report.draw()
+    pcall(function() Post.screen.ReportText:SetKeyboardFocus() end)
+end
+
+function Report.send()
+    local rep_ = Post and Post.report
+    if not (rep_ and rep_.reason and not rep_.sending and not rep_.done) then return end
+    local detail = ""
+    pcall(function() detail = Post.screen.ReportText:GetText():ToString() end)
+    detail = tostring(detail or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if #detail > Report.DETAIL_MAX then detail = detail:sub(1, Report.DETAIL_MAX) end
+    local p = rep_.player
+    local body = { subject_id = p.userId, reason = Report.REASONS[rep_.reason], subject_name = p.name:sub(1, 64) }
+    if detail ~= "" then body.detail = detail end
+    local matchId = Post.results and Post.results.matchId
+    if matchId then body.host_match_id = matchId end
+    rep_.sending = true
+    rep_.status = "SENDING..."
+    Report.draw()
+    Games.call("POST", "/players/reports", body, function(status, data)
+        if Post.report ~= rep_ then return end
+        rep_.sending = false
+        if status == 201 or status == 409 then
+            rep_.done = true
+            Post.reported = Post.reported or {}
+            Post.reported[p.userId] = true
+            rep_.status = status == 201 and "REPORT SENT. A MODERATOR WILL REVIEW IT. THANK YOU." or
+                "YOU ALREADY REPORTED THIS PLAYER FOR THIS MATCH."
+            log(string.format("report: %s (%s) %s", tostring(p.hubName or p.name), Report.REASONS[rep_.reason],
+                status == 201 and "sent" or "already sent"))
+            ExecuteInGameThreadWithDelay(2500, function()
+                if Post and Post.report == rep_ then Report.close() end
+            end)
+        else
+            rep_.status = string.upper(Games.explain(status, data))
+        end
+        if Post and alive(Post.screen) then Report.draw() end
+    end)
+end
+
+--- The host: hold the countdown while anyone has the report panel open.
+function Report.hold(v, dt)
+    v.holds = v.holds or {}
+    local holding = false
+    for name, since in pairs(v.holds) do
+        if os.clock() - since > Report.HOLD_EACH then v.holds[name] = nil else holding = true end
+    end
+    v.heldFor = v.heldFor or 0
+    v.held = holding and v.heldFor < Report.HOLD
+    if v.held then
+        v.heldFor = v.heldFor + dt
+        v.endsAt = v.endsAt + dt
+    end
+end
+
 local function drawPostGame()
     if not (Post and alive(Post.screen)) then return end
     drawResults()
     drawVote()
+    Report.draw()
 end
 
 local function hookPostGame()
@@ -2493,6 +2751,19 @@ local function hookPostGame()
                         v.endsAt = os.clock()
                     elseif event == "lobby" and Net.isHost() then
                         Post.cancel = true
+                    elseif event:match("^row:%d+$") then
+                        Report.open(Post and Post.rowPlayers and Post.rowPlayers[tonumber(event:match("%d+"))])
+                    elseif event:match("^reason:%d+$") and Post and Post.report and not Post.report.done then
+                        local k = tonumber(event:match("%d+")) + 1
+                        if Report.REASONS[k] then
+                            Post.report.reason = k
+                            Post.report.status = nil
+                            Report.draw()
+                        end
+                    elseif event == "report_send" then
+                        Report.send()
+                    elseif event == "report_cancel" then
+                        Report.close()
                     end
                 end)
                 if not okH then log("post-game event " .. event .. ": " .. tostring(err)) end
@@ -2619,7 +2890,10 @@ local function postTick()
             return
         end
         if not v.chosen then
-            v.left = v.endsAt - os.clock()
+            local t = os.clock()
+            Report.hold(v, t - (v.lastTick or t))
+            v.lastTick = t
+            v.left = v.endsAt - t
             if v.left <= 0 then decide() end
         end
         if os.clock() >= nextVoteBroadcast then
@@ -2663,6 +2937,7 @@ Net.on("vote", function(f)
     for c in (f[4] or ""):gmatch("(%d+)") do n[#n + 1] = tonumber(c) end
     v.counts = n
     v.chosen = tonumber(f[5] or "")
+    v.held = f[9] == "1"
     -- The next game is on a map this PC lacks: offer it now; the host waits
     -- for a download under way (decide).
     local next_ = v.chosen and v.options[v.chosen]
@@ -2683,6 +2958,15 @@ Net.on("vote", function(f)
         if openPostGame() then log("post-game: the vote is on screen") end
     end
     drawPostGame()
+end)
+
+--- A player opened (1) or closed (0) the report panel: the host holds the
+--- vote while anyone has it open.
+Net.on("reporting", function(f, sender)
+    local v = Post and Post.vote
+    if not (v and v.host and sender) then return end
+    v.holds = v.holds or {}
+    v.holds[sender] = f[1] == "1" and os.clock() or nil
 end)
 
 Net.on("cancel", function(f)
@@ -2921,6 +3205,14 @@ local function watchMainMenu()
             pcall(hostPostGame)
             pcall(broadcastLobby)
             local menu = liveMainMenu()
+            -- Signed in once a main menu has been up (it comes after "press
+            -- start"); still so behind our screens, which may hide it. Only
+            -- then a join from a link (a file read when there is none).
+            if UI.valid(menu) then entry.signedIn = true end
+            if entry.signedIn then
+                local picked, why = pcall(pickUpJoin, hookScreenEvents)
+                if not picked then log("join link: " .. tostring(why)) end
+            end
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
                 if nativeSeen ~= UI.addressOf(menu) then
@@ -3495,6 +3787,42 @@ local function initialize()
     })
     -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
     Matches.init({ modDir = MOD_DIR, games = Games, log = log })
+    -- Hub accounts in place of in-game names, proven to the host by tickets
+    -- (docs/player_identity.md); a public game sends a player banned from
+    -- matchmaking back to their menu.
+    Identity.init({
+        Games = Games,
+        Net = Net,
+        log = log,
+        modDir = MOD_DIR,
+        coversDir = MAPS_DIR .. "\\_covers\\",
+        localName = localName,
+        presentNames = function()
+            local names = {}
+            for _, p in ipairs(rosterPlayers()) do names[#names + 1] = p.name end
+            return names
+        end,
+        isPublic = function() return Games.isPublic() end,
+        onBanned = function(name, why)
+            for _, player in ipairs(remotePlayers()) do
+                if player.name == name then kick(player, why) end
+            end
+        end,
+        worldContext = function()
+            local pc = UI.playerController()
+            return UI.valid(pc) and pc or nil
+        end,
+    })
+    SquadPanel.names(function(name)
+        local hub = Identity.lookup(name)
+        return hub and hub.name or nil
+    end)
+    local function identityLoop()
+        local ok, err = pcall(Identity.tick, Net.isHost())
+        if not ok then log("identity: " .. tostring(err)) end
+        ExecuteInGameThreadWithDelay(1000, identityLoop)
+    end
+    ExecuteInGameThreadWithDelay(1000, identityLoop)
     -- Maps from the hub while the game runs, and their screenshots.
     MapLive.init({
         Json = Json,

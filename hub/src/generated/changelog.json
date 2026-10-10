@@ -41,6 +41,30 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.13.0",
+      "tag": "launcher-v0.13.0",
+      "title": "Community maps, covers, and links from the website",
+      "date": "2026-10-10",
+      "summary": "A Maps tab to find community maps by game type, size and players; screenshots on every mod; and Join and Install buttons on mjolnircore.com that open the launcher.",
+      "body": "### Added\n\n- **Maps tab in Browse Hub.** Every map on the hub, with its screenshot:\n  search by name or code, and filter by classics or community, game type,\n  size, vehicles, and how many players it suits. Sort by newest, downloads,\n  rating or name. Each map installs with one click.\n  - Install multiplayer still installs only the 19 classic maps. Community\n    maps install when you choose them, or in game when a server needs one.\n  - Maps have moved out of Content mods into this tab.\n- **Screenshots in Browse Hub.** Every mod card shows its cover, and a\n  mod's page shows its gallery. Screenshots on mod pages didn't load in the\n  launcher before.\n- **Links from mjolnircore.com.** The launcher opens when you press:\n  - **Join** on the Games page or Match history. It checks the server is\n    still up, starts the game if it isn't running, and the game joins from\n    the main menu. Without multiplayer installed, it offers to install it\n    first.\n  - **Install in launcher** on the Maps page, or **Open in launcher** on a\n    mod's page, to open that map or mod here.\n- **One launcher window.** Opening the launcher again, or a link, brings\n  the open window forward instead of starting a second copy.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Maps tab in Browse Hub. Every map on the hub, with its screenshot: search by name or code, and filter by classics or community, game type, size, vehicles, and how many players it suits. Sort by newest, downloads, rating or name. Each map installs with one click.",
+            "Screenshots in Browse Hub. Every mod card shows its cover, and a mod's page shows its gallery. Screenshots on mod pages didn't load in the launcher before.",
+            "Links from mjolnircore.com. The launcher opens when you press:",
+            "One launcher window. Opening the launcher again, or a link, brings the open window forward instead of starting a second copy."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.13.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.13.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.13.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.12.0",
       "tag": "launcher-v0.12.0",
       "title": "Installs maps for the running game",
@@ -59,6 +83,50 @@
       "path": "/changelog/launcher/0.12.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.12.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.12.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.22.0",
+      "tag": "mods-v0.22.0",
+      "title": "Your hub name in game, and reporting players",
+      "date": "2026-10-10",
+      "summary": "Multiplayer shows each player's MJOLNIR hub name and Discord avatar, and you can report a player from the post-game screen.",
+      "body": "Avatars, clickable post-game rows and the report panel need the CE runtime\n1.7.0 from the hub. With an older runtime you get the hub names without the\npictures or the report button.\n\n### Added\n\n- **Hub names and avatars in game** (MJOLNIRHud 0.6.0, MJOLNIRLobby 0.12.0).\n  Everyone who plays online signs the launcher in with Discord, so players\n  now show as their hub account instead of their Steam or Xbox name. This\n  applies to the scoreboard, the kill feed, the winner line, teammates'\n  name tags, the FIRETEAM panel, the lobby's player list and the post-game\n  standings. Avatars appear on the scoreboard, the lobby and the post-game\n  screen.\n  - Each player's game proves its account to the host through the hub, so\n    nobody can pass themselves off as someone else.\n  - A player without a linked account keeps their in-game name.\n- **Report a player** from the post-game screen. Select a player, pick a\n  reason (cheating, betraying, harassment, griefing or AFK, quitting, an\n  offensive name or avatar, other) and say what happened.\n  - The vote on the next game pauses while you write, for up to 90 seconds.\n  - Moderators review every report on the hub.\n  - A player's profile shows how many reports they have, and nothing else\n    about them.\n- **Matchmaking bans.** A player the moderators ban from matchmaking cannot\n  host a public game or join one from FIND GAMES. A public game's host\n  removes them when they join by invite. The game says why, and until when.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Hub names and avatars in game (MJOLNIRHud 0.6.0, MJOLNIRLobby 0.12.0). Everyone who plays online signs the launcher in with Discord, so players now show as their hub account instead of their Steam or Xbox name. This applies to the scoreboard, the kill feed, the winner line, teammates' name tags, the FIRETEAM panel, the lobby's player list and the post-game standings. Avatars appear on the scoreboard, the lobby and the post-game screen.",
+            "Report a player from the post-game screen. Select a player, pick a reason (cheating, betraying, harassment, griefing or AFK, quitting, an offensive name or avatar, other) and say what happened.",
+            "Matchmaking bans. A player the moderators ban from matchmaking cannot host a public game or join one from FIND GAMES. A public game's host removes them when they join by invite. The game says why, and until when."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.22.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.22.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.22.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.21.0",
+      "tag": "mods-v0.21.0",
+      "title": "Join a game from the website",
+      "date": "2026-10-10",
+      "summary": "Press Join on mjolnircore.com and the game joins that server from the main menu, downloading the map first when you don't have it.",
+      "body": "Needs MJOLNIR Launcher 0.13.0, which receives the website's Join link and\nstarts the game when it isn't running.\n\n### Added\n\n- **Join from the website** (MJOLNIRLobby 0.11.0). Join on the Games page,\n  or in the \"Live now\" strip on Match history, hands the server to the\n  game. Once you're signed in at the main menu, FIND GAMES opens with that\n  server picked and joins it.\n  - A map you don't have downloads first, as DOWNLOAD AND JOIN does in game.\n  - A server that has ended or filled up says so instead of joining.\n  - A join that arrives during a match waits until you're back at the menu,\n    for up to ten minutes.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Join from the website (MJOLNIRLobby 0.11.0). Join on the Games page, or in the \"Live now\" strip on Match history, hands the server to the game. Once you're signed in at the main menu, FIND GAMES opens with that server picked and joins it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.21.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.21.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.21.0"
     },
     {
       "product": "mods",
@@ -90,6 +158,59 @@
       "path": "/changelog/mods/0.20.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.20.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.20.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.22.0",
+      "tag": "tag-editor-v0.22.0",
+      "title": "Spawn points you can move in the World view",
+      "date": "2026-10-10",
+      "summary": "Spawn points in a scenario's World view can be selected, dragged, turned and duplicated, with the squad's actor count beside them.",
+      "body": "The World view has drawn each squad's spawn points for a while, but they\ncould not be touched. Now they can, which makes adding enemies to a mission\na visual job rather than a column of coordinates.\n\n### Added\n\n- **Click a spawn point** to select it. The move and rotate gizmo works on it\n  just as it does on a vehicle or a piece of scenery; turning only changes\n  which way it faces. The new position and facing are recorded like any\n  other edit, so they go into your mod and can be undone.\n- A panel shows the point's squad, its name, and the designer cell it\n  belongs to, with **−** and **+** to change how many actors that cell\n  spawns (`normal diff count`) and how many spawn points the cell has.\n- **dup** copies the selected spawn point a step to its side, in the same\n  squad and cell, and selects the copy so it can be dragged into place. The\n  copy has no name, so a script that names the original still finds just\n  the one.\n\n### Fixed\n\n- Every squad's spawn points were drawn in the same colour, because squad\n  names came back empty. Each squad now has its own colour.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Click a spawn point to select it. The move and rotate gizmo works on it just as it does on a vehicle or a piece of scenery; turning only changes which way it faces. The new position and facing are recorded like any other edit, so they go into your mod and can be undone.",
+            "A panel shows the point's squad, its name, and the designer cell it belongs to, with − and + to change how many actors that cell spawns (normal diff count) and how many spawn points the cell has.",
+            "dup copies the selected spawn point a step to its side, in the same squad and cell, and selects the copy so it can be dragged into place. The copy has no name, so a script that names the original still finds just the one."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Every squad's spawn points were drawn in the same colour, because squad names came back empty. Each squad now has its own colour."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.22.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.22.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.22.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.21.1",
+      "tag": "tag-editor-v0.21.1",
+      "title": "Blocks open past their first 64 elements",
+      "date": "2026-10-10",
+      "summary": "A block with more than 64 elements now shows and edits every one of them, so a scenario can take more vehicles, scenery or squads than the first 64.",
+      "body": "A small release: one fault in the form view, reported by a community member\nadding vehicles to Two Betrayals.\n\n### Fixed\n\n- The form read at most 64 elements of a block. Past that, the element\n  dropdown said \"… 1 more not loaded\" and the extra elements could not be\n  selected or edited. Two Betrayals ships 61 vehicles, so the fourth vehicle\n  added was stuck. Picking any element now reads the page of the block that\n  holds it, and its fields can be edited like any other.\n- The dropdown lists every element of a block up to 4,096 long. A longer\n  block, such as a BSP's surfaces, has a **go to** box for typing an element\n  number.\n- **copy** works on an element past the 64th; it used to fail.\n- The Tree view shows the same page, labelled with the elements it covers.\n\nCopy Block as TSV still copies only the first 64 rows of a longer block.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The form read at most 64 elements of a block. Past that, the element dropdown said \"… 1 more not loaded\" and the extra elements could not be selected or edited. Two Betrayals ships 61 vehicles, so the fourth vehicle added was stuck. Picking any element now reads the page of the block that holds it, and its fields can be edited like any other.",
+            "The dropdown lists every element of a block up to 4,096 long. A longer block, such as a BSP's surfaces, has a go to box for typing an element number.",
+            "copy works on an element past the 64th; it used to fail.",
+            "The Tree view shows the same page, labelled with the elements it covers."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.21.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.21.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.21.1"
     },
     {
       "product": "mods",

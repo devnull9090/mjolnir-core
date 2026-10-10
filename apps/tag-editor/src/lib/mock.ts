@@ -92,6 +92,7 @@ function field(partial: Partial<NodeView> & { name: string; type: string }): Nod
     block: null,
     max_count: null,
     count: null,
+    first: 0,
     runtime: false,
     feeds: [],
     children: [],
@@ -330,10 +331,23 @@ function restore(from: Map<string, string>[], to: Map<string, string>[]) {
   return { undo: undoStack.length, redo: redoStack.length };
 }
 
-function withEdits(index = 0): TagView {
+/** A block longer than the 64 elements a read builds, read a page at a time
+ *  the way the backend pages one, so paging can be reviewed in a browser. */
+const MOCK_VEHICLES = 70;
+const MOCK_PAGE = 64;
+function vehicles(windows: Record<string, number>): NodeView {
+  const wanted = Math.min(windows["vehicles"] ?? 0, MOCK_VEHICLES - 1);
+  const first = Math.floor(wanted / MOCK_PAGE) * MOCK_PAGE;
+  const end = Math.min(first + MOCK_PAGE, MOCK_VEHICLES);
+  const page = Array.from({ length: end - first }, (_, k) => scenery(first + k, k, 0, 0, 0));
+  return { ...block("vehicles", "scenario_vehicle_block", 256, page), count: MOCK_VEHICLES, first };
+}
+
+function withEdits(index = 0, windows: Record<string, number> = {}): TagView {
   const base = index === 2 ? mockModelTag : mockTag;
   return {
     ...base,
+    fields: index === 2 ? base.fields : [...base.fields, vehicles(windows)],
     edited: [...edits.keys()],
     history: { undo: undoStack.length, redo: redoStack.length },
   };
@@ -383,7 +397,8 @@ export const mockApi = {
   listTags: async (group: string) => mockTags.filter((t) => t.group === group),
   searchTags: async (query: string) =>
     mockTags.filter((t) => t.short.includes(query.toLowerCase())),
-  readTag: async (index: number, _expert = false) => withEdits(index),
+  readTag: async (index: number, _expert = false, windows: Record<string, number> = {}) =>
+    withEdits(index, windows),
   readTagBytes: async () => [] as number[],
   // Resolution in the mock is by normalized path alone — enough to light up
   // both the resolved and the broken badge: the sample model's references and
@@ -502,10 +517,12 @@ export const mockApi = {
       ],
       squads: [
         {
+          element: 0,
           name: "covenant_beach",
+          cells: [{ name: "elites", normal_count: 2 }],
           spawn_points: [
-            { name: "", position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
-            { name: "", position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
+            { element: 0, name: "elite_a", cell: 0, position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
+            { element: 1, name: "elite_b", cell: 0, position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
           ],
         },
       ],

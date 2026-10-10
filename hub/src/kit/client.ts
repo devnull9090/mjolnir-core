@@ -12,6 +12,7 @@
  */
 import type {
   AdminUserList,
+  BannedPlayer,
   Comment,
   ConflictPair,
   DevicePoll,
@@ -19,7 +20,11 @@ import type {
   HiddenMod,
   Lobby,
   LobbyQuery,
+  MapList,
   MapListing,
+  MapMetadata,
+  MapMetadataPatch,
+  MapQuery,
   Media,
   MediaOwner,
   MediaStatus,
@@ -34,13 +39,14 @@ import type {
   ReleaseStatusDetail,
   Report,
   ReportReason,
+  ReportedPlayer,
   ReportSubject,
   User,
   UserProfile,
 } from "./types";
 
 export interface HubRequest {
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** API path below the version prefix, e.g. `/mods/my-pack/ratings`. */
   path: string;
   query?: Record<string, string | number | undefined>;
@@ -212,7 +218,12 @@ export class HubClient {
   // ── Mods ────────────────────────────────────────────────────────────
 
   listMods(query: ModListQuery = {}): Promise<ModList> {
-    return this.call({ method: "GET", path: "/mods", query: { ...query } });
+    const { map, ...rest } = query;
+    return this.call({
+      method: "GET",
+      path: "/mods",
+      query: { ...rest, map: map === undefined ? undefined : map ? "1" : "0" },
+    });
   }
 
   getMod(slug: string): Promise<ModDetail> {
@@ -242,16 +253,41 @@ export class HubClient {
 
   // ── Maps ────────────────────────────────────────────────────────────
 
+  /** Every published map, official first then by title: one unpaged list. */
   async listMaps(query: { official?: boolean; mode?: string } = {}): Promise<MapListing[]> {
-    const r = await this.call<{ maps: MapListing[] }>({
+    const r = await this.searchMaps({ official: query.official, mode: query.mode });
+    return r.maps;
+  }
+
+  /**
+   * Search, filter and page the catalog. Pass `limit` to page; `next_cursor`
+   * fetches the next one. Without `sort` the order is official first, then
+   * by title.
+   */
+  searchMaps(query: MapQuery = {}): Promise<MapList> {
+    const flag = (v: boolean | undefined) => (v === undefined ? undefined : v ? "1" : "0");
+    return this.call({
       method: "GET",
       path: "/maps",
       query: {
-        official: query.official === undefined ? undefined : query.official ? "1" : "0",
+        q: query.q,
+        official: flag(query.official),
         mode: query.mode,
+        size: query.size,
+        vehicles: flag(query.vehicles),
+        origin: query.origin,
+        players: query.players,
+        sort: query.sort,
+        limit: query.limit,
+        cursor: query.cursor,
       },
     });
-    return r.maps;
+  }
+
+  /** Set a map's catalog metadata. Its authors, or moderators; only a
+   *  moderator may set `origin: "classic"`. */
+  updateMap(code: string, patch: MapMetadataPatch): Promise<MapMetadata> {
+    return this.call({ method: "PATCH", path: `/maps/${encodeURIComponent(code)}`, body: patch });
   }
 
   getMap(code: string): Promise<MapListing> {
@@ -454,6 +490,46 @@ export class HubClient {
       method: "POST",
       path: `/moderation/mods/${encodeURIComponent(slug)}`,
       body: { action },
+    });
+  }
+
+  /** Reported players, grouped, each with every report against them. Moderators only. */
+  async listPlayerReports(status: "open" | "upheld" | "dismissed" = "open"): Promise<ReportedPlayer[]> {
+    const r = await this.call<{ players: ReportedPlayer[] }>({
+      method: "GET",
+      path: "/moderation/player-reports",
+      query: { status },
+    });
+    return r.players;
+  }
+
+  decidePlayerReport(id: string, action: "uphold" | "dismiss", note?: string): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/player-reports/${encodeURIComponent(id)}`,
+      body: { action, note: note || undefined },
+    });
+  }
+
+  /** Matchmaking bans in force. Moderators only. */
+  async listMatchmakingBans(): Promise<BannedPlayer[]> {
+    const r = await this.call<{ bans: BannedPlayer[] }>({ method: "GET", path: "/moderation/matchmaking-bans" });
+    return r.bans;
+  }
+
+  /** Ban from matchmaking for `days`, or for good without. Upholds their open reports. */
+  banFromMatchmaking(userId: string, reason: string, days?: number): Promise<{ id: string }> {
+    return this.call({
+      method: "POST",
+      path: "/moderation/matchmaking-bans",
+      body: { user_id: userId, reason, days },
+    });
+  }
+
+  liftMatchmakingBan(userId: string): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "DELETE",
+      path: `/moderation/matchmaking-bans/${encodeURIComponent(userId)}`,
     });
   }
 

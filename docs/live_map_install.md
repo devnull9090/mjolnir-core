@@ -239,6 +239,35 @@ map: named on the host's first START, sent back on the second.
 listing fields need the hub deploy and migration 0016. Until then a joiner
 compares once the host's lobby message arrives, which the two-PC test used.
 
+## Joining from a link
+
+A website links a listed game as `mjolnir://join/<lobby id>` (the hub's
+lobby id). The launcher registers the `mjolnir` scheme (its `src/links.rs`
+also takes `mjolnir://mod/<slug>` and `mjolnir://map/<CODE>`, which only
+open the launcher's pages).
+
+- **The launcher** (`hub_join_lobby`) checks multiplayer is installed: the
+  four map code mods present and on, and the CE runtime pack installed and
+  on. If not, it offers Install multiplayer instead. Otherwise it writes
+  `MJOLNIRLobby\native\pending_join.txt` (a temporary file renamed over it)
+  and starts the game if no game process is running:
+
+  ```
+  lobby=<lobby id>
+  at=<unix seconds>
+  ```
+
+- **MJOLNIRLobby** reads the file from the main menu's poll (every 1.5 s),
+  only once the player is signed in (a main menu has been up) and in the
+  frontend. During a match the file waits. It deletes the file on reading,
+  and drops a join older than ten minutes or one it can't read. It then
+  opens FIND GAMES and, when the list arrives, chooses the game with that
+  id and joins it as JOIN does, so DOWNLOAD AND JOIN, a full game and
+  another version are handled as usual. A game that is not listed reads
+  "That game has ended or is no longer listed."
+
+**Not tested yet:** all of it in game. The launcher side is unit-tested.
+
 ## What is not done yet
 
 - **A guest that can't get the map.** One left in the fireteam holds

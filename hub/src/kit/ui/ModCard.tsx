@@ -3,6 +3,10 @@
  * launcher opens a detail pane and hangs an Install button off the same
  * card, so the card takes either an `href` or an `onSelect`, plus an
  * optional action slot.
+ *
+ * A mod with a gallery leads with its first still. The URL is hub-relative,
+ * so it resolves through the context's client: same-origin on the website,
+ * mjolnircore.com in the launcher.
  */
 import type { ReactNode } from "react";
 
@@ -10,6 +14,7 @@ import type { Mod } from "../types";
 import { formatCount } from "./format";
 import { DownloadIcon } from "./icons";
 import { Avatar } from "./Avatar";
+import { useHub } from "./context";
 import { Badge, Stars, TypeBadge } from "./primitives";
 
 export function ModCard({
@@ -29,12 +34,29 @@ export function ModCard({
   badges?: ReactNode;
   selected?: boolean;
 }) {
+  const { client } = useHub();
   const body = (
     <>
+      {mod.cover_url && (
+        // Plain <img>, not next/image: the launcher's Vite build renders
+        // this card too. Decorative: the name beside it says what it is.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={client.absolute(mod.cover_url)}
+          alt=""
+          loading="lazy"
+          className="shrink-0 w-28 aspect-video rounded-lg object-cover bg-[var(--mj-surface-hover)]"
+        />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-[var(--mj-text)] truncate">{mod.name}</span>
           <TypeBadge type={mod.type} />
+          {mod.map_code && (
+            <Badge tone="gold" title="Map codename" className="font-mono">
+              {mod.map_code}
+            </Badge>
+          )}
           <Badge>{mod.category}</Badge>
           {mod.nsfw && <Badge tone="red">nsfw</Badge>}
           {badges}

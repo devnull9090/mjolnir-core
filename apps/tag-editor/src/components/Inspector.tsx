@@ -156,11 +156,15 @@ function Branch({
   const total = node.count ?? node.children.length;
   const shown = node.children.length;
   const partial = shown < total;
+  // The form's element pick pages a long block; the tree shows the same page.
+  const first = node.first ?? 0;
+  const page =
+    first > 0 ? ` · ${first}–${first + shown - 1} shown` : ` · first ${shown} shown`;
   const label =
     node.kind === "block"
       ? `${total} element${total === 1 ? "" : "s"}${
           node.max_count !== null ? ` of ${node.max_count}` : ""
-        }${partial ? ` · first ${shown} shown` : ""}`
+        }${partial ? page : ""}`
       : node.kind === "array"
         ? `array of ${total}${partial ? ` · first ${shown} shown` : ""}`
         : node.type;

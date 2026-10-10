@@ -117,6 +117,9 @@ end
 local function explain(status, data)
     if status == 0 then return "Cannot reach mjolnircore.com." end
     if status == 401 then return "Sign in to the MJOLNIR launcher to use public games." end
+    if status == 403 and data and data.error == "matchmaking_banned" then
+        return data.message or "You are banned from matchmaking."
+    end
     if status == 403 then
         return "Your launcher sign-in is too old for public games: sign out of the launcher and sign in again."
     end
