@@ -161,6 +161,27 @@ pub fn sync(paks: &Path, enabled: &[Enabled]) -> Result<Vec<String>, String> {
     Ok(done.log)
 }
 
+/// One map for a game that is running (`hub::install_live`): its data in
+/// `MJOLNIRMaps` and the menu list, but not the registration container,
+/// which the game holds open; the game registers the map in memory, and the
+/// next [`sync`] sees a code its record lacks and rebuilds the container.
+pub fn add_live(paks: &Path, map: &Enabled) -> Result<(), String> {
+    if !valid_code(&map.code) {
+        return Err(format!("{:?} is not a map code", map.code));
+    }
+    if ue4ss_dir(paks).is_none() {
+        return Err("UE4SS is not installed, so no loader can start the map".into());
+    }
+    let layout = Layout::for_paks(paks);
+    let dir = layout.maps.join(&map.code);
+    fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for file in ["level.json", "registration.json"] {
+        fs::copy(map.data.join(file), dir.join(file)).map_err(|e| format!("{} {file}: {e}", map.code))?;
+    }
+    fs::write(dir.join(MARKER), b"installed by the MJOLNIR launcher\n").map_err(|e| e.to_string())?;
+    blam_pack::maps::write_menu_list(&layout).map(|_| ())
+}
+
 /// Before UE4SS is removed: take the registration this launcher built with
 /// it, so the game is left as shipped. A registration built by hand stays.
 pub fn forget(paks: &Path) {

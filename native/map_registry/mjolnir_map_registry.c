@@ -496,6 +496,481 @@ __declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
     return 0;
 }
 
+// ------------------------------------------------- mounting a map live
+//
+// A map downloaded while the game runs (docs/live_map_install.md): its
+// containers are mounted the way the engine mounts a chunk it downloads, by
+// FCoreDelegates::MountPak, which FPakPlatformFile binds at startup to
+// HandleMountPakDelegate(const FString&, int32 order). That mounts the .pak,
+// then its .utoc/.ucas sibling with the IoDispatcher and the package store
+// (whose container list it flags for an update), then fires
+// OnPakFileMounted, so it is the whole of what boot does for one file.
+//
+// The delegate's storage is a pointer to its bound instance: vtable, handle
+// at +0x10, the FPakPlatformFile at +0x18, the method at +0x20 (CU4
+// FUN_144690200 binds it; the method is checked before it is called).
+
+// FCoreDelegates::MountPak (TDelegate inline storage: instance pointer)
+#define RVA_MOUNT_PAK_DELEGATE 0xD349040u
+// FPakPlatformFile::HandleMountPakDelegate
+#define RVA_MOUNT_PAK_HANDLER 0x4694C00u
+
+typedef struct {
+    wchar_t *data;
+    int32_t num;
+    int32_t max;
+} fstring_t;
+
+typedef void *(__fastcall *mount_pak_fn)(void *pak_file, const fstring_t *path, int32_t order);
+
+static void native_path(const char *file, char *out, size_t cap) {
+    strcpy_s(out, cap, g_log);
+    char *slash = strrchr(out, '\\');
+    if (slash) *(slash + 1) = 0;
+    strcat_s(out, cap, file);
+}
+
+static void write_reply(const char *file, const char *text) {
+    char path[MAX_PATH];
+    native_path(file, path, sizeof path);
+    FILE *f = NULL;
+    if (fopen_s(&f, path, "wb") == 0 && f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+// Mount one .pak (and its IoStore sibling); 1 on success.
+static int mount_one(const wchar_t *pak, char *why, size_t why_cap) {
+    void **storage = (void **)(g_base + RVA_MOUNT_PAK_DELEGATE);
+    uint8_t *instance = (uint8_t *)*storage;
+    if (!instance) {
+        snprintf(why, why_cap, "MountPak is not bound");
+        return 0;
+    }
+    void *pak_file = *(void **)(instance + 0x18);
+    void *method = *(void **)(instance + 0x20);
+    if (method != (void *)(g_base + RVA_MOUNT_PAK_HANDLER) || !pak_file) {
+        snprintf(why, why_cap, "MountPak is bound to %p (expected %p)", method,
+                 (void *)(g_base + RVA_MOUNT_PAK_HANDLER));
+        return 0;
+    }
+    // The engine copies what it keeps; the string only has to outlive the call.
+    wchar_t buffer[MAX_PATH_CHARS];
+    wcscpy_s(buffer, MAX_PATH_CHARS, pak);
+    fstring_t path = {buffer, (int32_t)wcslen(buffer) + 1, MAX_PATH_CHARS};
+    void *mounted = ((mount_pak_fn)(g_base + RVA_MOUNT_PAK_HANDLER))(pak_file, &path, -1);
+    if (!mounted) {
+        snprintf(why, why_cap, "the engine refused %ls", pak);
+        return 0;
+    }
+    return 1;
+}
+
+// Lua C function, 0 results. `mount_request.txt` beside this DLL lists one
+// .pak per line, as the engine names them (`../../../Meteorite/Content/
+// Paks/<file>.pak`, relative to the exe's folder); each is mounted in turn,
+// the world index is re-read, and `mount_reply.txt` gets `ok <n>` or
+// `error <why>`.
+__declspec(dllexport) int mjolnir_mount_paks(void *L) {
+    (void)L;
+    ensure_init();
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
+    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
+        write_reply("mount_reply.txt", "error this game build is not CU4; maps cannot be mounted live");
+        return 0;
+    }
+    char request[MAX_PATH];
+    native_path("mount_request.txt", request, sizeof request);
+    FILE *f = NULL;
+    if (fopen_s(&f, request, "rb") != 0 || !f) {
+        write_reply("mount_reply.txt", "error no mount_request.txt");
+        return 0;
+    }
+    char line[MAX_PATH_CHARS];
+    int mounted = 0;
+    char why[MAX_PATH_CHARS + 64] = "";
+    while (fgets(line, sizeof line, f)) {
+        size_t n = strlen(line);
+        while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' ')) line[--n] = 0;
+        if (!n) continue;
+        wchar_t wide[MAX_PATH_CHARS];
+        if (!MultiByteToWideChar(CP_UTF8, 0, line, -1, wide, MAX_PATH_CHARS)) continue;
+        if (!mount_one(wide, why, sizeof why)) break;
+        Log("mounted %s", line);
+        mounted++;
+    }
+    fclose(f);
+    if (g_hooked) mjolnir_map_registry_rescan(NULL);
+    char reply[sizeof why + 32];
+    if (why[0]) {
+        Log("mount: %s (%d mounted first)", why, mounted);
+        snprintf(reply, sizeof reply, "error %s", why);
+    } else {
+        snprintf(reply, sizeof reply, "ok %d", mounted);
+    }
+    write_reply("mount_reply.txt", reply);
+    return 0;
+}
+
+// ------------------------------------------ registering a map live
+//
+// A map the cooked registration container (pakchunk996) did not list at boot
+// gets its DT_Scenarios row and its campaign ScenarioList handle here, in
+// memory, the same records `blam_pack::scenario::register` cooks: a clone of
+// a template row with the codename's world, ScenarioName and MapGuid.
+// StartScenario and SetAndBeginCampaign read both when a map starts, so a row
+// added before the start is as good as a cooked one
+// (docs/live_map_install.md).
+//
+// Everything is allocated through the engine's GMalloc, so the engine can
+// free it at shutdown like its own (HeapAlloc'd probe buffers crashed the
+// exit; docs/new_scenario_loading.md).
+
+// FMalloc* GMalloc; Malloc(count, alignment) at vtable +0x28, Free at +0x48.
+#define RVA_GMALLOC 0xD4B7428u
+#define GMALLOC_MALLOC 0x28
+#define GMALLOC_FREE 0x48
+
+// BlamScenarioDataTableRow (176 bytes): +8 UnrealLevel (FSoftObjectPtr: weak
+// ptr, package FName, asset FName, sub-path FString), +48 ScenarioName,
+// +64 MapGuid, +80 / +96 title / description (FText).
+#define ROW_SIZE 176
+#define ROW_WORLD_WEAK 8
+#define ROW_WORLD_PACKAGE 16
+#define ROW_WORLD_ASSET 24
+#define ROW_WORLD_SUBPATH 32
+#define ROW_SCENARIO_NAME 48
+#define ROW_MAP_GUID 64
+#define ROW_TITLE 80
+#define ROW_DESCRIPTION 96
+
+// UDataTable::RowMap, a TMap<FName, uint8*>: the sparse array's elements
+// {ptr, num, max} at +0x30, its allocation bits (4 inline dwords) at +0x40,
+// NumBits/MaxBits at +0x58/+0x5c, free list at +0x60/+0x64; the hash's
+// buckets at +0x70 and their count at +0x78. Element: FName, row pointer,
+// next in bucket, bucket index (24 bytes).
+#define DT_ELEMENTS 0x30
+#define DT_BITS 0x40
+#define DT_BITS_HEAP 0x50
+#define DT_NUM_BITS 0x58
+#define DT_MAX_BITS 0x5c
+#define DT_NUM_FREE 0x64
+#define DT_BUCKETS 0x70
+#define DT_HASH_SIZE 0x78
+#define DT_ELEMENT 24
+
+// UBlamCampaignDataAsset::ScenarioList, TArray<FDataTableRowHandle {table, FName}>.
+#define CAMPAIGN_SCENARIO_LIST 0x40
+
+typedef struct {
+    uint32_t index;
+    uint32_t number;
+} fname_t;
+
+// The row alone is not enough: at boot
+// UBlamFrontendLevelsEngineGlueSubsystem::BuildRuntimeCachesFromBuiltInMapInfoDataAsset
+// (CU4 0x7B7D180) passes every DT_Scenarios row to a cache insert (0x7BAC140:
+// world path, MapGuid and per-map entries the simulation's level lookups go
+// through), then stamps each campaign map's entry with its campaign's id. A
+// row added later has no entry, and the simulation never starts the map
+// ("not in a game"; verified 2026-10-09). So the insert is called for the
+// new row too, and the campaign id copied from the template's entry.
+//
+// The subsystem: 0x7B7DFC0 returns it. Its per-map entries: a sparse array
+// at +0x138 {ptr, num}, 0x14c bytes each, keyed by MapGuid at +0, campaign id at
+// +0x120 (16 bytes).
+#define RVA_LEVELS_GLUE_GET 0x7B7DFC0u
+#define RVA_LEVELS_GLUE_ADD_ROW 0x7BAC140u
+#define GLUE_MAPS 0x138
+#define GLUE_MAP_SIZE 0x14c
+#define GLUE_MAP_GUID 0
+#define GLUE_MAP_CAMPAIGN 0x120
+
+typedef void *(__fastcall *glue_get_fn)(void);
+typedef void(__fastcall *glue_add_row_fn)(void **subsystem, void *row_element, void *row);
+
+static uint8_t *glue_entry(uint8_t *glue, const uint8_t guid[16]) {
+    uint8_t *maps = *(uint8_t **)(glue + GLUE_MAPS);
+    int32_t n = *(int32_t *)(glue + GLUE_MAPS + 8);
+    for (int32_t i = 0; i < n; i++) {
+        uint8_t *e = maps + (size_t)i * GLUE_MAP_SIZE;
+        if (memcmp(e + GLUE_MAP_GUID, guid, 16) == 0) return e;
+    }
+    return NULL;
+}
+
+// Give the frontend levels glue the new row, as boot gives it every cooked one.
+static int glue_add(fname_t name, uint8_t *row, const uint8_t *tmpl, char *why, size_t cap) {
+    uint8_t *glue = (uint8_t *)((glue_get_fn)(g_base + RVA_LEVELS_GLUE_GET))();
+    if (!glue) {
+        snprintf(why, cap, "the frontend levels subsystem is not up");
+        return 0;
+    }
+    if (glue_entry(glue, row + ROW_MAP_GUID)) return 1;
+    uint8_t element[DT_ELEMENT] = {0};
+    memcpy(element, &name, 8);
+    *(uint8_t **)(element + 8) = row;
+    void *self = glue;
+    ((glue_add_row_fn)(g_base + RVA_LEVELS_GLUE_ADD_ROW))(&self, element, row);
+    uint8_t *mine = glue_entry(glue, row + ROW_MAP_GUID);
+    if (!mine) {
+        snprintf(why, cap, "the frontend levels subsystem did not take the row");
+        return 0;
+    }
+    uint8_t *theirs = glue_entry(glue, tmpl + ROW_MAP_GUID);
+    if (theirs) memcpy(mine + GLUE_MAP_CAMPAIGN, theirs + GLUE_MAP_CAMPAIGN, 16);
+    return 1;
+}
+
+typedef void *(__fastcall *malloc_fn)(void *self, size_t count, uint32_t alignment);
+typedef void(__fastcall *free_fn)(void *self, void *p);
+
+static void *engine_malloc(size_t n) {
+    void *gmalloc = *(void **)(g_base + RVA_GMALLOC);
+    if (!gmalloc) return NULL;
+    void **vt = *(void ***)gmalloc;
+    void *p = ((malloc_fn)vt[GMALLOC_MALLOC / 8])(gmalloc, n, 16);
+    if (p) memset(p, 0, n);
+    return p;
+}
+
+static void engine_free(void *p) {
+    void *gmalloc = *(void **)(g_base + RVA_GMALLOC);
+    if (!gmalloc || !p) return;
+    void **vt = *(void ***)gmalloc;
+    ((free_fn)vt[GMALLOC_FREE / 8])(gmalloc, p);
+}
+
+// TSet<FName> bucket hash: GetTypeHash of the comparison index (checked
+// against every shipped row by the 2026-09 probe).
+static uint32_t fname_bucket_hash(uint32_t id) {
+    uint32_t b = id >> 16, o = id & 0xffff;
+    return (b << 19) + b + (o << 16) + o + (o >> 4);
+}
+
+static int bit_set(uint8_t *dt, int32_t i) {
+    int32_t max_bits = *(int32_t *)(dt + DT_MAX_BITS);
+    uint32_t *words = max_bits > 128 ? *(uint32_t **)(dt + DT_BITS_HEAP) : (uint32_t *)(dt + DT_BITS);
+    return (words[i / 32] >> (i % 32)) & 1;
+}
+
+static uint8_t *find_row(uint8_t *dt, fname_t name) {
+    uint8_t *elements = *(uint8_t **)(dt + DT_ELEMENTS);
+    int32_t n = *(int32_t *)(dt + DT_ELEMENTS + 8);
+    for (int32_t i = 0; i < n; i++) {
+        if (!bit_set(dt, i)) continue;
+        uint8_t *e = elements + (size_t)i * DT_ELEMENT;
+        if (*(uint32_t *)e == name.index && *(uint32_t *)(e + 4) == name.number) return *(uint8_t **)(e + 8);
+    }
+    return NULL;
+}
+
+// An FText copied by value has to hold its own reference: TRefCountPtr<ITextData>
+// at +0, whose shared reference count lives in the text data at +8.
+static void text_addref(uint8_t *text) {
+    uint8_t *data = *(uint8_t **)text;
+    if (data) InterlockedIncrement((volatile LONG *)(data + 8));
+}
+
+static wchar_t *engine_wstring(const wchar_t *s, int32_t *num) {
+    *num = (int32_t)wcslen(s) + 1;
+    wchar_t *w = (wchar_t *)engine_malloc((size_t)*num * sizeof(wchar_t));
+    if (w) memcpy(w, s, (size_t)*num * sizeof(wchar_t));
+    return w;
+}
+
+// `blam_pack::scenario::map_guid`: two FNV-1a 64 hashes over "MJOLNIR map <CODE>".
+static void map_guid(const char *code, uint8_t out[16]) {
+    char text[64];
+    snprintf(text, sizeof text, "MJOLNIR map %s", code);
+    uint64_t seeds[2] = {0xcbf29ce484222325ull, 0x84222325cbf29ce4ull};
+    for (int k = 0; k < 2; k++) {
+        uint64_t h = seeds[k];
+        for (const char *p = text; *p; p++) {
+            h ^= (uint8_t)(*p >= 'a' && *p <= 'z' ? *p - 32 : *p);
+            h *= 0x100000001b3ull;
+        }
+        memcpy(out + k * 8, &h, 8);
+    }
+}
+
+static int add_row(uint8_t *dt, fname_t name, uint8_t *row, char *why, size_t cap) {
+    int32_t n = *(int32_t *)(dt + DT_ELEMENTS + 8);
+    int32_t max = *(int32_t *)(dt + DT_ELEMENTS + 12);
+    if (*(int32_t *)(dt + DT_NUM_FREE) != 0) {
+        snprintf(why, cap, "the row map has free slots (%d); not handled", *(int32_t *)(dt + DT_NUM_FREE));
+        return 0;
+    }
+    if (n + 1 > *(int32_t *)(dt + DT_MAX_BITS)) {
+        snprintf(why, cap, "the row map's allocation bits are full (%d)", n);
+        return 0;
+    }
+    uint8_t **elements = (uint8_t **)(dt + DT_ELEMENTS);
+    if (n >= max) {
+        int32_t grown = max + 16;
+        uint8_t *fresh = (uint8_t *)engine_malloc((size_t)grown * DT_ELEMENT);
+        if (!fresh) {
+            snprintf(why, cap, "out of memory");
+            return 0;
+        }
+        memcpy(fresh, *elements, (size_t)n * DT_ELEMENT);
+        uint8_t *old = *elements;
+        *elements = fresh;
+        *(int32_t *)(dt + DT_ELEMENTS + 12) = grown;
+        engine_free(old);
+    }
+    uint8_t *e = *elements + (size_t)n * DT_ELEMENT;
+    memcpy(e, &name, 8);
+    *(uint8_t **)(e + 8) = row;
+    int32_t hash_size = *(int32_t *)(dt + DT_HASH_SIZE);
+    int32_t *buckets = hash_size > 1 ? *(int32_t **)(dt + DT_BUCKETS) : (int32_t *)(dt + DT_BUCKETS);
+    uint32_t bucket = fname_bucket_hash(name.index) & (uint32_t)(hash_size - 1);
+    *(int32_t *)(e + 16) = buckets[bucket];
+    *(int32_t *)(e + 20) = (int32_t)bucket;
+    buckets[bucket] = n;
+    int32_t max_bits = *(int32_t *)(dt + DT_MAX_BITS);
+    uint32_t *words = max_bits > 128 ? *(uint32_t **)(dt + DT_BITS_HEAP) : (uint32_t *)(dt + DT_BITS);
+    words[n / 32] |= 1u << (n % 32);
+    *(int32_t *)(dt + DT_NUM_BITS) = n + 1;
+    *(int32_t *)(dt + DT_ELEMENTS + 8) = n + 1;
+    return 1;
+}
+
+static int add_handle(uint8_t *campaign, uint8_t *dt, fname_t name, char *why, size_t cap) {
+    uint8_t **data = (uint8_t **)(campaign + CAMPAIGN_SCENARIO_LIST);
+    int32_t *num = (int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 8);
+    int32_t *max = (int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 12);
+    for (int32_t i = 0; i < *num; i++) {
+        uint8_t *h = *data + (size_t)i * 16;
+        if (*(uint32_t *)(h + 8) == name.index && *(uint32_t *)(h + 12) == name.number) return 1;
+    }
+    if (*num >= *max) {
+        int32_t grown = *max + 16;
+        uint8_t *fresh = (uint8_t *)engine_malloc((size_t)grown * 16);
+        if (!fresh) {
+            snprintf(why, cap, "out of memory");
+            return 0;
+        }
+        memcpy(fresh, *data, (size_t)*num * 16);
+        uint8_t *old = *data;
+        *data = fresh;
+        *max = grown;
+        engine_free(old);
+    }
+    uint8_t *h = *data + (size_t)*num * 16;
+    *(uint8_t **)h = dt;
+    memcpy(h + 8, &name, 8);
+    (*num)++;
+    return 1;
+}
+
+static fname_t fname_of(const wchar_t *s) {
+    uint64_t v = make_fname(s);
+    fname_t f;
+    memcpy(&f, &v, 8);
+    return f;
+}
+
+// Lua C function, 0 results. `scenario_request.txt` beside this DLL:
+// `<DT_Scenarios address> <campaign data asset address> <CODE> <template CODE>`
+// (hex addresses, as UE4SS's GetAddress gives them). The row clones the
+// template's (an installed map of ours: its preview, insertion points and
+// unlock tag) with the world /Game/Levels/Halo1/Solo/<CODE>/<CODE>.<CODE>,
+// ScenarioName <CODE> and the codename's MapGuid. `scenario_reply.txt`:
+// `ok added`, `ok present` or `error <why>`.
+__declspec(dllexport) int mjolnir_scenario_add(void *L) {
+    (void)L;
+    ensure_init();
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
+    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
+        write_reply("scenario_reply.txt", "error this game build is not CU4");
+        return 0;
+    }
+    char request[MAX_PATH];
+    native_path("scenario_request.txt", request, sizeof request);
+    FILE *f = NULL;
+    unsigned long long table = 0, campaign = 0;
+    char code[8] = "", from[8] = "";
+    if (fopen_s(&f, request, "rb") != 0 || !f) {
+        write_reply("scenario_reply.txt", "error no scenario_request.txt");
+        return 0;
+    }
+    int got = fscanf_s(f, "%llx %llx %7s %7s", &table, &campaign, code, (unsigned)sizeof code, from,
+                       (unsigned)sizeof from);
+    fclose(f);
+    if (got != 4 || !table || !campaign) {
+        write_reply("scenario_reply.txt", "error a malformed scenario_request.txt");
+        return 0;
+    }
+    for (char *p = code; *p; p++) {
+        if (!((*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9'))) {
+            write_reply("scenario_reply.txt", "error not a map code");
+            return 0;
+        }
+    }
+    uint8_t *dt = (uint8_t *)table;
+    wchar_t wcode[8], wfrom[8], package[128], asset[16];
+    MultiByteToWideChar(CP_UTF8, 0, code, -1, wcode, 8);
+    MultiByteToWideChar(CP_UTF8, 0, from, -1, wfrom, 8);
+    fname_t name = fname_of(wcode);
+    char why[256] = "";
+    if (find_row(dt, name)) {
+        if (!add_handle((uint8_t *)campaign, dt, name, why, sizeof why)) {
+            write_reply("scenario_reply.txt", why);
+            return 0;
+        }
+        write_reply("scenario_reply.txt", "ok present");
+        return 0;
+    }
+    uint8_t *tmpl = find_row(dt, fname_of(wfrom));
+    if (!tmpl) {
+        snprintf(why, sizeof why, "error no %s row to clone", from);
+        write_reply("scenario_reply.txt", why);
+        return 0;
+    }
+    uint8_t *row = (uint8_t *)engine_malloc(ROW_SIZE);
+    if (!row) {
+        write_reply("scenario_reply.txt", "error out of memory");
+        return 0;
+    }
+    memcpy(row, tmpl, ROW_SIZE);
+    // The world: a fresh soft pointer (no resolved weak pointer, no sub-path).
+    memset(row + ROW_WORLD_WEAK, 0, 8);
+    swprintf(package, 128, L"/Game/Levels/Halo1/Solo/%ls/%ls", wcode, wcode);
+    swprintf(asset, 16, L"%ls", wcode);
+    fname_t pkg = fname_of(package), ast = fname_of(asset);
+    memcpy(row + ROW_WORLD_PACKAGE, &pkg, 8);
+    memcpy(row + ROW_WORLD_ASSET, &ast, 8);
+    memset(row + ROW_WORLD_SUBPATH, 0, 16);
+    int32_t num = 0;
+    wchar_t *scenario = engine_wstring(wcode, &num);
+    *(wchar_t **)(row + ROW_SCENARIO_NAME) = scenario;
+    *(int32_t *)(row + ROW_SCENARIO_NAME + 8) = num;
+    *(int32_t *)(row + ROW_SCENARIO_NAME + 12) = num;
+    map_guid(code, row + ROW_MAP_GUID);
+    text_addref(row + ROW_TITLE);
+    text_addref(row + ROW_DESCRIPTION);
+    // The preview image's soft path may carry a sub-path string; the clone
+    // must not share its buffer.
+    memset(row + 112 + 24, 0, 16);
+    if (!add_row(dt, name, row, why, sizeof why) || !add_handle((uint8_t *)campaign, dt, name, why, sizeof why) ||
+        !glue_add(name, row, tmpl, why, sizeof why)) {
+        Log("scenario %s: %s", code, why);
+        char reply[300];
+        snprintf(reply, sizeof reply, "error %s", why);
+        write_reply("scenario_reply.txt", reply);
+        return 0;
+    }
+    Log("scenario %s: row added (cloned from %s), world %ls", code, from, package);
+    write_reply("scenario_reply.txt", "ok added");
+    return 0;
+}
+
 // ------------------------------------------------------- the Megalo switch
 
 typedef struct {

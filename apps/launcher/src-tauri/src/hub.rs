@@ -644,6 +644,20 @@ fn read_map(
 /// Install (or update) one mod into the cache and the state, with whatever
 /// it depends on. Materializing is the caller's, once, after everything.
 fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(), String> {
+    install_one_as(slug, release_id, depth, None)
+}
+
+/// [`install_one`], or with `live` the install a running game asked for
+/// ([`install_live`]): its download reports progress, and nothing it needs
+/// may change under the game — no code mod is installed or updated (their
+/// DLLs are loaded), and a missing dependency is an error rather than an
+/// install (the runtime pack's containers are mounted).
+fn install_one_as(
+    slug: &str,
+    release_id: Option<String>,
+    depth: usize,
+    live: Option<&Live>,
+) -> Result<(), String> {
     let client = http()?;
     let api = hub_api();
     let slug = slug.to_string();
@@ -693,7 +707,12 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         return Err(format!("Download failed: {}", resp.status()));
     }
     let total = resp.content_length();
-    let bytes = crate::transfer::read_body(resp, total, |_| {}).map_err(|e| e.to_string())?;
+    let bytes = crate::transfer::read_body(resp, total, |got| {
+        if let Some(live) = live {
+            (live.progress)(got, total.or(live.size));
+        }
+    })
+    .map_err(|e| e.to_string())?;
     let actual = sha256_hex(&bytes);
     if actual != expected {
         return Err(format!(
@@ -787,6 +806,11 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         {
             continue;
         }
+        if live.is_some() {
+            return Err(format!(
+                "{name} needs {dep_slug}, which is not installed. Install it from the                  MJOLNIR launcher and restart the game."
+            ));
+        }
         if depth + 1 >= MAX_DEP_DEPTH {
             return Err(format!(
                 "{name}: dependencies nest too deeply at {dep_slug}"
@@ -795,7 +819,7 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         install_one(dep_slug, None, depth + 1)
             .map_err(|e| format!("{name} needs {dep_slug}: {e}"))?;
     }
-    if map.is_some() {
+    if map.is_some() && live.is_none() {
         ensure_code_mods(MAP_CODE_MODS)
             .map_err(|e| format!("{name} needs the multiplayer mods: {e}"))?;
     }
@@ -915,6 +939,158 @@ fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(
         }
     }
     save_state(&state)
+}
+
+// ─── Live install: a map for the running game ──────────────────────────
+//
+// The game asks for a map it does not have (a server it is joining, the
+// host's pick, a vote) by starting this executable with `--install-map
+// <CODE> --progress <file>` (`run_live_install`, docs/live_map_install.md).
+// The install is the ordinary one — the hub's hash, the platform and author
+// signatures, the same cache, state and Paks names — so the next launch
+// finds everything where it expects it and copies nothing. What cannot
+// happen under a running game is left out: no container already in Paks is
+// rewritten (the game holds them open), no code mod is touched, and the
+// registration container is not rebuilt (it is mounted; the game registers
+// the map in memory, and the next launch cooks it in).
+
+/// How a live install reports its download.
+pub struct Live<'a> {
+    pub progress: &'a dyn Fn(u64, Option<u64>),
+    /// The archive's size from the hub's listing: the download is streamed
+    /// without a length.
+    pub size: Option<u64>,
+}
+
+/// What the game hears when a live install is done.
+#[derive(Debug, Serialize)]
+pub struct LiveInstall {
+    pub code: String,
+    pub slug: String,
+    pub version: String,
+    /// The new `.pak` files for the game to mount, as the engine names them
+    /// (relative to its executable). Empty when the map was already in Paks.
+    pub mount: Vec<String>,
+}
+
+/// Install the hub's map `code` for a game that is running, and put its
+/// containers and data where the game reads them.
+pub fn install_live(code: &str, progress: &dyn Fn(u64, Option<u64>)) -> Result<LiveInstall, String> {
+    if !crate::maps::valid_code(code) {
+        return Err(format!("{code:?} is not a map code"));
+    }
+    let listing = get_json(&format!("{}/maps/{code}", hub_api()))
+        .map_err(|e| format!("The hub has no map {code}: {e}"))?;
+    let slug = listing["slug"]
+        .as_str()
+        .ok_or_else(|| format!("The hub has no map {code}"))?
+        .to_string();
+
+    // A map installed already (an older version included: its containers may
+    // be mounted, so it is not replaced now) is only put back in the game.
+    let have = load_state()
+        .installed
+        .iter()
+        .any(|m| m.map_code.as_deref() == Some(code) && cache_complete(m));
+    if !have {
+        let size = listing.pointer("/release/file_size").and_then(|v| v.as_u64());
+        install_one_as(&slug, None, 0, Some(&Live { progress, size }))?;
+    }
+
+    let mut state = load_state();
+    let inst = state
+        .installed
+        .iter()
+        .find(|m| m.map_code.as_deref() == Some(code))
+        .cloned()
+        .ok_or_else(|| format!("{code} did not install"))?;
+    let active = state.active.clone();
+    if let Some(profile) = state.profiles.iter_mut().find(|p| p.name == active) {
+        match profile.entries.iter_mut().find(|e| e.slug == inst.slug) {
+            Some(entry) => entry.enabled = true,
+            None => profile.entries.push(ProfileEntry {
+                slug: inst.slug.clone(),
+                enabled: true,
+            }),
+        }
+    }
+    save_state(&state)?;
+
+    let paks = paks_dir()?;
+    let mut mount = Vec::new();
+    for m in mounts(&state)?.iter().filter(|m| m.slug == inst.slug) {
+        if ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file()) {
+            continue;
+        }
+        for ext in ["utoc", "ucas"] {
+            fs::copy(m.cached(ext), m.in_paks(&paks, ext)).map_err(|e| format!("{}: {e}", m.slug))?;
+        }
+        fs::write(m.in_paks(&paks, "pak"), ue_iostore::pak::stub_for(&m.base))
+            .map_err(|e| format!("{}: {e}", m.slug))?;
+        mount.push(format!("../../../Meteorite/Content/Paks/{}.pak", m.base));
+    }
+    crate::maps::add_live(
+        &paks,
+        &crate::maps::Enabled {
+            code: code.to_string(),
+            data: cache_dir().join(&inst.release_id).join("map"),
+        },
+    )?;
+    Ok(LiveInstall {
+        code: code.to_string(),
+        slug: inst.slug,
+        version: inst.version,
+        mount,
+    })
+}
+
+/// Where the game finds this executable to ask for a live install.
+pub fn record_exe_path() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = fs::create_dir_all(config_dir());
+        let _ = fs::write(config_dir().join("launcher_exe.txt"), exe.to_string_lossy().as_bytes());
+    }
+}
+
+/// `--install-map <CODE> --progress <file>`: the live install, reported to
+/// the game through `file` as one JSON object, replaced as it goes —
+/// `{"stage":"download","received":n,"total":n}`, then `{"stage":"done",...}`
+/// with [`LiveInstall`]'s fields, or `{"stage":"error","message":...}`.
+pub fn run_live_install(code: &str, progress_file: &Path) -> i32 {
+    record_exe_path();
+    let write = |value: serde_json::Value| {
+        let tmp = progress_file.with_extension("tmp");
+        if fs::write(&tmp, value.to_string()).is_ok() {
+            // The game may have the file open for a moment: try a few times.
+            for _ in 0..20 {
+                if fs::rename(&tmp, progress_file).is_ok() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    };
+    write(serde_json::json!({ "stage": "start", "code": code }));
+    let last = std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    let progress = |received: u64, total: Option<u64>| {
+        if last.get().elapsed() < std::time::Duration::from_millis(100) && Some(received) != total {
+            return;
+        }
+        last.set(std::time::Instant::now());
+        write(serde_json::json!({ "stage": "download", "received": received, "total": total }));
+    };
+    match install_live(code, &progress) {
+        Ok(done) => {
+            let mut value = serde_json::to_value(&done).unwrap_or_default();
+            value["stage"] = "done".into();
+            write(value);
+            0
+        }
+        Err(e) => {
+            write(serde_json::json!({ "stage": "error", "message": e }));
+            1
+        }
+    }
 }
 
 fn now_unix() -> u64 {

@@ -1729,6 +1729,21 @@ fn uninstall_modpack() -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A running game asking for a map (hub::run_live_install): no window.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--install-map") {
+        let code = args.get(i + 1).cloned().unwrap_or_default();
+        let progress = args
+            .iter()
+            .position(|a| a == "--progress")
+            .and_then(|j| args.get(j + 1))
+            .map(PathBuf::from);
+        let Some(progress) = progress else {
+            std::process::exit(2);
+        };
+        std::process::exit(hub::run_live_install(&code, &progress));
+    }
+    hub::record_exe_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

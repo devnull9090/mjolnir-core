@@ -3524,7 +3524,19 @@ struct hub_call {
     char method[8];
     char path[1024];
     char *body;
+    /* FILE calls: the body is saved as this file in the map covers folder. */
+    char save[64];
 };
+
+/* <ue4ss>\MJOLNIRMaps\_covers\, where hub screenshots are kept for the
+   menus (this DLL is in <ue4ss>\Mods\MJOLNIRLobby\native\). */
+static void covers_dir(char *out, size_t size) {
+    if (!dir[0]) find_dir();
+    snprintf(out, size, "%s..\\..\\..\\MJOLNIRMaps", dir);
+    CreateDirectoryA(out, NULL);
+    snprintf(out, size, "%s..\\..\\..\\MJOLNIRMaps\\_covers\\", dir);
+    CreateDirectoryA(out, NULL);
+}
 
 /* The key the launcher paired, from its hub_auth.json, or "". */
 static void launcher_key(char *key, size_t size) {
@@ -3642,7 +3654,29 @@ static DWORD WINAPI hub_worker(LPVOID arg) {
         if (!WinHttpReadData(request, body + total, available, &got) || got == 0) break;
         total += got;
     }
-    hub_reply(call, status, body ? body : "", total);
+    if (call->save[0]) {
+        /* A file, kept whole or not at all. */
+        char path[MAX_PATH], tmp[MAX_PATH];
+        covers_dir(path, sizeof path);
+        snprintf(tmp, sizeof tmp, "%s%s.part", path, call->save);
+        strncat(path, call->save, sizeof path - strlen(path) - 1);
+        int kept = 0;
+        if (status == 200 && total > 0) {
+            FILE *out = fopen(tmp, "wb");
+            if (out) {
+                kept = fwrite(body, 1, total, out) == total;
+                fclose(out);
+                kept = kept && MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+                if (!kept) remove(tmp);
+            }
+        }
+        char note[64];
+        int n = snprintf(note, sizeof note, "{\"saved\":%s,\"bytes\":%u}", kept ? "true" : "false",
+                         (unsigned)total);
+        hub_reply(call, status, note, (size_t)n);
+    } else {
+        hub_reply(call, status, body ? body : "", total);
+    }
     free(body);
 done:
     if (request) WinHttpCloseHandle(request);
@@ -3667,10 +3701,27 @@ __declspec(dllexport) int mjolnir_hub_call(void *L) {
     struct hub_call *call = (struct hub_call *)calloc(1, sizeof *call);
     char line[1200];
     if (!call || !fgets(line, sizeof line, f) ||
-        sscanf(line, "%39s %7s %1023s", call->id, call->method, call->path) != 3) {
+        sscanf(line, "%39s %7s %1023s %63s", call->id, call->method, call->path, call->save) < 3) {
         fclose(f);
         free(call);
         return 0;
+    }
+    /* "<id> FILE <path> <name>": a GET whose body is saved as <name> in the
+       covers folder; the name is letters, digits, '_', '-' and '.' only. */
+    if (strcmp(call->method, "FILE") == 0) {
+        strcpy(call->method, "GET");
+        int ok = call->save[0] != 0 && call->save[0] != '.';
+        for (const char *c = call->save; *c && ok; c++)
+            ok = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || *c == '_' ||
+                 *c == '-' || *c == '.';
+        if (!ok || strstr(call->save, "..")) {
+            fclose(f);
+            hub_error(call, "a file name must be a plain name");
+            free(call);
+            return 0;
+        }
+    } else {
+        call->save[0] = 0;
     }
     /* The id names a file beside this DLL. */
     for (const char *c = call->id; *c; c++) {
@@ -3704,6 +3755,100 @@ __declspec(dllexport) int mjolnir_hub_call(void *L) {
         free(call->body);
         free(call);
     }
+    return 0;
+}
+
+/* --- Live map installs --------------------------------------------------- */
+
+/* A map this game does not have is installed by the MJOLNIR launcher, the
+   same install its Maps tab does, run without a window: `--install-map
+   <CODE> --progress <file>` (docs/live_map_install.md). The launcher records
+   where it lives in launcher_exe.txt in its config folder each time it
+   starts; one from before live installs records nothing, and the request is
+   refused rather than opening a launcher that would ignore it.
+
+   native\map_install_request.txt: "<CODE>". native\map_install_reply.txt:
+   "ok" or "error <why>". Progress, then the outcome, land in
+   native\map_install_progress.json (the launcher writes it);
+   mjolnir_map_install_status writes native\map_install_status.txt:
+   "running", "exited <code>" or "none". */
+static HANDLE install_process;
+
+__declspec(dllexport) int mjolnir_map_install(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], code[8] = "";
+    snprintf(path, sizeof path, "%smap_install_request.txt", dir);
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        if (fscanf(f, "%7s", code) != 1) code[0] = 0;
+        fclose(f);
+    }
+    int valid = strlen(code) == 3;
+    for (const char *c = code; *c && valid; c++) valid = (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9');
+    const char *problem = NULL;
+    if (!valid) problem = "not a map code";
+    if (!problem && install_process && WaitForSingleObject(install_process, 0) == WAIT_TIMEOUT)
+        problem = "another map is still installing";
+    wchar_t exe[MAX_PATH] = L"";
+    if (!problem) {
+        const char *appdata = getenv("APPDATA");
+        char record[MAX_PATH];
+        snprintf(record, sizeof record, "%s\\com.devnull9090.mjolnir-launcher\\launcher_exe.txt",
+                 appdata ? appdata : "");
+        FILE *r = appdata ? fopen(record, "rb") : NULL;
+        char text[MAX_PATH * 3] = "";
+        if (r) {
+            size_t n = fread(text, 1, sizeof text - 1, r);
+            text[n] = 0;
+            fclose(r);
+        }
+        size_t len = strlen(text);
+        while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = 0;
+        if (!text[0] || !MultiByteToWideChar(CP_UTF8, 0, text, -1, exe, MAX_PATH) ||
+            GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
+            problem = "the MJOLNIR launcher is too old to install maps in game; update it and open it once";
+    }
+    if (!problem) {
+        char progress[MAX_PATH];
+        snprintf(progress, sizeof progress, "%smap_install_progress.json", dir);
+        remove(progress);
+        wchar_t wprogress[MAX_PATH], command[MAX_PATH * 3];
+        MultiByteToWideChar(CP_UTF8, 0, progress, -1, wprogress, MAX_PATH);
+        _snwprintf(command, MAX_PATH * 3, L"\"%s\" --install-map %S --progress \"%s\"", exe, code, wprogress);
+        command[MAX_PATH * 3 - 1] = 0;
+        STARTUPINFOW si;
+        PROCESS_INFORMATION pi;
+        memset(&si, 0, sizeof si);
+        si.cb = sizeof si;
+        if (CreateProcessW(exe, command, NULL, NULL, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, NULL,
+                           NULL, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            if (install_process) CloseHandle(install_process);
+            install_process = pi.hProcess;
+            fireteam_log("map install: %s started (launcher pid %lu)", code, pi.dwProcessId);
+        } else {
+            problem = "could not start the MJOLNIR launcher";
+        }
+    }
+    char reply[160];
+    if (problem) snprintf(reply, sizeof reply, "error %s\n", problem);
+    else snprintf(reply, sizeof reply, "ok\n");
+    write_reply("map_install_reply.txt", reply, strlen(reply));
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_map_install_status(void *L) {
+    (void)L;
+    char reply[48];
+    DWORD code = 0;
+    if (!install_process) snprintf(reply, sizeof reply, "none\n");
+    else if (WaitForSingleObject(install_process, 0) == WAIT_TIMEOUT) snprintf(reply, sizeof reply, "running\n");
+    else {
+        GetExitCodeProcess(install_process, &code);
+        snprintf(reply, sizeof reply, "exited %lu\n", code);
+    }
+    write_reply("map_install_status.txt", reply, strlen(reply));
     return 0;
 }
 

@@ -182,6 +182,27 @@ pub fn script_objects(
     ScriptObjects::parse(&bytes).map_err(|e| e.to_string())
 }
 
+fn write_list(layout: &Layout, maps: &[Installed]) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(&layout.maps).map_err(|e| format!("{}: {e}", layout.maps.display()))?;
+    let list = layout.maps.join(MENU_LIST);
+    std::fs::write(
+        &list,
+        serde_json::to_vec_pretty(&menu_list(maps)).expect("a json value serialises"),
+    )
+    .map_err(|e| format!("{}: {e}", list.display()))?;
+    Ok(list)
+}
+
+/// Rewrite only the menu's map list, from every installed map: what a map
+/// installed while the game runs needs, since the registration container is
+/// mounted then and the game registers the map in memory instead
+/// (docs/live_map_install.md). Returns how many maps it lists.
+pub fn write_menu_list(layout: &Layout) -> Result<usize, String> {
+    let maps = installed(layout)?;
+    write_list(layout, &maps)?;
+    Ok(maps.len())
+}
+
 /// What [`rebuild`] did.
 #[derive(Debug, Default)]
 pub struct Rebuilt {
@@ -200,13 +221,7 @@ pub fn rebuild(layout: &Layout, oodle: &[PathBuf], usmap: &Usmap) -> Result<Rebu
     };
     let file = |ext: &str| layout.paks.join(format!("{}.{ext}", scenario::CONTAINER));
 
-    std::fs::create_dir_all(&layout.maps).map_err(|e| format!("{}: {e}", layout.maps.display()))?;
-    let list = layout.maps.join(MENU_LIST);
-    std::fs::write(
-        &list,
-        serde_json::to_vec_pretty(&menu_list(&maps)).expect("a json value serialises"),
-    )
-    .map_err(|e| format!("{}: {e}", list.display()))?;
+    let list = write_list(layout, &maps)?;
     out.log
         .push(format!("wrote {} ({} map(s))", list.display(), maps.len()));
 

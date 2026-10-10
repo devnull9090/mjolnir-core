@@ -119,8 +119,12 @@ native half reads the launcher's key from
 the hub only. Players without the launcher can still host for, and be
 invited by, friends.
 
+**A game on a map you lack:** JOIN reads DOWNLOAD AND JOIN. The map installs
+in the running game first, then the join runs as usual
+([live_map_install.md](live_map_install.md)).
+
 **Not built:** JOIN PRIVATE by short code (an unlisted registration the hub
-maps to the lobby); the launcher fetching a missing map before a join.
+maps to the lobby).
 
 ## Dedicated servers
 
