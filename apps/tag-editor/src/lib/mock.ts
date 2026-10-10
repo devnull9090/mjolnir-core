@@ -93,6 +93,7 @@ function field(partial: Partial<NodeView> & { name: string; type: string }): Nod
     max_count: null,
     count: null,
     first: 0,
+    index_target: null,
     runtime: false,
     feeds: [],
     children: [],
@@ -135,6 +136,7 @@ const scenery = (i: number, x: number, y: number, z: number, yaw: number) => ({
       name: "type",
       type: "short block index",
       value: `#${i % 2}`,
+      index_target: "scenario_scenery_palette_block",
     }),
     field({ name: "name", type: "short block index", value: "none" }),
     field({
@@ -519,10 +521,24 @@ export const mockApi = {
         {
           element: 0,
           name: "covenant_beach",
-          cells: [{ name: "elites", normal_count: 2 }],
+          cells: [
+            {
+              name: "elites",
+              normal_count: 2,
+              upgrade: "normal",
+              characters: [
+                { path: "objects\\characters\\elite\\ai\\elite", chance: 3 },
+                { path: "objects\\characters\\elite\\ai\\elite_officer", chance: 1 },
+              ],
+              weapons: [{ path: "objects\\weapons\\rifle\\plasma_rifle\\plasma_rifle", chance: 1 }],
+              secondary_weapons: [],
+              equipment: [],
+              vehicle: "",
+            },
+          ],
           spawn_points: [
-            { element: 0, name: "elite_a", cell: 0, position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
-            { element: 1, name: "elite_b", cell: 0, position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
+            { element: 0, name: "elite_a", cell: 0, position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number], character: "", weapon: "", vehicle: "" },
+            { element: 1, name: "elite_b", cell: 0, position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number], character: "objects\\characters\\elite\\ai\\elite_officer", weapon: "", vehicle: "" },
           ],
         },
       ],

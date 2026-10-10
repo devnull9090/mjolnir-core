@@ -170,6 +170,36 @@ impl<'a, 'b> Elem<'a, 'b> {
         }
     }
 
+    /// A short enum field's option name, or its raw number when the
+    /// definition has no option there.
+    fn enum_name(&self, name: &str) -> String {
+        let raw = self.i16(name);
+        let field = self.layout.struct_ranges().get(self.run).and_then(|range| {
+            range
+                .clone()
+                .map(|i| self.layout.fields[i])
+                .find(|f| self.layout.string_at(f.name_offset) == Some(name))
+        });
+        field
+            .and_then(|f| {
+                usize::try_from(raw)
+                    .ok()
+                    .and_then(|i| self.layout.field_options(&f).get(i).map(|o| o.to_string()))
+            })
+            .unwrap_or_else(|| raw.to_string())
+    }
+
+    /// The path a `tag reference` field names, or "" for none.
+    fn tag_path(&self, name: &str) -> String {
+        match self.value(name) {
+            Some(Value::TagRef(content)) => match blam_tag::value::reference(content) {
+                blam_tag::Scalar::Reference { path, .. } => path,
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    }
+
     /// A fixed-width `string` field, held inline and NUL-padded.
     fn string(&self, name: &str) -> String {
         let Some((offset, size)) = self.offset(name) else {
@@ -702,6 +732,23 @@ pub struct Squad {
 pub struct SquadCell {
     pub name: String,
     pub normal_count: i16,
+    /// `major upgrade`, as its option name.
+    pub upgrade: String,
+    /// What each actor the cell spawns can be, picked by `chance` weight.
+    pub characters: Vec<CellChoice>,
+    pub weapons: Vec<CellChoice>,
+    pub secondary_weapons: Vec<CellChoice>,
+    pub equipment: Vec<CellChoice>,
+    /// The vehicle the cell's actors spawn in, or "".
+    pub vehicle: String,
+}
+
+/// One weighted entry of a cell's character, weapon or equipment list.
+#[derive(Serialize)]
+pub struct CellChoice {
+    /// The palette entry's tag path; "" when the index points nowhere.
+    pub path: String,
+    pub chance: i16,
 }
 
 #[derive(Serialize)]
@@ -714,6 +761,50 @@ pub struct SpawnPoint {
     pub position: [f32; 3],
     /// Yaw and pitch, radians.
     pub facing: [f32; 2],
+    /// Per-point overrides of the cell's choices, as tag paths; "" when the
+    /// point takes the cell's.
+    pub character: String,
+    pub weapon: String,
+    pub vehicle: String,
+}
+
+/// The tag paths of a scenario palette, in palette order.
+fn palette_paths(root: &Elem<'_, '_>, layout: &Layout<'_>, block: &str, field: &str) -> Vec<String> {
+    let Some(palette) = root.block(block) else {
+        return Vec::new();
+    };
+    (0..palette.count as usize)
+        .map(|i| Elem::of(layout, palette, i).map(|e| e.tag_path(field)).unwrap_or_default())
+        .collect()
+}
+
+/// The palette path a block index names, or "" for none or out of range.
+fn palette_entry(palette: &[String], index: i16) -> String {
+    usize::try_from(index)
+        .ok()
+        .and_then(|i| palette.get(i))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// A cell's weighted choice list: each element's `index_field` into `palette`.
+fn cell_choices(
+    cell: &Elem<'_, '_>,
+    layout: &Layout<'_>,
+    block: &str,
+    index_field: &str,
+    palette: &[String],
+) -> Vec<CellChoice> {
+    let Some(list) = cell.block(block) else {
+        return Vec::new();
+    };
+    (0..list.count as usize)
+        .filter_map(|k| Elem::of(layout, list, k))
+        .map(|c| CellChoice {
+            path: palette_entry(palette, c.i16(index_field)),
+            chance: c.i16("chance"),
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -827,6 +918,12 @@ pub fn scenario_layout(file: &[u8]) -> Result<ScenarioLayout, String> {
         }
     }
 
+    // What a squad cell spawns is palette indices; resolve them to tags.
+    let characters = palette_paths(&root, &layout, "character palette", "reference");
+    let weapons = palette_paths(&root, &layout, "weapon palette", "name");
+    let equipment = palette_paths(&root, &layout, "equipment palette", "name");
+    let vehicles = palette_paths(&root, &layout, "vehicle palette", "name");
+
     if let Some(squads) = root.block("squads") {
         for i in 0..squads.count as usize {
             let Some(squad) = Elem::of(&layout, squads, i) else {
@@ -844,6 +941,9 @@ pub fn scenario_layout(file: &[u8]) -> Result<ScenarioLayout, String> {
                         cell: p.i16("cell"),
                         position: p.vec3("position"),
                         facing: [p.f32("facing (yaw, pitch)", 0), p.f32("facing (yaw, pitch)", 1)],
+                        character: palette_entry(&characters, p.i16("character type")),
+                        weapon: palette_entry(&weapons, p.i16("initial weapon")),
+                        vehicle: palette_entry(&vehicles, p.i16("vehicle type")),
                     });
                 }
             }
@@ -856,6 +956,18 @@ pub fn scenario_layout(file: &[u8]) -> Result<ScenarioLayout, String> {
                     cells.push(SquadCell {
                         name: c.string_id("name"),
                         normal_count: c.i16("normal diff count"),
+                        upgrade: c.enum_name("major upgrade"),
+                        characters: cell_choices(&c, &layout, "character type", "character type", &characters),
+                        weapons: cell_choices(&c, &layout, "initial weapon", "weapon type", &weapons),
+                        secondary_weapons: cell_choices(
+                            &c,
+                            &layout,
+                            "initial secondary weapon",
+                            "weapon type",
+                            &weapons,
+                        ),
+                        equipment: cell_choices(&c, &layout, "initial equipment", "equipment type", &equipment),
+                        vehicle: palette_entry(&vehicles, c.i16("vehicle type")),
                     });
                 }
             }

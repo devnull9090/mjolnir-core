@@ -66,7 +66,113 @@ function FText({
 }
 
 /** A field row: fixed-width label column, then the control its type calls for. */
-function FField({ node, path }: { node: NodeView; path: string }) {
+/**
+ * The field lists enclosing a field, outermost (the tag's root) first. A block
+ * index names its target block by definition, and the nearest enclosing list
+ * holding a block of that definition is the one it indexes.
+ */
+type Scopes = NodeView[][];
+
+/** The block a block index points into: the nearest enclosing block of its
+ *  target definition, or null when none is in view. */
+function indexTarget(scopes: Scopes, definition: string): NodeView | null {
+  for (let i = scopes.length - 1; i >= 0; i--) {
+    const hit = scopes[i].find((n) => n.kind === "block" && n.block === definition);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Targets up to this long get a dropdown; longer ones keep the text box. */
+const INDEX_OPTION_LIMIT = 512;
+
+/** `#2` → 2, `none` → -1, `none (-5)` → -5. */
+function indexOf(value: string): number {
+  if (value.startsWith("#")) return Number.parseInt(value.slice(1), 10);
+  const raw = /\((-?\d+)\)/.exec(value);
+  return raw ? Number.parseInt(raw[1], 10) : -1;
+}
+
+/** `character_palette_block` → `character palette`. */
+function blockTitle(definition: string): string {
+  return definition.replace(/_block$/, "").replace(/_/g, " ");
+}
+
+/**
+ * A block index as a choice among the elements it can point at, named the
+ * way the block's own dropdown names them ("2 · crewman"). A target that is
+ * not in view, too long, or read only in part keeps the text box, with the
+ * current element's name beside it when that element was read.
+ */
+function FBlockIndex({
+  node,
+  scopes,
+  edited,
+  editable,
+  onCommit,
+}: {
+  node: NodeView;
+  scopes: Scopes;
+  edited: boolean;
+  editable: boolean;
+  onCommit: (text: string) => void;
+}) {
+  const definition = node.index_target!;
+  const target = indexTarget(scopes, definition);
+  const current = indexOf(node.value);
+  const title = `Indexes the ${blockTitle(definition)} block`;
+  const total = target ? (target.count ?? target.children.length) : 0;
+  const first = target?.first ?? 0;
+  const labelOf = (i: number) => {
+    const el = target && i >= first ? target.children[i - first] : undefined;
+    return el ? elementLabel(el) : null;
+  };
+  const complete =
+    target !== null &&
+    first === 0 &&
+    target.children.length >= total &&
+    total <= INDEX_OPTION_LIMIT;
+
+  if (!complete) {
+    const label = current >= 0 ? labelOf(current) : null;
+    return (
+      <span className="flex items-center gap-2" title={title}>
+        <FText value={editableText(node)} edited={edited} disabled={!editable} onCommit={onCommit} />
+        <span className="font-mono text-[10px] text-text-dim">
+          {label ? `${label} · ` : ""}
+          {blockTitle(definition)}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2" title={title}>
+      <select
+        className={`${INPUT} w-64 ${edited ? EDITED : ""} ${current >= total ? INVALID : ""}`}
+        value={String(current)}
+        disabled={!editable}
+        onChange={(e) => onCommit(e.target.value === "-1" ? "none" : e.target.value)}
+      >
+        <option value="-1">none</option>
+        {current < -1 && <option value={String(current)}>none ({current})</option>}
+        {current >= total && (
+          <option value={String(current)}>#{current} · past the end</option>
+        )}
+        {Array.from({ length: total }, (_, i) => {
+          const label = labelOf(i);
+          return (
+            <option key={i} value={String(i)}>
+              {label ? `${i} · ${label}` : `${i}`}
+            </option>
+          );
+        })}
+      </select>
+      <span className="font-mono text-[10px] text-text-dim">{blockTitle(definition)}</span>
+    </span>
+  );
+}
+
+function FField({ node, path, scopes }: { node: NodeView; path: string; scopes: Scopes }) {
   const setField = useEditor((s) => s.setField);
   const revertField = useEditor((s) => s.revertField);
   const followReference = useEditor((s) => s.followReference);
@@ -138,6 +244,16 @@ function FField({ node, path }: { node: NodeView; path: string }) {
           </option>
         ))}
       </select>
+    );
+  } else if (node.index_target) {
+    control = (
+      <FBlockIndex
+        node={node}
+        scopes={scopes}
+        edited={isEdited}
+        editable={editable}
+        onCommit={commit}
+      />
     );
   } else if (node.type === "tag reference") {
     const has = node.reference !== null && node.reference.path !== "";
@@ -315,7 +431,17 @@ function elementChoices(total: number, first: number, read: number, selected: nu
   return page;
 }
 
-function FSection({ node, path, depth }: { node: NodeView; path: string; depth: number }) {
+function FSection({
+  node,
+  path,
+  depth,
+  scopes,
+}: {
+  node: NodeView;
+  path: string;
+  depth: number;
+  scopes: Scopes;
+}) {
   // Expansion and the element pick initialise from the tab's remembered state
   // and write through to it, so leaving and returning to the tab lands on the
   // same view. The component itself remounts per activation.
@@ -375,6 +501,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
   }, [isStruct, total, current, index, refreshTag]);
 
   const inner = isStruct ? node.children : (current?.children ?? []);
+  const innerScopes = [...scopes, inner];
   const innerBase = isStruct ? path : `${path}[${index}]`;
 
   const add = async () => {
@@ -614,6 +741,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
               node={child}
               depth={depth + 1}
               path={fieldPath(innerBase, child.name, child.kind)}
+              scopes={innerScopes}
             />
           ))}
         </div>
@@ -627,9 +755,19 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
   );
 }
 
-function FNode({ node, path, depth }: { node: NodeView; path: string; depth: number }) {
-  if (node.kind === "field") return <FField node={node} path={path} />;
-  return <FSection node={node} path={path} depth={depth} />;
+function FNode({
+  node,
+  path,
+  depth,
+  scopes,
+}: {
+  node: NodeView;
+  path: string;
+  depth: number;
+  scopes: Scopes;
+}) {
+  if (node.kind === "field") return <FField node={node} path={path} scopes={scopes} />;
+  return <FSection node={node} path={path} depth={depth} scopes={scopes} />;
 }
 
 /** The Guerilla-format inspector: section bars and typed controls. */
@@ -685,7 +823,13 @@ export function FormInspector() {
           <p className="text-xs text-text-dim">This tag has no user-visible fields.</p>
         ) : (
           tag.fields.map((node, i) => (
-            <FNode key={`${node.name}-${i}`} node={node} depth={0} path={fieldPath("", node.name)} />
+            <FNode
+              key={`${node.name}-${i}`}
+              node={node}
+              depth={0}
+              path={fieldPath("", node.name)}
+              scopes={[tag.fields]}
+            />
           ))
         )}
       </div>
