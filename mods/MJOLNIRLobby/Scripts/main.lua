@@ -1661,8 +1661,8 @@ local function joinGame(g)
         return
     end
     -- A map installed since the game started has no cooked registration.
-    local registered, why = MapLive.register(g.map_code)
-    if not registered then log("find games: " .. tostring(g.map_code) .. " not registered: " .. tostring(why)) end
+    local registered, notWhy = MapLive.register(g.map_code)
+    if not registered then log("find games: " .. tostring(g.map_code) .. " not registered: " .. tostring(notWhy)) end
     Found.joining = g
     findNote("Joining " .. tostring(g.host) .. "...")
     showGame(shownGame())
