@@ -192,6 +192,35 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.23.0",
+      "tag": "tag-editor-v0.23.0",
+      "title": "See what a squad spawns, and pick palette entries by name",
+      "date": "2026-10-10",
+      "summary": "Selecting a spawn point shows the units, weapons and vehicle its squad cell spawns, and every block index in the form is a dropdown of named entries.",
+      "body": "A squad cell says what it spawns as palette numbers: `character type #2`,\n`weapon type #1`. This release turns those numbers into names, both where\nyou place spawn points and in the form.\n\n### Added\n\n- **What a cell spawns, in the World view.** Selecting a spawn point lists\n  what its squad cell spawns: the actor types with their odds (`crewman 50% ·\n  crewman_female 50%`), the weapon, secondary weapon, equipment and vehicle,\n  and the upgrade when it is not normal. When the spawn point overrides the\n  cell's actor, weapon or vehicle, that is shown too.\n- **Block indexes by name, in every tag.** A field that points at an entry\n  of another block — a cell's character type, a weapon's magazine or barrel,\n  an animation node's parent, a unit's seat — is now a dropdown of that\n  block's entries, named the way the block's own list names them\n  (`2 · crewman`). Choose one to change it. An index that points past the\n  end of its block is shown in red.\n\n### Notes\n\n- A block with more than 512 entries, or one only partly read, keeps the\n  text box, with the current entry's name beside it.\n- \"Custom\" block indexes, such as a spawn point's `cell`, stay as numbers.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "What a cell spawns, in the World view. Selecting a spawn point lists what its squad cell spawns: the actor types with their odds (crewman 50% · crewmanfemale 50%), the weapon, secondary weapon, equipment and vehicle, and the upgrade when it is not normal. When the spawn point overrides the cell's actor, weapon or vehicle, that is shown too.",
+            "Block indexes by name, in every tag. A field that points at an entry of another block — a cell's character type, a weapon's magazine or barrel, an animation node's parent, a unit's seat — is now a dropdown of that block's entries, named the way the block's own list names them (2 · crewman). Choose one to change it. An index that points past the end of its block is shown in red."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "A block with more than 512 entries, or one only partly read, keeps the text box, with the current entry's name beside it.",
+            "\"Custom\" block indexes, such as a spawn point's cell, stay as numbers."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.23.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.23.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.23.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.22.0",
       "tag": "tag-editor-v0.22.0",
       "title": "Spawn points you can move in the World view",
