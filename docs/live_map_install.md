@@ -198,10 +198,23 @@ Both are CU4-only by RVA, guarded by the exe's timestamp.
   the map code. A client with an older version joins with it; one without
   the map downloads the newest release, which may be newer than the host's.
   The listing should carry the host's release id.
-- **A client that declines and is still in the fireteam when the host
-  starts.** It follows the host into a map it doesn't have. Not tested.
 - **Updating a map that is already mounted** needs a restart, as it always
   has.
-- **Joining a match under way on a map this PC lacks.** FIND GAMES downloads
-  the map first. The index request for a held join (`where`) is in place,
-  but has not been tried on two PCs.
+- **A guest that can't get the map.** One left in the fireteam holds
+  everyone's start. Two PCs showed the host waiting forever on Gephyrophobia
+  because the guest had declined it. So:
+  - The host's first START names who doesn't have the map. A second START
+    sends them back to their own menu, and the post-game vote does the same
+    once its wait is over.
+  - A guest told `starting <code>` for a map it lacks leaves by itself.
+  - In the lobby the leave is `MeteoritePlayerViewModel.LeaveFireteam`.
+    `BlamCampaignFlowGameSubsystem.LeaveGame`, which the kick used, only
+    leaves a match.
+  - Verified: the guest left before the countdown, and the host's match
+    started alone.
+- **Joining a match under way on a map this PC lacks** works. On two PCs, PC
+  2 used DOWNLOAD AND JOIN on PC 1's running Gephyrophobia game. Its held
+  join asked `where`, got `mapindex` back at once, moved the map from index
+  18 to 19, and joined: the host's game had 2 players. The host's match has
+  to be started public. One started private with the host alone plays
+  offline, and can't be listed later.

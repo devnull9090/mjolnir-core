@@ -186,6 +186,8 @@ local function startGame(map, mode)
     -- The host's game settings, which the loader patches into the variant;
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
+    -- A guest without the map leaves rather than hold everyone's start.
+    pcall(Net.toClients, "starting", map.code)
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -500,6 +502,31 @@ Net.on("where", function(f)
     local index = MapLive.register(f[1]) and MapLive.place(f[1])
     if index then Net.toClients("mapindex", f[1], index) end
 end)
+Net.on("starting", function(f)
+    if Net.isHost() or not f[1] then return end
+    for _, map in ipairs(installedMaps()) do
+        if map.code == f[1] then return end
+    end
+    log("client lobby: the host is starting " .. f[1] .. ", which this PC does not have: leaving the fireteam")
+    Live.leaveFireteam()
+end)
+
+--- Leave the fireteam from the lobby: the game's own leave, on the local
+--- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
+--- LeaveGame only leaves a match. true when a leave was asked for.
+function Live.leaveFireteam()
+    for _, vm in ipairs(FindAllOf("MeteoritePlayerViewModel") or {}) do
+        local ok, can = pcall(function() return vm:CanLeaveFireteam() end)
+        if ok and can then
+            local left = pcall(function() vm:LeaveFireteam() end)
+            log("fireteam: " .. (left and "left" or "could not leave"))
+            return left
+        end
+    end
+    log("fireteam: nothing to leave")
+    return false
+end
+
 Net.on("mapindex", function(f)
     if Net.isHost() then return end
     Live.hostIndex[f[1] or ""] = tonumber(f[2] or "")
@@ -507,6 +534,22 @@ Net.on("mapindex", function(f)
         if map.code == f[1] then return MapLive.follow(f[1], f[2]) end
     end
 end)
+
+--- The host: guests who said they will not get `code` (declined, or their
+--- download failed), or who went quiet deciding or downloading. Guests that
+--- never reported have the map (or an MJOLNIR Lobby from before reports).
+function Live.lacking(code)
+    local names = {}
+    for name, st in pairs(Live.states) do
+        local quiet = os.time() - st.at >= (st.stage == "prompt" and 25 or 20)
+        local busy = st.stage == "prompt" or st.stage == "download" or st.stage == "start" or st.stage == "installing"
+        if st.code == code and (st.stage == "declined" or st.stage == "error" or (busy and quiet)) then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    return names
+end
 
 Net.on("mapstate", function(f, sender)
     if not Net.isHost() then return end
@@ -1702,19 +1745,28 @@ local LOBBY_EVENTS = {
             return
         end
         if not (Game.map and Game.mode and Net.isHost()) then return end
-        -- Someone still getting the map: say so first; a second START within
-        -- ten seconds starts without them.
+        -- Someone still getting the map, or without it: a guest without the
+        -- map holds the whole fireteam's start (two PCs, 2026-10-09). Say
+        -- so first; a second START within ten seconds removes them from the
+        -- fireteam, then starts.
         local waiting = Live.waitingOn(Game.map.code)
-        if waiting > 0 and os.time() - (Live.confirmAt or 0) > 10 then
+        local lacking = Live.lacking(Game.map.code)
+        if (waiting > 0 or #lacking > 0) and os.time() - (Live.confirmAt or 0) > 10 then
             Live.confirmAt = os.time()
-            setText(Lobby.Status, string.format("%d PLAYER%s STILL DOWNLOADING %s   /   START GAME AGAIN TO START WITHOUT THEM",
-                waiting, waiting == 1 and " IS" or "S ARE", titleOf(Game.map)))
+            local who = waiting > 0 and string.format("%d PLAYER%s STILL DOWNLOADING", waiting, waiting == 1 and " IS" or "S ARE")
+                or (string.upper(table.concat(lacking, ", ")) .. (#lacking == 1 and " DOESN'T" or " DON'T") .. " HAVE")
+            setText(Lobby.Status, who .. " " .. titleOf(Game.map) .. "   /   START GAME AGAIN TO START WITHOUT THEM")
             return
         end
         Live.confirmAt = nil
+        local removed = Live.removeLacking(Game.map.code)
         setText(Lobby.Status, "Starting " .. titleOf(Game.map) .. " - " .. Game.mode.name .. "...")
-        local ok, err = startGame(Game.map, Game.mode)
-        if not ok then setText(Lobby.Status, "Could not start: " .. tostring(err)) end
+        local map, mode = Game.map, Game.mode
+        -- A moment for the removed to leave before the countdown takes them.
+        ExecuteInGameThreadWithDelay(removed > 0 and 3000 or 0, function()
+            local ok, err = startGame(map, mode)
+            if not ok and alive(Lobby) then setText(Lobby.Status, "Could not start: " .. tostring(err)) end
+        end)
     end,
     changemap = function()
         if Net.isHost() then openMapSelect() end
@@ -2477,8 +2529,11 @@ local function decide()
             ExecuteInGameThreadWithDelay(1000, go)
             return
         end
-        local ok, err = startGame(map, mode)
-        if not ok and Post and alive(Post.screen) then setText(Post.screen.Status, "Could not start: " .. tostring(err)) end
+        local removed = Live.removeLacking(map.code)
+        ExecuteInGameThreadWithDelay(removed > 0 and 3000 or 0, function()
+            local ok, err = startGame(map, mode)
+            if not ok and Post and alive(Post.screen) then setText(Post.screen.Status, "Could not start: " .. tostring(err)) end
+        end)
     end
     ExecuteInGameThreadWithDelay(2500, go)
 end
@@ -2914,6 +2969,29 @@ local function kick(player, why)
     return ok
 end
 
+--- The host, starting `code`: send every guest without it back to their own
+--- menu (Live.lacking and those still deciding or downloading), since one
+--- left in the fireteam holds everyone's start. How many were sent back.
+function Live.removeLacking(code)
+    local out = {}
+    for _, name in ipairs(Live.lacking(code)) do out[name] = true end
+    for name, st in pairs(Live.states) do
+        if st.code == code and (st.stage == "prompt" or st.stage == "download" or st.stage == "start"
+            or st.stage == "installing") then
+            out[name] = true
+        end
+    end
+    local removed = 0
+    local title = Live.title(code)
+    for _, p in ipairs(remotePlayers()) do
+        if out[p.name] then
+            if kick(p, "You don't have " .. title .. ", so the game started without you.") then removed = removed + 1 end
+            Live.states[p.name] = nil
+        end
+    end
+    return removed
+end
+
 --- RETURN TO LOBBY: the fireteam travels back to the frontend with the host
 --- (as after a match), and the host's lobby opens there.
 local function returnToLobby()
@@ -3293,6 +3371,12 @@ local function initialize()
     -- enforced as a banned player rejoined, two PCs 2026-10-03).
     Net.on("kick", function(fields)
         log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
+        -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
+        -- fireteam's own leave does it.
+        if inFrontend() then
+            Live.leaveFireteam()
+            return
+        end
         local tries = 0
         local function leave()
             tries = tries + 1
