@@ -59,9 +59,20 @@ local function bridgeDirectory()
 end
 
 local DIR = bridgeDirectory()
-local REQUEST = DIR .. "request.txt"
-local RESPONSE = DIR .. "response.txt"
-local STATUS = DIR .. "status.txt"
+
+--- Channel suffix, so two game processes can be driven independently.
+---
+--- Two instances share the install, so they poll the same directory — and
+--- without this, both would execute every request and fight over the response
+--- file. A process launched with MJOLNIR_INSTANCE=2 in its environment answers
+--- on request-2.txt/response-2.txt/status-2.txt instead. Steam launches carry
+--- no such variable, so the ordinary single-instance session keeps the plain
+--- filenames and nothing about the existing tooling changes.
+local INSTANCE = (os.getenv and os.getenv("MJOLNIR_INSTANCE")) or ""
+local SUFFIX = (INSTANCE ~= "" and INSTANCE ~= "1") and ("-" .. INSTANCE) or ""
+local REQUEST = DIR .. "request" .. SUFFIX .. ".txt"
+local RESPONSE = DIR .. "response" .. SUFFIX .. ".txt"
+local STATUS = DIR .. "status" .. SUFFIX .. ".txt"
 
 --------------------------------------------------------------------------------
 -- Wire format
