@@ -49,8 +49,10 @@ pub struct LightmapsArgs {
     pub stop: f32,
     /// Shooters per parallel batch. Each batch costs a pass over every
     /// element whatever its size, so with `--gpu` (where the rays are cheap)
-    /// 256 solves several times faster; the pages move a little (the
-    /// brightest shoot together rather than in turn).
+    /// 256 solves several times faster; the pages move (the brightest shoot
+    /// together rather than in turn, and a batch's receivers are every
+    /// cluster any of its shooters sees): single texels on most maps, whole
+    /// interior pages 10-40/255 brighter on Coldsnap.
     #[arg(long, default_value_t = 64)]
     pub batch: usize,
     /// Draw at this multiple and box-filter down (tool.exe: 3).
