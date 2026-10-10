@@ -49,6 +49,29 @@ impl Bvh {
         self.tris.is_empty()
     }
 
+    /// The triangles in tree order, and per triangle the caller's index.
+    pub fn triangles(&self) -> (&[[V3; 3]], &[u32]) {
+        (&self.tris, &self.ids)
+    }
+
+    /// The tree for the GPU (`gpu.wgsl`): per node eight 32-bit words (min,
+    /// index, max, count; the floats as bits), per triangle in tree order
+    /// its first corner and two edges as three vec4s, and per triangle in
+    /// tree order the caller's index.
+    pub fn flat(&self) -> (Vec<u32>, Vec<[f32; 4]>, &[u32]) {
+        let mut nodes = Vec::with_capacity(self.nodes.len() * 8);
+        for n in &self.nodes {
+            nodes.extend([n.min[0].to_bits(), n.min[1].to_bits(), n.min[2].to_bits(), n.index]);
+            nodes.extend([n.max[0].to_bits(), n.max[1].to_bits(), n.max[2].to_bits(), n.count]);
+        }
+        let mut tris = Vec::with_capacity(self.tris.len() * 3);
+        for t in &self.tris {
+            let (e1, e2) = (sub(t[1], t[0]), sub(t[2], t[0]));
+            tris.extend([[t[0][0], t[0][1], t[0][2], 0.0], [e1[0], e1[1], e1[2], 0.0], [e2[0], e2[1], e2[2], 0.0]]);
+        }
+        (nodes, tris, &self.ids)
+    }
+
     fn split(tris: &mut [([V3; 3], u32)], first: usize, end: usize, nodes: &mut Vec<Node>) -> usize {
         let mut min = [f32::MAX; 3];
         let mut max = [f32::MIN; 3];

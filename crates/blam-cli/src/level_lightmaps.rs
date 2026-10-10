@@ -47,7 +47,10 @@ pub struct LightmapsArgs {
     /// (tool.exe prints 0.01; its pages match a solve taken further).
     #[arg(long, default_value_t = 0.001)]
     pub stop: f32,
-    /// Shooters per parallel batch.
+    /// Shooters per parallel batch. Each batch costs a pass over every
+    /// element whatever its size, so with `--gpu` (where the rays are cheap)
+    /// 256 solves several times faster; single texels move (the brightest
+    /// shoot together rather than in turn).
     #[arg(long, default_value_t = 64)]
     pub batch: usize,
     /// Draw at this multiple and box-filter down (tool.exe: 3).
@@ -75,6 +78,25 @@ pub struct LightmapsArgs {
     /// under each patch.
     #[arg(long)]
     pub flat_reflectance: bool,
+    /// Cast every ray on the CPU. By default the receivers' gather and the
+    /// per-texel sun and fill run on the GPU (wgpu: Vulkan, DX12 or Metal,
+    /// its ray tracing hardware when it has some) and fall back to the CPU
+    /// when there is no adapter; the CPU path is the reference.
+    #[arg(long)]
+    pub cpu: bool,
+    /// The GPU, the default (kept so older scripts' `--gpu` still parses).
+    #[arg(long, hide = true, conflicts_with = "cpu")]
+    pub gpu: bool,
+    /// No element edge shorter than this many of its own lightmap texels at
+    /// the drawn page size (0: tool.exe's rows, divided by `--finer`, only).
+    /// The sun and fill are per texel regardless; this bounds how finely
+    /// the bounce light is solved where the pages cannot show it.
+    #[arg(long, default_value_t = 0.0)]
+    pub texel_elements: f32,
+    /// Also write `<page>_elements.png`: every final patch's edges on the
+    /// page, to see where the solver put its elements.
+    #[arg(long)]
+    pub element_edges: bool,
     /// Print each shooting step's residual.
     #[arg(long)]
     pub verbose: bool,
@@ -242,19 +264,33 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
         supersample: a.supersample.max(1),
         flat_reflectance: a.flat_reflectance,
         bsp_solid: !a.no_bsp_solid,
+        gpu: !a.cpu,
+        texel_elements: a.texel_elements,
     };
 
     let started = std::time::Instant::now();
     let solved = blam_radiosity::solve(&job, &sizes).map_err(|e| anyhow!("solve: {e}"))?;
     println!(
-        "{} element(s), {} vertices, {} shot(s), {} split(s), residual {:.5}, {:.1}s on {} thread(s)",
+        "{} element(s), {} vertices, {} shot(s), {} split(s), residual {:.5}, {:.1}s on {} thread(s), rays on {}",
         solved.elements,
         solved.vertices,
         solved.steps,
         solved.splits,
         solved.residual,
         started.elapsed().as_secs_f32(),
-        blam_radiosity::threads()
+        blam_radiosity::threads(),
+        solved.backend
+    );
+    let t = &solved.timings;
+    println!(
+        "time: light {:.1}s, shooting {:.1}s (select {:.1}s, gather {:.1}s, settle {:.1}s), draw {:.1}s (per-texel direct {:.1}s)",
+        t.light,
+        t.select + t.gather + t.settle,
+        t.select,
+        t.gather,
+        t.settle,
+        t.draw,
+        t.texel_direct
     );
     println!(
         "{} emitting element(s) ({} without a cluster), {} placed light(s); vertices exterior {} interior {}",
@@ -266,6 +302,15 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
     for (i, page) in solved.pages.iter().enumerate() {
         let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));
         page.write_png(&a.out.join(&name)).map_err(|e| anyhow!("{e}"))?;
+    }
+    if a.element_edges {
+        // Big enough to see a patch at 1x, no larger than 4096 a side.
+        for (i, page) in solved.pages.iter().enumerate() {
+            let f = (4096 / page.width.max(page.height).max(1)).clamp(1, 8);
+            let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));
+            let stem = name.strip_suffix(".png").unwrap_or(&name);
+            blam_radiosity::raster::element_edges(&solved.detail, i, page, f).write_png(&a.out.join(format!("{stem}_elements.png"))).map_err(|e| anyhow!("{e}"))?;
+        }
     }
     for (i, page) in solved.sun_pages.iter().enumerate() {
         let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));

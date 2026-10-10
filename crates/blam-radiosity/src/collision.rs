@@ -58,6 +58,11 @@ impl Collision {
         (!nodes.is_empty() && !planes.is_empty()).then_some(Collision { nodes, planes })
     }
 
+    /// The tree for the GPU: per node (plane, back, front), and the planes.
+    pub fn flat(&self) -> (&[[i32; 3]], &[[f32; 4]]) {
+        (&self.nodes, &self.planes)
+    }
+
     /// Whether a glTF-space point (metres) lies in the solid.
     pub fn in_solid(&self, p: V3) -> bool {
         // glTF (x, y, z) is CE (x, -z, y) in world units.

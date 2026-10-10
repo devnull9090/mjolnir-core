@@ -4,7 +4,7 @@ Classic Halo CE lit its levels with a progressive-refinement radiosity solver
 in the HEK's `tool.exe lightmaps`. This crate re-solves that lighting from a
 converted map's staging (the halo2ue export merged by
 `tools/level/merge_ce_scene.py`) so the lightmaps can be rendered at any
-resolution, on every core, and later on the GPU. The algorithm below is what
+resolution, on the GPU (or every core, `--cpu`). The algorithm below is what
 tool.exe does, recovered from its code (2026-10-07, Ghidra over the MCC and
 2004 builds; the constants are the binary's own), and its output is the
 acceptance test: run at tool.exe's own element density the solver must match
@@ -175,6 +175,94 @@ the shipped pages: Danger Canyon scores a mean difference of 15/255 over the
 drawn texels and Death Island 16.5/255 (its base interior's pages 6-17,
 its sea floor under 2), the remainder being tool.exe's placed-object
 shadows and its own chart raster.
+
+## Cost, and the GPU
+
+The CLI's `time:` line splits a solve: the light phase; `select`, choosing
+each batch's shooters and their receivers; `gather`, the receivers' form
+factors and their visibility rays; `settle`, adding the gathered light and
+splitting patches; and the page draw, of which the per-texel sun and fill.
+Profiled 2026-10-09, the rays were the smaller part: of Gephyrophobia's
+1239 s, 219 s gathered and 938 s went to bookkeeping that walked every
+element once per 64-shooter batch (re-sorting them all to pick the
+shooters, cloning every element's patch list, rescanning every patch for
+the receivers' vertices). That walk, not the rays, is what grew with the
+square of the element count. The solver now keeps each element's unshot
+energy beside it (the shooters are a top-k over it, in the stable sort's
+order), settles in one parallel pass, and keeps the last few receiver sets
+with their vertices, grown by the splits; dilation visits only the
+frontier. The CPU path's pages are byte-identical to before (Night-Lockout,
+all 93 of Danger Canyon x4's).
+
+The CLI casts the gather's and
+the per-texel pass's rays on the GPU by default (this crate's `gpu`
+feature; `--cpu` keeps them on the CPU) with wgpu compute shaders (`src/gpu.rs`,
+`gpu.wgsl`): through the GPU's ray tracing hardware where wgpu reaches it
+(ray queries, Vulkan: the opaque triangles commit, the glass comes back as
+candidates for its tint), else through the CPU's BVH in a compute shader
+(`BLAM_RADIOSITY_GPU=bvh` forces that); with no adapter the solve runs on
+the CPU. Everything else stays on the CPU. Each ray is set up in the CPU's
+own arithmetic (f64 rounded to f32 at every step, `gpu_exact_f64.wgsl`):
+a ray grazing Gephyrophobia's bridge walls starts a few ulps off a
+collision plane, and the GPU's fused f32 flipped whole sunvis charts. What
+remains is the triangle test itself on rays the sun barely grazes, which
+are speckled on the CPU too. `examples/gpu_check` compares the kernels
+with the CPU ray for ray.
+
+Seconds per solve at `--scale auto` (32 threads, RTX 5090, 2026-10-10;
+another solve ran beside these, so they are an upper bound); "before" is
+the solver before the bookkeeping rework:
+
+| map | elements | before | `--cpu` | GPU (default) | GPU, `--batch 256` |
+|---|---|---|---|---|---|
+| Night-Lockout | 181 k | 128 | 25 | 12 | 6.5 |
+| Death Island | 86 k | | 75 | 12 | 10.5 |
+| Gephyrophobia | 1.2 M | 1239 | 282 | 137 | 41 |
+| Danger Canyon x4 (`--scale 1 --finer 4`) | 219 k | 175 | 58 | 24.5 | 9.6 |
+| Coldsnap (`--finer 0.5`) | 2.7 M | | 5472 | 2750 | 759 |
+
+Coldsnap at the default `--finer 2` has 41.7 M elements and 22.4 M
+vertices: a solve costs the vertices times the shots, the shots grow with
+the elements, and its snow (reflectance near 1) takes 1.2 shots an element
+where Gephyrophobia takes 0.3, so at batch 4096 the GPU itself is the
+bottleneck at 6 s a batch and the solve would take most of a day. Its
+elements are not finer than its pages: at 4x its texels are 2.7 m on the
+cliff walls and 5.3 m on the glacier, and its elements' edges are already
+about one texel (their rows are coarse; elements are triangles, so a few
+share a texel's area). What it has is about 100 km2 of lit surface (cliff
+walls in full) and snow.
+
+`--texel-elements K` puts a floor under the elements: no edge shorter
+than K of its own triangle's texels at the drawn size, at the start and
+through the adaptive splits (emitting surfaces keep their rows);
+`--element-edges` draws every final patch over its page. Tried
+2026-10-10 against tool.exe's pages (`--scale 1`): Danger Canyon 8.7/255
+and x4 8.0, Death Island 9.7, the same at K = 0, 1 and 2, the pages
+indistinguishable by eye; it only trims splits finer than a texel (Danger
+Canyon x4 at K = 2: 30% fewer vertices, 31% faster). Death Island at
+`--scale auto` does not change (its elements are its triangles, which a
+floor cannot merge). Coldsnap at `--finer 2`: 41.7 M elements, 39.2 M at
+K = 1, 16.7 M at K = 2, still hours. Off by default.
+
+At the default batch the GPU solve takes the CPU's split decisions exactly
+on every map above, and its pages differ from the CPU's by at most
+0.003/255 on average; `--compare` scores are the same (Danger Canyon 8.7,
+x4 7.9, Death Island 9.7/255). The sunvis pages differ on 0.2% of texels
+or fewer, on Gephyrophobia 1.1% (the grazing rays above).
+
+`--batch` is the lever left: every batch walks every element, whatever its
+size, so where the rays are cheap fewer, larger batches are faster. Each
+shooter lights only the clusters its own cluster sees, as tool.exe shoots
+(`src/visibility.rs`, tested per shooter and vertex in the gather): a
+batch used to gather into every cluster any of its shooters saw, which
+let light into Coldsnap's interiors past its PVS, more the larger the
+batch (five interior pages 10-40/255 brighter at 256 than at 64, and
+both too bright where tool.exe's are dark: page 39 at 82 and 127 where
+tool.exe has 58, now 61). With the test, Coldsnap at 64 and 256 differ by
+0.03/255; Danger Canyon, Death Island, Gephyrophobia and Night-Lockout,
+whose shadow rays already kept that light out, are byte-identical to
+before it. The brightest still shoot together rather than in turn, which
+moves single texels (the scores against tool.exe do not change).
 
 The example `radiosity_bake` is the same solve with every knob exposed
 (`--no-sun-cosine`, `--no-bsp-solid`, `--fill-spread`, `--dump <csv>` of

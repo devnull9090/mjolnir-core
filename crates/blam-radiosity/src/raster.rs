@@ -12,6 +12,10 @@ use crate::math::{add, luma, mul, norm, V3};
 use crate::transport::{direct_terms_placed, Light, Occluders, Options, PlacedLights, Set};
 use rayon::prelude::*;
 
+/// A texel's direct light: (all, the sun's part, the sun's potential, the
+/// sun's visibility), as `direct_terms` gives it.
+type Terms = (V3, V3, V3, f32);
+
 /// One lightmap page, RGB in 0..1 with a coverage mask.
 pub struct Page {
     pub width: usize,
@@ -97,70 +101,94 @@ impl Page {
     }
 
     /// `self` box-filtered down by `k`: a texel is the mean of its covered
-    /// subtexels, and covered when any is.
+    /// subtexels, and covered when any is. Rows in parallel.
     pub fn downsample(&self, k: usize) -> Page {
         let (w, h) = (self.width / k, self.height / k);
         let mut out = Page::new(w.max(1), h.max(1));
-        for y in 0..h {
-            for x in 0..w {
-                let mut sum = [0.0f32; 3];
-                let mut n = 0;
-                for sy in 0..k {
-                    for sx in 0..k {
-                        let i = (y * k + sy) * self.width + x * k + sx;
-                        if self.covered[i] {
-                            sum = add(sum, self.rgb[i]);
-                            n += 1;
+        let ow = out.width;
+        out.rgb
+            .par_chunks_mut(ow)
+            .zip(out.covered.par_chunks_mut(ow))
+            .zip(out.drawn.par_chunks_mut(ow))
+            .enumerate()
+            .take(h)
+            .for_each(|(y, ((rgb, covered), drawn))| {
+                for x in 0..w {
+                    let mut sum = [0.0f32; 3];
+                    let mut n = 0;
+                    for sy in 0..k {
+                        for sx in 0..k {
+                            let i = (y * k + sy) * self.width + x * k + sx;
+                            if self.covered[i] {
+                                sum = add(sum, self.rgb[i]);
+                                n += 1;
+                            }
                         }
                     }
+                    if n > 0 {
+                        rgb[x] = mul(sum, 1.0 / n as f32);
+                        covered[x] = true;
+                        drawn[x] = true;
+                    }
                 }
-                if n > 0 {
-                    let i = y * w + x;
-                    out.rgb[i] = mul(sum, 1.0 / n as f32);
-                    out.covered[i] = true;
-                    out.drawn[i] = true;
-                }
-            }
-        }
+            });
         out
     }
 
     /// Fill every empty texel from a covered neighbour, repeatedly, as
-    /// tool.exe dilates its chart bitmaps.
+    /// tool.exe dilates its chart bitmaps: each round, every empty texel
+    /// beside a covered one takes its covered neighbours' mean. Only that
+    /// frontier is visited (a round over the whole page cost seconds on a
+    /// mostly empty 2048 page at 64 rounds).
     pub fn dilate(&mut self, rounds: usize) {
+        const AROUND: [(i32, i32); 8] = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)];
+        let (width, w, h) = (self.width, self.width as i32, self.height as i32);
+        let near = move |i: usize| {
+            let (x, y) = ((i % width) as i32, (i / width) as i32);
+            AROUND.iter().filter_map(move |(dx, dy)| {
+                let (nx, ny) = (x + dx, y + dy);
+                (nx >= 0 && ny >= 0 && nx < w && ny < h).then_some(ny as usize * width + nx as usize)
+            })
+        };
+        let covered = &self.covered;
+        let mut frontier: Vec<usize> = (0..covered.len()).into_par_iter().filter(|&i| !covered[i] && near(i).any(|j| covered[j])).collect();
+        let mut queued = vec![false; self.covered.len()];
         for _ in 0..rounds {
-            let prev = self.covered.clone();
-            let src = self.rgb.clone();
-            let mut changed = false;
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    let i = y * self.width + x;
-                    if prev[i] {
-                        continue;
-                    }
+            if frontier.is_empty() {
+                break;
+            }
+            let (covered, rgb) = (&self.covered, &self.rgb);
+            let fills: Vec<V3> = frontier
+                .par_iter()
+                .map(|&i| {
                     let mut sum = [0.0f32; 3];
                     let mut n = 0;
-                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)] {
-                        let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                        if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
-                            continue;
-                        }
-                        let j = ny as usize * self.width + nx as usize;
-                        if prev[j] {
-                            sum = add(sum, src[j]);
+                    for j in near(i) {
+                        if covered[j] {
+                            sum = add(sum, rgb[j]);
                             n += 1;
                         }
                     }
-                    if n > 0 {
-                        self.rgb[i] = mul(sum, 1.0 / n as f32);
-                        self.covered[i] = true;
-                        changed = true;
+                    mul(sum, 1.0 / n as f32)
+                })
+                .collect();
+            for (&i, c) in frontier.iter().zip(&fills) {
+                self.rgb[i] = *c;
+                self.covered[i] = true;
+            }
+            let mut next = Vec::new();
+            for &i in &frontier {
+                for j in near(i) {
+                    if !self.covered[j] && !queued[j] {
+                        queued[j] = true;
+                        next.push(j);
                     }
                 }
             }
-            if !changed {
-                break;
+            for &j in &next {
+                queued[j] = false;
             }
+            frontier = next;
         }
     }
 
@@ -216,6 +244,10 @@ pub struct Draw<'a> {
     /// page scale, and a mip chain averages whatever is left empty into the
     /// charts' edges (8 per unit of scale).
     pub dilate: usize,
+    /// Where to add the seconds the per-texel direct pass took.
+    pub texel_direct_seconds: Option<&'a mut f64>,
+    /// Casts the per-texel pass's rays when set (dropped on a failure).
+    pub gpu: Option<&'a mut crate::gpu::Gpu>,
 }
 
 fn leaves(e: &Element) -> &[Patch] {
@@ -236,7 +268,7 @@ fn leaves(e: &Element) -> &[Patch] {
 /// than a share of the lightmap because two bilinear samples multiplied are
 /// not the bilinear sample of the product: a share drew a bright rim along
 /// every shadow's texel contour (Blood Gulch, 2026-10-08).
-pub fn pages(draw: &Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
+pub fn pages(draw: &mut Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
     let el = draw.elements;
     let k = draw.supersample.max(1);
     let per_texel = draw.occluders.is_some() && draw.lights.is_some() && draw.options.texel_direct;
@@ -304,7 +336,35 @@ pub fn pages(draw: &Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
                     });
                 }
             }
-            let direct: Vec<Option<(V3, V3, V3, f32)>> = sample
+            let texel_started = std::time::Instant::now();
+            let mut on_gpu: Option<Vec<Option<Terms>>> = None;
+            if let Some(g) = draw.gpu.as_deref_mut() {
+                let at: Vec<usize> = (0..sample.len()).filter(|&i| sample[i].is_some()).collect();
+                let list: Vec<(V3, V3, u32, i32)> = at
+                    .iter()
+                    .map(|&i| {
+                        let (p, n, set, cluster) = sample[i].unwrap();
+                        (p, n, if set == Set::Interior { 1 } else { 0 }, cluster)
+                    })
+                    .collect();
+                match g.direct(&list, exterior, interior, placed, draw.options) {
+                    Ok(v) => {
+                        let mut d = vec![None; sample.len()];
+                        for (&i, x) in at.iter().zip(v) {
+                            d[i] = Some(x);
+                        }
+                        on_gpu = Some(d);
+                    }
+                    Err(e) => {
+                        eprintln!("GPU per-texel pass failed ({e}); finishing on the CPU");
+                        draw.gpu = None;
+                    }
+                }
+            }
+            let direct: Vec<Option<Terms>> = if let Some(d) = on_gpu {
+                d
+            } else {
+                sample
                 .par_iter()
                 .map(|s| {
                     s.map(|(p, n, set, cluster)| {
@@ -315,7 +375,11 @@ pub fn pages(draw: &Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
                         direct_terms_placed(occ, lights, placed, cluster, p, n, draw.options)
                     })
                 })
-                .collect();
+                .collect()
+            };
+            if let Some(t) = draw.texel_direct_seconds.as_deref_mut() {
+                *t += texel_started.elapsed().as_secs_f64();
+            }
             let mut sun = Page::new(page.width, page.height);
             let mut ambient = Page::new(page.width, page.height);
             let mut potential_page = Page::new(page.width, page.height);
@@ -363,29 +427,58 @@ pub fn pages(draw: &Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
             potential_hi.push(potential_page);
         }
     }
-    let mut out: Vec<Page> = hi
-        .iter()
-        .map(|p| if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone(), drawn: p.covered.clone() } })
-        .collect();
-    for p in out.iter_mut() {
-        for c in p.rgb.iter_mut() {
-            *c = vertex_colour(*c);
-        }
-        p.drawn = p.covered.clone();
-        p.dilate(draw.dilate.max(1));
-    }
+    let dilate = draw.dilate.max(1);
     let finish = |hi: &Vec<Page>, clamp: bool| -> Vec<Page> {
-        let mut v: Vec<Page> = hi.iter().map(|p| if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone(), drawn: p.covered.clone() } }).collect();
-        for p in v.iter_mut() {
-            if clamp {
-                for c in p.rgb.iter_mut() {
-                    *c = vertex_colour(*c);
+        hi.par_iter()
+            .map(|p| {
+                let mut p = if k > 1 { p.downsample(k) } else { Page { width: p.width, height: p.height, rgb: p.rgb.clone(), covered: p.covered.clone(), drawn: p.covered.clone() } };
+                if clamp {
+                    p.rgb.par_iter_mut().for_each(|c| *c = vertex_colour(*c));
+                }
+                p.drawn = p.covered.clone();
+                p.dilate(dilate);
+                p
+            })
+            .collect()
+    };
+    let ((out, sun), (ambient, potential)) =
+        rayon::join(|| rayon::join(|| finish(&hi, true), || finish(&sun_hi, false)), || rayon::join(|| finish(&ambient_hi, true), || finish(&potential_hi, false)));
+    (out, sun, ambient, potential)
+}
+
+/// Drawn page `page` (page `pi` of the solve) enlarged `f` times, nearest,
+/// with every final patch edge of the elements on it drawn red over it:
+/// where the solver put its elements and how finely it split them.
+pub fn element_edges(el: &Elements, pi: usize, page: &Page, f: usize) -> Page {
+    let f = f.max(1);
+    let (w, h) = (page.width * f, page.height * f);
+    let mut out = Page::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y / f) * page.width + x / f;
+            out.rgb[y * w + x] = page.rgb[i];
+            out.covered[y * w + x] = page.covered[i];
+        }
+    }
+    for e in &el.elements {
+        let m = &el.materials[e.material as usize];
+        if m.page != pi || m.fixed.is_some() {
+            continue;
+        }
+        for patch in leaves(e) {
+            for k in 0..3 {
+                let (a, b) = (patch.uv1[k], patch.uv1[(k + 1) % 3]);
+                let (ax, ay, bx, by) = (a[0] * w as f32, a[1] * h as f32, b[0] * w as f32, b[1] * h as f32);
+                let steps = (bx - ax).abs().max((by - ay).abs()).ceil().max(1.0) as usize;
+                for s in 0..=steps {
+                    let t = s as f32 / steps as f32;
+                    let (x, y) = ((ax + (bx - ax) * t) as isize, (ay + (by - ay) * t) as isize);
+                    if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+                        out.rgb[y as usize * w + x as usize] = [1.0, 0.0, 0.0];
+                    }
                 }
             }
-            p.drawn = p.covered.clone();
-            p.dilate(draw.dilate.max(1));
         }
-        v
-    };
-    (out, finish(&sun_hi, false), finish(&ambient_hi, true), finish(&potential_hi, false))
+    }
+    out
 }

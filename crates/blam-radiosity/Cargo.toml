@@ -12,3 +12,15 @@ serde_json.workspace = true
 png = "0.17"
 # The CPU path: receivers gather in parallel for every shooting batch.
 rayon = "1"
+# The GPU path (`gpu` feature): the gather and the per-texel direct light as
+# wgpu compute shaders, on Vulkan, DX12 or Metal, no CUDA toolkit.
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "dx12", "vulkan", "metal"], optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
+
+[features]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
+[[example]]
+name = "gpu_check"
+required-features = ["gpu"]

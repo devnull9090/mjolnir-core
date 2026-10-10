@@ -135,6 +135,34 @@ pub struct Element {
     /// The scene triangle it came from.
     pub tri: u32,
     pub children: Vec<Patch>,
+    /// No patch of it splits below this edge length (metres): its texel
+    /// floor (`TexelFloor`), 0 without one.
+    pub floor: f32,
+}
+
+/// Elements no finer than the pages can show: an edge no shorter than
+/// `texels` of the triangle's own lightmap texels at the drawn page sizes,
+/// at the start and through the adaptive splits. The sun and fill are per
+/// texel regardless; this bounds the bounce light's patches. Emitting
+/// surfaces keep their rows.
+pub struct TexelFloor {
+    pub texels: f32,
+    /// Per page, its size as drawn (the shipped size times the scale).
+    pub sizes: Vec<(usize, usize)>,
+}
+
+impl TexelFloor {
+    /// The floor of a triangle (metres), 0 when it has no page or no area
+    /// on it.
+    pub fn of(&self, p: [V3; 3], uv1: Option<[[f32; 2]; 3]>, page: Option<usize>) -> f32 {
+        let (Some(uv), Some(&(w, h))) = (uv1, page.and_then(|i| self.sizes.get(i))) else { return 0.0 };
+        let texels = 0.5 * ((uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1]) - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1])).abs() * (w * h) as f32;
+        let world = area_of(p);
+        if texels <= 1e-9 || world <= 1e-9 {
+            return 0.0;
+        }
+        self.texels * (world / texels).sqrt()
+    }
 }
 
 /// A lit surface group: one shader on one lightmap page.
@@ -159,6 +187,7 @@ pub struct Elements {
 }
 
 /// Vertices keyed on position and normal, tool.exe's equality (5e-4).
+#[derive(Default)]
 pub struct Pool {
     pub vertices: Vec<Vertex>,
     index: HashMap<[i32; 6], u32>,
@@ -341,7 +370,7 @@ impl Elements {
     /// interiors). Triangles of placed objects and the sky only occlude.
     /// A lit surface without a lightmap page (the emitters, on tool.exe's
     /// "no lightmap" entry) still shoots and bounces; only pages get drawn.
-    pub fn build(scene: &Scene, translucent: Option<&Scene>, staging: &Staging, quality: &Quality, flat_reflectance: bool) -> Elements {
+    pub fn build(scene: &Scene, translucent: Option<&Scene>, staging: &Staging, quality: &Quality, flat_reflectance: bool, floor: Option<&TexelFloor>) -> Elements {
         let mut pool = Pool { vertices: Vec::new(), index: HashMap::new() };
         let mut materials: Vec<MaterialInfo> = Vec::new();
         let mut material_index: HashMap<(String, usize), u32> = HashMap::new();
@@ -411,7 +440,11 @@ impl Elements {
             let row = quality.rows[shader.detail_level];
             let emissive = shader.emission.iter().sum::<f32>() > 0.0;
             // Segment lengths are CE world units; the scene is metres.
-            let segment = if emissive { row.emissive } else { row.plain } * WU_TO_M;
+            let floor = match floor {
+                Some(f) if !emissive => f.of(tri.p, tri.uv1, tri.page),
+                _ => 0.0,
+            };
+            let segment = (if emissive { row.emissive } else { row.plain } * WU_TO_M).max(floor);
             let v = [
                 pool.get(tri.p[0], tri.n[0]),
                 pool.get(tri.p[1], tri.n[1]),
@@ -442,6 +475,7 @@ impl Elements {
                     cluster,
                     tri: ti as u32,
                     children: Vec::new(),
+                    floor,
                 });
             });
             }
