@@ -137,6 +137,30 @@
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.20.0"
     },
     {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.21.1",
+      "tag": "tag-editor-v0.21.1",
+      "title": "Blocks open past their first 64 elements",
+      "date": "2026-10-10",
+      "summary": "A block with more than 64 elements now shows and edits every one of them, so a scenario can take more vehicles, scenery or squads than the first 64.",
+      "body": "A small release: one fault in the form view, reported by a community member\nadding vehicles to Two Betrayals.\n\n### Fixed\n\n- The form read at most 64 elements of a block. Past that, the element\n  dropdown said \"… 1 more not loaded\" and the extra elements could not be\n  selected or edited. Two Betrayals ships 61 vehicles, so the fourth vehicle\n  added was stuck. Picking any element now reads the page of the block that\n  holds it, and its fields can be edited like any other.\n- The dropdown lists every element of a block up to 4,096 long. A longer\n  block, such as a BSP's surfaces, has a **go to** box for typing an element\n  number.\n- **copy** works on an element past the 64th; it used to fail.\n- The Tree view shows the same page, labelled with the elements it covers.\n\nCopy Block as TSV still copies only the first 64 rows of a longer block.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The form read at most 64 elements of a block. Past that, the element dropdown said \"… 1 more not loaded\" and the extra elements could not be selected or edited. Two Betrayals ships 61 vehicles, so the fourth vehicle added was stuck. Picking any element now reads the page of the block that holds it, and its fields can be edited like any other.",
+            "The dropdown lists every element of a block up to 4,096 long. A longer block, such as a BSP's surfaces, has a go to box for typing an element number.",
+            "copy works on an element past the 64th; it used to fail.",
+            "The Tree view shows the same page, labelled with the elements it covers."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.21.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.21.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.21.1"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.19.0",
