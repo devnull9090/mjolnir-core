@@ -44,7 +44,7 @@ import {
   scheduleSaveSession,
   type PersistedTab,
 } from "../lib/session";
-import { dropTabUi, seedTabUi, type TabUiState } from "../lib/tab-ui";
+import { dropTabUi, seedTabUi, tabUi, type TabUiState } from "../lib/tab-ui";
 
 type Status = "idle" | "detecting" | "opening" | "ready" | "error";
 
@@ -233,6 +233,9 @@ type EditorState = {
   /** Show every byte of the layout: padding and markers as raw bytes. */
   expert: boolean;
   setExpert: (on: boolean) => Promise<void>;
+  /** Re-read the active tag. The form calls it when a block's selected
+   *  element lies outside the elements read, so the read pages to it. */
+  refreshTag: () => Promise<void>;
   /** Switch the active tab's view. A fields view also becomes the remembered
    *  preference; a special view is the active tab's alone. */
   setViewMode: (mode: ViewMode) => void;
@@ -708,9 +711,19 @@ export const useEditor = create<EditorState>((set, get) => {
     }
   }
 
-  /** The tag as the current view options want it. */
+  /** The tag as the current view options want it. Each block's selected
+   *  element goes along, so a block past its first page is read from the
+   *  page the form is showing. */
   function readTagView(index: number) {
-    return api.readTag(index, get().expert);
+    const { tabs, activeTab } = get();
+    const tab = tabs.find((t) => t.id === activeTab);
+    const windows: Record<string, number> = {};
+    if (tab && tab.kind === "tag" && tab.index === index) {
+      for (const [path, element] of Object.entries(tabUi(tab.id).element)) {
+        if (element > 0) windows[path] = element;
+      }
+    }
+    return api.readTag(index, get().expert, windows);
   }
 
   /** Re-read the tag after a paste and report what the paste did in the edit
@@ -1093,6 +1106,8 @@ export const useEditor = create<EditorState>((set, get) => {
       set({ expert: on });
       await refreshActiveTag();
     },
+
+    refreshTag: () => refreshActiveTag(),
 
     setDegrees(on) {
       try {

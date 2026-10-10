@@ -302,6 +302,19 @@ const BAR_BUTTON =
   "shrink-0 border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] " +
   "text-text-secondary hover:bg-surface-hover hover:text-mjolnir-gold disabled:opacity-40";
 
+/** Blocks up to this long list every element in the dropdown; a longer one
+ *  (a BSP's millions) lists the page read and offers a go-to box. */
+const OPTION_LIMIT = 4096;
+
+/** The element indices a block's dropdown offers. */
+function elementChoices(total: number, first: number, read: number, selected: number): number[] {
+  if (total <= OPTION_LIMIT) return Array.from({ length: total }, (_, i) => i);
+  const page = Array.from({ length: read }, (_, i) => first + i);
+  // The selection is shown even before the page holding it arrives.
+  if (total > 0 && (selected < first || selected >= first + read)) page.unshift(selected);
+  return page;
+}
+
 function FSection({ node, path, depth }: { node: NodeView; path: string; depth: number }) {
   // Expansion and the element pick initialise from the tab's remembered state
   // and write through to it, so leaving and returning to the tab lands on the
@@ -331,17 +344,35 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
   const copyBlockTsv = useEditor((s) => s.copyBlockTsv);
   const openTsvPaste = useEditor((s) => s.openTsvPaste);
   const clipboard = useEditor((s) => s.elementClipboard);
+  const refreshTag = useEditor((s) => s.refreshTag);
 
   const isStruct = node.kind === "struct";
   // Only a block can gain or lose elements; an array's count is fixed by the
   // definition.
   const isBlock = node.kind === "block";
+  // A long block is read one page at a time: `children` are elements
+  // `first`… of `total`, the page holding the selected element.
   const elements = isStruct ? [] : node.children;
+  const first = node.first ?? 0;
   const total = node.count ?? elements.length;
-  const index = Math.min(element, Math.max(elements.length - 1, 0));
-  const current = elements[index];
+  const index = Math.min(element, Math.max(total - 1, 0));
+  const current = index >= first ? elements[index - first] : undefined;
   const hasOps = isBlock && edited.includes(path);
   const atMax = node.max_count !== null && total >= node.max_count;
+
+  // The selection sits outside the page read: read again, and the read pages
+  // to it. Once per selection, so a read that still cannot reach it (the
+  // tag's node budget ran out) does not loop.
+  const requested = useRef<number | null>(null);
+  useEffect(() => {
+    if (isStruct || total === 0 || current) {
+      requested.current = null;
+      return;
+    }
+    if (requested.current === index) return;
+    requested.current = index;
+    void refreshTag();
+  }, [isStruct, total, current, index, refreshTag]);
 
   const inner = isStruct ? node.children : (current?.children ?? []);
   const innerBase = isStruct ? path : `${path}[${index}]`;
@@ -360,7 +391,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
   };
   // A fresh element in front of the selected one, which stays selected.
   const insert = async () => {
-    if (await editElements(path, "insert", elements.length === 0 ? 0 : index)) {
+    if (await editElements(path, "insert", total === 0 ? 0 : index)) {
       setOpen(true);
     }
   };
@@ -373,7 +404,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
         ? `Paste ${clipboard.source} after the selected element`
         : `The clipboard holds a ${clipboard.block} element; this block holds ${node.block ?? "another kind"}`;
   const paste = async () => {
-    const at = elements.length === 0 ? null : index + 1;
+    const at = total === 0 ? null : index + 1;
     if (await pasteElement(path, at)) {
       setElement(at ?? 0);
       setOpen(true);
@@ -396,7 +427,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
         {
           label: "Duplicate Element",
           action: () => void duplicate(),
-          disabled: elements.length === 0 || atMax,
+          disabled: !current || atMax,
         },
         {
           label: "Insert Element Before",
@@ -406,14 +437,14 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
         {
           label: "Delete Element",
           action: () => void editElements(path, "remove", index),
-          disabled: elements.length === 0,
+          disabled: !current,
           danger: true,
         },
         "separator",
         {
           label: "Copy Element",
           action: () => void copyElement(path, index),
-          disabled: elements.length === 0,
+          disabled: !current,
         },
         {
           label: "Paste Element After",
@@ -425,7 +456,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
         {
           label: "Copy Block as TSV",
           action: () => void copyBlockTsv(path),
-          disabled: elements.length === 0,
+          disabled: total === 0,
           title: "One row per element, one column per field; nested blocks are left out",
         },
         {
@@ -470,24 +501,34 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
               {total}
               {node.max_count !== null ? ` of ${node.max_count}` : ""}
             </span>
+            {total > OPTION_LIMIT && (
+              <span className="ml-auto flex shrink-0 items-center gap-1" title={`Go to element 0–${total - 1}`}>
+                <span className="font-mono text-[10px] text-text-dim">go to</span>
+                <FText
+                  value={String(index)}
+                  onCommit={(text) => {
+                    const n = Number.parseInt(text, 10);
+                    if (Number.isInteger(n)) setElement(Math.min(Math.max(n, 0), total - 1));
+                  }}
+                />
+              </span>
+            )}
             <select
-              className={`${INPUT} ml-auto w-80 max-w-[50%] py-0.5`}
-              disabled={elements.length === 0}
+              className={`${INPUT} ${total > OPTION_LIMIT ? "" : "ml-auto"} w-80 max-w-[50%] py-0.5`}
+              disabled={total === 0}
               value={index}
               onChange={(e) => setElement(Number(e.target.value))}
             >
-              {elements.length === 0 && <option>none</option>}
-              {elements.map((el, i) => {
-                const label = elementLabel(el);
+              {total === 0 && <option>none</option>}
+              {elementChoices(total, first, elements.length, index).map((i) => {
+                const el = i >= first ? elements[i - first] : undefined;
+                const label = el ? elementLabel(el) : null;
                 return (
                   <option key={i} value={i}>
                     {label ? `${i} · ${label}` : `${i}`}
                   </option>
                 );
               })}
-              {elements.length < total && (
-                <option disabled>… {total - elements.length} more not loaded</option>
-              )}
             </select>
             {isBlock && (
               <>
@@ -516,7 +557,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                 <button
                   type="button"
                   className={BAR_BUTTON}
-                  disabled={elements.length === 0 || atMax}
+                  disabled={!current || atMax}
                   title="Duplicate the selected element"
                   onClick={() => void duplicate()}
                 >
@@ -525,7 +566,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                 <button
                   type="button"
                   className={BAR_BUTTON}
-                  disabled={elements.length === 0}
+                  disabled={!current}
                   title="Delete the selected element"
                   onClick={() => void editElements(path, "remove", index)}
                 >
@@ -534,7 +575,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
                 <button
                   type="button"
                   className={BAR_BUTTON}
-                  disabled={elements.length === 0}
+                  disabled={!current}
                   title="Copy the selected element, to paste into a block of the same kind — here or in another tag"
                   onClick={() => void copyElement(path, index)}
                 >
@@ -579,7 +620,7 @@ function FSection({ node, path, depth }: { node: NodeView; path: string; depth: 
       )}
       {open && inner.length === 0 && !isStruct && (
         <div className="ml-2.5 border-l border-border-subtle py-1.5 pl-4 text-xs text-text-dim">
-          no elements
+          {total === 0 ? "no elements" : current ? "no fields" : `reading element ${index}…`}
         </div>
       )}
     </div>
