@@ -39,6 +39,36 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.4.0",
+      "tag": "cli-v0.4.0",
+      "title": "Classic map lightmaps re-solved on your GPU, at any resolution",
+      "date": "2026-10-10",
+      "summary": "Re-solve a classic Halo CE map's lightmaps with its original radiosity, at several times the shipped resolution and on your GPU, plus per-game-type vehicles.",
+      "body": "This release brings the lighting behind the re-lit classic maps: the CLI now\nsolves a classic map's lightmaps itself, the way the original level tools\ndid, at a resolution of your choosing. It also carries the converted maps'\nper-game-type vehicles and scenery that stops bullets.\n\n### Added\n\n- **`mjolnir level lightmaps <staging> <scene.gltf> <out>`** solves a\n  classic map's lightmaps with Halo CE's own radiosity: the sky's sun and\n  fill, the light that glowing surfaces give off, and the light bouncing\n  between surfaces. It writes pages at a multiple of the shipped pages' size\n  (`--scale auto` picks the largest that stays within budget, up to 2048 a\n  side), drawing the sun and fill at every texel so shadow edges stay crisp.\n  Two companion pages per lightmap page record where the sun reaches and the\n  light without the sun, for the converted maps' Unreal lighting.\n- **It runs on your GPU.** The rays go through the graphics card's ray\n  tracing hardware where it has some (Vulkan), otherwise through a compute\n  shader (Vulkan, DirectX 12 or Metal), and the solve falls back to the CPU\n  when there is no usable graphics card. On an RTX 5090 Blood Gulch solves\n  in 9 seconds and Gephyrophobia in about 2 minutes (under 5 on 32 CPU\n  threads). `--cpu` keeps everything on the processor.\n- **Options for the curious:** `--compare` scores a solve against the\n  map's shipped lightmaps, `--batch` trades a little fidelity for speed,\n  `--texel-elements` stops patches from getting finer than the page can\n  show, `--element-edges` draws the patches over each page, and `--verbose`\n  reports where the time and the light went.\n- **`mjolnir megalo write --vehicle-label-pool`** and **`--require-label`**\n  write game types that place each team's vehicles the way Halo CE's game\n  variants did, so a converted map no longer spawns every game type's\n  vehicles at once.\n\n### Changed\n\n- **Scenery blocks bullets.** `mjolnir level collision` now builds a placed\n  object's collision into the level's collision tree, so projectiles hit\n  Covenant shields and similar scenery that players and vehicles already\n  collided with.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir level lightmaps <staging> <scene.gltf> <out> solves a classic map's lightmaps with Halo CE's own radiosity: the sky's sun and fill, the light that glowing surfaces give off, and the light bouncing between surfaces. It writes pages at a multiple of the shipped pages' size (--scale auto picks the largest that stays within budget, up to 2048 a side), drawing the sun and fill at every texel so shadow edges stay crisp. Two companion pages per lightmap page record where the sun reaches and the light without the sun, for the converted maps' Unreal lighting.",
+            "It runs on your GPU. The rays go through the graphics card's ray tracing hardware where it has some (Vulkan), otherwise through a compute shader (Vulkan, DirectX 12 or Metal), and the solve falls back to the CPU when there is no usable graphics card. On an RTX 5090 Blood Gulch solves in 9 seconds and Gephyrophobia in about 2 minutes (under 5 on 32 CPU threads). --cpu keeps everything on the processor.",
+            "Options for the curious: --compare scores a solve against the map's shipped lightmaps, --batch trades a little fidelity for speed, --texel-elements stops patches from getting finer than the page can show, --element-edges draws the patches over each page, and --verbose reports where the time and the light went.",
+            "mjolnir megalo write --vehicle-label-pool and --require-label write game types that place each team's vehicles the way Halo CE's game variants did, so a converted map no longer spawns every game type's vehicles at once."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Scenery blocks bullets. mjolnir level collision now builds a placed object's collision into the level's collision tree, so projectiles hit Covenant shields and similar scenery that players and vehicles already collided with."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.4.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.4.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.4.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.13.0",
