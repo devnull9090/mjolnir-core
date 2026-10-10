@@ -87,6 +87,29 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.22.0",
+      "tag": "mods-v0.22.0",
+      "title": "Your hub name in game, and reporting players",
+      "date": "2026-10-10",
+      "summary": "Multiplayer shows each player's MJOLNIR hub name and Discord avatar, and you can report a player from the post-game screen.",
+      "body": "Avatars, clickable post-game rows and the report panel need the CE runtime\n1.7.0 from the hub. With an older runtime you get the hub names without the\npictures or the report button.\n\n### Added\n\n- **Hub names and avatars in game** (MJOLNIRHud 0.6.0, MJOLNIRLobby 0.12.0).\n  Everyone who plays online signs the launcher in with Discord, so players\n  now show as their hub account instead of their Steam or Xbox name. This\n  applies to the scoreboard, the kill feed, the winner line, teammates'\n  name tags, the FIRETEAM panel, the lobby's player list and the post-game\n  standings. Avatars appear on the scoreboard, the lobby and the post-game\n  screen.\n  - Each player's game proves its account to the host through the hub, so\n    nobody can pass themselves off as someone else.\n  - A player without a linked account keeps their in-game name.\n- **Report a player** from the post-game screen. Select a player, pick a\n  reason (cheating, betraying, harassment, griefing or AFK, quitting, an\n  offensive name or avatar, other) and say what happened.\n  - The vote on the next game pauses while you write, for up to 90 seconds.\n  - Moderators review every report on the hub.\n  - A player's profile shows how many reports they have, and nothing else\n    about them.\n- **Matchmaking bans.** A player the moderators ban from matchmaking cannot\n  host a public game or join one from FIND GAMES. A public game's host\n  removes them when they join by invite. The game says why, and until when.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Hub names and avatars in game (MJOLNIRHud 0.6.0, MJOLNIRLobby 0.12.0). Everyone who plays online signs the launcher in with Discord, so players now show as their hub account instead of their Steam or Xbox name. This applies to the scoreboard, the kill feed, the winner line, teammates' name tags, the FIRETEAM panel, the lobby's player list and the post-game standings. Avatars appear on the scoreboard, the lobby and the post-game screen.",
+            "Report a player from the post-game screen. Select a player, pick a reason (cheating, betraying, harassment, griefing or AFK, quitting, an offensive name or avatar, other) and say what happened.",
+            "Matchmaking bans. A player the moderators ban from matchmaking cannot host a public game or join one from FIND GAMES. A public game's host removes them when they join by invite. The game says why, and until when."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.22.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.22.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.22.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.21.0",
       "tag": "mods-v0.21.0",
       "title": "Join a game from the website",

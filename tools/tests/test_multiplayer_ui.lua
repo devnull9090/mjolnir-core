@@ -34,7 +34,7 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant, client, variantFile, listing)
+local function runHUD(variant, client, variantFile, listing, identities)
     local time, scheduled, held = 5, nil, true
     local written, commands = {}, {}
     -- Hooks by function path; the match log's files in memory, by path; what
@@ -95,6 +95,13 @@ local function runHUD(variant, client, variantFile, listing)
             if path:match("MJOLNIRLobby[\\/]listing%.txt$") then
                 if listing and mode:match("^r") then
                     return { read = function() return listing .. "\n" end, close = function() end }
+                end
+                return nil
+            end
+            -- MJOLNIRLobby's roster of hub accounts (docs/player_identity.md).
+            if path:match("MJOLNIRLobby[\\/]identities%.txt$") then
+                if identities and mode:match("^r") then
+                    return { read = function() return identities end, close = function() end }
                 end
                 return nil
             end
@@ -226,8 +233,8 @@ eq(ffa.board.Title.text, "BRAVO WINS")
 eq(ffa.board.Subtitle.text, "SLAYER   /   DANGER CANYON")
 eq(ffa.board.BoardHint.text, "RETURNING TO THE LOBBY")
 local results = ffa.written()
-assert(results:find("^match\tDCN\tslayer\tDanger Canyon\tSLAYER\tBRAVO WINS\t1000\n"), results)
-assert(results:find("\nplayer\tBravo\t2\t2\t1\t%-\t1\n"), results)
+assert(results:find("^match\tDCN\tslayer\tDanger Canyon\tSLAYER\tBRAVO WINS\t1000\t%x+\n"), results)
+assert(results:find("\nplayer\tBravo\t2\t2\t1\t%-\t1\t%-\t%-\t0\n"), results)
 ffa.incident("Kill", 2, 1, 0) -- the round the game resets behind the standings does not score
 eq(ffa.board.Score0.text, "2"); eq(ffa.board.Name0.text, "Bravo")
 eq(#ffa.commands, 0)
@@ -235,6 +242,35 @@ for _ = 1, 7 do ffa.poll() end
 eq(#ffa.commands, 1); eq(ffa.commands[1], "servertravel /Game/Levels/UI/Frontend/Frontend")
 for _ = 1, 3 do ffa.poll() end
 eq(#ffa.commands, 1) -- once
+
+-- Hub accounts (docs/player_identity.md): MJOLNIRLobby's roster puts the
+-- hub name in place of the in-game one on the board and in the winner, and
+-- the results carry the account for the post-game screen's reports.
+local hub = runHUD("slayer", false, nil, nil, "Bravo\t0000-b\tbravo_hub\t3\nCharlie\t0000-c\tCharlie Hub\t0\n")
+hub.incident("Kill", 2, 0, 0)
+eq(hub.board.Name0.text, "Charlie Hub")
+hub.incident("Kill", 1, 2, 0); hub.incident("Kill", 1, 2, 0)
+eq(hub.board.Name0.text, "bravo_hub")
+hub.incident("round_over", -1, -1, 0)
+eq(hub.board.Title.text, "BRAVO_HUB WINS")
+local hubResults = hub.written()
+-- A joiner's "joined" line names its hub account: at once when the account
+-- is known, otherwise after a short wait for it, under the in-game name.
+local function feedHas(h, text)
+    for i = 0, 5 do
+        if h.feed["Line" .. i].text == text then return true end
+    end
+    return false
+end
+local joins = runHUD("slayer", false, nil, nil, "Charlie\t0000-c\tCharlie Hub\t0\n")
+joins.incident("player_joined", 2, -1, 0); joins.poll()
+assert(feedHas(joins, "Charlie Hub joined the game"), "a known account joins at once")
+joins.incident("player_joined", 0, -1, 0); joins.poll()
+assert(not feedHas(joins, "Alpha joined the game"), "an unknown account waits")
+for _ = 1, 8 do joins.poll() end
+assert(feedHas(joins, "Alpha joined the game"), "then joins under its in-game name")
+assert(hubResults:find("\nplayer\tBravo\t2\t2\t0\t%-\t1\t0000%-b\tbravo_hub\t3\n"), hubResults)
+assert(hubResults:find("\nplayer\tAlpha\t0\t0\t0\t%-\t0\t%-\t%-\t0\n"), hubResults)
 
 -- A fireteam client shows the same standings and writes its own results,
 -- but only the host travels.

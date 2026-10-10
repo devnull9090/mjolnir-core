@@ -128,8 +128,12 @@ function Winner({ match: m }: { match: MatchSummary }) {
   );
 }
 
-/** A career in a row of figures, plus the weapons that did the most. */
-export function PlayerTotalsStrip({ totals }: { totals: PlayerTotals }) {
+/**
+ * A career in a row of figures, plus the weapons that did the most. An
+ * account's strip also carries its public report count; a bare in-game
+ * name has no account to have been reported.
+ */
+export function PlayerTotalsStrip({ totals, reports }: { totals: PlayerTotals; reports?: number }) {
   const figures: [string, string][] = [
     ["Matches", String(totals.matches)],
     ["Wins", String(totals.wins)],
@@ -139,6 +143,7 @@ export function PlayerTotalsStrip({ totals }: { totals: PlayerTotals }) {
     ["K/D", kd(totals.kills, totals.deaths)],
   ];
   if (totals.captures > 0) figures.push(["Captures", String(totals.captures)]);
+  if (reports !== undefined) figures.push(["Reports", String(reports)]);
   return (
     <div>
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-3">

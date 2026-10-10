@@ -101,6 +101,11 @@ export const UserStatsSchema = z
     media_contributed: z.number().int().openapi({
       description: "Approved gallery items this account submitted.",
     }),
+    player_reports: z.number().int().openapi({
+      description:
+        "Reports other players filed against this account in multiplayer, less those a " +
+        "moderator dismissed. Only the number is public.",
+    }),
   })
   .openapi("UserStats");
 

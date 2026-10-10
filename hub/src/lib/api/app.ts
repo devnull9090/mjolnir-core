@@ -23,6 +23,7 @@ import { registerCodeSyncRoutes } from "./codesync";
 import { registerLobbyRoutes } from "./lobby";
 import { registerMapRoutes } from "./maps";
 import { registerMatchRoutes } from "./matches";
+import { registerPlayerRoutes } from "./players";
 import {
   ErrorSchema,
   HealthSchema,
@@ -450,6 +451,8 @@ registerMapRoutes(app);
 registerLobbyRoutes(app);
 // Public match history (docs/match_stats.md).
 registerMatchRoutes(app);
+// Hub identities in game, player reports, matchmaking bans (docs/player_identity.md).
+registerPlayerRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

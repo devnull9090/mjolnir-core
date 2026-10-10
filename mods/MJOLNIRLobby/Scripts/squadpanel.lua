@@ -12,16 +12,25 @@
 -- A player the view model left out gets a MeteoritePlayerViewModel of our
 -- own: name, platform and player state are all the row widget reads, and its
 -- player menu acts on that player state (docs/fireteam_join_and_cap.md).
+--
+-- Each player row shows the player's hub account in place of their Steam or
+-- Xbox name once MJOLNIRLobby knows it (SquadPanel.names,
+-- docs/player_identity.md). The game's view model rewrites its rows' names
+-- every few seconds, and each row widget writes its NameText again in
+-- OnBackingDataChanged, so the row's text is set after that, every time; the
+-- view model and the list are left as they are.
 
 local SquadPanel = {}
 
 local WIDGET = "/Game/UI/Shared/Widgets/Squad/WBP_SquadWidget.WBP_SquadWidget_C"
+local ROW_WIDGET = "/Game/UI/Shared/Widgets/Squad/WBP_SquadPlayerListViewItem.WBP_SquadPlayerListViewItem_C"
 local PLAYER_VIEW_MODEL = "/Script/Meteorite.MeteoritePlayerViewModel"
 local ITEM = "/Script/Meteorite.MeteoriteSquadLobbyViewItemData"
 local ROW_PLAYER, ROW_BLANK = 0, 2
 
 local ours = {}       -- list item address -> true, for the rows added here
 local hooked = false
+local hubName = nil   -- fn(in-game name) -> hub name or nil
 
 local function valid(o)
     local ok, v = pcall(function() return o and o:IsValid() end)
@@ -36,6 +45,16 @@ end
 local function nameOf(ps)
     local ok, n = pcall(function() return ps:GetPlayerName():ToString() end)
     return ok and n or nil
+end
+
+--- A player row widget's name: the hub account of its player, once known.
+local function nameRow(entry)
+    if not hubName then return end
+    pcall(function()
+        local ps = entry.SquadLobbyViewItemData.PlayerViewModel.PlayerState
+        local hub = hubName(nameOf(ps) or "")
+        if hub and entry.NameText:GetText():ToString() ~= hub then entry.NameText:SetText(FText(hub)) end
+    end)
 end
 
 --- The panel on screen. FindFirstOf returns the class default, whose
@@ -161,10 +180,20 @@ function SquadPanel.refresh(size)
     for _, ps in ipairs(missing) do addPlayerRow(list, vm, ps, template, platform) end
     if blanks == 0 and #everyone < size then addBlankRow(list, vm) end
 
+    pcall(function()
+        local entries = list:GetDisplayedEntryWidgets()
+        for i = 1, #entries do nameRow(entries[i]:get()) end
+    end)
+
     local text = string.format("Fireteam %d/%d", #everyone, size)
     pcall(function()
         if widget.FireteamHeader:GetText():ToString() ~= text then widget.FireteamHeader:SetText(FText(text)) end
     end)
+end
+
+--- Where a player's hub name comes from: fn(in-game name) -> name or nil.
+function SquadPanel.names(fn)
+    hubName = fn
 end
 
 --- Refresh after the panel's own rebuild and header update. The blueprint
@@ -181,6 +210,15 @@ function SquadPanel.hook(size)
     end
     for _, fn in ipairs({ "BackingDataChanged", "UpdateHeader" }) do
         pcall(function() RegisterHook(WIDGET .. ":" .. fn, later) end)
+    end
+    -- A row writes its own name here; ours goes on after.
+    for _, fn in ipairs({ "OnBackingDataChanged", "OnListItemObjectSet" }) do
+        pcall(function()
+            RegisterHook(ROW_WIDGET .. ":" .. fn, function(self)
+                local entry = self:get()
+                ExecuteInGameThreadWithDelay(0, function() if valid(entry) then nameRow(entry) end end)
+            end)
+        end)
     end
 end
 

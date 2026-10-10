@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * The moderator's desk: gallery submissions awaiting review, and the
- * report queue. Every button here is a moderator-only API call — the
+ * The moderator's desk: gallery submissions awaiting review, players
+ * reported from multiplayer and their matchmaking bans, and the report
+ * queue. Every button here is a moderator-only API call — the
  * server enforces the role; this page just refuses to render for anyone
  * else so nobody stares at a wall of 403s.
  *
@@ -18,6 +19,7 @@ import { Footer } from "../components/Footer";
 import { useHub } from "../components/HubKit";
 import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
+import { PlayerReports } from "./PlayerReports";
 
 export default function ModerationPage() {
   const { client, user, ready, signIn } = useHub();
@@ -213,6 +215,9 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+
+            {/* ── Player reports and matchmaking bans ── */}
+            <PlayerReports client={client} onError={setBanner} />
 
             {/* ── Hidden mods ── */}
             <section className="mb-12">

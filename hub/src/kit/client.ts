@@ -12,6 +12,7 @@
  */
 import type {
   AdminUserList,
+  BannedPlayer,
   Comment,
   ConflictPair,
   DevicePoll,
@@ -38,6 +39,7 @@ import type {
   ReleaseStatusDetail,
   Report,
   ReportReason,
+  ReportedPlayer,
   ReportSubject,
   User,
   UserProfile,
@@ -488,6 +490,46 @@ export class HubClient {
       method: "POST",
       path: `/moderation/mods/${encodeURIComponent(slug)}`,
       body: { action },
+    });
+  }
+
+  /** Reported players, grouped, each with every report against them. Moderators only. */
+  async listPlayerReports(status: "open" | "upheld" | "dismissed" = "open"): Promise<ReportedPlayer[]> {
+    const r = await this.call<{ players: ReportedPlayer[] }>({
+      method: "GET",
+      path: "/moderation/player-reports",
+      query: { status },
+    });
+    return r.players;
+  }
+
+  decidePlayerReport(id: string, action: "uphold" | "dismiss", note?: string): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "POST",
+      path: `/moderation/player-reports/${encodeURIComponent(id)}`,
+      body: { action, note: note || undefined },
+    });
+  }
+
+  /** Matchmaking bans in force. Moderators only. */
+  async listMatchmakingBans(): Promise<BannedPlayer[]> {
+    const r = await this.call<{ bans: BannedPlayer[] }>({ method: "GET", path: "/moderation/matchmaking-bans" });
+    return r.bans;
+  }
+
+  /** Ban from matchmaking for `days`, or for good without. Upholds their open reports. */
+  banFromMatchmaking(userId: string, reason: string, days?: number): Promise<{ id: string }> {
+    return this.call({
+      method: "POST",
+      path: "/moderation/matchmaking-bans",
+      body: { user_id: userId, reason, days },
+    });
+  }
+
+  liftMatchmakingBan(userId: string): Promise<{ ok: boolean }> {
+    return this.call({
+      method: "DELETE",
+      path: `/moderation/matchmaking-bans/${encodeURIComponent(userId)}`,
     });
   }
 

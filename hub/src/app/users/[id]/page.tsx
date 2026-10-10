@@ -120,12 +120,12 @@ export default async function UserProfilePage({
           )}
         </section>
 
-        {totals.matches > 0 && (
+        {(totals.matches > 0 || profile.stats.player_reports > 0) && (
           <section className="mt-10">
             <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
               Multiplayer · {totals.matches} public match{totals.matches === 1 ? "" : "es"}
             </h2>
-            <PlayerTotalsStrip totals={totals} />
+            <PlayerTotalsStrip totals={totals} reports={profile.stats.player_reports} />
             <div className="mt-4">
               <MatchTable matches={matches} seat />
             </div>

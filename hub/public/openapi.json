@@ -1895,6 +1895,10 @@
           "media_contributed": {
             "type": "integer",
             "description": "Approved gallery items this account submitted."
+          },
+          "player_reports": {
+            "type": "integer",
+            "description": "Reports other players filed against this account in multiplayer, less those a moderator dismissed. Only the number is public."
           }
         },
         "required": [
@@ -1906,7 +1910,8 @@
           "mods_downloaded",
           "ratings_given",
           "comments_posted",
-          "media_contributed"
+          "media_contributed",
+          "player_reports"
         ]
       },
       "CodeSyncResult": {
@@ -3377,6 +3382,421 @@
           "captures",
           "last_played",
           "weapons"
+        ]
+      },
+      "IdentityTicket": {
+        "type": "object",
+        "properties": {
+          "ticket": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "player": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "matchmaking_ban": {
+            "$ref": "#/components/schemas/MatchmakingBan"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at",
+          "player",
+          "matchmaking_ban"
+        ]
+      },
+      "Player": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name, or the Discord username."
+          },
+          "username": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord CDN avatar, when they have one."
+          },
+          "avatar_path": {
+            "type": "string",
+            "description": "The avatar through the hub, below /api/v1: always a PNG, Discord's default when they have none."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "avatar_url",
+          "avatar_path"
+        ]
+      },
+      "MatchmakingBan": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "reason",
+          "created_at",
+          "expires_at"
+        ]
+      },
+      "IdentityTicketRequest": {
+        "type": "object",
+        "properties": {
+          "platform_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "audience": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platform_name"
+        ]
+      },
+      "IdentityResolved": {
+        "type": "object",
+        "properties": {
+          "players": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ticket": {
+                  "type": "string"
+                },
+                "platform_name": {
+                  "type": "string"
+                },
+                "player": {
+                  "$ref": "#/components/schemas/Player"
+                },
+                "reports": {
+                  "type": "integer",
+                  "description": "The public report count."
+                },
+                "matchmaking_ban": {
+                  "$ref": "#/components/schemas/MatchmakingBan"
+                }
+              },
+              "required": [
+                "ticket",
+                "platform_name",
+                "player",
+                "reports",
+                "matchmaking_ban"
+              ]
+            }
+          }
+        },
+        "required": [
+          "players"
+        ]
+      },
+      "IdentityResolveRequest": {
+        "type": "object",
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{48}$"
+            },
+            "minItems": 1,
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "tickets"
+        ]
+      },
+      "PlayerReportCreate": {
+        "type": "object",
+        "properties": {
+          "subject_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "cheating",
+              "betraying",
+              "harassment",
+              "griefing",
+              "quitting",
+              "name",
+              "other"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "subject_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "host_match_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,64}$"
+          }
+        },
+        "required": [
+          "subject_id",
+          "reason"
+        ]
+      },
+      "ReportedPlayer": {
+        "type": "object",
+        "properties": {
+          "player": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "open_reports": {
+            "type": "integer"
+          },
+          "counted_reports": {
+            "type": "integer",
+            "description": "The public count: every report not dismissed."
+          },
+          "ban": {
+            "$ref": "#/components/schemas/MatchmakingBan"
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlayerReport"
+            }
+          }
+        },
+        "required": [
+          "player",
+          "open_reports",
+          "counted_reports",
+          "ban",
+          "reports"
+        ]
+      },
+      "PlayerReport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reporter": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "cheating",
+              "betraying",
+              "harassment",
+              "griefing",
+              "quitting",
+              "name",
+              "other"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name the reporter saw in game."
+          },
+          "host_match_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "match_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hub's match, once the host reported it; link /matches/{id}."
+          },
+          "reporter_in_match": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the reporter's account is linked to a seat of that match; null without one."
+          },
+          "subject_in_match": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "upheld",
+              "dismissed"
+            ]
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reporter",
+          "reason",
+          "detail",
+          "subject_name",
+          "host_match_id",
+          "match_id",
+          "reporter_in_match",
+          "subject_in_match",
+          "status",
+          "decided_by",
+          "decided_at",
+          "decision_note",
+          "created_at"
+        ]
+      },
+      "PlayerReportDecision": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "uphold",
+              "dismiss"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "BannedPlayer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "player": {
+            "$ref": "#/components/schemas/Player"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "banned_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "player",
+          "reason",
+          "banned_by",
+          "created_at",
+          "expires_at"
+        ]
+      },
+      "MatchmakingBanCreate": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "user_id",
+          "reason"
         ]
       }
     },
@@ -6916,7 +7336,7 @@
             }
           },
           "403": {
-            "description": "Missing scope.",
+            "description": "Missing scope, or banned from matchmaking.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7218,6 +7638,16 @@
           },
           "401": {
             "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Banned from matchmaking.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7616,6 +8046,620 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PlayerTotals"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/tickets": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "A ticket proving the caller's account to one host",
+        "description": "The caller's game hands the ticket to the host of the game it joined, which trades it with POST /identity/tickets/resolve. `audience` is the host's account (the host's game says which); `platform_name` is the caller's own in-game name, which the host checks against the player that sent it. Without an audience no ticket is made, and the call only answers who the caller is and whether it may play matchmaking. Needs `lobbies:write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityTicketRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/tickets/resolve": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Trade players' tickets for their accounts (the host they name)",
+        "description": "Answers each ticket that names the caller as its audience and has not expired; others are left out. The host's game must check `platform_name` against the player that sent the ticket. `matchmaking_ban` is set for a banned player, whom a public game removes. Needs `lobbies:write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tickets that were good.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResolved"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/avatar": {
+      "get": {
+        "tags": [
+          "players"
+        ],
+        "summary": "An account's avatar as a 64-pixel PNG",
+        "description": "The Discord avatar through the hub, or Discord's default one, for the game, whose hub calls reach nothing but the hub.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PNG bytes."
+          },
+          "404": {
+            "description": "No such account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Discord did not answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/players/reports": {
+      "post": {
+        "tags": [
+          "players"
+        ],
+        "summary": "Report a player",
+        "description": "From the post-game screen: the account the host's game resolved for that seat, a reason, and what happened. One report per reporter, player and match. Needs `lobbies:write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayerReportCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Filed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Reporting yourself.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such player.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already reported for this match.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/player-reports": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Reported players and their reports (moderators)",
+        "description": "Grouped by the player reported, most open reports first. `status=open` lists players with an open report, each with every report against them so the history is in view; `upheld` and `dismissed` list decided ones.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "upheld",
+                "dismissed"
+              ],
+              "default": "open"
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reported players.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "players": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ReportedPlayer"
+                      }
+                    }
+                  },
+                  "required": [
+                    "players"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/player-reports/{id}": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Uphold or dismiss a player report (moderators)",
+        "description": "`uphold` agrees with it; `dismiss` finds it unfounded and takes it out of the public count. Banning is its own call (POST /moderation/matchmaking-bans).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayerReportDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such open report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/matchmaking-bans": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Bans in force (moderators)",
+        "responses": {
+          "200": {
+            "description": "Newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bans": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BannedPlayer"
+                      }
+                    }
+                  },
+                  "required": [
+                    "bans"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Ban a player from matchmaking (moderators)",
+        "description": "For `days` days, or for good without. A ban in force is replaced. The player's open reports are upheld with it, and their listed game is taken down.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchmakingBanCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Banned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not an account to ban.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/matchmaking-bans/{user_id}": {
+      "delete": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "Lift a player's matchmaking ban (moderators)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "user_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lifted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No ban in force.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
