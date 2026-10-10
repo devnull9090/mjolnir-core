@@ -8,7 +8,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Media, Mod, Release, ReleaseChanges, UserProfile } from "@mjolnir/hub-kit";
 
-import { OWNER_COLUMNS, avatarUrl, modFromRow } from "./schemas";
+import { CARD_COLUMNS, OWNER_COLUMNS, avatarUrl, modFromRow } from "./schemas";
 
 // Every mod row here goes through `modFromRow`, the same mapper the API
 // uses, rather than being spread wholesale. That is not tidiness: a D1 row
@@ -25,7 +25,14 @@ export type ModListRow = Mod;
 
 export async function listPublishedMods(
   db: D1Database,
-  opts: { q?: string; category?: string; sort?: "newest" | "downloads" | "rating"; limit?: number },
+  opts: {
+    q?: string;
+    category?: string;
+    sort?: "newest" | "downloads" | "rating";
+    limit?: number;
+    /** true: only map packs; false: everything else; absent: both. */
+    map?: boolean;
+  },
 ): Promise<ModListRow[]> {
   const where: string[] = ["m.status = 'published'"];
   const binds: (string | number)[] = [];
@@ -36,6 +43,9 @@ export async function listPublishedMods(
   if (opts.q) {
     where.push(`(m.name LIKE ?${binds.length + 1} OR m.summary LIKE ?${binds.length + 1})`);
     binds.push(`%${opts.q}%`);
+  }
+  if (opts.map !== undefined) {
+    where.push(`${opts.map ? "" : "NOT "}EXISTS (SELECT 1 FROM map_listings ml WHERE ml.mod_id = m.id)`);
   }
   const order =
     opts.sort === "downloads"
@@ -48,7 +58,7 @@ export async function listPublishedMods(
     .prepare(
       `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
               m.download_count, m.view_count, m.rating_count, m.rating_mean,
-              m.created_at, m.updated_at, ${OWNER_COLUMNS}
+              m.created_at, m.updated_at, ${OWNER_COLUMNS}, ${CARD_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
        ORDER BY ${order}, m.id DESC LIMIT ?${binds.length + 1}`,
@@ -189,7 +199,7 @@ export type ReleaseRow = Release;
 export async function getModPage(db: D1Database, slug: string) {
   const row = await db
     .prepare(
-      `SELECT m.*, ${OWNER_COLUMNS}
+      `SELECT m.*, ${OWNER_COLUMNS}, ${CARD_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id WHERE m.slug = ?1`,
     )
     .bind(slug)
@@ -327,7 +337,7 @@ export async function getUserProfile(db: D1Database, id: string): Promise<UserPr
       .prepare(
         `SELECT m.id, m.slug, m.name, m.summary, m.type, m.category, m.license, m.nsfw,
                 m.download_count, m.view_count, m.rating_count, m.rating_mean,
-                m.created_at, m.updated_at, ${OWNER_COLUMNS}
+                m.created_at, m.updated_at, ${OWNER_COLUMNS}, ${CARD_COLUMNS}
          FROM mods m JOIN users u ON u.id = m.owner_id
          WHERE m.owner_id = ?1 AND m.status = 'published'
          ORDER BY m.created_at DESC, m.id DESC LIMIT 100`,

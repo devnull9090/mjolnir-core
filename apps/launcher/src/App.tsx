@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { WhatsNew } from "@mjolnir/hub-kit";
 import Sidebar from "./components/Sidebar";
@@ -9,11 +11,12 @@ import SignInBanner from "./components/SignInBanner";
 import Settings from "./components/Settings";
 import Tools from "./components/Tools";
 import Multiplayer from "./components/Multiplayer";
-import Browse from "./components/Browse";
+import Browse, { type BrowseTab } from "./components/Browse";
 import Updates from "./components/Updates";
 import { ModDetail } from "./components/hub/ModDetail";
 import { UserProfile } from "./components/hub/UserProfile";
 import { HubShell } from "./hub/HubShell";
+import { hubClient } from "./hub/client";
 import { useHubLibrary } from "./hub/library";
 import { useUpdates } from "./updates/useUpdates";
 import { useWhatsNew } from "./updates/useWhatsNew";
@@ -24,6 +27,15 @@ import { useWhatsNew } from "./updates/useWhatsNew";
  * is out of date. Multiplayer, Tools and Settings sit outside that loop.
  */
 export type View = "mods" | "multiplayer" | "tools" | "browse" | "updates" | "settings";
+
+/**
+ * A `mjolnir://` link from the website, as the Rust side parsed it
+ * (src-tauri/src/links.rs): a mod's page, a map's page, or a lobby to join.
+ */
+type HubLink =
+  | { kind: "mod"; slug: string }
+  | { kind: "map"; code: string }
+  | { kind: "join"; lobby: string };
 
 function App() {
   const updater = useUpdater();
@@ -52,6 +64,8 @@ function AppBody({
 }) {
   const [activeView, setActiveView] = useState<View>("mods");
   const [openMod, setOpenMod] = useState<string | null>(null);
+  const [browseTab, setBrowseTab] = useState<BrowseTab>("content");
+  const [joinLobby, setJoinLobby] = useState<string | null>(null);
   // Both the library and the update manager read this; keeping one instance
   // means one set of hub calls and no disagreement about what is installed.
   const library = useHubLibrary();
@@ -86,6 +100,50 @@ function AppBody({
     setActiveView(view);
   };
 
+  // Links arrive two ways: one that started the launcher waits in Rust until
+  // asked for, and one sent to a launcher already open comes as an event.
+  // Either way the event only says "there is one"; taking it clears it, so
+  // the same link is never acted on twice.
+  const followLink = useRef<(link: HubLink) => void>(() => {});
+  followLink.current = (link: HubLink) => {
+    setOpenProfile(null);
+    switch (link.kind) {
+      case "mod":
+        setActiveView("browse");
+        setOpenMod(link.slug);
+        break;
+      case "map":
+        setActiveView("browse");
+        setBrowseTab("maps");
+        setOpenMod(null);
+        // The page is the map's mod; the link names the map by its code.
+        hubClient.getMap(link.code).then(
+          (m) => setOpenMod(m.slug),
+          () => {},
+        );
+        break;
+      case "join":
+        setOpenMod(null);
+        setActiveView("multiplayer");
+        setJoinLobby(link.lobby);
+        break;
+    }
+  };
+  useEffect(() => {
+    const take = () =>
+      invoke<HubLink | null>("take_pending_link").then(
+        (link) => {
+          if (link) followLink.current(link);
+        },
+        () => {},
+      );
+    void take();
+    const stop = listen("mjolnir-link", () => void take());
+    return () => {
+      void stop.then((unlisten) => unlisten());
+    };
+  }, []);
+
   return (
     <div className="flex h-screen w-screen bg-surface-primary">
       <Sidebar
@@ -119,10 +177,26 @@ function AppBody({
                 />
               )}
               {activeView === "multiplayer" && (
-                <Multiplayer library={library} onInstalled={() => void updates.refresh()} />
+                <Multiplayer
+                  library={library}
+                  onInstalled={() => void updates.refresh()}
+                  onBrowseMaps={() => {
+                    setBrowseTab("maps");
+                    goTo("browse");
+                  }}
+                  joinLobby={joinLobby}
+                  onJoinDismiss={() => setJoinLobby(null)}
+                />
               )}
               {activeView === "tools" && <Tools />}
-              {activeView === "browse" && <Browse library={library} onOpenMod={showMod} />}
+              {activeView === "browse" && (
+                <Browse
+                  library={library}
+                  onOpenMod={showMod}
+                  tab={browseTab}
+                  onTab={setBrowseTab}
+                />
+              )}
               {activeView === "updates" && <Updates updates={updates} />}
               {activeView === "settings" && <Settings />}
             </>

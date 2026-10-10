@@ -31,7 +31,8 @@ export default async function ModsPage({
   const sort = (["newest", "downloads", "rating"] as const).find((s) => s === params.sort) ?? "newest";
 
   const { env } = getCloudflareContext();
-  const mods = await listPublishedMods(env.DB as never, { q, category, sort });
+  // Maps have their own catalog with its own filters, at /maps.
+  const mods = await listPublishedMods(env.DB as never, { q, category, sort, map: false });
 
   const qs = (over: Record<string, string>) => {
     const merged = { q: q ?? "", category, sort, ...over };
@@ -98,7 +99,7 @@ export default async function ModsPage({
           {CATEGORIES.map((cat) => (
             <Link
               key={cat}
-              href={qs({ category: cat })}
+              href={cat === "maps" ? "/maps" : qs({ category: cat })}
               className={`shrink-0 px-3 py-1.5 rounded-lg border text-xs font-semibold capitalize transition-colors ${
                 category === cat
                   ? "border-gold/60 text-gold"

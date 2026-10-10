@@ -41,6 +41,39 @@ signed CI releases instead (`docs/hub_architecture.md` §2).
   are per-build, so a container built against one build may point at moved
   or vanished chunks after a game patch.
 
+### Map archives
+
+A converted map is a content archive with `"type": "map"` and a `map` block,
+and only a map archive carries one. The layout and the install are in
+[map_distribution.md](map_distribution.md); the block itself:
+
+```json
+"map": {
+  "code": "BGL",
+  "title": "Blood Gulch",
+  "modes": ["slayer", "ctf"],
+  "size": "large",
+  "players": { "min": 4, "max": 16 },
+  "vehicles": true,
+  "origin": "custom_edition"
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `code` | yes | The three-character scenario codename (`A-Z`, `0-9`), unique across the hub. |
+| `title` | yes | Up to 80 characters. |
+| `modes` | yes | The game types the multiplayer menu offers, 1 to 8 of them. |
+| `size` | no | `small`, `medium` or `large`. |
+| `players` | no | The player counts the map suits, `min` and `max` from 1 to 16, `min` no greater than `max`. |
+| `vehicles` | no | Whether the map has vehicles. |
+| `origin` | no | `custom_edition` for a converted Halo Custom Edition map, `original` for one made for Campaign Evolved. `classic` marks the converted stock maps; moderators set it, and a manifest that claims it is rejected (`bad_manifest`). |
+
+The optional fields fill the map's catalog listing, which players filter by.
+A release that leaves one out keeps what the listing already says, so they
+need not be repeated in every release; the map's owner can also change them
+on the hub without a release (`PATCH /api/v1/maps/{code}`).
+
 ## changes.json
 
 The transparency file: what the mod does, declared as data, so the hub and

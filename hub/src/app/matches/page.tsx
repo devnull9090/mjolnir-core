@@ -3,6 +3,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { JoinButton } from "../components/JoinButton";
+import { listLobbies } from "@/lib/api/lobby";
 import { listMatches } from "@/lib/api/matches";
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES } from "@/kit/types";
@@ -20,6 +22,13 @@ export const dynamic = "force-dynamic";
 
 const MODES = ["all", "slayer", "ctf", "team_slayer", "koth", "oddball"];
 
+/** How many live games the strip above the history shows. */
+const LIVE_SHOWN = 6;
+
+function num(v: unknown): number | null {
+  return v === undefined || v === null || v === "" ? null : Number(v);
+}
+
 export default async function MatchesPage({
   searchParams,
 }: {
@@ -30,11 +39,17 @@ export default async function MatchesPage({
   const map = /^[A-Z0-9]{3}$/.test(params.map ?? "") ? params.map : undefined;
   const before = /^[\d\- :]{10,19}$/.test(params.before ?? "") ? params.before : undefined;
 
-  const { env } = getCloudflareContext();
-  const [{ matches, next }, maps] = await Promise.all([
+  const { env, cf } = getCloudflareContext();
+  const me = {
+    latitude: num((cf as Record<string, unknown> | undefined)?.latitude),
+    longitude: num((cf as Record<string, unknown> | undefined)?.longitude),
+  };
+  const [{ matches, next }, maps, lobbies] = await Promise.all([
     listMatches(env.DB as never, { map, game_type: mode === "all" ? undefined : mode, before }),
     listMaps(env.DB as never),
+    listLobbies(env.DB as never, { has_space: true }, me),
   ]);
+  const live = lobbies.slice(0, LIVE_SHOWN);
 
   const qs = (over: Record<string, string | undefined>) => {
     const merged = { map, mode, ...over };
@@ -71,6 +86,35 @@ export default async function MatchesPage({
             </form>
           </div>
         </div>
+
+        {/* Games with room right now, nearest first: history is what
+            happened, and this is where to go next. */}
+        {live.length > 0 && (
+          <section className="mb-10">
+            <div className="mb-3 flex items-baseline justify-between gap-4">
+              <h2 className="text-sm font-bold uppercase text-text-dim">Live now</h2>
+              <Link href="/games" className="text-sm font-semibold text-gold hover:underline">
+                All live games →
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {live.map((l) => (
+                <div
+                  key={l.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{l.map_title ?? l.map_code}</p>
+                    <p className="text-xs text-text-dim truncate">
+                      {GAME_TYPE_NAMES[l.game_type] ?? l.game_type} · {l.players}/{l.max_players} players
+                    </p>
+                  </div>
+                  <JoinButton lobbyId={l.id} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">
           {MODES.map((m) => (

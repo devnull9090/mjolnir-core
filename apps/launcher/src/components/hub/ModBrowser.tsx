@@ -2,7 +2,8 @@
  * Browsing the community hub: search, filter, sort, page, install.
  *
  * The listing is the hub's `/mods` endpoint with every knob it offers, so
- * what the launcher can find matches what the website can find. Cards are
+ * what the launcher can find matches what the website can find. Maps are
+ * left out: they have their own tab (MapBrowser) and their own listing. Cards are
  * the shared <ModCard>; the launcher only supplies the action on the right.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,6 @@ import type { Library } from "../../hub/library";
 const CATEGORIES = [
   "all",
   "gameplay",
-  "maps",
   "textures",
   "weapons",
   "camera",
@@ -70,6 +70,8 @@ export function ModBrowser({
       // the Code mods tab, so listing them here would offer an Install this
       // view cannot honour.
       type: "content" as ModType,
+      // Maps have their own tab, searched by what they play like.
+      map: false,
       sort,
       limit: 20,
     }),

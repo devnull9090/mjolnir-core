@@ -2,10 +2,12 @@ import { cache } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { Rocket } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { Navbar } from "../../components/Navbar";
 import { Footer } from "../../components/Footer";
+import { LAUNCHER_LINK_TITLE } from "../../components/JoinButton";
 import { Markdown } from "../../docs/_components/Markdown";
 import { getModPage } from "@/lib/api/queries";
 // Module import, not the barrel: ChangeList is hook-free and renders on the
@@ -78,6 +80,11 @@ export default async function ModDetailPage({
   // Draft mods stay invisible here; owners reach them at /mods/{slug}/manage.
   if (!page || page.mod.status !== "published") notFound();
   const { mod, media, releases, latestChanges } = page;
+  // A map installs through the launcher's map flow, which also registers it
+  // with the game; anything else opens on its mod page there.
+  const launcherHref = mod.map_code
+    ? `mjolnir://map/${mod.map_code}`
+    : `mjolnir://mod/${encodeURIComponent(mod.slug)}`;
 
   return (
     <>
@@ -155,6 +162,23 @@ export default async function ModDetailPage({
           </div>
 
           <aside className="space-y-8">
+            <div>
+              <a
+                href={launcherHref}
+                title={LAUNCHER_LINK_TITLE}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-gold text-background hover:brightness-110 transition-all"
+              >
+                <Rocket className="w-4 h-4" />
+                Open in launcher
+              </a>
+              <p className="mt-2 text-center text-xs text-text-dim">
+                Need the launcher?{" "}
+                <Link href="/download" className="hover:text-foreground underline underline-offset-2">
+                  Download
+                </Link>
+              </p>
+            </div>
+
             {/* Releases */}
             <div>
               <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Releases</h2>
