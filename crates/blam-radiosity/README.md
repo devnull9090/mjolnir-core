@@ -226,9 +226,12 @@ the elements, and its snow (reflectance near 1) takes 1.2 shots an element
 where Gephyrophobia takes 0.3, so at batch 4096 the GPU itself is the
 bottleneck at 6 s a batch and the solve would take most of a day. Its
 pages at `--scale auto` hold 0.19 texels/m, one texel per 5 m, while its
-elements at `--finer 2` are 15-30 cm: the bounce light is solved far finer
-than the pages can show (the sun and fill are per texel regardless). A
-large map wants its element size tied to its texel size.
+elements at `--finer 2` are about 1.4 m (its shaders take the finest row,
+0.9 world units, halved), a dozen to a texel: the page's 3x supersampled
+box filter averages them away (the sun and fill are per texel regardless).
+A large map may want its element size tied to its texel size, per
+triangle from its own lightmap UVs; that is untested against tool.exe
+(the risk is the bounce near contacts and around emitters).
 
 At the default batch the GPU solve takes the CPU's split decisions exactly
 on every map above, and its pages differ from the CPU's by at most
