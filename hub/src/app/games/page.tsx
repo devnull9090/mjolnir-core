@@ -4,6 +4,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
+import { JoinButton } from "../components/JoinButton";
 import { listLobbies } from "@/lib/api/lobby";
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES } from "@/kit/types";
@@ -64,8 +65,9 @@ export default async function GamesPage({
         <div className="mb-8">
           <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer games</h1>
           <p className="text-text-muted text-lg max-w-2xl">
-            Multiplayer games on the classic maps, live now. Join from the game: MULTIPLAYER, then
-            FIND GAMES. Ping is an estimate from where you and the host are.
+            Multiplayer games on the classic maps, live now. Join from the game (MULTIPLAYER, then
+            FIND GAMES), or press Join here to open it in the launcher (0.13.0 or newer). Ping is
+            an estimate from where you and the host are.
           </p>
           <Link href="/multiplayer" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">Get multiplayer &amp; find your fireteam →</Link>
           <Link href="/matches" className="mt-4 ml-6 inline-block text-sm font-semibold text-gold hover:underline">Match history →</Link>
@@ -134,6 +136,9 @@ export default async function GamesPage({
                   <th className="text-right px-4 py-3">Players</th>
                   <th className="text-right px-4 py-3">Ping</th>
                   <th className="text-left px-4 py-3">Host</th>
+                  <th className="px-4 py-3">
+                    <span className="sr-only">Join</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -154,6 +159,9 @@ export default async function GamesPage({
                       {l.ping_ms === null ? "?" : `~${l.ping_ms} ms`}
                     </td>
                     <td className="px-4 py-3 text-text-muted">{l.host}</td>
+                    <td className="px-4 py-3 text-right">
+                      <JoinButton lobbyId={l.id} full={l.state === "full" || l.players >= l.max_players} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

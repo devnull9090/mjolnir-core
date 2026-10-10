@@ -443,6 +443,7 @@ pub fn api(
         "GET" => client.get(&url),
         "POST" => client.post(&url),
         "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
         "DELETE" => client.delete(&url),
         other => return Err(format!("Unsupported method {other}")),
     };
@@ -2280,9 +2281,102 @@ pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerIn
     Ok(result)
 }
 
+// ─── Joining a listed game from a link ──────────────────────────────────
+
+/// The pack every converted map mounts its shared content from
+/// (`RUNTIME_SLUG` in crates/blam-cli/src/map.rs).
+const RUNTIME_SLUG: &str = "mjolnir-ce-runtime";
+
+/// Whether this PC can join a multiplayer game, judged from what is on disk
+/// (no network: a link's click should not wait on the signed set): the code
+/// mods a map plays through present and switched on in `mods.txt`, and the
+/// CE runtime pack installed, whole in the cache, and on in the active
+/// profile. The map itself is not needed: the game downloads the host's
+/// (DOWNLOAD AND JOIN). Returns MJOLNIRLobby's folder, or what is missing.
+pub fn multiplayer_ready() -> Result<PathBuf, String> {
+    let (install, _) = crate::find_game_install().ok_or("The game was not found.")?;
+    let mods_dir = crate::mods_dir(&install);
+    let listed = crate::parse_mods_txt(&mods_dir);
+    let missing: Vec<&str> = MAP_CODE_MODS
+        .iter()
+        .copied()
+        .filter(|id| {
+            !mods_dir.join(id).is_dir() || !listed.iter().any(|m| m.name == *id && m.enabled)
+        })
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "The multiplayer mods are not installed or are switched off: {}.",
+            missing.join(", ")
+        ));
+    }
+
+    let state = load_state();
+    let runtime = state
+        .installed
+        .iter()
+        .find(|m| m.slug == RUNTIME_SLUG && cache_complete(m));
+    let enabled = state
+        .profiles
+        .iter()
+        .find(|p| p.name == state.active)
+        .is_some_and(|p| {
+            p.entries
+                .iter()
+                .any(|e| e.slug == RUNTIME_SLUG && e.enabled)
+        });
+    if runtime.is_none() || !enabled {
+        return Err("The CE runtime pack the maps share is not installed or is switched off.".into());
+    }
+    Ok(mods_dir.join("MJOLNIRLobby"))
+}
+
+/// What MJOLNIRLobby reads from `native\pending_join.txt`: key=value lines,
+/// the lobby's hub id and when the link was clicked (unix seconds). The game
+/// drops one older than ten minutes.
+fn pending_join_text(lobby: &str, at: u64) -> String {
+    format!("lobby={lobby}\nat={at}\n")
+}
+
+/// Leave a join for MJOLNIRLobby to pick up at the main menu, in its
+/// `native` folder beside `auto_state.txt`. Written whole or not at all (a
+/// temporary file renamed over it), since the game polls for it.
+pub fn write_pending_join(lobby_dir: &Path, lobby: &str) -> Result<(), String> {
+    let native = lobby_dir.join("native");
+    fs::create_dir_all(&native).map_err(|e| format!("{}: {e}", native.display()))?;
+    let target = native.join("pending_join.txt");
+    let tmp = native.join("pending_join.txt.tmp");
+    fs::write(&tmp, pending_join_text(lobby, now_unix()))
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    fs::rename(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pending_join_is_written_whole_where_the_lobby_reads_it() {
+        let root = std::env::temp_dir().join(format!("mjolnir-join-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        // A join from an earlier click is replaced, not appended to.
+        fs::create_dir_all(root.join("native")).expect("scratch tree");
+        fs::write(root.join("native/pending_join.txt"), "lobby=old\nat=1\n").expect("old join");
+
+        write_pending_join(&root, "0b6f3c1e-9a2d").expect("write");
+        let text = fs::read_to_string(root.join("native/pending_join.txt")).expect("read");
+        let mut lines = text.lines();
+        assert_eq!(lines.next(), Some("lobby=0b6f3c1e-9a2d"));
+        let at: u64 = lines
+            .next()
+            .and_then(|l| l.strip_prefix("at="))
+            .and_then(|v| v.parse().ok())
+            .expect("an at= line of unix seconds");
+        assert!(at.abs_diff(now_unix()) < 60);
+        assert!(!root.join("native/pending_join.txt.tmp").exists());
+        assert_eq!(pending_join_text("x", 5), "lobby=x\nat=5\n");
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_compiled_in_signing_key_parses() {

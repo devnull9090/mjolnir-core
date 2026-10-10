@@ -10,25 +10,31 @@
  * comments, release lists — is the same component the website renders
  * (hub/src/kit). This file is the launcher's shell around it.
  */
-import { useState } from "react";
-
 import type { Library } from "../hub/library";
 import { ModBrowser } from "./hub/ModBrowser";
+import { MapBrowser } from "./hub/MapBrowser";
 import { CodeModsPanel } from "./hub/CodeModsPanel";
 
-type Tab = "content" | "code";
+export type BrowseTab = "content" | "maps" | "code";
 
+/**
+ * The tab is the caller's, not this view's: a `mjolnir://map/...` link opens
+ * the Maps tab, and Back from a map's page has to land there again.
+ */
 export default function Browse({
   library,
   onOpenMod,
+  tab,
+  onTab,
 }: {
   library: Library;
   onOpenMod: (slug: string) => void;
+  tab: BrowseTab;
+  onTab: (tab: BrowseTab) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("content");
-
-  const tabs: { key: Tab; label: string; hint: string }[] = [
-    { key: "content", label: "Content mods", hint: "Community game data — maps, textures, tuning" },
+  const tabs: { key: BrowseTab; label: string; hint: string }[] = [
+    { key: "content", label: "Content mods", hint: "Community game data — textures, weapons, tuning" },
+    { key: "maps", label: "Maps", hint: "The classic maps and community maps, by game type and size" },
     { key: "code", label: "Code mods", hint: "Signed UE4SS scripts from mjolnir-core" },
   ];
 
@@ -47,7 +53,7 @@ export default function Browse({
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => onTab(t.key)}
             title={t.hint}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
               tab === t.key
@@ -60,11 +66,9 @@ export default function Browse({
         ))}
       </div>
 
-      {tab === "content" ? (
-        <ModBrowser library={library} onSelect={onOpenMod} />
-      ) : (
-        <CodeModsPanel />
-      )}
+      {tab === "content" && <ModBrowser library={library} onSelect={onOpenMod} />}
+      {tab === "maps" && <MapBrowser library={library} onSelect={onOpenMod} />}
+      {tab === "code" && <CodeModsPanel />}
     </div>
   );
 }

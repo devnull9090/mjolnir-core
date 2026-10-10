@@ -29,6 +29,7 @@ import {
   ModDetailSchema,
   ModListQuerySchema,
   ModListSchema,
+  CARD_COLUMNS,
   OWNER_COLUMNS,
   ReleaseListSchema,
   UserSchema,
@@ -270,7 +271,7 @@ app.openapi(
     },
   }),
   async (c) => {
-    const { q, category, type, sort, cursor, limit } = c.req.valid("query");
+    const { q, category, type, sort, cursor, limit, map } = c.req.valid("query");
     const s = SORTS[sort];
 
     const where: string[] = ["m.status = 'published'"];
@@ -287,6 +288,11 @@ app.openapi(
       where.push(`(m.name LIKE ?${binds.length + 1} OR m.summary LIKE ?${binds.length + 1})`);
       binds.push(`%${q}%`);
     }
+    if (map !== undefined) {
+      where.push(
+        `${map === "1" ? "" : "NOT "}EXISTS (SELECT 1 FROM map_listings ml WHERE ml.mod_id = m.id)`,
+      );
+    }
 
     const cur = decodeCursor(cursor);
     if (cursor && !cur) return c.json({ error: "bad_cursor" }, 400);
@@ -296,7 +302,7 @@ app.openapi(
     }
 
     const rows = await c.env.DB.prepare(
-      `SELECT m.*, ${OWNER_COLUMNS}
+      `SELECT m.*, ${OWNER_COLUMNS}, ${CARD_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
        WHERE ${where.join(" AND ")}
        ORDER BY ${s.expr} DESC, m.id DESC
@@ -345,9 +351,8 @@ app.openapi(
   async (c) => {
     const { slug } = c.req.valid("param");
     const row = await c.env.DB.prepare(
-      `SELECT m.*, ${OWNER_COLUMNS}, ml.code AS map_code
+      `SELECT m.*, ${OWNER_COLUMNS}, ${CARD_COLUMNS}
        FROM mods m JOIN users u ON u.id = m.owner_id
-       LEFT JOIN map_listings ml ON ml.mod_id = m.id
        WHERE m.slug = ?1`,
     )
       .bind(slug)
@@ -367,7 +372,6 @@ app.openapi(
       {
         ...modFromRow(row),
         type: mapCode ? ("map" as const) : (row.type as "content" | "script" | "native"),
-        map_code: mapCode,
         description_md: (row.description_md as string) ?? null,
       },
       200,

@@ -1067,6 +1067,7 @@ end
 
 -- One block, so its locals stay out of the main chunk's (Lua allows 200).
 local openFindGames, onFindEvent, tickFind, modeName
+local pickUpJoin -- Joining from a link, below
 local openSettings -- GAME SETTINGS, below
 do
 local FIND_PREFS = MOD_DIR .. "\\find_games.txt"
@@ -1580,6 +1581,8 @@ local function drawFind()
     showGame(shownGame())
 end
 
+local joinWanted -- Joining from a link, below
+
 local function refreshFind()
     if Found.loading then return end
     Found.loading = true
@@ -1598,6 +1601,12 @@ local function refreshFind()
         if alive(Find) and not Found.focused and Found.games[1] and tableLayout() then
             Found.focused = true
             pcall(function() Find.Game0:SetFocus() end)
+        end
+        -- A lobby a link asked for: looked up in this list, or in the next
+        -- one when this fetch failed.
+        if games and Found.wanted then
+            local ok, err = pcall(joinWanted)
+            if not ok then log("join link: " .. tostring(err)) end
         end
     end)
 end
@@ -1676,6 +1685,86 @@ end
 
 local function joinChosen()
     joinGame(Found.chosen)
+end
+
+-------------------------------------------------------------------------------
+-- Joining from a link
+-------------------------------------------------------------------------------
+--
+-- A website's mjolnir://join/<lobby> link reaches the MJOLNIR launcher, which
+-- leaves the lobby's hub id here and starts the game if it is not running
+-- (docs/live_map_install.md, "Joining from a link"). native\pending_join.txt,
+-- key=value lines:
+--
+--   lobby=<the hub's lobby id: letters, digits and dashes>
+--   at=<unix seconds, when the link was clicked>
+--
+-- The main menu's poll picks it up once the player is signed in (a main menu
+-- has been up: nothing starts before "press start") and is in the frontend;
+-- during a match it stays where it is until they are back. It is read once
+-- and deleted, and dropped when malformed or older than JOIN_LINK_TTL. FIND
+-- GAMES then opens, and when its list arrives the lobby is chosen and joined
+-- as JOIN would join it: DOWNLOAD AND JOIN, a full game and another version
+-- are handled as usual.
+
+local PENDING_JOIN = MOD_DIR .. "\\native\\pending_join.txt"
+local JOIN_LINK_TTL = 600   -- seconds
+
+--- The list is in: join the lobby the link named, if it is listed.
+function joinWanted()
+    local wanted = Found.wanted
+    Found.wanted = nil
+    if os.time() - wanted.at > JOIN_LINK_TTL then return end
+    if not alive(Find) then
+        log("join link: FIND GAMES was closed before " .. wanted.lobby .. " was found")
+        return
+    end
+    for _, g in ipairs(Found.all) do
+        if g.id == wanted.lobby then
+            log("join link: joining " .. tostring(g.name or g.host) .. " (" .. wanted.lobby .. ")")
+            Found.chosen, Found.hovered = g, nil
+            drawFind()
+            joinGame(g)
+            return
+        end
+    end
+    log("join link: " .. wanted.lobby .. " is not listed")
+    findNote("That game has ended or is no longer listed.")
+end
+
+--- From the main menu's poll, while signed in and in the frontend.
+--- `hookEvents` is hookScreenEvents (defined below this block): FIND GAMES
+--- opened with no lobby behind it still needs its buttons' hook.
+function pickUpJoin(hookEvents)
+    local raw = readFile(PENDING_JOIN)
+    if not raw then return end
+    os.remove(PENDING_JOIN)
+    local fields = {}
+    for k, v in raw:gmatch("([%w_]+)=([^\r\n]*)") do fields[k] = v end
+    local lobby, at = fields.lobby, tonumber(fields.at)
+    if not (lobby and #lobby <= 64 and lobby:match("^[%w%-]+$") and at) then
+        log("join link: ignored a malformed pending_join.txt")
+        return
+    end
+    local age = os.time() - at
+    if age > JOIN_LINK_TTL then
+        log(string.format("join link: %s is %d s old; dropped", lobby, age))
+        return
+    end
+    if not hasFindGames() then
+        log("join link: the installed UI container has no FIND GAMES")
+        return
+    end
+    log("join link: looking for " .. lobby)
+    pcall(hookEvents)
+    Found.wanted = { lobby = lobby, at = at }
+    if alive(Find) then
+        -- Up already: the list being fetched, or a new one, answers it.
+        refreshFind()
+    else
+        openFindGames()
+        if not Find then Found.wanted = nil end   -- the screen did not push
+    end
 end
 
 --- QUICK JOIN: of the games the filters show, one that can be joined (its
@@ -2124,7 +2213,8 @@ end
 -- Remix's slot, its click bound through the native half (Scripts/ui.lua).
 
 local MAIN_MENU = "/Game/UI/Frontend/MainMenu/Widgets/WBP_MainMenu.WBP_MainMenu_C"
-local entry = { menu = nil, button = nil }
+-- signedIn: a main menu has been up this session (watchMainMenu).
+local entry = { menu = nil, button = nil, signedIn = false }
 local nativeSeen = nil
 
 --- The main menu on screen. FindFirstOf could hand back the previous
@@ -2921,6 +3011,14 @@ local function watchMainMenu()
             pcall(hostPostGame)
             pcall(broadcastLobby)
             local menu = liveMainMenu()
+            -- Signed in once a main menu has been up (it comes after "press
+            -- start"); still so behind our screens, which may hide it. Only
+            -- then a join from a link (a file read when there is none).
+            if UI.valid(menu) then entry.signedIn = true end
+            if entry.signedIn then
+                local picked, why = pcall(pickUpJoin, hookScreenEvents)
+                if not picked then log("join link: " .. tostring(why)) end
+            end
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
                 if nativeSeen ~= UI.addressOf(menu) then

@@ -34,6 +34,7 @@ import {
   RatingPutSchema,
   RatingSummarySchema,
   avatarUrl,
+  mediaUrl,
 } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
@@ -161,10 +162,6 @@ async function recomputeRating(c: Ctx, modId: string) {
   )
     .bind(modId, n, mean, mean === null ? null : wilsonLowerBound(mean, n))
     .run();
-}
-
-export function mediaUrl(id: string): string {
-  return `/api/v1/media/${id}`;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

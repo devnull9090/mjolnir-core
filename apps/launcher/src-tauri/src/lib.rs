@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 mod changelog;
 mod hub;
+mod links;
 mod maps;
 mod tools;
 mod transfer;
@@ -1004,6 +1005,101 @@ fn launch_game() -> Result<(), String> {
     }
 }
 
+// ─── Joining a listed game (mjolnir://join links) ───────────────────────
+
+/// The image names a running game shows under: the store launcher's exe and
+/// the shipping builds `launch_game` falls back to, plus the player's own
+/// EXE when one is set. Not `HaloCE.exe`, which `launch_game` also tries: a
+/// classic Halo CE running is not this game.
+fn game_image_names(settings: &LauncherSettings) -> Vec<String> {
+    let mut names: Vec<String> = [
+        GAME_EXE,
+        "Meteorite-Win64-Shipping.exe",
+        "Meteorite-WinGDK-Shipping.exe",
+        "Meteorite.exe",
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    if let Some(name) = settings
+        .custom_exe_path
+        .as_deref()
+        .and_then(|p| Path::new(p).file_name())
+    {
+        names.push(name.to_string_lossy().into_owned());
+    }
+    names
+}
+
+/// Whether `tasklist /FO CSV /NH` output lists any of these image names.
+/// Its first column is the quoted image name; the rest is ignored.
+fn tasklist_lists(output: &str, names: &[String]) -> bool {
+    output.lines().any(|line| {
+        let image = line.trim().trim_start_matches('"');
+        let image = image.split('"').next().unwrap_or_default();
+        names.iter().any(|n| n.eq_ignore_ascii_case(image))
+    })
+}
+
+/// Whether the game is running, from one `tasklist` (hidden: no console
+/// flashes up over the launcher). False when it cannot tell, which starts
+/// the game: a second start of a running Steam game only focuses it.
+fn game_running() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let Ok(out) = std::process::Command::new("tasklist")
+            .args(["/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        else {
+            return false;
+        };
+        tasklist_lists(
+            &String::from_utf8_lossy(&out.stdout),
+            &game_image_names(&get_settings()),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// What `hub_join_lobby` did: started the game (`launched`), or left the
+/// join for the game already running, which picks it up at its main menu.
+#[derive(Debug, Serialize)]
+pub struct JoinStart {
+    pub launched: bool,
+}
+
+/// Join a listed game: leave the lobby id for MJOLNIRLobby
+/// (`native\pending_join.txt`, docs/live_map_install.md "Joining from a
+/// link"), and start the game if it is not running. The game does the rest
+/// once the player is signed in at the main menu: it finds the lobby in
+/// FIND GAMES and joins it, downloading the map first when it has to.
+///
+/// An error starting `not_ready:` means multiplayer is not installed
+/// (`hub::multiplayer_ready`); the webview offers Install multiplayer.
+#[tauri::command]
+async fn hub_join_lobby(lobby: String) -> Result<JoinStart, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !links::valid_lobby(&lobby) {
+            return Err(format!("{lobby:?} is not a lobby id"));
+        }
+        let lobby_dir = hub::multiplayer_ready().map_err(|e| format!("not_ready:{e}"))?;
+        hub::write_pending_join(&lobby_dir, &lobby)?;
+        if game_running() {
+            return Ok(JoinStart { launched: false });
+        }
+        launch_game()?;
+        Ok(JoinStart { launched: true })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
 // ─── New commands: Install lifecycle ────────────────────────────────────
 
 #[tauri::command]
@@ -1730,6 +1826,11 @@ fn uninstall_modpack() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // A running game asking for a map (hub::run_live_install): no window.
+    //
+    // Handled here, before the builder, on purpose: the single-instance
+    // plugin below hands a second launcher's arguments to the open one and
+    // exits it, and the game spawns this while a launcher window may well be
+    // open. Kept ahead of every plugin, it never reaches that check.
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--install-map") {
         let code = args.get(i + 1).cloned().unwrap_or_default();
@@ -1750,14 +1851,51 @@ pub fn run() {
     }
     hub::record_exe_path();
     tauri::Builder::default()
+        // First, as the deep-link plugin requires: a second launcher (a
+        // mjolnir:// link clicked while this one is open, or a second click
+        // on the shortcut) gives its arguments to this one and exits. With
+        // the `deep-link` feature the plugin passes a link on to the
+        // deep-link plugin, whose listener (setup, below) delivers it.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            links::focus_main(app)
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        // Also on every launch (launch_game), but many players start the
-        // game from Steam: opening the launcher is enough to fix their file.
-        .setup(|_| {
+        .manage(links::Pending::default())
+        .setup(|app| {
+            // Also on every launch (launch_game), but many players start the
+            // game from Steam: opening the launcher is enough to fix their
+            // file.
             if let Err(e) = apply_ue4ss_settings(&get_settings()) {
                 eprintln!("ue4ss settings: {e}");
+            }
+
+            // mjolnir:// links. The installer registers the scheme; this
+            // registers it for a dev build and for installs from before it
+            // (HKCU, so no elevation), and points it back at this exe when
+            // it has moved.
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let deep_link = app.deep_link();
+            #[cfg(windows)]
+            if !deep_link.is_registered(links::SCHEME).unwrap_or(false) {
+                if let Err(e) = deep_link.register(links::SCHEME) {
+                    eprintln!("links: registering {}://: {e}", links::SCHEME);
+                }
+            }
+            let handle = app.handle().clone();
+            deep_link.on_open_url(move |event| {
+                for url in event.urls() {
+                    links::deliver(&handle, url.as_str());
+                }
+            });
+            // The link this launcher was started with: read by the plugin
+            // before anything listened.
+            if let Ok(Some(urls)) = deep_link.get_current() {
+                for url in urls {
+                    links::deliver(app.handle(), url.as_str());
+                }
             }
             Ok(())
         })
@@ -1785,6 +1923,8 @@ pub fn run() {
             hub_api,
             hub_install,
             hub_install_multiplayer,
+            hub_join_lobby,
+            links::take_pending_link,
             hub_uninstall,
             hub_state,
             hub_set_order,
@@ -1813,6 +1953,24 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_game_is_found_in_tasklist_output() {
+        let settings = LauncherSettings {
+            custom_exe_path: Some(r"D:\Games\HCE\MyBuild.exe".into()),
+            ..LauncherSettings::default()
+        };
+        let names = game_image_names(&settings);
+        let listing = "\"System Idle Process\",\"0\",\"Services\",\"0\",\"8 K\"\r\n\
+                       \"steam.exe\",\"4120\",\"Console\",\"1\",\"212,404 K\"\r\n";
+        assert!(!tasklist_lists(listing, &names));
+        let running = format!("{listing}\"HaloCampaignEvolved.exe\",\"9000\",\"Console\",\"1\",\"8,123,456 K\"\r\n");
+        assert!(tasklist_lists(&running, &names));
+        assert!(tasklist_lists("\"meteorite-win64-shipping.EXE\",\"1\"", &names));
+        assert!(tasklist_lists("\"MyBuild.exe\",\"1\"", &names));
+        // Classic Halo CE is not this game.
+        assert!(!tasklist_lists("\"HaloCE.exe\",\"1\"", &names));
+    }
 
     /// The old modpack manifest has no `config` key. Reading one must not
     /// start preserving arbitrary files — every entry is content, which is
