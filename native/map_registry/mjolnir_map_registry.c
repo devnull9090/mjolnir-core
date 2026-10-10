@@ -782,7 +782,11 @@ static wchar_t *engine_wstring(const wchar_t *s, int32_t *num) {
     return w;
 }
 
-// `blam_pack::scenario::map_guid`: two FNV-1a 64 hashes over "MJOLNIR map <CODE>".
+// `blam_pack::scenario::map_guid`: two FNV-1a 64 hashes over "MJOLNIR map <CODE>"
+// (the code upper case, as the caller has checked it is; "map" stays lower
+// case). It must match the cooked row's byte for byte: a fireteam whose
+// machines disagree on a map's GUID loads the world and never starts it
+// (two PCs, 2026-10-09).
 static void map_guid(const char *code, uint8_t out[16]) {
     char text[64];
     snprintf(text, sizeof text, "MJOLNIR map %s", code);
@@ -790,7 +794,7 @@ static void map_guid(const char *code, uint8_t out[16]) {
     for (int k = 0; k < 2; k++) {
         uint64_t h = seeds[k];
         for (const char *p = text; *p; p++) {
-            h ^= (uint8_t)(*p >= 'a' && *p <= 'z' ? *p - 32 : *p);
+            h ^= (uint8_t)*p;
             h *= 0x100000001b3ull;
         }
         memcpy(out + k * 8, &h, 8);
@@ -968,6 +972,122 @@ __declspec(dllexport) int mjolnir_scenario_add(void *L) {
     }
     Log("scenario %s: row added (cloned from %s), world %ls", code, from, package);
     write_reply("scenario_reply.txt", "ok added");
+    return 0;
+}
+
+// ------------------------------------- the host's index, on every machine
+//
+// SetAndBeginCampaign finds a map by a linear scan of the campaign's
+// ScenarioList and keeps its INDEX (BlamCampaignFlowGameSubsystem +0x38), and
+// a fireteam only starts when every machine's index for the map agrees: two
+// PCs whose lists differ before the map (one had a local map the other did
+// not) load the world and wait forever, "not in a game" (Danger Canyon and
+// Wizard, two PCs, 2026-10-09). Lists differ whenever installed maps do, so
+// the host sends its index with the map, and a client moves the map to that
+// index in its own list before the start: a swap, or B40 handles as filler
+// when its list is shorter (the scan finds the real B40 first, so a filler
+// never answers for anything).
+
+static int32_t handle_index(uint8_t *campaign, fname_t name) {
+    uint8_t *data = *(uint8_t **)(campaign + CAMPAIGN_SCENARIO_LIST);
+    int32_t num = *(int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 8);
+    for (int32_t i = 0; i < num; i++) {
+        uint8_t *h = data + (size_t)i * 16;
+        if (*(uint32_t *)(h + 8) == name.index && *(uint32_t *)(h + 12) == name.number) return i;
+    }
+    return -1;
+}
+
+// Make room for `want` handles, copying the old ones.
+static int grow_handles(uint8_t *campaign, int32_t want) {
+    uint8_t **data = (uint8_t **)(campaign + CAMPAIGN_SCENARIO_LIST);
+    int32_t num = *(int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 8);
+    int32_t *max = (int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 12);
+    if (want <= *max) return 1;
+    uint8_t *fresh = (uint8_t *)engine_malloc((size_t)want * 16);
+    if (!fresh) return 0;
+    memcpy(fresh, *data, (size_t)num * 16);
+    uint8_t *old = *data;
+    *data = fresh;
+    *max = want;
+    engine_free(old);
+    return 1;
+}
+
+// Lua C function, 0 results. `place_request.txt`: `<campaign data asset
+// address> <CODE> [<index>]`. Without an index it only answers where the map
+// is; with one it moves it there first. `place_reply.txt`: `ok <index>` or
+// `error <why>`.
+__declspec(dllexport) int mjolnir_scenario_place(void *L) {
+    (void)L;
+    ensure_init();
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
+    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
+        write_reply("place_reply.txt", "error this game build is not CU4");
+        return 0;
+    }
+    char request[MAX_PATH];
+    native_path("place_request.txt", request, sizeof request);
+    FILE *f = NULL;
+    unsigned long long campaign_addr = 0;
+    char code[8] = "";
+    int want = -1;
+    if (fopen_s(&f, request, "rb") != 0 || !f) {
+        write_reply("place_reply.txt", "error no place_request.txt");
+        return 0;
+    }
+    int got = fscanf_s(f, "%llx %7s %d", &campaign_addr, code, (unsigned)sizeof code, &want);
+    fclose(f);
+    if (got < 2 || !campaign_addr) {
+        write_reply("place_reply.txt", "error a malformed place_request.txt");
+        return 0;
+    }
+    uint8_t *campaign = (uint8_t *)campaign_addr;
+    wchar_t wcode[8];
+    MultiByteToWideChar(CP_UTF8, 0, code, -1, wcode, 8);
+    fname_t name = fname_of(wcode);
+    int32_t at = handle_index(campaign, name);
+    char reply[64];
+    if (at < 0) {
+        write_reply("place_reply.txt", "error the map is not in the campaign list");
+        return 0;
+    }
+    if (got < 3 || want < 0 || want == at) {
+        snprintf(reply, sizeof reply, "ok %d", at);
+        write_reply("place_reply.txt", reply);
+        return 0;
+    }
+    if (want > 4096) {
+        write_reply("place_reply.txt", "error index out of range");
+        return 0;
+    }
+    int32_t *num = (int32_t *)(campaign + CAMPAIGN_SCENARIO_LIST + 8);
+    if (want >= *num) {
+        int32_t filler = handle_index(campaign, fname_of(L"B40"));
+        if (filler < 0) {
+            write_reply("place_reply.txt", "error no B40 handle to pad with");
+            return 0;
+        }
+        if (!grow_handles(campaign, want + 1)) {
+            write_reply("place_reply.txt", "error out of memory");
+            return 0;
+        }
+        uint8_t *data = *(uint8_t **)(campaign + CAMPAIGN_SCENARIO_LIST);
+        while (*num <= want) {
+            memcpy(data + (size_t)*num * 16, data + (size_t)filler * 16, 16);
+            (*num)++;
+        }
+    }
+    uint8_t *data = *(uint8_t **)(campaign + CAMPAIGN_SCENARIO_LIST);
+    uint8_t tmp[16];
+    memcpy(tmp, data + (size_t)want * 16, 16);
+    memcpy(data + (size_t)want * 16, data + (size_t)at * 16, 16);
+    memcpy(data + (size_t)at * 16, tmp, 16);
+    Log("place %s: index %d -> %d (list of %d)", code, at, want, *num);
+    snprintf(reply, sizeof reply, "ok %d", want);
+    write_reply("place_reply.txt", reply);
     return 0;
 }
 

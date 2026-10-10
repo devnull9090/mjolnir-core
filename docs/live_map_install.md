@@ -16,6 +16,54 @@ Verified on CU4, 2026-10-09:
   container or in Paks at boot, was registered and mounted by hand while the
   game ran, then hosted and played. The game exited cleanly afterwards.
 
+Then on two PCs (PC 2 without Wizard: launcher uninstall, so its
+registration container lacked it too):
+
+- **FIND GAMES:** PC 2 used DOWNLOAD AND JOIN on PC 1's Wizard game. It
+  downloaded, mounted and registered the map, joined the lobby, and both
+  played it.
+- **The host's pick:** PC 1 changed the lobby to Hang 'em High. PC 2 got the
+  prompt, PC 1's lobby showed "WAITING FOR 1 PLAYER TO DOWNLOAD", PC 2
+  downloaded it, and both played.
+- **The vote:** the post-game vote chose The Longest. PC 2's option read
+  `/ DOWNLOAD`, it got the prompt, PC 1 held its countdown until PC 2 was
+  ready, and both played.
+
+Two things only a second PC could show, both fixed:
+
+1. **The map's index in the campaign list must match on every machine**
+   (next section).
+2. **The live row's MapGuid has to match the cooked one.** The C copy of
+   `map_guid` upper-cased all of "MJOLNIR map CODE", not just the code. A
+   host alone never notices: it only has to agree with itself. A client
+   whose row disagrees with the host's loads the world, and the game never
+   starts.
+
+## Every machine needs the same index for the map
+
+`SetAndBeginCampaign` (0x7B446E0) finds the map by a linear scan of
+`DA_FirstPlayableCampaign.ScenarioList` and keeps its index
+(BlamCampaignFlowGameSubsystem+0x38). A fireteam only starts when every
+machine's index agrees:
+
+- PC 1 has two local maps (CSN, YOY) that PC 2 lacks. Danger Canyon is index
+  15 on PC 1 and 14 on PC 2, and both loaded the world and stayed "not in a
+  game".
+- Blood Gulch sits before both local maps, at 12 on each, and started.
+
+Installed map sets differ from player to player, and a live install appends
+at the end, so this has to be handled:
+
+- The host sends its index with the map: field 4 of the lobby message,
+  field 6 of the vote message.
+- A guest joining a match under way asks for it (`where` / `mapindex`).
+- Clients call `MapLive.follow`, which uses `mjolnir_scenario_place`
+  (native/map_registry) to swap the handle to that index. When the list is
+  shorter, it pads with copies of B40's handle; the scan finds the real B40
+  first, so a filler never answers for anything.
+
+The map registry logs the move, e.g. `place DCN: index 14 -> 15`.
+
 ## What a converted map needs, and when each step happens
 
 | Step | At boot (the launcher's install) | While the game runs |
@@ -151,11 +199,9 @@ Both are CU4-only by RVA, guarded by the exe's timestamp.
   the map downloads the newest release, which may be newer than the host's.
   The listing should carry the host's release id.
 - **A client that declines and is still in the fireteam when the host
-  starts.** It follows the host into a map it doesn't have. Not yet tested
-  on two PCs.
+  starts.** It follows the host into a map it doesn't have. Not tested.
 - **Updating a map that is already mounted** needs a restart, as it always
   has.
-- **Untested here:** the two-PC paths (FIND GAMES, the host's pick and the
-  vote with a real client), because PC 2's agent was offline. The single-PC
-  paths (the screen, the install, the mount, the registration, the host)
-  are verified.
+- **Joining a match under way on a map this PC lacks.** FIND GAMES downloads
+  the map first. The index request for a held join (`where`) is in place,
+  but has not been tried on two PCs.

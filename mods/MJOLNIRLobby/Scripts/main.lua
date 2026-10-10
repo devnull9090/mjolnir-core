@@ -396,7 +396,9 @@ end
 -- host how its download is going ("mapstate"), so the host's start can wait.
 
 -- One table, so its locals stay out of the main chunk's (Lua allows 200).
-local Live = { states = {}, prompted = {}, DOWNLOAD_WAIT = 180 }
+-- hostIndex: code -> the host's index for it in the campaign list, as its
+-- lobby and vote messages give it (MapLive.follow).
+local Live = { states = {}, prompted = {}, hostIndex = {}, DOWNLOAD_WAIT = 180 }
 do
 local DL_CLASS = UI_ROOT .. "WBP_MJOLNIRMapDownload.WBP_MJOLNIRMapDownload_C"
 local TRACK = 1000                -- the progress bar's width: the column's (build_mjolnir_ui.py)
@@ -491,6 +493,21 @@ function Live.waitingOn(code)
     return n, best
 end
 
+-- A guest joining a match under way asks where the map is (games.lua);
+-- every guest hears the answer and follows it.
+Net.on("where", function(f)
+    if not Net.isHost() or not f[1] then return end
+    local index = MapLive.register(f[1]) and MapLive.place(f[1])
+    if index then Net.toClients("mapindex", f[1], index) end
+end)
+Net.on("mapindex", function(f)
+    if Net.isHost() then return end
+    Live.hostIndex[f[1] or ""] = tonumber(f[2] or "")
+    for _, map in ipairs(installedMaps()) do
+        if map.code == f[1] then return MapLive.follow(f[1], f[2]) end
+    end
+end)
+
 Net.on("mapstate", function(f, sender)
     if not Net.isHost() then return end
     Live.states[sender or "?"] = { code = f[1], stage = f[2], pct = tonumber(f[3] or ""), at = os.time() }
@@ -581,6 +598,8 @@ local function close()
 end
 
 local function onInstallEvent(code, event)
+    -- In place where the host has it before the host hears it is ready.
+    if event.stage == "ready" and Live.hostIndex[code] then MapLive.follow(code, Live.hostIndex[code]) end
     Live.report(code, event.stage, percent(event))
     if Dl.code ~= code then return end
     Dl.event = event
@@ -1553,7 +1572,7 @@ local function joinGame(g)
     if not ownMap(g) then
         -- The map first, then the join (maplive.lua).
         Live.prompt(g.map_code, {
-            reason = "Needed to join " .. tostring(g.host or "the host") .. "'s game, " .. tostring(g.name or "") .. ".",
+            reason = "Needed to join " .. tostring(g.name or ((g.host or "the host") .. "'s game")) .. ".",
             action = "DOWNLOAD AND JOIN",
             readyText = "Joining...",
             onReady = function()
@@ -2224,8 +2243,12 @@ end
 local function broadcastVote()
     local v = Post and Post.vote
     if not (v and v.host) then return end
+    -- The sixth field: the chosen map's index in the host's campaign list,
+    -- which every client's must match for the map to start (MapLive.follow).
+    local chosen = v.chosen and v.options[v.chosen]
+    local index = chosen and MapLive.register(chosen.code) and MapLive.place(chosen.code)
     Net.toClients("vote", v.id, math.max(0, math.ceil(v.left or 0)), encodeOptions(v.options),
-        table.concat(counts(v), ","), v.chosen or "")
+        table.concat(counts(v), ","), v.chosen or "", index or "")
 end
 
 local function drawResults()
@@ -2554,11 +2577,12 @@ Net.on("vote", function(f)
     -- The next game is on a map this PC lacks: offer it now; the host waits
     -- for a download under way (decide).
     local next_ = v.chosen and v.options[v.chosen]
+    if next_ then Live.hostIndex[next_.code] = tonumber(f[6] or "") or Live.hostIndex[next_.code] end
     if next_ and not mapByCode(next_.code) then
         Live.offerHostMap(next_.code, false, "The fireteam voted for " .. Live.title(next_.code) ..
             ". Download it to keep playing: the host waits for you.")
     elseif next_ then
-        MapLive.register(next_.code)
+        MapLive.follow(next_.code, f[6])
     end
     if Live.showing() then return end
     if not alive(Post.screen) and os.clock() - (Post.pushedAt or -10) >= 2 then
@@ -2612,10 +2636,11 @@ Net.on("lobby", function(f)
             end
         end)
     else
-        -- Its scenario in this game, before the host's countdown needs it.
-        local ok, why = MapLive.register(map.code)
-        if not ok then log("client lobby: " .. map.code .. " not registered: " .. tostring(why)) end
+        -- Its scenario in this game, where the host has it in the campaign
+        -- list, before the host's countdown needs it.
+        MapLive.follow(map.code, f[4])
     end
+    Live.hostIndex[f[1]] = tonumber(f[4] or "") or Live.hostIndex[f[1]]
     local mode = modeById(map, f[2])
     if not mode then
         for _, m in ipairs(MODES) do
@@ -2658,7 +2683,10 @@ local function broadcastLobby()
     if not (alive(Lobby) and Game.map and Game.mode and inFrontend() and Net.isHost()) then return end
     -- The third field is the host's game settings line; a host from before
     -- them sends none, which a client takes as "the variant's own rules".
-    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine())
+    -- The fourth is the map's index in the host's campaign list, which every
+    -- client's must match for the map to start (MapLive.follow).
+    local index = MapLive.register(Game.map.code) and MapLive.place(Game.map.code)
+    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine(), index or "")
 end
 
 local function watchPostGame()

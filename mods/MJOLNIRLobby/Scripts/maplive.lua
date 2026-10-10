@@ -254,6 +254,38 @@ function MapLive.registerAll(codes)
     return added
 end
 
+--- Where `code` is in this game's campaign list, or, with `index`, move it
+--- there first: the index a fireteam's machines must agree on for the map to
+--- start (mjolnir_scenario_place). The index, or nil and why.
+function MapLive.place(code, index)
+    local da = StaticFindObject(CAMPAIGN)
+    if not valid(da) then return nil, "the campaign is not loaded" end
+    local okA, request = pcall(function()
+        return string.format("%x %s%s\n", da:GetAddress(), code, index and (" " .. tostring(math.floor(index))) or "")
+    end)
+    if not okA or not writeFile(loaderNative .. "place_request.txt", request) then
+        return nil, "cannot write the place request"
+    end
+    os.remove(loaderNative .. "place_reply.txt")
+    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_scenario_place")
+    if not ok then return nil, err end
+    local reply = (readFile(loaderNative .. "place_reply.txt") or "error no reply"):gsub("%s+$", "")
+    local at = tonumber(reply:match("^ok (%d+)") or "")
+    if at then return at end
+    return nil, reply:gsub("^error ", "")
+end
+
+--- A fireteam client: put `code` where the host has it (`index`, from the
+--- host's lobby or vote message), registering it first. Quiet unless it fails.
+function MapLive.follow(code, index)
+    index = tonumber(index)
+    if not (code and index) then return end
+    local ok, why = MapLive.register(code)
+    if not ok then return log("map " .. code .. ": not registered (" .. tostring(why) .. ")") end
+    local at, whyNot = MapLive.place(code, index)
+    if at ~= index then log("map " .. code .. ": could not take the host's index " .. index .. " (" .. tostring(whyNot) .. ")") end
+end
+
 --- Mount `paks` (the engine's relative .pak paths): true, or false and why.
 function MapLive.mount(paks)
     if #paks == 0 then return true end

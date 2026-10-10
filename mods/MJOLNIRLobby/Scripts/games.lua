@@ -219,6 +219,10 @@ local function jipTick()
                 jipJoinedUrl = url
                 pendingSwitch = { code = string.upper(code), url = url, tries = 0 }
                 log("games: joined a match under way: " .. url)
+                -- Where the host has the map in its campaign list: this
+                -- side's must match before its game is built (main.lua,
+                -- "where"/"mapindex").
+                pcall(Net.toHost, "where", string.upper(code))
             end
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
             if f then
