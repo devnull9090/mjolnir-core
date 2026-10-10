@@ -395,9 +395,24 @@ export type ScenarioTriggerVolume = {
   extents: [number, number, number];
 };
 
-export type ScenarioSquad = {
+export type ScenarioSpawnPoint = {
+  /** Index in the squad's `spawn points` block. */
+  element: number;
   name: string;
-  spawn_points: { name: string; position: [number, number, number]; facing: [number, number] }[];
+  /** The designer cell the point belongs to, or -1. */
+  cell: number;
+  position: [number, number, number];
+  /** Yaw and pitch, radians. */
+  facing: [number, number];
+};
+
+export type ScenarioSquad = {
+  /** Index in the scenario's `squads` block. */
+  element: number;
+  name: string;
+  /** Designer cells: each spawns `normal_count` actors at its points. */
+  cells: { name: string; normal_count: number }[];
+  spawn_points: ScenarioSpawnPoint[];
 };
 
 export type ScenarioLayoutData = {
