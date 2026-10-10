@@ -41,6 +41,30 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.13.0",
+      "tag": "launcher-v0.13.0",
+      "title": "Community maps, covers, and links from the website",
+      "date": "2026-10-10",
+      "summary": "A Maps tab to find community maps by game type, size and players; screenshots on every mod; and Join and Install buttons on mjolnircore.com that open the launcher.",
+      "body": "### Added\n\n- **Maps tab in Browse Hub.** Every map on the hub, with its screenshot:\n  search by name or code, and filter by classics or community, game type,\n  size, vehicles, and how many players it suits. Sort by newest, downloads,\n  rating or name. Each map installs with one click.\n  - Install multiplayer still installs only the 19 classic maps. Community\n    maps install when you choose them, or in game when a server needs one.\n  - Maps have moved out of Content mods into this tab.\n- **Screenshots in Browse Hub.** Every mod card shows its cover, and a\n  mod's page shows its gallery. Screenshots on mod pages didn't load in the\n  launcher before.\n- **Links from mjolnircore.com.** The launcher opens when you press:\n  - **Join** on the Games page or Match history. It checks the server is\n    still up, starts the game if it isn't running, and the game joins from\n    the main menu. Without multiplayer installed, it offers to install it\n    first.\n  - **Install in launcher** on the Maps page, or **Open in launcher** on a\n    mod's page, to open that map or mod here.\n- **One launcher window.** Opening the launcher again, or a link, brings\n  the open window forward instead of starting a second copy.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Maps tab in Browse Hub. Every map on the hub, with its screenshot: search by name or code, and filter by classics or community, game type, size, vehicles, and how many players it suits. Sort by newest, downloads, rating or name. Each map installs with one click.",
+            "Screenshots in Browse Hub. Every mod card shows its cover, and a mod's page shows its gallery. Screenshots on mod pages didn't load in the launcher before.",
+            "Links from mjolnircore.com. The launcher opens when you press:",
+            "One launcher window. Opening the launcher again, or a link, brings the open window forward instead of starting a second copy."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.13.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.13.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.13.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.12.0",
       "tag": "launcher-v0.12.0",
       "title": "Installs maps for the running game",
@@ -59,6 +83,27 @@
       "path": "/changelog/launcher/0.12.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.12.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.12.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.21.0",
+      "tag": "mods-v0.21.0",
+      "title": "Join a game from the website",
+      "date": "2026-10-10",
+      "summary": "Press Join on mjolnircore.com and the game joins that server from the main menu, downloading the map first when you don't have it.",
+      "body": "Needs MJOLNIR Launcher 0.13.0, which receives the website's Join link and\nstarts the game when it isn't running.\n\n### Added\n\n- **Join from the website** (MJOLNIRLobby 0.11.0). Join on the Games page,\n  or in the \"Live now\" strip on Match history, hands the server to the\n  game. Once you're signed in at the main menu, FIND GAMES opens with that\n  server picked and joins it.\n  - A map you don't have downloads first, as DOWNLOAD AND JOIN does in game.\n  - A server that has ended or filled up says so instead of joining.\n  - A join that arrives during a match waits until you're back at the menu,\n    for up to ten minutes.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Join from the website (MJOLNIRLobby 0.11.0). Join on the Games page, or in the \"Live now\" strip on Match history, hands the server to the game. Once you're signed in at the main menu, FIND GAMES opens with that server picked and joins it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.21.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.21.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.21.0"
     },
     {
       "product": "mods",
