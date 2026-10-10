@@ -1156,6 +1156,30 @@ local function spawnEnvironment(world)
         end
         c:RecaptureSky()
     end)
+    -- `environment.sky_fog`: a CE sky with no model is its outdoor fog's
+    -- colour (Coldsnap's night). The masters fog the level towards it and
+    -- reach it at the opaque distance; a height fog that starts there turns
+    -- everything farther, the empty sky included, that colour. Its colour is
+    -- linear and exposed like a light, so it is raised by the light scale the
+    -- post-process takes back out. The fog sits far above the map: below its
+    -- height it only thickens, so every ray past the start is opaque.
+    local skyFog = env.sky_fog
+    if type(skyFog) == "table" and type(skyFog.color) == "table" then
+        place("__sky_fog", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
+            pcall(function()
+                actor:K2_SetActorLocation({ X = high.X, Y = high.Y, Z = high.Z + (skyFog.height or 400000.0) },
+                    false, {}, false)
+            end)
+            local c = actor.Component
+            c.Mobility = MOBILITY_MOVABLE
+            c:SetFogDensity(skyFog.density or 0.5)
+            c:SetFogHeightFalloff(0.001)
+            c:SetStartDistance(skyFog.start or 0.0)
+            c:SetFogMaxOpacity(1.0)
+            c:SetFogInscatteringColor({ R = skyFog.color[1] * k, G = skyFog.color[2] * k, B = skyFog.color[3] * k, A = 1.0 })
+            pcall(function() c:SetDirectionalInscatteringColor({ R = 0, G = 0, B = 0, A = 1.0 }) end)
+        end)
+    end
     -- `environment.post`: an unbound post-process volume. Converted CE levels
     -- draw CE's own colours (their materials undo the game's display colour
     -- correction), so they ask for everything between material and screen to
@@ -2167,6 +2191,58 @@ local function fadeIn()
     Log(ok and "fade_in requested" or "fade_in request failed")
 end
 
+--- `environment.weather`: CE's weather particle system (Coldsnap's snow),
+--- drawn with one of the game's own Niagara systems (`system`), `copies` of
+--- it, each told the `params` (user parameters by name, floats). The PNW
+--- falling snow fills a box around its component, not around the view, so
+--- the copies are kept at the camera unless `follow` is false. They are
+--- placed in the world, not attached: the camera manager is a hidden actor,
+--- and nothing attached to it draws. Called ten times a second, so each move
+--- is small and goes as a teleport: moved once a second, the first move
+--- after the spawn smeared every flake across the screen. A copy is spawned
+--- where one is missing (the first spawns after the system loads can come
+--- back empty).
+local function updateWeather()
+    local env = Current.furnished and Current.level and Current.level.environment
+    local w = type(env) == "table" and env.weather
+    if type(w) ~= "table" or type(w.system) ~= "string" then return end
+    local pc = getPlayerController()
+    local cm = pc and pc.PlayerCameraManager
+    if not (cm and cm:IsValid()) then return end
+    local at = cm:GetCameraLocation()
+    local here = { X = at.X, Y = at.Y, Z = at.Z }
+    local missing = {}
+    for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
+        local comp = Current.actors["__weather" .. i]
+        if comp and comp:IsValid() then
+            if w.follow ~= false then comp:K2_SetWorldLocation(here, false, {}, true) end
+        else
+            missing[#missing + 1] = i
+        end
+    end
+    if #missing == 0 then return end
+    local system = resolveMesh(w.system)
+    local nfl = findObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local world = getWorld()
+    if not (system and nfl and world) then return end
+    for _, i in ipairs(missing) do
+        local ok, comp = pcall(function()
+            return nfl:SpawnSystemAtLocation(world, system, here, { Pitch = 0, Yaw = 0, Roll = 0 },
+                { X = 1, Y = 1, Z = 1 }, false, false, 0, false)
+        end)
+        if not (ok and comp and comp:IsValid()) then return end
+        for name, value in pairs(type(w.params) == "table" and w.params or {}) do
+            if type(value) == "number" then
+                pcall(function() comp:SetVariableFloat(FName(name), value) end)
+            end
+        end
+        comp:Activate(true)
+        Current.actors["__weather" .. i] = comp
+    end
+    Log(string.format("weather: %d of %d cop%s of %s", #missing, w.copies or 1,
+        (w.copies or 1) == 1 and "y" or "ies", w.system:match("[^./]+$") or w.system))
+end
+
 local function spawnDecor(world)
     local level = Current.level
     spawnEnvironment(world)
@@ -2337,6 +2413,7 @@ local function watch()
     -- Event sounds wait at most a tenth of a second (respawn ticks are a
     -- second apart).
     every(100, "event sounds", drainEvents)
+    every(100, "weather", updateWeather)
     -- A flag picked up or dropped is a new actor, drawn as a skull until it
     -- is dressed, so CTF levels look for new ones often.
     -- CTF flags: new skull actors are reported as they are made

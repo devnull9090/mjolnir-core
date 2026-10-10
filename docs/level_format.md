@@ -133,6 +133,22 @@ effects) come down to their designed strength next to it. At scale 1 a
 Warthog headlight was 160 times the sun and turned whatever it reached white.
 `mjolnir_light_scale <k>` tries a value live; `default` hands it back to the file.
 
+Two more keys come from a CE map's sky and BSP:
+
+- `sky_fog: { color, start, density, height }`. A CE sky with no model,
+  such as Coldsnap's, draws as its outdoor fog colour. The loader spawns an
+  `ExponentialHeightFog` that starts at `start` (cm, CE's opaque distance),
+  so everything farther away turns `color`, the empty sky included. `color`
+  is linear and is raised by the light scale like a light. `density`
+  defaults to 0.5. `height` (default 400,000 cm) is how far above the canvas
+  origin the fog sits.
+- `weather: { system, copies, params, follow }`. A Niagara system the game
+  ships, `copies` of it (1 to 16), each given `params` (user parameters by
+  name, floats). The PNW snow fills a box around its component, not around
+  the view, so the copies are spawned in the world at the camera and moved
+  back to it ten times a second unless `follow` is false. Attaching them to
+  the camera draws nothing, because the camera manager is a hidden actor.
+
 `MJOLNIRWorldBuilder` stands down for any world that has a level file, so its
 auto-built sun and floor pad cannot land on top of an authored environment.
 

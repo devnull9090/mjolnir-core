@@ -679,6 +679,56 @@ def environment(template, placement, scene=None, staging=None, bake=None, root=N
 # CE world units to centimetres.
 WU_CM = 304.8
 
+# CE weather particle systems drawn with the game's own Niagara systems
+# (MJOLNIRLevelLoader updateWeather), by a word in the tag path. The PNW snow
+# fills a box around its component, which the loader keeps at the camera:
+# one copy at its own flake size and brightness is a steady snowfall there.
+# Six copies at size 6 and brightness 50 (tuned against a static copy seen
+# from afar) buried the camera in glowing flakes (Coldsnap, 2026-10-10).
+WEATHER_SYSTEMS = {
+    "snow": {"system": "/Game/FX/Library/Environment/PNW/Atmospherics/Snow/"
+                       "NS_PNW_AmbientFallingSnow_System.NS_PNW_AmbientFallingSnow_System",
+             "copies": 1, "params": {"User.Mote Brightness": 1.0, "User.Snow Size": 1.0}},
+}
+
+
+def srgb_to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def sky_and_weather(placement, staging):
+    """The level's `sky_fog` and `weather` (environment keys), as far as it has
+    them. A sky with no model (Coldsnap's) is its outdoor fog's colour: the
+    masters fog the level towards it in CE's display colours and reach it at
+    the opaque distance, so the loader's height fog starts there, in the same
+    colour made linear (the masters' SRGB_TO_LINEAR). The weather is the
+    particle system most of the BSP's clusters use. Both come from ce_fog.py's
+    fog.json, and the sky fog only where a cluster draws the sky: Chill Out's
+    model-less sky has a fog, but no cluster of its draws a sky, so CE never
+    shows it."""
+    out = {}
+    try:
+        cefog = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        cefog = {}
+    sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
+    fog = (sky or {}).get("outdoor_fog") or {}
+    if (sky and not sky.get("model") and cefog.get("sky_clusters", 0) > 0
+            and fog.get("max_density", 0) > 0 and fog.get("color")):
+        out["sky_fog"] = {"color": [round(srgb_to_linear(c), 6) for c in fog["color"]],
+                          "start": round(fog.get("opaque_distance", 0.0) * WU_CM, 1)}
+    try:
+        systems = cefog["weather"]["systems"]
+    except (KeyError, TypeError):
+        systems = []
+    for s in systems:
+        kind = next((k for k in WEATHER_SYSTEMS if k in s["system"].lower()), None)
+        if kind:
+            out["weather"] = {**WEATHER_SYSTEMS[kind], "source": s["system"]}
+            break
+        print(f"  weather {s['system']}: no Unreal system for it, left out", file=sys.stderr)
+    return out
+
 
 def collision_triangles(staging):
     """The CE collision BSPs' surfaces as triangles in world units, from the
@@ -1197,6 +1247,7 @@ def main():
         # (MJOLNIRLevelLoader "post").
         "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
                                       f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
+                        **sky_and_weather(placement, a.staging),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {
