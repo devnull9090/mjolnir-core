@@ -783,7 +783,17 @@ seconds after the loading screen are dark.
 
 ## Limits
 
-- **Visuals.** No decals or weather yet. A light a placed object carries
+- **Weather and model-less skies.** `ce_fog.py` also reads the weather
+  palette's particle systems that the BSP's clusters use, and the weather
+  polyhedra, into `fog.json`. `gen_ce_level.py` maps a snow system to the
+  game's PNW falling snow (`environment.weather`, docs/level_format.md).
+  Weather does not stop indoors yet: the polyhedra and the clusters with no
+  weather are read but not used. A sky with no model draws its outdoor fog
+  colour past the opaque distance (`environment.sky_fog`). Only Coldsnap,
+  among the converted maps, has either. Only a map's first fog plane is
+  drawn, and Coldsnap has three: the crevasse's two pit fogs and a
+  "snowyfog night" layer.
+- **Visuals.** No decals yet. A light a placed object carries
   (the base beacons) is drawn as its lens flare only, never as a light, and
   the flare's brightness follows the object function that scales the light
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
