@@ -117,6 +117,28 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.23.0",
+      "tag": "mods-v0.23.0",
+      "title": "Snow and night skies on converted maps",
+      "date": "2026-10-10",
+      "summary": "Converted maps can bring their weather and a sky drawn from their fog, so Coldsnap snows under its navy night sky.",
+      "body": "### Added\n\n- **Weather on converted maps** (MJOLNIRLevelLoader 0.6.0). A Custom\n  Edition map whose BSP has a snow system now snows, using the game's own\n  falling snow. The snow follows your view. Coldsnap is the first map with\n  it.\n  - Snow still falls indoors for now.\n- **Skies without a model** (MJOLNIRLevelLoader 0.6.0). In CE, a sky with no\n  model is just its fog colour. Converted maps now draw that colour past\n  the fog's opaque distance instead of an empty black sky. On Coldsnap that\n  is a dark navy night.\n\nMaps converted before this release are unchanged. None of the 19 classic\nmaps has weather or a sky like this.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Weather on converted maps (MJOLNIRLevelLoader 0.6.0). A Custom Edition map whose BSP has a snow system now snows, using the game's own falling snow. The snow follows your view. Coldsnap is the first map with it.",
+            "Skies without a model (MJOLNIRLevelLoader 0.6.0). In CE, a sky with no model is just its fog colour. Converted maps now draw that colour past the fog's opaque distance instead of an empty black sky. On Coldsnap that is a dark navy night."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.23.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.23.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.23.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.22.0",
       "tag": "mods-v0.22.0",
       "title": "Your hub name in game, and reporting players",
