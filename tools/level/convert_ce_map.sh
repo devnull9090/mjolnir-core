@@ -133,11 +133,13 @@ if [ "$cook" = "1" ]; then
   # every core, the sun and fill per texel) at LIGHTMAP_SCALE times the
   # shipped pages' size (auto: the power of two that brings the texel
   # density to 4/m, pages capped at 2048); the shipped pages are 1x and
-  # blur every shadow edge. LIGHTMAP_SCALE=0 keeps the shipped pages.
+  # blur every shadow edge. LIGHTMAP_SCALE=0 keeps the shipped pages;
+  # LIGHTMAP_ARGS adds solver flags (e.g. "--gpu").
   lightmaps_args=()
   lightmap_scale="${LIGHTMAP_SCALE:-auto}"
+  read -r -a lightmap_extra <<< "${LIGHTMAP_ARGS:-}"
   if [ "$lightmap_scale" != "0" ]; then
-    "$mjolnir" level lightmaps "$staging" "$out/scene.gltf" "$out/lightmaps" --scale "$lightmap_scale" \
+    "$mjolnir" level lightmaps "$staging" "$out/scene.gltf" "$out/lightmaps" --scale "$lightmap_scale" "${lightmap_extra[@]}" \
       && lightmaps_args=(--lightmaps "$out/lightmaps")
   fi
   # What the lightmaps leave out, one texture per lightmap page
