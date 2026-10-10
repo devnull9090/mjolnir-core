@@ -219,6 +219,10 @@ local function jipTick()
                 jipJoinedUrl = url
                 pendingSwitch = { code = string.upper(code), url = url, tries = 0 }
                 log("games: joined a match under way: " .. url)
+                -- Where the host has the map in its campaign list: this
+                -- side's must match before its game is built (main.lua,
+                -- "where"/"mapindex").
+                pcall(Net.toHost, "where", string.upper(code))
             end
             local f = io.open(nativeDir .. "jip_map.txt", "wb")
             if f then
@@ -320,6 +324,10 @@ local function beat()
             -- The host's game settings: a player joining mid-match gets
             -- them from /join (docs/host_game_settings.md).
             settings = info.settings,
+            -- The hub release of the map: a joiner with another one updates
+            -- first (docs/live_map_install.md). A hub from before ignores it.
+            map_release_id = info.map_release_id,
+            map_version = info.map_version,
         }, function(status, data)
             Host.busy = false
             if status == 201 and data and data.id then
@@ -351,6 +359,8 @@ local function beat()
         state = state,
         connection_string = conn,
         settings = info.settings,
+        map_release_id = info.map_release_id,
+        map_version = info.map_version,
     }, function(status, data)
         Host.busy = false
         Host.nextBeat = os.time() + HEARTBEAT_SECONDS

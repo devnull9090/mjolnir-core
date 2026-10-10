@@ -46,7 +46,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "4"
+$AgentVersion = "5"
 
 # --- Where things are --------------------------------------------------------
 
@@ -70,10 +70,15 @@ if (-not $GameDir) {
 if (-not $GameDir) { throw "Halo Campaign Evolved not found; pass -GameDir <install root>." }
 
 $Ue4ss = Join-Path $GameDir "Meteorite\Binaries\Win64\ue4ss"
+# paks: test containers (the runtime pack's UI, a map) put in place while the
+# game is closed. launcher: the launcher's config folder, for the live map
+# install's launcher_exe.txt (docs/live_map_install.md).
 $Roots = @{
     ue4ss = $Ue4ss
     saved = Join-Path $env:LOCALAPPDATA "Meteorite\Saved"
     agent = $PSScriptRoot
+    paks = Join-Path $GameDir "Meteorite\Content\Paks"
+    launcher = Join-Path $env:APPDATA "com.devnull9090.mjolnir-launcher"
 }
 $BridgeDir = Join-Path $Ue4ss "mjolnir-bridge"
 
@@ -89,7 +94,7 @@ $Utf8 = New-Object System.Text.UTF8Encoding($false)
 # --- Helpers -----------------------------------------------------------------
 
 function Resolve-RootPath([string]$root, [string]$relative) {
-    if (-not $Roots.ContainsKey($root)) { throw "unknown root '$root' (ue4ss or saved)" }
+    if (-not $Roots.ContainsKey($root)) { throw "unknown root '$root' (ue4ss, saved, agent, paks or launcher)" }
     if ($relative -match '\.\.|:' -or $relative.StartsWith("\") -or $relative.StartsWith("/")) {
         throw "path must stay inside its root"
     }

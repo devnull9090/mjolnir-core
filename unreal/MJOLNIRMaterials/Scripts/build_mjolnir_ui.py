@@ -16,6 +16,9 @@ Writes, under /Game/MJOLNIR/UI:
                          server table, a game's details, JOIN, QUICK JOIN
   WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
                          the next game (MJOLNIRLobby)
+  WBP_MJOLNIRMapDownload a map this PC does not have: its hub screenshot and
+                         details, DOWNLOAD, and the download's progress
+                         (docs/live_map_install.md)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
@@ -358,7 +361,7 @@ def menu_button(bp, name, label, parent, size=30):
     button = widget(bp, unreal.Button, name, parent)
     button_style(button)
     block = widget(bp, unreal.TextBlock, f"{name}Label", name)
-    text_style(block, label, size, GOLD if name in ("Start", "Select", "Join") else WHITE)
+    text_style(block, label, size, GOLD if name in ("Start", "Select", "Join", "Download") else WHITE)
     block.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
     return button
 
@@ -464,12 +467,18 @@ def build_lobby():
     sized(bp, "CardSize", "Card", width=840)
     widget(bp, unreal.VerticalBox, "CardStack", "CardSize")
     gap(rule(bp, "MapRule", "CardStack", ACCENT, 2), bottom=24)
-    label = widget(bp, unreal.TextBlock, "MapKicker", "CardStack")
+    # The map's hub screenshot beside its kicker and title.
+    head = widget(bp, unreal.HorizontalBox, "MapHead", "CardStack")
+    head_text = widget(bp, unreal.VerticalBox, "MapHeadText", "MapHead")
+    fill(head_text, 1)
+    label = widget(bp, unreal.TextBlock, "MapKicker", "MapHeadText")
     text_style(label, "MISSION AREA", 18, ACCENT)
     gap(label, bottom=12)
-    map_title = widget(bp, unreal.TextBlock, "MapTitle", "CardStack")
+    map_title = widget(bp, unreal.TextBlock, "MapTitle", "MapHeadText")
     text_style(map_title, "BLOOD GULCH", 46, WHITE)
     wrapped(map_title)
+    shot = map_image(bp, "MapImage", "MapHead", 320, 180)
+    shot.get_editor_property("slot").set_padding(unreal.Margin(24, 0, 0, 0))
     description = widget(bp, unreal.TextBlock, "MapDescription", "CardStack")
     text_style(description, "", 24, GREY)
     wrapped(description)
@@ -561,7 +570,18 @@ def build_map_select():
     details = panel(bp, "Details", "Root")
     place(details, (0.32, 0.22), (0.0, 0.0))
     sized(bp, "DetailsSize", "Details", width=1430)
-    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
+    widget(bp, unreal.HorizontalBox, "DetailsColumns", "DetailsSize")
+    sized(bp, "DetailsLeftSize", "DetailsColumns", width=780)
+    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsLeftSize")
+    side = widget(bp, unreal.VerticalBox, "DetailsSide", "DetailsColumns")
+    side.get_editor_property("slot").set_padding(unreal.Margin(40, 0, 0, 0))
+    gap(rule(bp, "SideRule", "DetailsSide", ACCENT, 2), bottom=24)
+    map_image(bp, "MapImage", "DetailsSide", 600, 338)
+    meta_size = sized(bp, "MapMetaSize", "DetailsSide", width=600)
+    gap(meta_size, top=14)
+    meta = widget(bp, unreal.TextBlock, "MapMeta", "MapMetaSize")
+    text_style(meta, "", 21, GREY)
+    wrapped(meta)
     gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=24)
     title = widget(bp, unreal.TextBlock, "MapTitle", "DetailsStack")
     text_style(title, "", 48, WHITE)
@@ -629,6 +649,31 @@ def swatch(bp, name, parent, width, height, color):
     ink = widget(bp, unreal.Border, name, box.get_name())
     ink.set_editor_property("brush_color", unreal.LinearColor(*color))
     ink.set_editor_property("padding", unreal.Margin(0))
+    return box
+
+
+def map_image(bp, name, parent, width, height):
+    """A map's hub screenshot, `width` by `height`: `<name>` is the Image Lua
+    gives the cached cover (KismetRenderingLibrary.ImportFileAsTexture2D) and
+    shows; `<name>Note` the line shown in its place until then. The image is
+    hidden, not collapsed, so the box keeps its size and nothing moves when
+    the picture arrives."""
+    box = sized(bp, name + "Size", parent, width=width, height=height)
+    frame = widget(bp, unreal.Overlay, name + "Frame", box.get_name())
+    back = widget(bp, unreal.Border, name + "Back", frame.get_name())
+    back.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.0, 0.0, 0.45))
+    image = widget(bp, unreal.Image, name, frame.get_name())
+    image.set_visibility(unreal.SlateVisibility.HIDDEN)
+    for w in (back, image):
+        slot = w.get_editor_property("slot")
+        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    note = widget(bp, unreal.TextBlock, name + "Note", frame.get_name())
+    text_style(note, "", 18, GREY)
+    note.set_editor_property("justification", unreal.TextJustify.CENTER)
+    slot = note.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
     return box
 
 
@@ -830,15 +875,23 @@ def build_find_games():
     sized(bp, "DetailsSize", "Details", width=640)
     widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
     gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=24)
-    kicker = widget(bp, unreal.TextBlock, "GameKicker", "DetailsStack")
+    # The kicker, title and host beside the map's screenshot, which adds no
+    # height: the panel already reaches the footer with a long game.
+    head = widget(bp, unreal.HorizontalBox, "GameHead", "DetailsStack")
+    gap(head, bottom=22)
+    head_text = widget(bp, unreal.VerticalBox, "GameHeadText", "GameHead")
+    fill(head_text, 1)
+    kicker = widget(bp, unreal.TextBlock, "GameKicker", "GameHeadText")
     text_style(kicker, "", 18, ACCENT)
     gap(kicker, bottom=10)
-    title = widget(bp, unreal.TextBlock, "GameTitle", "DetailsStack")
+    title = widget(bp, unreal.TextBlock, "GameTitle", "GameHeadText")
     text_style(title, "", 42, WHITE)
     wrapped(title)
-    host = widget(bp, unreal.TextBlock, "GameHost", "DetailsStack")
+    host = widget(bp, unreal.TextBlock, "GameHost", "GameHeadText")
     text_style(host, "", 21, GREY)
-    gap(host, top=6, bottom=22)
+    gap(host, top=6)
+    shot = map_image(bp, "MapImage", "GameHead", 192, 108)
+    shot.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 0, 0))
     gap(rule(bp, "InfoRule", "DetailsStack"), bottom=14)
     for key, label in (("Map", "MAP"), ("Type", "GAME TYPE"), ("Players", "PLAYERS"), ("Ping", "PING"),
                        ("Region", "REGION"), ("Version", "VERSION")):
@@ -934,13 +987,18 @@ def build_post_game():
     sized(bp, "VoteSize", "Vote", width=780)
     widget(bp, unreal.VerticalBox, "VoteStack", "VoteSize")
     gap(rule(bp, "VoteRule", "VoteStack", ACCENT, 2), bottom=24)
-    heading = widget(bp, unreal.TextBlock, "VoteKicker", "VoteStack")
+    vote_head = widget(bp, unreal.HorizontalBox, "VoteHead", "VoteStack")
+    gap(vote_head, bottom=22)
+    vote_text = widget(bp, unreal.VerticalBox, "VoteHeadText", "VoteHead")
+    fill(vote_text, 1)
+    heading = widget(bp, unreal.TextBlock, "VoteKicker", "VoteHeadText")
     text_style(heading, "NEXT GAME", 18, ACCENT)
     gap(heading, bottom=12)
-    timer = widget(bp, unreal.TextBlock, "VoteTimer", "VoteStack")
+    timer = widget(bp, unreal.TextBlock, "VoteTimer", "VoteHeadText")
     text_style(timer, "VOTE", 34, WHITE)
     wrapped(timer)
-    gap(timer, bottom=22)
+    shot = map_image(bp, "MapImage", "VoteHead", 288, 162)
+    shot.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 0, 0))
     events = []
     for i in range(VOTE_OPTIONS):
         line = widget(bp, unreal.HorizontalBox, f"VoteRow{i}", "VoteStack")
@@ -964,6 +1022,93 @@ def build_post_game():
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", event))
     footer(bp)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
+DOWNLOAD_TRACK = 1000
+DOWNLOAD_INFO = (("Author", "BY"), ("Rating", "RATING"), ("Downloads", "DOWNLOADS"), ("Size", "DOWNLOAD"),
+                 ("Version", "VERSION"), ("Modes", "GAME TYPES"))
+
+
+def build_map_download():
+    """A map this PC does not have (docs/live_map_install.md): its hub
+    screenshot and details, DOWNLOAD and CANCEL, and the download's progress
+    bar. MJOLNIRLobby pushes it when joining a game on such a map, or when
+    the host or a vote picks one, and fills every text; the bar's fill is a
+    size box whose width Lua sets (ProgressFillSize, 0 to DOWNLOAD_TRACK)."""
+    name = "WBP_MJOLNIRMapDownload"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    screen_canvas(bp)
+    screen_header(bp, "DOWNLOAD MAP", "MULTIPLAYER")
+    events = []
+
+    card = panel(bp, "Card", "Root")
+    place(card, (0.06, 0.25), (0.0, 0.0))
+    sized(bp, "CardSize", "Card", width=2200)
+    widget(bp, unreal.HorizontalBox, "CardRow", "CardSize")
+    map_image(bp, "MapImage", "CardRow", 1120, 630)
+    side_size = sized(bp, "SideSize", "CardRow", width=1000)
+    side_size.get_editor_property("slot").set_padding(unreal.Margin(48, 0, 0, 0))
+    widget(bp, unreal.VerticalBox, "Side", "SideSize")
+    gap(rule(bp, "SideRule", "Side", ACCENT, 2), bottom=22)
+    kicker = widget(bp, unreal.TextBlock, "Kicker", "Side")
+    text_style(kicker, "MAP NOT INSTALLED", 18, GOLD)
+    gap(kicker, bottom=10)
+    title = widget(bp, unreal.TextBlock, "MapTitle", "Side")
+    text_style(title, "", 56, WHITE)
+    wrapped(title)
+    reason = widget(bp, unreal.TextBlock, "Reason", "Side")
+    text_style(reason, "", 22, GREY)
+    wrapped(reason)
+    gap(reason, top=8, bottom=20)
+    gap(rule(bp, "InfoRule", "Side"), bottom=10)
+    for key, label in DOWNLOAD_INFO:
+        line = widget(bp, unreal.HorizontalBox, f"Info{key}", "Side")
+        gap(line, top=6, bottom=6)
+        size = sized(bp, f"Info{key}LabelSize", line.get_name(), width=220)
+        middle(size)
+        text_style(widget(bp, unreal.TextBlock, f"Info{key}Label", size.get_name()), label, 17, GREY)
+        value = widget(bp, unreal.TextBlock, f"Info{key}Value", line.get_name())
+        text_style(value, "", 24, WHITE)
+        value.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        fill(value, 1)
+        middle(value)
+    description = widget(bp, unreal.TextBlock, "MapDescription", "Side")
+    text_style(description, "", 22, GREY)
+    wrapped(description)
+    gap(description, top=16, bottom=22)
+
+    # The download: a track, its fill, and a line under it.
+    progress = widget(bp, unreal.VerticalBox, "Progress", "Side")
+    gap(progress, bottom=18)
+    track_size = sized(bp, "ProgressTrackSize", "Progress", width=DOWNLOAD_TRACK, height=14)
+    track = widget(bp, unreal.Border, "ProgressTrack", track_size.get_name())
+    track.set_editor_property("brush_color", unreal.LinearColor(*DIM[:3], 0.6))
+    track.set_editor_property("padding", unreal.Margin(0))
+    track.set_editor_property("horizontal_alignment", unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    fill_size = sized(bp, "ProgressFillSize", "ProgressTrack", width=1, height=14)
+    ink = widget(bp, unreal.Border, "ProgressFill", fill_size.get_name())
+    ink.set_editor_property("brush_color", unreal.LinearColor(*ACCENT))
+    ink.set_editor_property("padding", unreal.Margin(0))
+    line = widget(bp, unreal.TextBlock, "ProgressText", "Progress")
+    text_style(line, "", 21, WHITE)
+    wrapped(line)
+    gap(line, top=10)
+
+    gap(rule(bp, "ActionsRule", "Side"), bottom=18)
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "Side")
+    for key, label in (("Download", "DOWNLOAD"), ("Cancel", "CANCEL")):
+        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", key.lower()))
+    text_style(footer(bp), "MAPS COME FROM MJOLNIRCORE.COM, SIGNED BY THEIR AUTHORS AND CHECKED BEFORE THEY INSTALL",
+               22, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1081,6 +1226,7 @@ build_lobby()
 build_map_select()
 build_find_games()
 build_post_game()
+build_map_download()
 build_game_settings()
 build_label()
 unreal.log("MJOLNIR UI built")

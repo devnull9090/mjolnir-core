@@ -6,9 +6,11 @@
 //   node tools/remote/remote.mjs lua 'print(1 + 1)'        (or lua @file.lua)
 //   node tools/remote/remote.mjs console 'stat fps'
 //   node tools/remote/remote.mjs launch | quit [--force]
-//   node tools/remote/remote.mjs get <ue4ss|saved> <path> [local file]
-//   node tools/remote/remote.mjs put <local file> <ue4ss|saved> <path>
-//   node tools/remote/remote.mjs ls <ue4ss|saved> [path]
+//   node tools/remote/remote.mjs get <root> <path> [local file]
+//   node tools/remote/remote.mjs put <local file> <root> <path>
+//   node tools/remote/remote.mjs ls <root> [path]
+//        roots: ue4ss, saved, agent, paks (game closed to replace a container),
+//        launcher (its config folder; agent 5)
 //   node tools/remote/remote.mjs install-bridge
 //   node tools/remote/remote.mjs deploy-lobby              the lobby's DLL and games.lua
 //   node tools/remote/remote.mjs log [lines]               the tail of MJOLNIRLobby's fireteam.log
