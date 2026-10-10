@@ -22,7 +22,7 @@ blam-pack = { path = "../blam-pack" }
 blam-live = { path = "../blam-live" }
 blam-sbsp = { path = "../blam-sbsp" }
 blam-megalo = { path = "../blam-megalo" }
-blam-radiosity = { path = "../blam-radiosity" }
+blam-radiosity = { path = "../blam-radiosity", features = ["gpu"] }
 ue-asset = { path = "../ue-asset" }
 ue-iostore = { path = "../ue-iostore" }
 ue-texture = { path = "../ue-texture" }

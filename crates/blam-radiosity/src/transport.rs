@@ -514,8 +514,85 @@ pub struct Solver<'a> {
     visible: Vec<Vec<u32>>,
     /// Per cluster, its elements.
     by_cluster: Vec<Vec<u32>>,
+    /// Per element, its unshot energy `(r+g+b) x area`, kept in step with
+    /// `delta`: choosing the shooters and the residual read 4 bytes an
+    /// element instead of the whole element, every batch.
+    energy: Vec<f32>,
+    /// The last few batches' receivers and their vertices, the latest
+    /// first: a map with interiors flips between a few sets of clusters seen.
+    reach: Vec<Reach>,
+    /// The last generation handed to a target list.
+    generations: u64,
     pub steps: usize,
     pub splits: usize,
+    /// Where the solve's time went.
+    pub timings: Timings,
+    /// Casts the gather's rays when set; a failure drops it (and records
+    /// why) and the solve goes on on the CPU.
+    pub gpu: Option<crate::gpu::Gpu>,
+    pub gpu_error: Option<String>,
+}
+
+/// A batch's receivers: the elements of the clusters its shooters see, and
+/// their vertices. The next batch reuses them while it sees the same
+/// clusters (on an outdoor map, every batch).
+struct Reach {
+    seen: Vec<bool>,
+    receivers: Vec<u32>,
+    /// Per element, its index in `receivers` (`u32::MAX`: not one).
+    receiving: Vec<u32>,
+    targets: Targets,
+}
+
+/// The receivers' vertices. A split only adds vertices to the split
+/// element's own patches, so the list grows with the splits rather than
+/// being found again (a scan of every element's patches, which on a map of
+/// a million elements cost more than the batch's rays).
+struct Targets {
+    list: Vec<u32>,
+    /// Per pool vertex, its index in `list` (`u32::MAX`: not one).
+    slot: Vec<u32>,
+    /// Names this list's contents (unique across the cached lists), so the
+    /// GPU uploads it only when it changes.
+    generation: u64,
+    /// Grown since `generation` was handed out.
+    dirty: bool,
+}
+
+impl Targets {
+    fn add(&mut self, v: u32) {
+        let v = v as usize;
+        if v >= self.slot.len() {
+            self.slot.resize(v + 1, u32::MAX);
+        }
+        if self.slot[v] == u32::MAX {
+            self.slot[v] = self.list.len() as u32;
+            self.list.push(v as u32);
+            self.dirty = true;
+        }
+    }
+}
+
+/// An element's unshot energy, what the brightest-first order sorts by.
+fn energy_of(e: &Element) -> f32 {
+    e.delta.iter().sum::<f32>() * e.patch.area
+}
+
+/// Seconds spent in each part of a solve, for `--verbose` and profiling.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Timings {
+    /// The light phase's sky and placed lights (not its emitters' shots).
+    pub light: f64,
+    /// Choosing each batch's shooters and listing their receivers.
+    pub select: f64,
+    /// The receivers' gather: the form factors and their visibility rays.
+    pub gather: f64,
+    /// Adding the gathered light and splitting the receivers' patches.
+    pub settle: f64,
+    /// Drawing the pages (filled in by `solve`).
+    pub draw: f64,
+    /// ... of which the per-texel sun and fill.
+    pub texel_direct: f64,
 }
 
 impl<'a> Solver<'a> {
@@ -537,7 +614,23 @@ impl<'a> Solver<'a> {
             let g = if clusters.is_some() && e.cluster >= 0 && (e.cluster as usize) < n { e.cluster as usize } else { 0 };
             by_cluster[g].push(i as u32);
         }
-        Solver { staging, occluders, elements, placed: PlacedLights::default(), visible, by_cluster, steps: 0, splits: 0 }
+        let energy = elements.elements.iter().map(energy_of).collect();
+        Solver {
+            staging,
+            occluders,
+            elements,
+            placed: PlacedLights::default(),
+            visible,
+            by_cluster,
+            energy,
+            reach: Vec::new(),
+            generations: 0,
+            steps: 0,
+            splits: 0,
+            timings: Timings::default(),
+            gpu: None,
+            gpu_error: None,
+        }
     }
 
     /// The placed lights of `scene_lights.json`, each in the cluster of
@@ -556,11 +649,11 @@ impl<'a> Solver<'a> {
     }
 
     /// The leaf patches of an element: its children, or itself.
-    fn leaves(e: &Element) -> Vec<Patch> {
+    fn leaves(e: &Element) -> &[Patch] {
         if e.children.is_empty() {
-            vec![e.patch.clone()]
+            std::slice::from_ref(&e.patch)
         } else {
-            e.children.clone()
+            &e.children
         }
     }
 
@@ -578,76 +671,152 @@ impl<'a> Solver<'a> {
         (0..seen.len() as u32).filter(|&i| seen[i as usize]).collect()
     }
 
+    /// Whether a leaf patch whose corners got `s` this step splits: its
+    /// corners disagree past the row's tolerance and it is not yet at the
+    /// row's finest.
+    fn splits(leaf: &Patch, s: &[V3; 3], row: crate::elements::Row, opt: &Options) -> bool {
+        opt.adaptive
+            && row.gradient < f32::MAX
+            && leaf.segment > 2.0 * row.minimum * WU_TO_M
+            && s.iter().any(|c| c.iter().any(|x| *x > 0.0))
+            && (0..3).any(|k| {
+                let (a, b) = (s[k], s[(k + 1) % 3]);
+                (0..3).any(|c| (a[c] - b[c]).abs() >= (a[c].max(b[c]) * row.gradient).max(0.005))
+            })
+    }
+
     /// After a batch: each receiver's element gains what its leaf patches
     /// reflect of `step` (their corners' mean, weighted by area), and leaves
-    /// whose corners disagree past the row's tolerance split.
-    fn settle(&mut self, receivers: &[u32], step: &mut Vec<V3>, opt: &Options) {
+    /// whose corners disagree past the row's tolerance split. Both depend
+    /// only on the light the existing corners got, so every receiver's gain
+    /// and whether it splits are found in parallel; the splits then run in
+    /// receiver order, as they add vertices to the pool.
+    fn settle(&mut self, receivers: &[u32], receiving: Option<&[u32]>, step: &mut Vec<V3>, opt: &Options) -> Vec<u32> {
+        let own;
+        let slot = match receiving {
+            Some(s) => s,
+            None => {
+                let mut s = vec![u32::MAX; self.elements.elements.len()];
+                for (k, &ei) in receivers.iter().enumerate() {
+                    s[ei as usize] = k as u32;
+                }
+                own = s;
+                &own
+            }
+        };
+        // One pass over the elements: each receiver's gain lands in its
+        // `delta`, and whether it splits is noted (the splits leave `delta`
+        // alone, so they can follow).
+        let lit: &[V3] = step;
+        let materials = &self.elements.materials;
+        let splitting: Vec<bool> = self
+            .elements
+            .elements
+            .par_iter_mut()
+            .zip(self.energy.par_iter_mut())
+            .zip(slot.par_iter())
+            .map(|((e, energy), &k)| {
+                if k == u32::MAX {
+                    return false;
+                }
+                let row = opt.quality.rows[materials[e.material as usize].detail_level];
+                let area = e.patch.area.max(1e-12);
+                let mut gain = [0.0f32; 3];
+                let mut split = false;
+                for leaf in Self::leaves(e) {
+                    let s = [lit[leaf.v[0] as usize], lit[leaf.v[1] as usize], lit[leaf.v[2] as usize]];
+                    let mean = mul(add(add(s[0], s[1]), s[2]), 1.0 / 3.0);
+                    gain = add(gain, mul(mean, leaf.area / area));
+                    split = split || Self::splits(leaf, &s, row, opt);
+                }
+                let r = e.reflectance;
+                e.delta = add(e.delta, [gain[0] * r[0], gain[1] * r[1], gain[2] * r[2]]);
+                *energy = energy_of(e);
+                split
+            })
+            .collect();
+        let mut split = Vec::new();
         for &ei in receivers {
-            let (row, reflectance, area) = {
-                let e = &self.elements.elements[ei as usize];
-                let m = &self.elements.materials[e.material as usize];
-                (opt.quality.rows[m.detail_level], e.reflectance, e.patch.area.max(1e-12))
-            };
-            let leaves = Self::leaves(&self.elements.elements[ei as usize]);
-            let mut gain = [0.0f32; 3];
-            let mut new_leaves: Vec<Patch> = Vec::new();
-            let mut changed = false;
-            for leaf in leaves {
-                let s = [step[leaf.v[0] as usize], step[leaf.v[1] as usize], step[leaf.v[2] as usize]];
-                let mean = mul(add(add(s[0], s[1]), s[2]), 1.0 / 3.0);
-                gain = add(gain, mul(mean, leaf.area / area));
-                let split = opt.adaptive
-                    && row.gradient < f32::MAX
-                    && leaf.segment > 2.0 * row.minimum * WU_TO_M
-                    && s.iter().any(|c| c.iter().any(|x| *x > 0.0))
-                    && (0..3).any(|k| {
-                        let (a, b) = (s[k], s[(k + 1) % 3]);
-                        (0..3).any(|c| (a[c] - b[c]).abs() >= (a[c].max(b[c]) * row.gradient).max(0.005))
-                    });
-                if split {
-                    let mut p = leaf.clone();
-                    p.segment *= 0.5;
-                    let before = self.elements.pool.vertices.len();
-                    let face = self.elements.elements[ei as usize].normal;
-                    let subs = self.elements.split_patch(p, face);
-                    // New vertices take their endpoints' light for this step too.
-                    for vi in before..self.elements.pool.vertices.len() {
-                        let vp = self.elements.pool.vertices[vi].p;
-                        let mut best: Option<(f32, V3)> = None;
-                        for k in 0..3 {
-                            let (a, b) = (leaf.v[k], leaf.v[(k + 1) % 3]);
-                            let (pa, pb) = (self.elements.pool.vertices[a as usize].p, self.elements.pool.vertices[b as usize].p);
-                            let e = sub(pb, pa);
-                            let t = (dot(sub(vp, pa), e) / dot(e, e).max(1e-12)).clamp(0.0, 1.0);
-                            let q = add(pa, mul(e, t));
-                            let d = len(sub(q, vp));
-                            if best.map(|b| d < b.0).unwrap_or(true) {
-                                best = Some((d, lerp(step[a as usize], step[b as usize], t)));
-                            }
+            if splitting[ei as usize] {
+                self.split_element(ei, step, opt);
+                split.push(ei);
+            }
+        }
+        split
+    }
+
+    /// The cached target lists take the corners of the patches `split`
+    /// made, in the elements they receive for.
+    fn note_splits(&mut self, split: &[u32]) {
+        let elements = &self.elements.elements;
+        for r in self.reach.iter_mut() {
+            for &ei in split {
+                if r.receiving[ei as usize] != u32::MAX {
+                    for leaf in &elements[ei as usize].children {
+                        for &v in &leaf.v {
+                            r.targets.add(v);
                         }
-                        let s = best.map(|b| b.1).unwrap_or([0.0; 3]);
-                        if step.len() <= vi {
-                            step.resize(vi + 1, [0.0; 3]);
-                        }
-                        step[vi] = s;
                     }
-                    self.splits += 1;
-                    new_leaves.extend(subs);
-                    changed = true;
-                } else {
-                    new_leaves.push(leaf);
                 }
             }
-            let e = &mut self.elements.elements[ei as usize];
-            e.delta = add(e.delta, [gain[0] * reflectance[0], gain[1] * reflectance[1], gain[2] * reflectance[2]]);
-            if changed {
-                e.children = new_leaves;
+            if r.targets.dirty {
+                self.generations += 1;
+                r.targets.generation = self.generations;
+                r.targets.dirty = false;
             }
         }
     }
 
+    /// Split the leaves of element `ei` whose corners disagree about
+    /// `step`; the new vertices take their edge's light for this step.
+    fn split_element(&mut self, ei: u32, step: &mut Vec<V3>, opt: &Options) {
+        let row = {
+            let e = &self.elements.elements[ei as usize];
+            opt.quality.rows[self.elements.materials[e.material as usize].detail_level]
+        };
+        let leaves = Self::leaves(&self.elements.elements[ei as usize]).to_vec();
+        let mut new_leaves: Vec<Patch> = Vec::with_capacity(leaves.len() + 4);
+        for leaf in leaves {
+            let s = [step[leaf.v[0] as usize], step[leaf.v[1] as usize], step[leaf.v[2] as usize]];
+            if !Self::splits(&leaf, &s, row, opt) {
+                new_leaves.push(leaf);
+                continue;
+            }
+            let mut p = leaf.clone();
+            p.segment *= 0.5;
+            let before = self.elements.pool.vertices.len();
+            let face = self.elements.elements[ei as usize].normal;
+            let subs = self.elements.split_patch(p, face);
+            // New vertices take their endpoints' light for this step too.
+            for vi in before..self.elements.pool.vertices.len() {
+                let vp = self.elements.pool.vertices[vi].p;
+                let mut best: Option<(f32, V3)> = None;
+                for k in 0..3 {
+                    let (a, b) = (leaf.v[k], leaf.v[(k + 1) % 3]);
+                    let (pa, pb) = (self.elements.pool.vertices[a as usize].p, self.elements.pool.vertices[b as usize].p);
+                    let e = sub(pb, pa);
+                    let t = (dot(sub(vp, pa), e) / dot(e, e).max(1e-12)).clamp(0.0, 1.0);
+                    let q = add(pa, mul(e, t));
+                    let d = len(sub(q, vp));
+                    if best.map(|b| d < b.0).unwrap_or(true) {
+                        best = Some((d, lerp(step[a as usize], step[b as usize], t)));
+                    }
+                }
+                let s = best.map(|b| b.1).unwrap_or([0.0; 3]);
+                if step.len() <= vi {
+                    step.resize(vi + 1, [0.0; 3]);
+                }
+                step[vi] = s;
+            }
+            self.splits += 1;
+            new_leaves.extend(subs);
+        }
+        self.elements.elements[ei as usize].children = new_leaves;
+    }
+
     /// The light phase: every sky light onto every vertex of its set.
     pub fn light(&mut self, opt: &Options) {
+        let started = std::time::Instant::now();
         let staging = self.staging;
         let occ = self.occluders;
         for set in [Set::Exterior, Set::Interior] {
@@ -705,7 +874,8 @@ impl<'a> Solver<'a> {
                 v.ambient = add(v.ambient, *ambient);
                 step[vi as usize] = *gain;
             }
-            self.settle(&receivers, &mut step, opt);
+            let split = self.settle(&receivers, None, &mut step, opt);
+            self.note_splits(&split);
         }
 
         // The placed lights: each onto every vertex of the clusters it
@@ -760,8 +930,11 @@ impl<'a> Solver<'a> {
                 v.placed = add(v.placed, *gain);
                 step[vi as usize] = *gain;
             }
-            self.settle(&receivers, &mut step, opt);
+            let split = self.settle(&receivers, None, &mut step, opt);
+            self.note_splits(&split);
         }
+
+        self.timings.light += started.elapsed().as_secs_f64();
 
         // The emitting surfaces (shaders with a radiosity power: lamps,
         // light strips) shoot now, every one, as the lights they are. The
@@ -809,7 +982,9 @@ impl<'a> Solver<'a> {
 
     /// The area-weighted mean unshot energy, tool.exe's printed residual.
     pub fn residual(&self) -> f32 {
-        let total: f32 = self.elements.elements.iter().map(|e| e.delta.iter().sum::<f32>() * e.patch.area).sum();
+        // In element order, as the sum always ran (a different order rounds
+        // differently, and the stop would move).
+        let total: f32 = self.energy.iter().sum();
         total / self.elements.total_area.max(1e-12)
     }
 
@@ -831,21 +1006,43 @@ impl<'a> Solver<'a> {
     /// One batch: the brightest `opt.batch` elements shoot; every vertex
     /// they can reach gathers. Returns false when nothing is left to shoot.
     pub fn step(&mut self, opt: &Options) -> bool {
+        let started = std::time::Instant::now();
+        // The `batch` brightest, ties in element order (what a stable sort of
+        // the whole list gives): a few dozen chunks each keep their own best
+        // few, sorted, and their lists sort together. (A rayon fold merged
+        // thousands of pieces, K x K each: 5 ms a batch on a million
+        // elements.)
+        let k = opt.batch.max(1);
+        let brighter = |a: &(f32, u32), b: &(f32, u32)| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1));
+        let chunk = (self.energy.len() / (rayon::current_num_threads() * 2).max(1)).max(4096);
         let mut order: Vec<(f32, u32)> = self
-            .elements
-            .elements
-            .iter()
+            .energy
+            .par_chunks(chunk)
             .enumerate()
-            .filter_map(|(i, e)| {
-                let energy = e.delta.iter().sum::<f32>() * e.patch.area;
-                (energy > 0.0).then_some((energy, i as u32))
+            .flat_map_iter(|(c, part)| {
+                let mut top: Vec<(f32, u32)> = Vec::with_capacity(k + 1);
+                for (j, &energy) in part.iter().enumerate() {
+                    if energy <= 0.0 {
+                        continue;
+                    }
+                    let x = (energy, (c * chunk + j) as u32);
+                    if top.len() == k && brighter(&x, top.last().unwrap()) != std::cmp::Ordering::Less {
+                        continue;
+                    }
+                    let at = top.partition_point(|y| brighter(y, &x) == std::cmp::Ordering::Less);
+                    top.insert(at, x);
+                    top.truncate(k);
+                }
+                top
             })
             .collect();
+        order.sort_by(brighter);
+        order.truncate(k);
         if order.is_empty() {
             return false;
         }
-        order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        let shooters: Vec<u32> = order.iter().take(opt.batch.max(1)).map(|x| x.1).collect();
+        let shooters: Vec<u32> = order.iter().map(|x| x.1).collect();
+        self.timings.select += started.elapsed().as_secs_f64();
         self.shoot(&shooters, opt);
         true
     }
@@ -853,6 +1050,7 @@ impl<'a> Solver<'a> {
     /// `shooters` shoot their unshot energy; every vertex they can reach
     /// gathers, and the receivers settle.
     fn shoot(&mut self, shooters: &[u32], opt: &Options) {
+        let started = std::time::Instant::now();
         // The receivers: every element in a cluster any shooter sees.
         let mut seen = vec![false; self.visible.len()];
         for &s in shooters {
@@ -861,13 +1059,29 @@ impl<'a> Solver<'a> {
                 seen[h as usize] = true;
             }
         }
-        let mut receivers: Vec<u32> = Vec::new();
-        for (g, &on) in seen.iter().enumerate() {
-            if on {
-                receivers.extend(self.by_cluster[g].iter().copied());
+        let reach = match self.reach.iter().position(|r| r.seen == seen) {
+            Some(i) => self.reach.remove(i),
+            None => {
+                let mut receivers: Vec<u32> = Vec::new();
+                for (g, &on) in seen.iter().enumerate() {
+                    if on {
+                        receivers.extend(self.by_cluster[g].iter().copied());
+                    }
+                }
+                let list = self.vertices_of(&receivers);
+                let mut slot = vec![u32::MAX; self.elements.pool.vertices.len()];
+                for (k, &v) in list.iter().enumerate() {
+                    slot[v as usize] = k as u32;
+                }
+                let mut receiving = vec![u32::MAX; self.elements.elements.len()];
+                for (k, &ei) in receivers.iter().enumerate() {
+                    receiving[ei as usize] = k as u32;
+                }
+                self.generations += 1;
+                Reach { seen, receivers, receiving, targets: Targets { list, slot, generation: self.generations, dirty: false } }
             }
-        }
-        let targets = self.vertices_of(&receivers);
+        };
+        let targets = &reach.targets.list;
 
         let elements = &self.elements;
         let occ = self.occluders;
@@ -884,7 +1098,24 @@ impl<'a> Solver<'a> {
                 (e, sv)
             })
             .collect();
-        let gains: Vec<(V3, V3)> = targets
+        let gathering = std::time::Instant::now();
+        // The rays, on the GPU when there is one (the solid test needs the
+        // vertices' faces, which only the CPU path has).
+        let on_gpu = match self.gpu.as_mut() {
+            Some(g) if !opt.solid_test => match g.gather(elements, shooters, targets, reach.targets.generation, cull) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    self.gpu = None;
+                    self.gpu_error = Some(e);
+                    None
+                }
+            },
+            _ => None,
+        };
+        let gains: Vec<(V3, V3)> = if let Some(v) = on_gpu {
+            v
+        } else {
+            targets
             .par_iter()
             .map(|&vi| {
                 let rv = &elements.pool.vertices[vi as usize];
@@ -902,19 +1133,30 @@ impl<'a> Solver<'a> {
                 }
                 (gain, dir)
             })
-            .collect();
+            .collect()
+        };
 
+        let gathered = std::time::Instant::now();
+        self.timings.gather += (gathered - gathering).as_secs_f64();
+        self.timings.select += (gathering - started).as_secs_f64();
         let mut step = vec![[0.0f32; 3]; self.elements.pool.vertices.len()];
-        for (&vi, (gain, dir)) in targets.iter().zip(&gains) {
-            let v = &mut self.elements.pool.vertices[vi as usize];
-            v.total = add(v.total, *gain);
-            v.dir = add(v.dir, *dir);
-            step[vi as usize] = *gain;
-        }
+        self.elements.pool.vertices.par_iter_mut().zip(step.par_iter_mut()).zip(reach.targets.slot.par_iter()).for_each(|((v, s), &k)| {
+            if k != u32::MAX {
+                let (gain, dir) = gains[k as usize];
+                v.total = add(v.total, gain);
+                v.dir = add(v.dir, dir);
+                *s = gain;
+            }
+        });
         for &s in shooters {
             self.elements.elements[s as usize].delta = [0.0; 3];
+            self.energy[s as usize] = 0.0;
         }
-        self.settle(&receivers, &mut step, opt);
+        let split = self.settle(&reach.receivers, Some(&reach.receiving), &mut step, opt);
+        self.reach.insert(0, reach);
+        self.reach.truncate(4);
+        self.note_splits(&split);
+        self.timings.settle += gathered.elapsed().as_secs_f64();
         self.steps += shooters.len();
     }
 

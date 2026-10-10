@@ -7,6 +7,11 @@ pub mod bvh;
 pub mod collision;
 pub mod elements;
 pub mod gltf;
+#[cfg(feature = "gpu")]
+pub mod gpu;
+#[cfg(not(feature = "gpu"))]
+#[path = "gpu_none.rs"]
+pub mod gpu;
 pub mod math;
 pub mod raster;
 pub mod staging;
@@ -46,6 +51,9 @@ pub struct Job<'a> {
     /// Block rays that start or end inside the collision BSP's solid, as
     /// tool.exe's BSP walk does.
     pub bsp_solid: bool,
+    /// Cast the gather's and the per-texel pass's rays on the GPU (the
+    /// `gpu` feature); the CPU when there is no adapter.
+    pub gpu: bool,
 }
 
 pub struct Solved {
@@ -73,6 +81,9 @@ pub struct Solved {
     pub steps: usize,
     pub splits: usize,
     pub residual: f32,
+    pub timings: transport::Timings,
+    /// Where the rays were cast: the GPU adapter, or "CPU" (and why).
+    pub backend: String,
 }
 
 pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String> {
@@ -92,6 +103,16 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     }
     let elements = elements::Elements::build(&scene, translucent.as_ref(), &staging, &job.options.quality, job.flat_reflectance);
     let mut solver = transport::Solver::new(&staging, &occluders, elements);
+    let mut backend = "CPU".to_string();
+    if job.gpu {
+        match gpu::Gpu::new(&occluders) {
+            Ok(g) => {
+                backend = g.name.clone();
+                solver.gpu = Some(g);
+            }
+            Err(e) => backend = format!("CPU (no GPU: {e})"),
+        }
+    }
     let placed_lights = match job.lights {
         Some(p) if p.exists() => solver.load_placed(p)?,
         _ => 0,
@@ -105,7 +126,13 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     let cluster_sets: Vec<transport::Set> = (0..staging.clusters.as_ref().map(|c| c.clusters.len()).unwrap_or(0))
         .map(|c| transport::cluster_set(&staging, c as i32))
         .collect();
-    let (pages, sun_pages, ambient_pages, potential_pages) = raster::pages(&raster::Draw {
+    let mut gpu = solver.gpu.take();
+    if job.gpu && gpu.is_none() && !backend.starts_with("CPU") {
+        backend = format!("CPU (the GPU failed: {})", solver.gpu_error.as_deref().unwrap_or("?"));
+    }
+    let drawing = std::time::Instant::now();
+    let mut texel_direct = 0.0f64;
+    let (pages, sun_pages, ambient_pages, potential_pages) = raster::pages(&mut raster::Draw {
         elements: &solver.elements,
         sizes: &sizes,
         supersample: job.supersample,
@@ -115,12 +142,16 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
         placed: Some(&solver.placed),
         cluster_sets: Some(&cluster_sets),
         options: &job.options,
+        texel_direct_seconds: Some(&mut texel_direct),
+        gpu: gpu.as_mut(),
     });
+    solver.timings.draw = drawing.elapsed().as_secs_f64();
+    solver.timings.texel_direct = texel_direct;
     let emitters = solver.elements.elements.iter().filter(|e| e.material < u32::MAX && solver.elements.materials[e.material as usize].emission.iter().any(|c| *c > 0.0)).count();
     let emitters_unplaced = solver.elements.elements.iter().filter(|e| solver.elements.materials[e.material as usize].emission.iter().any(|c| *c > 0.0) && e.cluster < 0).count();
     let set_vertices = solver.set_vertex_counts();
     let residual = solver.residual();
-    let (steps, splits) = (solver.steps, solver.splits);
+    let (steps, splits, timings) = (solver.steps, solver.splits, solver.timings);
     let detail = solver.elements;
     let (n_elements, n_vertices) = (detail.elements.len(), detail.pool.vertices.len());
     Ok(Solved {
@@ -138,5 +169,7 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
         steps,
         splits,
         residual,
+        timings,
+        backend,
     })
 }

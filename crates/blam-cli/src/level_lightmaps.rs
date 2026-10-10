@@ -47,7 +47,10 @@ pub struct LightmapsArgs {
     /// (tool.exe prints 0.01; its pages match a solve taken further).
     #[arg(long, default_value_t = 0.001)]
     pub stop: f32,
-    /// Shooters per parallel batch.
+    /// Shooters per parallel batch. Each batch costs a pass over every
+    /// element whatever its size, so with `--gpu` (where the rays are cheap)
+    /// 256 solves several times faster; the pages move a little (the
+    /// brightest shoot together rather than in turn).
     #[arg(long, default_value_t = 64)]
     pub batch: usize,
     /// Draw at this multiple and box-filter down (tool.exe: 3).
@@ -75,6 +78,11 @@ pub struct LightmapsArgs {
     /// under each patch.
     #[arg(long)]
     pub flat_reflectance: bool,
+    /// Cast the rays on the GPU (wgpu: Vulkan, DX12 or Metal): the
+    /// receivers' gather and the per-texel sun and fill. The CPU path stays
+    /// the reference and runs when no adapter is found.
+    #[arg(long)]
+    pub gpu: bool,
     /// Print each shooting step's residual.
     #[arg(long)]
     pub verbose: bool,
@@ -242,19 +250,32 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
         supersample: a.supersample.max(1),
         flat_reflectance: a.flat_reflectance,
         bsp_solid: !a.no_bsp_solid,
+        gpu: a.gpu,
     };
 
     let started = std::time::Instant::now();
     let solved = blam_radiosity::solve(&job, &sizes).map_err(|e| anyhow!("solve: {e}"))?;
     println!(
-        "{} element(s), {} vertices, {} shot(s), {} split(s), residual {:.5}, {:.1}s on {} thread(s)",
+        "{} element(s), {} vertices, {} shot(s), {} split(s), residual {:.5}, {:.1}s on {} thread(s), rays on {}",
         solved.elements,
         solved.vertices,
         solved.steps,
         solved.splits,
         solved.residual,
         started.elapsed().as_secs_f32(),
-        blam_radiosity::threads()
+        blam_radiosity::threads(),
+        solved.backend
+    );
+    let t = &solved.timings;
+    println!(
+        "time: light {:.1}s, shooting {:.1}s (select {:.1}s, gather {:.1}s, settle {:.1}s), draw {:.1}s (per-texel direct {:.1}s)",
+        t.light,
+        t.select + t.gather + t.settle,
+        t.select,
+        t.gather,
+        t.settle,
+        t.draw,
+        t.texel_direct
     );
     println!(
         "{} emitting element(s) ({} without a cluster), {} placed light(s); vertices exterior {} interior {}",

@@ -4,7 +4,7 @@
 //! cargo run --release -p blam-radiosity --example radiosity_bake -- \
 //!     <staging dir> <scene.gltf> <out dir> [--scale 1] [--quality final|draft]
 //!     [--finer K] [--stop 0.01] [--batch 64] [--no-sun-cosine] [--no-objects]
-//!     [--no-adaptive] [--compare]
+//!     [--no-adaptive] [--gpu] [--compare]
 //! ```
 //!
 //! The staging is halo2ue's (its `textures/` holds the shipped lightmap
@@ -71,6 +71,7 @@ fn main() {
         supersample: arg(&args, "--supersample", 3),
         flat_reflectance: args.iter().any(|a| a == "--flat-reflectance"),
         bsp_solid: !args.iter().any(|a| a == "--no-bsp-solid"),
+        gpu: args.iter().any(|a| a == "--gpu"),
     };
 
     let staging = blam_radiosity::staging::Staging::load(&staging_dir).expect("staging");
