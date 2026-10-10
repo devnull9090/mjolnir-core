@@ -117,6 +117,11 @@ function MatchLog.recording()
     return Rec ~= nil
 end
 
+--- The id of the match being recorded, or nil.
+function MatchLog.currentId()
+    return Rec and Rec.id or nil
+end
+
 local function gameType(variant)
     local t = string.lower(tostring(variant or "slayer")):gsub("[^a-z_]", "_")
     return t:sub(1, 24)

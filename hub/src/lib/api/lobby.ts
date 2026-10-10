@@ -21,6 +21,7 @@ import type { Context } from "hono";
 
 import type { ApiEnv } from "./bindings";
 import { authenticate, rateLimit, requireScoped, sha256Hex } from "./auth";
+import { banActiveFor, refuseBanned } from "./players";
 import { ErrorSchema } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
@@ -192,7 +193,9 @@ export async function listLobbies(
   q: LobbyListQuery,
   me: { latitude: number | null; longitude: number | null },
 ): Promise<z.infer<typeof LobbySchema>[]> {
-  const clauses = [`l.last_heartbeat >= datetime('now', ?1)`];
+  // A host banned from matchmaking has its row deleted when banned; this
+  // also hides one that re-listed in the moment between.
+  const clauses = [`l.last_heartbeat >= datetime('now', ?1)`, `NOT ${banActiveFor("l.host_user_id")}`];
   const binds: unknown[] = [`-${STALE_SECONDS} seconds`];
   if (q.map) {
     binds.push(q.map);
@@ -279,12 +282,17 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           },
         },
         401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
-        403: { description: "Missing scope.", content: { "application/json": { schema: ErrorSchema } } },
+        403: {
+          description: "Missing scope, or banned from matchmaking.",
+          content: { "application/json": { schema: ErrorSchema } },
+        },
         429: { description: "Too many games listed.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
     async (c) => {
       const auth = await requireScoped(c, "lobbies:write", "lobby_create", 60);
+      const banned = await refuseBanned(c, auth.user.id);
+      if (banned) return banned;
       const body = c.req.valid("json");
       const id = crypto.randomUUID();
       const token = randomToken();
@@ -473,6 +481,7 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           },
         },
         401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Banned from matchmaking.", content: { "application/json": { schema: ErrorSchema } } },
         404: { description: "Gone, or not live.", content: { "application/json": { schema: ErrorSchema } } },
         409: { description: "Full.", content: { "application/json": { schema: ErrorSchema } } },
         429: { description: "Too many joins.", content: { "application/json": { schema: ErrorSchema } } },
@@ -484,6 +493,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
       if (!(await rateLimit(c, auth.subject, "lobby_join", 120))) {
         return c.json({ error: "rate_limited" }, 429);
       }
+      const banned = await refuseBanned(c, auth.user.id);
+      if (banned) return banned;
       const { id } = c.req.valid("param");
       const row = await c.env.DB.prepare(
         `SELECT connection_string, map_code, game_type, players, max_players, state, settings,

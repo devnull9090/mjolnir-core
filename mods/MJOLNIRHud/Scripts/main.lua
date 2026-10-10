@@ -37,6 +37,8 @@ local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
+local HubNames = dofile(MOD_DIR .. "\\Scripts\\hubnames.lua")
+HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
@@ -246,6 +248,11 @@ local function refreshNames()
                 local okN, name = pcall(function() return ps:GetPlayerName():ToString() end)
                 local p = stats(index)
                 if okN and name and name ~= "" then p.name = name end
+                -- The hub account MJOLNIRLobby resolved for that name, shown
+                -- in its place (docs/player_identity.md). p.name stays the
+                -- in-game name: seats, claims and bans are keyed by it.
+                local hub = HubNames.of(p.name)
+                p.display, p.userId, p.reports = hub and hub.name, hub and hub.id, hub and hub.reports
                 -- A spawn can precede our incident hook. Use the replicated
                 -- pawn when it exposes a team, and retry the incident's biped
                 -- while a new spawn is still acquiring its simulation team.
@@ -261,7 +268,7 @@ local function nameOf(index)
     if type(index) ~= "number" or index < 0 then return nil end
     local p = stats(index)
     if not p.name then refreshNames() end
-    return p.name or ("Player " .. tostring(index + 1))
+    return p.display or p.name or ("Player " .. tostring(index + 1))
 end
 
 local function feedLine(text, you)
@@ -381,12 +388,33 @@ HANDLERS.flag_scored = function(inc)
     boardDirty = true
 end
 
+--- A joiner's hub account reaches the host a few seconds after the join
+--- (its identity ticket, docs/player_identity.md), and every client a moment
+--- later. Its "joined" line waits up to JOIN_WAIT seconds for it, so the
+--- line names the account rather than the Steam or Xbox name.
+local JOIN_WAIT = 8
+
 HANDLERS.player_joined = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     stats(inc.cause).left = false
     refreshNames()
-    feedLine(nameOf(inc.cause) .. " joined the game", false)
+    Match.joins = Match.joins or {}
+    Match.joins[#Match.joins + 1] = { index = inc.cause, at = now() }
     boardDirty = true
+end
+
+--- Each tick: the held "joined" lines whose account is known, or whose wait
+--- is over.
+local function announceJoins()
+    local waiting = {}
+    for _, j in ipairs(Match.joins or {}) do
+        if stats(j.index).display or now() - j.at >= JOIN_WAIT then
+            feedLine(nameOf(j.index) .. " joined the game", false)
+        else
+            waiting[#waiting + 1] = j
+        end
+    end
+    Match.joins = waiting
 end
 
 HANDLERS.player_rejoined = HANDLERS.player_joined
@@ -408,10 +436,13 @@ local function finishMatch(how)
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
+    -- The match's id, which the post-game screen's reports cite: the host's
+    -- own record's, or the one the host told this client.
+    Match.logId = MatchLog.currentId() or Match.logId
     logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, how == "game over" and "game_over" or "round_over", now())
     local f = io.open(RESULTS_FILE, "w")
     if f then
-        f:write(Scoreboard.results(Match, LOCAL_PLAYER, os.time()))
+        f:write(Scoreboard.results(Match, LOCAL_PLAYER, os.time(), Match.logId))
         f:close()
     end
     local host = false
@@ -640,10 +671,19 @@ local function drawBoard()
             local team = entry.team or (p and mode.teams and Scoreboard.team(p.team))
             local tint = TEAM_COLORS[team]
             local you = p and p.index == LOCAL_PLAYER
-            local name = p and (p.name or ("Player " .. tostring(p.index + 1))) or
+            local name = p and (p.display or p.name or ("Player " .. tostring(p.index + 1))) or
                 ((team == "Unassigned" and "AWAITING ASSIGNMENT" or string.upper(team) .. " TEAM") ..
                     "  /  " .. tostring(entry.count))
             setText(Board["Name" .. i], name)
+            -- The hub avatar; a board from an older UI container has none.
+            local okA, image = pcall(function() return Board["Avatar" .. i] end)
+            if okA and image and image:IsValid() then
+                local tex = p and HubNames.avatar(p.userId, playerController())
+                pcall(function()
+                    if tex then image:SetBrushFromTexture(tex, false) end
+                    image:SetVisibility(tex and VISIBLE or 2)
+                end)
+            end
             setText(Board["Marker" .. i], you and "YOU" or "")
             setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
             setText(Board["Kills" .. i], p and tostring(p.kills) or "")
@@ -809,9 +849,17 @@ end
 
 local function teamOfName(name)
     for _, p in pairs(Match.players) do
-        if p.name == name then return p.team end
+        if p.name == name or (p.display and p.display == name) then return p.team end
     end
     return nil
+end
+
+--- A shown tag names the hub account in place of the in-game name.
+local function hubTag(tag, name)
+    local hub = HubNames.of(name)
+    if hub and hub.name ~= name then
+        pcall(function() tag.PlayerNameValue:SetText(FText(hub.name)) end)
+    end
 end
 
 --- Whether the game's HUD is shown: the HUD actor's bShowHUD, which
@@ -832,6 +880,7 @@ local function applyTag(tag)
         local okN, name = pcall(function() return tag.PlayerNameValue:GetText():ToString() end)
         local mine = Match.players[LOCAL_PLAYER] and Match.players[LOCAL_PLAYER].team
         show = okN and mine ~= nil and teamOfName(name) == mine
+        if show then hubTag(tag, name) end
     end
     pcall(function() tag:SetVisibility(show and NAVPOINT_SHOWN or COLLAPSED) end)
 end
@@ -968,6 +1017,7 @@ local function tick()
         refreshNames()
         boardDirty = true
     end
+    if Match.joins and #Match.joins > 0 then announceJoins() end
     -- Before the drain: the host's log is recording by the first incident.
     logSafely("tick", matchLogTick, pc)
     drain()

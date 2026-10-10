@@ -236,6 +236,8 @@ export interface UserStats {
   ratings_given: number;
   comments_posted: number;
   media_contributed: number;
+  /** Player reports against them a moderator has not dismissed. */
+  player_reports: number;
 }
 
 export interface UserProfile {
@@ -310,6 +312,72 @@ export interface ConflictPair {
   b: string;
   shared_chunks: number;
   sample_chunk_ids: string[];
+}
+
+/** A hub account as multiplayer shows it (docs/player_identity.md). */
+export interface Player {
+  id: string;
+  /** Display name, or the Discord username. */
+  name: string;
+  username: string;
+  avatar_url: string | null;
+  /** The avatar through the hub, below /api/v1, for the game. */
+  avatar_path: string;
+}
+
+export type PlayerReportReason =
+  | "cheating"
+  | "betraying"
+  | "harassment"
+  | "griefing"
+  | "quitting"
+  | "name"
+  | "other";
+
+export interface MatchmakingBan {
+  reason: string;
+  created_at: string;
+  /** Null for a permanent ban. */
+  expires_at: string | null;
+}
+
+export interface PlayerReport {
+  id: string;
+  reporter: Player;
+  reason: PlayerReportReason;
+  detail: string | null;
+  /** The name the reporter saw in game. */
+  subject_name: string | null;
+  host_match_id: string | null;
+  /** The hub's match, once the host reported it. */
+  match_id: string | null;
+  /** Null when the match is not on the hub. */
+  reporter_in_match: boolean | null;
+  subject_in_match: boolean | null;
+  status: "open" | "upheld" | "dismissed";
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string;
+}
+
+/** A reported player as the moderation queue groups it. */
+export interface ReportedPlayer {
+  player: Player;
+  open_reports: number;
+  /** The public count: every report not dismissed. */
+  counted_reports: number;
+  ban: MatchmakingBan | null;
+  reports: PlayerReport[];
+}
+
+export interface BannedPlayer {
+  id: string;
+  player: Player;
+  reason: string;
+  banned_by: string | null;
+  created_at: string;
+  expires_at: string | null;
 }
 
 export type ReportSubject = "mod" | "release" | "comment" | "media" | "user";

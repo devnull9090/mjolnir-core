@@ -15,7 +15,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRFindGames   public games from the hub: filter chips, a sortable
                          server table, a game's details, JOIN, QUICK JOIN
   WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
-                         the next game (MJOLNIRLobby)
+                         the next game (MJOLNIRLobby), and the panel that
+                         reports a player (docs/player_identity.md)
   WBP_MJOLNIRMapDownload a map this PC does not have: its hub screenshot and
                          details, DOWNLOAD, and the download's progress
                          (docs/live_map_install.md)
@@ -220,19 +221,31 @@ def build_kill_feed():
 # a header and SCORE_ROWS player rows of name, score, kills and deaths.
 # MJOLNIRHud fills it, sorted, and hides the rows it does not use.
 SCORE_ROWS = 19  # sixteen players and up to three team headings
+SCORE_AVATAR = 36
 COLUMNS = (("Name", "PLAYER", 5.0, unreal.TextJustify.LEFT),
            ("Score", "SCORE", 1.5, unreal.TextJustify.CENTER),
            ("Kills", "KILLS", 1.5, unreal.TextJustify.CENTER),
            ("Deaths", "DEATHS", 1.5, unreal.TextJustify.CENTER))
 
 
-def columns(bp, parent, suffix, size, header):
+def columns(bp, parent, suffix, size, header, avatar=0):
     # A separate marker preserves the player's name and makes the local row
     # identifiable even without colour vision.
     marker_size = sized(bp, f"MarkerSize{suffix}", parent, width=66)
     marker = widget(bp, unreal.TextBlock, f"Marker{suffix}", marker_size.get_name())
     text_style(marker, "", 16, GOLD)
     marker.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+    if avatar:
+        # The player's hub (Discord) avatar, `Avatar<i>`, which Lua gives the
+        # cached picture (docs/player_identity.md). Hidden, not collapsed, so
+        # a row without one keeps its name in line with the rest; the header
+        # keeps the same space empty.
+        box = sized(bp, f"AvatarSize{suffix}", parent, width=avatar, height=avatar)
+        box.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+        box.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+        if not header:
+            image = widget(bp, unreal.Image, f"Avatar{suffix}", box.get_name())
+            image.set_visibility(unreal.SlateVisibility.HIDDEN)
     for key, title, fill, justify in COLUMNS:
         cell = widget(bp, unreal.TextBlock, f"{key}{suffix}", parent)
         text_style(cell, title if header else "", size,
@@ -260,7 +273,7 @@ def build_scoreboard():
     gap(subtitle, top=6, bottom=24)
     header = widget(bp, unreal.HorizontalBox, "Header", "Stack")
     header.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 16, 10))
-    columns(bp, "Header", "H", 18, True)
+    columns(bp, "Header", "H", 18, True, avatar=SCORE_AVATAR)
     for i in range(SCORE_ROWS):
         row = widget(bp, unreal.Border, f"Row{i}", "Stack")
         row.set_editor_property("padding", unreal.Margin(0))
@@ -271,7 +284,7 @@ def build_scoreboard():
         content = widget(bp, unreal.HorizontalBox, f"Cols{i}", f"RowLayout{i}")
         content.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
         content.get_editor_property("slot").set_padding(unreal.Margin(13, 5, 16, 5))
-        columns(bp, f"Cols{i}", str(i), 26, False)
+        columns(bp, f"Cols{i}", str(i), 26, False, avatar=SCORE_AVATAR)
     gap(rule(bp, "BoardBottomRule", "Stack", LINE), top=20, bottom=14)
     foot = widget(bp, unreal.HorizontalBox, "BoardFooter", "Stack")
     count = widget(bp, unreal.TextBlock, "PlayerCount", foot.get_name())
@@ -299,6 +312,7 @@ BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 32
 MODE_BUTTONS = 5
 ROSTER_ROWS = 16
+ROSTER_AVATAR = 32
 GAME_ROWS = 40
 
 
@@ -524,11 +538,22 @@ def build_lobby():
         strip.set_editor_property("brush_color", unreal.LinearColor(*color[:3], 0.18))
         text_style(widget(bp, unreal.TextBlock, group + "Heading", group + "Strip"), title, 20, color)
         for i in range(ROSTER_ROWS):
-            row = widget(bp, unreal.TextBlock, f"{group}Player{i}", group + "Roster")
+            # A player: their hub avatar (`<group>PlayerAvatar<i>`, hidden
+            # until Lua has the picture) and name. Lua shows and hides the
+            # whole row (`<group>PlayerRow<i>`).
+            line = widget(bp, unreal.HorizontalBox, f"{group}PlayerRow{i}", group + "Roster")
+            line.get_editor_property("slot").set_padding(unreal.Margin(14, 8, 14, 4))
+            line.set_visibility(unreal.SlateVisibility.COLLAPSED)
+            face = sized(bp, f"{group}PlayerAvatarSize{i}", line.get_name(), width=ROSTER_AVATAR, height=ROSTER_AVATAR)
+            face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
+            middle(face)
+            image = widget(bp, unreal.Image, f"{group}PlayerAvatar{i}", face.get_name())
+            image.set_visibility(unreal.SlateVisibility.HIDDEN)
+            row = widget(bp, unreal.TextBlock, f"{group}Player{i}", line.get_name())
             text_style(row, "", 24, WHITE)
             row.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
-            row.get_editor_property("slot").set_padding(unreal.Margin(14, 8, 14, 4))
-            row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+            middle(row)
+            fill(row, 1)
     hint = widget(bp, unreal.TextBlock, "TeamHint", "RosterStack")
     text_style(hint, "", 19, GREY)
     wrapped(hint)
@@ -938,6 +963,7 @@ def build_find_games():
 
 VOTE_OPTIONS = 4
 RESULT_ROWS = 18  # sixteen players and the two team headings
+RESULT_AVATAR = 34
 
 
 def build_post_game():
@@ -967,20 +993,34 @@ def build_post_game():
     gap(rule(bp, "TableRule", "ResultsStack"), bottom=14)
     header = widget(bp, unreal.HorizontalBox, "TableHeader", "ResultsStack")
     header.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 16, 10))
-    columns(bp, "TableHeader", "H", 18, True)
+    columns(bp, "TableHeader", "H", 18, True, avatar=RESULT_AVATAR)
     sized(bp, "RowsSize", "ResultsStack", height=470)
     widget(bp, unreal.ScrollBox, "Rows", "RowsSize")
+    events = []
     for i in range(RESULT_ROWS):
         row = widget(bp, unreal.Border, f"Row{i}", "Rows")
         row.set_editor_property("padding", unreal.Margin(0))
         row.set_visibility(unreal.SlateVisibility.COLLAPSED)
-        widget(bp, unreal.HorizontalBox, f"RowLayout{i}", f"Row{i}")
+        # The whole row is a button: clicking another player opens the
+        # report panel on them (MJ_Event "row:<i>"). Lua disables a row
+        # with no one to report (a heading, yourself, no hub account).
+        button = widget(bp, unreal.Button, f"RowButton{i}", f"Row{i}")
+        flat_style(button, (0, 0, 0, 0), (0.46, 0.79, 0.94, 0.16), (0.46, 0.79, 0.94, 0.28))
+        button.get_editor_property("slot").set_padding(unreal.Margin(0))
+        button.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        events.append((f"RowButton{i}", "OnClicked", f"row:{i}"))
+        layout = widget(bp, unreal.HorizontalBox, f"RowLayout{i}", f"RowButton{i}")
+        layout.get_editor_property("slot").set_padding(unreal.Margin(0))
+        layout.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
         sized(bp, f"StripeSize{i}", f"RowLayout{i}", width=3)
         widget(bp, unreal.Border, f"Stripe{i}", f"StripeSize{i}")
         content = widget(bp, unreal.HorizontalBox, f"Cols{i}", f"RowLayout{i}")
         content.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
         content.get_editor_property("slot").set_padding(unreal.Margin(13, 5, 16, 5))
-        columns(bp, f"Cols{i}", str(i), 24, False)
+        columns(bp, f"Cols{i}", str(i), 24, False, avatar=RESULT_AVATAR)
+    hint = widget(bp, unreal.TextBlock, "ResultsHint", "ResultsStack")
+    text_style(hint, "SELECT A PLAYER TO REPORT THEM", 17, GREY)
+    gap(hint, top=12)
 
     vote = panel(bp, "Vote", "Root")
     place(vote, (0.94, 0.28), (1.0, 0.0))
@@ -999,7 +1039,6 @@ def build_post_game():
     wrapped(timer)
     shot = map_image(bp, "MapImage", "VoteHead", 288, 162)
     shot.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 0, 0))
-    events = []
     for i in range(VOTE_OPTIONS):
         line = widget(bp, unreal.HorizontalBox, f"VoteRow{i}", "VoteStack")
         gap(line, bottom=8)
@@ -1022,6 +1061,7 @@ def build_post_game():
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", event))
     footer(bp)
+    events += report_panel(bp)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1029,6 +1069,97 @@ def build_post_game():
         fail("MJ_Event")
     bind_events(bp, events)
     finish_screen(bp, name)
+
+
+# Why a player is reported, in the order of the panel's buttons; the keys are
+# the hub's (POST /players/reports).
+REPORT_REASONS = (("cheating", "CHEATING"), ("betraying", "BETRAYING"), ("harassment", "HARASSMENT"),
+                  ("griefing", "GRIEFING / AFK"), ("quitting", "QUITTING"), ("name", "NAME OR AVATAR"),
+                  ("other", "OTHER"))
+
+
+def report_panel(bp):
+    """The post-game screen's report panel, over the middle of the screen and
+    collapsed until a player row is clicked (docs/player_identity.md): who,
+    a reason (`Reason<k>`, MJ_Event "reason:<k>"), what happened
+    (`ReportText`, a multi-line text box Lua reads), `ReportStatus`, and SEND
+    REPORT / CANCEL. Returns its events."""
+    report = panel(bp, "Report", "Root", alpha=0.97, padding=(44, 34, 44, 34))
+    place(report, (0.5, 0.5), (0.5, 0.5))
+    report.get_editor_property("slot").set_z_order(20)
+    report.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    sized(bp, "ReportSize", "Report", width=1180)
+    widget(bp, unreal.VerticalBox, "ReportStack", "ReportSize")
+    gap(rule(bp, "ReportRule", "ReportStack", RED, 2), bottom=22)
+    kicker = widget(bp, unreal.TextBlock, "ReportKicker", "ReportStack")
+    text_style(kicker, "REPORT A PLAYER", 18, RED)
+    gap(kicker, bottom=16)
+    who = widget(bp, unreal.HorizontalBox, "ReportWho", "ReportStack")
+    gap(who, bottom=24)
+    face = sized(bp, "ReportAvatarSize", "ReportWho", width=84, height=84)
+    face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 22, 0))
+    image = widget(bp, unreal.Image, "ReportAvatar", face.get_name())
+    image.set_visibility(unreal.SlateVisibility.HIDDEN)
+    names = widget(bp, unreal.VerticalBox, "ReportNames", "ReportWho")
+    middle(names)
+    fill(names, 1)
+    text_style(widget(bp, unreal.TextBlock, "ReportName", "ReportNames"), "", 40, WHITE)
+    count = widget(bp, unreal.TextBlock, "ReportCount", "ReportNames")
+    text_style(count, "", 20, GREY)
+    gap(count, top=6)
+    text_style(widget(bp, unreal.TextBlock, "ReasonKicker", "ReportStack"), "WHY", 18, ACCENT)
+    events = []
+    keys = [key for key, _ in REPORT_REASONS]
+    for r, reasons in enumerate((REPORT_REASONS[:4], REPORT_REASONS[4:])):
+        line = widget(bp, unreal.HorizontalBox, f"ReasonRow{r}", "ReportStack")
+        gap(line, top=10 if r == 0 else 8)
+        for key, label in reasons:
+            k = keys.index(key)
+            button = menu_button(bp, f"Reason{k}", label, line.get_name(), size=22)
+            fill(button, 1)
+            button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+            events.append((f"Reason{k}", "OnClicked", f"reason:{k}"))
+        if len(reasons) < 4:
+            spacer = widget(bp, unreal.Spacer, f"ReasonFill{r}", line.get_name())
+            fill(spacer, 4 - len(reasons))
+    detail = widget(bp, unreal.TextBlock, "DetailKicker", "ReportStack")
+    text_style(detail, "WHAT HAPPENED", 18, ACCENT)
+    gap(detail, top=24, bottom=10)
+    box = sized(bp, "ReportTextSize", "ReportStack", height=190)
+    text = widget(bp, unreal.MultiLineEditableTextBox, "ReportText", box.get_name())
+    text.set_editor_property("hint_text",
+                             unreal.Text("Tell the moderators what happened (optional, up to 1000 characters)"))
+    try:
+        style = text.get_editor_property("widget_style")
+        for state in ("background_image_normal", "background_image_hovered", "background_image_focused",
+                      "background_image_read_only"):
+            brush = style.get_editor_property(state)
+            brush.set_editor_property("resource_object", None)
+            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(
+                0.0, 0.03, 0.05, 0.95 if state == "background_image_focused" else 0.8)))
+            style.set_editor_property(state, brush)
+        style.set_editor_property("foreground_color", unreal.SlateColor(unreal.LinearColor(*WHITE)))
+        style.set_editor_property("padding", unreal.Margin(16, 12, 16, 12))
+        inner = style.get_editor_property("text_style")
+        font = inner.get_editor_property("font")
+        font.set_editor_property("size", 22)
+        inner.set_editor_property("font", font)
+        style.set_editor_property("text_style", inner)
+        text.set_editor_property("widget_style", style)
+    except Exception as e:  # a style field this engine lacks: the stock look
+        unreal.log_warning(f"MJOLNIR UI: report text style: {e}")
+    status = widget(bp, unreal.TextBlock, "ReportStatus", "ReportStack")
+    text_style(status, "", 20, GREY)
+    wrapped(status)
+    gap(status, top=16, bottom=18)
+    actions = widget(bp, unreal.HorizontalBox, "ReportActions", "ReportStack")
+    for key, label, event in (("ReportSend", "SEND REPORT", "report_send"),
+                              ("ReportCancel", "CANCEL", "report_cancel")):
+        button = menu_button(bp, key, label, actions.get_name(), size=26)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", event))
+    return events
 
 
 DOWNLOAD_TRACK = 1000

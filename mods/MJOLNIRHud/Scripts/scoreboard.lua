@@ -92,7 +92,7 @@ function Board.winner(match)
     local first, second = rows[1] and rows[1].player, rows[2] and rows[2].player
     if not first or Board.score(first, match.mode) == 0 then return "DRAW" end
     if second and Board.score(second, match.mode) == Board.score(first, match.mode) then return "DRAW" end
-    return string.upper(first.name or ("Player " .. tostring(first.index + 1))) .. " WINS"
+    return string.upper(first.display or first.name or ("Player " .. tostring(first.index + 1))) .. " WINS"
 end
 
 local function field(value)
@@ -101,13 +101,16 @@ end
 
 --- The finished match as tab-separated lines, for the post-game screen on
 --- the menu (MJOLNIRLobby reads them back):
----   match  <code> <variant> <title> <mode title> <winner> <ended at>
+---   match  <code> <variant> <title> <mode title> <winner> <ended at> <match id or ->
 ---   team   <Red|Blue> <total>
 ---   player <name> <score> <kills> <deaths> <team or -> <1 if local>
---- Players in standing order.
-function Board.results(match, localPlayer, endedAt)
+---          <hub account id or -> <hub name or -> <reports>
+--- Players in standing order. The name is the in-game one; the account is
+--- the hub's (docs/player_identity.md), which the post-game screen shows and
+--- reports cite, with the match id.
+function Board.results(match, localPlayer, endedAt, matchId)
     local lines = { table.concat({ "match", field(match.code), field(match.variant), field(match.title),
-        field(match.mode.title), field(Board.winner(match)), field(endedAt) }, "\t") }
+        field(match.mode.title), field(Board.winner(match)), field(endedAt), field(matchId or "-") }, "\t") }
     if match.mode.teams then
         local totals = Board.totals(match)
         for _, team in ipairs({ "Red", "Blue" }) do
@@ -119,7 +122,8 @@ function Board.results(match, localPlayer, endedAt)
         if p then
             lines[#lines + 1] = table.concat({ "player", field(p.name or ("Player " .. tostring(p.index + 1))),
                 field(Board.score(p, match.mode)), field(p.kills), field(p.deaths),
-                field(Board.team(p.team) or "-"), p.index == localPlayer and "1" or "0" }, "\t")
+                field(Board.team(p.team) or "-"), p.index == localPlayer and "1" or "0",
+                field(p.userId or "-"), field(p.display or "-"), field(p.reports or 0) }, "\t")
         end
     end
     return table.concat(lines, "\n") .. "\n"

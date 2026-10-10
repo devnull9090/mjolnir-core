@@ -28,11 +28,23 @@ local function player(name)
     return ps
 end
 
+-- A view model's DisplayName is a StrProperty: a string written to it, the
+-- first time or any later, reads back as an FString.
+local function withName(o)
+    local name
+    return setmetatable(o, {
+        __index = function(_, k) if k == "DisplayName" then return name end end,
+        __newindex = function(t, k, v)
+            if k == "DisplayName" then name = type(v) == "string" and str(v) or v else rawset(t, k, v) end
+        end })
+end
+
 -- A view model player row as the game makes it: its class rides with it.
 local function viewModelItem(kind, ps)
     local item = object({ FireteamRowType = kind, native = kind == 0 and PLAYER or BLANK })
     if ps then
-        item.PlayerViewModel = object({ PlayerState = ps, DisplayName = ps:GetPlayerName(), PlatformType = 2 })
+        item.PlayerViewModel = withName(object({ PlayerState = ps, PlatformType = 2 }))
+        item.PlayerViewModel.DisplayName = ps:GetPlayerName()
     end
     return item
 end
@@ -83,10 +95,7 @@ function RegisterHook() end
 function StaticConstructObject(class, _, _, _, _, _, _, template)
     local o = object({ class = class.path })
     if template then o.native = template.native end
-    -- A StrProperty reads back as an FString.
-    return setmetatable(o, { __newindex = function(t, k, v)
-        rawset(t, k, (k == "DisplayName" and type(v) == "string") and str(v) or v)
-    end })
+    return withName(o)
 end
 
 local SquadPanel = dofile("mods/MJOLNIRLobby/Scripts/squadpanel.lua")
@@ -150,5 +159,26 @@ eq(list:names(), "host:" .. PLAYER .. ", g4:" .. PLAYER .. ", g1:" .. PLAYER .. 
 SquadPanel.refresh(4); list:build()
 eq(list.items[#list.items].FireteamRowType, 0, "full")
 eq(header.text, "Fireteam 4/4")
+
+-- Hub accounts (docs/player_identity.md): each player row widget shows the
+-- player's hub name once it is known; the list and its items stay as the
+-- view model made them.
+local entries = {}
+for _, it in ipairs(list.items) do
+    if it.FireteamRowType == 0 then
+        local shown = it.PlayerViewModel.DisplayName:ToString()
+        local entry = object({ SquadLobbyViewItemData = it, NameText = {
+            GetText = function() return str(shown) end, SetText = function(_, v) shown = v end } })
+        entry.shown = function() return shown end
+        entries[#entries + 1] = { get = function() return entry end }
+    end
+end
+function list:GetDisplayedEntryWidgets() return entries end
+SquadPanel.names(function(name) return ({ host = "Host Hub", g4 = "g4_hub" })[name] end)
+SquadPanel.refresh(4); list:build()
+local shown = {}
+for _, e in ipairs(entries) do shown[#shown + 1] = e.get().shown() end
+eq(table.concat(shown, ", "), "Host Hub, g4_hub, g1, g2")
+eq(list:names(), "host:" .. PLAYER .. ", g4:" .. PLAYER .. ", g1:" .. PLAYER .. ", g2:" .. PLAYER)
 
 print("Squad panel: four slots, extra players, INVITE + placement, leaving, duplicates and a full fireteam passed")

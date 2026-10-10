@@ -299,7 +299,11 @@ const PROFILE_STATS_SQL = `
     (SELECT COUNT(*) FROM comments
       WHERE user_id = ?1 AND deleted_at IS NULL) AS comments_posted,
     (SELECT COUNT(*) FROM media
-      WHERE uploader_id = ?1 AND status = 'approved') AS media_contributed
+      WHERE uploader_id = ?1 AND status = 'approved') AS media_contributed,
+    -- Reports from other players a moderator has not dismissed: the one
+    -- figure about reports that is public (docs/player_identity.md).
+    (SELECT COUNT(*) FROM player_reports
+      WHERE subject_id = ?1 AND status <> 'dismissed') AS player_reports
 `;
 
 interface ProfileUserRow {
@@ -368,6 +372,7 @@ export async function getUserProfile(db: D1Database, id: string): Promise<UserPr
       ratings_given: 0,
       comments_posted: 0,
       media_contributed: 0,
+      player_reports: 0,
     },
     mods: mods.results.map(modFromRow),
   };
