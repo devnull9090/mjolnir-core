@@ -39,6 +39,19 @@ if, set, and, cond, sleep_until, ...) are calls like any other.
 
     python tools/halomaps/cescript.py maps/hugeass.map           # survey, JSON
     python tools/halomaps/cescript.py --hsc maps/hugeass.map     # the scripts as source
+    python tools/halomaps/cescript.py --names maps/hugeass.map   # the names scripts refer to
+
+The names the scripts refer to, laid out as follows (checked on Hugeass):
+
+    object name     char[32] name, u16 object type (0 biped, 1 vehicle,
+                    2 weapon, 3 equipment, 4 garbage, 5 projectile, 6 scenery,
+                    7 machine, 8 control, 9 light fixture, 10 placeholder,
+                    11 sound scenery), u16 placement index in that block
+    trigger volume  u32, char[32] name at 4, 3 reals parameters at 36, then
+                    forward, up, position and extents (3 reals each)
+    cutscene flag   u32, char[32] name at 4, position (3 reals) at 36,
+                    facing (yaw, pitch) at 48
+    device group    char[32] name, real initial value at 32, u32 flags at 36
 """
 
 from __future__ import annotations
@@ -283,6 +296,36 @@ def vehicle_types(data: bytes, tags: list[dict], base: int) -> dict[str, str]:
     return out
 
 
+OBJECT_TYPES = ["biped", "vehicle", "weapon", "equipment", "garbage", "projectile", "scenery",
+                "machine", "control", "light_fixture", "placeholder", "sound_scenery"]
+
+
+def names(sc: Scenario) -> dict:
+    """Every name a script can refer to, with what a bake needs to recreate
+    it: the object names with the placement each names, and the trigger
+    volumes, cutscene flags and device groups with their geometry or value.
+    Positions are CE world units."""
+    d = sc.data
+    vec = lambda off: [round(v, 4) for v in struct.unpack_from("<3f", d, off)]
+    out = {"object names": [], "trigger volumes": [], "cutscene flags": [], "device groups": []}
+    for e in sc.block("object names"):
+        otype, index = struct.unpack_from("<Hh", d, e + 32)
+        out["object names"].append({"name": sc.name_at(e),
+                                    "type": OBJECT_TYPES[otype] if otype < len(OBJECT_TYPES) else otype,
+                                    "placement": index})
+    for e in sc.block("trigger volumes"):
+        out["trigger volumes"].append({"name": sc.name_at(e + 4), "forward": vec(e + 48), "up": vec(e + 60),
+                                       "position": vec(e + 72), "extents": vec(e + 84)})
+    for e in sc.block("cutscene flags"):
+        yaw, pitch = struct.unpack_from("<2f", d, e + 48)
+        out["cutscene flags"].append({"name": sc.name_at(e + 4), "position": vec(e + 36),
+                                      "facing": [round(yaw, 4), round(pitch, 4)]})
+    for e in sc.block("device groups"):
+        value, flags = struct.unpack_from("<fI", d, e + 32)
+        out["device groups"].append({"name": sc.name_at(e), "initial": round(value, 4), "flags": flags})
+    return out
+
+
 def survey_scenario(sc: Scenario) -> dict:
     """What a conversion has to carry: the scripts and what they call, and
     the devices, groups and volumes they work on."""
@@ -324,9 +367,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("maps", nargs="+")
     ap.add_argument("--hsc", action="store_true", help="print the scripts as source instead")
+    ap.add_argument("--names", action="store_true", help="print the names scripts refer to, as JSON")
     a = ap.parse_args()
     for p in a.maps:
-        if a.hsc:
+        if a.names:
+            sc, *_ = open_scenario(p)
+            json.dump(names(sc), sys.stdout, indent=1)
+            print()
+        elif a.hsc:
             sc, *_ = open_scenario(p)
             if len(a.maps) > 1:
                 print(f"; {p}")
