@@ -30,6 +30,7 @@ The stages, each resumable (what is done is skipped):
     python tools/halomaps/halomaps.py fetch              # each map's page and screenshots
     python tools/halomaps/halomaps.py download           # the files
     python tools/halomaps/halomaps.py extract            # unpack, read every .map's header and tags
+    python tools/halomaps/halomaps.py scripts            # each scenario's scripts and devices (cescript.py)
     python tools/halomaps/halomaps.py catalog --sort rating --top 30
     python tools/halomaps/halomaps.py convert --next     # the best unconverted map, through convert_ce_map.sh
     python tools/halomaps/halomaps.py report             # custom tags and conversion outcomes
@@ -65,6 +66,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cemap  # noqa: E402
+import cescript  # noqa: E402
 
 SITE = "https://halomaps.org/hce/"
 USER_AGENT = "mjolnir-halomaps-archiver/0.1 (+https://github.com/devnull9090/mjolnir-core)"
@@ -75,6 +77,9 @@ DEFAULT_HCE_PAKS = Path(os.environ.get("HCE_PAKS")
                         or r"C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Content\Paks")
 REPO = Path(__file__).resolve().parents[2]
 CONVERT_SCRIPT = REPO / "tools/level/convert_ce_map.sh"
+# This game's script functions and globals (mjolnir console), for the
+# report's coverage of what the archive's scripts call.
+CONSOLE_DEFS = REPO / "defs/hce/console.json"
 PER_PAGE = 30
 
 # The site's sections (`index.cfm?sid=`). The multiplayer ones are mirrored by
@@ -655,6 +660,41 @@ def unpack(path: Path, dest: Path) -> tuple[str, list[str]]:
     return kind, problems
 
 
+def scripting(path: Path) -> dict:
+    """A cache file's scripts, devices and vehicle types (cescript.py)."""
+    try:
+        return cescript.read(str(path))
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+
+
+def cmd_scripts(a, archive: Archive, site: Site | None = None) -> None:
+    """Read every unpacked map's scenario for its scripts and devices,
+    without the rest of a resurvey: the tag data only, a few MB a map."""
+    done = 0
+    for fid in select(archive, a.fid):
+        rec = archive.load(fid)
+        maps = ((rec or {}).get("archive") or {}).get("maps")
+        if not maps:
+            continue
+        changed = False
+        for m in maps:
+            if m.get("version") is None or (m.get("scripting") and not a.redo):
+                continue
+            p = archive.map_dir(fid) / "files" / m["file"]
+            if p.exists():
+                m["scripting"] = scripting(p)
+                changed = True
+        if changed:
+            archive.save(rec)
+            done += 1
+            if done % 250 == 0:
+                log(f"  {done} entries read")
+        if a.limit and done >= a.limit:
+            break
+    log(f"read the scripts of {done} entries")
+
+
 def resurvey(archive: Archive, rec: dict, stock: dict[str, set[str]]) -> int:
     """Read an entry's unpacked cache files again with the current cemap,
     keeping their digests: for when the survey learns something new."""
@@ -674,6 +714,7 @@ def resurvey(archive: Archive, rec: dict, stock: dict[str, set[str]]) -> int:
             fresh.append({"file": m["file"], "size": m.get("size"), "error": str(e)})
             continue
         new["file"] = m["file"]
+        new["scripting"] = scripting(p)
         if m.get("sha256"):
             new["sha256"] = m["sha256"]
         fresh.append(new)
@@ -738,6 +779,7 @@ def cmd_extract(a, archive: Archive, site: Site | None = None) -> None:
                 try:
                     m = cemap.read_map(str(p), stock=stock)
                     m["file"] = rel
+                    m["scripting"] = scripting(p)
                     maps.append(m)
                 except cemap.NotACacheFile:
                     maps.append({"file": rel, "size": p.stat().st_size, "kind": "resource"})
@@ -1166,6 +1208,116 @@ def cmd_convert(a, archive: Archive, site: Site | None = None) -> None:
 # report: edge cases across the archive
 # ---------------------------------------------------------------------------
 
+def scripting_summary(records: list[dict], top: int) -> dict:
+    """What the multiplayer maps' scripts call and which devices they
+    place, against what this game's script engine has: the order to build
+    the script port in."""
+    defs = {"functions": [], "globals": []}
+    if CONSOLE_DEFS.exists():
+        with open(CONSOLE_DEFS, encoding="utf-8") as f:
+            defs = json.load(f)
+    here_fn = {f["name"]: "stub" if f["stub"] else "live" for f in defs["functions"]}
+    here_gl = {g["name"]: "no storage" if g["dead"] else "live" for g in defs["globals"]}
+    fn_maps: collections.Counter = collections.Counter()
+    fn_calls: collections.Counter = collections.Counter()
+    gl_maps: collections.Counter = collections.Counter()
+    alone: collections.Counter = collections.Counter()  # the one gap of a map that has one
+    custom_types: collections.Counter = collections.Counter()
+    plane_maps = 0
+    n = scripted = readable = fully_live = devices = volumes = switch_bsp = ai = 0
+    script_counts = []
+    for rec in records:
+        for m in cache_maps(rec):
+            sc = m.get("scripting")
+            if m.get("type") != "multiplayer" or not sc or sc.get("error"):
+                continue
+            n += 1
+            counts = sc.get("counts", {})
+            if counts.get("machines") or counts.get("controls"):
+                devices += 1
+            if counts.get("trigger volumes"):
+                volumes += 1
+            if counts.get("encounters"):
+                ai += 1
+            vt = sc.get("vehicle_types", {})
+            own = ((m.get("custom") or {}).get("tags") or {}).get("vehi", [])
+            kinds = {vt[v] for v in own if v in vt}
+            custom_types.update(vt[v] for v in own if v in vt)
+            if "human_plane" in kinds:
+                plane_maps += 1
+            if not counts.get("scripts"):
+                continue
+            scripted += 1
+            script_counts.append(counts["scripts"])
+            if not sc.get("readable"):
+                continue
+            readable += 1
+            fns = sc.get("functions", {})
+            if "switch_bsp" in fns:
+                switch_bsp += 1
+            gaps = set()
+            for name, c in fns.items():
+                fn_maps[name] += 1
+                fn_calls[name] += c
+                if here_fn.get(name) != "live":
+                    gaps.add(name)
+            for name in sc.get("engine_globals", {}):
+                gl_maps[name] += 1
+                if here_gl.get(name) != "live":
+                    gaps.add(name)
+            if not gaps:
+                fully_live += 1
+            elif len(gaps) == 1:
+                alone[next(iter(gaps))] += 1
+    script_counts.sort()
+    status = lambda name: here_fn.get(name, "absent")
+    return {
+        "multiplayer_maps": n,
+        "with_scripts": scripted,
+        "readable": readable,
+        "every_call_live_here": fully_live,
+        "median_scripts": script_counts[len(script_counts) // 2] if script_counts else 0,
+        "with_devices": devices,
+        "with_trigger_volumes": volumes,
+        "with_ai_encounters": ai,
+        "switch_bsp": switch_bsp,
+        "custom_vehicle_types": dict(custom_types.most_common()),
+        "maps_with_custom_plane": plane_maps,
+        "functions": [{"name": k, "maps": v, "calls": fn_calls[k], "here": status(k)}
+                      for k, v in fn_maps.most_common()],
+        "missing": [{"name": k, "maps": v, "calls": fn_calls[k], "here": status(k)}
+                    for k, v in fn_maps.most_common() if status(k) != "live"][:top * 2],
+        "only_gap": alone.most_common(top),
+        "engine_globals": [{"name": k, "maps": v, "here": here_gl.get(k, "absent")}
+                           for k, v in gl_maps.most_common(top)],
+    }
+
+
+def scripting_lines(s: dict) -> list[str]:
+    if not s["multiplayer_maps"]:
+        return []
+    pct = lambda k: f"{100 * k / max(s['readable'], 1):.0f}%"
+    lines = ["", "## Scripts and devices (multiplayer maps)", "",
+             f"{s['multiplayer_maps']} maps read: {s['with_scripts']} carry scripts (median "
+             f"{s['median_scripts']} scripts), {s['readable']} of them readable; "
+             f"{s['every_call_live_here']} ({pct(s['every_call_live_here'])}) call only functions and globals "
+             f"this game runs. {s['with_devices']} place machines or controls, {s['with_trigger_volumes']} "
+             f"trigger volumes, {s['with_ai_encounters']} AI encounters; {s['switch_bsp']} switch BSPs.", "",
+             f"Custom vehicles by CE type: {s['custom_vehicle_types']} "
+             f"({s['maps_with_custom_plane']} maps with a custom human_plane).", "",
+             "Called but not live here (maps calling, calls, status):", ""]
+    lines += [f"- `{f['name']}`: {f['maps']} maps, {f['calls']} calls ({f['here']})" for f in s["missing"]]
+    if s["only_gap"]:
+        lines += ["", "The only gap in a map's scripts (maps):", ""]
+        lines += [f"- `{name}`: {k}" for name, k in s["only_gap"]]
+    lines += ["", "Engine globals set or read (maps, status here):", ""]
+    lines += [f"- `{g['name']}`: {g['maps']} ({g['here']})" for g in s["engine_globals"]]
+    lines += ["", "Most called functions (maps):", "",
+              ", ".join(f"`{f['name']}` {f['maps']}" + ("" if f["here"] == "live" else f" ({f['here']})")
+                        for f in s["functions"][:60])]
+    return lines
+
+
 def cmd_report(a, archive: Archive, site: Site | None = None) -> None:
     records = archive.records()
     if a.reparse:
@@ -1224,6 +1376,7 @@ def cmd_report(a, archive: Archive, site: Site | None = None) -> None:
             if c.get("status") == "failed":
                 failures.append({"fid": rec["fid"], "title": rec.get("title"), "code": c.get("code"),
                                  "steps_reached": r.get("steps_reached"), "last_error": (r.get("errors") or ["?"])[-1]})
+    scripts = scripting_summary(records, a.top)
     out = {
         "generated_at": now(),
         "records": len(records),
@@ -1237,6 +1390,7 @@ def cmd_report(a, archive: Archive, site: Site | None = None) -> None:
                         "warnings": warnings.most_common(a.top),
                         "notes": notes.most_common(a.top),
                         "failures": failures},
+        "scripting": scripts,
     }
     with open(archive.root / "report.json", "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1, ensure_ascii=False)
@@ -1249,6 +1403,7 @@ def cmd_report(a, archive: Archive, site: Site | None = None) -> None:
                      f"{info['distinct']} distinct tags")
         for path, n in info["top"][: min(a.top, 10)]:
             lines.append(f"  - {n:3} maps: `{path}`")
+    lines += scripting_lines(scripts)
     lines += ["", "## Conversions", "", f"statuses: {dict(statuses)}", ""]
     if dropped:
         lines.append("dropped placements (no equivalent in this game, or unmapped):")
@@ -1383,6 +1538,11 @@ def main() -> int:
     p.add_argument("--redo", action="store_true", help="unpack again")
     p.add_argument("--resurvey", action="store_true", help="read the unpacked maps again, without unpacking")
     p.set_defaults(func=cmd_extract)
+
+    p = sub.add_parser("scripts", help="read each unpacked map's scripts, devices and vehicle types")
+    common_fetch(p)
+    p.add_argument("--redo", action="store_true", help="read maps already read")
+    p.set_defaults(func=cmd_scripts)
 
     p = sub.add_parser("catalog", help="catalog.json and catalog.csv; print the top entries")
     p.add_argument("--sort", choices=sorted(SORTS), default="rating")
