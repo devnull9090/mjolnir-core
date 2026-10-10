@@ -225,13 +225,23 @@ vertices: a solve costs the vertices times the shots, the shots grow with
 the elements, and its snow (reflectance near 1) takes 1.2 shots an element
 where Gephyrophobia takes 0.3, so at batch 4096 the GPU itself is the
 bottleneck at 6 s a batch and the solve would take most of a day. Its
-pages at `--scale auto` hold 0.19 texels/m, one texel per 5 m, while its
-elements at `--finer 2` are about 1.4 m (its shaders take the finest row,
-0.9 world units, halved), a dozen to a texel: the page's 3x supersampled
-box filter averages them away (the sun and fill are per texel regardless).
-A large map may want its element size tied to its texel size, per
-triangle from its own lightmap UVs; that is untested against tool.exe
-(the risk is the bounce near contacts and around emitters).
+elements are not finer than its pages: at 4x its texels are 2.7 m on the
+cliff walls and 5.3 m on the glacier, and its elements' edges are already
+about one texel (their rows are coarse; elements are triangles, so a few
+share a texel's area). What it has is about 100 km2 of lit surface (cliff
+walls in full) and snow.
+
+`--texel-elements K` puts a floor under the elements: no edge shorter
+than K of its own triangle's texels at the drawn size, at the start and
+through the adaptive splits (emitting surfaces keep their rows);
+`--element-edges` draws every final patch over its page. Tried
+2026-10-10 against tool.exe's pages (`--scale 1`): Danger Canyon 8.7/255
+and x4 8.0, Death Island 9.7, the same at K = 0, 1 and 2, the pages
+indistinguishable by eye; it only trims splits finer than a texel (Danger
+Canyon x4 at K = 2: 30% fewer vertices, 31% faster). Death Island at
+`--scale auto` does not change (its elements are its triangles, which a
+floor cannot merge). Coldsnap at `--finer 2`: 41.7 M elements, 39.2 M at
+K = 1, 16.7 M at K = 2, still hours. Off by default.
 
 At the default batch the GPU solve takes the CPU's split decisions exactly
 on every map above, and its pages differ from the CPU's by at most

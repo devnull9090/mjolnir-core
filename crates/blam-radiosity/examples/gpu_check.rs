@@ -31,8 +31,58 @@ fn main() {
     let mut occ = transport::Occluders::build(&scene, translucent.as_ref(), extra.as_ref(), &staging, true);
     occ.solid = collision::Collision::load(&staging_dir);
     let opt = Options { quality: elements::Quality::finer(2.0), ..Options::default() };
-    let el = elements::Elements::build(&scene, translucent.as_ref(), &staging, &opt.quality, false);
+    let el = elements::Elements::build(&scene, translucent.as_ref(), &staging, &opt.quality, false, None);
     println!("{} occluder triangles, solid {}, {} elements, {} vertices", occ.bvh.len(), occ.solid.is_some(), el.elements.len(), el.pool.vertices.len());
+    // Where the elements are: per shader, on a page or not, how many and
+    // over what area (the largest first).
+    let mut by_shader: std::collections::HashMap<(String, bool), (usize, f32)> = std::collections::HashMap::new();
+    // Per shader: texel area on its page at the shipped size, for texels/m.
+    let shipped: Vec<(usize, usize)> = staging
+        .pages
+        .iter()
+        .map(|p| staging::Image::load(&staging_dir.join("textures").join(p)).map(|i| (i.width, i.height)).unwrap_or((1, 1)))
+        .collect();
+    let mut texel_area: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for e in &el.elements {
+        let m = &el.materials[e.material as usize];
+        let entry = by_shader.entry((m.shader.clone(), m.page != usize::MAX)).or_insert((0, 0.0));
+        entry.0 += 1;
+        entry.1 += e.patch.area;
+        if let Some(&(w, h)) = shipped.get(m.page) {
+            let uv = e.patch.uv1;
+            let t = 0.5 * ((uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1]) - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1])).abs() as f64 * (w * h) as f64;
+            *texel_area.entry(m.shader.clone()).or_insert(0.0) += t;
+        }
+    }
+    // What a one-texel floor at 4x would do: per element, its root
+    // triangle's floor against its current segment.
+    let floor = elements::TexelFloor { texels: 1.0, sizes: shipped.iter().map(|&(w, h)| (w * 4, h * 4)).collect() };
+    let (mut bites, mut kept, mut est) = (0usize, 0usize, 0.0f64);
+    let mut hist = [0usize; 6];
+    for e in &el.elements {
+        let Some(t) = scene.tris.get(e.tri as usize) else { continue };
+        let f = floor.of(t.p, t.uv1, t.page);
+        let ratio = if e.patch.segment > 0.0 { f / e.patch.segment } else { 0.0 };
+        let bucket = match ratio { r if r <= 0.0 => 0, r if r < 0.5 => 1, r if r < 1.0 => 2, r if r < 2.0 => 3, r if r < 4.0 => 4, _ => 5 };
+        hist[bucket] += 1;
+        if f > e.patch.segment {
+            bites += 1;
+            est += ((e.patch.segment / f) as f64).powi(2);
+        } else {
+            kept += 1;
+        }
+    }
+    println!("one-texel floor at 4x vs each element's segment: floor 0 {}, <0.5x {}, 0.5-1x {}, 1-2x {}, 2-4x {}, >4x {}", hist[0], hist[1], hist[2], hist[3], hist[4], hist[5]);
+    println!("  elements the floor exceeds {bites}, kept {kept}; those would become about {:.0}", est);
+    let mut rows: Vec<_> = by_shader.into_iter().collect();
+    rows.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    let (on_page, off_page): (usize, usize) = rows.iter().fold((0, 0), |(a, b), ((_, page), (n, _))| if *page { (a + n, b) } else { (a, b + n) });
+    println!("elements on a page {on_page}, on no page {off_page}");
+    for ((shader, page), (n, area)) in rows.iter().take(8) {
+        let ta = texel_area.get(shader).copied().unwrap_or(0.0);
+        let per_m = (ta / (*area as f64).max(1e-9)).sqrt();
+        println!("  {n:>9} elements, {:>9.0} m2, {} shipped texels/m ({:.2} m a texel; x4 {:.2} m): {shader}", area, format!("{per_m:.3}"), 1.0 / per_m.max(1e-9), 0.25 / per_m.max(1e-9));
+    }
 
     let mut g = gpu::Gpu::new(&occ).expect("gpu");
     println!("GPU: {}", g.name);

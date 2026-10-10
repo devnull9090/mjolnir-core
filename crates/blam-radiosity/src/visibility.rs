@@ -136,6 +136,7 @@ mod tests {
             cluster,
             tri: 0,
             children: Vec::new(),
+            floor: 0.0,
         }
     }
 

@@ -682,11 +682,11 @@ impl<'a> Solver<'a> {
 
     /// Whether a leaf patch whose corners got `s` this step splits: its
     /// corners disagree past the row's tolerance and it is not yet at the
-    /// row's finest.
-    fn splits(leaf: &Patch, s: &[V3; 3], row: crate::elements::Row, opt: &Options) -> bool {
+    /// row's finest (or the element's texel floor).
+    fn splits(leaf: &Patch, s: &[V3; 3], row: crate::elements::Row, floor: f32, opt: &Options) -> bool {
         opt.adaptive
             && row.gradient < f32::MAX
-            && leaf.segment > 2.0 * row.minimum * WU_TO_M
+            && leaf.segment > 2.0 * (row.minimum * WU_TO_M).max(floor)
             && s.iter().any(|c| c.iter().any(|x| *x > 0.0))
             && (0..3).any(|k| {
                 let (a, b) = (s[k], s[(k + 1) % 3]);
@@ -736,7 +736,7 @@ impl<'a> Solver<'a> {
                     let s = [lit[leaf.v[0] as usize], lit[leaf.v[1] as usize], lit[leaf.v[2] as usize]];
                     let mean = mul(add(add(s[0], s[1]), s[2]), 1.0 / 3.0);
                     gain = add(gain, mul(mean, leaf.area / area));
-                    split = split || Self::splits(leaf, &s, row, opt);
+                    split = split || Self::splits(leaf, &s, row, e.floor, opt);
                 }
                 let r = e.reflectance;
                 e.delta = add(e.delta, [gain[0] * r[0], gain[1] * r[1], gain[2] * r[2]]);
@@ -779,15 +779,15 @@ impl<'a> Solver<'a> {
     /// Split the leaves of element `ei` whose corners disagree about
     /// `step`; the new vertices take their edge's light for this step.
     fn split_element(&mut self, ei: u32, step: &mut Vec<V3>, opt: &Options) {
-        let row = {
+        let (row, floor) = {
             let e = &self.elements.elements[ei as usize];
-            opt.quality.rows[self.elements.materials[e.material as usize].detail_level]
+            (opt.quality.rows[self.elements.materials[e.material as usize].detail_level], e.floor)
         };
         let leaves = Self::leaves(&self.elements.elements[ei as usize]).to_vec();
         let mut new_leaves: Vec<Patch> = Vec::with_capacity(leaves.len() + 4);
         for leaf in leaves {
             let s = [step[leaf.v[0] as usize], step[leaf.v[1] as usize], step[leaf.v[2] as usize]];
-            if !Self::splits(&leaf, &s, row, opt) {
+            if !Self::splits(&leaf, &s, row, floor, opt) {
                 new_leaves.push(leaf);
                 continue;
             }

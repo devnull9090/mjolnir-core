@@ -445,3 +445,40 @@ pub fn pages(draw: &mut Draw) -> (Vec<Page>, Vec<Page>, Vec<Page>, Vec<Page>) {
         rayon::join(|| rayon::join(|| finish(&hi, true), || finish(&sun_hi, false)), || rayon::join(|| finish(&ambient_hi, true), || finish(&potential_hi, false)));
     (out, sun, ambient, potential)
 }
+
+/// Drawn page `page` (page `pi` of the solve) enlarged `f` times, nearest,
+/// with every final patch edge of the elements on it drawn red over it:
+/// where the solver put its elements and how finely it split them.
+pub fn element_edges(el: &Elements, pi: usize, page: &Page, f: usize) -> Page {
+    let f = f.max(1);
+    let (w, h) = (page.width * f, page.height * f);
+    let mut out = Page::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y / f) * page.width + x / f;
+            out.rgb[y * w + x] = page.rgb[i];
+            out.covered[y * w + x] = page.covered[i];
+        }
+    }
+    for e in &el.elements {
+        let m = &el.materials[e.material as usize];
+        if m.page != pi || m.fixed.is_some() {
+            continue;
+        }
+        for patch in leaves(e) {
+            for k in 0..3 {
+                let (a, b) = (patch.uv1[k], patch.uv1[(k + 1) % 3]);
+                let (ax, ay, bx, by) = (a[0] * w as f32, a[1] * h as f32, b[0] * w as f32, b[1] * h as f32);
+                let steps = (bx - ax).abs().max((by - ay).abs()).ceil().max(1.0) as usize;
+                for s in 0..=steps {
+                    let t = s as f32 / steps as f32;
+                    let (x, y) = ((ax + (bx - ax) * t) as isize, (ay + (by - ay) * t) as isize);
+                    if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+                        out.rgb[y as usize * w + x as usize] = [1.0, 0.0, 0.0];
+                    }
+                }
+            }
+        }
+    }
+    out
+}

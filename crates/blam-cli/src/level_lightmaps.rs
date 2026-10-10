@@ -83,6 +83,16 @@ pub struct LightmapsArgs {
     /// the reference and runs when no adapter is found.
     #[arg(long)]
     pub gpu: bool,
+    /// No element edge shorter than this many of its own lightmap texels at
+    /// the drawn page size (0: tool.exe's rows, divided by `--finer`, only).
+    /// The sun and fill are per texel regardless; this bounds how finely
+    /// the bounce light is solved where the pages cannot show it.
+    #[arg(long, default_value_t = 0.0)]
+    pub texel_elements: f32,
+    /// Also write `<page>_elements.png`: every final patch's edges on the
+    /// page, to see where the solver put its elements.
+    #[arg(long)]
+    pub element_edges: bool,
     /// Print each shooting step's residual.
     #[arg(long)]
     pub verbose: bool,
@@ -251,6 +261,7 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
         flat_reflectance: a.flat_reflectance,
         bsp_solid: !a.no_bsp_solid,
         gpu: a.gpu,
+        texel_elements: a.texel_elements,
     };
 
     let started = std::time::Instant::now();
@@ -287,6 +298,15 @@ pub fn run(a: LightmapsArgs) -> Result<()> {
     for (i, page) in solved.pages.iter().enumerate() {
         let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));
         page.write_png(&a.out.join(&name)).map_err(|e| anyhow!("{e}"))?;
+    }
+    if a.element_edges {
+        // Big enough to see a patch at 1x, no larger than 4096 a side.
+        for (i, page) in solved.pages.iter().enumerate() {
+            let f = (4096 / page.width.max(page.height).max(1)).clamp(1, 8);
+            let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));
+            let stem = name.strip_suffix(".png").unwrap_or(&name);
+            blam_radiosity::raster::element_edges(&solved.detail, i, page, f).write_png(&a.out.join(format!("{stem}_elements.png"))).map_err(|e| anyhow!("{e}"))?;
+        }
     }
     for (i, page) in solved.sun_pages.iter().enumerate() {
         let name = staging.pages.get(i).cloned().unwrap_or_else(|| format!("page_{i}.png"));

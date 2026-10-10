@@ -55,6 +55,9 @@ pub struct Job<'a> {
     /// Cast the gather's and the per-texel pass's rays on the GPU (the
     /// `gpu` feature); the CPU when there is no adapter.
     pub gpu: bool,
+    /// No element edge shorter than this many of its own texels at the
+    /// drawn page size (`elements::TexelFloor`); 0: tool.exe's rows only.
+    pub texel_elements: f32,
 }
 
 pub struct Solved {
@@ -102,7 +105,9 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
     if job.bsp_solid {
         occluders.solid = collision::Collision::load(job.staging_dir);
     }
-    let elements = elements::Elements::build(&scene, translucent.as_ref(), &staging, &job.options.quality, job.flat_reflectance);
+    let sizes: Vec<(usize, usize)> = page_sizes.iter().map(|&(w, h)| (w * job.scale, h * job.scale)).collect();
+    let floor = (job.texel_elements > 0.0).then(|| elements::TexelFloor { texels: job.texel_elements, sizes: sizes.clone() });
+    let elements = elements::Elements::build(&scene, translucent.as_ref(), &staging, &job.options.quality, job.flat_reflectance, floor.as_ref());
     let mut solver = transport::Solver::new(&staging, &occluders, elements);
     let mut backend = "CPU".to_string();
     if job.gpu {
@@ -119,7 +124,6 @@ pub fn solve(job: &Job, page_sizes: &[(usize, usize)]) -> Result<Solved, String>
         _ => 0,
     };
     solver.run(&job.options);
-    let sizes: Vec<(usize, usize)> = page_sizes.iter().map(|&(w, h)| (w * job.scale, h * job.scale)).collect();
     let lights = (
         transport::sky_lights(&staging, transport::Set::Exterior, job.options.quality.sun_grid, job.options.fill_spread),
         transport::sky_lights(&staging, transport::Set::Interior, job.options.quality.sun_grid, job.options.fill_spread),
