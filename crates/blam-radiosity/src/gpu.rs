@@ -179,10 +179,24 @@ impl Gpu {
         if rt && !adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY) {
             return Err(format!("{}: no ray queries", info.name));
         }
-        let name = format!("{} ({:?}, driver {}, {})", info.name, info.backend, info.driver_info, if rt { "ray tracing hardware" } else { "compute BVH" });
+        // f64 lets the ray setup round exactly as the CPU does
+        // (gpu_exact_f64.wgsl).
+        let exact = adapter.features().contains(wgpu::Features::SHADER_F64);
+        let name = format!(
+            "{} ({:?}, driver {}, {}{})",
+            info.name,
+            info.backend,
+            info.driver_info,
+            if rt { "ray tracing hardware" } else { "compute BVH" },
+            if exact { "" } else { ", no f64" }
+        );
+        let mut features = if exact { wgpu::Features::SHADER_F64 } else { wgpu::Features::empty() };
+        if rt {
+            features |= wgpu::Features::EXPERIMENTAL_RAY_QUERY;
+        }
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("blam-radiosity"),
-            required_features: if rt { wgpu::Features::EXPERIMENTAL_RAY_QUERY } else { wgpu::Features::empty() },
+            required_features: features,
             required_limits: adapter.limits(),
             // SAFETY: the ray query feature is experimental in wgpu 30; the
             // solve checks its kernels against the CPU path (examples/gpu_check).
@@ -195,10 +209,11 @@ impl Gpu {
         // comes back as an Err rather than a panic.
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
+        let arithmetic = if exact { include_str!("gpu_exact_f64.wgsl") } else { include_str!("gpu_exact_f32.wgsl") };
         let source = if rt {
-            format!("enable wgpu_ray_query;\n{}\n{}", include_str!("gpu_trace_rt.wgsl"), include_str!("gpu.wgsl"))
+            format!("enable wgpu_ray_query;\n{}\n{}\n{}", include_str!("gpu_trace_rt.wgsl"), arithmetic, include_str!("gpu.wgsl"))
         } else {
-            format!("{}\n{}", include_str!("gpu_trace_bvh.wgsl"), include_str!("gpu.wgsl"))
+            format!("{}\n{}\n{}", include_str!("gpu_trace_bvh.wgsl"), arithmetic, include_str!("gpu.wgsl"))
         };
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("gpu.wgsl"), source: wgpu::ShaderSource::Wgsl(source.into()) });
         let scene_entries: Vec<wgpu::BindGroupLayoutEntry> = if rt {

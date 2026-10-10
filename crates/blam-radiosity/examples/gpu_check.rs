@@ -104,6 +104,15 @@ fn main() {
         let s = samples[i];
         println!("  d {d:.4} at p {:?} n {:?} set {}: cpu vis {:.3} gain {:?} | gpu vis {:.3} gain {:?}", s.0, s.1, s.2, on_cpu[i].3, on_cpu[i].0, on_gpu[i].3, on_gpu[i].0);
         if d > 1e-3 {
+            // The first sun ray, taken apart: the solid test at its start,
+            // and the triangle walk alone.
+            if let Some(transport::Light::Directional { towards, .. }) = (if s.2 == 1 { &int } else { &ext }).first() {
+                use blam_radiosity::math::{add, mul};
+                let start = add(s.0, mul(*towards, 0.001));
+                let solid = occ.solid.as_ref().map(|c| c.in_solid(start));
+                let hit = occ.bvh.trace(start, *towards, opt.sun_ray - 0.002, false);
+                println!("    first sun ray: start in solid {solid:?}, nearest hit {:?}", hit.map(|h| (h.t, h.tri, h.back, occ.tint[h.tri as usize])));
+            }
             for l in if s.2 == 1 { &int } else { &ext } {
                 if let transport::Light::Directional { towards, .. } = l {
                     let far = blam_radiosity::math::add(s.0, blam_radiosity::math::mul(*towards, opt.sun_ray));

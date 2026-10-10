@@ -22,9 +22,27 @@ struct Scene {
 const WU_TO_M: f32 = 3.048;
 const PI: f32 = 3.14159265358979;
 
+// math.rs `add`, `sub`, `mul`, `dot` in the CPU's order and rounding
+// (`xadd` etc. from gpu_exact_*.wgsl).
+fn xadd3(a: vec3f, b: vec3f) -> vec3f {
+    return vec3f(xadd(a.x, b.x), xadd(a.y, b.y), xadd(a.z, b.z));
+}
+
+fn xsub3(a: vec3f, b: vec3f) -> vec3f {
+    return vec3f(xsub(a.x, b.x), xsub(a.y, b.y), xsub(a.z, b.z));
+}
+
+fn xscale3(a: vec3f, s: f32) -> vec3f {
+    return vec3f(xmul(a.x, s), xmul(a.y, s), xmul(a.z, s));
+}
+
+fn xdot(a: vec3f, b: vec3f) -> f32 {
+    return xadd(xadd(xmul(a.x, b.x), xmul(a.y, b.y)), xmul(a.z, b.z));
+}
+
 // collision.rs `in_solid`: a glTF point (metres) in the BSP's solid.
 fn in_solid(p: vec3f) -> bool {
-    let q = vec3f(p.x / WU_TO_M, -p.z / WU_TO_M, p.y / WU_TO_M);
+    let q = vec3f(xdiv(p.x, WU_TO_M), xdiv(-p.z, WU_TO_M), xdiv(p.y, WU_TO_M));
     var node = 0i;
     for (var i = 0; i < 256; i++) {
         if (node == -1i) {
@@ -41,28 +59,31 @@ fn in_solid(p: vec3f) -> bool {
             return false;
         }
         let pl = solid_planes[u32(plane)];
-        let d = pl.x * q.x + pl.y * q.y + pl.z * q.z - pl.w;
+        let d = xsub(xdot(pl.xyz, q), pl.w);
         node = select(solid_nodes[3u * u32(node) + 1u], solid_nodes[3u * u32(node) + 2u], d >= 0.0);
     }
     return false;
 }
 
-// transport.rs `Occluders::transmission`.
+// transport.rs `Occluders::transmission`, its ray set up in the CPU's
+// arithmetic: the solid tests at its ends decide on a few ulps where a
+// ray grazes a wall.
 fn transmission(src: vec3f, dst: vec3f, end_in_level: bool) -> vec3f {
-    let v = dst - src;
-    let l = length(v);
+    let v = xsub3(dst, src);
+    let l = xsqrt(xdot(v, v));
     if (l <= 0.002) {
         return vec3f(1.0);
     }
-    let d = v * (1.0 / l);
+    let d = xscale3(v, xdiv(1.0, l));
     let t0 = 0.001;
-    let end = l - 0.001;
+    let end = xsub(l, 0.001);
+    let start = xadd3(src, xscale3(d, t0));
     if (scene.solid_nodes > 0u) {
-        if (in_solid(src + d * t0) || (end_in_level && in_solid(src + d * end))) {
+        if (in_solid(start) || (end_in_level && in_solid(xadd3(src, xscale3(d, end))))) {
             return vec3f(0.0);
         }
     }
-    return trace(src + d * t0, d, end - t0);
+    return trace(start, d, xsub(end, t0));
 }
 
 fn luma(c: vec3f) -> f32 {
@@ -116,7 +137,7 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
     for (var s = 0u; s < gp.shooters; s++) {
         let sh = shooters[s];
         let n = sh.normal.xyz;
-        if (dot(n, rp) - sh.v1.w <= 0.0) {
+        if (xsub(xdot(n, rp), sh.v1.w) <= 0.0) {
             continue;
         }
         let ignore = sh.normal.w != 0.0;
@@ -126,7 +147,7 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
         for (var k = 0u; k < 3u; k++) {
             let u = su[k];
             let w = sv[k];
-            let q = sh.v0.xyz * (1.0 - u - w) + sh.v1.xyz * u + sh.v2.xyz * w;
+            let q = xadd3(xadd3(xscale3(sh.v0.xyz, xsub(xsub(1.0, u), w)), xscale3(sh.v1.xyz, u)), xscale3(sh.v2.xyz, w));
             let v = q - rp;
             if (dot(v, rn) <= 0.0 && !ignore) {
                 continue;
@@ -287,7 +308,7 @@ fn direct_light(@builtin(global_invocation_id) gid: vec3u) {
         if (is_sun) {
             potential += unblocked;
         }
-        let t = transmission(p, p + towards * dp.sun_ray, false);
+        let t = transmission(p, xadd3(p, xscale3(towards, dp.sun_ray)), false);
         if (all(t <= vec3f(0.0))) {
             continue;
         }
