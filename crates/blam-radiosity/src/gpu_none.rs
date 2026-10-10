@@ -4,6 +4,7 @@
 use crate::elements::Elements;
 use crate::math::V3;
 use crate::transport::{Light, Occluders, Options, PlacedLights};
+use crate::visibility::ClusterVis;
 
 pub struct Gpu {
     pub name: String,
@@ -14,7 +15,7 @@ impl Gpu {
         Err("built without the `gpu` feature".into())
     }
 
-    pub fn gather(&mut self, _elements: &Elements, _shooters: &[u32], _targets: &[u32], _generation: u64, _cull: f32) -> Result<Vec<(V3, V3)>, String> {
+    pub fn gather(&mut self, _elements: &Elements, _shooters: &[u32], _clusters: &[u32], _targets: &[u32], _generation: u64, _cull: f32, _vis: &mut ClusterVis) -> Result<Vec<(V3, V3)>, String> {
         Err("built without the `gpu` feature".into())
     }
 

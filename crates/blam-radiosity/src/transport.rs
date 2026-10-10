@@ -11,6 +11,7 @@ use crate::elements::{Element, Elements, Patch, Quality, Vertex, WU_TO_M};
 use crate::gltf::Scene;
 use crate::math::{add, dot, len, lerp, luma, mul, norm, sub, V3};
 use crate::staging::Staging;
+use crate::visibility::ClusterVis;
 use rayon::prelude::*;
 use std::path::Path;
 
@@ -514,6 +515,9 @@ pub struct Solver<'a> {
     visible: Vec<Vec<u32>>,
     /// Per cluster, its elements.
     by_cluster: Vec<Vec<u32>>,
+    /// Which shooter lights which vertex: each shooter only the clusters
+    /// its own cluster sees, as tool.exe shoots.
+    vis: ClusterVis,
     /// Per element, its unshot energy `(r+g+b) x area`, kept in step with
     /// `delta`: choosing the shooters and the residual read 4 bytes an
     /// element instead of the whole element, every batch.
@@ -615,6 +619,10 @@ impl<'a> Solver<'a> {
             by_cluster[g].push(i as u32);
         }
         let energy = elements.elements.iter().map(energy_of).collect();
+        let vis = ClusterVis::new(&visible, &elements, |i| {
+            let e = &elements.elements[i];
+            if clusters.is_some() && e.cluster >= 0 && (e.cluster as usize) < n { e.cluster as usize } else { 0 }
+        });
         Solver {
             staging,
             occluders,
@@ -622,6 +630,7 @@ impl<'a> Solver<'a> {
             placed: PlacedLights::default(),
             visible,
             by_cluster,
+            vis,
             energy,
             reach: Vec::new(),
             generations: 0,
@@ -812,6 +821,13 @@ impl<'a> Solver<'a> {
             new_leaves.extend(subs);
         }
         self.elements.elements[ei as usize].children = new_leaves;
+        // The new patches' corners are on this element's cluster.
+        let cluster = self.cluster_of(&self.elements.elements[ei as usize]) as u32;
+        for leaf in &self.elements.elements[ei as usize].children {
+            for &v in &leaf.v {
+                self.vis.add(v, cluster);
+            }
+        }
     }
 
     /// The light phase: every sky light onto every vertex of its set.
@@ -1086,7 +1102,7 @@ impl<'a> Solver<'a> {
         let elements = &self.elements;
         let occ = self.occluders;
         let cull = 1e-4;
-        let shooter_data: Vec<(&Element, [V3; 3])> = shooters
+        let shooter_data: Vec<(&Element, [V3; 3], usize)> = shooters
             .iter()
             .map(|&s| {
                 let e = &elements.elements[s as usize];
@@ -1095,14 +1111,14 @@ impl<'a> Solver<'a> {
                     elements.pool.vertices[e.patch.v[1] as usize].p,
                     elements.pool.vertices[e.patch.v[2] as usize].p,
                 ];
-                (e, sv)
+                (e, sv, self.cluster_of(e))
             })
             .collect();
         let gathering = std::time::Instant::now();
         // The rays, on the GPU when there is one (the solid test needs the
         // vertices' faces, which only the CPU path has).
         let on_gpu = match self.gpu.as_mut() {
-            Some(g) if !opt.solid_test => match g.gather(elements, shooters, targets, reach.targets.generation, cull) {
+            Some(g) if !opt.solid_test => match g.gather(elements, shooters, &shooter_data.iter().map(|x| x.2 as u32).collect::<Vec<_>>(), targets, reach.targets.generation, cull, &mut self.vis) {
                 Ok(v) => Some(v),
                 Err(e) => {
                     self.gpu = None;
@@ -1112,6 +1128,7 @@ impl<'a> Solver<'a> {
             },
             _ => None,
         };
+        let vis = &self.vis;
         let gains: Vec<(V3, V3)> = if let Some(v) = on_gpu {
             v
         } else {
@@ -1121,7 +1138,10 @@ impl<'a> Solver<'a> {
                 let rv = &elements.pool.vertices[vi as usize];
                 let mut gain = [0.0f32; 3];
                 let mut dir = [0.0f32; 3];
-                for (e, sv) in &shooter_data {
+                for (e, sv, cluster) in &shooter_data {
+                    if !vis.sees(*cluster, vi) {
+                        continue;
+                    }
                     let ignore = elements.materials[e.material as usize].ignore_normals;
                     let (f, d) = form_factor(occ, e, *sv, rv, ignore, cull, opt.solid_test);
                     if f.iter().all(|x| *x <= 0.0) {

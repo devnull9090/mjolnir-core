@@ -16,6 +16,7 @@ pub mod math;
 pub mod raster;
 pub mod staging;
 pub mod transport;
+pub mod visibility;
 
 use std::path::Path;
 

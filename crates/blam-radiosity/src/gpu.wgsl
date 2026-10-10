@@ -123,6 +123,13 @@ struct Gather {
     cull: f32,
     // The first target of this dispatch.
     offset: u32,
+    // 1: every cluster sees every cluster (no visibility test).
+    all: u32,
+    // visibility.rs `ClusterVis::flat`: words per row, where the group
+    // table and the cluster lists start in `vis`.
+    words: u32,
+    table: u32,
+    lists: u32,
 }
 
 // Per vertex: position, normal (w unused).
@@ -133,6 +140,25 @@ struct Gather {
 // direction.
 @group(1) @binding(3) var<storage, read_write> gathered: array<f32>;
 @group(1) @binding(4) var<uniform> gp: Gather;
+// Per vertex, its cluster group.
+@group(1) @binding(5) var<storage, read> vgroup: array<u32>;
+// The clusters' visibility rows, then per group (first, count), then the
+// groups' cluster lists.
+@group(1) @binding(6) var<storage, read> vis: array<u32>;
+
+// visibility.rs `ClusterVis::sees`: a shooter in `cluster` lights a vertex
+// of group `g` when its row holds any of the group's clusters.
+fn sees(cluster: u32, g: u32) -> bool {
+    let first = vis[gp.table + 2u * g];
+    let count = vis[gp.table + 2u * g + 1u];
+    for (var k = 0u; k < count; k++) {
+        let c = vis[gp.lists + first + k];
+        if (((vis[cluster * gp.words + c / 32u] >> (c % 32u)) & 1u) != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // transport.rs `form_factor` and `Solver::shoot`'s inner loop.
 @compute @workgroup_size(64)
@@ -144,12 +170,19 @@ fn gather(@builtin(workgroup_id) wg: vec3u, @builtin(num_workgroups) groups: vec
     let vi = targets[i];
     let rp = verts[2u * vi].xyz;
     let rn = verts[2u * vi + 1u].xyz;
+    var group = 0u;
+    if (gp.all == 0u) {
+        group = vgroup[vi];
+    }
     var gain = vec3f(0.0);
     var dir = vec3f(0.0);
     let su = array<f32, 3>(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0);
     let sv = array<f32, 3>(1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0);
     for (var s = 0u; s < gp.shooters; s++) {
         let sh = shooters[s];
+        if (gp.all == 0u && !sees(bitcast<u32>(sh.delta.w), group)) {
+            continue;
+        }
         let n = sh.normal.xyz;
         if (plane_side(n, rp, sh.v1.w) <= 0.0) {
             continue;

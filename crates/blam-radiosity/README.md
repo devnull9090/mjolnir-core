@@ -218,7 +218,7 @@ the solver before the bookkeeping rework:
 | Death Island | 86 k | | 75 | 12 | 10.5 |
 | Gephyrophobia | 1.2 M | 1239 | 282 | 137 | 41 |
 | Danger Canyon x4 (`--scale 1 --finer 4`) | 219 k | 175 | 58 | 24.5 | 9.6 |
-| Coldsnap (`--finer 0.5`) | 2.7 M | | 5472 | 2455 | 665 (212 at 1024) |
+| Coldsnap (`--finer 0.5`) | 2.7 M | | 5472 | 2750 | 759 |
 
 Coldsnap at the default `--finer 2` has 41.7 M elements and 22.4 M
 vertices: a solve costs the vertices times the shots, the shots grow with
@@ -237,15 +237,18 @@ x4 7.9, Death Island 9.7/255). The sunvis pages differ on 0.2% of texels
 or fewer, on Gephyrophobia 1.1% (the grazing rays above).
 
 `--batch` is the lever left: every batch walks every element, whatever its
-size, so where the rays are cheap fewer, larger batches are faster. The
-brightest then shoot together rather than in turn, the same on CPU and GPU
-(Death Island at 256: identical pages), and the result moves with it: on
-Danger Canyon, Death Island and Gephyrophobia single texels (the scores
-against tool.exe do not change), but on Coldsnap five interior pages came
-out 10-40/255 brighter at 256. A batch's receivers are every cluster any
-of its shooters sees, so a larger batch lets a shooter light clusters its
-own visibility row leaves out; per-shooter cluster visibility in the
-gather would make the batch size a matter of speed only.
+size, so where the rays are cheap fewer, larger batches are faster. Each
+shooter lights only the clusters its own cluster sees, as tool.exe shoots
+(`src/visibility.rs`, tested per shooter and vertex in the gather): a
+batch used to gather into every cluster any of its shooters saw, which
+let light into Coldsnap's interiors past its PVS, more the larger the
+batch (five interior pages 10-40/255 brighter at 256 than at 64, and
+both too bright where tool.exe's are dark: page 39 at 82 and 127 where
+tool.exe has 58, now 61). With the test, Coldsnap at 64 and 256 differ by
+0.03/255; Danger Canyon, Death Island, Gephyrophobia and Night-Lockout,
+whose shadow rays already kept that light out, are byte-identical to
+before it. The brightest still shoot together rather than in turn, which
+moves single texels (the scores against tool.exe do not change).
 
 The example `radiosity_bake` is the same solve with every knob exposed
 (`--no-sun-cosine`, `--no-bsp-solid`, `--fill-spread`, `--dump <csv>` of

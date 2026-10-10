@@ -159,6 +159,7 @@ pub struct Elements {
 }
 
 /// Vertices keyed on position and normal, tool.exe's equality (5e-4).
+#[derive(Default)]
 pub struct Pool {
     pub vertices: Vec<Vertex>,
     index: HashMap<[i32; 6], u32>,

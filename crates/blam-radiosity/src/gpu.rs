@@ -9,6 +9,7 @@
 use crate::elements::{Elements, Vertex};
 use crate::math::V3;
 use crate::transport::{Light, Occluders, Options, PlacedLights};
+use crate::visibility::ClusterVis;
 use wgpu::util::DeviceExt;
 
 /// Targets (or samples) per submission: each submission stays far below
@@ -58,6 +59,13 @@ struct GatherParams {
     shooters: u32,
     cull: f32,
     offset: u32,
+    /// 1: every cluster sees every cluster (no visibility test).
+    all: u32,
+    /// `ClusterVis::flat`: words per row, where the group table and the
+    /// cluster lists start.
+    words: u32,
+    table: u32,
+    lists: u32,
 }
 
 #[repr(C)]
@@ -90,6 +98,12 @@ pub struct Gpu {
     targets: Grow,
     /// Which target list `targets` holds.
     targets_generation: Option<u64>,
+    /// Per vertex its cluster group, and `ClusterVis::flat` (the rows, the
+    /// groups); how many of the groups the GPU holds.
+    vgroup: Grow,
+    vgroup_uploaded: usize,
+    vis: Grow,
+    vis_tables: (u32, u32),
     shooters: Grow,
     gathered: Grow,
     samples: Grow,
@@ -235,7 +249,7 @@ impl Gpu {
         let scene_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("scene"), entries: &scene_entries });
         let gather_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gather"),
-            entries: &[storage_entry(0, true), storage_entry(1, true), storage_entry(2, true), storage_entry(3, false), uniform_entry(4)],
+            entries: &[storage_entry(0, true), storage_entry(1, true), storage_entry(2, true), storage_entry(3, false), uniform_entry(4), storage_entry(5, true), storage_entry(6, true)],
         });
         let direct_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("direct"),
@@ -388,6 +402,10 @@ impl Gpu {
             uploaded: 0,
             targets: Grow::new(&device, "targets", storage),
             targets_generation: None,
+            vgroup: Grow::new(&device, "vertex cluster groups", storage),
+            vgroup_uploaded: 0,
+            vis: Grow::new(&device, "cluster visibility", storage),
+            vis_tables: (0, 0),
             shooters: Grow::new(&device, "shooters", storage),
             gathered: Grow::new(&device, "gathered", output),
             samples: Grow::new(&device, "samples", storage),
@@ -449,14 +467,40 @@ impl Gpu {
     /// luminance-weighted incident direction.
     /// `generation` names the target list: the same one as the last call's
     /// is not uploaded again.
-    pub fn gather(&mut self, elements: &Elements, shooters: &[u32], targets: &[u32], generation: u64, cull: f32) -> Result<Vec<(V3, V3)>, String> {
+    /// `clusters`: each shooter's cluster; `vis` says which vertices each
+    /// one lights (its changes since the last call are uploaded).
+    #[allow(clippy::too_many_arguments)]
+    pub fn gather(&mut self, elements: &Elements, shooters: &[u32], clusters: &[u32], targets: &[u32], generation: u64, cull: f32, vis: &mut ClusterVis) -> Result<Vec<(V3, V3)>, String> {
         if targets.is_empty() {
             return Ok(Vec::new());
         }
         self.sync_vertices(&elements.pool.vertices);
+        // Which shooter lights which vertex: the groups of the vertices made
+        // or moved since the last batch, and the rows and group lists when a
+        // new group appeared.
+        if vis.group.len() < elements.pool.vertices.len() {
+            vis.group.resize(elements.pool.vertices.len(), 0);
+        }
+        if self.vgroup.fit(&self.device, (vis.group.len() * 4) as u64) {
+            self.vgroup_uploaded = 0;
+        }
+        let from = vis.dirty_from.min(self.vgroup_uploaded);
+        if from < vis.group.len() {
+            self.queue.write_buffer(&self.vgroup.buf, (from * 4) as u64, bytemuck::cast_slice(&vis.group[from..]));
+        }
+        self.vgroup_uploaded = vis.group.len();
+        vis.dirty_from = usize::MAX;
+        if vis.groups_dirty {
+            let (flat, table, lists) = vis.flat();
+            self.vis.fit(&self.device, (flat.len() * 4) as u64);
+            self.queue.write_buffer(&self.vis.buf, 0, bytemuck::cast_slice(&flat));
+            self.vis_tables = (table, lists);
+            vis.groups_dirty = false;
+        }
         let shooter_data: Vec<[f32; 4]> = shooters
             .iter()
-            .flat_map(|&s| {
+            .zip(clusters)
+            .flat_map(|(&s, &cluster)| {
                 let e = &elements.elements[s as usize];
                 let p = |k: usize| elements.pool.vertices[e.patch.v[k] as usize].p;
                 let (a, b, c) = (p(0), p(1), p(2));
@@ -466,7 +510,7 @@ impl Gpu {
                     [b[0], b[1], b[2], e.d],
                     [c[0], c[1], c[2], e.delta.iter().sum::<f32>()],
                     [e.normal[0], e.normal[1], e.normal[2], ignore],
-                    [e.delta[0], e.delta[1], e.delta[2], 0.0],
+                    [e.delta[0], e.delta[1], e.delta[2], f32::from_bits(cluster)],
                 ]
             })
             .collect();
@@ -490,11 +534,23 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 2, resource: self.shooters.buf.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: self.gathered.buf.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 4, resource: self.gather_params.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: self.vgroup.buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 6, resource: self.vis.buf.as_entire_binding() },
             ],
         });
         // One dispatch, two-dimensional past 65535 workgroups, and the copy
         // back in the same submission: a batch costs one round trip.
-        let params = GatherParams { targets: targets.len() as u32, shooters: shooters.len() as u32, cull, offset: 0 };
+        let (table, lists) = self.vis_tables;
+        let params = GatherParams {
+            targets: targets.len() as u32,
+            shooters: shooters.len() as u32,
+            cull,
+            offset: 0,
+            all: vis.all as u32,
+            words: vis.words as u32,
+            table,
+            lists,
+        };
         self.queue.write_buffer(&self.gather_params, 0, bytemuck::bytes_of(&params));
         let groups = targets.len().div_ceil(64);
         let (x, y) = (groups.min(65535), groups.div_ceil(groups.min(65535)));
