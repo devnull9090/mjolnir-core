@@ -139,6 +139,35 @@
     {
       "product": "tag-editor",
       "productName": "MJOLNIR Tag Editor",
+      "version": "0.22.0",
+      "tag": "tag-editor-v0.22.0",
+      "title": "Spawn points you can move in the World view",
+      "date": "2026-10-10",
+      "summary": "Spawn points in a scenario's World view can be selected, dragged, turned and duplicated, with the squad's actor count beside them.",
+      "body": "The World view has drawn each squad's spawn points for a while, but they\ncould not be touched. Now they can, which makes adding enemies to a mission\na visual job rather than a column of coordinates.\n\n### Added\n\n- **Click a spawn point** to select it. The move and rotate gizmo works on it\n  just as it does on a vehicle or a piece of scenery; turning only changes\n  which way it faces. The new position and facing are recorded like any\n  other edit, so they go into your mod and can be undone.\n- A panel shows the point's squad, its name, and the designer cell it\n  belongs to, with **−** and **+** to change how many actors that cell\n  spawns (`normal diff count`) and how many spawn points the cell has.\n- **dup** copies the selected spawn point a step to its side, in the same\n  squad and cell, and selects the copy so it can be dragged into place. The\n  copy has no name, so a script that names the original still finds just\n  the one.\n\n### Fixed\n\n- Every squad's spawn points were drawn in the same colour, because squad\n  names came back empty. Each squad now has its own colour.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Click a spawn point to select it. The move and rotate gizmo works on it just as it does on a vehicle or a piece of scenery; turning only changes which way it faces. The new position and facing are recorded like any other edit, so they go into your mod and can be undone.",
+            "A panel shows the point's squad, its name, and the designer cell it belongs to, with − and + to change how many actors that cell spawns (normal diff count) and how many spawn points the cell has.",
+            "dup copies the selected spawn point a step to its side, in the same squad and cell, and selects the copy so it can be dragged into place. The copy has no name, so a script that names the original still finds just the one."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Every squad's spawn points were drawn in the same colour, because squad names came back empty. Each squad now has its own colour."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.22.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.22.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.22.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
       "version": "0.21.1",
       "tag": "tag-editor-v0.21.1",
       "title": "Blocks open past their first 64 elements",

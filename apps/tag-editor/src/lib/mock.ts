@@ -517,10 +517,12 @@ export const mockApi = {
       ],
       squads: [
         {
+          element: 0,
           name: "covenant_beach",
+          cells: [{ name: "elites", normal_count: 2 }],
           spawn_points: [
-            { name: "", position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
-            { name: "", position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
+            { element: 0, name: "elite_a", cell: 0, position: [4, -3, 0] as [number, number, number], facing: [1.2, 0] as [number, number] },
+            { element: 1, name: "elite_b", cell: 0, position: [5, -2, 0] as [number, number, number], facing: [2.1, 0] as [number, number] },
           ],
         },
       ],

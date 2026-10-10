@@ -5998,6 +5998,57 @@ mod tests {
         }
     }
 
+    /// The World view's spawn-point edits, on Two Betrayals: the layout names
+    /// every squad and carries its cells, and the exact edits a drag, a dup
+    /// and a count change send all apply and read back.
+    #[test]
+    fn spawn_point_edits_from_the_world_view_apply() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let t = c
+            .tags_in("scenario", usize::MAX)
+            .into_iter()
+            .find(|t| t.short.to_ascii_lowercase().contains("c45"))
+            .expect("C45 scenario");
+        let shipped = geometry::scenario_layout(&c.read_tag(t.index).unwrap()).unwrap();
+        assert_eq!(shipped.squads.len(), 251);
+        let sq = &shipped.squads[0];
+        assert_eq!(sq.element, 0);
+        assert_eq!(sq.name, "sq_e61_a_empa", "a squad's name is an inline string");
+        assert_eq!(sq.cells[0].normal_count, 2);
+        assert_eq!(sq.spawn_points.len(), 2);
+        assert_eq!(sq.spawn_points[0].cell, 0);
+        assert_eq!(sq.spawn_points[1].element, 1);
+
+        let list = "squads[0].spawn points";
+        let pending = vec![
+            edit(list, "duplicate 0"),
+            edit(&format!("{list}[1].position"), "(1.500000, 2.500000, 3.500000)"),
+            edit(&format!("{list}[1].name"), ""),
+            edit(&format!("{list}[1].facing (yaw, pitch)"), "(1.250000, 0.000000)"),
+            edit("squads[0].designer.cells[0].normal diff count", "3"),
+        ];
+        let file = patched_bytes(&c, t.index, &pending).unwrap();
+        let (_, outcomes) = apply_pending(c.read_tag(t.index).unwrap(), &pending).unwrap();
+        for o in &outcomes {
+            assert!(o.applied, "{} = {:?} did not apply", o.path, o.value);
+        }
+        let edited = geometry::scenario_layout(&file).unwrap();
+        let sq = &edited.squads[0];
+        assert_eq!(sq.spawn_points.len(), 3);
+        assert_eq!(sq.cells[0].normal_count, 3);
+        let copy = &sq.spawn_points[1];
+        assert_eq!(copy.element, 1);
+        assert_eq!(copy.cell, 0, "the copy stays in the original's cell");
+        assert_eq!(copy.name, "");
+        assert_eq!(copy.position, [1.5, 2.5, 3.5]);
+        assert!((copy.facing[0] - 1.25).abs() < 1e-6);
+        assert_eq!(sq.spawn_points[0].name, shipped.squads[0].spawn_points[0].name);
+        assert_eq!(sq.spawn_points[2].position, shipped.squads[0].spawn_points[1].position);
+    }
+
     /// The diff and the reference tree on real tags: a tag against itself
     /// has no differences; two weapons differ somewhere; the rifle's body
     /// references resolve to loaded tags with the four-CCs the layout names.
