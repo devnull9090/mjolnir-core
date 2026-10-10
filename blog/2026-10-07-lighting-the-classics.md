@@ -1,15 +1,17 @@
 # Lighting the classics: teaching Unreal Engine to light Halo CE's maps
 
 **Author:** MJOLNIR Core
-**Summary:** The nineteen classic maps are lit by Unreal Engine while still looking like Halo CE, and since 1.3.0 their lightmaps are baked by our own solver at up to eight times Halo CE's resolution. Crisp shadows, lit bases, headlights on the road. Here is how we got there.
+**Summary:** The nineteen classic maps are lit by Unreal Engine while still looking like Halo CE. Their lightmaps are baked by our own solver at up to eight times Halo CE's resolution, and since 1.4.0 they have Halo CE's fog, MCC's teleporter and light shaders, and the right brightness. Here is how we got there.
 **Tags:** multiplayer, maps, lighting
 
 ![Blood Gulch, lit by Unreal Engine with Halo CE's colours](/blog-images/lighting-the-classics/blood-gulch.jpg)
 
-*Updated 2026-10-08 for classic maps 1.3.0, CE runtime 1.4.0 and mods
-0.18.0. The maps' lightmaps are now computed by a baker of our own instead of
-being read out of Halo CE's. That is the first section below; the rest of the
-post is the 1.2.0 story it builds on.*
+*Updated 2026-10-09 for classic maps 1.4.0, CE runtime 1.5.0 and mods
+0.19.0: fog, MCC's transparent shaders, a sky that sits where Halo CE puts
+it, and maps that are no longer drawn too bright. Every screenshot and every
+comparison with the alpha is retaken on the 1.4.0 maps. The 1.4.0 changes
+come first below, then the 1.3.0 solver, then the 1.2.0 story they build
+on.*
 
 When the classic maps came to Halo Campaign Evolved
 [in the alpha](/blog/classic-multiplayer-alpha), they looked like Halo CE
@@ -21,15 +23,100 @@ ground. Switch on a Warthog's headlights and the road stayed dark, while every
 player and vehicle in the beam turned glowing white.
 
 The 1.2.0 maps changed that: they keep Halo CE's colours and its soft shade,
-but the light on them comes from Unreal Engine. The 1.3.0 maps go one step
-further and replace Bungie's lightmaps with ones we bake ourselves. Here's the
-difference between the alpha and now, from the same spots:
+but the light on them comes from Unreal Engine. The 1.3.0 maps went one step
+further and replaced Bungie's lightmaps with ones we bake ourselves, and the
+1.4.0 maps add the fog and the effect shaders the PC version never had.
+Here's the difference between the alpha and now, from the same spots:
 
 ![Timberland, alpha and now](/blog-images/lighting-the-classics/timberland-alpha-vs-now.jpg)
 
 ![Battle Creek, alpha and now](/blog-images/lighting-the-classics/battle-creek-alpha-vs-now.jpg)
 
 ![Death Island, alpha and now](/blog-images/lighting-the-classics/death-island-alpha-vs-now.jpg)
+
+## 1.4.0: fog, MCC's shaders and the right brightness
+
+### Everything was 1.7 times too bright
+
+Death Island's bases came out white, while MCC draws them grey. The cause
+went back to before the classic maps had worlds of their own. Back then they
+loaded into a campaign level's world, and that world applies a colour
+correction that darkens every frame to 0.6 of its value. Our materials
+divided by 0.6 to undo it. Since September each map loads into its own
+world, which applies no such correction, but the division stayed. So every
+Halo CE surface on every map was drawn 1/0.6, or about 1.7, times too bright.
+The materials no longer divide, and a lightmap texel of 0.91 now shows as
+0.91.
+
+![A Death Island base wall, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/death-island-base-wall.jpg)
+
+The difference holds outdoors too. The maps keep their colour and their
+shade, but they are no longer washed out:
+
+![Death Island, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/death-island-1.4.0.jpg)
+
+### Fog
+
+Five of the classic maps have a fog plane: Damnation's shaft,
+Gephyrophobia's chasm, and the water on Battle Creek, Chill Out and Death
+Island. Anything under the plane fades into the fog's colour, more the
+deeper it is and the further away. Our converter never carried those planes
+over, so Gephyrophobia's chasm was a black pit, and you couldn't tell how far
+down it went.
+
+The converter now reads each plane and its fog from the map, and the
+materials draw it the way MCC's environment shaders do. They follow the same
+recipe: how deep under the plane a surface is and how far it is from the eye,
+each against the fog's opaque depth and distance, mixed by how deep the eye
+itself is.
+
+![Gephyrophobia's chasm, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/gephyrophobia-fog.jpg)
+
+![Chill Out's pool, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/chill-out-fog.jpg)
+
+One attempt cut the fog off at the outline of its plane. That drew a
+hard-edged slab across Chill Out's lower floor, while MCC fogs the whole
+floor, because Halo CE fogs every part of the level the fog's region touches.
+The maps now fog everything under the plane's height, which matches MCC on
+all five.
+
+### MCC's teleporters and light volumes
+
+Halo CE on the Xbox had a flexible shader for effects like teleporter fields,
+power-ups and beams of light. The 2003 PC version drew all of them with a
+simpler stand-in, and those stand-ins are all a classic map file carries.
+Rat Race's teleporter was a soft green blob tiled from two dust textures.
+MCC's Halo CE editing kit ships the original shaders at the same paths, so the
+converter now draws those instead, with a port of MCC's own shader code.
+
+![Rat Race's teleporter, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/rat-race-teleporter.jpg)
+
+Fifteen shaders now draw MCC's originals, among them the teleporter fields,
+beacons and Damnation's light volumes. A few change with the live object,
+like Gephyrophobia's field generator shield, and those keep the PC version:
+without the object's state they drew white or red where MCC draws purple.
+
+![Damnation, 1.3.0 and 1.4.0](/blog-images/lighting-the-classics/damnation-shaft.jpg)
+
+Damnation's light volumes also used to strobe. They flicker on purpose, but
+we picked a new random brightness thirty times per flicker, which at their
+0.6-second period meant 50 changes a second. They now drift smoothly.
+
+### The sky, and cliffs in the dark
+
+Halo CE draws the sky around the camera, wherever it is. Ours was a fixed
+mesh centred on the middle of the level's bounding box. On Gephyrophobia that
+put it 525 metres under the bridge, so the Halo ring rose from the wrong
+place. The sky now moves with the camera. The ring also tore where two of its
+strips met. Every texture we copied from MCC's tags, and every reflection
+cube map, was being read three texels out of place, because the file writer
+added 12 bytes of padding after the header.
+
+Last, a fix for headlights. On the solver-lit maps, a face turned away from
+the sun got no Unreal-lit colour at all, so headlights, muzzle flashes and
+explosions stopped at a hard line where a cliff turned from the sun. Both
+sides now get a share of it. Sunlit faces are unchanged, and Unreal's sun
+still adds nothing to the far side.
 
 ## Baking the light ourselves
 
@@ -274,18 +361,24 @@ findings above started as a number that was too high.
 
 ![Blood Gulch, alpha and now](/blog-images/lighting-the-classics/blood-gulch-alpha-vs-now.jpg)
 
+![Infinity, alpha and now](/blog-images/lighting-the-classics/infinity-alpha-vs-now.jpg)
+
+![Sidewinder, alpha and now](/blog-images/lighting-the-classics/sidewinder-alpha-vs-now.jpg)
+
 ## Still rough
 
 - Death Island's base interiors are a little darker than Halo CE's.
-- The 1.3.0 map packs are larger: lightmaps at eight times the resolution
-  cost a few megabytes per map, and more video memory.
+- Players, vehicles and weapons are not fogged yet, only the level.
+- The map packs are larger since 1.3.0: lightmaps at eight times the
+  resolution cost a few megabytes per map, and more video memory.
 - Players standing in deep shade can still look a little brighter than Halo CE
   would draw them, because Unreal's sky light reaches them there.
 
 ## Getting it
 
 Open the launcher and, on the **Multiplayer** page, press **Install
-multiplayer** again. It fetches the 1.3.0 maps, the 1.4.0 runtime they need and
-the 0.18.0 mods. Everyone in your fireteam needs the update, so the maps
-match. Then go stand on a Blood Gulch base roof at noon, or walk into a
-Death Island base.
+multiplayer** again. It fetches the 1.4.0 maps, the 1.5.0 runtime they need and
+the 0.19.0 mods, which also bring Halo CE's vehicle sets per game type and
+the playtest fixes (see the [0.19.0 changelog](/changelog/mods/0.19.0)).
+Everyone in your fireteam needs the update, so the maps match. Then go look
+down Gephyrophobia's chasm, or step through a Rat Race teleporter.
