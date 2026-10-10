@@ -281,6 +281,9 @@ struct NodeView {
     /// The element index `children[0]` is: past zero when a window paged the
     /// block beyond its first elements.
     first: u32,
+    /// For a plain block index field, the definition name of the block it
+    /// indexes, so the form can offer that block's elements by name.
+    index_target: Option<String>,
     /// A field the engine recomputes when the tag loads (`runtime …`), so
     /// the UI shows it read-only. See `blam_defs::runtime`.
     runtime: bool,
@@ -373,6 +376,7 @@ fn to_view(node: &blam_tag::view::Node) -> NodeView {
         max_count: node.max_count,
         count: node.count,
         first: node.first,
+        index_target: node.index_target.clone(),
         runtime: node.kind == blam_tag::view::Kind::Field
             && blam_defs::runtime::is_runtime_field(&node.name, &node.type_name),
         feeds: Vec::new(),
@@ -5582,6 +5586,7 @@ mod tests {
             max_count: None,
             count: None,
             first: 0,
+            index_target: None,
             runtime: blam_defs::runtime::is_runtime_field(name, type_name),
             feeds: Vec::new(),
             children,
@@ -5753,6 +5758,7 @@ mod tests {
             max_count: None,
             count: None,
             first: 0,
+            index_target: None,
             children: Vec::new(),
         };
         let element = |fields: Vec<Node>| Node {
@@ -5767,6 +5773,7 @@ mod tests {
             max_count: None,
             count: None,
             first: 0,
+            index_target: None,
             children: fields,
         };
         let block = Node {
@@ -5781,6 +5788,7 @@ mod tests {
             max_count: Some(2),
             count: Some(2),
             first: 0,
+            index_target: None,
             children: vec![element(vec![leaf("spread")]), element(vec![leaf("spread")])],
         };
         let nodes = vec![leaf("mass"), block];
@@ -5838,6 +5846,7 @@ mod tests {
                 max_count: None,
                 count: None,
                 first: 0,
+                index_target: None,
                 children: nodes,
             };
             let mut steps = Vec::new();
@@ -5996,6 +6005,71 @@ mod tests {
             blam_tag::patch::resolve(&layout, &file, &block, &step.path)
                 .unwrap_or_else(|e| panic!("{}: {e}", step.path));
         }
+    }
+
+    /// What a squad cell spawns, on Pillar of Autumn: `doom_security` (squad
+    /// `sq_shoot`) is one crewman or crewman_female, 50/50, with a magnum.
+    /// The layout resolves the palette indices to those tags, and the form's
+    /// block index fields name the palette block they point into; a custom
+    /// block index (a spawn point's `cell`) names none.
+    #[test]
+    fn a_squad_cell_resolves_to_the_units_it_spawns() {
+        let Ok(paks) = std::env::var("HCE_PAKS") else {
+            return;
+        };
+        let c = Catalog::open(&paks, "").unwrap();
+        let t = c
+            .tags_in("scenario", usize::MAX)
+            .into_iter()
+            .find(|t| t.short.to_ascii_lowercase().ends_with("a15"))
+            .expect("A15 scenario");
+        let file = c.read_tag(t.index).unwrap();
+        let layout = geometry::scenario_layout(&file).unwrap();
+        let squad = layout.squads.iter().find(|s| s.name == "sq_shoot").expect("sq_shoot");
+        let cell = &squad.cells[0];
+        assert_eq!(cell.name, "doom_security");
+        assert_eq!(cell.normal_count, 1);
+        assert_eq!(cell.upgrade, "normal");
+        let tails: Vec<(&str, i16)> = cell
+            .characters
+            .iter()
+            .map(|ch| (ch.path.rsplit('\\').next().unwrap(), ch.chance))
+            .collect();
+        assert_eq!(tails, [("crewman", 1), ("crewman_female", 1)]);
+        assert_eq!(cell.weapons.len(), 1);
+        assert!(cell.weapons[0].path.ends_with("magnum"), "{}", cell.weapons[0].path);
+        assert!(cell.secondary_weapons.is_empty());
+        assert_eq!(cell.vehicle, "");
+        assert_eq!(squad.spawn_points[0].character, "", "the point takes the cell's");
+
+        let tag = blam_tag::TagFile::parse(&file, Some(file.len())).unwrap();
+        let tl = tag.layout().unwrap();
+        let block = tag.read_data(&tl).unwrap();
+        let base = format!("squads[{}]", squad.element);
+        let windows = blam_tag::view::windows_to(&base, 0);
+        let nodes = blam_tag::view::root_windowed(
+            &tl,
+            &block,
+            blam_tag::view::DEFAULT_MAX_ELEMENTS,
+            false,
+            &windows,
+        );
+        let target = |path: &str| {
+            find_node(&nodes, path)
+                .unwrap_or_else(|| panic!("{path}: no node"))
+                .index_target
+                .clone()
+        };
+        assert_eq!(
+            target(&format!("{base}.designer.cells[0].character type[0].character type")).as_deref(),
+            Some("character_palette_block")
+        );
+        assert_eq!(
+            target(&format!("{base}.designer.cells[0].initial weapon[0].weapon type")).as_deref(),
+            Some("scenario_weapon_palette_block")
+        );
+        assert_eq!(target(&format!("{base}.parent")).as_deref(), Some("squad_groups_block"));
+        assert_eq!(target(&format!("{base}.spawn points[0].cell")), None, "custom block index");
     }
 
     /// The World view's spawn-point edits, on Two Betrayals: the layout names

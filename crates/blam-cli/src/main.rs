@@ -3692,6 +3692,7 @@ mod tests {
             max_count: None,
             count: None,
             first: 0,
+            index_target: None,
             children: Vec::new(),
         }
     }

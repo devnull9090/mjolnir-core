@@ -6,7 +6,10 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import {
   api,
   type ModelGeometry,
+  type ScenarioCellChoice,
+  type ScenarioSpawnPoint,
   type ScenarioSquad,
+  type ScenarioSquadCell,
   type ScenarioWorldView,
 } from "../lib/api";
 import { buildModelGroup, hueOf, parseSbspWorld } from "../lib/three-model";
@@ -863,7 +866,7 @@ function World(props: {
           </div>
         )}
         {selected?.kind === "spawn" && spawnInfo && (
-          <div className="absolute right-2 top-2 w-72 border border-border-subtle bg-surface-primary/90 p-2 font-mono text-[10px]">
+          <div className="absolute right-2 top-2 w-80 border border-border-subtle bg-surface-primary/90 p-2 font-mono text-[10px]">
             <p className="text-mjolnir-gold">
               squads[{spawnInfo.squad.element}].spawn points[{spawnInfo.point.element}]
             </p>
@@ -915,6 +918,7 @@ function World(props: {
             ) : (
               <p className="mt-1 text-text-dim">no designer cell</p>
             )}
+            {spawnInfo.cell && <CellContents cell={spawnInfo.cell} point={spawnInfo.point} />}
             <div className="mt-1.5 flex items-center gap-2">
               <button
                 type="button"
@@ -943,6 +947,65 @@ function World(props: {
 
 function fmt(v: number): string {
   return Number.isFinite(v) ? v.toFixed(6) : "0";
+}
+
+/** The last part of a tag path: `crewman` for `…\ai\crewman`. */
+function tagName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+/**
+ * A weighted choice list as one line: `crewman 50% · crewman_female 50%`.
+ * A single choice is just its name; null when the list is empty.
+ */
+function describeChoices(choices: ScenarioCellChoice[]): string | null {
+  const named = choices.filter((c) => c.path !== "");
+  if (named.length === 0) return null;
+  if (named.length === 1) return tagName(named[0].path);
+  const total = named.reduce((n, c) => n + Math.max(c.chance, 0), 0);
+  return named
+    .map((c) =>
+      total > 0
+        ? `${tagName(c.path)} ${Math.round((Math.max(c.chance, 0) / total) * 100)}%`
+        : tagName(c.path),
+    )
+    .join(" · ");
+}
+
+/** What one designer cell spawns, with the selected point's own overrides. */
+function CellContents({ cell, point }: { cell: ScenarioSquadCell; point: ScenarioSpawnPoint }) {
+  const rows: [string, string | null, string?][] = [
+    ["actor", describeChoices(cell.characters), point.character],
+    ["weapon", describeChoices(cell.weapons), point.weapon],
+    ["secondary", describeChoices(cell.secondary_weapons)],
+    ["equipment", describeChoices(cell.equipment)],
+    ["vehicle", cell.vehicle ? tagName(cell.vehicle) : null, point.vehicle],
+  ];
+  return (
+    <div className="mt-1 border-l border-border-subtle pl-2 text-text-secondary">
+      {rows.map(([label, value, override]) =>
+        value || override ? (
+          <p key={label} className="truncate" title={value ?? undefined}>
+            <span className="text-text-dim">{label}: </span>
+            {override ? (
+              <>
+                {tagName(override)}
+                <span className="text-text-dim"> (this point{value ? `; cell: ${value}` : ""})</span>
+              </>
+            ) : (
+              value
+            )}
+          </p>
+        ) : null,
+      )}
+      {cell.upgrade && cell.upgrade !== "normal" && (
+        <p>
+          <span className="text-text-dim">upgrade: </span>
+          {cell.upgrade}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function vec(v: [number, number, number]): string {

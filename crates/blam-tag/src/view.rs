@@ -55,6 +55,11 @@ pub struct Node {
     /// For a block, the index of the element `children[0]` is. Zero unless a
     /// window asked for later elements; see [`root_windowed`].
     pub first: u32,
+    /// For a plain block index field, the definition name of the block it
+    /// indexes (`character_palette_block`). The field's `aux` is that block's
+    /// place in the layout's block table. `custom` block indices resolve some
+    /// other way and carry none.
+    pub index_target: Option<String>,
     pub children: Vec<Node>,
 }
 
@@ -72,6 +77,7 @@ impl Node {
             max_count: None,
             count: None,
             first: 0,
+            index_target: None,
             children: Vec::new(),
         }
     }
@@ -395,6 +401,16 @@ fn fields(
                     size,
                     value::read(layout, &field, slice),
                 );
+                if matches!(
+                    type_name.as_str(),
+                    "short block index" | "long block index" | "char block index"
+                ) {
+                    node.index_target = layout
+                        .blocks
+                        .get(field.aux as usize)
+                        .and_then(|b| layout.string_at(b.name_offset))
+                        .map(String::from);
+                }
                 if layout.has_options(&field) {
                     node.options = layout
                         .field_options(&field)

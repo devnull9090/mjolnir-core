@@ -77,6 +77,9 @@ export type NodeView = {
   /** The element index `children[0]` is: past zero when the read paged the
    *  block beyond its first elements. */
   first: number;
+  /** For a plain block index field, the definition name of the block it
+   *  indexes (`character_palette_block`). */
+  index_target: string | null;
   /** Recomputed by the game when the tag loads (`runtime …`): read-only. */
   runtime: boolean;
   /** Runtime fields of the same element computed from this one. The running
@@ -404,6 +407,31 @@ export type ScenarioSpawnPoint = {
   position: [number, number, number];
   /** Yaw and pitch, radians. */
   facing: [number, number];
+  /** Per-point overrides of the cell's choices, as tag paths; "" when the
+   *  point takes the cell's. */
+  character: string;
+  weapon: string;
+  vehicle: string;
+};
+
+/** One weighted entry of a cell's character, weapon or equipment list. */
+export type ScenarioCellChoice = {
+  /** The palette entry's tag path; "" when the index points nowhere. */
+  path: string;
+  chance: number;
+};
+
+export type ScenarioSquadCell = {
+  name: string;
+  normal_count: number;
+  /** `major upgrade`, as its option name. */
+  upgrade: string;
+  characters: ScenarioCellChoice[];
+  weapons: ScenarioCellChoice[];
+  secondary_weapons: ScenarioCellChoice[];
+  equipment: ScenarioCellChoice[];
+  /** The vehicle the cell's actors spawn in, or "". */
+  vehicle: string;
 };
 
 export type ScenarioSquad = {
@@ -411,7 +439,7 @@ export type ScenarioSquad = {
   element: number;
   name: string;
   /** Designer cells: each spawns `normal_count` actors at its points. */
-  cells: { name: string; normal_count: number }[];
+  cells: ScenarioSquadCell[];
   spawn_points: ScenarioSpawnPoint[];
 };
 
