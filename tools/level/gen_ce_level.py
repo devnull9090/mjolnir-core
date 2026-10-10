@@ -947,13 +947,19 @@ def main():
 
     vehicles, weapons, equipment, health_spots = [], [], [], []
     vehicle_sets = []
+    # Staging that predates the spawn-flag fix reads 0 for every vehicle;
+    # otherwise 0 is a vehicle in no game type's set, one only a script
+    # creates (Coldsnap's and Hugeass's fighter-bomber wreck pieces).
+    legacy_flags = not any(e.get("spawn_flags") for e in placement["entries"] if e["kind"] == "vehicle")
     for e in placement["entries"]:
         asset = norm(e.get("asset", ""))
         if e["kind"] == "vehicle":
             # A CE scenario stacks every game type's vehicles on the same
-            # spots and spawns only the set its game type selects. Staging
-            # that predates the spawn-flag fix reads 0 for every vehicle.
-            flags = e.get("spawn_flags", 0) or ALL_GAME_TYPES
+            # spots and spawns only the set its game type selects.
+            flags = e.get("spawn_flags", 0) or (ALL_GAME_TYPES if legacy_flags else 0)
+            if not flags:
+                dropped[f"{asset} (in no game type's set: a script creates it)"] += 1
+                continue
             if not flags & VEHICLE_SETS[a.game_type]:
                 dropped[f"{asset} (not in {a.game_type}'s vehicle set)"] += 1
                 continue
