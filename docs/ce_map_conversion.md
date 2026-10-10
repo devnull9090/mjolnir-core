@@ -54,6 +54,18 @@ menu name. Three things differ from the stock maps:
 Sounds a custom map keeps inside the `.map` (not in `sounds.map`) are not
 extracted.
 
+**Archiving halomaps.org.** [`tools/halomaps/halomaps.py`](../tools/halomaps/README.md)
+mirrors the site's multiplayer sections (the listings, each map's page,
+screenshots and file), keeps a JSON record per map with everything the site
+shows plus what `tools/halomaps/cemap.py` reads from the `.map` itself (type,
+build, BSP count, protection, the tags no stock map carries), and converts
+the best-rated unconverted map through this command (`convert --next`, with
+`--pack` for the map pack). Its `report` lists the custom weapons, vehicles,
+scenery and bipeds across the archive and what every conversion dropped, so
+the edge cases are worked in order of how many maps they touch. The
+exporter's resources and reference maps come from `HALO2UE_RESOURCES` and
+`HALO2UE_REFERENCE_MAPS` when the map is kept away from the stock folder.
+
 ## What the command does
 
 | Step | Tool | Result |
