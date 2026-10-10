@@ -170,6 +170,16 @@ impl<'a, 'b> Elem<'a, 'b> {
         }
     }
 
+    /// A fixed-width `string` field, held inline and NUL-padded.
+    fn string(&self, name: &str) -> String {
+        let Some((offset, size)) = self.offset(name) else {
+            return String::new();
+        };
+        let bytes = self.bytes.get(offset..offset + size).unwrap_or(&[]);
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+        String::from_utf8_lossy(&bytes[..end]).into_owned()
+    }
+
     fn f32(&self, name: &str, at: usize) -> f32 {
         let Some((offset, _)) = self.offset(name) else {
             return 0.0;
@@ -679,13 +689,28 @@ pub struct TriggerVolume {
 
 #[derive(Serialize)]
 pub struct Squad {
+    /// Index in the scenario's `squads` block, for field paths.
+    pub element: usize,
     pub name: String,
+    /// The squad's designer cells: each spawns `normal_count` actors at the
+    /// spawn points that name it.
+    pub cells: Vec<SquadCell>,
     pub spawn_points: Vec<SpawnPoint>,
 }
 
 #[derive(Serialize)]
-pub struct SpawnPoint {
+pub struct SquadCell {
     pub name: String,
+    pub normal_count: i16,
+}
+
+#[derive(Serialize)]
+pub struct SpawnPoint {
+    /// Index in the squad's `spawn points` block, for field paths.
+    pub element: usize,
+    pub name: String,
+    /// The designer cell this point belongs to, or -1.
+    pub cell: i16,
     pub position: [f32; 3],
     /// Yaw and pitch, radians.
     pub facing: [f32; 2],
@@ -814,14 +839,31 @@ pub fn scenario_layout(file: &[u8]) -> Result<ScenarioLayout, String> {
                         continue;
                     };
                     points.push(SpawnPoint {
+                        element: j,
                         name: p.string_id("name"),
+                        cell: p.i16("cell"),
                         position: p.vec3("position"),
                         facing: [p.f32("facing (yaw, pitch)", 0), p.f32("facing (yaw, pitch)", 1)],
                     });
                 }
             }
+            let mut cells = Vec::new();
+            if let Some(list) = squad.nested("designer").and_then(|d| d.block("cells")) {
+                for k in 0..list.count as usize {
+                    let Some(c) = Elem::of(&layout, list, k) else {
+                        continue;
+                    };
+                    cells.push(SquadCell {
+                        name: c.string_id("name"),
+                        normal_count: c.i16("normal diff count"),
+                    });
+                }
+            }
             out.squads.push(Squad {
-                name: squad.string_id("name"),
+                element: i,
+                // A squad's name is an inline `string`, not a string id.
+                name: squad.string("name"),
+                cells,
                 spawn_points: points,
             });
         }
