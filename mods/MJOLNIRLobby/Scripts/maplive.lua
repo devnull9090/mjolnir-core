@@ -39,6 +39,7 @@ local fetching = {}            -- code -> callbacks waiting on its screenshot
 local textures = {}            -- code -> { name = texture path, file = cover id }
 local registered = {}          -- code -> true once its row is in this session
 local job = nil                -- the install in flight
+local releases = { byCode = {}, at = nil }   -- MapLive.release's cache
 
 local function readFile(path)
     local f = io.open(path, "rb")
@@ -286,6 +287,54 @@ function MapLive.follow(code, index)
     if at ~= index then log("map " .. code .. ": could not take the host's index " .. index .. " (" .. tostring(whyNot) .. ")") end
 end
 
+--- Unmount `paks` (the engine's relative .pak paths; one it never mounted
+--- is no error): true, or false and why.
+function MapLive.unmount(paks)
+    if #paks == 0 then return true end
+    if not writeFile(loaderNative .. "unmount_request.txt", table.concat(paks, "\n") .. "\n") then
+        return false, "cannot write the unmount request"
+    end
+    os.remove(loaderNative .. "unmount_reply.txt")
+    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_unmount_paks")
+    if not ok then return false, err end
+    local reply = (readFile(loaderNative .. "unmount_reply.txt") or "error no reply"):gsub("%s+$", "")
+    if reply:match("^ok") then
+        log("map update: " .. reply:gsub("^ok ", "") .. " container(s) of the old release unmounted")
+        return true
+    end
+    return false, reply:gsub("^error ", "")
+end
+
+--- The hub release of `code` this PC has installed, from the launcher's
+--- state: { id, version }, or nil (not from the hub, or no launcher state).
+--- Read again at most every few seconds.
+function MapLive.release(code)
+    if not releases.at or os.time() - releases.at > 5 then
+        releases.byCode = {}
+        releases.at = os.time()
+        local appdata = os.getenv("APPDATA")
+        local text = appdata and readFile(appdata .. "\\com.devnull9090.mjolnir-launcher\\hub_state.json")
+        local ok, state = pcall(Json.decode, text or "")
+        if ok and type(state) == "table" and type(state.installed) == "table" then
+            for _, m in ipairs(state.installed) do
+                if type(m) == "table" and type(m.map_code) == "string" and type(m.release_id) == "string" then
+                    releases.byCode[m.map_code] = { id = m.release_id, version = tostring(m.version or "?") }
+                end
+            end
+        end
+    end
+    return code and releases.byCode[code] or nil
+end
+
+--- Whether this PC has `code` at another release than `wanted` (an id). An
+--- unknown either side is no difference: a map not from the hub, or a host
+--- from before releases were sent.
+function MapLive.differs(code, wanted)
+    if not (wanted and wanted ~= "") then return false end
+    local mine = MapLive.release(code)
+    return mine ~= nil and mine.id ~= wanted
+end
+
 --- Mount `paks` (the engine's relative .pak paths): true, or false and why.
 function MapLive.mount(paks)
     if #paks == 0 then return true end
@@ -336,10 +385,29 @@ local function poll()
     if ok and type(p) == "table" then
         if p.stage == "done" then
             emit({ stage = "installing", message = "Loading the map" })
-            local paks = {}
-            for _, path in ipairs(type(p.mount) == "table" and p.mount or {}) do
-                if type(path) == "string" then paks[#paks + 1] = path end
+            local function list(t)
+                local out = {}
+                for _, path in ipairs(type(t) == "table" and t or {}) do
+                    if type(path) == "string" then out[#out + 1] = path end
+                end
+                return out
             end
+            -- An update: the previous release's containers out first, and
+            -- whatever of it is still loaded collected, so the map's packages
+            -- load from the new release.
+            local old = list(p.unmount)
+            if #old > 0 then
+                local out, whyOut = MapLive.unmount(old)
+                if not out then
+                    return finish({ stage = "error", message = "The update installed, but the old release could not be " ..
+                        "unloaded now (" .. tostring(whyOut) .. "). It will be there after a restart." })
+                end
+                pcall(function()
+                    StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):CollectGarbage()
+                end)
+            end
+            releases.at = nil
+            local paks = list(p.mount)
             local mounted, why = MapLive.mount(paks)
             if not mounted then
                 return finish({ stage = "error", message = "The map installed, but could not be loaded now (" ..
@@ -350,7 +418,7 @@ local function poll()
                 return finish({ stage = "error", message = "The map installed, but could not be registered now (" ..
                     tostring(whyReg) .. "). It will be there after a restart." })
             end
-            return finish({ stage = "ready", version = p.version })
+            return finish({ stage = "ready", version = p.version, release = p.release_id, updated = #old > 0 })
         elseif p.stage == "error" then
             return finish({ stage = "error", message = tostring(p.message or "the install failed") })
         elseif p.stage == "download" then
@@ -386,22 +454,28 @@ end
 --- received, total }, { stage = "installing" }, then { stage = "ready" } or
 --- { stage = "error", message }. A second call for the map already
 --- installing joins it. Returns false and why when it cannot start.
-function MapLive.install(code, onEvent)
+function MapLive.install(code, onEvent, release)
     if job then
         if job.code ~= code then return false, "Another map (" .. job.code .. ") is downloading." end
+        if release and job.release ~= release then
+            return false, "Another release of " .. code .. " is downloading."
+        end
         job.listeners[#job.listeners + 1] = onEvent
         if job.event then pcall(onEvent, job.event) end
         return true
     end
-    if not writeFile(nativeDir .. "map_install_request.txt", code) then return false, "cannot write the request" end
+    if release and not release:match("^[%x%-]+$") then return false, "not a release id" end
+    local request = code .. (release and (" " .. release) or "")
+    if not writeFile(nativeDir .. "map_install_request.txt", request) then return false, "cannot write the request" end
     os.remove(nativeDir .. "map_install_reply.txt")
     os.remove(nativeDir .. "map_install_progress.json")
     local ok, err = call(nativeDir .. "mjolnir_lobby.dll", "mjolnir_map_install")
     if not ok then return false, err end
     local reply = (readFile(nativeDir .. "map_install_reply.txt") or "error no reply"):gsub("%s+$", "")
     if not reply:match("^ok") then return false, (reply:gsub("^error ", "")) end
-    job = { code = code, listeners = { onEvent }, started = os.time(), heard = os.time(), event = { stage = "start" } }
-    log("map install " .. code .. ": started")
+    job = { code = code, release = release, listeners = { onEvent }, started = os.time(), heard = os.time(),
+        event = { stage = "start" } }
+    log("map install " .. code .. (release and (" release " .. release) or "") .. ": started")
     pcall(onEvent, job.event)
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
     return true

@@ -47,6 +47,14 @@ const SETTINGS = z
   .regex(/^([a-z0-9_.]{1,40}=\d{1,5}(;[a-z0-9_.]{1,40}=\d{1,5})*)?$/)
   .openapi({ example: "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1" });
 
+/**
+ * The hub release of its map the host runs (docs/live_map_install.md): a
+ * joiner with another release would not start with the host, so the game
+ * installs this one first.
+ */
+const MAP_RELEASE_ID = z.string().uuid();
+const MAP_VERSION = z.string().max(40);
+
 const LobbyCreateSchema = z
   .object({
     name: z.string().trim().min(1).max(60),
@@ -59,6 +67,8 @@ const LobbyCreateSchema = z
     platform: z.enum(["steam", "gamepass", "other"]).optional(),
     connection_string: z.string().min(1).max(4096),
     settings: SETTINGS.optional(),
+    map_release_id: MAP_RELEASE_ID.optional(),
+    map_version: MAP_VERSION.optional(),
   })
   .openapi("LobbyCreate");
 
@@ -72,6 +82,8 @@ const LobbyUpdateSchema = z
     state: z.enum(STATES).optional(),
     connection_string: z.string().min(1).max(4096).optional(),
     settings: SETTINGS.optional(),
+    map_release_id: MAP_RELEASE_ID.optional(),
+    map_version: MAP_VERSION.optional(),
   })
   .openapi("LobbyHeartbeat");
 
@@ -94,6 +106,9 @@ const LobbySchema = z
     ping_ms: z.number().nullable(),
     /** The host's game settings; null from a host without them. */
     settings: z.string().nullable(),
+    /** The hub release of the map the host runs; null when unknown. */
+    map_release_id: z.string().nullable(),
+    map_version: z.string().nullable(),
     created_at: z.string(),
   })
   .openapi("Lobby");
@@ -223,6 +238,8 @@ export async function listLobbies(
         longitude: (r.longitude as number) ?? null,
       }),
       settings: (r.settings as string) ?? null,
+      map_release_id: (r.map_release_id as string) ?? null,
+      map_version: (r.map_version as string) ?? null,
       created_at: r.created_at as string,
     }))
     .filter((l) => q.max_ping === undefined || (l.ping_ms !== null && l.ping_ms <= q.max_ping))
@@ -277,8 +294,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `INSERT INTO lobbies (id, host_user_id, host_token_hash, name, map_code, game_type,
              players, max_players, client_version, game_build, platform, connection_string,
-             colo, country, latitude, longitude, settings)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+             colo, country, latitude, longitude, settings, map_release_id, map_version)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
         ).bind(
           id,
           auth.user.id,
@@ -297,6 +314,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           where.latitude,
           where.longitude,
           body.settings ?? null,
+          body.map_release_id ?? null,
+          body.map_version ?? null,
         ),
       ]);
       sweep(c);
@@ -342,6 +361,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
            state = COALESCE(?6, state),
            connection_string = COALESCE(?7, connection_string),
            settings = COALESCE(?8, settings),
+           map_release_id = CASE WHEN ?4 IS NULL THEN COALESCE(?9, map_release_id) ELSE ?9 END,
+           map_version = CASE WHEN ?4 IS NULL THEN COALESCE(?10, map_version) ELSE ?10 END,
            last_heartbeat = datetime('now')
          WHERE id = ?1`,
       )
@@ -354,6 +375,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           body.state ?? null,
           body.connection_string ?? null,
           body.settings ?? null,
+          body.map_release_id ?? null,
+          body.map_version ?? null,
         )
         .run();
       return c.json({ ok: true }, 200);
@@ -442,6 +465,9 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
                 game_type: z.string(),
                 /** The host's game settings, to play the match by its rules. */
                 settings: z.string().nullable(),
+                /** The release of the map to have before joining; null when unknown. */
+                map_release_id: z.string().nullable(),
+                map_version: z.string().nullable(),
               }),
             },
           },
@@ -460,7 +486,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
       }
       const { id } = c.req.valid("param");
       const row = await c.env.DB.prepare(
-        `SELECT connection_string, map_code, game_type, players, max_players, state, settings
+        `SELECT connection_string, map_code, game_type, players, max_players, state, settings,
+           map_release_id, map_version
          FROM lobbies WHERE id = ?1 AND last_heartbeat >= datetime('now', ?2)`,
       )
         .bind(id, `-${STALE_SECONDS} seconds`)
@@ -472,6 +499,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           max_players: number;
           state: string;
           settings: string | null;
+          map_release_id: string | null;
+          map_version: string | null;
         }>();
       if (!row) return c.json({ error: "not_found" }, 404);
       if (row.state === "full" || row.players >= row.max_players) {
@@ -483,6 +512,8 @@ export function registerLobbyRoutes(app: OpenAPIHono<ApiEnv>) {
           map_code: row.map_code,
           game_type: row.game_type,
           settings: row.settings ?? null,
+          map_release_id: row.map_release_id ?? null,
+          map_version: row.map_version ?? null,
         },
         200,
       );

@@ -2082,6 +2082,14 @@
             "maxLength": 400,
             "pattern": "^([a-z0-9_.]{1,40}=\\d{1,5}(;[a-z0-9_.]{1,40}=\\d{1,5})*)?$",
             "example": "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1"
+          },
+          "map_release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "map_version": {
+            "type": "string",
+            "maxLength": 40
           }
         },
         "required": [
@@ -2135,6 +2143,14 @@
             "maxLength": 400,
             "pattern": "^([a-z0-9_.]{1,40}=\\d{1,5}(;[a-z0-9_.]{1,40}=\\d{1,5})*)?$",
             "example": "score.ctf=3;score.slayer=15;time_limit=5;trait.shields=1"
+          },
+          "map_release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "map_version": {
+            "type": "string",
+            "maxLength": 40
           }
         },
         "required": [
@@ -2212,6 +2228,18 @@
               "null"
             ]
           },
+          "map_release_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "type": "string"
           }
@@ -2232,6 +2260,8 @@
           "country",
           "ping_ms",
           "settings",
+          "map_release_id",
+          "map_version",
           "created_at"
         ]
       },
@@ -6774,13 +6804,27 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "map_release_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "map_version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "connection_string",
                     "map_code",
                     "game_type",
-                    "settings"
+                    "settings",
+                    "map_release_id",
+                    "map_version"
                   ]
                 }
               }

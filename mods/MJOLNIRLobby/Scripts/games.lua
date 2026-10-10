@@ -324,6 +324,10 @@ local function beat()
             -- The host's game settings: a player joining mid-match gets
             -- them from /join (docs/host_game_settings.md).
             settings = info.settings,
+            -- The hub release of the map: a joiner with another one updates
+            -- first (docs/live_map_install.md). A hub from before ignores it.
+            map_release_id = info.map_release_id,
+            map_version = info.map_version,
         }, function(status, data)
             Host.busy = false
             if status == 201 and data and data.id then
@@ -355,6 +359,8 @@ local function beat()
         state = state,
         connection_string = conn,
         settings = info.settings,
+        map_release_id = info.map_release_id,
+        map_version = info.map_version,
     }, function(status, data)
         Host.busy = false
         Host.nextBeat = os.time() + HEARTBEAT_SECONDS

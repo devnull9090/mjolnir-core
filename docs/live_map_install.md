@@ -192,14 +192,55 @@ Both are CU4-only by RVA, guarded by the exe's timestamp.
   - `mjolnir_auto install <CODE>` installs with no screen.
   - `mjolnir_auto join` downloads the listed game's map first.
 
+## Versions, and updating a map the game has loaded
+
+Every player has to run the host's release of the map. The host sends it,
+as its hub release id and version (read from the launcher's
+`hub_state.json`, `MapLive.release`):
+
+- in the lobby message (fields 5–6);
+- in the vote message (fields 7–8);
+- in `starting`;
+- in the hub listing (`map_release_id` / `map_version`, migration 0016).
+
+A guest with another release, older or newer, gets the download screen as
+an update: "ANOTHER VERSION OF THIS MAP — The host runs WIZARD 1.4.0; you
+have 1.1.0", with UPDATE (or UPDATE AND JOIN in FIND GAMES). It installs the
+host's exact release (`--install-map <CODE> --release <id>`), even one older
+than the newest. A guest that won't update is treated like one without the
+map: named on the host's first START, sent back on the second.
+
+**The swap happens in the running game.**
+
+- The engine holds a mounted `.ucas` open, so the launcher writes the new
+  release beside it as `<name>_2_P`, `_3_P`, and so on.
+  `FPakPlatformFile::Mount` gives a `_<n>_P` pak 100·n more order than a
+  plain `_P` one, so the update wins even where a later Steam launch mounts
+  both. The next launch from the launcher removes the patch files
+  (`paks_strays`) and writes the release under its usual name.
+- The launcher also removes, or lists for unmounting, any other copy of the
+  map in Paks: an earlier patch, or a load-order number the profile no
+  longer uses. Two releases mounted together mix their packages.
+- The game unmounts the old containers through `FCoreDelegates::OnUnmountPak`
+  (exe 0xD349248 → 0x4694CC0, `mjolnir_unmount_paks`). That drops each pak
+  and its IoStore container from the package store and the IoDispatcher.
+  The game then collects garbage, mounts the new release, and rescans.
+- Verified on one PC: Wizard 1.1.0 was played, then updated to 1.4.0 from
+  the frontend.
+  - Before the update, a texture only 1.4.0 has (`…_sunshare`) didn't load;
+    after it, it did.
+  - The updated map then played with its baked lighting.
+- Verified on two PCs: PC 2 downgraded live to 1.1.0, joined PC 1's 1.4.0
+  lobby, got the update prompt and updated.
+  - A 1.1.0-only texture no longer resolved there, and the 1.4.0 one did.
+  - Both played.
+
+**Not tested yet:** FIND GAMES comparing releases before the join. The
+listing fields need the hub deploy and migration 0016. Until then a joiner
+compares once the host's lobby message arrives, which the two-PC test used.
+
 ## What is not done yet
 
-- **A map with the same code but a different version.** Lobbies carry only
-  the map code. A client with an older version joins with it; one without
-  the map downloads the newest release, which may be newer than the host's.
-  The listing should carry the host's release id.
-- **Updating a map that is already mounted** needs a restart, as it always
-  has.
 - **A guest that can't get the map.** One left in the fireteam holds
   everyone's start. Two PCs showed the host waiting forever on Gephyrophobia
   because the guest had declined it. So:

@@ -1741,7 +1741,12 @@ pub fn run() {
         let Some(progress) = progress else {
             std::process::exit(2);
         };
-        std::process::exit(hub::run_live_install(&code, &progress));
+        let release = args
+            .iter()
+            .position(|a| a == "--release")
+            .and_then(|j| args.get(j + 1))
+            .cloned();
+        std::process::exit(hub::run_live_install(&code, release.as_deref(), &progress));
     }
     hub::record_exe_path();
     tauri::Builder::default()

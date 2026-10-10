@@ -615,6 +615,80 @@ __declspec(dllexport) int mjolnir_mount_paks(void *L) {
     return 0;
 }
 
+// FCoreDelegates::OnUnmountPak, bound beside MountPak (FUN_144690200) to
+// FPakPlatformFile::HandleUnmountPakDelegate(const FString&): it unmounts the
+// pak, and its IoStore container from the package store and the
+// IoDispatcher. A map updated while the game runs replaces its previous
+// release's containers this way (docs/live_map_install.md).
+#define RVA_UNMOUNT_PAK_DELEGATE 0xD349248u
+#define RVA_UNMOUNT_PAK_HANDLER 0x4694CC0u
+
+typedef uint8_t(__fastcall *unmount_pak_fn)(void *pak_file, const fstring_t *path);
+
+// Unmount one .pak; 1 when the engine unmounted it, 0 when it had none such.
+static int unmount_one(const wchar_t *pak, char *why, size_t why_cap) {
+    void **storage = (void **)(g_base + RVA_UNMOUNT_PAK_DELEGATE);
+    uint8_t *instance = (uint8_t *)*storage;
+    if (!instance) {
+        snprintf(why, why_cap, "UnmountPak is not bound");
+        return -1;
+    }
+    void *pak_file = *(void **)(instance + 0x18);
+    void *method = *(void **)(instance + 0x20);
+    if (method != (void *)(g_base + RVA_UNMOUNT_PAK_HANDLER) || !pak_file) {
+        snprintf(why, why_cap, "UnmountPak is bound to %p (expected %p)", method,
+                 (void *)(g_base + RVA_UNMOUNT_PAK_HANDLER));
+        return -1;
+    }
+    wchar_t buffer[MAX_PATH_CHARS];
+    wcscpy_s(buffer, MAX_PATH_CHARS, pak);
+    fstring_t path = {buffer, (int32_t)wcslen(buffer) + 1, MAX_PATH_CHARS};
+    return ((unmount_pak_fn)(g_base + RVA_UNMOUNT_PAK_HANDLER))(pak_file, &path) ? 1 : 0;
+}
+
+// Lua C function, 0 results. `unmount_request.txt`: one .pak per line, as
+// mount_request.txt names them. `unmount_reply.txt`: `ok <unmounted> <of>`
+// (a pak the engine never mounted is no error), or `error <why>`.
+__declspec(dllexport) int mjolnir_unmount_paks(void *L) {
+    (void)L;
+    ensure_init();
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
+    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
+        write_reply("unmount_reply.txt", "error this game build is not CU4");
+        return 0;
+    }
+    char request[MAX_PATH];
+    native_path("unmount_request.txt", request, sizeof request);
+    FILE *f = NULL;
+    if (fopen_s(&f, request, "rb") != 0 || !f) {
+        write_reply("unmount_reply.txt", "error no unmount_request.txt");
+        return 0;
+    }
+    char line[MAX_PATH_CHARS];
+    int asked = 0, unmounted = 0;
+    char why[MAX_PATH_CHARS + 64] = "";
+    while (fgets(line, sizeof line, f)) {
+        size_t n = strlen(line);
+        while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' ')) line[--n] = 0;
+        if (!n) continue;
+        wchar_t wide[MAX_PATH_CHARS];
+        if (!MultiByteToWideChar(CP_UTF8, 0, line, -1, wide, MAX_PATH_CHARS)) continue;
+        asked++;
+        int r = unmount_one(wide, why, sizeof why);
+        if (r < 0) break;
+        if (r) unmounted++;
+        Log("unmount %s: %s", line, r ? "unmounted" : "was not mounted");
+    }
+    fclose(f);
+    char reply[sizeof why + 32];
+    if (why[0]) snprintf(reply, sizeof reply, "error %s", why);
+    else snprintf(reply, sizeof reply, "ok %d %d", unmounted, asked);
+    write_reply("unmount_reply.txt", reply);
+    return 0;
+}
+
 // ------------------------------------------ registering a map live
 //
 // A map the cooked registration container (pakchunk996) did not list at boot

@@ -968,16 +968,45 @@ pub struct LiveInstall {
     pub code: String,
     pub slug: String,
     pub version: String,
+    pub release_id: String,
     /// The new `.pak` files for the game to mount, as the engine names them
     /// (relative to its executable). Empty when the map was already in Paks.
     pub mount: Vec<String>,
+    /// The previous release's `.pak` files, for the game to unmount first:
+    /// an update of a map whose containers the game holds open.
+    pub unmount: Vec<String>,
+}
+
+/// The engine's name for a container in Paks, as the game mounts it.
+fn engine_pak(base: &str) -> String {
+    format!("../../../Meteorite/Content/Paks/{base}.pak")
+}
+
+/// `<stem>_P` as `<stem>_<n>_P`. The engine mounts a `_<n>_P` pak above a
+/// plain `_P` one (FPakPlatformFile::Mount adds 100 per patch number), so an
+/// update written beside a container the game holds open wins even where a
+/// later launch mounts both; the next launch from the launcher removes it
+/// (`paks_strays`) and copies the release under its usual name.
+fn patch_name(base: &str, n: u32) -> String {
+    format!("{}_{n}_P", base.strip_suffix("_P").unwrap_or(base))
 }
 
 /// Install the hub's map `code` for a game that is running, and put its
-/// containers and data where the game reads them.
-pub fn install_live(code: &str, progress: &dyn Fn(u64, Option<u64>)) -> Result<LiveInstall, String> {
+/// containers and data where the game reads them. With `release`, that exact
+/// release (the one a host runs, which may be older or newer than this PC's);
+/// without, the map as it is installed, or the newest when it is not.
+pub fn install_live(
+    code: &str,
+    release: Option<&str>,
+    progress: &dyn Fn(u64, Option<u64>),
+) -> Result<LiveInstall, String> {
     if !crate::maps::valid_code(code) {
         return Err(format!("{code:?} is not a map code"));
+    }
+    if let Some(id) = release {
+        if id.len() > 64 || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+            return Err(format!("{id:?} is not a release id"));
+        }
     }
     let listing = get_json(&format!("{}/maps/{code}", hub_api()))
         .map_err(|e| format!("The hub has no map {code}: {e}"))?;
@@ -986,16 +1015,26 @@ pub fn install_live(code: &str, progress: &dyn Fn(u64, Option<u64>)) -> Result<L
         .ok_or_else(|| format!("The hub has no map {code}"))?
         .to_string();
 
-    // A map installed already (an older version included: its containers may
-    // be mounted, so it is not replaced now) is only put back in the game.
-    let have = load_state()
+    let before = load_state()
         .installed
         .iter()
-        .any(|m| m.map_code.as_deref() == Some(code) && cache_complete(m));
+        .find(|m| m.map_code.as_deref() == Some(code) && cache_complete(m))
+        .cloned();
+    let have = before
+        .as_ref()
+        .is_some_and(|m| release.is_none_or(|id| m.release_id == id));
     if !have {
-        let size = listing.pointer("/release/file_size").and_then(|v| v.as_u64());
-        install_one_as(&slug, None, 0, Some(&Live { progress, size }))?;
+        let size = match release {
+            Some(id) => get_json(&format!("{}/releases/{id}", hub_api()))
+                .ok()
+                .and_then(|r| r["file_size"].as_u64()),
+            None => listing.pointer("/release/file_size").and_then(|v| v.as_u64()),
+        };
+        install_one_as(&slug, release.map(str::to_string), 0, Some(&Live { progress, size }))?;
     }
+    // Another release of the map was in Paks before this install: the game
+    // may hold its containers open.
+    let updated = !have && before.is_some();
 
     let mut state = load_state();
     let inst = state
@@ -1018,16 +1057,72 @@ pub fn install_live(code: &str, progress: &dyn Fn(u64, Option<u64>)) -> Result<L
 
     let paks = paks_dir()?;
     let mut mount = Vec::new();
+    let mut unmount = Vec::new();
     for m in mounts(&state)?.iter().filter(|m| m.slug == inst.slug) {
-        if ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file()) {
+        let present = ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file());
+        if present && !updated {
             continue;
         }
-        for ext in ["utoc", "ucas"] {
-            fs::copy(m.cached(ext), m.in_paks(&paks, ext)).map_err(|e| format!("{}: {e}", m.slug))?;
+        // All of a container or none of it: the engine holds a mounted
+        // `.ucas` open (its `.utoc` it reads once), so the `.ucas` is tried
+        // for writing before anything is copied, and copied first.
+        let write = |base: &str| -> std::io::Result<()> {
+            let ucas = paks.join(format!("{base}.ucas"));
+            if ucas.exists() {
+                fs::OpenOptions::new().write(true).open(&ucas)?;
+            }
+            for ext in ["ucas", "utoc"] {
+                fs::copy(m.cached(ext), paks.join(format!("{base}.{ext}")))?;
+            }
+            fs::write(paks.join(format!("{base}.pak")), ue_iostore::pak::stub_for(base))
+        };
+        // Its usual name, unless the game holds the old release there open.
+        if write(&m.base).is_ok() {
+            mount.push(engine_pak(&m.base));
+            continue;
         }
-        fs::write(m.in_paks(&paks, "pak"), ue_iostore::pak::stub_for(&m.base))
-            .map_err(|e| format!("{}: {e}", m.slug))?;
-        mount.push(format!("../../../Meteorite/Content/Paks/{}.pak", m.base));
+        let mut n = 2;
+        while paks.join(format!("{}.utoc", patch_name(&m.base, n))).exists() {
+            n += 1;
+        }
+        let base = patch_name(&m.base, n);
+        write(&base).map_err(|e| format!("{}: {e}", m.slug))?;
+        mount.push(engine_pak(&base));
+        unmount.push(engine_pak(&m.base));
+        for older in 2..n {
+            unmount.push(engine_pak(&patch_name(&m.base, older)));
+        }
+    }
+    // Any other copy of this mod in Paks: under another load-order number (a
+    // profile that changed since Paks was written) or an earlier update's
+    // patch name. Both mounted would mix two releases' packages, so it goes:
+    // deleted when the game does not hold it, unmounted by the game when it
+    // does (and deleted by the next launch, `paks_strays`).
+    let keep: BTreeSet<String> = mount
+        .iter()
+        .map(|p| p.trim_start_matches("../../../Meteorite/Content/Paks/").trim_end_matches(".pak").to_string())
+        .chain(mounts(&state)?.into_iter().filter(|m| m.slug == inst.slug).map(|m| m.base))
+        .collect();
+    let prefix = format!("-{MARKER}-{}-", sanitize(&inst.slug));
+    if let Ok(rd) = fs::read_dir(&paks) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(base) = name.strip_suffix(".pak") else { continue };
+            let Some(at) = base.find(&prefix) else { continue };
+            let rest = &base[at + prefix.len()..];
+            let ours = rest
+                .strip_suffix("_P")
+                .is_some_and(|r| r.split('_').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())));
+            if !ours || keep.contains(base) || !base.starts_with("pakchunk") {
+                continue;
+            }
+            let gone = ["ucas", "utoc", "pak"]
+                .iter()
+                .all(|ext| fs::remove_file(paks.join(format!("{base}.{ext}"))).is_ok());
+            if !gone {
+                unmount.push(engine_pak(base));
+            }
+        }
     }
     crate::maps::add_live(
         &paks,
@@ -1040,7 +1135,9 @@ pub fn install_live(code: &str, progress: &dyn Fn(u64, Option<u64>)) -> Result<L
         code: code.to_string(),
         slug: inst.slug,
         version: inst.version,
+        release_id: inst.release_id,
         mount,
+        unmount,
     })
 }
 
@@ -1052,11 +1149,11 @@ pub fn record_exe_path() {
     }
 }
 
-/// `--install-map <CODE> --progress <file>`: the live install, reported to
+/// `--install-map <CODE> [--release <id>] --progress <file>`: the live install, reported to
 /// the game through `file` as one JSON object, replaced as it goes —
 /// `{"stage":"download","received":n,"total":n}`, then `{"stage":"done",...}`
 /// with [`LiveInstall`]'s fields, or `{"stage":"error","message":...}`.
-pub fn run_live_install(code: &str, progress_file: &Path) -> i32 {
+pub fn run_live_install(code: &str, release: Option<&str>, progress_file: &Path) -> i32 {
     record_exe_path();
     let write = |value: serde_json::Value| {
         let tmp = progress_file.with_extension("tmp");
@@ -1079,7 +1176,7 @@ pub fn run_live_install(code: &str, progress_file: &Path) -> i32 {
         last.set(std::time::Instant::now());
         write(serde_json::json!({ "stage": "download", "received": received, "total": total }));
     };
-    match install_live(code, &progress) {
+    match install_live(code, release, &progress) {
         Ok(done) => {
             let mut value = serde_json::to_value(&done).unwrap_or_default();
             value["stage"] = "done".into();

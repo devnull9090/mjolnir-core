@@ -3777,15 +3777,18 @@ static HANDLE install_process;
 __declspec(dllexport) int mjolnir_map_install(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], code[8] = "";
+    char path[MAX_PATH], code[8] = "", release[72] = "";
     snprintf(path, sizeof path, "%smap_install_request.txt", dir);
     FILE *f = fopen(path, "rb");
     if (f) {
-        if (fscanf(f, "%7s", code) != 1) code[0] = 0;
+        /* "<CODE> [<release id>]": the release a host runs, when it differs. */
+        if (fscanf(f, "%7s %71s", code, release) < 1) code[0] = 0;
         fclose(f);
     }
     int valid = strlen(code) == 3;
     for (const char *c = code; *c && valid; c++) valid = (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9');
+    for (const char *c = release; *c && valid; c++)
+        valid = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'f') || (*c >= 'A' && *c <= 'F') || *c == '-';
     const char *problem = NULL;
     if (!valid) problem = "not a map code";
     if (!problem && install_process && WaitForSingleObject(install_process, 0) == WAIT_TIMEOUT)
@@ -3815,7 +3818,8 @@ __declspec(dllexport) int mjolnir_map_install(void *L) {
         remove(progress);
         wchar_t wprogress[MAX_PATH], command[MAX_PATH * 3];
         MultiByteToWideChar(CP_UTF8, 0, progress, -1, wprogress, MAX_PATH);
-        _snwprintf(command, MAX_PATH * 3, L"\"%s\" --install-map %S --progress \"%s\"", exe, code, wprogress);
+        _snwprintf(command, MAX_PATH * 3, L"\"%s\" --install-map %S%S%S --progress \"%s\"", exe, code,
+                   release[0] ? " --release " : "", release, wprogress);
         command[MAX_PATH * 3 - 1] = 0;
         STARTUPINFOW si;
         PROCESS_INFORMATION pi;

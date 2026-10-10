@@ -187,7 +187,7 @@ local function startGame(map, mode)
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
     -- A guest without the map leaves rather than hold everyone's start.
-    pcall(Net.toClients, "starting", map.code)
+    pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "")
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -400,7 +400,8 @@ end
 -- One table, so its locals stay out of the main chunk's (Lua allows 200).
 -- hostIndex: code -> the host's index for it in the campaign list, as its
 -- lobby and vote messages give it (MapLive.follow).
-local Live = { states = {}, prompted = {}, hostIndex = {}, DOWNLOAD_WAIT = 180 }
+-- hostRelease: code -> { id, version } of the release the host runs.
+local Live = { states = {}, prompted = {}, hostIndex = {}, hostRelease = {}, DOWNLOAD_WAIT = 180 }
 do
 local DL_CLASS = UI_ROOT .. "WBP_MJOLNIRMapDownload.WBP_MJOLNIRMapDownload_C"
 local TRACK = 1000                -- the progress bar's width: the column's (build_mjolnir_ui.py)
@@ -504,10 +505,13 @@ Net.on("where", function(f)
 end)
 Net.on("starting", function(f)
     if Net.isHost() or not f[1] then return end
+    local have = false
     for _, map in ipairs(installedMaps()) do
-        if map.code == f[1] then return end
+        if map.code == f[1] then have = true end
     end
-    log("client lobby: the host is starting " .. f[1] .. ", which this PC does not have: leaving the fireteam")
+    if have and not MapLive.differs(f[1], f[2]) then return end
+    log("client lobby: the host is starting " .. f[1] .. (have and ", another release of it than this PC's" or
+        ", which this PC does not have") .. ": leaving the fireteam")
     Live.leaveFireteam()
 end)
 
@@ -582,8 +586,11 @@ local function draw()
     local e = Dl.event
     local stage = e and e.stage
     local busy = stage == "start" or stage == "download" or stage == "installing"
-    setText(s.Kicker, (stage == "ready" and "INSTALLED") or (stage == "error" and "DOWNLOAD FAILED") or
-        (stage == "installing" and "INSTALLING") or (busy and "DOWNLOADING") or "MAP NOT INSTALLED")
+    local update = Dl.opts.update
+    setText(s.Kicker, (stage == "ready" and (update and "UPDATED" or "INSTALLED")) or
+        (stage == "error" and (update and "UPDATE FAILED" or "DOWNLOAD FAILED")) or
+        (stage == "installing" and "INSTALLING") or (busy and (update and "UPDATING" or "DOWNLOADING")) or
+        (update and "ANOTHER VERSION OF THIS MAP" or "MAP NOT INSTALLED"))
     setText(s.MapTitle, shown(code))
     setText(s.Reason, Dl.opts.reason or "")
     setText(s.InfoAuthorValue, m and m.owner and (string.upper(tostring(m.owner)) .. (m.official and "   /   OFFICIAL" or "")) or "?")
@@ -592,7 +599,11 @@ local function draw()
     setText(s.InfoDownloadsValue, m and tonumber(m.download_count) and tostring(m.download_count) or "?")
     local release = m and type(m.release) == "table" and m.release or {}
     setText(s.InfoSizeValue, release.file_size and MapLive.size(release.file_size) or "?")
-    setText(s.InfoVersionValue, release.version or "?")
+    -- The release to install: the host's when a join or the host asks for
+    -- it, else the newest; an update shows what it replaces.
+    local version = Dl.opts.version or release.version
+    setText(s.InfoVersionValue, update and (tostring(Dl.opts.have or "?") .. "   >   " .. tostring(version or "?"))
+        or (version or "?"))
     local modes = {}
     for _, id in ipairs(m and type(m.modes) == "table" and m.modes or {}) do modes[#modes + 1] = modeTitle(id) end
     setText(s.InfoModesValue, #modes > 0 and table.concat(modes, "   /   ") or "?")
@@ -619,7 +630,7 @@ local function draw()
     local blocked = other and other.code ~= code
     setShown(s.Download, not busy and stage ~= "ready" and (m ~= nil or stage ~= "error"))
     pcall(function() s.Download:SetIsEnabled(not blocked and m ~= nil) end)
-    setText(s.DownloadLabel, stage == "error" and "TRY AGAIN" or (Dl.opts.action or "DOWNLOAD"))
+    setText(s.DownloadLabel, stage == "error" and "TRY AGAIN" or (Dl.opts.action or (update and "UPDATE" or "DOWNLOAD")))
     setText(s.CancelLabel, busy and "HIDE" or ((stage == "error" or stage == "ready") and "CLOSE" or "CANCEL"))
     local status
     if stage == "error" then
@@ -665,7 +676,7 @@ local function start()
     if not code then return end
     Dl.event = { stage = "start" }
     draw()
-    local ok, why = MapLive.install(code, function(event) onInstallEvent(code, event) end)
+    local ok, why = MapLive.install(code, function(event) onInstallEvent(code, event) end, Dl.opts.release)
     if not ok then
         Dl.event = { stage = "error", message = why }
         Live.report(code, "error")
@@ -718,7 +729,7 @@ function Live.prompt(code, opts)
     local current = MapLive.current()
     Dl.event = current and current.code == code and current.event or nil
     if current and current.code == code then
-        MapLive.install(code, function(event) onInstallEvent(code, event) end)
+        MapLive.install(code, function(event) onInstallEvent(code, event) end, opts.release)
     end
     Live.report(code, Dl.event and Dl.event.stage or "prompt")
     if loadClass(DL_CLASS) and hook() then
@@ -893,7 +904,10 @@ local function drawLobby()
     local map, mode = Game.map, Game.mode
     setText(Lobby.MapTitle, map and (map.missing and Live.title(map.code) or titleOf(map)) or "NO MAPS INSTALLED")
     setText(Lobby.MapDescription, map and (map.missing and "This map is not installed on this PC. DOWNLOAD MAP "
-        .. "installs it from mjolnircore.com without leaving the game." or map.description) or
+        .. "installs it from mjolnircore.com without leaving the game."
+        or (map.update and ("The host runs version " .. tostring(map.update.version or "?") .. " of this map; you have "
+            .. tostring(map.update.have or "?") .. ". UPDATE MAP installs the host's version without leaving the game."))
+        or map.description) or
         "Convert a classic CE map (tools/level/convert_ce_map.sh) or install a map pack.")
     Live.showCover(Lobby, map and map.code)
     setText(Lobby.ModeTitle, mode and mode.name or "")
@@ -909,8 +923,8 @@ local function drawLobby()
     pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
     for _, key in ipairs({ "Start", "ChangeMap", "GameType", "Listing" }) do setShown(Lobby[key], host) end
     -- A fireteam client without the host's map: START becomes its download.
-    local fetch = not host and map and map.missing
-    setText(Lobby.StartLabel, fetch and "DOWNLOAD MAP" or "START GAME")
+    local fetch = not host and map and (map.missing or map.update)
+    setText(Lobby.StartLabel, fetch and (map.update and "UPDATE MAP" or "DOWNLOAD MAP") or "START GAME")
     if fetch then
         setShown(Lobby.Start, true)
         pcall(function() Lobby.Start:SetIsEnabled(true) end)
@@ -1140,6 +1154,11 @@ end
 
 local function ownMap(g)
     return Found.maps[g.map_code]
+end
+
+--- The game runs another hub release of its map than this PC has.
+local function otherRelease(g)
+    return ownMap(g) ~= nil and MapLive.differs(g.map_code, g.map_release_id)
 end
 
 local function mapTitle(g)
@@ -1372,8 +1391,9 @@ local function drawRow(i, g)
     setText(Find["GameMap" .. i], mapTitle(g))
     tint(Find["GameMap" .. i], own and FIND.white or FIND.grey)
     local mapNote = Find["GameMapNote" .. i]
-    setText(mapNote, own and "" or "NOT INSTALLED")
-    tint(mapNote, FIND.red)
+    local update = own and otherRelease(g)
+    setText(mapNote, update and ("UPDATE TO " .. tostring(g.map_version or "?")) or (own and "" or "NOT INSTALLED"))
+    tint(mapNote, update and FIND.gold or FIND.red)
 
     -- The table's column is narrow: CTF there, the full name in the details.
     setText(Find["GameType" .. i], g.game_type == "ctf" and "CTF" or modeName(g.game_type))
@@ -1409,6 +1429,7 @@ local function joinable(g)
     if Found.joining then return false, "JOINING..." end
     if stateOf(g) == "full" then return false, "GAME FULL" end
     if not ownMap(g) then return true, "DOWNLOAD AND JOIN" end
+    if otherRelease(g) then return true, "UPDATE AND JOIN" end
     return true, stateOf(g) == "in_game" and "JOIN MATCH" or "JOIN"
 end
 
@@ -1495,6 +1516,11 @@ local function showGame(g)
     Live.showCover(Find, g.map_code)
 
     local notes = {}
+    if otherRelease(g) then
+        notes[#notes + 1] = "The host runs " .. mapTitle(g) .. " " .. tostring(g.map_version or "?") .. "; you have "
+            .. tostring((MapLive.release(g.map_code) or {}).version or "?")
+            .. ". UPDATE AND JOIN installs the host's version without leaving the game, then joins."
+    end
     if not ownMap(g) then
         local listing = MapLive.cached(g.map_code)
         local size = listing and type(listing.release) == "table" and listing.release.file_size
@@ -1612,15 +1638,20 @@ local function joinGame(g)
         findNote("That game is full.")
         return
     end
-    if not ownMap(g) then
-        -- The map first, then the join (maplive.lua).
+    if not ownMap(g) or otherRelease(g) then
+        -- The map first (the host's release of it), then the join (maplive.lua).
+        local update = otherRelease(g)
         Live.prompt(g.map_code, {
             reason = "Needed to join " .. tostring(g.name or ((g.host or "the host") .. "'s game")) .. ".",
-            action = "DOWNLOAD AND JOIN",
+            action = update and "UPDATE AND JOIN" or "DOWNLOAD AND JOIN",
+            release = g.map_release_id,
+            version = g.map_version,
+            update = update,
+            have = update and (MapLive.release(g.map_code) or {}).version or nil,
             readyText = "Joining...",
             onReady = function()
                 indexMaps()
-                if ownMap(g) then
+                if ownMap(g) and not otherRelease(g) then
                     joinGame(g)
                 else
                     findNote(mapTitle(g) .. " installed, but this game does not list it yet.")
@@ -1653,7 +1684,7 @@ end
 local function quickJoin()
     local best, bestRank
     for _, g in ipairs(Found.all) do
-        if (not tableLayout() or passes(g)) and ownMap(g) and stateOf(g) ~= "full" then
+        if (not tableLayout() or passes(g)) and ownMap(g) and not otherRelease(g) and stateOf(g) ~= "full" then
             local bars = pingBars(g.ping_ms)
             local rank = { otherVersion(g) and 0 or 1, bars, g.players or 0, -(g.ping_ms or 999) }
             local better = best == nil
@@ -1740,8 +1771,9 @@ local LOBBY_EVENTS = {
     invite = openFriends,
     start = function()
         -- A fireteam client's START is DOWNLOAD MAP when it lacks the host's.
-        if not Net.isHost() and Game.map and Game.map.missing then
-            Live.offerHostMap(Game.map.code, true)
+        if not Net.isHost() and Game.map and (Game.map.missing or Game.map.update) then
+            local release = Live.hostRelease[Game.map.code] or {}
+            Live.offerHostMap(Game.map.code, true, nil, release.id, release.version)
             return
         end
         if not (Game.map and Game.mode and Net.isHost()) then return end
@@ -2299,8 +2331,10 @@ local function broadcastVote()
     -- which every client's must match for the map to start (MapLive.follow).
     local chosen = v.chosen and v.options[v.chosen]
     local index = chosen and MapLive.register(chosen.code) and MapLive.place(chosen.code)
+    -- The seventh and eighth: its hub release and version (Live.offerHostMap).
+    local release = chosen and MapLive.release(chosen.code) or {}
     Net.toClients("vote", v.id, math.max(0, math.ceil(v.left or 0)), encodeOptions(v.options),
-        table.concat(counts(v), ","), v.chosen or "", index or "")
+        table.concat(counts(v), ","), v.chosen or "", index or "", release.id or "", release.version or "")
 end
 
 local function drawResults()
@@ -2633,9 +2667,13 @@ Net.on("vote", function(f)
     -- for a download under way (decide).
     local next_ = v.chosen and v.options[v.chosen]
     if next_ then Live.hostIndex[next_.code] = tonumber(f[6] or "") or Live.hostIndex[next_.code] end
+    local release, version = f[7] ~= "" and f[7] or nil, f[8] ~= "" and f[8] or nil
+    if next_ then Live.hostRelease[next_.code] = release and { id = release, version = version } or nil end
     if next_ and not mapByCode(next_.code) then
         Live.offerHostMap(next_.code, false, "The fireteam voted for " .. Live.title(next_.code) ..
-            ". Download it to keep playing: the host waits for you.")
+            ". Download it to keep playing: the host waits for you.", release, version)
+    elseif next_ and MapLive.differs(next_.code, release) then
+        Live.offerHostMap(next_.code, false, nil, release, version)
     elseif next_ then
         MapLive.follow(next_.code, f[6])
     end
@@ -2659,13 +2697,24 @@ end)
 --- A fireteam client: the host's map `code`, which this PC lacks, offered
 --- for download, once per map unless `again` (the lobby's DOWNLOAD MAP).
 --- Once it is in, the lobby shows it like any other.
-function Live.offerHostMap(code, again, reason)
-    if not code or mapByCode(code) or (Live.prompted[code] and not again) then return end
-    if Live.showing() == code then return end
-    Live.prompted[code] = true
+function Live.offerHostMap(code, again, reason, release, version)
+    if not code then return end
+    if release == "" then release = nil end
+    local mine = MapLive.release(code)
+    local update = mapByCode(code) ~= nil and MapLive.differs(code, release)
+    if mapByCode(code) and not update then return end
+    local key = code .. ":" .. tostring(release)
+    if (Live.prompted[key] and not again) or Live.showing() == code then return end
+    Live.prompted[key] = true
     Live.prompt(code, {
-        reason = reason or ("The host picked " .. Live.title(code) .. " for the next game. Download it to play."),
-        action = "DOWNLOAD",
+        reason = reason or (update and ("The host runs " .. Live.title(code) .. " " .. tostring(version or "?") ..
+            "; you have " .. tostring(mine and mine.version or "?") .. ". Update to play: no restart.")
+            or ("The host picked " .. Live.title(code) .. " for the next game. Download it to play.")),
+        action = update and "UPDATE" or "DOWNLOAD",
+        release = release,
+        version = version,
+        update = update,
+        have = mine and mine.version,
         readyText = "Back to the lobby.",
         onReady = function()
             local map = mapByCode(code)
@@ -2683,11 +2732,17 @@ Net.on("lobby", function(f)
     if Net.isHost() or not inFrontend() then return end
     local map = mapByCode(f[1]) or { code = f[1], title = f[1], missing = true,
         description = "This map is not installed on this PC." }
-    if map.missing then
+    -- Fields 5 and 6: the hub release of the map the host runs, and its
+    -- version. Another release here would not start with the host's.
+    local release, version = f[5] ~= "" and f[5] or nil, f[6] ~= "" and f[6] or nil
+    if not map.missing and MapLive.differs(map.code, release) then
+        map.update = { release = release, version = version, have = (MapLive.release(map.code) or {}).version }
+    end
+    if map.missing or map.update then
         -- Asked once the lobby is on screen, which the game pushes first.
         ExecuteInGameThreadWithDelay(1500, function()
             if inFrontend() and Game.map and Game.map.code == f[1] and not (Post and alive(Post.screen)) then
-                Live.offerHostMap(f[1])
+                Live.offerHostMap(f[1], false, nil, release, version)
             end
         end)
     else
@@ -2696,6 +2751,7 @@ Net.on("lobby", function(f)
         MapLive.follow(map.code, f[4])
     end
     Live.hostIndex[f[1]] = tonumber(f[4] or "") or Live.hostIndex[f[1]]
+    Live.hostRelease[f[1]] = release and { id = release, version = version } or Live.hostRelease[f[1]]
     local mode = modeById(map, f[2])
     if not mode then
         for _, m in ipairs(MODES) do
@@ -2740,8 +2796,12 @@ local function broadcastLobby()
     -- them sends none, which a client takes as "the variant's own rules".
     -- The fourth is the map's index in the host's campaign list, which every
     -- client's must match for the map to start (MapLive.follow).
+    -- The fifth and sixth: the hub release of the map, and its version, which
+    -- a client with another release updates to (Live.offerHostMap).
     local index = MapLive.register(Game.map.code) and MapLive.place(Game.map.code)
-    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine(), index or "")
+    local release = MapLive.release(Game.map.code) or {}
+    Net.toClients("lobby", Game.map.code, Game.mode.id, Settings.variantLine(), index or "", release.id or "",
+        release.version or "")
 end
 
 local function watchPostGame()
@@ -3210,7 +3270,9 @@ end
 --   mjolnir_auto join [host name]      join a listed game (the first, or the host's),
 --                                      downloading its map first when it is not here
 --   mjolnir_auto download <CODE>       the download screen for a map
---   mjolnir_auto install <CODE>        install a map in game, with no screen
+--   mjolnir_auto install <CODE> [<release id>]
+--                                      install a map (or that release of it) in
+--                                      game, with no screen
 -------------------------------------------------------------------------------
 
 local AUTO_FILE = MOD_DIR .. "\\native\\auto_state.txt"
@@ -3321,13 +3383,15 @@ local AUTO = {
                     autoState({ result = ok and ("joined " .. tostring(chosen.host)) or ("error " .. tostring(err)) })
                 end)
             end
-            if mapByCode(chosen.map_code) then return join() end
-            -- The host's map first, as DOWNLOAD AND JOIN does.
+            if mapByCode(chosen.map_code) and not MapLive.differs(chosen.map_code, chosen.map_release_id) then
+                return join()
+            end
+            -- The host's map (its release) first, as DOWNLOAD AND JOIN does.
             autoState({ result = "downloading " .. tostring(chosen.map_code) })
             local started, refused = MapLive.install(chosen.map_code, function(e)
                 if e.stage == "ready" then join() end
                 if e.stage == "error" then autoState({ result = "error " .. tostring(e.message) }) end
-            end)
+            end, chosen.map_release_id)
             if not started then autoState({ result = "error " .. tostring(refused) }) end
         end)
     end,
@@ -3345,9 +3409,9 @@ local AUTO = {
     install = function(args)
         local code = string.upper(args[1] or "")
         local started, why = MapLive.install(code, function(e)
-            if e.stage == "ready" then autoState({ result = "installed " .. code }) end
+            if e.stage == "ready" then autoState({ result = "installed " .. code .. (e.updated and " (updated)" or "") }) end
             if e.stage == "error" then autoState({ result = "error " .. tostring(e.message) }) end
-        end)
+        end, args[2])
         autoState({ result = started and ("installing " .. code) or ("error " .. tostring(why)) })
     end,
 }
@@ -3416,9 +3480,12 @@ local function initialize()
         info = function()
             if not (Game.map and Game.mode) then return nil end
             local name = localName()
+            local release = MapLive.release(Game.map.code) or {}
             return {
                 name = name and (name .. "'s game") or "MJOLNIR game",
                 map_code = Game.map.code,
+                map_release_id = release.id,
+                map_version = release.version,
                 game_type = Game.mode.id,
                 players = #rosterPlayers(),
                 in_game = not inFrontend(),
