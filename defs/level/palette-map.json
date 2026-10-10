@@ -25,7 +25,8 @@
     "beam_rifle": "objects\\weapons\\rifle\\beam_rifle\\beam_rifle",
     "skull": "objects\\weapons\\multiplayer\\skull\\skull",
     "shotgun": "objects\\weapons\\rifle\\shotgun\\shotgun",
-    "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon"
+    "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon",
+    "battle_rifle": "objects\\weapons\\rifle\\battle_rifle\\battle_rifle"
   },
   "equipment": {
     "frag_grenade": "objects\\weapons\\grenade\\frag_grenade\\frag_grenade",
@@ -35,7 +36,10 @@
     "assault_rifle_ammo": "objects\\gear\\human\\military\\assault_rifle_ammo\\assault_rifle_ammo",
     "pistol_ammo": "objects\\gear\\human\\military\\pistol_ammo\\pistol_ammo",
     "sniper_rifle_ammo": "objects\\gear\\human\\military\\sniper_rifle_ammo\\sniper_rifle_ammo",
-    "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo"
+    "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo",
+    "battle_rifle_ammo": "objects\\gear\\human\\military\\battle_rifle_ammo\\battle_rifle_ammo",
+    "shotgun_ammo": "objects\\gear\\human\\military\\shotgun_ammo\\shotgun_ammo",
+    "needler_ammo": "objects\\gear\\human\\military\\needler_ammo\\needler_ammo"
   },
   "scenario_palettes": {
     "A15": { "vehicles": ["space_banshee", "seraph", "pelican"], "weapons": ["plasma_pistol", "magnum", "plasma_rifle", "assault_rifle", "smg", "skull"] },
