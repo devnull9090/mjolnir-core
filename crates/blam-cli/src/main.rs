@@ -3691,6 +3691,7 @@ mod tests {
             block_name: None,
             max_count: None,
             count: None,
+            first: 0,
             children: Vec::new(),
         }
     }

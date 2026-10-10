@@ -11,6 +11,8 @@
 //! different rule here would silently pair values with the wrong fields, so the
 //! predicate has exactly one definition and both sides call it.
 
+use std::collections::HashMap;
+
 use crate::data::{field_writes, Block, Value};
 use crate::layout::Layout;
 use crate::value::{self, Scalar};
@@ -50,6 +52,9 @@ pub struct Node {
     /// because a tag like `scenario_structure_bsp` has millions of them and
     /// materialising every one costs gigabytes.
     pub count: Option<u32>,
+    /// For a block, the index of the element `children[0]` is. Zero unless a
+    /// window asked for later elements; see [`root_windowed`].
+    pub first: u32,
     pub children: Vec<Node>,
 }
 
@@ -66,6 +71,7 @@ impl Node {
             block_name: None,
             max_count: None,
             count: None,
+            first: 0,
             children: Vec::new(),
         }
     }
@@ -102,6 +108,70 @@ struct Walk<'v> {
     /// terminator — as raw bytes at their offsets. What an expert view shows;
     /// nothing else wants them.
     structural: bool,
+    /// An element to show, by block path (`vehicles`, `bsp[0].surfaces`): the
+    /// block builds the `max_elements`-wide page holding it rather than the
+    /// first page. Paths are only tracked when this is non-empty.
+    windows: Option<&'v HashMap<String, usize>>,
+}
+
+impl Walk<'_> {
+    fn tracks_paths(&self) -> bool {
+        self.windows.is_some_and(|w| !w.is_empty())
+    }
+
+    /// The first element to build of the block at `path`, holding `count`.
+    fn first_element(&self, path: &str, count: usize) -> usize {
+        let Some(&wanted) = self.windows.and_then(|w| w.get(path)) else {
+            return 0;
+        };
+        if count == 0 || self.max_elements == 0 {
+            return 0;
+        }
+        // A window can outlive the elements it pointed at; land on the last.
+        let wanted = wanted.min(count - 1);
+        wanted / self.max_elements * self.max_elements
+    }
+}
+
+/// `base.name`, the path the editor's edits name a field by. Names are
+/// trimmed, as [`crate::patch::segments`] trims them.
+fn join(base: &str, name: &str) -> String {
+    let segment = crate::patch::escape_segment(name.trim());
+    if base.is_empty() {
+        segment
+    } else {
+        format!("{base}.{segment}")
+    }
+}
+
+/// A field path rebuilt the way the walk spells paths, so a window key
+/// matches however its writer spaced or escaped it.
+pub fn window_key(path: &str) -> String {
+    let mut out = String::new();
+    for (name, index) in crate::patch::segments(path) {
+        out = join(&out, &name);
+        if let Some(i) = index {
+            out = format!("{out}[{i}]");
+        }
+    }
+    out
+}
+
+/// Windows that reach element `element` of the block at `path`, and every
+/// block element `path` passes through on the way (`a[70].b` pages `a` to
+/// 70 too).
+pub fn windows_to(path: &str, element: usize) -> HashMap<String, usize> {
+    let mut windows = HashMap::new();
+    let mut base = String::new();
+    for (name, index) in crate::patch::segments(path) {
+        base = join(&base, &name);
+        if let Some(i) = index {
+            windows.insert(base.clone(), i);
+            base = format!("{base}[{i}]");
+        }
+    }
+    windows.insert(base, element);
+    windows
 }
 
 /// Default cap on block elements built per node.
@@ -125,14 +195,7 @@ pub fn root(layout: &Layout<'_>, block: &Block<'_>) -> Vec<Node> {
 
 /// [`root`], with an explicit cap on elements built per block.
 pub fn root_capped(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) -> Vec<Node> {
-    let mut walk = Walk {
-        visit: &mut |_, _| {},
-        build: true,
-        max_elements,
-        budget: DEFAULT_MAX_NODES,
-        structural: false,
-    };
-    run(layout, block, &mut walk)
+    root_windowed(layout, block, max_elements, false, &HashMap::new())
 }
 
 /// [`root_capped`], with the structural fields — padding, `custom` markers,
@@ -140,12 +203,35 @@ pub fn root_capped(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) 
 /// The layout's every byte becomes visible, which is what an expert wants
 /// when a definition looks wrong.
 pub fn root_expert(layout: &Layout<'_>, block: &Block<'_>, max_elements: usize) -> Vec<Node> {
+    root_windowed(layout, block, max_elements, true, &HashMap::new())
+}
+
+/// The value tree, with chosen blocks paged past their first `max_elements`.
+///
+/// `windows` maps a block's path — as edits name it, `vehicles` or
+/// `bsp[0].surfaces` — to an element the caller wants built. That block then
+/// builds the page of `max_elements` holding the element, and its
+/// [`Node::first`] says where the page starts. Every other block builds its
+/// first page, as [`root_capped`] does. `structural` is [`root_expert`]'s
+/// switch.
+pub fn root_windowed(
+    layout: &Layout<'_>,
+    block: &Block<'_>,
+    max_elements: usize,
+    structural: bool,
+    windows: &HashMap<String, usize>,
+) -> Vec<Node> {
+    let windows: HashMap<String, usize> = windows
+        .iter()
+        .map(|(path, &element)| (window_key(path), element))
+        .collect();
     let mut walk = Walk {
         visit: &mut |_, _| {},
         build: true,
         max_elements,
         budget: DEFAULT_MAX_NODES,
-        structural: true,
+        structural,
+        windows: Some(&windows),
     };
     run(layout, block, &mut walk)
 }
@@ -165,6 +251,7 @@ pub fn visit_fields(
         max_elements: usize::MAX,
         budget: usize::MAX,
         structural: false,
+        windows: None,
     };
     run(layout, block, &mut walk);
 }
@@ -175,16 +262,18 @@ fn run(layout: &Layout<'_>, block: &Block<'_>, walk: &mut Walk<'_>) -> Vec<Node>
     };
     let bytes = block.element(0).unwrap_or(&[]);
     let values = block.children.first().map(Vec::as_slice).unwrap_or(&[]);
-    fields(layout, run, bytes, values, 0, walk)
+    fields(layout, run, bytes, values, 0, "", walk)
 }
 
 /// Build the nodes for one struct run against one element's bytes and values.
+/// `base` is the element's path, kept only while the walk tracks paths.
 fn fields(
     layout: &Layout<'_>,
     run: usize,
     bytes: &[u8],
     values: &[Value<'_>],
     depth: u32,
+    base: &str,
     walk: &mut Walk<'_>,
 ) -> Vec<Node> {
     if depth > 64 {
@@ -244,9 +333,24 @@ fn fields(
             .get(offset as usize..(offset + size) as usize)
             .unwrap_or(&[]);
 
+        let nests = matches!(type_name.as_str(), "block" | "struct" | "array");
+        let path = if nests && walk.tracks_paths() {
+            join(base, &name)
+        } else {
+            String::new()
+        };
         let node = match type_name.as_str() {
             "block" => block_node(
-                layout, &field, name, type_name.clone(), offset, size, value, depth, walk,
+                layout,
+                &field,
+                name,
+                type_name.clone(),
+                offset,
+                size,
+                value,
+                depth,
+                &path,
+                walk,
             ),
             "struct" => {
                 let children = layout
@@ -256,7 +360,7 @@ fn fields(
                             Some(Value::Struct { children }) => children.as_slice(),
                             _ => &[][..],
                         };
-                        fields(layout, target, slice, inner, depth + 1, walk)
+                        fields(layout, target, slice, inner, depth + 1, &path, walk)
                     })
                     .unwrap_or_default();
                 Node {
@@ -275,6 +379,7 @@ fn fields(
                 value,
                 slice,
                 depth,
+                &path,
                 walk,
             ),
             _ => {
@@ -339,6 +444,7 @@ fn block_node(
     size: u32,
     value: Option<&Value<'_>>,
     depth: u32,
+    path: &str,
     walk: &mut Walk<'_>,
 ) -> Node {
     let entry = layout.blocks.get(field.aux as usize).copied();
@@ -357,19 +463,28 @@ fn block_node(
     };
 
     node.count = Some(inner.count);
-    // A pure visit walks every element; building one stops at the cap.
-    let shown = if walk.build {
-        (inner.count as usize).min(walk.max_elements)
+    // A pure visit walks every element; building one stops at the cap, on
+    // the page a window asked for.
+    let count = inner.count as usize;
+    let (first, end) = if walk.build {
+        let first = walk.first_element(path, count);
+        (first, count.min(first.saturating_add(walk.max_elements)))
     } else {
-        inner.count as usize
+        (0, count)
     };
-    for i in 0..shown {
+    node.first = first as u32;
+    for i in first..end {
         if walk.build && walk.budget == 0 {
             break;
         }
         let bytes = inner.element(i).unwrap_or(&[]);
         let values = inner.children.get(i).map(Vec::as_slice).unwrap_or(&[]);
-        let children = fields(layout, run, bytes, values, depth + 1, walk);
+        let element_path = if walk.tracks_paths() {
+            format!("{path}[{i}]")
+        } else {
+            String::new()
+        };
+        let children = fields(layout, run, bytes, values, depth + 1, &element_path, walk);
         if !walk.build {
             continue;
         }
@@ -399,6 +514,7 @@ fn array_node(
     value: Option<&Value<'_>>,
     slice: &[u8],
     depth: u32,
+    path: &str,
     walk: &mut Walk<'_>,
 ) -> Node {
     let mut node = Node {
@@ -432,7 +548,12 @@ fn array_node(
             },
             _ => &[][..],
         };
-        let children = fields(layout, run, bytes, values, depth + 1, walk);
+        let element_path = if walk.tracks_paths() {
+            format!("{path}[{i}]")
+        } else {
+            String::new()
+        };
+        let children = fields(layout, run, bytes, values, depth + 1, &element_path, walk);
         if !walk.build {
             continue;
         }
@@ -516,6 +637,52 @@ mod tests {
 
         assert_eq!(node.count, Some(9));
         assert_eq!(node.children.len(), 9);
+    }
+
+    /// A window pages a block past its first 64, so an element added after
+    /// the 64th can be built, shown and edited. Asking past the end lands on
+    /// the last page; a block nobody asked about keeps its first page.
+    #[test]
+    fn a_window_builds_the_page_holding_the_wanted_element() {
+        let body = synth_camera_track();
+        let layout = Layout::parse(&body).expect("layout");
+        let payload = camera_track_payload(318);
+        let block = crate::data::read_block(&layout, &payload, 0).expect("walk");
+        let name = root_capped(&layout, &block, DEFAULT_MAX_ELEMENTS).remove(0).name;
+        let page = |wanted: usize, path: &str| {
+            let windows = HashMap::from([(path.to_string(), wanted)]);
+            root_windowed(&layout, &block, DEFAULT_MAX_ELEMENTS, false, &windows).remove(0)
+        };
+
+        let node = page(70, &escape(&name));
+        assert_eq!(node.first, 64);
+        assert_eq!(node.count, Some(318));
+        assert_eq!(node.children.len(), 64);
+        assert_eq!(node.children[0].name, "[64]");
+
+        let node = page(10_000, &escape(&name));
+        assert_eq!(node.first, 256, "past the end lands on the last page");
+        assert_eq!(node.children.len(), 62);
+        assert_eq!(node.children.last().unwrap().name, "[317]");
+
+        let node = page(70, "some other block");
+        assert_eq!(node.first, 0);
+        assert_eq!(node.children[0].name, "[0]");
+    }
+
+    fn escape(name: &str) -> String {
+        crate::patch::escape_segment(name)
+    }
+
+    #[test]
+    fn a_window_reaches_through_every_block_on_its_path() {
+        assert_eq!(
+            windows_to("bsp[70].surfaces", 3),
+            HashMap::from([("bsp".to_string(), 70), ("bsp[70].surfaces".to_string(), 3)])
+        );
+        assert_eq!(windows_to("vehicles", 64), HashMap::from([("vehicles".to_string(), 64)]));
+        assert_eq!(window_key("hud[2].message anchor v\\[0,1\\]"), "hud[2].message anchor v\\[0,1\\]");
+        assert_eq!(window_key(" vehicles "), "vehicles");
     }
 
     #[test]

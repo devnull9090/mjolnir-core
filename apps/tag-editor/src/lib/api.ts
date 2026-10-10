@@ -74,6 +74,9 @@ export type NodeView = {
   max_count: number | null;
   /** Elements this block really has; `children` may hold fewer. */
   count: number | null;
+  /** The element index `children[0]` is: past zero when the read paged the
+   *  block beyond its first elements. */
+  first: number;
   /** Recomputed by the game when the tag loads (`runtime …`): read-only. */
   runtime: boolean;
   /** Runtime fields of the same element computed from this one. The running
@@ -719,7 +722,10 @@ const tauriApi = {
   listGroups: () => invoke<GroupSummary[]>("list_groups"),
   listTags: (group: string) => invoke<TagSummary[]>("list_tags", { group }),
   searchTags: (query: string) => invoke<TagSummary[]>("search_tags", { query }),
-  readTag: (index: number, expert = false) => invoke<TagView>("read_tag", { index, expert }),
+  /** `windows`: the selected element per block path, so a block past its
+   *  first page is read from the page holding that element. */
+  readTag: (index: number, expert = false, windows: Record<string, number> = {}) =>
+    invoke<TagView>("read_tag", { index, expert, windows }),
   readModelGeometry: (index: number) =>
     invoke<ModelGeometry>("read_model_geometry", { index }),
   objectRenderModel: (index: number) =>
