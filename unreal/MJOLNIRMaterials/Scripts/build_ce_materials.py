@@ -2149,15 +2149,50 @@ float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
 float ripple = hasSea * (1.0 - grass) * (1.0 - smoothstep(rtop * 0.7, rtop, h));
 float wet = hasSea * (1.0 - smoothstep(0.0, Sea.z, h));
 
+// Depth (Par: sand depth cm, footprint depth cm, fade distance cm, steps):
+// the sand's and the ripples' displacement maps and the footprints as one
+// height field, the view ray marched down through it (parallax occlusion),
+// so ripples and prints stand in relief at a low angle. In world XY, the
+// landscape's tangent frame; near the camera only.
+float2 P = W.xy;
+float parD = (Par.x + Par.y) * (1.0 - grass) * (1.0 - smoothstep(Par.z * 0.5, Par.z, length(Cam - W)));
+if (parD > 0.05 && Par.w >= 1.0)
+{
+    float3 V = normalize(Cam - W);
+    float2 ray = -V.xy / max(V.z, 0.2) * parD; // xy travel down the whole depth
+    float2 s0 = W.xy / max(Tiles.x, 1.0), s1 = LP_ROT(s0, 0.43);
+    float2 r0 = W.xy / max(Tiles.y, 1.0), r1 = LP_ROT(r0, 0.61);
+    float2 s0x = ddx(s0), s0y = ddy(s0), s1x = ddx(s1), s1y = ddy(s1);
+    float2 r0x = ddx(r0), r0y = ddy(r0), r1x = ddx(r1), r1y = ddy(r1);
+    float footOn = Foot.x > 0.0 ? 1.0 : 0.0;
+    #define LP_H(q) ((lerp(lerp(Texture2DSampleGrad(SandO, SandOSampler, s0 + (q) / max(Tiles.x, 1.0), s0x, s0y).b,         Texture2DSampleGrad(SandO, SandOSampler, s1 + LP_ROT((q) / max(Tiles.x, 1.0), 0.43) - 0.31, s1x, s1y).b, w),         lerp(Texture2DSampleGrad(RipO, RipOSampler, r0 + (q) / max(Tiles.y, 1.0), r0x, r0y).b,         Texture2DSampleGrad(RipO, RipOSampler, r1 + LP_ROT((q) / max(Tiles.y, 1.0), 0.61) - 0.31, r1x, r1y).b, w), ripple) * Par.x         + (1.0 - footOn * Texture2DSampleLevel(FootRT, FootRTSampler, (W.xy + (q) - FootRect.xy) / FootRect.zw + 0.5, 0).r) * Par.y)         / max(Par.x + Par.y, 1e-3))
+    int steps = (int)min(Par.w, 32.0);
+    float layer = 1.0 / steps;
+    float cur = 1.0, hgt = LP_H(float2(0.0, 0.0)), prevH = hgt, prevC = 1.0;
+    float2 off = 0.0;
+    [loop] for (int i = 0; i < steps && hgt < cur; i++)
+    {
+        prevH = hgt; prevC = cur;
+        cur -= layer;
+        off = ray * (1.0 - cur);
+        hgt = LP_H(off);
+    }
+    // Between the last two steps, where the ray met the surface.
+    float a = prevC - prevH, b = cur - hgt;
+    float t = saturate(a / max(a - b, 1e-4));
+    P = W.xy + ray * (1.0 - lerp(prevC, cur, t));
+    #undef LP_H
+}
+
 // Sand, flat and rippled.
-float2 su = W.xy / max(Tiles.x, 1.0); float2 su2 = LP_ROT(su, 0.43);
+float2 su = P / max(Tiles.x, 1.0); float2 su2 = LP_ROT(su, 0.43);
 float3 sandA = lerp(Texture2DSample(SandD, SandDSampler, su).rgb, Texture2DSample(SandD, SandDSampler, su2).rgb, w);
 float2 sandN = LP_NRM(SandN, SandNSampler, su, su2, w);
 float4 sandO = lerp(Texture2DSample(SandO, SandOSampler, su), Texture2DSample(SandO, SandOSampler, su2), w);
 // A second sand (B30's darker beach sand) over patches tens of metres
 // across, and the grain's contrast raised (Look.y): at dusk the light is
 // flat and the sand's own colour has to carry it.
-float2 bu = W.xy / max(Tiles.x * 1.3, 1.0) + 0.43;
+float2 bu = P / max(Tiles.x * 1.3, 1.0) + 0.43;
 float bw = smoothstep(0.3, 0.7, LP_NOISE(W.xy / 2400.0 + 5.3)) * Look.w;
 float3 sandB = Texture2DSample(SandBD, SandBDSampler, bu).rgb;
 float2 sandBN = Texture2DSample(SandBN, SandBNSampler, bu).rg * 2.0 - 1.0;
@@ -2165,12 +2200,12 @@ float3 sandMean = Texture2DSampleLevel(SandD, SandDSampler, float2(0.5, 0.5), 13
 sandA = max(sandMean + (sandA - sandMean) * Look.y, 0.0);
 sandA = lerp(sandA, sandB, bw) * SandTint.rgb;
 sandN = lerp(sandN, sandBN, bw);
-float2 ru = W.xy / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
+float2 ru = P / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
 float3 ripA = lerp(Texture2DSample(RipD, RipDSampler, ru).rgb, Texture2DSample(RipD, RipDSampler, ru2).rgb, w) * SandTint.rgb;
 float2 ripN = LP_NRM(RipN, RipNSampler, ru, ru2, w);
 float4 ripO = lerp(Texture2DSample(RipO, RipOSampler, ru), Texture2DSample(RipO, RipOSampler, ru2), w);
 // Grass ground.
-float2 gu = W.xy / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
+float2 gu = P / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
 float3 grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSample(GrassD, GrassDSampler, gu2).rgb, w) * GrassTint.rgb;
 float2 grN = LP_NRM(GrassN, GrassNSampler, gu, gu2, w);
 float4 grO = lerp(Texture2DSample(GrassO, GrassOSampler, gu), Texture2DSample(GrassO, GrassOSampler, gu2), w);
@@ -2203,7 +2238,7 @@ rough = lerp(rough, WetLook.y, wet);
 // Footprints.
 if (Foot.x > 0.0)
 {
-    float2 fuv = (W.xy - FootRect.xy) / FootRect.zw + 0.5;
+    float2 fuv = (P - FootRect.xy) / FootRect.zw + 0.5;
     float edge = saturate(min(min(fuv.x, 1.0 - fuv.x), min(fuv.y, 1.0 - fuv.y)) * 20.0);
     if (edge > 0.0)
     {
@@ -2293,6 +2328,10 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("FootRect", g.vector4("FootRect", (0.0, 0.0, 4096.0, 4096.0)), ""),
         # Foot: strength, relief, texel, occlusion.
         ("Foot", g.vector4("FootParams", (0.0, 4.0, 1.0 / 4096.0, 0.6)), ""),
+        ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
+        # Par: parallax depth of the sand (cm), of the footprints (cm), the
+        # distance it fades out by (cm), ray steps; 0 depth is off.
+        ("Par", g.vector4("LandParallax", (0.0, 0.0, 2500.0, 12.0)), ""),
     ]
     c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
     outs = []

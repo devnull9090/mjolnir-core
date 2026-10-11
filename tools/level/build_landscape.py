@@ -23,8 +23,9 @@ Landscape from:
 - holes.r8: a byte a vertex, 255 where the landscape is cut away (its
   visibility layer): off the ground; on both sides of a step of more than
   2 m between neighbouring vertices (where a plateau's lip overhangs a cliff
-  that recedes under it) or where two layers of ground overlap, grown a
-  vertex so no half-cut quad stands up a wall; and around any quad whose surface rides more than 15 cm over the
+  that recedes under it), where two layers of ground overlap, or where the
+  ground ends, grown a vertex so no half-cut quad stands up a wall or sticks
+  out past one; and around any quad whose surface rides more than 15 cm over the
   ground (checked at the bakes' resolution), where the grid is too coarse for
   a sharp top (Death Island's mossy boulder). The terrain mesh draws those.
 - base.png, lightmap.png, bake.png, sunshare.png: the shader's base map and
@@ -249,7 +250,12 @@ def main():
     ztop, _ = raster(tris, origin, a.quad, size, [], highest=True)
     layered = ground & (ztop - z > 100.0)
     cliff |= layered
-    pc = np.pad(cliff, 1)
+    # Where the ground just ends (a plateau's edge over a wall with no beach
+    # at its foot), the landscape stops a vertex short too: its last quad,
+    # half drawn level towards the hole, stuck out past the wall as a lip.
+    # The mesh draws the edge as CE has it.
+    grow = cliff | ~ground
+    pc = np.pad(grow, 1)
     cut = ~ground | np.logical_or.reduce([pc[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
                                          for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
     zc = 0.0
@@ -339,6 +345,11 @@ def main():
                 "bases": sorted({sl["material"]["textures"]["Base"] for sl in slots.values()
                                  if "Base" in sl["material"].get("textures", {})}),
                 "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
+                # The mesh draws wherever a hole reaches at all: the landscape
+                # cuts its own edge another way (its visibility layer), and
+                # at the masters' 0.25 the two left slivers of sky between
+                # them. Overlapping, the landscape rides 8 cm (--lift) above.
+                "edge": 0.02,
                 "rect": [float(origin[0]), float(origin[1]), side, side]},
         "masks": {"LandMask": "landmask.png"},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
@@ -351,6 +362,9 @@ def main():
                 "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40],
                 # B30's ground grass ships desaturated, for its material to tint.
                 "grass_tint": [0.62, 0.78, 0.36, 1.0],
+                # Parallax: the sand's relief and the footprints 4 cm deep,
+                # out to 25 m, 14 ray steps (Death Island at 4K: +0.2 ms GPU).
+                "parallax": [4.0, 4.0, 2500, 14],
                 # The level's sun and sky light, scaled and tinted (the loader,
                 # as it reads the level file): a stronger, warmer sun and warm
                 # shade, where the purple dusk sky had turned the sand mauve.

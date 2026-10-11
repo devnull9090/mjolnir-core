@@ -2870,6 +2870,8 @@ function Land.pbr(set, pbr)
     vec("GrassTint", pbr.grass_tint)
     vec("SandTint", pbr.sand_tint)
     vec("LandLook", pbr.look)
+    -- Depth: sand and footprint depth (cm), fade distance (cm), ray steps.
+    vec("LandParallax", pbr.parallax)
     -- CE's baked light, as occlusion: the lightmap bake and its levels.
     local lm = type(pbr.lightmap) == "string" and resolveMesh(pbr.lightmap)
     local levels = lightmapSun()
