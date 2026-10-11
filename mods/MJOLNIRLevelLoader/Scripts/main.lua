@@ -2347,6 +2347,10 @@ end
 --- scalars, 4-number lists for vectors).
 local OCEAN = "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"
 local CE_WATER = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
+-- The chop on M_CE_Ocean close up: the game's own detail wave map (the
+-- Fluid Flux ocean's), a game asset loaded by path. CE's ripple maps are
+-- too coarse for it, and stronger they reflected the beach as blots.
+local DETAIL_WAVE = "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01"
 local WAVES = 0.35
 local SKY_CAPTURED_SCENE = 0
 local UNDERWATER_SKY = { R = 0.05, G = 0.09, B = 0.12, A = 1 }
@@ -2402,7 +2406,8 @@ end
 --- An M_CE_Ocean spec from a CE water slot's: its ripple maps and their
 --- motion, the swell, and the level's own parameters.
 local function oceanSpec(spec)
-    local o = { parent = OCEAN, textures = {}, scalars = { WaveAmplitude = waveAmplitude() }, vectors = {} }
+    local o = { parent = OCEAN, textures = { DetailWave = DETAIL_WAVE }, scalars = { WaveAmplitude = waveAmplitude() },
+        vectors = {} }
     for k, v in pairs(type(spec.textures) == "table" and spec.textures or {}) do
         if k:find("^RippleMap") then o.textures[k] = v end
     end

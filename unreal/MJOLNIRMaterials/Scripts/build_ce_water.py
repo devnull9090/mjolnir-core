@@ -137,27 +137,50 @@ float t = Time * Speed;
 """
 
 # Shore waves: bands that roll towards the beach within Reach metres of it,
-# Len metres apart, Freq a second, cresting Height cm high; they fade at the
-# waterline itself (the last 1.5 m). h(d) is their height at d metres from
-# the shore; a crest is where d / Len + Freq t is a quarter past a whole
-# number, so it moves to smaller d as time runs.
+# about Len metres apart, Freq a second, cresting up to Height cm high (S =
+# Reach, Len, Freq, Height); they fade at the waterline itself (the last
+# 1.5 m). A crest is where d / Len + Freq t (+ a shift) is a quarter past a
+# whole number, so it moves to smaller d as time runs. Two smooth noises over
+# the shore (world xy, cm) keep the bands from running as parallel stripes:
+# one bends them (a shift of up to 1.6 bands over ~40 m), the other swells
+# and fades each stretch of them as time goes (Death Island, 2026-10-11:
+# fixed bands read as painted stripes).
 SHORE_H = r"""
-float shore_h(float d, float t, float4 S)
+static float n2(float2 p)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = frac(sin(dot(i, float2(127.1, 311.7))) * 43758.5453);
+    float b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);
+    float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453);
+    float e = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);
+    return lerp(lerp(a, b, f.x), lerp(c, e, f.x), f.y);
+}
+static float phase(float d, float2 xy, float t, float4 S)
+{
+    float2 q = xy * 0.0001;
+    return d / max(S.y, 0.1) + t * S.z + 1.6 * n2(q * 2.5 + t * 0.01);
+}
+static float strength(float2 xy, float t)
+{
+    return 0.3 + 0.7 * smoothstep(0.2, 0.75, n2(xy * 0.00017 + 17.0 + t * 0.03));
+}
+static float h(float d, float2 xy, float t, float4 S)
 {
     float env = saturate(1.0 - d / max(S.x, 1.0)) * saturate(d / 1.5);
-    float ph = 6.2831853 * (d / max(S.y, 0.1) + t * S.z);
-    float crest = 0.5 + 0.5 * sin(ph);
-    return S.w * env * crest * crest * crest;
+    float crest = 0.5 + 0.5 * sin(6.2831853 * phase(d, xy, t, S));
+    return S.w * env * crest * crest * crest * strength(xy, t);
 }
 """
 
-GERSTNER_OFFSET = GERSTNER + "return o + float3(0, 0, ShoreWave(Shore.x, Time, ShoreParams));\n"
+GERSTNER_OFFSET = GERSTNER + "return o + float3(0, 0, ShoreFns::h(Shore.x, P.xy, Time, ShoreParams));\n"
 # The shore waves' slope in the pixel shader: dh/dd from h either side, and
 # the shore distance's world gradient from the screen derivatives of it and
 # of the (unoffset) position, solved in the plane.
 GERSTNER_NORMAL = GERSTNER + r"""
 float3 n = normalize(cross(nx, ny));
-float slope = (ShoreWave(Shore.x + 0.25, Time, ShoreParams) - ShoreWave(Shore.x - 0.25, Time, ShoreParams)) / 50.0;
+float slope = (ShoreFns::h(Shore.x + 0.25, Flat.xy, Time, ShoreParams)
+             - ShoreFns::h(Shore.x - 0.25, Flat.xy, Time, ShoreParams)) / 50.0;
 float2 a = ddx(Flat.xy), b = ddy(Flat.xy);
 float da = ddx(Shore.x), db = ddy(Shore.x);
 float det = a.x * b.y - a.y * b.x;
@@ -167,15 +190,20 @@ if (gl > 1.5) g *= 1.5 / gl;
 return normalize(n + float3(-slope * g, 0));
 """
 
-# Foam: the crests of the shore waves and a wash at the waterline, broken up
-# by the ripple maps; opacity of the foam layer over the water.
+# Foam: on the shore waves' crests, where they are strong, and a swash at the
+# waterline that runs up and back (1 to 4 m out, ~10 s a cycle, out of step
+# along the shore); both broken by two octaves of noise drifting slowly, so
+# they read as foam rather than a smooth white line.
 FOAM = r"""
 float d = Shore.x;
+float2 xy = P.xy;
 float env = saturate(1.0 - d / max(ShoreParams.x, 1.0));
-float ph = 6.2831853 * (d / max(ShoreParams.y, 0.1) + Time * ShoreParams.z);
-float crest = saturate(0.5 + 0.5 * sin(ph));
-float f = env * pow(crest, 6.0) + saturate(1.0 - d / 2.5) * 0.8;
-f *= saturate(0.55 + 4.0 * length(Ripple.xy));
+float crest = saturate(0.5 + 0.5 * sin(6.2831853 * ShoreFns::phase(d, xy, Time, ShoreParams)));
+float wave = env * pow(crest, 5.0) * ShoreFns::strength(xy, Time);
+float reach = 1.0 + 3.0 * (0.5 + 0.5 * sin(Time * 0.6 + 6.2831853 * ShoreFns::n2(xy * 0.0003)));
+float swash = saturate(1.0 - d / reach);
+float n = 0.6 * ShoreFns::n2(xy * 0.004 + Time * 0.05) + 0.4 * ShoreFns::n2(xy * 0.017 - Time * 0.08);
+float f = saturate((wave * 1.4 + swash) * 1.5 - (1.0 - n) * 0.9);
 return saturate(f * Amount) * step(0.01, Shore.y + d);
 """
 
@@ -205,17 +233,28 @@ return n * rsqrt(max(dot(n, n), 1e-8));
 # flat being +z): the ripple's deviation from flat, scaled, added on.
 COMBINE_NORMAL = r"""
 float3 r = Ripple - float3(0, 0, 1);
-return normalize(Swell + r * Strength);
+float near = saturate(1.0 - Shore.x / 30.0) * step(0.01, Shore.x + Shore.y);
+// Chop: two layers of the detail wave map (normal in rg), crossing.
+float2 c = (C0.rg * 2.0 - 1.0) + (C1.rg * 2.0 - 1.0);
+return normalize(Swell + r * Strength * (1.0 + NearShore * near) + float3(c * Chop, 0));
+"""
+
+# The chop layers' UVs: world xy over ChopScale.x cm, panning at ChopScale.y
+# cm/s in two directions, the second layer rotated and 0.63 times the size.
+CHOP_UV0 = r"""
+return P.xy / max(S.x, 1.0) + Time * S.y / max(S.x, 1.0) * float2(0.8, 0.6);
+"""
+CHOP_UV1 = r"""
+float2 q = float2(P.x * 0.6 - P.y * 0.8, P.x * 0.8 + P.y * 0.6);
+return q / max(S.x * 0.63, 1.0) + Time * S.y / max(S.x * 0.63, 1.0) * float2(-0.7, 0.7);
 """
 
 
 def with_shore(code):
-    """`code` with ShoreWave(d, t, S), SHORE_H's shore_h, inlined: a Custom
-    node's code is one function body, so the helper is a static function in
-    a nested struct (the usual way to define one inside a Custom node)."""
-    body = SHORE_H.replace("float shore_h(", "static float h(")
-    return ("struct ShoreFns {" + body + "};\n"
-            "#define ShoreWave(d, t, S) ShoreFns::h(d, t, S)\n" + code + "#undef ShoreWave\n")
+    """`code` with SHORE_H's helpers (ShoreFns::h, phase, strength, n2): a
+    Custom node's code is one function body, so they are static functions in
+    a nested struct (the usual way to define them inside a Custom node)."""
+    return "struct ShoreFns {" + SHORE_H + "};\n" + code
 
 
 def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
@@ -228,6 +267,12 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("used_with_static_lighting", False)
+    # The shore foam moves in the pixel shader, not with the geometry; TSR
+    # smeared it into streaks until told so.
+    try:
+        m.set_editor_property("has_pixel_animation", True)
+    except Exception as e:
+        unreal.log_warning(f"has_pixel_animation: {e}")
     g = Graph(m)
     if not graph:
         mel.connect_material_property(g.vector("Up", (0, 0, 1, 1)), "", unreal.MaterialProperty.MP_NORMAL)
@@ -278,14 +323,25 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
                       transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
                       transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
     link(ripple_t, "", ripple_w, "")
+    chop_scale = g.vector4("ChopScale", (1100.0, 60.0, 0.0, 0.0))
+    chops = []
+    for k, code in enumerate((CHOP_UV0, CHOP_UV1)):
+        uvc = g.custom(code, [("P", still, ""), ("Time", time, ""), ("S", chop_scale, "")],
+                       output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description=f"chop {k} uv")
+        chops.append(g.texture("DetailWave", flat, uvc))
     normal = g.custom(COMBINE_NORMAL, [("Swell", swell_n, ""), ("Ripple", ripple_w, ""),
-                                       ("Strength", g.scalar("DetailStrength", 0.05), "")], description="water normal")
+                                       ("C0", chops[0], "RGBA"), ("C1", chops[1], "RGBA"),
+                                       ("Chop", g.scalar("ChopStrength", 0.07), ""),
+                                       ("Strength", g.scalar("DetailStrength", 0.05), ""),
+                                       ("Shore", shore, ""), ("NearShore", g.scalar("NearShoreDetail", 3.0), "")],
+                      description="water normal")
     tangent = g.node(unreal.MaterialExpressionTransform, x=-300,
                      transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
                      transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
     link(normal, "", tangent, "")
     mel.connect_material_property(tangent, "", unreal.MaterialProperty.MP_NORMAL)
-    foam = g.custom(FOAM, [("Shore", shore, ""), ("Time", time, ""), ("ShoreParams", shore_params, ""),
+    foam = g.custom(with_shore(FOAM), [("Shore", shore, ""), ("Time", time, ""), ("ShoreParams", shore_params, ""),
+                                       ("P", still, ""),
                            ("Ripple", ripple_t, ""), ("Amount", g.scalar("FoamAmount", 1.0), "")],
                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="shore foam")
     rough = g.node(unreal.MaterialExpressionLinearInterpolate, x=-300)
