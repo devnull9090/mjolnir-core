@@ -13,6 +13,9 @@ masters.
 """
 import json
 import os
+import re
+import shutil
+import tempfile
 
 import unreal
 
@@ -45,10 +48,29 @@ if spec.get("chunk"):
     eal.save_loaded_asset(label)
     unreal.log(f"MJOLNIR: {label_path} puts {root} in chunk {spec['chunk']}")
 
+# Unreal takes a file whose name ends in a four-digit number for a UDIM tile
+# and stitches it to its numbered siblings into one virtual texture. A
+# protected map's bitmaps are named that way (protected_bitm_1459, _1475,
+# _1477, ...): Yoyorast's became virtual textures of mismatched blocks, and
+# the cook failed on them (2026-10-10). Such a file goes in from a copy
+# named otherwise.
+UDIM_NAME = re.compile(r"[._]\d{4}$")
+renamed = tempfile.mkdtemp(prefix="mjolnir_ce_import_")
+
+
+def import_source(path):
+    stem, ext = os.path.splitext(os.path.basename(path))
+    if not UDIM_NAME.search(stem):
+        return path
+    copy = os.path.join(renamed, stem + "_tex" + ext)
+    shutil.copyfile(path, copy)
+    return copy
+
+
 tasks = []
 for t in spec["textures"]:
     task = unreal.AssetImportTask()
-    task.set_editor_property("filename", t["file"])
+    task.set_editor_property("filename", import_source(t["file"]))
     task.set_editor_property("destination_path", tex_dir)
     task.set_editor_property("destination_name", t["name"])
     task.set_editor_property("replace_existing", True)
@@ -68,6 +90,9 @@ for t in spec["textures"]:
     tex.set_editor_property("srgb", False)
     tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
     tex.set_editor_property("never_stream", True)
+    # One that came in as a UDIM set before (above) keeps the flag on a
+    # re-import.
+    tex.set_editor_property("virtual_texture_streaming", False)
     if t.get("mips"):
         # The DDS carries the bitmap's own mip chain (CE's detail maps fade
         # to grey in theirs); keep it rather than regenerate one.
@@ -105,4 +130,5 @@ for path in eal.list_assets(tex_dir, recursive=True, include_folder=False):
 for path in eal.list_assets(mat_dir, recursive=True, include_folder=False) if eal.does_directory_exist(mat_dir) else []:
     eal.delete_asset(path.split(".")[0])
 
+shutil.rmtree(renamed, ignore_errors=True)
 unreal.log(f"MJOLNIR CE level: {len(textures)} texture(s) under {root}")
