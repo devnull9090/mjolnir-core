@@ -2803,6 +2803,195 @@ function Land.apply(world)
     end)
 end
 
+--- Footprints on a landscape, as Silent Cartographer's beach keeps them:
+--- every player's steps, drawn with the game's Spartan print into a render
+--- target over a square around the local player, which the landscape master
+--- reads (build_ce_materials.py FOOT_CODE: FootRT, FootRect) to darken the
+--- ground and bend its normal. When the local player nears the square's
+--- edge it moves, its prints carried over (two targets, drawn one into the
+--- other); they fade slowly. Engine canvas drawing only: a decal material of
+--- ours took the game down (a pipeline state it could not build).
+local Footprints = {
+    MAP = "/HaloLandscapeDeformations/Resources/T_Spartan_Decal_Footprint_11.T_Spartan_Decal_Footprint_11",
+    BLACK = "/Engine/EngineResources/Black.Black",
+    RES = 4096, SIZE = 4096, -- texels and cm a side: 1 cm a texel (at 2 the tread was lost)
+    DARK = 0.85, RELIEF = 3.0, -- how much a print darkens the ground, and bends it
+    PRINT = 38, -- cm a side of the print's square map
+    STRIDE = 70, SIDE = 12, -- cm between prints, and either side of the line
+    FADE = 0.03, -- of the prints' depth lost every FADE_MS
+    FADE_MS = 2000,
+    on = true, walkers = {}, world = nil, rts = nil, cur = 1, cx = 0, cy = 0, fadedAt = 0,
+}
+
+--- The render targets, made for this world and handed to the landscape.
+function Footprints.targets(world)
+    -- By name: two Lua handles on one world are not equal, and comparing
+    -- them made new targets every tick.
+    local name = world:GetFullName()
+    if Footprints.world == name and Footprints.rts and Footprints.rts[1]:IsValid() then return Footprints.rts end
+    Footprints.world, Footprints.rts, Footprints.walkers = name, nil, {}
+    local land = FindFirstOf("Landscape")
+    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    if not (land and land:IsValid() and krl) then return nil end
+    local rts = {}
+    for i = 1, 2 do
+        rts[i] = krl:CreateRenderTarget2D(world, Footprints.RES, Footprints.RES, 0, { R = 0, G = 0, B = 0, A = 1 },
+            false, false)
+        if not (rts[i] and rts[i]:IsValid()) then return nil end
+    end
+    Footprints.rts, Footprints.cur, Footprints.land = rts, 1, land
+    local pawn = getPawn()
+    local p = pawn and pawn:K2_GetActorLocation() or { X = 0, Y = 0 }
+    Footprints.cx, Footprints.cy = p.X, p.Y
+    land:SetLandscapeMaterialScalarParameterValue(FName("FootTexel"), 1.0 / Footprints.RES)
+    land:SetLandscapeMaterialScalarParameterValue(FName("FootDark"), Footprints.DARK)
+    land:SetLandscapeMaterialScalarParameterValue(FName("FootRelief"), Footprints.RELIEF)
+    land:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), Footprints.on and 1.0 or 0.0)
+    Footprints.hand()
+    return rts
+end
+
+--- The current target and its square, to the landscape.
+function Footprints.hand()
+    local land = Footprints.land
+    land:SetLandscapeMaterialTextureParameterValue(FName("FootRT"), Footprints.rts[Footprints.cur])
+    land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"),
+        { R = Footprints.cx, G = Footprints.cy, B = Footprints.SIZE, A = Footprints.SIZE })
+end
+
+--- Draw on the current target: `fn(canvas)` between begin and end.
+function Footprints.draw(world, fn)
+    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    -- UE4SS hands the out parameters back shifted: the canvas (and size) in
+    -- the first table, the drawing context in the second.
+    local c1, c2, c3 = {}, {}, {}
+    krl:BeginDrawCanvasToRenderTarget(world, Footprints.rts[Footprints.cur], c1, c2, c3)
+    local ok, err = pcall(fn, c1.Canvas)
+    krl:EndDrawCanvasToRenderTarget(world, c2)
+    if not ok then Log("footprints: " .. tostring(err)) end
+end
+
+--- Move the square to centre on (x, y), carrying the prints over.
+function Footprints.recentre(world, x, y)
+    local old = Footprints.rts[Footprints.cur]
+    local scale = Footprints.RES / Footprints.SIZE
+    local dx, dy = (Footprints.cx - x) * scale, (Footprints.cy - y) * scale
+    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    Footprints.cur = 3 - Footprints.cur
+    krl:ClearRenderTarget2D(world, Footprints.rts[Footprints.cur], { R = 0, G = 0, B = 0, A = 1 })
+    Footprints.draw(world, function(canvas)
+        canvas:K2_DrawTexture(old, { X = dx, Y = dy }, { X = Footprints.RES, Y = Footprints.RES }, { X = 0, Y = 0 },
+            { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 0, 0, { X = 0.5, Y = 0.5 })
+    end)
+    Footprints.cx, Footprints.cy = x, y
+    Footprints.hand()
+end
+
+--- One print at (x, y), facing `yaw` (degrees from +x towards +y), `side`
+--- -1 or 1 of the walking line.
+function Footprints.stamp(world, x, y, yaw, side)
+    local map = resolveMesh(Footprints.MAP)
+    if not map then return end
+    local a = math.rad(yaw)
+    local px, py = x - math.sin(a) * Footprints.SIDE * side, y + math.cos(a) * Footprints.SIDE * side
+    local scale = Footprints.RES / Footprints.SIZE
+    local u = (px - Footprints.cx) * scale + Footprints.RES / 2
+    local v = (py - Footprints.cy) * scale + Footprints.RES / 2
+    local size = Footprints.PRINT * scale
+    if u < 0 or v < 0 or u > Footprints.RES or v > Footprints.RES then return end
+    Footprints.draw(world, function(canvas)
+        -- The map's toe points up the canvas (-v); the canvas turns it
+        -- clockwise, so the walking direction's yaw is 90 degrees on.
+        canvas:K2_DrawTexture(map, { X = u - size / 2, Y = v - size / 2 }, { X = size, Y = size }, { X = 0, Y = 0 },
+            { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 2, yaw + 90, { X = 0.5, Y = 0.5 })
+    end)
+end
+
+--- Every player's pawn, stepping: a print each STRIDE it covers on the
+--- ground (a jump, a respawn or a teleporter is not a step).
+function Footprints.tick()
+    local land = Current.level and Current.level.landscape
+    if not (Footprints.on and Current.furnished and type(land) == "table") then return end
+    local world = getWorld()
+    if not (world and Footprints.targets(world)) then return end
+    local me = not Footprints.hold and getPawn()
+    if me then
+        local p = me:K2_GetActorLocation()
+        if math.abs(p.X - Footprints.cx) > Footprints.SIZE / 4 or math.abs(p.Y - Footprints.cy) > Footprints.SIZE / 4 then
+            Footprints.recentre(world, p.X, p.Y)
+        end
+    end
+    local now = os.clock()
+    if now - Footprints.fadedAt > Footprints.FADE_MS / 1000 then
+        Footprints.fadedAt = now
+        local black = resolveMesh(Footprints.BLACK)
+        if black then
+            Footprints.draw(world, function(canvas)
+                canvas:K2_DrawTexture(black, { X = 0, Y = 0 }, { X = Footprints.RES, Y = Footprints.RES },
+                    { X = 0, Y = 0 }, { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = Footprints.FADE }, 2, 0,
+                    { X = 0.5, Y = 0.5 })
+            end)
+        end
+    end
+    local gs = findObject("/Script/Engine.Default__GameplayStatics")
+    local state = gs and gs:GetGameState(world)
+    if not (state and state:IsValid()) then return end
+    local players = state.PlayerArray
+    for i = 1, #players do
+        local ps = players[i]
+        local pawn = ps and ps:IsValid() and ps:GetPawn()
+        if pawn and pawn:IsValid() then
+            local key = ps:GetFullName()
+            local p = pawn:K2_GetActorLocation()
+            local w = Footprints.walkers[key]
+            if not w then
+                Footprints.walkers[key] = { x = p.X, y = p.Y, z = p.Z, side = 1 }
+            else
+                local dx, dy, dz = p.X - w.x, p.Y - w.y, p.Z - w.z
+                local d = math.sqrt(dx * dx + dy * dy)
+                if d > 400 or math.abs(dz) > 60 then
+                    w.x, w.y, w.z = p.X, p.Y, p.Z
+                elseif d >= Footprints.STRIDE then
+                    w.x, w.y, w.z, w.side = p.X, p.Y, p.Z, -w.side
+                    Footprints.stamp(world, p.X, p.Y, math.deg(math.atan(dy, dx)), w.side)
+                end
+            end
+        end
+    end
+end
+
+function Footprints.command(args)
+    local a = (args and args[1] or ""):lower()
+    if a == "on" or a == "off" then
+        Footprints.on, Footprints.hold = (a == "on"), false
+        if Footprints.land and Footprints.land:IsValid() then
+            Footprints.land:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), Footprints.on and 1.0 or 0.0)
+        end
+    elseif a == "test" then
+        -- A trail ahead of the camera, to look at without walking; the
+        -- square stays put (not on the player) until on or off.
+        Footprints.hold = true
+        local world = getWorld()
+        local pc = getPlayerController()
+        if world and pc and Footprints.targets(world) then
+            local cm = pc.PlayerCameraManager
+            local o, r = cm:GetCameraLocation(), cm:GetCameraRotation()
+            local yaw = r.Yaw
+            local rad = math.rad(yaw)
+            local x, y = o.X + math.cos(rad) * 300, o.Y + math.sin(rad) * 300
+            Footprints.recentre(world, x, y)
+            local side = 1
+            for _ = 1, 14 do
+                side = -side
+                Footprints.stamp(world, x, y, yaw, side)
+                x, y = x + math.cos(rad) * Footprints.STRIDE, y + math.sin(rad) * Footprints.STRIDE
+            end
+        end
+    end
+    Log(string.format("footprints: %s, square at %.0f, %.0f", Footprints.on and "on" or "off", Footprints.cx,
+        Footprints.cy))
+end
+
 local function spawnDecor(world)
     local level = Current.level
     spawnEnvironment(world)
@@ -2979,6 +3168,7 @@ local function watch()
     -- second apart).
     every(100, "event sounds", drainEvents)
     every(100, "weather", updateWeather)
+    every(100, "footprints", Footprints.tick)
     -- A slider moved in the pause menu is heard within half a second.
     every(500, "sound volume", syncVolumes)
     -- A flag picked up or dropped is a new actor, drawn as a skull until it
@@ -3622,7 +3812,11 @@ local function initialize()
         Foliage.command(args)
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail, mjolnir_foliage")
+    RegisterConsoleCommandHandler("mjolnir_footprints", function(_, args)
+        Footprints.command(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail, mjolnir_foliage, mjolnir_footprints")
     watch()
 end
 

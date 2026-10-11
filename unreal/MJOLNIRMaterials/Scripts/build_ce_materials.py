@@ -1310,6 +1310,22 @@ return normalize(CeN + float3(GameN.xy, 0.0));
 """
 
 
+FOOT_CODE = r"""
+// x: the print's depth here (the footprint map's tread height, as drawn);
+// y, z: its slope, for the normal. Faded out towards the square's edge.
+if (Strength <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
+float2 uv = (W.xy - R.xy) / R.zw + 0.5;
+float edge = saturate(min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)) * 20.0);
+if (edge <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
+float d = Texture2DSampleLevel(Foot, FootSampler, uv, 0).r;
+float l = Texture2DSampleLevel(Foot, FootSampler, uv - float2(Texel, 0.0), 0).r;
+float r = Texture2DSampleLevel(Foot, FootSampler, uv + float2(Texel, 0.0), 0).r;
+float b = Texture2DSampleLevel(Foot, FootSampler, uv - float2(0.0, Texel), 0).r;
+float t = Texture2DSampleLevel(Foot, FootSampler, uv + float2(0.0, Texel), 0).r;
+float k = Strength * edge;
+return float4(d * k, (l - r) * k, (b - t) * k, 0.0);
+"""
+
 LAND_CUT_CODE = r"""
 float m = AlphaTest > 0.5 ? Pick : 1.0;
 if (LandCut < 0.5) return m;
@@ -1377,6 +1393,24 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
                         description=f"CE {scale} uv")
 
     base = g.texture("Base", white, uv0)
+    base_pin = "RGBA"
+    if land:
+        # Footprints (MJOLNIRLevelLoader Footprints): the players' steps drawn
+        # into a render target (FootRT) over a square around the local player
+        # (FootRect: centre x, y, size cm). The print darkens the ground and
+        # bends its normal; off by default (FootStrength 0).
+        foot = g.custom(FOOT_CODE, [
+            ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+            ("R", g.vector4("FootRect", (0.0, 0.0, 4096.0, 4096.0)), ""),
+            ("Foot", g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="FootRT",
+                            texture=grey, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), ""),
+            ("Texel", g.scalar("FootTexel", 1.0 / 2048.0), ""),
+            ("Strength", g.scalar("FootStrength", 0.0), "")],
+            output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="footprints")
+        base = g.custom("return float4(B.rgb * (1.0 - Dark * F.x), B.a);",
+                        [("B", base, "RGBA"), ("F", foot, ""), ("Dark", g.scalar("FootDark", 0.45), "")],
+                        output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="footprint shade")
+        base_pin = ""
     primary = g.texture("Primary", grey, scaled("PrimaryScale", "PrimaryAspect"))
     secondary = g.texture("Secondary", grey, scaled("SecondaryScale", "SecondaryAspect"))
     micro = g.texture("Micro", grey, scaled("MicroScale", "MicroAspect"))
@@ -1446,7 +1480,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
                 ("Ce", ce, "RGBA"), ("Tex", game_texture(pname, albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
                 ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
                 ("Has", g.scalar("Has" + pname, 0.0), ""), ("Strength", strength, ""),
-                ("Base", base, "RGBA"), ("BaseKeep", g.scalar(pname + "Keep", 1.0), ""),
+                ("Base", base, base_pin), ("BaseKeep", g.scalar(pname + "Keep", 1.0), ""),
                 ("AlbedoGain", albedo_gain, ""), ("Wet", wet, ""),
                 ("TexB", game_texture(pname + "B", albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
                 ("HasB", g.scalar("Has" + pname + "B", 0.0), ""),
@@ -1458,7 +1492,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
             ("PN", game_texture("GamePrimaryN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
             ("SN", game_texture("GameSecondaryN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
             ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
-            ("Base", base, "RGBA"), ("Qa", secondary, "A"), ("Type", g.scalar("Type", 0.0), ""),
+            ("Base", base, base_pin), ("Qa", secondary, "A"), ("Type", g.scalar("Type", 0.0), ""),
             ("HasP", g.scalar("HasGamePrimary", 0.0), ""), ("HasS", g.scalar("HasGameSecondary", 0.0), ""),
             ("Strength", g.scalar("GameNormalStrength", 1.0), ""),
             ("PWN", game_texture("GamePrimaryWN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
@@ -1472,6 +1506,10 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     bump_w = g.node(unreal.MaterialExpressionTransform, x=-800,
                     transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
                     transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    if land:
+        bump_n = g.custom("float3 n = N; n.xy += F.yz * Relief; return normalize(n);",
+                          [("N", bump_n, ""), ("F", foot, ""), ("Relief", g.scalar("FootRelief", 1.0), "")],
+                          description="footprint normal")
     link(bump_n, "", bump_w, "")
     vertex_n = g.node(unreal.MaterialExpressionVertexNormalWS)
     reflect_flat = g.scalar("ReflectFlat", 0.0)
@@ -1481,7 +1519,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     time = g.node(unreal.MaterialExpressionTime)
 
     inputs = [
-        ("Base", base, "RGBA"), ("Primary", *primary_in), ("Secondary", *secondary_in),
+        ("Base", base, base_pin), ("Primary", *primary_in), ("Secondary", *secondary_in),
         ("Micro", micro, "RGBA"), ("Bump", bump, "RGBA"), ("Lightmap", lightmap, "RGBA"),
         ("SelfIllum", self_illum, "RGBA"), ("Incident", vc, ""), ("IncidentWeight", vc, "A"),
         ("Multi", multi, "RGBA"), ("ObjTint", obj_tint, "RGBA"), ("ObjCC", obj_cc, "RGBA"),
