@@ -2,7 +2,7 @@
 """Scatter the game's own plants and rocks over a converted CE map's ground.
 
     scatter_foliage.py <scene.gltf> <materials.spec.json> <out.json> --bin foliage.bin
-        [--sea cm] [--offset x,y,z] [--center x,y --radius r] [--seed 1] [--only rule,...]
+        [--sea cm] [--offset x,y,z] [--lift cm] [--center x,y --radius r] [--seed 1] [--only rule,...]
 
 CE draws its ground as detail maps: a blended shader_environment (Death
 Island's beach) picks between two by its base map's alpha (TEXTURE_PASS_CODE
@@ -37,7 +37,8 @@ keeps above it; without `--sea`, the rules tied to the shore are left out.
 
 Writes the instances to `--bin` (FOLIAGE_MAGIC: per group a count, then
 x, y, z as float32 cm, yaw in 256ths of a turn and scale in hundredths, a
-byte each) and out.json, the level file's `foliage` entry for
+byte each, then the ground's normal x and y in 127ths, a signed byte each:
+a rule with `align` lies along the slope, the rest stand upright at 0, 0) and out.json, the level file's `foliage` entry for
 MJOLNIRLevelLoader: the file, and per group its mesh and optional tint,
 material, cull distances, shadow and cull bands (the game's foliage
 materials do not fade: the loader spreads a group's clumps over `bands`
@@ -59,7 +60,9 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from refine_water_gltf import read_accessor  # noqa: E402
 
-FOLIAGE_MAGIC = b"MJFG"
+# MJF2: the records carry the ground's normal (MJFG, without it, stood every
+# rock level, and a 3.5 m slab on a slope floated on its downhill side).
+FOLIAGE_MAGIC = b"MJF2"
 MEGA = "/Game/Megascans/3D_Plants/"
 MEGA3D = "/Game/Megascans/3D_Assets/"
 ROCKS = "/Game/Env/Bio/Rock/Uluwatu/"
@@ -96,12 +99,12 @@ RULES = [
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var6_lod0", 0.62, 0.79, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var7_lod0", 0.62, 0.79, 0)],
      "tint": TUFT_TINT, "cull": [3500, 9000], "bands": 4},
-    {"name": "rocky ground", "on": "sand", "share": [0.5, 0.8], "density": 0.06, "slope": 25, "above": [-0.4, 1.5],
+    {"name": "rocky ground", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.06, "slope": 15, "above": [-0.4, 1.5],
      "cluster": [14.0, 0.62],
      "meshes": [("/Game/Megascans/3D_Assets/Nordic_Beach_Rocky_Ground_ve3qdhmqx/S_Nordic_Beach_Rocky_Ground_Uluwata_B",
                  0.6, 1.0, 6)],
      "cull": [8000, 14000], "shadow": True},
-    {"name": "stones", "on": "sand", "share": [0.5, 0.8], "density": 0.25, "slope": 30, "above": [-0.5, 2.5],
+    {"name": "stones", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.15, "slope": 30, "above": [-0.5, 2.5],
      "cluster": [14.0, 0.55],
      "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 0.06, 0.25, 40),
                 (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 0.04, 0.14, 60),
@@ -116,7 +119,7 @@ RULES = [
     # B30's beach decorators (its landscape grass types LG_B30_rippledsand_assets
     # and LG_B30_stone_assets): shell-sized coral and beach rocks, 10 to 35 cm,
     # and dry branches half a metre long, all lying in the sand.
-    {"name": "shells", "on": "sand", "share": [0.5, 0.8], "density": 1.6, "slope": 25, "above": [-0.3, 3.0],
+    {"name": "shells", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.5, "slope": 25, "above": [-0.3, 3.0],
      "cluster": [9.0, 0.45],
      "meshes": [(MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var2", 0.7, 1.2, 4),
                 (MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var3", 0.7, 1.2, 2),
@@ -124,7 +127,7 @@ RULES = [
                 (MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var5", 0.7, 1.2, 1),
                 (MEGA3D + "Coral_Stone_wfcmegzr/S_Coral_Stone_wfcmegzr_lod0_Var1", 0.8, 1.4, 0)],
      "cull": [2500, 4000], "shadow": True},
-    {"name": "pebbles", "on": "sand", "share": [0.4, 0.8], "density": 2.4, "slope": 30, "above": [-0.5, None],
+    {"name": "pebbles", "align": True, "on": "sand", "share": [0.4, 0.8], "density": 0.8, "slope": 30, "above": [-0.5, None],
      "cluster": [5.0, 0.64],
      "meshes": [(MEGA3D + "Small_Beach_Rock_wfbscavr/S_Small_Beach_Rock_wfbscavr_lod0_Var1", 0.6, 1.6, 1),
                 (MEGA3D + "Small_Beach_Rock_wd5nfa1/S_Small_Beach_Rock_wd5nfa1_high", 0.6, 1.4, 2),
@@ -134,7 +137,7 @@ RULES = [
                 (MEGA3D + "Small_Beach_Rock_wd5mfgo/S_Small_Beach_Rock_wd5mfgo_high_Var1", 0.6, 1.4, 1),
                 (MEGA3D + "Small_Beach_Rock_wfcpeggr/S_Small_Beach_Rock_wfcpeggr_lod0_Var1", 0.8, 2.0, 1)],
      "cull": [3000, 5000], "shadow": True},
-    {"name": "driftwood", "on": "sand", "share": [0.5, 0.8], "density": 0.025, "slope": 20, "above": [0.3, None],
+    {"name": "driftwood", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.025, "slope": 20, "above": [0.3, None],
      "meshes": [(MEGA3D + "DryBranches/SM_DryBranches_01", 1.0, 2.2, 0),
                 (MEGA3D + "DryBranches/SM_DryBranches_02", 1.0, 2.2, 0)],
      "cull": [4000, 6500], "shadow": True},
@@ -234,6 +237,9 @@ def main():
     ap.add_argument("--bin", required=True, help="the instances' binary file (out.json names it)")
     ap.add_argument("--sea", type=float, help="the sea's height (Unreal cm): the rules' heights are above it")
     ap.add_argument("--offset", default="0,0,0", help="the terrain mesh's offset (cm, build_terrain_meshes --offset)")
+    ap.add_argument("--lift", type=float, default=0.0,
+                    help="cm the visible ground rides over the mesh: a landscape's --lift (build_landscape.py, 8); "
+                         "without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
@@ -299,12 +305,12 @@ def main():
                     for p, sh in zip(pts, share):
                         if rng.random() > keep_share(sh, lo, hi, rule.get("falloff")):
                             continue
-                        x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2]
+                        x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2] + a.lift
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
                             continue
                         if a.sea is not None:
                             low, high = rule["above"]
-                            h = (z - a.sea) / 100.0
+                            h = (z - a.lift - a.sea) / 100.0
                             if (low is not None and h < low) or (high is not None and h > high):
                                 continue
                         cl = rule.get("cluster")
@@ -312,17 +318,26 @@ def main():
                             continue
                         path, smin, smax, sink = rule["meshes"][rng.randrange(len(rule["meshes"]))]
                         scale = rng.uniform(smin, smax)
+                        # Along the ground: its normal in Unreal's axes (y and z
+                        # swapped from the glTF's, which flips the cross product).
+                        tilt = (0.0, 0.0)
+                        if rule.get("align"):
+                            nu = np.array([n[0], n[2], n[1]]) / (2 * area)
+                            if nu[2] < 0:
+                                nu = -nu
+                            tilt = (float(nu[0]), float(nu[1]))
                         groups.setdefault(path, (rule, []))[1].append(
-                            [x, y, z - sink * scale, rng.uniform(0, 360), scale])
+                            [x, y, z - sink * scale, rng.uniform(0, 360), scale, tilt])
                         counts[rule["name"]] += 1
     ordered = sorted(groups.items(), key=lambda kv: kv[0])
     with open(a.bin, "wb") as f:
-        f.write(FOLIAGE_MAGIC + struct.pack("<II", 1, len(ordered)))
+        f.write(FOLIAGE_MAGIC + struct.pack("<II", 2, len(ordered)))
         for _, (_, inst) in ordered:
             f.write(struct.pack("<I", len(inst)))
-            for x, y, z, yaw, scale in inst:
-                f.write(struct.pack("<fffBB", x, y, z, int(yaw / 360.0 * 256) % 256,
-                                    max(1, min(255, round(scale * 100))) & 0xFF))
+            for x, y, z, yaw, scale, (nx, ny) in inst:
+                f.write(struct.pack("<fffBBbb", x, y, z, int(yaw / 360.0 * 256) % 256,
+                                    max(1, min(255, round(scale * 100))) & 0xFF,
+                                    max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127)))))
     out_groups = []
     for path, (rule, _) in ordered:
         g = {"mesh": object_path(path), "rule": rule["name"], "cull": rule["cull"]}

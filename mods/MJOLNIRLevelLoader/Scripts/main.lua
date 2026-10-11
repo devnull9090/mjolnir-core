@@ -2709,7 +2709,25 @@ end
 --- clumps in five). The grass is the game's Megascans grass (B30's beach),
 --- tinted through its Color Overlay. `mjolnir_foliage off` leaves it out
 --- until the game closes.
-local Foliage = { MAGIC = "MJFG", CULL = { 5000, 9000 }, on = true }
+--- MJF2 files (scatter_foliage.py since 2026-10-11) add to each clump the
+--- ground's normal x and y in 127ths, a signed byte each: rocks lie along
+--- the slope (0, 0 stands upright, as every MJFG clump does).
+local Foliage = { MAGIC = "MJFG", MAGIC2 = "MJF2", CULL = { 5000, 9000 }, on = true }
+
+--- A clump's rotation: turned `yaw` (radians) about the vertical, then tilted
+--- so its up is the ground normal (nx, ny, up).
+function Foliage.rotation(yaw, nx, ny)
+    local hz, hw = math.sin(yaw / 2), math.cos(yaw / 2)
+    local s2 = nx * nx + ny * ny
+    if s2 < 1e-6 then return { X = 0, Y = 0, Z = hz, W = hw } end
+    local nz = math.sqrt(math.max(1 - s2, 0))
+    -- From up to the normal: about (-ny, nx, 0) by acos(nz).
+    local half = math.acos(math.min(nz, 1)) / 2
+    local k = math.sin(half) / math.sqrt(s2)
+    local ax, ay, aw = -ny * k, nx * k, math.cos(half)
+    -- tilt * yaw (the yaw is applied first)
+    return { X = ax * hw + ay * hz, Y = ay * hw - ax * hz, Z = aw * hz, W = aw * hw }
+end
 
 --- The game's foliage wind (HaloFoliageAndWindInteractions) blows only where
 --- its wind flowmap is filled, which BP_Wind_Flowmap_Generator does in the
@@ -2745,7 +2763,8 @@ function Foliage.spawn(world)
         return
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
-    if not raw or raw:sub(1, 4) ~= Foliage.MAGIC then
+    local magic = raw and raw:sub(1, 4)
+    if magic ~= Foliage.MAGIC and magic ~= Foliage.MAGIC2 then
         Log("foliage: " .. foliage.file .. " missing or not a foliage file")
         return
     end
@@ -2755,6 +2774,7 @@ function Foliage.spawn(world)
     local cull = type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
     local started = os.clock()
     local _, count, pos = string.unpack("<II", raw, 5)
+    local tilted = magic == Foliage.MAGIC2
     local total, sx, sy, n = 0, 0, 0, 0
     for g = 1, count do
         local size
@@ -2801,16 +2821,20 @@ function Foliage.spawn(world)
             Current.actors["__foliage_" .. g] = actor
             for k = 1, size do
                 local x, y, z, yaw, scale
-                x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
-                local h = yaw * math.pi / 256
+                local nx, ny = 0, 0
+                if tilted then
+                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbb", raw, pos)
+                else
+                    x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
+                end
                 local s = scale / 100
-                comps[(k - 1) % #comps + 1]:AddInstance({ Rotation = { X = 0, Y = 0, Z = math.sin(h), W = math.cos(h) },
+                comps[(k - 1) % #comps + 1]:AddInstance({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
                     Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, true)
                 sx, sy, n = sx + x, sy + y, n + 1
             end
             total = total + size
         else
-            pos = pos + size * 14
+            pos = pos + size * (tilted and 16 or 14)
             Log("foliage: group " .. g .. " not spawned (" .. tostring(group.mesh) .. ")")
         end
     end
