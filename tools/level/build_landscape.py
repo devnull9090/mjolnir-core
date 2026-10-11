@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn a converted CE map's ground into an Unreal Landscape's inputs.
 
-    build_landscape.py <scene.gltf> <materials.spec.json> <out dir> --shader deathbeach
+    build_landscape.py <scene.gltf> <materials.spec.json> <out dir> --shader deathbeach,underwater
         [--quad 100] [--components N] [--texture 1024] [--lift 8] [--offset x,y,z]
 
 Campaign Evolved draws B30's beach as a Landscape (footprints, grass, real
@@ -161,7 +161,8 @@ def main():
     ap.add_argument("gltf")
     ap.add_argument("spec")
     ap.add_argument("out")
-    ap.add_argument("--shader", required=True, help="substring of the ground shader's name")
+    ap.add_argument("--shader", required=True,
+                    help="substrings of the ground shaders' names, comma-separated; the first sizes the square")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -173,14 +174,15 @@ def main():
 
     spec = json.load(open(a.spec, encoding="utf-8"))
     files = {t["name"]: t["file"] for t in spec["textures"]}
-    slots = {s["pattern"].rstrip("$"): s for s in spec["slots"] if a.shader in s["pattern"]}
+    shaders = [x for x in a.shader.split(",") if x]
+    slots = {s["pattern"].rstrip("$"): s for s in spec["slots"] if any(x in s["pattern"] for x in shaders)}
     if not slots:
         sys.exit(f"no slot of a shader matching {a.shader!r}")
     doc = json.load(open(a.gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
 
     # Every ground triangle with its base UVs and its lightmap page's UVs.
-    tris, uv0s, uv1s, pages = [], [], [], []
+    tris, uv0s, uv1s, pages, blended, firsts = [], [], [], [], [], []
     page_files = []
     for mesh in doc["meshes"]:
         for prim in mesh["primitives"]:
@@ -201,8 +203,14 @@ def main():
             uv0s.append(uv0[idx])
             uv1s.append(uv1[idx])
             pages.append(np.full(len(idx), page_files.index(key)))
-    tris, uv0s, uv1s, pages = map(np.concatenate, (tris, uv0s, uv1s, pages))
-    lo, hi = tris[..., :2].reshape(-1, 2).min(0), tris[..., :2].reshape(-1, 2).max(0)
+            # A blended shader picks sand or grass by its base alpha; any other
+            # ground (Death Island's sea floor) is plain sand.
+            blended.append(np.full(len(idx), 1.0 if (slot["material"].get("scalars") or {}).get("Type", 0) > 0.5 else 0.0))
+            firsts.append(np.full(len(idx), shaders[0] in slot["pattern"]))
+    tris, uv0s, uv1s, pages, blended, firsts = map(np.concatenate, (tris, uv0s, uv1s, pages, blended, firsts))
+    # The square around the first shader's ground (the sea floor runs on for
+    # kilometres; the rest of it stays the mesh's).
+    lo, hi = tris[firsts][..., :2].reshape(-1, 2).min(0), tris[firsts][..., :2].reshape(-1, 2).max(0)
     span = (hi - lo).max()
     comps = a.components or math.ceil(span / (QUADS * a.quad))
     side = comps * QUADS * a.quad
@@ -253,7 +261,9 @@ def main():
     n = a.texture
     step = side / n
     centres = origin + step / 2
-    z2, (uv0g, uv1g, pg) = raster(tris, centres, step, n, [uv0s, uv1s, pages[:, None, None].repeat(3, 1)])
+    z2, (uv0g, uv1g, pg, bg) = raster(tris, centres, step, n, [uv0s, uv1s, pages[:, None, None].repeat(3, 1),
+                                                               blended[:, None, None].repeat(3, 1)])
+    plain = np.isfinite(z2) & (bg[..., 0] < 0.5)
     on = np.isfinite(z2)
 
     # Where the landscape's surface (bilinear between its vertices, a fair
@@ -290,11 +300,15 @@ def main():
             sel = on & (pg == pi)
             if sel.any():
                 out[sel] = sample(images[f], (uv0g if name == "Base" else uv1g)[sel])
+        if name == "Base":
+            # Plain sand: alpha 1 (sand), and a grey that tints nothing
+            # (M_CE_LandscapePBR's CE colour is relative to 0.25 linear).
+            out[plain] = [136.0, 136.0, 136.0, 255.0]
         out = fill(out, on, iterations=40)
         file = name.lower() + ".png"
         Image.fromarray(np.clip(np.round(out), 0, 255).astype(np.uint8), "RGBA").save(os.path.join(a.out, file))
         written[name] = file
-    rep = next(iter(slots))
+    rep = next(k for k in slots if shaders[0] in k)
     # The slot's own material, its page textures swapped for the bakes (and
     # their rectangle): the landscape draws with the master itself, and the
     # loader sets these at runtime. (A cooked material instance would have
@@ -322,6 +336,8 @@ def main():
         # landscape bar its holes: the loader draws them with the masked
         # master, LandCut on.
         "cut": {"base": slots[rep]["material"]["textures"].get("Base"),
+                "bases": sorted({sl["material"]["textures"]["Base"] for sl in slots.values()
+                                 if "Base" in sl["material"].get("textures", {})}),
                 "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
                 "rect": [float(origin[0]), float(origin[1]), side, side]},
         "masks": {"LandMask": "landmask.png"},
@@ -332,7 +348,9 @@ def main():
                 # Tuned on Death Island's dusk (2026-10-11): normals, grain
                 # contrast, CE shade as occlusion, second sand; a warm tint
                 # against the purple sky; ripples to 5 m over the sea.
-                "look": [2.5, 2.0, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40]},
+                "look": [2.5, 2.0, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40],
+                # B30's ground grass ships desaturated, for its material to tint.
+                "grass_tint": [0.62, 0.78, 0.36, 1.0]},
     }
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")

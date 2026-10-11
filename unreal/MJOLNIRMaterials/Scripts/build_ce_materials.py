@@ -2129,12 +2129,20 @@ LAND_PBR_CODE = r"""
 #define LP_NRM(T, S, a, b, w) (lerp(Texture2DSample(T, S, a).rg, Texture2DSample(T, S, b).rg, w) * 2.0 - 1.0)
 
 float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
-float4 ce = Texture2DSample(Base, BaseSampler, luv);
+// The landscape reads the bakes over its rectangle; the terrain mesh
+// (MeshUV) its own base map and lightmap page by its own UVs, which hold the
+// right layer where a plateau overhangs the beach (the bakes hold the lower).
+float4 ce = Texture2DSample(Base, BaseSampler, MeshUV > 0.5 ? TC0 : luv);
+if (Plain > 0.5) ce = float4(0.533, 0.533, 0.533, 1.0); // plain sand, no tint
 float cellNoise = LP_NOISE(W.xy / max(Tiles.w, 1.0));
 float w = smoothstep(0.25, 0.75, cellNoise);
 
 // Layer weights.
 float grass = smoothstep(Mix.x, Mix.y, 1.0 - ce.a + (LP_NOISE(W.xy / 180.0) - 0.5) * 0.25);
+// Ground CE paints green is grass too, whatever its alpha says (Death
+// Island's mossy boulder top, its banks): green over red and blue, as
+// scatter_foliage.py's "green" rule reads the base map.
+grass = max(grass, smoothstep(0.03, 0.10, ce.g - max(ce.r, ce.b)));
 float h = W.z - Sea.x; // cm over the sea
 float hasSea = Sea.w > 0.5 ? 1.0 : 0.0;
 float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
@@ -2182,7 +2190,7 @@ albedo *= lerp(1.0.xxx, clamp(cel / max(Mix.w, 1e-3), 0.5, 1.8), Mix.z);
 // cliff feet) where Unreal's sky light alone is flat.
 if (Look.z > 0.0 && LMLevels.y > LMLevels.x)
 {
-    float lm = dot(Texture2DSample(LM, LMSampler, luv).rgb, float3(0.2126, 0.7152, 0.0722));
+    float lm = dot(Texture2DSample(LM, LMSampler, MeshUV > 0.5 ? TC1 : luv).rgb, float3(0.2126, 0.7152, 0.0722));
     float occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
     ao *= lerp(1.0, 0.35 + 0.65 * occ, Look.z);
 }
@@ -2223,12 +2231,24 @@ return max(albedo, 0.0);
 """
 
 
-def build_landscape_pbr(defaults):
+GROUND_CUT_CODE = r"""
+// The terrain mesh's ground under a landscape: only the landscape's holes
+// (its hole mask, a texel a vertex), so the two meet in one look.
+float2 uv = (W.xy - R.xy) / R.zw;
+if (any(uv < 0.0) || any(uv > 1.0)) return 1.0;
+float h = Texture2DSampleLevel(Mask, MaskSampler, (uv * (N - 1.0) + 0.5) / N, 0).r;
+return saturate((h - Edge) * 100.0);
+"""
+
+
+def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     """M_CE_LandscapePBR: a converted map's landscape drawn as B30's beach is
     (LAND_PBR_CODE): Unreal-lit Megascans layers, masked by the landscape's
     holes. MJOLNIRLevelLoader sets every texture (the game's own, which this
-    project does not have) and the layer and sea parameters at runtime."""
-    m = fresh(ROOT, "M_CE_LandscapePBR", unreal.Material, unreal.MaterialFactoryNew())
+    project does not have) and the layer and sea parameters at runtime.
+    land=False (M_CE_GroundPBR): the same ground for the terrain mesh's ground
+    slots, drawn only in the landscape's holes."""
+    m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
     m.set_editor_property("opacity_mask_clip_value", 0.5)
@@ -2267,6 +2287,8 @@ def build_landscape_pbr(defaults):
         tex("LM", white, linear),
         # LMLevels: the lightmap's shadow and sunlit levels (the loader's LightmapSun).
         ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("TC0", g.uv(0), ""), ("TC1", g.uv(1), ""),
+        ("MeshUV", g.scalar("MeshUV", 0.0), ""), ("Plain", g.scalar("PlainSand", 0.0), ""),
         tex("FootRT", grey, linear),
         ("FootRect", g.vector4("FootRect", (0.0, 0.0, 4096.0, 4096.0)), ""),
         # Foot: strength, relief, texel, occlusion.
@@ -2288,7 +2310,17 @@ def build_landscape_pbr(defaults):
     mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
     mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
                                   unreal.MaterialProperty.MP_SPECULAR)
-    holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
+    if land:
+        holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
+    else:
+        holes = g.custom(GROUND_CUT_CODE, [
+            ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+            ("R", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
+            ("N", g.scalar("LandMaskSize", 505.0), ""),
+            ("Edge", g.scalar("LandCutEdge", 0.25), ""),
+            ("Mask", g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="LandMask",
+                            texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), "")],
+            output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="landscape cut")
     mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
@@ -2297,6 +2329,7 @@ def build_landscape_pbr(defaults):
 if TRIAL_ROOT:
     build_environment("M_CE_Landscape", False, defaults, land=True)
     build_landscape_pbr(defaults)
+    build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

@@ -679,8 +679,12 @@ local function runtimeMaterial(world, spec, name, target)
     -- map): the trial's masked master, which keeps only the landscape's holes.
     local land = Current.level and Current.level.landscape
     local cut = not target and type(land) == "table" and type(land.cut) == "table"
-        and type(spec.textures) == "table" and land.cut.base ~= nil and spec.textures.Base == land.cut.base
-        and land.cut or nil
+        and type(spec.textures) == "table" and spec.textures.Base ~= nil and land.cut or nil
+    if cut then
+        local hit = spec.textures.Base == cut.base
+        for _, b in ipairs(type(cut.bases) == "table" and cut.bases or {}) do hit = hit or spec.textures.Base == b end
+        if not hit then cut = nil end
+    end
     local master = (TerrainShadows.lightmap or TerrainLights.trial or game or cut) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if cut and master then
@@ -2798,24 +2802,26 @@ Land.SURFACES = {
     SandBN = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_N",
 }
 
-function Land.pbr(land, pbr)
+--- `set` takes the parameters: { tex = fn(name, texture), vec = fn(name,
+--- {R,G,B,A}) }, for the landscape (Land.landSetter) or a mesh's instance.
+function Land.pbr(set, pbr)
     local missing = 0
     for param, path in pairs(Land.SURFACES) do
         local leaf = path:match("([^/]+)$")
         local tex = resolveMesh(Land.MEGASCANS .. path .. "." .. leaf)
         if tex then
-            land:SetLandscapeMaterialTextureParameterValue(FName(param), tex)
+            set.tex(param, tex)
         else
             missing = missing + 1
         end
     end
     local base = type(pbr.base) == "string" and resolveMesh(pbr.base)
-    if base then land:SetLandscapeMaterialTextureParameterValue(FName("Base"), base) end
+    if base then set.tex("Base", base) end
     local r = type(pbr.rect) == "table" and pbr.rect
-    if r then land:SetLandscapeMaterialVectorParameterValue(FName("LandRect"), { R = r[1], G = r[2], B = r[3], A = r[4] }) end
+    if r then set.vec("LandRect", { R = r[1], G = r[2], B = r[3], A = r[4] }) end
     local function vec(param, v)
         if type(v) == "table" then
-            land:SetLandscapeMaterialVectorParameterValue(FName(param), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 0 })
+            set.vec(param, { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 0 })
         end
     end
     vec("GrassTint", pbr.grass_tint)
@@ -2825,8 +2831,8 @@ function Land.pbr(land, pbr)
     local lm = type(pbr.lightmap) == "string" and resolveMesh(pbr.lightmap)
     local levels = lightmapSun()
     if lm and levels then
-        land:SetLandscapeMaterialTextureParameterValue(FName("LM"), lm)
-        land:SetLandscapeMaterialVectorParameterValue(FName("LandLMLevels"), { R = levels[1], G = levels[2], B = 0, A = 0 })
+        set.tex("LM", lm)
+        set.vec("LandLMLevels", { R = levels[1], G = levels[2], B = 0, A = 0 })
     end
     vec("LandTiles", pbr.tiles)
     vec("LandMix", pbr.mix)
@@ -2842,9 +2848,66 @@ function Land.pbr(land, pbr)
         end
     end
     local band = type(pbr.sea) == "table" and pbr.sea or {}
-    land:SetLandscapeMaterialVectorParameterValue(FName("LandSea"),
-        { R = sea or 0, G = band[1] or 150, B = band[2] or 40, A = sea and 1 or 0 })
+    set.vec("LandSea", { R = sea or 0, G = band[1] or 150, B = band[2] or 40, A = sea and 1 or 0 })
     return missing
+end
+
+function Land.landSetter(land)
+    return {
+        tex = function(n, t) land:SetLandscapeMaterialTextureParameterValue(FName(n), t) end,
+        vec = function(n, v) land:SetLandscapeMaterialVectorParameterValue(FName(n), v) end,
+    }
+end
+
+--- The terrain mesh's ground slots under a B30 landscape (level.landscape.cut)
+--- drawn with M_CE_GroundPBR: the same ground, only in the landscape's holes,
+--- so a hole's edge shows no seam. Returns the slots changed.
+function Land.ground(world, spec)
+    local cut = spec.cut
+    if type(cut) ~= "table" then return 0 end
+    local bases = {}
+    for _, b in ipairs(type(cut.bases) == "table" and cut.bases or { cut.base }) do bases[b] = true end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_GroundPBR.M_CE_GroundPBR")
+    local mask = type(cut.mask) == "string" and resolveMesh(cut.mask)
+    if not (kml and parent and mask) then return 0 end
+    -- One instance a slot: each reads its own base map and lightmap page by
+    -- the mesh's UVs (the bakes hold only the lowest layer of the ground).
+    Land.groundMids = {}
+    local changed = 0
+    for index, item in ipairs(Current.level.decor or {}) do
+        local id = (type(item) == "table" and item.id) or ("#" .. index)
+        local actor = Current.actors[id]
+        if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
+            local comp = actor.StaticMeshComponent
+            for i, entry in ipairs(item.materials) do
+                if type(entry) == "table" and type(entry.textures) == "table" and bases[entry.textures.Base] then
+                    local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_ground_%d", i)), 0)
+                    if mid and mid:IsValid() then
+                        Land.pbr({
+                            tex = function(n, t) mid:SetTextureParameterValue(FName(n), t) end,
+                            vec = function(n, v) mid:SetVectorParameterValue(FName(n), v) end,
+                        }, spec.pbr)
+                        mid:SetTextureParameterValue(FName("LandMask"), mask)
+                        mid:SetScalarParameterValue(FName("LandMaskSize"), cut.size or 505)
+                        if type(cut.edge) == "number" then mid:SetScalarParameterValue(FName("LandCutEdge"), cut.edge) end
+                        local own = resolveMesh(entry.textures.Base)
+                        if own then mid:SetTextureParameterValue(FName("Base"), own) end
+                        local lm = type(entry.textures.Lightmap) == "string" and resolveMesh(entry.textures.Lightmap)
+                        if lm then mid:SetTextureParameterValue(FName("LM"), lm) end
+                        mid:SetScalarParameterValue(FName("MeshUV"), 1.0)
+                        local blended = type(entry.scalars) == "table" and (entry.scalars.Type or 0) > 0.5
+                        mid:SetScalarParameterValue(FName("PlainSand"), blended and 0.0 or 1.0)
+                        if pcall(function() comp:SetMaterial(i - 1, mid) end) then
+                            changed = changed + 1
+                            Land.groundMids[#Land.groundMids + 1] = mid
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return changed
 end
 
 function Land.apply(world)
@@ -2856,9 +2919,11 @@ function Land.apply(world)
         return
     end
     if type(spec.pbr) == "table" then
-        local ok, missing = pcall(Land.pbr, land, spec.pbr)
+        local ok, missing = pcall(Land.pbr, Land.landSetter(land), spec.pbr)
         Log("landscape: " .. (ok and string.format("B30 ground applied (%d surface map(s) missing)", missing)
             or tostring(missing)))
+        local gok, slots = pcall(Land.ground, world, spec)
+        Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots) or tostring(slots)))
         pcall(function()
             local comps = land.LandscapeComponents
             for i = 1, #comps do comps[i]:SetCastShadow(false) end
@@ -2942,17 +3007,27 @@ end
 --- The B30 ground's footprint parameters (M_CE_LandscapePBR FootParams:
 --- strength, relief, texel, occlusion).
 function Footprints.params()
-    Footprints.land:SetLandscapeMaterialVectorParameterValue(FName("FootParams"),
-        { R = Footprints.on and 1.0 or 0.0, G = Footprints.SHADE_RELIEF, B = 1.0 / Footprints.RES, A = Footprints.SHADE_AO })
+    local v = { R = Footprints.on and 1.0 or 0.0, G = Footprints.SHADE_RELIEF, B = 1.0 / Footprints.RES, A = Footprints.SHADE_AO }
+    Footprints.land:SetLandscapeMaterialVectorParameterValue(FName("FootParams"), v)
+    for _, g in ipairs(Land.groundMids or {}) do
+        if g:IsValid() then g:SetVectorParameterValue(FName("FootParams"), v) end
+    end
 end
 
 --- The current target and its square, to the landscape (which also keeps
 --- the target from being collected).
 function Footprints.hand()
     local land = Footprints.land
+    local rect = { R = Footprints.cx, G = Footprints.cy, B = Footprints.SIZE, A = Footprints.SIZE }
     land:SetLandscapeMaterialTextureParameterValue(FName("FootRT"), Footprints.rt)
-    land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"),
-        { R = Footprints.cx, G = Footprints.cy, B = Footprints.SIZE, A = Footprints.SIZE })
+    land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+    -- The mesh's ground in the landscape's holes (Land.ground) takes them too.
+    for _, g in ipairs(Land.groundMids or {}) do
+        if g:IsValid() then
+            g:SetTextureParameterValue(FName("FootRT"), Footprints.rt)
+            g:SetVectorParameterValue(FName("FootRect"), rect)
+        end
+    end
 end
 
 --- Draw on `rt` (the current target by default): `fn(canvas)` between
