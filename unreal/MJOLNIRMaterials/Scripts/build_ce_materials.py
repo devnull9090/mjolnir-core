@@ -2633,8 +2633,16 @@ if (turf + soil > 0.002)
 }
 // Stains: darker, a little green, rougher where moss holds.
 albedo *= lerp(1.0.xxx, float3(0.55, 0.6, 0.45), streak);
-// The foot: sand over the rock, and the shade where the two meet.
-albedo = lerp(albedo, SandCol.rgb, sand);
+// The foot: the beach's own sand over the rock, on banks only (a flat
+// colour on a vertical face read as a pale, featureless patch), and the
+// shade where the two meet.
+sand *= smoothstep(0.2, 0.5, n.z);
+if (sand > 0.002)
+{
+    CLF::uvs(W, sgn, 250.0, ux, uy, uz);
+    float3 sA = CLF::tri(SandD, SandDSampler, ux, uy, uz, bw).rgb * SandCol.rgb;
+    albedo = lerp(albedo, sA, sand);
+}
 Nr = normalize(lerp(Nr, n, sand * 0.7));
 rough = lerp(rough, 0.9, sand);
 ao *= 1.0 - Foot.z * contact;
@@ -2710,7 +2718,9 @@ def build_cliff_pbr(defaults):
         ("Drape", g.vector4("CliffDrape", (30.0, 70.0, 700.0, 1.0)), ""),
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
-        ("SandCol", g.vector4("CliffSand", (0.5, 0.45, 0.4, 1.0)), ""),
+        # The foot's sand: the beach's albedo, tinted.
+        tex("SandD", albedo_default, colour),
+        ("SandCol", g.vector4("CliffSand", (1.0, 1.0, 1.0, 1.0)), ""),
         ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
         # Far: the large rock takes over from, to (cm); weathering streaks.
         ("Far", g.vector4("CliffFar", (2500.0, 9000.0, 0.6, 0.0)), ""),

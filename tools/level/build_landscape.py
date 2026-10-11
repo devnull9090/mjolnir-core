@@ -487,7 +487,7 @@ def main():
                   # Under the lip a thin rim, turf to 30 cm and earth to 70 cm
                   # (ragged; deeper, the bands read as paint), stains 7 m down;
                   # at the foot sand banked 35 cm up, shade over 1.5 m.
-                  "drape": [30, 70, 700, 1.0], "foot": [35, 150, 0.45, 1.0], "sand": [0.5, 0.45, 0.4, 1.0]},
+                  "drape": [30, 70, 700, 1.0], "foot": [35, 150, 0.45, 1.0]},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
         # bake says where grass grows, over the same rectangle.
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",

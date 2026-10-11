@@ -2994,6 +2994,7 @@ function Land.cliffs(world, spec)
     end
     textures.GrassD = Land.megascans(Land.SURFACES.GrassD)
     textures.GrassN = Land.megascans(Land.SURFACES.GrassN)
+    textures.SandD = Land.megascans(Land.SURFACES.SandD)
     -- The earth under the turf at a lip.
     local soil = type(cliff.soil) == "table" and cliff.soil or Land.SOIL
     textures.SoilD = Land.megascans(soil.d)
@@ -3060,7 +3061,8 @@ function Land.cliffs(world, spec)
                             vec(mid, "CliffMix", { mx[1], mx[2], 1.0, mx[4] })
                             vec(mid, "CliffLook", { lk[1], 0.7, lk[3], 1.2 })
                         end
-                        vec(mid, "CliffSand", cliff.sand)
+                        -- The foot's sand tint: the ground's own (as the beach).
+                        vec(mid, "CliffSand", cliff.sand or (type(spec.pbr) == "table" and spec.pbr.sand_tint))
                         -- The fill is light: exposed as the level's lights are.
                         local f = cliff.fill
                         if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
