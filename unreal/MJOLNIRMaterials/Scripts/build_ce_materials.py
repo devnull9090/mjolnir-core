@@ -2166,7 +2166,12 @@ if (parD > 0.05 && Par.w >= 1.0)
     float2 s0x = ddx(s0), s0y = ddy(s0), s1x = ddx(s1), s1y = ddy(s1);
     float2 r0x = ddx(r0), r0y = ddy(r0), r1x = ddx(r1), r1y = ddy(r1);
     float footOn = Foot.x > 0.0 ? 1.0 : 0.0;
-    #define LP_H(q) ((lerp(lerp(Texture2DSampleGrad(SandO, SandOSampler, s0 + (q) / max(Tiles.x, 1.0), s0x, s0y).b,         Texture2DSampleGrad(SandO, SandOSampler, s1 + LP_ROT((q) / max(Tiles.x, 1.0), 0.43) - 0.31, s1x, s1y).b, w),         lerp(Texture2DSampleGrad(RipO, RipOSampler, r0 + (q) / max(Tiles.y, 1.0), r0x, r0y).b,         Texture2DSampleGrad(RipO, RipOSampler, r1 + LP_ROT((q) / max(Tiles.y, 1.0), 0.61) - 0.31, r1x, r1y).b, w), ripple) * Par.x         + (1.0 - footOn * Texture2DSampleLevel(FootRT, FootRTSampler, (W.xy + (q) - FootRect.xy) / FootRect.zw + 0.5, 0).r) * Par.y)         / max(Par.x + Par.y, 1e-3))
+    // The prints softened (four taps 2.5 texels out): the game's boot map has
+    // a sharp outline, which the ray stood up as a wall; B30's sink in from
+    // a soft edge.
+    float2 fb = Foot.z * 2.5;
+    #define LP_FOOT(f) (0.25 * (Texture2DSampleLevel(FootRT, FootRTSampler, (f) + fb, 0).r + Texture2DSampleLevel(FootRT, FootRTSampler, (f) - fb, 0).r + Texture2DSampleLevel(FootRT, FootRTSampler, (f) + float2(fb.x, -fb.y), 0).r + Texture2DSampleLevel(FootRT, FootRTSampler, (f) + float2(-fb.x, fb.y), 0).r))
+    #define LP_H(q) ((lerp(lerp(Texture2DSampleGrad(SandO, SandOSampler, s0 + (q) / max(Tiles.x, 1.0), s0x, s0y).b,         Texture2DSampleGrad(SandO, SandOSampler, s1 + LP_ROT((q) / max(Tiles.x, 1.0), 0.43) - 0.31, s1x, s1y).b, w),         lerp(Texture2DSampleGrad(RipO, RipOSampler, r0 + (q) / max(Tiles.y, 1.0), r0x, r0y).b,         Texture2DSampleGrad(RipO, RipOSampler, r1 + LP_ROT((q) / max(Tiles.y, 1.0), 0.61) - 0.31, r1x, r1y).b, w), ripple) * Par.x         + (1.0 - footOn * LP_FOOT((W.xy + (q) - FootRect.xy) / FootRect.zw + 0.5)) * Par.y)         / max(Par.x + Par.y, 1e-3))
     int steps = (int)min(Par.w, 32.0);
     float layer = 1.0 / steps;
     float cur = 1.0, hgt = LP_H(float2(0.0, 0.0)), prevH = hgt, prevC = 1.0;
@@ -2188,6 +2193,7 @@ if (parD > 0.05 && Par.w >= 1.0)
     // it, which cut them off at a plane they seemed to float on.
     PDO = sunk * parD / max(V.z, 0.2) * max(dot(-V, View.ViewForward), 0.0);
     #undef LP_H
+    #undef LP_FOOT
 }
 
 // Sand, flat and rippled.
@@ -2262,7 +2268,8 @@ if (Foot.x > 0.0)
     float edge = saturate(min(min(fuv.x, 1.0 - fuv.x), min(fuv.y, 1.0 - fuv.y)) * 20.0);
     if (edge > 0.0)
     {
-        float t = Foot.z;
+        // Slopes over 3 texels: as soft as the parallax's prints.
+        float t = Foot.z * 3.0;
         float d = Texture2DSampleLevel(FootRT, FootRTSampler, fuv, 0).r;
         float dl = Texture2DSampleLevel(FootRT, FootRTSampler, fuv - float2(t, 0.0), 0).r;
         float dr = Texture2DSampleLevel(FootRT, FootRTSampler, fuv + float2(t, 0.0), 0).r;

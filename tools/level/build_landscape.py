@@ -357,10 +357,14 @@ def main():
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",
                 "rect": [float(origin[0]), float(origin[1]), side, side],
                 # Tuned on Death Island's dusk (2026-10-11): normals, grain
-                # contrast, CE shade as occlusion, second sand; a warm tint
-                # against the purple sky; ripples to 12 m over the sea (at 5 m,
-                # most of the beach was flat grain; B30's ripples run up it).
-                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [1200, 40],
+                # contrast, CE shade as occlusion, second sand; ripples to 12 m
+                # over the sea (at 5 m most of the beach was flat grain; B30's
+                # ripples run up it).
+                # Sand tint near grey and CE's own colour at 0.12 (mix): under
+                # the warmed light, the warmer tint and CE's base map turned the
+                # sand salmon; B30's is a grey beige.
+                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.86, 0.85, 0.84, 1.0], "sea": [1200, 40],
+                "mix": [0.35, 0.65, 0.12, 0.25],
                 # B30's ground grass ships desaturated, for its material to tint.
                 "grass_tint": [0.62, 0.78, 0.36, 1.0],
                 # Parallax: the sand's relief and the footprints 4 cm deep,

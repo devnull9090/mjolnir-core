@@ -3031,7 +3031,9 @@ local Footprints = {
     BLACK = "/Engine/EngineResources/Black.Black",
     RES = 4096, SIZE = 4096, -- texels and cm a side: 1 cm a texel (at 2 the tread was lost)
     DARK = 0.85, RELIEF = 3.0, -- how much a print darkens the ground, and bends it (CE ground)
-    SHADE_RELIEF = 8.0, SHADE_AO = 0.6, -- on the B30 ground: no darkening, only light and occlusion
+    -- On the B30 ground: no darkening, only light and occlusion (its slopes
+    -- read over 3 texels, so 2.5 bends as far as 8 did over one).
+    SHADE_RELIEF = 2.5, SHADE_AO = 0.6,
     PRINT = 38, -- cm a side of the print's square map
     STRIDE = 70, SIDE = 12, -- cm between prints, and either side of the line
     FADE = 0.03, -- of the prints' depth lost every FADE_MS
