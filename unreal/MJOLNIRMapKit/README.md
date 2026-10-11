@@ -175,7 +175,10 @@ from that slot on. Proven with a Landscape (`Scripts/build_landscape_test.py`): 
 as cooked, the game died with "this landscape does not contain cooked data"; retargeted, it
 loads, renders and answers Unreal traces with its heightfield collision on Death Island. The
 native data after the properties is kept as cooked, so a class whose `Serialize` 343 changed
-would still fail.
+would still fail. The retarget is per package: anything else cooked beside the world needs it
+too, or must be left out — a `MaterialInstanceConstant` package next to the landscape crashed
+the game on load until the landscape drew with its parent material instead (Death Island's
+landscape, `tools/level/build_landscape.py`, 2026-10-11).
 
 ### Runtime spawning has one sharp edge
 
