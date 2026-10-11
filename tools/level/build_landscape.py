@@ -473,8 +473,8 @@ def main():
                   # Megascans rough rock for the grain, jagged rock over metres
                   # (as weathered sandstone; the cliff and shale rocks read as
                   # cobbles);
-                  # a light tint with a little of CE's banding (its own colour
-                  # is a dark brown, which went black in the shade); the fill
+                  # a near-neutral tint with half CE's banding (brighter, the
+                  # cliffs read as yellow sponge from afar); the fill
                   # is the sand's bounce, which this sky light alone lacks.
                   "rock_a": {"d": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_D",
                              "n": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_N",
@@ -482,8 +482,8 @@ def main():
                   "rock_b": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
                              "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
                              "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
-                  "tiles": [250, 900, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.35, 0.3, 1.3],
-                  "tint": [2.2, 2.0, 1.75, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
+                  "tiles": [250, 900, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
+                  "tint": [1.25, 1.25, 1.3, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
                   # Under the lip a thin rim, turf to 30 cm and earth to 70 cm
                   # (ragged; deeper, the bands read as paint), stains 7 m down;
                   # at the foot sand banked 35 cm up, shade over 1.5 m.

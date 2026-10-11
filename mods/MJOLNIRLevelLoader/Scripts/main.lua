@@ -3038,12 +3038,28 @@ function Land.cliffs(world, spec)
                         vec(mid, "CliffLook", cliff.look)
                         vec(mid, "RockTint", cliff.tint)
                         vec(mid, "CliffRough", cliff.rough)
+                        vec(mid, "CliffFar", cliff.far)
                         if textures.Edge then
                             vec(mid, "EdgeRect", edge.rect)
                             vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
                         end
                         vec(mid, "CliffDrape", cliff.drape)
                         vec(mid, "CliffFoot", cliff.foot)
+                        -- Scenery (CE's object lighting, no lightmap page): a
+                        -- boulder, bare rock, no turf on its top or sand at its foot.
+                        if type(t.Lightmap) == "string" and t.Lightmap:find("object_lighting", 1, true) then
+                            local d = type(cliff.drape) == "table" and cliff.drape or { 30, 70, 700 }
+                            local fo = type(cliff.foot) == "table" and cliff.foot or { 35, 150, 0.45 }
+                            vec(mid, "CliffDrape", { d[1], d[2], d[3], 0 })
+                            vec(mid, "CliffFoot", { fo[1], fo[2], fo[3], 0 })
+                            -- Its CE map is light granite, not the cliffs' dark
+                            -- strip: unboosted, and more of its own colour
+                            -- (at the cliffs' 2.6 the boulders went white).
+                            local mx = type(cliff.mix) == "table" and cliff.mix or { 0.6, 1, 1, 1 }
+                            local lk = type(cliff.look) == "table" and cliff.look or { 1.2, 0.55, 0.3, 1.5 }
+                            vec(mid, "CliffMix", { mx[1], mx[2], 1.0, mx[4] })
+                            vec(mid, "CliffLook", { lk[1], 0.7, lk[3], 1.2 })
+                        end
                         vec(mid, "CliffSand", cliff.sand)
                         -- The fill is light: exposed as the level's lights are.
                         local f = cliff.fill

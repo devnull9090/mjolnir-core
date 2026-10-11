@@ -2556,7 +2556,21 @@ float patch = smoothstep(0.35, 0.65, CLF::noise(W.xy / Tiles.z + W.z / (Tiles.z 
 float3 meanA = Texture2DSampleLevel(RockAD, RockADSampler, float2(0.5, 0.5), 13.0).rgb;
 float3 meanB = Texture2DSampleLevel(RockBD, RockBDSampler, float2(0.5, 0.5), 13.0).rgb;
 float3 rel = lerp(aA / max(meanA, 1e-3), aB / max(meanB, 1e-3), patch);
+// Far away the large rock read three times larger takes over (Far: from,
+// to cm), so the grain's repeat does not show across a whole cliff face.
+float far = smoothstep(Far.x, Far.y, length(Cam - W));
+if (far > 0.0)
+{
+    CLF::uvs(W, sgn, Tiles.y * 3.0, ux, uy, uz);
+    float3 aF = CLF::tri(RockBD, RockBDSampler, ux, uy, uz, bw).rgb;
+    rel = lerp(rel, aF / max(meanB, 1e-3), far * 0.7);
+}
 rel = max(1.0 + (rel - 1.0) * Look.w, 0.0);
+// Weathering: streaks running down the face metres wide, darker and lighter
+// (Far.z strength), as rain and salt leave them.
+float wx = (W.x + W.y) / 350.0 + n.x * 2.0;
+float streaks = CLF::noise(float2(wx, W.z / 2500.0)) * 0.65 + CLF::noise(float2(wx * 3.1, W.z / 900.0)) * 0.35;
+rel *= lerp(1.0, 0.7 + 0.55 * streaks, Far.z);
 float3 Nr = normalize(nA + (nB - n) * Mix.y);
 
 // CE's colour (its base map by its own UVs, gamma), as a little banding;
@@ -2697,6 +2711,9 @@ def build_cliff_pbr(defaults):
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
         ("SandCol", g.vector4("CliffSand", (0.5, 0.45, 0.4, 1.0)), ""),
+        ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
+        # Far: the large rock takes over from, to (cm); weathering streaks.
+        ("Far", g.vector4("CliffFar", (2500.0, 9000.0, 0.6, 0.0)), ""),
         # Tiles: cm a tile of the grain rock and of the large rock, the patch
         # noise's cell, triplanar blend sharpness.
         ("Tiles", g.vector4("CliffTiles", (300.0, 1200.0, 2500.0, 4.0)), ""),
