@@ -3,11 +3,27 @@ water with (`mjolnir_water ocean`), and label its folder for chunk 982.
 
     UnrealEditor-Cmd.exe Meteorite.uproject -run=pythonscript -script=Scripts/build_ce_water.py
 
-Single Layer Water, Unreal's water shading model, so the sea reflects (Lumen,
-then the sky light), refracts and absorbs what lies under it. Its waves are
-its own: the game's Fluid Flux ocean draws its waves only beyond a few hundred
-metres of the camera and leaves the water around the player to its runtime
-mesh generator, which a converted map has no way to run (2026-10-10).
+Thin Translucent (lit per pixel, Surface ForwardShading), so the sea floor
+shows through it: what lies behind is dimmed by the water between it and the
+surface, read from the depth buffer, per colour (`Absorption`), and the
+water's own colour builds up over the same depth (`Clarity`); both go to
+nothing exactly where the water meets the sand. Unreal's Single Layer Water
+does that through refraction, which the game forces off
+(r.Water.SingleLayer.Refraction stays 0): it drew the water opaque to the
+shore, and every fade on top of it left a line along the beach (Death
+Island, 2026-10-11).
+
+The reflection is CE's own, worked out in the material: the level's water
+cube map (`ReflectionCube`, CE's `PerpBrightness`/`ParaBrightness` and
+`PerpTint`/`ParaTint`), at full strength however clear the water under it
+is. The engine's reflections on translucency came back black in this game,
+whatever the sky light held: Lumen's radiance cache and front layer, and the
+sky light's cube map (CE's sky is a mesh the sky light never captures).
+
+Its waves are its own: the game's Fluid Flux ocean draws its waves only
+beyond a few hundred metres of the camera and leaves the water around the
+player to its runtime mesh generator, which a converted map has no way to
+run (2026-10-10).
 
 - Swell: four Gerstner waves (`Wave0`..`Wave3`: direction x, y, wavelength
   in cm, steepness), scaled by `WaveAmplitude` and run at `WaveSpeed`, move
@@ -17,8 +33,11 @@ mesh generator, which a converted map has no way to run (2026-10-10).
   (RippleGlobal, Ripple0..3, Ripple0..3Offset, RippleMap0..3, RippleMip), so
   the loader passes a map's water spec straight through; `DetailStrength`
   scales them on top of the swell.
-- Look: `Absorption` and `Scattering` (Single Layer Water coefficients, per
-  metre), `PhaseG`, `ColorScaleBehindWater`, `Roughness`, `Specular`.
+- Look: `Absorption` (per metre of water along the view, per colour),
+  `WaterColor` (the water's own colour where it is deep), `Clarity` (metres
+  of water along the view that turn 63% of it to WaterColor), `Roughness`,
+  `Specular` (thinned over the first `EdgeFilm` metres of water, so the
+  waterline is not a reflective edge), and the shore foam's `FoamColor`.
   Defaults tuned on Death Island (2026-10-11): CE's ripple maps have hard
   edges, and above DetailStrength 0.05 or below Roughness 0.16 the beach
   reflected in them as sharp-edged blots.
@@ -26,8 +45,8 @@ mesh generator, which a converted map has no way to run (2026-10-10).
 The normal is worked out in world space (the swell's analytically, the
 ripples' brought there) and handed over in tangent space. A material cooked
 with tangent space normal off crashes the game as it loads, any shading
-model, any graph (M_CE_OceanT1/T2, 2026-10-11): the CE masters, which load,
-all keep it on.
+model, any graph (test masters, 2026-10-11): the CE masters, which load, all
+keep it on.
 
 A master of its own, in /Game/MJOLNIR/Water and chunk 982, beside the runtime
 pack's 988 (build_ce_materials.py) rather than in it: it ships and is tested
@@ -194,34 +213,74 @@ if (gl > 1.5) g *= 1.5 / gl;
 return normalize(n + float3(-slope * g, 0));
 """
 
-# Foam: on the shore waves' crests, where they are strong, and a swash at the
-# waterline that runs up and back (1 to 4 m out, ~10 s a cycle, out of step
-# along the shore); both broken by two octaves of noise drifting slowly, so
-# they read as foam rather than a smooth white line.
+# Foam: on the shore waves' crests, where they are strong, broken by three
+# octaves of noise down to ~15 cm so it reads as lacy foam. No swash foam at
+# the waterline: drawn on the flat surface it was a pale band, and from a
+# player's eye the sand's crest cut it off in a straight line along the beach
+# (Death Island, 2026-10-11).
 FOAM = r"""
 float d = Shore.x;
 float2 xy = P.xy;
 float env = saturate(1.0 - d / max(ShoreParams.x, 1.0));
 float crest = saturate(0.5 + 0.5 * sin(6.2831853 * ShoreFns::phase(d, xy, Time, ShoreParams)));
-float wave = env * pow(crest, 5.0) * ShoreFns::strength(xy, Time);
-float reach = 2.0 + 3.0 * (0.5 + 0.5 * sin(Time * 0.6 + 6.2831853 * ShoreFns::n2(xy * 0.0003)));
-float swash = saturate(1.0 - d / reach);
-float n = 0.6 * ShoreFns::n2(xy * 0.004 + Time * 0.05) + 0.4 * ShoreFns::n2(xy * 0.017 - Time * 0.08);
-float f = saturate((wave * 1.4 + swash) * 1.5 - (1.0 - n) * 0.9);
-// The foam thins out over the last 2.5 m: run up to the waterline it drew
-// a hard white edge along the sand (Death Island, 2026-10-11).
-return saturate(f * Amount) * step(0.01, Shore.y + d) * smoothstep(0.4, 2.5, d);
+float wave = env * pow(crest, 8.0) * ShoreFns::strength(xy, Time);
+float n = 0.5 * ShoreFns::n2(xy * 0.01 + Time * 0.05) + 0.3 * ShoreFns::n2(xy * 0.031 - Time * 0.08)
+        + 0.2 * ShoreFns::n2(xy * 0.07 + Time * 0.11);
+float f = saturate(wave * 3.2 - (1.0 - n) * 1.4);
+// It fades out with the waves themselves (SHORE_H's envelope): foam run up
+// to the waterline drew a hard white edge along the sand.
+return saturate(f * Amount) * step(0.01, Shore.y + d) * smoothstep(2.0, 8.0, d);
 """
 
-# The water's opacity mask: present from Width metres out, dissolving towards
-# the waterline through a per-pixel, per-frame dither that TSR resolves into
-# a soft blend with the sand under it (interleaved gradient noise).
-SHORE_FADE = r"""
-float a = smoothstep(0.0, max(Width, 0.01), Shore.x) + step(Shore.x + Shore.y, 0.01);
-float2 px = Parameters.SvPosition.xy + 5.588238 * float(View.StateFrameIndexMod8);
-float n = frac(52.9829189 * frac(dot(px, float2(0.06711056, 0.00583715))));
-return a > n ? 1.0 : 0.0;
+# The metres of water along the view ray between the surface and what lies
+# behind it: scene depth less the water's own (both along the camera's axis),
+# stretched to the ray. Shallows give nothing at the waterline; deep water,
+# or water seen at a grazing angle, a lot.
+WATER_PATH = r"""
+float behind = max(Scene - Pixel, 0.0);
+float ray = length(P - Cam) / max(Pixel, 1.0);
+return behind * ray * 0.01;
 """
+# What gets through, per colour (Beer's law). Thin Translucent stretches it
+# by 1 / N.V itself (a sheet's thickness); the path is the whole ray already.
+WATER_TRANSMITTANCE = r"""
+float nv = saturate(abs(dot(Parameters.WorldNormal, Parameters.CameraVector)) + 1e-5);
+return exp(-Absorption.rgb * L * nv) * (1.0 - Foam);
+"""
+# How much of the surface is the water's own colour (and foam, which hides
+# all), never below MinCover: the reflection rides on it (WATER_EMISSIVE).
+WATER_OPACITY = "return max(saturate(max(1.0 - exp(-L / max(Clarity, 0.01)), Foam)), MinCover);\n"
+
+# The reflection: CE's own (build_ce_materials.py, WATER_REFLECT_CODE and
+# WATER_CODE): its cube map along the reflected view (y flipped: CE's cube
+# faces; the seam across the sea when the sky light was given the cube
+# unflipped), brightened from PerpBrightness looking straight down to
+# ParaBrightness at a grazing angle, tinted from PerpTint to ParaTint, in
+# CE's gamma space and then made linear. Nothing below the horizon: the
+# ripples reflected the cube's lower half as dark blots.
+REFLECT_DIR = r"""
+float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
+float3 R = 2.0 * dot(N, E) * N - E;
+R.z = max(R.z, 0.02);
+R = normalize(R);
+return float3(R.x, -R.y, R.z);
+"""
+REFLECTION = r"""
+float f = saturate(dot(N, normalize(Cam)));
+float3 tint = lerp(ParaTint.rgb, PerpTint.rgb, f);
+float3 c = Cube.rgb;
+float3 c8 = c * c; c8 *= c8; c8 *= c8;
+float3 frame = lerp(c8, c, tint) * lerp(ParaBrightness, PerpBrightness, f) * Strength;
+frame = max(frame, 0.0);
+float3 lo = frame / 12.92;
+float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+// A film of water a few centimetres deep reflects as faintly as it tints:
+// at full strength, sand just under the surface showed as blue puddles.
+return lerp(hi, lo, step(frame, 0.04045)) * (1.0 - Foam) * smoothstep(0.0, max(Film, 0.001), L);
+"""
+# Thin Translucent scales the emissive by the opacity (it is a layer of
+# colour on the water); the reflection is not, so it goes in divided by it.
+WATER_EMISSIVE = "return R / max(C, 1e-3);\n"
 
 # M_CE_Water's ripple uv and normal (build_ce_materials.py), unchanged.
 RIPPLE_UV = r"""
@@ -273,37 +332,29 @@ def with_shore(code):
     return "struct ShoreFns {" + SHORE_H + "};\n" + code
 
 
-def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
-    """M_CE_Ocean; the switches build the test variants (MJ_WATER_TESTS):
-    without the water shading model, without the wave offset, or without
-    the swell and ripple graph."""
+def set_optional(m, prop, value):
+    """A material property some engine versions lack: warn, don't fail."""
+    try:
+        m.set_editor_property(prop, value)
+    except Exception as e:
+        unreal.log_warning(f"{prop}: {e}")
+
+
+def build_ocean(flat, black_cube, name="M_CE_Ocean"):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
-    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_SINGLE_LAYER_WATER if slw
-                          else unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    # Masked: the water dissolves over its last metres before the shore
-    # (SHORE_FADE). The game forces r.Water.SingleLayer.Refraction to 0
-    # (a console or loader set leaves it at 0), so Single Layer Water never
-    # shows what is under it, and its edge against the sand was a hard line.
-    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED if graph else unreal.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_THIN_TRANSLUCENT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    # Surface ForwardShading (TLM_SURFACE is Surface TranslucencyVolume,
+    # which drew the water with no reflection at all): Thin Translucent
+    # needs it, and Lumen's front layer translucency reflections draw for it.
+    m.set_editor_property("translucency_lighting_mode",
+                          unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("used_with_static_lighting", False)
     # The shore foam moves in the pixel shader, not with the geometry; TSR
     # smeared it into streaks until told so.
-    try:
-        m.set_editor_property("has_pixel_animation", True)
-    except Exception as e:
-        unreal.log_warning(f"has_pixel_animation: {e}")
+    set_optional(m, "has_pixel_animation", True)
     g = Graph(m)
-    if not graph:
-        mel.connect_material_property(g.vector("Up", (0, 0, 1, 1)), "", unreal.MaterialProperty.MP_NORMAL)
-        if slw:
-            build_water_output(g)
-        else:
-            mel.connect_material_property(g.vector("BaseColor", (0.05, 0.2, 0.25, 1)), "",
-                                          unreal.MaterialProperty.MP_BASE_COLOR)
-        mel.recompile_material(m)
-        eal.save_loaded_asset(m)
-        return
     time = g.node(unreal.MaterialExpressionTime)
     world = g.node(unreal.MaterialExpressionWorldPosition, x=-2000)
     still = g.node(unreal.MaterialExpressionWorldPosition, x=-2000,
@@ -322,7 +373,7 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     swell_n = g.custom(with_shore(GERSTNER_NORMAL), common + [("Flat", still, "")], description="Gerstner normal")
     # World Position Offset has no MaterialProperty in the editor's Python;
     # MjolnirUIBuilder wires it (as build_ce_materials.py's sky_offset does).
-    if wpo and not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, offset, ""):
+    if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, offset, ""):
         raise RuntimeError(f"cannot connect World Position Offset on {name}")
 
     uv0 = g.node(unreal.MaterialExpressionTextureCoordinate, x=-2000, coordinate_index=0)
@@ -362,58 +413,63 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     mel.connect_material_property(tangent, "", unreal.MaterialProperty.MP_NORMAL)
     foam = g.custom(with_shore(FOAM), [("Shore", shore, ""), ("Time", time, ""), ("ShoreParams", shore_params, ""),
                                        ("P", still, ""),
-                           ("Ripple", ripple_t, ""), ("Amount", g.scalar("FoamAmount", 1.0), "")],
+                           ("Ripple", ripple_t, ""), ("Amount", g.scalar("FoamAmount", 0.7), "")],
                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="shore foam")
     rough = g.node(unreal.MaterialExpressionLinearInterpolate, x=-300)
     link(g.scalar("Roughness", 0.16), "", rough, "A")
     link(g.scalar("FoamRoughness", 0.6), "", rough, "B")
     link(foam, "", rough, "Alpha")
-    # At the waterline the water is clear and dull, so the sand under it
-    # carries on into the sea instead of meeting a bright reflective edge.
-    edge = g.custom("return smoothstep(0.3, 4.0, Shore.x) + step(Shore.x + Shore.y, 0.01);",
-                    [("Shore", shore, "")], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1,
-                    description="waterline")
-    edge_rough = g.custom("return lerp(0.7, R, saturate(E));", [("R", rough, ""), ("E", edge, "")],
-                          output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="waterline roughness")
-    mel.connect_material_property(edge_rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    mel.connect_material_property(g.vector("FoamColor", (0.8, 0.85, 0.85, 1.0)), "",
-                                  unreal.MaterialProperty.MP_BASE_COLOR)
-    mel.connect_material_property(foam, "", unreal.MaterialProperty.MP_OPACITY)
-    fade = g.custom(SHORE_FADE, [("Shore", shore, ""), ("Width", g.scalar("ShoreFade", 2.5), "")],
-                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="shore fade")
-    mel.connect_material_property(fade, "", unreal.MaterialProperty.MP_OPACITY_MASK)
-    spec = g.node(unreal.MaterialExpressionMultiply, x=-300)
-    link(g.scalar("Specular", 0.5), "", spec, "A")
-    link(edge, "", spec, "B")
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    color = g.node(unreal.MaterialExpressionLinearInterpolate, x=-300)
+    link(g.vector("WaterColor", (0.02, 0.11, 0.12, 1.0)), "", color, "A")
+    link(g.vector("FoamColor", (0.8, 0.85, 0.85, 1.0)), "", color, "B")
+    link(foam, "", color, "Alpha")
+    mel.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    path = g.custom(WATER_PATH, [("Scene", g.node(unreal.MaterialExpressionSceneDepth, x=-2000), ""),
+                                 ("Pixel", g.node(unreal.MaterialExpressionPixelDepth, x=-2000), ""),
+                                 ("P", world, ""),
+                                 ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), "")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="water path")
+    film = g.scalar("EdgeFilm", 1.0)
+    spec = g.custom("return Specular * smoothstep(0.0, max(Film, 0.001), L);",
+                    [("Specular", g.scalar("Specular", 0.5), ""), ("Film", film, ""),
+                     ("L", path, "")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="waterline specular")
     mel.connect_material_property(spec, "", unreal.MaterialProperty.MP_SPECULAR)
-    if slw:
-        build_water_output(g)
-    else:
-        mel.connect_material_property(g.vector("BaseColor", (0.05, 0.2, 0.25, 1)), "",
-                                      unreal.MaterialProperty.MP_BASE_COLOR)
+    opacity = g.custom(WATER_OPACITY, [("L", path, ""), ("Clarity", g.scalar("Clarity", 6.0), ""), ("Foam", foam, ""),
+                                       ("MinCover", g.scalar("MinCover", 0.05), "")],
+                       output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="water opacity")
+    mel.connect_material_property(opacity, "", unreal.MaterialProperty.MP_OPACITY)
+    # The reflection is the material's own: in this game the engine's for
+    # translucency (Lumen's radiance cache, its front layer, the sky light)
+    # came back black whatever the sky light held (Death Island, 2026-10-11).
+    cam = g.node(unreal.MaterialExpressionCameraVectorWS, x=-2000)
+    direction = g.custom(REFLECT_DIR, [("Cam", cam, ""), ("N", normal, "")], description="reflection direction")
+    cube = g.node(unreal.MaterialExpressionTextureSampleParameterCube, x=-1100, parameter_name="ReflectionCube",
+                  texture=black_cube, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    link(direction, "", cube, "UVs")
+    reflection = g.custom(REFLECTION, [("Cam", cam, ""), ("N", normal, ""), ("Cube", cube, "RGB"),
+                                       ("PerpBrightness", g.scalar("PerpBrightness", 0.1), ""),
+                                       ("ParaBrightness", g.scalar("ParaBrightness", 1.0), ""),
+                                       ("PerpTint", g.vector("PerpTint"), ""), ("ParaTint", g.vector("ParaTint"), ""),
+                                       ("Strength", g.scalar("ReflectionStrength", 1.0), ""), ("Foam", foam, ""),
+                                       ("L", path, ""), ("Film", film, "")],
+                          description="CE reflection")
+    screen = g.node(unreal.MaterialExpressionEyeAdaptationInverse, x=-300)
+    if not any(mel.connect_material_expressions(reflection, "", screen, pin)
+               for pin in ("Light Value Input", "LightValueInput", "Light Value", "LightValue")):
+        raise RuntimeError("EyeAdaptationInverse: no light value pin")
+    emissive = g.custom(WATER_EMISSIVE, [("R", screen, ""), ("C", opacity, "")], description="reflection, emissive")
+    mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    transmittance = g.custom(WATER_TRANSMITTANCE, [("L", path, ""),
+                                                   ("Absorption", g.vector("Absorption", (0.45, 0.12, 0.09, 1.0)), ""),
+                                                   ("Foam", foam, "")], description="water transmittance")
+    out = g.node(unreal.MaterialExpressionThinTranslucentMaterialOutput, x=-200)
+    if not any(mel.connect_material_expressions(transmittance, "", out, pin)
+               for pin in ("TransmittanceColor", "Transmittance Color")):
+        raise RuntimeError("Thin Translucent output: no Transmittance Color pin")
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
-
-
-def build_water_output(g):
-    out = g.node(unreal.MaterialExpressionSingleLayerWaterMaterialOutput, x=-200)
-
-    def to_output(src, names):
-        """The output node's pins go by their display names, which carry
-        units in some engine versions: try each spelling."""
-        for name in names:
-            if mel.connect_material_expressions(src, "", out, name):
-                return
-        raise RuntimeError(f"Single Layer Water output: none of {names}")
-
-    to_output(g.vector("Scattering", (0.04, 0.16, 0.18, 1.0)),
-              ("ScatteringCoefficients", "Scattering Coefficients", "Scattering Coefficients (per centimeter)",
-               "Scattering Coefficients (per meter)"))
-    to_output(g.vector("Absorption", (0.35, 0.08, 0.06, 1.0)),
-              ("AbsorptionCoefficients", "Absorption Coefficients", "Absorption Coefficients (per centimeter)",
-               "Absorption Coefficients (per meter)"))
-    to_output(g.scalar("PhaseG", 0.3), ("PhaseG", "Phase G"))
-    to_output(g.scalar("ColorScaleBehindWater", 1.0), ("ColorScaleBehindWater", "Color Scale Behind Water"))
 
 
 def build_label():
@@ -446,15 +502,42 @@ def build_flat():
         f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, 6, 0, 0, 0)))
         f.write(chunk(b"IDAT", raw))
         f.write(chunk(b"IEND", b""))
+    return import_ce(file, "T_Water_Flat")
+
+
+def build_black_cube():
+    """T_Water_BlackCube, the reflection cube's default: CE's cube maps are
+    imported like its other bitmaps (BGRA8, no sRGB), so this one is too,
+    an uncompressed BGRA8 cube DDS (build_ce_materials.py's T_CE_BlackCube,
+    which lives in the runtime pack's chunk, not this one)."""
+    scratch = os.path.join(unreal.Paths.project_saved_dir(), "ce_water")
+    os.makedirs(scratch, exist_ok=True)
+    file = os.path.join(scratch, "T_Water_BlackCube.dds")
+    size = 4
+    header = struct.pack(
+        "<4sIIIIIII44sIIIIIIIIIIIII12x",
+        b"DDS ", 124, 0x1007, size, size, size * 4, 0, 0, b"\0" * 44,
+        32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000,
+        0x1008, 0xFE00, 0, 0, 0)
+    with open(file, "wb") as f:
+        f.write(header)
+        for _ in range(6):
+            f.write(bytes((0, 0, 0, 255)) * size * size)
+    return import_ce(file, "T_Water_BlackCube")
+
+
+def import_ce(file, name):
+    """Import `file` as `name` with CE's bitmap settings: no sRGB decode, no
+    block compression, never streamed."""
     task = unreal.AssetImportTask()
     task.set_editor_property("filename", file)
     task.set_editor_property("destination_path", ROOT)
-    task.set_editor_property("destination_name", "T_Water_Flat")
+    task.set_editor_property("destination_name", name)
     task.set_editor_property("replace_existing", True)
     task.set_editor_property("automated", True)
     task.set_editor_property("save", False)
     assets.import_asset_tasks([task])
-    tex = unreal.load_asset(f"{ROOT}/T_Water_Flat")
+    tex = unreal.load_asset(f"{ROOT}/{name}")
     tex.set_editor_property("srgb", False)
     tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
     tex.set_editor_property("never_stream", True)
@@ -464,9 +547,5 @@ def build_flat():
 
 build_label()
 flat = build_flat()
-build_ocean(flat)
-if os.environ.get("MJ_WATER_TESTS"):
-    build_ocean(flat, "M_CE_OceanT1", slw=False)
-    build_ocean(flat, "M_CE_OceanT2", graph=False)
-    build_ocean(flat, "M_CE_OceanT3", wpo=False)
+build_ocean(flat, build_black_cube())
 unreal.log("MJOLNIR CE water built")

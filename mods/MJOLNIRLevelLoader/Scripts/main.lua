@@ -2314,9 +2314,13 @@ end
 
 --- `environment.water` / `mjolnir_water`: a converted map's CE water
 --- (M_CE_Water) drawn with M_CE_Ocean (chunk 982,
---- unreal/MJOLNIRMaterials/Scripts/build_ce_water.py): Single Layer Water,
---- with a Gerstner swell moving the surface and CE's own ripple maps on top
---- (docs/ce_map_conversion.md, "Water").
+--- unreal/MJOLNIRMaterials/Scripts/build_ce_water.py): translucent water
+--- that clears over the shallows by its depth, with a Gerstner swell moving
+--- the surface and CE's own ripple maps on top (docs/ce_map_conversion.md,
+--- "Water"). It reflects CE's own cube map, as CE's water did (oceanSpec
+--- passes the slot's ReflectionCube, brightness and tints on). It is not
+--- Single Layer Water because the game forces that model's refraction off:
+--- it never showed the sand under it, and drew a line along every beach.
 ---
 --- Only water on a mesh of its own (SM_<map>_Water, build_terrain_meshes.py).
 --- Unreal takes a rewritten mesh's passes from slot 0: on the translucent
@@ -2325,19 +2329,15 @@ end
 --- converted before the split keep CE's water.
 ---
 --- What else changes while it is on (Death Island, 2026-10-11):
---- (r.Water.SingleLayer.Refraction stays 0 whatever a console or this
---- loader sets: the game forces it, Fluid Flux drawing its own underwater
---- pass. M_CE_Ocean dissolves over its last metres before the shore instead.)
---- - The sky light stays as spawnEnvironment left it, a captured scene
----   with a black lower half. A lower half that was not black, however dim,
----   came back from Lumen as neon cyan glints all over the sea; CE's
----   reflection cube is not used either: its faces do not meet, and the seam
----   ran across the sea.
+--- - The sky light stays as spawnEnvironment left it. (Its cube map never
+---   reached translucent water; given a lower half that was not black, it
+---   came back as neon cyan glints on the Single Layer Water before.)
 --- - CE's shore foam (transparent sections whose maps are named for waves)
 ---   is faded out: it is flat, and the moving surface cut it into a dashed
 ---   line and smeared it.
---- - CE's planar fog stays on (it puts the sea floor under water), but comes
----   in over 2 m of depth instead of CE's half a metre (oceanFog).
+--- - CE's planar fog is off (oceanFog): the water hides the sea floor by its
+---   own depth now, and CE's (Death Island: opaque 30 cm away and 46 cm
+---   down) turned the sand to fog within half a metre of the waterline.
 ---
 --- (The game's own Fluid Flux ocean, tried first on 2026-10-10, draws its
 --- waves only beyond a few hundred metres of the camera: near the player it
@@ -2354,10 +2354,6 @@ local CE_WATER = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
 -- too coarse for it, and stronger they reflected the beach as blots.
 local DETAIL_WAVE = "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01"
 local WAVES = 0.35
--- CE's planar fog under the ocean: opaque 15 m away and 2 m down. CE's own
--- (Death Island: 30 cm and 46 cm) turned the sand to fog within half a metre
--- of the waterline, a hard line once the ocean thins out at the shore.
-local OCEAN_FOG_DISTANCE, OCEAN_FOG_DEPTH = 1500.0, 200.0
 
 -- `mjolnir_water`: the style and swell for every level loaded later, until
 -- the game closes; nil hands them back to each level file.
@@ -2408,15 +2404,19 @@ local function ceWaterSlots()
 end
 
 --- An M_CE_Ocean spec from a CE water slot's: its ripple maps and their
---- motion, the swell, and the level's own parameters.
+--- motion, its reflection (cube, brightness, tints), the swell, and the
+--- level's own parameters.
 local function oceanSpec(spec)
     local o = { parent = OCEAN, textures = { DetailWave = DETAIL_WAVE }, scalars = { WaveAmplitude = waveAmplitude() },
         vectors = {} }
     for k, v in pairs(type(spec.textures) == "table" and spec.textures or {}) do
-        if k:find("^RippleMap") then o.textures[k] = v end
+        if k:find("^RippleMap") or k == "ReflectionCube" then o.textures[k] = v end
     end
     for k, v in pairs(type(spec.vectors) == "table" and spec.vectors or {}) do
-        if k:find("^Ripple") then o.vectors[k] = v end
+        if k:find("^Ripple") or k == "PerpTint" or k == "ParaTint" then o.vectors[k] = v end
+    end
+    for k, v in pairs(type(spec.scalars) == "table" and spec.scalars or {}) do
+        if k == "PerpBrightness" or k == "ParaBrightness" then o.scalars[k] = v end
     end
     local p = waterEnv().params
     for k, v in pairs(type(p) == "table" and p or {}) do
@@ -2434,7 +2434,7 @@ local function fadeOut(s)
     mat:SetScalarParameterValue(FName("FogOpaque"), 0.0)
 end
 
---- The terrain's CE planar fog as the ocean wants it (`on`), or as the level
+--- The terrain's CE planar fog off while the ocean is `on`, or as the level
 --- file has it. Every decor slot with PlanarFogParams but the water's own.
 local function oceanFog(on)
     local n = 0
@@ -2447,7 +2447,7 @@ local function oceanFog(on)
                 if type(p) == "table" and (p[4] or 0) > 0.5 then
                     local ok = pcall(function()
                         comp:GetMaterial(i - 1):SetVectorParameterValue(FName("PlanarFogParams"), {
-                            R = p[1], G = on and OCEAN_FOG_DISTANCE or p[2], B = on and OCEAN_FOG_DEPTH or p[3], A = 1 })
+                            R = p[1], G = p[2], B = p[3], A = on and 0 or 1 })
                     end)
                     if ok then n = n + 1 end
                 end
