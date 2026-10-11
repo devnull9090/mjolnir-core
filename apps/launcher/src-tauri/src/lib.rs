@@ -449,6 +449,43 @@ fn xbox_install_root(game_dir: &Path) -> Option<PathBuf> {
     is_install_root(game_dir).then(|| game_dir.to_path_buf())
 }
 
+/// The Xbox app's copy as Windows names it to start it: package family name
+/// and application id. Used when the install's manifest cannot be read.
+const XBOX_APP_ID: &str = "Microsoft.198377053870B_8wekyb3d8bbwe!AppHaloCampaignEvolvedShipping";
+
+/// The app user model id (`<package family name>!<app id>`) of the Xbox app
+/// install at `install_root`, from its `appxmanifest.xml`. A packaged game is
+/// started through `shell:AppsFolder\<id>`: its exe cannot be run directly,
+/// and this title registers no `ms-xbl-<product id>://` link.
+fn xbox_app_id(install_root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(install_root.join("appxmanifest.xml")).ok()?;
+    let name = xml_attribute(&manifest, "<Identity ", "Name")?;
+    let publisher = xml_attribute(&manifest, "<Identity ", "Publisher")?;
+    let app = xml_attribute(&manifest, "<Application ", "Id")?;
+    Some(format!("{name}_{}!{app}", publisher_id(&publisher)))
+}
+
+/// `attribute`'s value on the first element that starts with `element`.
+fn xml_attribute(xml: &str, element: &str, attribute: &str) -> Option<String> {
+    let start = xml.find(element)?;
+    let tag = &xml[start..start + xml[start..].find('>')?];
+    let key = format!(" {attribute}=\"");
+    let at = tag.find(&key)? + key.len();
+    let value = &tag[at..at + tag[at..].find('"')?];
+    Some(value.replace("&quot;", "\"").replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+}
+
+/// The publisher id in a package family name: the first 8 bytes of the
+/// SHA-256 of the publisher (UTF-16LE), as 13 characters of Crockford-style
+/// base32 (the 64 bits padded with a zero bit).
+fn publisher_id(publisher: &str) -> String {
+    const ALPHABET: &[u8] = b"0123456789abcdefghjkmnpqrstvwxyz";
+    let utf16: Vec<u8> = publisher.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let digest = Sha256::digest(&utf16);
+    let bits = (u64::from_be_bytes(digest[..8].try_into().unwrap()) as u128) << 1;
+    (0..13).map(|i| ALPHABET[((bits >> (60 - 5 * i)) & 31) as usize] as char).collect()
+}
+
 /// Get the game binaries directory (`Win64` on Steam, `WinGDK` on the Xbox app)
 fn get_bin_dir() -> Option<PathBuf> {
     find_game_install().map(|(p, _)| binaries_dir(&p))
@@ -979,19 +1016,16 @@ fn launch_game() -> Result<(), String> {
             Err("No game executable found. Please set the EXE path in Settings.".to_string())
         }
         "gamepass" => {
-            // Launch via Xbox Game Pass using the Store product ID: 9N683TDT5M7R
-            // Try shell:AppsFolder first (requires knowing the AUMID), fall back to store launch
-            // The most reliable method is `start ms-xbl-{productId}://` or the store deep-link
-            std::process::Command::new("cmd")
-                .args(["/C", "start", "", "ms-xbl-9N683TDT5M7R://"])
+            // The Xbox app's copy is a packaged app: Windows starts it by its
+            // app user model id. (The `ms-xbl-9n683tdt5m7r://` link this used
+            // to open is registered by nothing, so Windows offered the Store.)
+            let app_id = find_game_install()
+                .and_then(|(root, _)| xbox_app_id(&root))
+                .unwrap_or_else(|| XBOX_APP_ID.to_string());
+            std::process::Command::new("explorer.exe")
+                .arg(format!("shell:AppsFolder\\{app_id}"))
                 .spawn()
-                .or_else(|_| {
-                    // Fallback: open the store page which has a launch button
-                    std::process::Command::new("cmd")
-                        .args(["/C", "start", "", "ms-windows-store://pdp/?productId=9N683TDT5M7R"])
-                        .spawn()
-                })
-                .map_err(|e| format!("Failed to launch via Game Pass: {}. Try using the direct EXE method instead.", e))?;
+                .map_err(|e| format!("Failed to launch the Xbox app version ({app_id}): {e}"))?;
             Ok(())
         }
         _ => {
@@ -1953,6 +1987,27 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_xbox_app_id_comes_from_the_manifest() {
+        // Microsoft's publisher hashes to the 8wekyb3d8bbwe every Microsoft
+        // package family name carries.
+        assert_eq!(
+            publisher_id("CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"),
+            "8wekyb3d8bbwe"
+        );
+        let root = std::env::temp_dir().join(format!("mjolnir-xbox-id-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("appxmanifest.xml"),
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<Package><Identity Name="Microsoft.198377053870B" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" Version="1.112.1610.0" ProcessorArchitecture="x64" />
+<Applications><Application Id="AppHaloCampaignEvolvedShipping" Executable="GameLaunchHelper.exe" EntryPoint="Windows.FullTrustApplication"></Application></Applications></Package>"#,
+        )
+        .unwrap();
+        assert_eq!(xbox_app_id(&root).as_deref(), Some(XBOX_APP_ID));
+        fs::remove_dir_all(&root).ok();
+    }
 
     #[test]
     fn a_running_game_is_found_in_tasklist_output() {

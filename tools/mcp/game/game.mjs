@@ -78,14 +78,19 @@ function findInstall() {
     candidates.push(path.join(library, "steamapps", "common", "Halo Campaign Evolved"));
   }
   for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, "Meteorite", "Binaries", "Win64", EXE_NAME))) {
-      return candidate;
+    // Steam ships a Win64 build; the Xbox app a WinGDK one, whose install
+    // root is the `Content` folder (MJOLNIR_GAME_DIR=...\Halo- Campaign Evolved\Content).
+    for (const binaries of ["Win64", "WinGDK"]) {
+      if (fs.existsSync(path.join(candidate, "Meteorite", "Binaries", binaries, EXE_NAME))) {
+        return { root: candidate, binaries };
+      }
     }
   }
   return null;
 }
 
-const INSTALL = findInstall();
+const FOUND = findInstall();
+const INSTALL = FOUND?.root ?? null;
 
 function paths() {
   if (!INSTALL) {
@@ -94,7 +99,7 @@ function paths() {
         "that contains Meteorite\\Binaries\\Win64\\" + EXE_NAME + "."
     );
   }
-  const win64 = path.join(INSTALL, "Meteorite", "Binaries", "Win64");
+  const win64 = path.join(INSTALL, "Meteorite", "Binaries", FOUND.binaries);
   const ue4ss = path.join(win64, "ue4ss");
   // Anything the game writes goes under LOCALAPPDATA, not the install -- the
   // install lives in Program Files and is not writable by the game.

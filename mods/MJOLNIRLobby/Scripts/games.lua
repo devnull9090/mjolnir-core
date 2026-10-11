@@ -8,9 +8,10 @@
 -- once, the last when its heartbeat goes stale.
 --
 -- FIND GAMES lists public games. JOIN asks the hub for the chosen game's
--- connection string and hands it to the game's own Steam "join game"
--- handler, so the join runs exactly as an accepted invite does: the game
--- leaves its fireteam, joins the host's, and follows it into its map.
+-- connection string and hands it to the game's own "join game" handler
+-- (Steam's, or the Xbox app's invite handler), so the join runs exactly as an
+-- accepted invite does: the game leaves its fireteam, joins the host's, and
+-- follows it into its map.
 --
 -- The hub, the connection string and the join go through the native half
 -- (native/lobby): a request file, then a reply file polled from here. The
@@ -322,7 +323,8 @@ local function beat()
             players = players,
             max_players = Host.maxPlayers,
             client_version = Host.version,
-            platform = "steam",
+            -- The Xbox app's build runs from Binaries\WinGDK.
+            platform = nativeDir:find("\\WinGDK\\", 1, true) and "gamepass" or "steam",
             connection_string = conn,
             -- The host's game settings: a player joining mid-match gets
             -- them from /join (docs/host_game_settings.md).
