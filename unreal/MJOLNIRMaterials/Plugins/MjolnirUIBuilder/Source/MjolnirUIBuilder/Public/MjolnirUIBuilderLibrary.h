@@ -60,4 +60,29 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
 	static bool ConnectWorldPositionOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
+	 * Spawn a Landscape in World from a heightmap, as the editor's New
+	 * Landscape tool does: ComponentsX x ComponentsY components of
+	 * SectionsPerComponent^2 sections of QuadsPerSection quads, Heights the
+	 * (ComponentsX * quads + 1) x (ComponentsY * quads + 1) samples, row by row
+	 * (0..65535, 32768 the actor's z), Location its corner and Scale its
+	 * spacing (cm a quad; z 100 spans -256..256 m). No edit layers, no paint
+	 * layers. The landscape spike (2026-10-11): can a cooked landscape load
+	 * in the game?
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Landscape")
+	static class ALandscape* CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
+		int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
+		UMaterialInterface* Material);
+
+	/**
+	 * Write every loaded class and struct's unversioned property schema, and
+	 * every enum, to Path as a .usmap (version 3, uncompressed): the stock
+	 * engine's layout, as the cook writes it (editor-only properties left
+	 * out). Against the game's own .usmap it lets a stock-cooked package's
+	 * properties be re-encoded in 343's layout (ue-asset's retarget).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Cook")
+	static bool WriteUsmap(const FString& Path);
 };

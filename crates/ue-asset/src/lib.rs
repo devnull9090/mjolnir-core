@@ -17,6 +17,7 @@ pub mod mesh_write;
 pub mod nanite;
 pub mod package;
 pub mod props;
+pub mod retarget;
 pub mod tagwrap;
 pub mod unversioned;
 pub mod usmap;

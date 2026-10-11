@@ -5,19 +5,26 @@
 # power under all-core load; a mask such as 0x0F is the way to keep a cook
 # light while that is being investigated.
 #
-#   powershell -File tools/ue/cook.ps1 [-Mask 0x0F]
+#   powershell -File tools/ue/cook.ps1 [-Mask 0x0F] [-Map /Game/Levels/X/X] [-TaggedProperties]
+#
+# -Map also cooks that world (only /Game/MJOLNIR is cooked by default);
+# -TaggedProperties cooks properties tagged rather than unversioned (the
+# landscape spike's contrast case, see unreal/MJOLNIRMapKit/README.md).
 #
 # The project enables CommonUI (MJOLNIR's menu screens derive from
 # CommonActivatableWidget), which makes UAT treat it as a code project: the
 # editor target (our plugins and a receipt) is compiled before the cook, so
 # there is no -nocompileeditor.
-param([int64]$Mask = 0)
+param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties)
 # MJ_CPU_MASK (hex) limits a whole batch, e.g. 0x0F for four cores; 0 or unset is every core.
 if ($env:MJ_CPU_MASK) { $Mask = [Convert]::ToInt64($env:MJ_CPU_MASK, 16) }
 $project = Join-Path $PSScriptRoot "..\..\unreal\MJOLNIRMaterials" | Resolve-Path
 $log = Join-Path $project "Saved_cook.log"
 $uat = "C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles\RunUAT.bat"
-$args = "/c `"`"$uat`" BuildCookRun -project=`"$project\Meteorite.uproject`" -noP4 -platform=Win64 -clientconfig=Shipping -cook -stage -pak -iostore -skipbuild -unattended -utf8output -skipcookingeditorcontent > `"$log`" 2>&1`""
+$extra = ""
+if ($Map) { $extra += " -map=$Map" }
+if ($TaggedProperties) { $extra += " `"-AdditionalCookerOptions=-ini:Engine:[Core.System]:CanUseUnversionedPropertySerialization=False`"" }
+$args = "/c `"`"$uat`" BuildCookRun -project=`"$project\Meteorite.uproject`" -noP4 -platform=Win64 -clientconfig=Shipping -cook -stage -pak -iostore -skipbuild -unattended -utf8output -skipcookingeditorcontent$extra > `"$log`" 2>&1`""
 # One Unreal process on the project at a time: conversions may run side by
 # side (their staging, collision, lightmaps and bakes are their own), but the
 # editor imports and the cook share unreal/MJOLNIRMaterials and its staging
