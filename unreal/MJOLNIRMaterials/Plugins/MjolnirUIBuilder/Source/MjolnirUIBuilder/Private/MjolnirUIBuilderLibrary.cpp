@@ -241,7 +241,7 @@ bool UMjolnirUIBuilderLibrary::ConnectWorldPositionOffset(UMaterial* Material, U
 
 ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
 	int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
-	UMaterialInterface* Material)
+	UMaterialInterface* Material, const TArray<uint8>& Holes)
 {
 	if (!World || ComponentsX < 1 || ComponentsY < 1 || SectionsPerComponent < 1 || QuadsPerSection < 1)
 	{
@@ -265,7 +265,19 @@ ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Loc
 	TMap<FGuid, TArray<uint16>> HeightDataPerLayers;
 	HeightDataPerLayers.Add(FGuid(), MoveTemp(Data));
 	TMap<FGuid, TArray<FLandscapeImportLayerInfo>> MaterialLayerDataPerLayers;
-	MaterialLayerDataPerLayers.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
+	TArray<FLandscapeImportLayerInfo>& Layers = MaterialLayerDataPerLayers.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
+	if (Holes.Num() > 0)
+	{
+		if (Holes.Num() != SizeX * SizeY || !ALandscapeProxy::VisibilityLayer)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("CreateLandscape: %d hole samples for %d x %d"), Holes.Num(), SizeX, SizeY);
+			return nullptr;
+		}
+		FLandscapeImportLayerInfo Visibility(ALandscapeProxy::VisibilityLayer->LayerName);
+		Visibility.LayerInfo = ALandscapeProxy::VisibilityLayer;
+		Visibility.LayerData = Holes;
+		Layers.Add(MoveTemp(Visibility));
+	}
 
 	ALandscape* Landscape = World->SpawnActor<ALandscape>(Location, FRotator::ZeroRotator);
 	if (!Landscape)
@@ -275,6 +287,10 @@ ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Loc
 	}
 	Landscape->bCanHaveLayersContent = false;
 	Landscape->LandscapeMaterial = Material;
+	Landscape->LandscapeHoleMaterial = Material;
+	// Per-component MIDs, so the loader can set the material's parameters at
+	// runtime (SetLandscapeMaterial*ParameterValue does nothing without them).
+	Landscape->bUseDynamicMaterialInstance = true;
 	Landscape->SetActorRelativeScale3D(Scale);
 	Landscape->Import(FGuid::NewGuid(), 0, 0, SizeX - 1, SizeY - 1, SectionsPerComponent, QuadsPerSection,
 		HeightDataPerLayers, TEXT(""), MaterialLayerDataPerLayers, ELandscapeImportAlphamapType::Additive,
@@ -284,8 +300,8 @@ ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Loc
 		Info->UpdateLayerInfoMap(Landscape);
 	}
 	Landscape->MarkPackageDirty();
-	UE_LOG(LogMjolnirUI, Display, TEXT("CreateLandscape: %d x %d samples, %d component(s)"), SizeX, SizeY,
-		Landscape->LandscapeComponents.Num());
+	UE_LOG(LogMjolnirUI, Display, TEXT("CreateLandscape: %d x %d samples, %d component(s), %s"), SizeX, SizeY,
+		Landscape->LandscapeComponents.Num(), Holes.Num() ? TEXT("with holes") : TEXT("no holes"));
 	return Landscape;
 }
 

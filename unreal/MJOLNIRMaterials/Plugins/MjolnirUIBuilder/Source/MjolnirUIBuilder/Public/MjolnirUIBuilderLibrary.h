@@ -68,13 +68,14 @@ public:
 	 * (ComponentsX * quads + 1) x (ComponentsY * quads + 1) samples, row by row
 	 * (0..65535, 32768 the actor's z), Location its corner and Scale its
 	 * spacing (cm a quad; z 100 spans -256..256 m). No edit layers, no paint
-	 * layers. The landscape spike (2026-10-11): can a cooked landscape load
-	 * in the game?
+	 * layers. Holes, when given (one byte a sample, 255 a hole), become the
+	 * visibility layer: the material cuts them with a Landscape Visibility
+	 * Mask (build_ce_materials.py M_CE_Landscape).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Landscape")
 	static class ALandscape* CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
 		int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
-		UMaterialInterface* Material);
+		UMaterialInterface* Material, const TArray<uint8>& Holes);
 
 	/**
 	 * Write every loaded class and struct's unversioned property schema, and

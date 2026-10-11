@@ -1310,7 +1310,12 @@ return normalize(CeN + float3(GameN.xy, 0.0));
 """
 
 
-def build_environment(name, masked, defaults, two_sided=False):
+def build_environment(name, masked, defaults, two_sided=False, land=False):
+    """`land`: the landscape master (tools/level/build_landscape.py). A
+    landscape has no CE texture coordinates, so its base and lightmap UVs
+    both come from world XY over the landscape's rectangle (LandRect: x, y,
+    width, height in cm), and its Base, Lightmap, Bake and SunShare are the
+    bakes build_landscape.py writes over that rectangle."""
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     # Lit, for object shadows (SUN_WEIGHT_CODE); with ShadowStrength 0 the
     # output is the unlit one.
@@ -1324,6 +1329,15 @@ def build_environment(name, masked, defaults, two_sided=False):
     m.set_editor_property("used_with_static_lighting", False)
     g = Graph(m)
     white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
+    if land:
+        land_uv = g.custom("return (W.xy - R.xy) / R.zw;", [
+            ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+            ("R", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), "")],
+            output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="landscape uv")
+
+    def uv(index):
+        """A CE texture coordinate: the mesh's, or the landscape's world UV."""
+        return land_uv if land else g.uv(index)
 
     # The base UV, transformed as CE does every pass of the surface: an
     # environment's texture scrolling (BaseUAnim/BaseVAnim, no phase), a
@@ -1332,7 +1346,7 @@ def build_environment(name, masked, defaults, two_sided=False):
     time0 = g.node(unreal.MaterialExpressionTime)
     zero = g.node(unreal.MaterialExpressionConstant, x=-1900, r=0.0)
     uv0 = g.custom(STAGE_UV_CODE, [
-        ("UV", g.uv(0), ""), ("Time", time0, ""), ("Depth", zero, ""),
+        ("UV", uv(0), ""), ("Time", time0, ""), ("Depth", zero, ""),
         ("Xform", g.vector4("BaseXform", (1, 1, 0, 0)), ""),
         ("UAnim", g.vector4("BaseUAnim", (1, 0, 0, 0)), ""),
         ("VAnim", g.vector4("BaseVAnim", (1, 0, 0, 0)), ""),
@@ -1353,24 +1367,24 @@ def build_environment(name, masked, defaults, two_sided=False):
     secondary = g.texture("Secondary", grey, scaled("SecondaryScale", "SecondaryAspect"))
     micro = g.texture("Micro", grey, scaled("MicroScale", "MicroAspect"))
     bump = g.texture("Bump", flat, scaled("BumpScale"))
-    lightmap = g.texture("Lightmap", white, g.uv(1))
+    lightmap = g.texture("Lightmap", white, uv(1))
     # tools: crates/ue-texture/examples/lightmap_bake.rs, on the same UVs.
-    bake = g.texture("Bake", white, g.uv(1))
+    bake = g.texture("Bake", white, uv(1))
     has_bake = g.scalar("HasBake", 0.0)
     # The solver's sun shares on the lightmap's UVs (ce_material_spec.py
     # SunShare, from `mjolnir level lightmaps`): R the sun's share of the
     # texel's light, G its share with the sun unblocked.
-    sunshare = g.texture("SunShare", white, g.uv(1))
+    sunshare = g.texture("SunShare", white, uv(1))
     has_sunshare = g.scalar("HasSunShare", 0.0)
     # A placed object's lightmap is its block of the object lighting page
     # (tools/level/merge_ce_scene.py): its light in the first of eight
     # columns, its reflection tint in the second, change colours A-D in the
     # third to sixth. These read the same texture beside the first.
-    obj_tint = g.texture("Lightmap", white, g.custom("return UV + float2(0.125, 0.0);", [("UV", g.uv(1), "")],
+    obj_tint = g.texture("Lightmap", white, g.custom("return UV + float2(0.125, 0.0);", [("UV", uv(1), "")],
                                                       output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
                                                       description="object reflection tint"))
     obj_cc = g.texture("Lightmap", white, g.custom("return UV + float2(CCOffset, 0.0);",
-                                                    [("UV", g.uv(1), ""), ("CCOffset", g.scalar("CCOffset", 0.25), "")],
+                                                    [("UV", uv(1), ""), ("CCOffset", g.scalar("CCOffset", 0.25), "")],
                                                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
                                                     description="object change colour"))
     # shader_model's multipurpose map (read only with HasMulti).
@@ -1379,7 +1393,7 @@ def build_environment(name, masked, defaults, two_sided=False):
     # A model's self-illumination colour source: a change colour of the
     # object lighting page, like CCOffset's.
     si_cc = g.texture("Lightmap", white, g.custom("return UV + float2(SICCOffset, 0.0);",
-                                                   [("UV", g.uv(1), ""), ("SICCOffset", g.scalar("SICCOffset", 0.25), "")],
+                                                   [("UV", uv(1), ""), ("SICCOffset", g.scalar("SICCOffset", 0.25), "")],
                                                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT2,
                                                    description="object self-illumination colour"))
     vc = g.node(unreal.MaterialExpressionVertexColor)
@@ -1488,7 +1502,7 @@ def build_environment(name, masked, defaults, two_sided=False):
         inputs.append((pname, node, ""))
     bake_obj = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Bake",
                       texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
-    bake_range = g.custom(BAKE_RANGE_CODE, [("Bake", bake_obj, ""), ("UV", g.uv(1), ""),
+    bake_range = g.custom(BAKE_RANGE_CODE, [("Bake", bake_obj, ""), ("UV", uv(1), ""),
                                             ("BakeMargin", g.scalar("BakeMargin", 1.5), "")],
                           output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="CE bake neighbourhood")
     inputs.append(("BakeRange", bake_range, ""))
@@ -1521,6 +1535,14 @@ def build_environment(name, masked, defaults, two_sided=False):
         link(base, "A", pick, "B")
         link(g.scalar("AlphaFromBase", 0.0), "", pick, "Alpha")
         mel.connect_material_property(pick, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    elif land:
+        # The landscape's holes (its visibility layer, build_landscape.py):
+        # where the ground is a cliff or a plateau's overhanging lip, the
+        # terrain mesh draws it.
+        m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+        m.set_editor_property("opacity_mask_clip_value", 0.5)
+        holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
+        mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -2025,6 +2047,7 @@ build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
 build_sun_light(defaults)
 build_linear_copy(defaults)
 if TRIAL_ROOT:
+    build_environment("M_CE_Landscape", False, defaults, land=True)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

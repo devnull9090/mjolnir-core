@@ -667,7 +667,9 @@ local HAS_PARAM = {
 --- { "Diffuse": "textures/bgl/ground.png", "Normal": "/Engine/..." },
 --- "scalars": { "RoughnessMult": 1.0 }, "linear": ["Normal"] }`. Texture
 --- parameters named in `linear` are imported without sRGB (normal maps).
-local function runtimeMaterial(world, spec, name)
+--- With `target` (Land.apply's landscape), the parameters go to it instead
+--- of a new instance.
+local function runtimeMaterial(world, spec, name, target)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local parent = nil
     -- The lightmap experiment draws the CE environment masters with the
@@ -677,8 +679,11 @@ local function runtimeMaterial(world, spec, name)
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
-    if not kml or not parent then return nil, "parent material not found: " .. tostring(spec.parent) end
-    local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(name), 0)
+    local mid = target
+    if not mid then
+        if not kml or not parent then return nil, "parent material not found: " .. tostring(spec.parent) end
+        mid = kml:CreateDynamicMaterialInstance(world, parent, FName(name), 0)
+    end
     if not mid or not mid:IsValid() then return nil, "no dynamic instance" end
     local linear = {}
     for _, p in ipairs(spec.linear or {}) do linear[p] = true end
@@ -2741,6 +2746,31 @@ function Foliage.spawn(world)
         wind and ", wind on" or ""))
 end
 
+--- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
+--- draws the ground shader whose material level.landscape.material is: the
+--- terrain mesh slot's own parameters, less the textures the landscape bakes
+--- over world XY (tools/level/build_landscape.py leaves those out). They go
+--- to the landscape's per-component instances.
+local Land = {}
+
+function Land.apply(world)
+    local spec = Current.level and Current.level.landscape
+    if type(spec) ~= "table" or type(spec.material) ~= "table" then return end
+    local land = FindFirstOf("Landscape")
+    if not (land and land:IsValid()) then
+        Log("landscape: the level names one but the world has none")
+        return
+    end
+    local target = {
+        IsValid = function() return land:IsValid() end,
+        SetScalarParameterValue = function(_, n, v) land:SetLandscapeMaterialScalarParameterValue(n, v) end,
+        SetVectorParameterValue = function(_, n, v) land:SetLandscapeMaterialVectorParameterValue(n, v) end,
+        SetTextureParameterValue = function(_, n, v) land:SetLandscapeMaterialTextureParameterValue(n, v) end,
+    }
+    local ok, mid, err = pcall(runtimeMaterial, world, spec.material, "landscape", target)
+    Log("landscape: " .. ((ok and mid) and "ground material applied" or tostring(ok and err or mid)))
+end
+
 local function spawnDecor(world)
     local level = Current.level
     spawnEnvironment(world)
@@ -2778,6 +2808,7 @@ local function spawnDecor(world)
     if not ok then Log("water: " .. tostring(err)) end
     ok, err = pcall(Foliage.spawn, world)
     if not ok then Log("foliage: " .. tostring(err)) end
+    Land.apply(world)
 end
 
 --------------------------------------------------------------------------------
