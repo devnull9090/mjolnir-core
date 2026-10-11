@@ -62,6 +62,14 @@ public:
 	static bool ConnectWorldPositionOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
 
 	/**
+	 * Connect From's output OutputName ("" for the first) to Material's Pixel
+	 * Depth Offset, which Python's MaterialProperty enum leaves out too: the
+	 * B30 ground masters' parallax sand, drawn at the depth it shows.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
 	 * Spawn a Landscape in World from a heightmap, as the editor's New
 	 * Landscape tool does: ComponentsX x ComponentsY components of
 	 * SectionsPerComponent^2 sections of QuadsPerSection quads, Heights the

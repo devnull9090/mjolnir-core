@@ -238,8 +238,9 @@ def main():
     ap.add_argument("--sea", type=float, help="the sea's height (Unreal cm): the rules' heights are above it")
     ap.add_argument("--offset", default="0,0,0", help="the terrain mesh's offset (cm, build_terrain_meshes --offset)")
     ap.add_argument("--lift", type=float, default=0.0,
-                    help="cm the visible ground rides over the mesh: a landscape's --lift (build_landscape.py, 8); "
-                         "without it a rock set into CE's ground lay buried under the landscape")
+                    help="cm the visible ground rides over the mesh: a landscape's --lift (build_landscape.py, 8) "
+                         "less about half its parallax depth (the sand is drawn that far down; Death Island: 6). "
+                         "Without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)

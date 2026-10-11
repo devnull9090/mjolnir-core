@@ -239,6 +239,17 @@ bool UMjolnirUIBuilderLibrary::ConnectWorldPositionOffset(UMaterial* Material, U
 	return true;
 }
 
+bool UMjolnirUIBuilderLibrary::ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
+{
+	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_PixelDepthOffset))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("MJOLNIR: could not connect Pixel Depth Offset on %s"), Material ? *Material->GetName() : TEXT("(none)"));
+		return false;
+	}
+	Material->MarkPackageDirty();
+	return true;
+}
+
 ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
 	int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
 	UMaterialInterface* Material, const TArray<uint8>& Holes)

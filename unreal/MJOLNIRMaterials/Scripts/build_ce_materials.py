@@ -2155,6 +2155,7 @@ float wet = hasSea * (1.0 - smoothstep(0.0, Sea.z, h));
 // so ripples and prints stand in relief at a low angle. In world XY, the
 // landscape's tangent frame; near the camera only.
 float2 P = W.xy;
+PDO = 0.0;
 float parD = (Par.x + Par.y) * (1.0 - grass) * (1.0 - smoothstep(Par.z * 0.5, Par.z, length(Cam - W)));
 if (parD > 0.05 && Par.w >= 1.0)
 {
@@ -2180,7 +2181,12 @@ if (parD > 0.05 && Par.w >= 1.0)
     // Between the last two steps, where the ray met the surface.
     float a = prevC - prevH, b = cur - hgt;
     float t = saturate(a / max(a - b, 1e-4));
-    P = W.xy + ray * (1.0 - lerp(prevC, cur, t));
+    float sunk = 1.0 - lerp(prevC, cur, t);
+    P = W.xy + ray * sunk;
+    // The depth the sand is drawn at (pixel depth offset, view depth): rocks
+    // and boots meet the sand where it shows, not on the flat surface above
+    // it, which cut them off at a plane they seemed to float on.
+    PDO = sunk * parD / max(V.z, 0.2) * max(dot(-V, View.ViewForward), 0.0);
     #undef LP_H
 }
 
@@ -2337,7 +2343,8 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     outs = []
     for name, kind in (("Normal", unreal.CustomMaterialOutputType.CMOT_FLOAT3),
                        ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
-                       ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+                       ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("PDO", unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
         o = unreal.CustomOutput()
         o.set_editor_property("output_name", name)
         o.set_editor_property("output_type", kind)
@@ -2347,6 +2354,8 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     mel.connect_material_property(c, "Normal", unreal.MaterialProperty.MP_NORMAL)
     mel.connect_material_property(c, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
+    # Python's MaterialProperty has no Pixel Depth Offset (the plugin's does).
+    unreal.MjolnirUIBuilderLibrary.connect_pixel_depth_offset(m, c, "PDO")
     mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
                                   unreal.MaterialProperty.MP_SPECULAR)
     if land:
