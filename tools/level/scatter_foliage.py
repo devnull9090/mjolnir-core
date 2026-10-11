@@ -30,7 +30,7 @@ Each kept point is turned at random and scaled within its rule's range;
 points are random but seeded, so every machine places the same. Clusters
 come from a smooth noise over the ground. Points on slopes steeper than a
 rule's limit are dropped, and so is anything below `--sea` that a rule
-keeps above it.
+keeps above it; without `--sea`, the rules tied to the shore are left out.
 
 Writes the instances to `--bin` (FOLIAGE_MAGIC: per group a count, then
 x, y, z as float32 cm, yaw in 256ths of a turn and scale in hundredths, a
@@ -209,6 +209,10 @@ def main():
     a = ap.parse_args()
 
     rules = [r for r in RULES if not a.only or r["name"] in a.only.split(",")]
+    if a.sea is None:
+        # A rule that lives in a band above the sea has no place on a map
+        # without one: unbounded, the shore stones would cover every sand.
+        rules = [r for r in rules if r["above"][1] is None]
     spec = json.load(open(a.spec, encoding="utf-8"))
     slots = ground_slots(spec)
     doc = json.load(open(a.gltf, encoding="utf-8"))
