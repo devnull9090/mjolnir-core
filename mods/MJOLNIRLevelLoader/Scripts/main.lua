@@ -2328,14 +2328,16 @@ end
 --- (r.Water.SingleLayer.Refraction stays 0 whatever a console or this
 --- loader sets: the game forces it, Fluid Flux drawing its own underwater
 --- pass. M_CE_Ocean dissolves over its last metres before the shore instead.)
---- - The sky light captures the scene (the atmosphere), with a lower
----   hemisphere that is not black. Rippled normals reflect below the
----   horizon, and a black lower half drew black blots. CE's reflection cube
----   is not used: its faces do not meet, and the seam ran across the sea.
+--- - The sky light stays as spawnEnvironment left it, a captured scene
+---   with a black lower half. A lower half that was not black, however dim,
+---   came back from Lumen as neon cyan glints all over the sea; CE's
+---   reflection cube is not used either: its faces do not meet, and the seam
+---   ran across the sea.
 --- - CE's shore foam (transparent sections whose maps are named for waves)
 ---   is faded out: it is flat, and the moving surface cut it into a dashed
 ---   line and smeared it.
---- CE's planar fog stays on: it is what puts the sea floor under water.
+--- - CE's planar fog stays on (it puts the sea floor under water), but comes
+---   in over 2 m of depth instead of CE's half a metre (oceanFog).
 ---
 --- (The game's own Fluid Flux ocean, tried first on 2026-10-10, draws its
 --- waves only beyond a few hundred metres of the camera: near the player it
@@ -2352,8 +2354,10 @@ local CE_WATER = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
 -- too coarse for it, and stronger they reflected the beach as blots.
 local DETAIL_WAVE = "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01"
 local WAVES = 0.35
-local SKY_CAPTURED_SCENE = 0
-local UNDERWATER_SKY = { R = 0.05, G = 0.09, B = 0.12, A = 1 }
+-- CE's planar fog under the ocean: opaque 15 m away and 2 m down. CE's own
+-- (Death Island: 30 cm and 46 cm) turned the sand to fog within half a metre
+-- of the waterline, a hard line once the ocean thins out at the shore.
+local OCEAN_FOG_DISTANCE, OCEAN_FOG_DEPTH = 1500.0, 200.0
 
 -- `mjolnir_water`: the style and swell for every level loaded later, until
 -- the game closes; nil hands them back to each level file.
@@ -2421,23 +2425,6 @@ local function oceanSpec(spec)
     return o
 end
 
-local function skyLight()
-    local sky = Current.actors["__sky"]
-    return sky and sky:IsValid() and sky.LightComponent or nil
-end
-
---- The sky light as the ocean wants it (`on`), or as spawnEnvironment left
---- it (a captured scene with a black lower half).
-local function oceanSky(on)
-    local c = skyLight()
-    if not c then return end
-    c.SourceType = SKY_CAPTURED_SCENE
-    c.bRealTimeCapture = true
-    c.bLowerHemisphereIsBlack = not on
-    if on then pcall(function() c.LowerHemisphereColor = UNDERWATER_SKY end) end
-    c:RecaptureSky()
-end
-
 --- A CE transparent slot faded out entirely: the masters fade by their
 --- atmospheric fog (TRANSPARENT_CODE), full from distance 0, for every blend.
 local function fadeOut(s)
@@ -2445,6 +2432,29 @@ local function fadeOut(s)
     mat:SetScalarParameterValue(FName("FogDensity"), 1.0)
     mat:SetScalarParameterValue(FName("FogStart"), -1.0)
     mat:SetScalarParameterValue(FName("FogOpaque"), 0.0)
+end
+
+--- The terrain's CE planar fog as the ocean wants it (`on`), or as the level
+--- file has it. Every decor slot with PlanarFogParams but the water's own.
+local function oceanFog(on)
+    local n = 0
+    for _, item in ipairs(type(Current.level.decor) == "table" and Current.level.decor or {}) do
+        local actor = type(item) == "table" and Current.actors[item.id]
+        if actor and actor:IsValid() and type(item.materials) == "table" then
+            local comp = actor.StaticMeshComponent
+            for i, entry in ipairs(item.materials) do
+                local p = type(entry) == "table" and type(entry.vectors) == "table" and entry.vectors.PlanarFogParams
+                if type(p) == "table" and (p[4] or 0) > 0.5 then
+                    local ok = pcall(function()
+                        comp:GetMaterial(i - 1):SetVectorParameterValue(FName("PlanarFogParams"), {
+                            R = p[1], G = on and OCEAN_FOG_DISTANCE or p[2], B = on and OCEAN_FOG_DEPTH or p[3], A = 1 })
+                    end)
+                    if ok then n = n + 1 end
+                end
+            end
+        end
+    end
+    return n
 end
 
 local function rebuild(world, s)
@@ -2464,7 +2474,7 @@ local function applyWater(world)
         if was ~= "ocean" then return end
         for _, s in ipairs(slots) do rebuild(world, s) end
         for _, s in ipairs(foam) do rebuild(world, s) end
-        pcall(oceanSky, false)
+        pcall(oceanFog, false)
         Current.water = { style = "ce" }
         Log(string.format("water: %d slot(s) back to CE's", #slots))
         return
@@ -2491,7 +2501,7 @@ local function applyWater(world)
     for _, s in ipairs(foam) do
         if pcall(fadeOut, s) then faded = faded + 1 end
     end
-    pcall(oceanSky, true)
+    pcall(oceanFog, true)
     Current.water = { style = "ocean", slots = done }
     Log(string.format("water: %d of %d slot(s) as M_CE_Ocean, waves x%.2f, %d foam slot(s) faded", done, #slots,
         waveAmplitude(), faded))
