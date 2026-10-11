@@ -911,6 +911,8 @@ def main():
                     "(docs/map_distribution.md); without it, the older /Game/MJOLNIR/Levels/<name>")
     ap.add_argument("--title")
     ap.add_argument("--terrain", help="terrain decor entry (JSON object)")
+    ap.add_argument("--foliage", help="scatter_foliage.py's out.json: the level's `foliage` (its file beside "
+                                      "the level file)")
     ap.add_argument("--sounds", help="tools/level/ce_sounds.py's output directory (its sounds.json): "
                                      "the map's ambient sound, imported under <root>/Sounds")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
@@ -1308,6 +1310,11 @@ def main():
         level["health_pack"] = dict(HEALTH_PACK_MESH, materials=[ce_model_material("healthpack.png")])
     if vehicle_sets:
         level["vehicle_sets"] = vehicle_sets
+    if a.foliage:
+        # The game's grass, tufts and shore stones (scatter_foliage.py), with
+        # a steady breeze for the grass (MJOLNIRLevelLoader Foliage.wind).
+        level["foliage"] = {**json.load(open(a.foliage, encoding="utf-8")),
+                            "wind": {"dir": [0.9, 0.4], "strength": 0.4}}
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)

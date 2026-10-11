@@ -1237,6 +1237,10 @@ def fog_inputs(g):
 # the whole island, and its painted blotches came through as smears on the
 # new sand (2026-10-11). Sand within GameWet.y cm above GameWet.x (the sea,
 # cm; 0 off) is wet: darker by GameWet.z, fading out over the band.
+# GamePrimaryW / GamePrimaryWN (HasGamePrimaryW), the primary detail's
+# rippled surface, takes over in a band from the sea up to GameRipple.x cm
+# above it, its edge wandering GameRipple.y cm (B30's LL_RippledSand along
+# its waterline).
 # GamePrimaryB / GameSecondaryB, when set (HasGamePrimaryB), is a second
 # surface blended in over patches tens of metres across (a plain sand
 # looked flat over a whole beach).
@@ -1247,12 +1251,23 @@ GAME_NOISE = r"""
 float2 uv = World.xy / max(Tile, 1.0);
 float2 uv2 = float2(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 0.37 + 0.31;
 float w = smoothstep(0.25, 0.75, GD_NOISE(uv * 0.21));
+// The rippled band above the sea (GameRipple: top cm above GameWet.x, the
+// sea, and how far the edge wanders, cm), for the primary detail only.
+float rh = World.z - Wet.x;
+float rtop = Ripple.x + (GD_NOISE(uv * 0.6 + 7.1) - 0.5) * 2.0 * Ripple.y;
+float rw = (Wet.x != 0.0 && HasW > 0.5) ? 1.0 - smoothstep(rtop - Ripple.y, rtop + Ripple.y, rh) : 0.0;
 """
 GAME_DETAIL_CODE = r"""
 if (GameDetail < 0.5 || Has < 0.5) return Ce;
 """ + GAME_NOISE + r"""
 float3 a = lerp(Texture2DSample(Tex, TexSampler, uv).rgb, Texture2DSample(Tex, TexSampler, uv2).rgb, w);
 float3 mean = Texture2DSampleLevel(Tex, TexSampler, float2(0.5, 0.5), 13.0).rgb;
+if (Primary > 0.5 && rw > 0.0)
+{
+    float2 ru = uv * 1.3 + 0.17;
+    a = lerp(a, Texture2DSample(TexW, TexWSampler, ru).rgb, rw);
+    mean = lerp(mean, Texture2DSampleLevel(TexW, TexWSampler, float2(0.5, 0.5), 13.0).rgb, rw);
+}
 if (HasB > 0.5)
 {
     // A second surface over patches tens of metres across.
@@ -1279,6 +1294,8 @@ GAME_NORMAL_CODE = r"""
 if (GameDetail < 0.5) return float3(0, 0, 1);
 """ + GAME_NOISE + r"""
 float2 p = lerp(Texture2DSample(PN, PNSampler, uv).rg, Texture2DSample(PN, PNSampler, uv2).rg, w) * 2.0 - 1.0;
+if (rw > 0.0)
+    p = lerp(p, Texture2DSample(PWN, PWNSampler, uv * 1.3 + 0.17).rg * 2.0 - 1.0, rw);
 float2 s = lerp(Texture2DSample(SN, SNSampler, uv).rg, Texture2DSample(SN, SNSampler, uv2).rg, w) * 2.0 - 1.0;
 float pick = Type > 0.5 ? Base.a : Qa;
 float2 xy = lerp(HasS > 0.5 ? s : 0.0.xx, HasP > 0.5 ? p : 0.0.xx, pick) * Strength;
@@ -1383,6 +1400,11 @@ def build_environment(name, masked, defaults, two_sided=False):
         strength = g.scalar("GameDetailStrength", 1.0)
         albedo_gain = g.scalar("GameAlbedoGain", 1.0)
         wet = g.vector4("GameWet", (0.0, 60.0, 0.35, 0.0))
+        ripple = g.vector4("GameRipple", (120.0, 40.0, 0.0, 0.0))
+        has_ripple = g.scalar("HasGamePrimaryW", 0.0)
+        ripple_albedo = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="GamePrimaryW",
+                               texture=unreal.load_asset("/Engine/EngineResources/DefaultTexture"),
+                               sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
         albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
         normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
 
@@ -1399,7 +1421,9 @@ def build_environment(name, masked, defaults, two_sided=False):
                 ("Base", base, "RGBA"), ("BaseKeep", g.scalar(pname + "Keep", 1.0), ""),
                 ("AlbedoGain", albedo_gain, ""), ("Wet", wet, ""),
                 ("TexB", game_texture(pname + "B", albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
-                ("HasB", g.scalar("Has" + pname + "B", 0.0), "")],
+                ("HasB", g.scalar("Has" + pname + "B", 0.0), ""),
+                ("Primary", g.node(unreal.MaterialExpressionConstant, x=-1900, r=1.0 if pname == "GamePrimary" else 0.0), ""),
+                ("TexW", ripple_albedo, ""), ("HasW", has_ripple, ""), ("Ripple", ripple, "")],
                 output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description=f"game detail {pname}"))
         primary_in, secondary_in = (detail[0], ""), (detail[1], "")
         game_w = g.custom(GAME_NORMAL_CODE, [
@@ -1408,7 +1432,9 @@ def build_environment(name, masked, defaults, two_sided=False):
             ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
             ("Base", base, "RGBA"), ("Qa", secondary, "A"), ("Type", g.scalar("Type", 0.0), ""),
             ("HasP", g.scalar("HasGamePrimary", 0.0), ""), ("HasS", g.scalar("HasGameSecondary", 0.0), ""),
-            ("Strength", g.scalar("GameNormalStrength", 1.0), "")], description="game detail normal")
+            ("Strength", g.scalar("GameNormalStrength", 1.0), ""),
+            ("PWN", game_texture("GamePrimaryWN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
+            ("HasW", has_ripple, ""), ("Ripple", ripple, ""), ("Wet", wet, "")], description="game detail normal")
         game_t = g.node(unreal.MaterialExpressionTransform, x=-800,
                         transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
                         transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)

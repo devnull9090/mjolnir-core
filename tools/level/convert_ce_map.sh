@@ -183,6 +183,15 @@ if [ "$cook" = "1" ]; then
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky"
+  # The game's grass, tufts and shore stones on the map's ground
+  # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
+  # sea's height is the water mesh's, when the map has one.
+  sea="$(python -c "import json,sys; w=[e for e in json.load(open(sys.argv[1])) if e['mesh'].split('.')[0].endswith('_Water')]; print(w[0]['pos'][2] if w else '')" "$out/terrain.json")"
+  sea="${sea%%[[:space:]]}"
+  sea_args=()
+  [ -n "$sea" ] && sea_args=(--sea "$sea")
+  python "$here/scatter_foliage.py" "$out/scene.gltf" "$out/materials.spec.json" "$out/foliage.json" \
+    --bin "$out/$name.foliage.bin" --offset "$delta" "${sea_args[@]}"
 else
   python "$here/ce_textures.py" "$staging" "$out/textures/$name" --prefix "textures/$name" | tail -1
   # One slot per composited shader, keyed on the glTF material names
@@ -261,7 +270,9 @@ title_args=()
 # shadows; the sun mask would soften every one (gen_ce_level.py).
 mask_args=()
 [ -n "${lightmaps_args+x}" ] && [ "${#lightmaps_args[@]}" -gt 0 ] && mask_args=(--no-sun-mask)
-python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}"
+foliage_args=()
+[ -f "$out/foliage.json" ] && foliage_args=(--foliage "$out/foliage.json")
+python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}" "${foliage_args[@]}"
 
 echo "== 5/6 bake"
 bake=("$mjolnir" level bake "$out/$name.level.json" --standalone "$code" --bsp "8=$out/$name.sbsp" --out-dir "$out")
@@ -292,6 +303,8 @@ if [ "$install" = "--install" ]; then
     rm -f "$HCE_PAKS"/pakchunk989-MJOLNIRMESH-Windows_P.* "$HCE_PAKS"/pakchunk987-MJOLNIRMESHT-Windows_P.*
   fi
   loader="$HCE_PAKS/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader"
+  # The level's foliage file sits beside the installed level file.
+  [ -f "$out/$name.foliage.bin" ] && cp -f "$out/$name.foliage.bin" "$loader/levels/"
   if [ "$cook" = "1" ]; then
     # The cooked materials and textures (pakchunk988-MJOLNIRMAT).
     "$repo/tools/ue/install_cook.sh"

@@ -559,7 +559,8 @@ local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 --- Each surface says how much of CE's colour it keeps (`keep`: the sand
 --- 0.2, its base map smeared it; the grass 0.85, B30's is a desaturated
 --- albedo for tinting) and may name a second albedo (`b`) blended in over
---- patches tens of metres across. Slots also get GameWet (the sea's height,
+--- patches tens of metres across and, as a primary detail, a rippled one
+--- (`w`, `wn`: albedo and normal) for the band just above the sea. Slots also get GameWet (the sea's height,
 --- from the level's water mesh): wet sand just above the waterline.
 local GameDetail = { on = false, params = { GameDetailStrength = 2.0 } }
 do
@@ -570,6 +571,8 @@ do
             d = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
             n = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
             b = MEGASCANS .. "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_D.T_Beach_Sand_xdheagk_2K_NSVT_D",
+            w = MEGASCANS .. "Thai_Rippled_Beach_Sand_vb1ldadn/T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_D.T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_D",
+            wn = MEGASCANS .. "Thai_Rippled_Beach_Sand_vb1ldadn/T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_N.T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_N",
             keep = 0.2,
         },
         T_levels_a30_bitmaps_detail_grass = {
@@ -715,6 +718,12 @@ local function runtimeMaterial(world, spec, name)
                 if b then
                     mid:SetTextureParameterValue(FName("Game" .. slot .. "B"), b)
                     mid:SetScalarParameterValue(FName("HasGame" .. slot .. "B"), 1.0)
+                end
+                local w, wn = surface.w and resolveMesh(surface.w), surface.wn and resolveMesh(surface.wn)
+                if slot == "Primary" and w and wn then
+                    mid:SetTextureParameterValue(FName("GamePrimaryW"), w)
+                    mid:SetTextureParameterValue(FName("GamePrimaryWN"), wn)
+                    mid:SetScalarParameterValue(FName("HasGamePrimaryW"), 1.0)
                 end
                 n = n + 1
             else
@@ -2630,8 +2639,10 @@ end
 --- `foliage` in the level file (tools/level/scatter_grass.py): `file`, the
 --- clumps beside the level file (FOLIAGE_MAGIC, then per group a count and
 --- that many x, y, z float32 cm, yaw in 256ths of a turn and scale in
---- hundredths), `groups` [{ mesh, tint }] in the file's order, and optional
---- `cull` [start, end] cm and `wind` { dir = [x, y], strength = 0..1 }.
+--- hundredths), `groups` [{ mesh, tint, material, cull, shadow }] in the
+--- file's order (tools/level/scatter_foliage.py: grass, tufts, rocky
+--- ground, stones), and optional `cull` [start, end] cm for groups without
+--- their own and `wind` { dir = [x, y], strength = 0..1 }.
 --- Each group is one hierarchical instanced mesh (Death Island: 380,000
 --- clumps in five). The grass is the game's Megascans grass (B30's beach),
 --- tinted through its Color Overlay. `mjolnir_foliage off` leaves it out
@@ -2697,7 +2708,11 @@ function Foliage.spawn(world)
             comp.Mobility = MOBILITY_MOVABLE
             comp:SetStaticMesh(mesh)
             comp:SetCollisionEnabled(COLLISION_NONE)
-            comp:SetCullDistances(cull[1], cull[2])
+            local gc = type(group.cull) == "table" and group.cull or cull
+            comp:SetCullDistances(gc[1], gc[2])
+            comp:SetCastShadow(group.shadow ~= false)
+            local material = type(group.material) == "string" and resolveMesh(group.material)
+            if material then comp:SetMaterial(0, material) end
             if type(group.tint) == "table" and kml then
                 for i = 0, comp:GetNumMaterials() - 1 do
                     local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
