@@ -442,7 +442,7 @@ def main():
                 continue
             files.append(write_wav(base + ".wav", pcm, info))
             joined += pcm
-        sounds[path] = {k: info[k] for k in ("rate", "channels", "compression", "min_distance", "max_distance")}
+        sounds[path] = {k: info[k] for k in ("rate", "channels", "compression", "min_distance", "max_distance", "class")}
         sounds[path]["files"] = files
         if path in looped:
             # CE plays a loop's permutations back to back; joined, they make

@@ -138,6 +138,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.23.2",
+      "tag": "mods-v0.23.2",
+      "title": "Map sounds follow the volume settings",
+      "date": "2026-10-10",
+      "summary": "Sounds on converted and community maps (ambience, water, teleporters, the announcer) now follow the game's volume sliders.",
+      "body": "### Fixed\n\n- **Map sounds ignored the volume settings** (MJOLNIRLevelLoader 0.6.1).\n  The ambience, sound scenery (water, teleporters, machinery) and announcer\n  on converted maps played at full volume whatever the Audio settings said,\n  even with All Sounds at 0. These sounds play through a different audio\n  system from the game's own, which the sliders do not reach. The loader\n  now reads the sliders and applies them itself. All Sounds scales\n  everything, Ambient Effects scales the ambience and sound scenery, and\n  Dialogue scales the announcer. A change made from the pause menu is\n  heard within half a second.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Map sounds ignored the volume settings (MJOLNIRLevelLoader 0.6.1). The ambience, sound scenery (water, teleporters, machinery) and announcer on converted maps played at full volume whatever the Audio settings said, even with All Sounds at 0. These sounds play through a different audio system from the game's own, which the sliders do not reach. The loader now reads the sliders and applies them itself. All Sounds scales everything, Ambient Effects scales the ambience and sound scenery, and Dialogue scales the announcer. A change made from the pause menu is heard within half a second."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.23.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.23.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.23.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.23.1",
       "tag": "mods-v0.23.1",
       "title": "Joining games from the Xbox app",

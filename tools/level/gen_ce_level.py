@@ -827,6 +827,10 @@ def landing_nudge(tris, pos, facing):
     return best[1]
 
 
+# CE sound classes (sound tag +0x04): music, cinematic_music.
+CE_MUSIC_CLASSES = (32, 38)
+
+
 def ambient_sounds(sounds_dir, root, to_ue):
     """The level's ambient sound, for MJOLNIRLevelLoader: the BSP's background
     loops (2D, map-wide) and the sound scenery (3D loops at their CE
@@ -846,11 +850,18 @@ def ambient_sounds(sounds_dir, root, to_ue):
                 out.append((track, snd))
         return out
 
+    def category(snd):
+        """The loader scales a sound by the game's Master slider and one more:
+        ambient unless the CE sound is music (classes music and
+        cinematic_music), which follows the music slider."""
+        return {"category": "music"} if snd.get("class") in CE_MUSIC_CLASSES else {}
+
     background, emitters = [], []
     for lsnd in manifest["background"]:
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), "gain": round(track["gain"], 3),
-                               "fade_in": round(track["fade_in"], 2), "source": lsnd})
+                               "fade_in": round(track["fade_in"], 2), "source": lsnd,
+                               **category(snd)})
     origin = to_ue([0.0, 0.0, 0.0])
 
     def vector(v):
@@ -864,7 +875,7 @@ def ambient_sounds(sounds_dir, root, to_ue):
                        "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
                        "inner": round(snd["min_distance"] * WU_CM, 1),
                        "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
-                       "source": e["sound"]}
+                       "source": e["sound"], **category(snd)}
             m = e.get("motion")
             if m:
                 # On a machine's moving part (ce_sounds.py marker_motion): the
