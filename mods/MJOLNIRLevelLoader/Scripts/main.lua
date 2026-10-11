@@ -3108,7 +3108,7 @@ function Land.ground(world, spec)
                                 mid:SetTextureParameterValue(FName("RockN"), rn)
                                 local t = type(cl.tint) == "table" and cl.tint or { 1, 1, 1 }
                                 mid:SetVectorParameterValue(FName("RockTint"), { R = t[1], G = t[2], B = t[3], A = 1 })
-                                local st = type(cl.steep) == "table" and cl.steep or { 0.45, 0.75, 250, 1 }
+                                local st = type(cl.steep) == "table" and cl.steep or { 0.35, 0.6, 250, 1 }
                                 mid:SetVectorParameterValue(FName("GroundSteep"), { R = st[1], G = st[2], B = st[3], A = st[4] })
                                 local f = type(cl.fill) == "table" and cl.fill or { 1, 0.8, 0.62, 0 }
                                 mid:SetVectorParameterValue(FName("CliffFill"),

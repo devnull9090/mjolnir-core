@@ -20,6 +20,8 @@ with ue-asset's placements_csv example, 2026-10-11):
   in clusters on sand from just under the sea to 1.5 m above it.
 - stones: B30's Uluwatu rocks, scaled small and set into the sand, among
   the rocky ground.
+- lip grass: tall grass along every lip (with --edge, a landscape's edge
+  map), breaking the cliff top's line.
 - shells, pebbles, driftwood: B30's beach decorators (its landscape grass
   types): coral pieces in the band above the sea, small beach rocks in
   patches over all the sand, and the odd dry branch.
@@ -116,6 +118,16 @@ RULES = [
                    ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A":
                    ROCKS + "Rock_Uluwatu_Med_A/Materials/MI_Rock_Uluwatu_Med_A_Waterline"},
      "cull": [5000, 9000], "shadow": True},
+    # Grass along every lip (--edge: the landscape's edge map), dense and
+    # tall, so blades break the edge's line where the cliff's turf hem
+    # (M_CE_CliffPBR) runs down from it: B30's cliff tops are fringed so.
+    {"name": "lip grass", "edge": "lip", "on": "any", "share": [0.0, 0.0], "density": 7.0, "slope": 65,
+     "above": [0.5, None],
+     "meshes": [(MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var11_lod0", 1.1, 1.7, 0),
+                (MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var12_lod0", 1.1, 1.7, 0),
+                (MEGA + "Sea_Wheatgrass_ui2oagjia/S_Sea_Wheatgrass_ui2oagjia_Var1_lod0", 0.6, 0.9, 0),
+                (MEGA + "Ribbon_Grass_tbdpec3r/S_Ribbon_Grass_tbdpec3r_Var2_lod0", 0.6, 0.85, 0)],
+     "tint": GRASS_TINT, "cull": [4000, 10000], "bands": 4},
     # B30's beach decorators (its landscape grass types LG_B30_rippledsand_assets
     # and LG_B30_stone_assets): shell-sized coral and beach rocks, 10 to 35 cm,
     # and dry branches half a metre long, all lying in the sand.
@@ -229,6 +241,27 @@ def keep_share(share, lo, hi, falloff):
     return min(1.0, max(0.0, (share - lo) / max(hi - lo, 1e-6)))
 
 
+def near_lip(edge, x, y):
+    """Whether the edge map has any lip at (x, y) Unreal cm."""
+    img, rect, _ = edge
+    h, w = img.shape[:2]
+    u, v = (x - rect[0]) / rect[2], (y - rect[1]) / rect[3]
+    return 0 <= u < 1 and 0 <= v < 1 and img[int(v * h), int(u * w)][1] > 0.05
+
+
+def on_lip(edge, x, y, z):
+    """Whether (x, y, z) Unreal cm is on a lip by the edge map: its lip mask
+    over half, and within 80 cm of the lip's height."""
+    img, rect, rng = edge
+    h, w = img.shape[:2]
+    u, v = (x - rect[0]) / rect[2], (y - rect[1]) / rect[3]
+    if not (0 <= u < 1 and 0 <= v < 1):
+        return False
+    px = img[int(v * h), int(u * w)]
+    top = rng[0] + px[0] * (rng[1] - rng[0])
+    return px[1] > 0.5 and abs(z - top) < 80.0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("gltf")
@@ -241,6 +274,7 @@ def main():
                     help="cm the visible ground rides over the mesh: a landscape's --lift (build_landscape.py, 8) "
                          "less about half its parallax depth (the sand is drawn that far down; Death Island: 6). "
                          "Without it a rock set into CE's ground lay buried under the landscape")
+    ap.add_argument("--edge", help="a landscape.json (build_landscape.py) whose edge map places the lip rules")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
@@ -252,6 +286,15 @@ def main():
         # A rule that lives in a band above the sea has no place on a map
         # without one: unbounded, the shore stones would cover every sand.
         rules = [r for r in rules if r["above"][1] is None]
+    edge = None
+    if a.edge:
+        land = json.load(open(a.edge, encoding="utf-8"))
+        e = land["pbr"]["edge"]
+        img = np.asarray(Image.open(os.path.join(os.path.dirname(os.path.abspath(a.edge)), "edge.png")).convert("RGBA"),
+                         dtype=np.float32) / 255.0
+        edge = (img, e["rect"], e["range"])
+    else:
+        rules = [r for r in rules if not r.get("edge")]
     spec = json.load(open(a.spec, encoding="utf-8"))
     slots = ground_slots(spec)
     doc = json.load(open(a.gltf, encoding="utf-8"))
@@ -259,6 +302,7 @@ def main():
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     off = [float(v) for v in a.offset.split(",")]
     rng = random.Random(a.seed)
+    rng_lip = random.Random(a.seed + 7)
     images = {}
     groups = {}  # mesh -> (rule, instances)
     counts = {r["name"]: 0 for r in rules}
@@ -289,22 +333,31 @@ def main():
                 for rule in rules:
                     if slope > rule["slope"]:
                         continue
+                    # Lip rules: only triangles near a lip, from a stream of
+                    # their own (the other rules place as they did).
+                    R = rng
+                    if rule.get("edge") == "lip":
+                        R = rng_lip
+                        cx, cy, cz = (p0 + p1 + p2) / 3.0 * 100.0
+                        if not near_lip(edge, cx + off[0], cz + off[1]):
+                            continue
                     count = area * rule["density"]
-                    k = int(count) + (1 if rng.random() < count - int(count) else 0)
+                    k = int(count) + (1 if R.random() < count - int(count) else 0)
                     if not k:
                         continue
-                    r1 = np.array([rng.random() for _ in range(k)])
-                    r2 = np.array([rng.random() for _ in range(k)])
+                    r1 = np.array([R.random() for _ in range(k)])
+                    r2 = np.array([R.random() for _ in range(k)])
                     s = np.sqrt(r1)
                     w0, w1, w2 = 1 - s, s * (1 - r2), s * r2
                     pts = np.outer(w0, p0) + np.outer(w1, p1) + np.outer(w2, p2)
                     uvs = np.outer(w0, uv[i0]) + np.outer(w1, uv[i1]) + np.outer(w2, uv[i2])
-                    share = class_shares(sample_rgba(img, uvs), primary, secondary, shader_type).get(rule["on"])
+                    share = (np.ones(len(uvs)) if rule["on"] == "any" else
+                             class_shares(sample_rgba(img, uvs), primary, secondary, shader_type).get(rule["on"]))
                     if share is None:
                         continue
                     lo, hi = rule["share"]
                     for p, sh in zip(pts, share):
-                        if rng.random() > keep_share(sh, lo, hi, rule.get("falloff")):
+                        if R.random() > keep_share(sh, lo, hi, rule.get("falloff")):
                             continue
                         x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2] + a.lift
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
@@ -314,11 +367,13 @@ def main():
                             h = (z - a.lift - a.sea) / 100.0
                             if (low is not None and h < low) or (high is not None and h > high):
                                 continue
+                        if rule.get("edge") == "lip" and not on_lip(edge, x, y, z):
+                            continue
                         cl = rule.get("cluster")
                         if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
                             continue
-                        path, smin, smax, sink = rule["meshes"][rng.randrange(len(rule["meshes"]))]
-                        scale = rng.uniform(smin, smax)
+                        path, smin, smax, sink = rule["meshes"][R.randrange(len(rule["meshes"]))]
+                        scale = R.uniform(smin, smax)
                         # Along the ground: its normal in Unreal's axes (y and z
                         # swapped from the glTF's, which flips the cross product).
                         tilt = (0.0, 0.0)
@@ -328,7 +383,7 @@ def main():
                                 nu = -nu
                             tilt = (float(nu[0]), float(nu[1]))
                         groups.setdefault(path, (rule, []))[1].append(
-                            [x, y, z - sink * scale, rng.uniform(0, 360), scale, tilt])
+                            [x, y, z - sink * scale, R.uniform(0, 360), scale, tilt])
                         counts[rule["name"]] += 1
     ordered = sorted(groups.items(), key=lambda kv: kv[0])
     with open(a.bin, "wb") as f:

@@ -211,16 +211,16 @@ def box_blur(img, radius):
 def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     """edge.png over the bakes' square, for where walls and ground meet:
     R the height of the ground at the top of a wall (its nearest lip's,
-    within 4 m; else the highest within 1.5 m), over `range`; G the lip
+    within 4 m; 0 for none), over `range`; G the lip
     (ground that drops more than 2 m within 3 m), B the foot (ground a wall
     rises more than 2 m over within 3 m), both softened over metres; A the
-    height of the ground at the bottom of a wall (its nearest foot's).
+    height of the ground at the bottom of a wall (its nearest foot's; 0 for
+    none).
     M_CE_CliffPBR drapes turf, earth and moss down from the lip by R;
     M_CE_LandscapePBR wears the grass at a lip and roughens a foot."""
     z_hi, _ = raster(tris, centres, step, n, [], highest=True)
     lo_f = np.where(on, z_low, np.inf)
     hi_f = np.where(np.isfinite(z_hi), z_hi, -np.inf)
-    r_top = max(1, int(round(150.0 / step)))
     r_edge = max(1, int(round(300.0 / step)))
     # Each wall's lip and foot heights, from the drop itself: the texels
     # where the top surface falls more than 2 m within two texels (a lip)
@@ -233,9 +233,12 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     lip_seed = on & (hi_f - tight_lo > 200.0)
     foot_seed = on & (tight_hi - lo_f > 200.0)
     reach = max(1, int(round(400.0 / step)))
-    lip_z, lip_k = propagate(hi_f, lip_seed, reach, np.maximum)
+    # A lip's height is the plateau's: the highest top surface within two
+    # texels (at a 62 cm texel the drop's own texel is partway down the wall,
+    # and the drape began a metre under the edge, a thin green line).
+    lip_z, lip_k = propagate(shift_filter(hi_f, 2, np.maximum), lip_seed, reach, np.maximum)
     foot_z, foot_k = propagate(lo_f, foot_seed, reach, np.minimum)
-    top = np.where(lip_k, lip_z, shift_filter(hi_f, r_top, np.maximum))
+    top = np.where(lip_k, lip_z, -np.inf)
     # A lip is where the top surface drops, a foot where the lowest one
     # rises: under an arch (the plateau over the beach) neither does, where
     # mixing the two had both everywhere.
@@ -247,10 +250,14 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     lip = np.clip(box_blur(lip.astype(float), soft) * 2.0, 0, 1)
     foot = np.clip(box_blur(foot.astype(float), soft) * 2.0, 0, 1)
     # A: the ground at the bottom of a wall (the lowest within 3 m).
-    bottom = np.where(foot_k, foot_z, shift_filter(np.where(on, lo_f, np.inf), r_top, np.minimum))
+    bottom = np.where(foot_k, foot_z, np.inf)
     finite = np.isfinite(top)
     fb = np.isfinite(bottom)
-    lo, hi = float(min(top[finite].min(), bottom[fb].min())), float(top[finite].max())
+    # 0 is "none within reach" (the range starts a metre under the lowest):
+    # a wall leaning back from the ground under it has no lip the masters
+    # may drape from.
+    lo = float(min(top[finite].min(), bottom[fb].min())) - 100.0
+    hi = float(max(top[finite].max(), bottom[fb].max()))
     t = np.where(finite, (top - lo) / max(hi - lo, 1.0), 0.0)
     b = np.where(fb, (bottom - lo) / max(hi - lo, 1.0), 0.0)
     rgba = np.stack([t, lip, foot, b], -1)
@@ -477,10 +484,10 @@ def main():
                              "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
                   "tiles": [250, 900, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.35, 0.3, 1.3],
                   "tint": [2.2, 2.0, 1.75, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
-                  # Under the lip, turf to 70 cm and earth to 160 cm (ragged),
-                  # stains 9 m down; at the foot sand banked 45 cm up, shade
-                  # over 1.5 m.
-                  "drape": [90, 220, 900, 1.0], "foot": [35, 150, 0.45, 1.0], "sand": [0.5, 0.45, 0.4, 1.0]},
+                  # Under the lip a thin rim, turf to 30 cm and earth to 70 cm
+                  # (ragged; deeper, the bands read as paint), stains 7 m down;
+                  # at the foot sand banked 35 cm up, shade over 1.5 m.
+                  "drape": [30, 70, 700, 1.0], "foot": [35, 150, 0.45, 1.0], "sand": [0.5, 0.45, 0.4, 1.0]},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
         # bake says where grass grows, over the same rectangle.
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",

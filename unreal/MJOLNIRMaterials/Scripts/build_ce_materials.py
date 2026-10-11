@@ -2329,7 +2329,14 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     albedo = lerp(albedo, rock, st);
     Normal = normalize(lerp(Normal, rT, st));
     rough = lerp(rough, 0.8, st);
-    Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * (0.75 - 0.35 * rN.z) * saturate(ao) * st;
+}
+// The fill on every face that leans (the sand's bounce): under an
+// overhanging lip, the sand between the rock's ragged edge took none and
+// went black in the shadow.
+if (Steep.w > 0.0)
+{
+    float lean = max(saturate((0.95 - nw.z) * 2.0), 0.0);
+    Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * (0.75 - 0.35 * nw.z) * saturate(ao) * lean;
 }
 
 Rough = saturate(rough);
@@ -2571,7 +2578,9 @@ if (EdgeRange.y > EdgeRange.x)
     float below = lerp(EdgeRange.x, EdgeRange.y, e.r) - W.z;   // cm under the lip
     float above = W.z - lerp(EdgeRange.x, EdgeRange.y, e.a);   // cm over the foot
     // A wall reaching above all the ground near it (a stack's crown) has no lip.
-    float lipOn = smoothstep(-250.0, -60.0, below);
+    // No lip within reach (R 0: a wall leaning back from the ground under
+    // it), no drape; a wall reaching above its lip (a stack's crown) neither.
+    float lipOn = smoothstep(-400.0, -150.0, below) * step(0.004, e.r);
     float t = Drape.x * (0.3 + 1.4 * rag);
     turf = (1.0 - smoothstep(t * 0.7, t, below)) * lipOn;
     float d = Drape.y * (0.4 + 1.2 * rag);
@@ -2580,13 +2589,18 @@ if (EdgeRange.y > EdgeRange.x)
     float run = CLF::noise(float2((W.x + W.y) / 38.0 + n.x * 3.0, W.z / 1400.0));
     streak = smoothstep(0.55, 0.9, run) * (1.0 - smoothstep(0.0, Drape.z, below)) * step(0.0, below) * lipOn
              * (1.0 - turf - soil);
-    // The foot: sand banked against the rock, ragged, and contact shade.
+    // The foot: sand banked against the rock, ragged, and contact shade;
+    // only where the foot is well under the lip (a wall's top, the beach
+    // too far out for the map, read its own plateau as the foot and was
+    // painted as sand).
+    float footOn = smoothstep(150.0, 300.0, below + above) * step(0.004, e.a) * step(0.004, e.r);
     float sb = Foot.x * (0.4 + 1.2 * rag);
-    sand = 1.0 - smoothstep(sb * 0.6, sb, above);
-    contact = 1.0 - smoothstep(0.0, Foot.y, above);
+    sand = (1.0 - smoothstep(sb * 0.6, sb, above)) * footOn;
+    contact = (1.0 - smoothstep(0.0, Foot.y, above)) * footOn;
 }
-// Grass on ledges that look up.
-turf = max(turf, smoothstep(0.65, 0.88, n.z) * smoothstep(0.35, 0.6, rag + 0.15));
+// Grass on ledges that look up (a boulder's top is all grass; a ledge
+// part-way, its edge ragged).
+turf = max(turf, smoothstep(0.55, 0.8, n.z + (rag - 0.5) * 0.3));
 turf *= Drape.w; soil *= Drape.w; streak *= Drape.w; sand *= Foot.w;
 
 if (turf + soil > 0.002)
@@ -2679,7 +2693,7 @@ def build_cliff_pbr(defaults):
         ("EdgeRect", g.vector4("EdgeRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
         ("EdgeRange", g.vector4("EdgeRange", (0.0, 0.0, 0.0, 0.0)), ""),
         # Drape: turf and earth depth under the lip, stain length (cm), strength.
-        ("Drape", g.vector4("CliffDrape", (70.0, 160.0, 900.0, 1.0)), ""),
+        ("Drape", g.vector4("CliffDrape", (30.0, 70.0, 700.0, 1.0)), ""),
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
         ("SandCol", g.vector4("CliffSand", (0.5, 0.45, 0.4, 1.0)), ""),
