@@ -2324,24 +2324,32 @@ end
 --- teleporter fields and shore foam out of the translucency pass. Maps
 --- converted before the split keep CE's water.
 ---
---- Reflections: the water reflects what Lumen finds, the screen first, then
---- the sky light. A converted map's sky is a translucent mesh, drawn after the
---- pass those traces read, and the sky light captures the atmosphere alone, so
---- the sky light takes CE's own reflection cube of the sky, the one its water
---- reflected.
+--- What else changes while it is on (Death Island, 2026-10-11):
+--- - r.Water.SingleLayer.Refraction 1. The game ships it off (Fluid Flux
+---   draws its own underwater pass), and without it the water shows nothing
+---   of what is under it: the shallows were black.
+--- - The sky light captures the scene (the atmosphere), with a lower
+---   hemisphere that is not black. Rippled normals reflect below the
+---   horizon, and a black lower half drew black blots. CE's reflection cube
+---   is not used: its faces do not meet, and the seam ran across the sea.
+--- - CE's shore foam (transparent sections whose maps are named for waves)
+---   is faded out: it is flat, and the moving surface cut it into a dashed
+---   line and smeared it.
+--- CE's planar fog stays on: it is what puts the sea floor under water.
 ---
 --- (The game's own Fluid Flux ocean, tried first on 2026-10-10, draws its
 --- waves only beyond a few hundred metres of the camera: near the player it
 --- leaves the surface to Fluid Flux's runtime mesh generator.)
 ---
 --- Fields: `style` ("ocean" or "ce", the default), `waves` (the swell's
---- WaveAmplitude, 1 by default), `reflection` (the sky light's cube; else the
---- first water slot's own), `params` (more of M_CE_Ocean's parameters by name:
---- numbers for scalars, 4-number lists for vectors).
+--- WaveAmplitude, 0.35 by default: Death Island's swell at 1 broke over the
+--- beach), `params` (more of M_CE_Ocean's parameters by name: numbers for
+--- scalars, 4-number lists for vectors).
 local OCEAN = "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"
 local CE_WATER = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
-local SKY_SPECIFIED_CUBEMAP = 1 -- ESkyLightSourceType::SLS_SpecifiedCubemap
+local WAVES = 0.35
 local SKY_CAPTURED_SCENE = 0
+local UNDERWATER_SKY = { R = 0.05, G = 0.09, B = 0.12, A = 1 }
 
 -- `mjolnir_water`: the style and swell for every level loaded later, until
 -- the game closes; nil hands them back to each level file.
@@ -2357,28 +2365,38 @@ local function waterStyle()
 end
 
 local function waveAmplitude()
-    return WaterOverride.waves or waterEnv().waves or 1.0
+    return WaterOverride.waves or waterEnv().waves or WAVES
 end
 
 --- Every decor slot the level draws with M_CE_Water, from the level file
 --- (each slot's spec, so CE's material can be rebuilt from it), and whether
---- its mesh is the water's own. The tint pass beside some
+--- its mesh is the water's own; and CE's shore foam, the transparent slots
+--- whose maps are named for waves. The tint pass beside some water
 --- (M_CE_WaterBackground) and sky water stay as they are.
 local function ceWaterSlots()
-    local slots = {}
+    local slots, foam = {}, {}
     for _, item in ipairs(type(Current.level.decor) == "table" and Current.level.decor or {}) do
         local actor = type(item) == "table" and Current.actors[item.id]
         if actor and actor:IsValid() and type(item.materials) == "table" then
             local comp = actor.StaticMeshComponent
             local own = type(item.mesh) == "string" and item.mesh:find("_Water%.") ~= nil
             for i, entry in ipairs(item.materials) do
+                local s = { comp = comp, slot = i - 1, spec = entry, id = item.id, own = own }
                 if type(entry) == "table" and entry.parent == CE_WATER then
-                    slots[#slots + 1] = { comp = comp, slot = i - 1, spec = entry, id = item.id, own = own }
+                    slots[#slots + 1] = s
+                elseif type(entry) == "table" and type(entry.parent) == "string"
+                    and entry.parent:find("/M_CE_Transparent", 1, true) then
+                    for _, tex in pairs(type(entry.textures) == "table" and entry.textures or {}) do
+                        if type(tex) == "string" and tex:lower():find("wave") then
+                            foam[#foam + 1] = s
+                            break
+                        end
+                    end
                 end
             end
         end
     end
-    return slots
+    return slots, foam
 end
 
 --- An M_CE_Ocean spec from a CE water slot's: its ripple maps and their
@@ -2403,41 +2421,55 @@ local function skyLight()
     return sky and sky:IsValid() and sky.LightComponent or nil
 end
 
-local function reflectSky(cubePath)
-    local c = skyLight()
-    if not c then return false, "no sky light" end
-    local cube = type(cubePath) == "string" and resolveMesh(cubePath)
-    if not cube then return false, "no reflection cube" end
-    c.bRealTimeCapture = false
-    c.SourceType = SKY_SPECIFIED_CUBEMAP
-    if not pcall(function() c:SetCubemap(cube) end) then c.Cubemap = cube end
-    c:RecaptureSky()
-    return true
-end
-
-local function captureSky()
+--- The sky light as the ocean wants it (`on`), or as spawnEnvironment left
+--- it (a captured scene with a black lower half).
+local function oceanSky(on)
     local c = skyLight()
     if not c then return end
     c.SourceType = SKY_CAPTURED_SCENE
     c.bRealTimeCapture = true
+    c.bLowerHemisphereIsBlack = not on
+    if on then pcall(function() c.LowerHemisphereColor = UNDERWATER_SKY end) end
     c:RecaptureSky()
+end
+
+--- A CE transparent slot faded out entirely: the masters fade by their
+--- atmospheric fog (TRANSPARENT_CODE), full from distance 0, for every blend.
+local function fadeOut(s)
+    local mat = s.comp:GetMaterial(s.slot)
+    mat:SetScalarParameterValue(FName("FogDensity"), 1.0)
+    mat:SetScalarParameterValue(FName("FogStart"), -1.0)
+    mat:SetScalarParameterValue(FName("FogOpaque"), 0.0)
+end
+
+local function rebuild(world, s)
+    local ok, mat = pcall(runtimeMaterial, world, s.spec, string.format("%s_%d", s.id, s.slot))
+    return ok and mat and pcall(function() s.comp:SetMaterial(s.slot, mat) end)
+end
+
+--- r.Water.SingleLayer.Refraction (see above), through the local controller.
+local function waterRefraction(on)
+    local kismet = findObject("/Script/Engine.Default__KismetSystemLibrary")
+    local pc = getPlayerController()
+    if kismet and pc then
+        kismet:ExecuteConsoleCommand(pc, "r.Water.SingleLayer.Refraction " .. (on and "1" or "0"), pc)
+    end
 end
 
 --- Draw the level's CE water in the style asked for (waterStyle), once the
 --- decor is up; again whenever `mjolnir_water` changes it.
 local function applyWater(world)
     if not (Current.level and Current.furnished) then return end
-    local slots = ceWaterSlots()
+    local slots, foam = ceWaterSlots()
     if #slots == 0 then return end
     local style = waterStyle()
     local was = Current.water and Current.water.style or "ce"
     if style ~= "ocean" then
         if was ~= "ocean" then return end
-        for _, s in ipairs(slots) do
-            local ok, mat = pcall(runtimeMaterial, world, s.spec, string.format("%s_%d", s.id, s.slot))
-            if ok and mat then pcall(function() s.comp:SetMaterial(s.slot, mat) end) end
-        end
-        pcall(captureSky)
+        for _, s in ipairs(slots) do rebuild(world, s) end
+        for _, s in ipairs(foam) do rebuild(world, s) end
+        pcall(oceanSky, false)
+        pcall(waterRefraction, false)
         Current.water = { style = "ce" }
         Log(string.format("water: %d slot(s) back to CE's", #slots))
         return
@@ -2460,11 +2492,15 @@ local function applyWater(world)
         local ok, mat = pcall(runtimeMaterial, world, oceanSpec(s.spec), string.format("%s_%d_ocean", s.id, s.slot))
         if ok and mat and pcall(function() s.comp:SetMaterial(s.slot, mat) end) then done = done + 1 end
     end
-    local textures = own[1].spec.textures or {}
-    local reflected, why = reflectSky(waterEnv().reflection or textures.ReflectionCube)
+    local faded = 0
+    for _, s in ipairs(foam) do
+        if pcall(fadeOut, s) then faded = faded + 1 end
+    end
+    pcall(oceanSky, true)
+    pcall(waterRefraction, true)
     Current.water = { style = "ocean", slots = done }
-    Log(string.format("water: %d of %d slot(s) as M_CE_Ocean, waves x%.2f, %s", done, #slots, waveAmplitude(),
-        reflected and "the sky light reflecting CE's cube" or ("sky light as it was: " .. tostring(why))))
+    Log(string.format("water: %d of %d slot(s) as M_CE_Ocean, waves x%.2f, %d foam slot(s) faded", done, #slots,
+        waveAmplitude(), faded))
 end
 
 --- `mjolnir_water [ocean|ce|default] | [waves <x>|waves default]`: draw CE
@@ -2479,6 +2515,8 @@ local function waterCommand(args)
         WaterOverride.style = nil
     elseif arg == "waves" and (tonumber(value) or value == "default") then
         WaterOverride.waves = tonumber(value)
+        -- A new swell reaches the water through a fresh application.
+        if Current.water and Current.water.style == "ocean" then Current.water.style = "reapply" end
     elseif arg ~= nil then
         Log("usage: mjolnir_water [ocean | ce | default] | [waves <x> | waves default]")
         return

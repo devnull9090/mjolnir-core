@@ -19,6 +19,9 @@ mesh generator, which a converted map has no way to run (2026-10-10).
   scales them on top of the swell.
 - Look: `Absorption` and `Scattering` (Single Layer Water coefficients, per
   metre), `PhaseG`, `ColorScaleBehindWater`, `Roughness`, `Specular`.
+  Defaults tuned on Death Island (2026-10-11): CE's ripple maps have hard
+  edges, and above DetailStrength 0.05 or below Roughness 0.16 the beach
+  reflected in them as sharp-edged blots.
 
 The normal is worked out in world space (the swell's analytically, the
 ripples' brought there) and handed over in tangent space. A material cooked
@@ -217,13 +220,13 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
                       transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
     link(ripple_t, "", ripple_w, "")
     normal = g.custom(COMBINE_NORMAL, [("Swell", swell_n, ""), ("Ripple", ripple_w, ""),
-                                       ("Strength", g.scalar("DetailStrength", 0.6), "")], description="water normal")
+                                       ("Strength", g.scalar("DetailStrength", 0.05), "")], description="water normal")
     tangent = g.node(unreal.MaterialExpressionTransform, x=-300,
                      transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
                      transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
     link(normal, "", tangent, "")
     mel.connect_material_property(tangent, "", unreal.MaterialProperty.MP_NORMAL)
-    mel.connect_material_property(g.scalar("Roughness", 0.04), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(g.scalar("Roughness", 0.16), "", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(g.scalar("Specular", 0.5), "", unreal.MaterialProperty.MP_SPECULAR)
     if slw:
         build_water_output(g)
@@ -245,10 +248,10 @@ def build_water_output(g):
                 return
         raise RuntimeError(f"Single Layer Water output: none of {names}")
 
-    to_output(g.vector("Scattering", (0.02, 0.06, 0.07, 1.0)),
+    to_output(g.vector("Scattering", (0.04, 0.16, 0.18, 1.0)),
               ("ScatteringCoefficients", "Scattering Coefficients", "Scattering Coefficients (per centimeter)",
                "Scattering Coefficients (per meter)"))
-    to_output(g.vector("Absorption", (0.45, 0.06, 0.04, 1.0)),
+    to_output(g.vector("Absorption", (0.35, 0.08, 0.06, 1.0)),
               ("AbsorptionCoefficients", "Absorption Coefficients", "Absorption Coefficients (per centimeter)",
                "Absorption Coefficients (per meter)"))
     to_output(g.scalar("PhaseG", 0.3), ("PhaseG", "Phase G"))
