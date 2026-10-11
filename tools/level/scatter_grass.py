@@ -2,7 +2,8 @@
 """Scatter the game's own grass over a converted CE map's grassy ground.
 
     scatter_grass.py <scene.gltf> <materials.spec.json> <out.json>
-        [--density 1.5] [--center x,y --radius r] [--seed 1]
+        [--density 5] [--min-z cm] [--offset x,y,z] [--bin foliage.bin]
+        [--center x,y --radius r] [--seed 1]
 
 CE draws its grass as a detail map: a blended shader_environment (Death
 Island's beach) picks between two detail maps by its base map's alpha, so
@@ -17,13 +18,20 @@ assets), upright, turned and scaled at random.
 
 Writes {"grass": [{"mesh": path, "instances": [[x, y, z, yaw, scale], ...]}]}
 in Unreal centimetres (the glTF is CE in metres, y up: Unreal x = x, y = z,
-z = y), for MJOLNIRLevelLoader's `foliage`.
+z = y, plus the terrain mesh's `--offset`). With `--bin`, the instances go
+into that file instead (FOLIAGE_MAGIC: per group a count, then x, y, z as
+float32 cm, yaw in 256ths of a turn and scale in hundredths, one byte
+each; 14 bytes a clump, where Death Island's 300,000 made 37 MB of JSON)
+and out.json is the level file's `foliage` entry for MJOLNIRLevelLoader.
+`--min-z` drops clumps below it (the sea: CE's grassy ground runs on under
+the water).
 """
 import argparse
 import json
 import math
 import os
 import random
+import struct
 import sys
 
 import numpy as np
@@ -34,6 +42,10 @@ from refine_water_gltf import read_accessor  # noqa: E402
 
 GRASS_DETAILS = ("detail_grass",)
 MAX_SLOPE = math.radians(35.0)
+FOLIAGE_MAGIC = b"MJFG"
+# B30's grass is tinted grey for a dry beach (its instances' Color Overlay,
+# 0.286); CE's grass is green.
+GRASS_TINT = [0.38, 0.5, 0.26]
 GRASS_MESHES = [
     "/Game/Megascans/3D_Plants/Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var11_lod0",
     "/Game/Megascans/3D_Plants/Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var12_lod0",
@@ -88,7 +100,10 @@ def main():
     ap.add_argument("gltf")
     ap.add_argument("spec")
     ap.add_argument("out")
-    ap.add_argument("--density", type=float, default=1.5, help="clumps a square metre where it is all grass")
+    ap.add_argument("--density", type=float, default=5.0, help="clumps a square metre where it is all grass")
+    ap.add_argument("--min-z", type=float, help="no clumps below this (Unreal cm): the sea")
+    ap.add_argument("--offset", default="0,0,0", help="the terrain mesh's offset (cm, build_terrain_meshes --offset)")
+    ap.add_argument("--bin", help="write the instances to this binary file (out.json names it)")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
@@ -99,6 +114,7 @@ def main():
     doc = json.load(open(a.gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
+    off = [float(v) for v in a.offset.split(",")]
     rng = random.Random(a.seed)
     images = {}
     per_mesh = [[] for _ in GRASS_MESHES]
@@ -142,16 +158,27 @@ def main():
                     # Thin out where the blend is part grass, all of it where none.
                     if rng.random() > (wgt - 0.3) / 0.4:
                         continue
-                    x, y, z = p[0] * 100.0, p[2] * 100.0, p[1] * 100.0
+                    x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2]
                     if center and math.hypot(x - center[0], y - center[1]) > a.radius:
+                        continue
+                    if a.min_z is not None and z < a.min_z:
                         continue
                     per_mesh[rng.randrange(len(GRASS_MESHES))].append(
                         [round(x, 1), round(y, 1), round(z, 1), round(rng.uniform(0, 360), 1),
-                         round(rng.uniform(0.8, 1.3), 2)])
+                         round(rng.uniform(0.9, 1.5), 2)])
                     total += 1
-    out = {"grass": [{"mesh": object_path(m), "instances": inst}
-                     for m, inst in zip(GRASS_MESHES, per_mesh) if inst]}
-    json.dump(out, open(a.out, "w", encoding="utf-8"))
+    groups = [(object_path(m), inst) for m, inst in zip(GRASS_MESHES, per_mesh) if inst]
+    if a.bin:
+        with open(a.bin, "wb") as f:
+            f.write(FOLIAGE_MAGIC + struct.pack("<II", 1, len(groups)))
+            for _, inst in groups:
+                f.write(struct.pack("<I", len(inst)))
+                for x, y, z, yaw, scale in inst:
+                    f.write(struct.pack("<fffBB", x, y, z, int(yaw / 360.0 * 256) % 256, min(255, int(scale * 100))))
+        out = {"file": os.path.basename(a.bin), "groups": [{"mesh": m, "tint": GRASS_TINT} for m, _ in groups]}
+    else:
+        out = {"grass": [{"mesh": m, "instances": inst} for m, inst in groups]}
+    json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1)
     print(f"{total} grass clump(s) over {len(slots)} grassy slot(s) -> {a.out}")
 
 

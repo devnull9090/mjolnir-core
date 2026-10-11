@@ -43,6 +43,9 @@
 --   mjolnir_water [ocean|ce|default] | [waves <x>|waves default]
 --                          draw a converted level's CE water as rolling,
 --                          reflecting water (M_CE_Ocean, see applyWater)
+--   mjolnir_foliage [on|off]
+--                          the game's grass on a converted level's grassy
+--                          ground, from its level file (see Foliage.spawn)
 --   mjolnir_terrain_detail [game|ce] | param <Name> <value>
 --                          draw CE's sand and grass detail with the game's own
 --                          surfaces (an experiment, see GameDetail)
@@ -308,6 +311,8 @@ local function loadLevelFile(scenario, fileKey)
         return nil, string.format("file targets %s but the loaded world is %s",
             canvas.scenario, scenario)
     end
+    -- Files the level names (its foliage) sit beside it.
+    level._dir = path:match("^(.*)\\[^\\]+$")
     return level
 end
 
@@ -542,7 +547,7 @@ local TerrainShadows = { cast = false, strength = nil, lightmap = nil, proxy = f
 local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 
 --- Game detail experiment (`mjolnir_terrain_detail`, 2026-10-11): a CE
---- surface whose detail map is one of GAME_SURFACES' is drawn with the
+--- surface whose detail map is one of GameDetail.surfaces' is drawn with the
 --- game's own surface instead (Campaign Evolved's B30 beach: Megascans sand
 --- and grass), through the trial masters' GameDetail path
 --- (build_ce_materials.py GAME_DETAIL_CODE): the game's albedo as the
@@ -552,28 +557,31 @@ local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 --- GameDetailStrength, GameNormalStrength); at the master's 1 the game's
 --- grain was faint under Death Island's base map, 2 shows it.
 local GameDetail = { on = false, params = { GameDetailStrength = 2.0 } }
-local MEGASCANS = "/Game/Megascans/Surfaces/"
-local GAME_SURFACES = {
-    T_levels_b30_bitmaps_detail_sand = {
-        d = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
-        n = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
-    },
-    T_levels_a30_bitmaps_detail_grass = {
-        d = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D.T_Ground_Grass_tb3nce_Desat_4K_NSVT_D",
-        n = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N.T_Ground_Grass_NSVT_4K_N",
-    },
-}
+do
+    -- (A block: the file is at Lua's 200 locals.)
+    local MEGASCANS = "/Game/Megascans/Surfaces/"
+    GameDetail.surfaces = {
+        T_levels_b30_bitmaps_detail_sand = {
+            d = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
+            n = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
+        },
+        T_levels_a30_bitmaps_detail_grass = {
+            d = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D.T_Ground_Grass_tb3nce_Desat_4K_NSVT_D",
+            n = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N.T_Ground_Grass_NSVT_4K_N",
+        },
+    }
+end
 
 --- The game surfaces for a CE environment spec's detail maps, as
 --- { Primary = surface, Secondary = surface } (either may be absent), or nil.
-local function gameSurfaces(spec)
+function GameDetail.surfacesFor(spec)
     if not GameDetail.on or type(spec.textures) ~= "table" then return nil end
     local found = nil
     for _, slot in ipairs({ "Primary", "Secondary" }) do
         local leaf = type(spec.textures[slot]) == "string" and spec.textures[slot]:match("%.([%w_]+)$")
-        if leaf and GAME_SURFACES[leaf] then
+        if leaf and GameDetail.surfaces[leaf] then
             found = found or {}
-            found[slot] = GAME_SURFACES[leaf]
+            found[slot] = GameDetail.surfaces[leaf]
         end
     end
     return found
@@ -653,7 +661,7 @@ local function runtimeMaterial(world, spec, name)
     local parent = nil
     -- The lightmap experiment draws the CE environment masters with the
     -- trial build, when it is installed.
-    local game = gameSurfaces(spec)
+    local game = GameDetail.surfacesFor(spec)
     local master = (TerrainShadows.lightmap or TerrainLights.trial or game) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
@@ -2593,6 +2601,109 @@ local function waterCommand(args)
         waveAmplitude()))
 end
 
+--------------------------------------------------------------------------------
+-- Foliage: the game's own grass where a converted map draws grass
+--------------------------------------------------------------------------------
+
+--- `foliage` in the level file (tools/level/scatter_grass.py): `file`, the
+--- clumps beside the level file (FOLIAGE_MAGIC, then per group a count and
+--- that many x, y, z float32 cm, yaw in 256ths of a turn and scale in
+--- hundredths), `groups` [{ mesh, tint }] in the file's order, and optional
+--- `cull` [start, end] cm and `wind` { dir = [x, y], strength = 0..1 }.
+--- Each group is one hierarchical instanced mesh (Death Island: 380,000
+--- clumps in five). The grass is the game's Megascans grass (B30's beach),
+--- tinted through its Color Overlay. `mjolnir_foliage off` leaves it out
+--- until the game closes.
+local Foliage = { MAGIC = "MJFG", CULL = { 5000, 9000 }, on = true }
+
+--- The game's foliage wind (HaloFoliageAndWindInteractions) blows only where
+--- its wind flowmap is filled, which BP_Wind_Flowmap_Generator does in the
+--- game's levels and nothing does on a converted map's world. Spawning the
+--- game's wind simulation manager crashed the game (2026-10-11). This does
+--- what the generator's UpdateMPC and UpdateFlowmap do, for one steady wind:
+--- the flowmap's extents and origin over the level and its top speed in the
+--- parameter collection, the flowmap cleared to the wind (0.5 is calm, red
+--- and green the direction), the gust mask to white.
+function Foliage.wind(world, wind, centre)
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local mpc = resolveMesh("/HaloFoliageAndWindInteractions/Materials/MPC_GlobalFlowmapWind.MPC_GlobalFlowmapWind")
+    local flow = resolveMesh("/HaloFoliageAndWindInteractions/Storage/RT_GlobalFlowmapWind.RT_GlobalFlowmapWind")
+    local gust = resolveMesh("/HaloFoliageAndWindInteractions/Storage/RT_GlobalFlowmapGustMask.RT_GlobalFlowmapGustMask")
+    if not (kml and krl and mpc and flow and gust) then return false end
+    local half = 200000
+    kml:SetVectorParameterValue(world, mpc, FName("Flowmap_Dimensions"), { R = 2 * half, G = 2 * half, B = 0, A = 0 })
+    kml:SetVectorParameterValue(world, mpc, FName("Flowmap_Origin"),
+        { R = centre[1] - half, G = centre[2] - half, B = 0, A = 0 })
+    kml:SetScalarParameterValue(world, mpc, FName("Flowmap_MaxWindSpeed(m/s)"), 15)
+    local dir = type(wind.dir) == "table" and wind.dir or { 0.9, 0.4 }
+    local len = math.max(math.sqrt(dir[1] * dir[1] + dir[2] * dir[2]), 1e-3)
+    local k = (wind.strength or 0.4) * 0.5
+    krl:ClearRenderTarget2D(world, flow, { R = 0.5 + k * dir[1] / len, G = 0.5 + k * dir[2] / len, B = 0.5, A = 1 })
+    krl:ClearRenderTarget2D(world, gust, { R = 1, G = 1, B = 1, A = 1 })
+    return true
+end
+
+function Foliage.spawn(world)
+    local foliage = Current.level and Current.level.foliage
+    if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+        return
+    end
+    local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
+    if not raw or raw:sub(1, 4) ~= Foliage.MAGIC then
+        Log("foliage: " .. foliage.file .. " missing or not a foliage file")
+        return
+    end
+    local cls = findObject("/Script/Engine.StaticMeshActor")
+    local hism = findObject("/Script/Engine.HierarchicalInstancedStaticMeshComponent")
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local cull = type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
+    local started = os.clock()
+    local _, count, pos = string.unpack("<II", raw, 5)
+    local total, sx, sy, n = 0, 0, 0, 0
+    for g = 1, count do
+        local size
+        size, pos = string.unpack("<I", raw, pos)
+        local group = foliage.groups[g] or {}
+        local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
+        local actor = mesh and cls and hism and world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+        local comp = actor and actor:IsValid() and actor:AddComponentByClass(hism, false, {
+            Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 },
+            Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+        if comp and comp:IsValid() then
+            Current.actors["__foliage_" .. g] = actor
+            comp.Mobility = MOBILITY_MOVABLE
+            comp:SetStaticMesh(mesh)
+            comp:SetCollisionEnabled(COLLISION_NONE)
+            comp:SetCullDistances(cull[1], cull[2])
+            if type(group.tint) == "table" and kml then
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
+                    mid:SetVectorParameterValue(FName("Color Overlay"),
+                        { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                    comp:SetMaterial(i, mid)
+                end
+            end
+            for _ = 1, size do
+                local x, y, z, yaw, scale
+                x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
+                local h = yaw * math.pi / 256
+                local s = scale / 100
+                comp:AddInstance({ Rotation = { X = 0, Y = 0, Z = math.sin(h), W = math.cos(h) },
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, true)
+                sx, sy, n = sx + x, sy + y, n + 1
+            end
+            total = total + size
+        else
+            pos = pos + size * 14
+            Log("foliage: group " .. g .. " not spawned (" .. tostring(group.mesh) .. ")")
+        end
+    end
+    local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
+    Log(string.format("foliage: %d clump(s) in %d group(s), %.1f s%s", total, count, os.clock() - started,
+        wind and ", wind on" or ""))
+end
+
 local function spawnDecor(world)
     local level = Current.level
     spawnEnvironment(world)
@@ -2628,6 +2739,8 @@ local function spawnDecor(world)
     end
     local ok, err = pcall(applyWater, world)
     if not ok then Log("water: " .. tostring(err)) end
+    ok, err = pcall(Foliage.spawn, world)
+    if not ok then Log("foliage: " .. tostring(err)) end
 end
 
 --------------------------------------------------------------------------------
@@ -3034,6 +3147,16 @@ local function terrainDebug(args)
     Log(string.format("terrain debug view %d on %d material(s)", layer, n))
 end
 
+--- `mjolnir_foliage [on|off]`: see Foliage.spawn; respawns the level.
+function Foliage.command(args)
+    local mode = args and args[1]
+    if mode == "on" or mode == "off" then
+        Foliage.on = mode == "on"
+        reload()
+    end
+    Log("foliage: " .. (Foliage.on and "on" or "off"))
+end
+
 --- `mjolnir_terrain_detail [game|ce] | param <Name> <value>`: see GameDetail.
 --- `game`/`ce` respawn the level (the masters change), as does a param. No
 --- argument reports it.
@@ -3395,7 +3518,11 @@ local function initialize()
         terrainDetail(args)
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail")
+    RegisterConsoleCommandHandler("mjolnir_foliage", function(_, args)
+        Foliage.command(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail, mjolnir_foliage")
     watch()
 end
 
