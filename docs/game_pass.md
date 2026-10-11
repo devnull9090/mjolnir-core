@@ -143,5 +143,16 @@ probably goes nowhere in the shipped game either. That is untested.
 Verified 2026-10-10 on the Xbox app with a dummy connection string: the game
 left its fireteam, called `PFMultiplayerJoinLobby` with the string (returned
 0) and showed its own FAILED TO JOIN when PlayFab refused the fake key. That
-is what the Steam build does with the same string. A join between two real
-players is still untested.
+is what the Steam build does with the same string.
+
+Verified 2026-10-10 between two real players: a Steam player joined a game
+hosted on the Xbox app.
+
+## Crossplay
+
+Steam and Xbox app players share one PlayFab lobby service, so either can
+host and the other joins from FIND GAMES or a link. The game refuses a
+player from another platform when crossplay is off for either side. On the
+Xbox app that follows the Microsoft account's "You can join cross-network
+play" privacy setting. A Steam joiner dropped a few seconds after connecting
+to an Xbox app host points at that setting.

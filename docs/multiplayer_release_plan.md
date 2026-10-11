@@ -82,5 +82,6 @@ from `work/halo-ce-map-conversion-f72214`. Status as of 2026-10-01.
 - Whether a client's Megalo variant comes from its own file or from the host.
   The insertion point slot keeps both machines on the same game type either
   way.
-- Game Pass: the PlayFab path should match; UE4SS on the Game Pass binary is
-  untested.
+- ~~Game Pass~~: answered 2026-10-10. Mods and multiplayer run on the Xbox
+  app build (mods-v0.23.0, v0.23.1), and a Steam player joined an Xbox app
+  host (docs/game_pass.md).

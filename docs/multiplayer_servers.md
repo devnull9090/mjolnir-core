@@ -191,7 +191,5 @@ What a headless host still needs:
   but that was a local `CreatePlayer`, not a network join.
 - Does a Private lobby accept a join by connection string from a stranger?
   Expected yes, per PlayFab's model; not tested with a real host.
-- Game Pass: the same PlayFab path, untested. Its online subsystem may not
-  be Steam, so the join hook would need another route there.
 - Headless host (dropped): keeping its player from spawning; WARP for a
   GPU-less machine; why `-nullrhi` hangs at map start.
