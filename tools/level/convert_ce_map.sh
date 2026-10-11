@@ -161,7 +161,11 @@ if [ "$cook" = "1" ]; then
     # The bake's pages match the lightmaps' size.
     size_page="$staging/textures/$page0"
     [ -f "$out/lightmaps/$page0" ] && size_page="$out/lightmaps/$page0"
-    "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" | sed 's/ -> .*//'
+    # BAKE_ARGS adds bake flags. "--max-size 1024" keeps a map with many
+    # pages under the hub's 50 MiB archive limit: Coldsnap's 76 pages at
+    # 2,048 made a 58.6 MB pack.
+    read -r -a bake_extra <<< "${BAKE_ARGS:-}"
+    "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" "${bake_extra[@]}" | sed 's/ -> .*//'
   fi
   # The map's planar fog (Damnation's shaft, the water), which halo2ue does
   # not stage: fog.json beside the staging, for the material spec.
@@ -235,7 +239,16 @@ if [ "$cook" = "1" ]; then
     # "/"-led environment values into Windows paths (C:/Program Files/Git/Game/...).
     MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/sounds_out")" MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Maps/$code/Sounds"       powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_sounds.py | grep -E "editor exit|MJOLNIR CE sounds"
   fi
-  powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
+  cook_out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")")"
+  printf '%s\n' "$cook_out"
+  # A failed cook leaves the last good one's chunk staged, and copying it
+  # shipped the wrong textures without a word (Coldsnap's 2048 bake pages
+  # under a 1024 build, 2026-10-10). The cook covers the whole project, so
+  # another map's broken asset fails this one too: stop.
+  if ! printf '%s\n' "$cook_out" | tr -d '\r' | grep -qx "cook exit 0"; then
+    echo "the cook failed (unreal/MJOLNIRMaterials/Saved_cook.log); no chunk copied" >&2
+    exit 1
+  fi
   # The map's own packages (/Game/MJOLNIR/Maps/<CODE>: its textures and
   # ambient sounds) cook into a chunk of their own (ce_material_spec.py
   # cook_chunk), which its map pack ships as MJOLNIRCOOK-<CODE>
