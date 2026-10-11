@@ -513,6 +513,17 @@ own.
    - background loops in 2D, map-wide;
    - emitters in 3D at the CE positions, falling off linearly over CE's
      distance bounds.
+4. **Volume.** The game's volume sliders set its Wwise buses, which these
+   sounds bypass, so the loader applies the sliders itself. It reads them
+   from the game's settings object (`MeteoriteGameUserSettings`, through
+   `GameUserSettings:GetGameUserSettings()`) and plays each sound at its
+   gain times `VolumeMaster` times one category slider:
+   `VolumeSFXAmbient` (Ambient Effects) by default, `VolumeMusicGameplay`
+   (Music) for a sound with `"category": "music"`, and `VolumeVODialog`
+   (Dialogue) for the event sounds below. `gen_ce_level.py` marks a sound
+   as music when its CE class is `music` or `cinematic_music`. Every half
+   second the loader re-reads the sliders, so a change made from the pause
+   menu applies at once.
 
 Detail sounds (random one-shots) are extracted but not yet played.
 

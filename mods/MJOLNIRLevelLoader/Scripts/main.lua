@@ -220,6 +220,9 @@ local Current = {
     -- Sounds on a machine's moving part (spawnSounds): { comp, pos, pivot,
     -- t0, t1, s0, s1, period, position }, moved by moveSounds.
     movingSounds = {},
+    -- Level sounds that follow the game's volume sliders (spawnSounds):
+    -- { comp, gain, category, volume }, kept in step by syncVolumes.
+    volumed = {},
     -- CE material instances told the sun's illuminance (runtimeMaterial),
     -- for `mjolnir_light_scale`.
     sunMids = {},
@@ -242,6 +245,7 @@ local function resetState()
     Current.fileMissing = false
     Current.pulses = {}
     Current.movingSounds = {}
+    Current.volumed = {}
     Current.sunMids = {}
     -- Flag state is per match: the first drop of a match took the last
     -- match's team.
@@ -263,6 +267,7 @@ local function clearActors()
     Current.actors = {}
     Current.sunMids = {}
     Current.movingSounds = {}
+    Current.volumed = {}
     Current.spawned = 0
     Current.failed = 0
 end
@@ -1219,6 +1224,53 @@ local function spawnEnvironment(world)
 
 end
 
+--- The game's volume sliders (Settings > Audio) set its Wwise buses, and the
+--- level's sounds play through Unreal's own audio engine beside Wwise, so
+--- they never followed them: water, teleporters and the announcer kept
+--- playing at full volume with the game turned down (2026-10-10). Each sound
+--- is scaled by Master times its category's slider instead, read from the
+--- game's settings object (MeteoriteGameUserSettings, the engine's
+--- GameUserSettings).
+local VOLUME_SLIDERS = {
+    ambient = "VolumeSFXAmbient",
+    music = "VolumeMusicGameplay",
+    announcer = "VolumeVODialog",
+}
+
+local UserSettings = nil
+
+--- Master times the category's slider, 0..1; 1 when the settings cannot be
+--- read, as before.
+local function gameVolume(category)
+    local ok, v = pcall(function()
+        if not (UserSettings and UserSettings:IsValid()) then
+            UserSettings = findObject("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings()
+        end
+        return UserSettings.VolumeMaster * UserSettings[VOLUME_SLIDERS[category] or VOLUME_SLIDERS.ambient]
+    end)
+    if ok and type(v) == "number" and v == v then return math.max(0.0, math.min(1.0, v)) end
+    return 1.0
+end
+
+--- Keep the level's sounds at the sliders as they move. One settings read per
+--- category a pass, and a sound is only told when its volume changed.
+local function syncVolumes()
+    if #Current.volumed == 0 then return end
+    local volumes, changed = {}, {}
+    for _, v in ipairs(Current.volumed) do
+        volumes[v.category] = volumes[v.category] or gameVolume(v.category)
+        local volume = volumes[v.category]
+        if volume ~= v.volume and v.comp:IsValid() then
+            v.comp:SetVolumeMultiplier(v.gain * volume)
+            v.volume = volume
+            changed[v.category] = (changed[v.category] or 0) + 1
+        end
+    end
+    for category, n in pairs(changed) do
+        Log(string.format("sound volume: %s %.2f (%d sound(s))", category, volumes[category], n))
+    end
+end
+
 --- A level baked with `clear.scripts` has no mission script left to fade the
 --- screen back in after the loading screen, so the map boots pitch black with
 --- a live simulation behind it. Ask the Blam console to fade in once the
@@ -1238,12 +1290,14 @@ local function spawnSounds(world)
     if not gs then return end
     local playing, failed = 0, 0
 
-    local function keep(key, comp, fade)
+    -- Spawned at the sliders' volume (gameVolume), kept there by syncVolumes.
+    local function keep(key, comp, fade, gain, category, volume)
         if not (comp and comp:IsValid()) then
             failed = failed + 1
             return
         end
         Current.actors[key] = comp
+        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume }
         if fade and fade > 0 then pcall(function() comp:FadeIn(fade, 1.0, 0.0, 0) end) end
         playing = playing + 1
     end
@@ -1251,10 +1305,13 @@ local function spawnSounds(world)
     for i, s in ipairs(type(sounds.background) == "table" and sounds.background or {}) do
         local wave = type(s.wave) == "string" and resolveMesh(s.wave)
         if wave then
+            -- A CE music loop (class music) follows the music slider.
+            local gain, category = s.gain or 1.0, s.category or "ambient"
+            local volume = gameVolume(category)
             local ok, comp = pcall(function()
-                return gs:SpawnSound2D(world, wave, s.gain or 1.0, 1.0, 0.0, nil, false, false)
+                return gs:SpawnSound2D(world, wave, gain * volume, 1.0, 0.0, nil, false, false)
             end)
-            keep("__bg" .. i, ok and comp, s.fade_in)
+            keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
@@ -1285,12 +1342,14 @@ local function spawnSounds(world)
                 -- keeps it running.
                 pcall(function() wave.VirtualizationMode = 1 end)
             end
+            local gain, category = s.gain or 1.0, s.category or "ambient"
+            local volume = gameVolume(category)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, s.gain or 1.0, 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, 1.0, 0.0, att, nil, false)
             end)
-            keep("__snd" .. i, ok and comp, s.fade_in)
+            keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
             -- by moveSounds, as the part's material moves it.
             local m = s.motion
@@ -1857,8 +1916,10 @@ local function playEvent(name, cause, value, effect)
     local wave = resolveMesh(waves[math.random(#waves)])
     local gs = findObject("/Script/Engine.Default__GameplayStatics")
     local world = getWorld()
-    if wave and gs and world then
-        pcall(function() gs:PlaySound2D(world, wave, 1.0, 1.0, 0.0, nil, nil, true) end)
+    -- The announcer follows the dialogue slider (syncVolumes' sliders).
+    local volume = gameVolume("announcer")
+    if wave and gs and world and volume > 0 then
+        pcall(function() gs:PlaySound2D(world, wave, volume, 1.0, 0.0, nil, nil, true) end)
     end
 end
 
@@ -2414,6 +2475,8 @@ local function watch()
     -- second apart).
     every(100, "event sounds", drainEvents)
     every(100, "weather", updateWeather)
+    -- A slider moved in the pause menu is heard within half a second.
+    every(500, "sound volume", syncVolumes)
     -- A flag picked up or dropped is a new actor, drawn as a skull until it
     -- is dressed, so CTF levels look for new ones often.
     -- CTF flags: new skull actors are reported as they are made
