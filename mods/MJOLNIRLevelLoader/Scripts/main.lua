@@ -2701,7 +2701,7 @@ end
 --- `foliage` in the level file (tools/level/scatter_grass.py): `file`, the
 --- clumps beside the level file (FOLIAGE_MAGIC, then per group a count and
 --- that many x, y, z float32 cm, yaw in 256ths of a turn and scale in
---- hundredths), `groups` [{ mesh, tint, material, cull, shadow }] in the
+--- hundredths), `groups` [{ mesh, tint, material, cull, shadow, bands }] in the
 --- file's order (tools/level/scatter_foliage.py: grass, tufts, rocky
 --- ground, stones), and optional `cull` [start, end] cm for groups without
 --- their own and `wind` { dir = [x, y], strength = 0..1 }.
@@ -2762,33 +2762,49 @@ function Foliage.spawn(world)
         local group = foliage.groups[g] or {}
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
         local actor = mesh and cls and hism and world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
-        local comp = actor and actor:IsValid() and actor:AddComponentByClass(hism, false, {
-            Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 },
-            Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
-        if comp and comp:IsValid() then
-            Current.actors["__foliage_" .. g] = actor
+        -- `bands` > 1: the group's clumps dealt in turn to that many meshes,
+        -- culled at distances spread over its cull range. The game's foliage
+        -- materials do not fade, so one cull distance is one hard ring where
+        -- all the grass goes; bands thin it out over the range instead.
+        local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
+        local gc = type(group.cull) == "table" and group.cull or cull
+        local comps, mids = {}, nil
+        for b = 1, (actor and actor:IsValid()) and bands or 0 do
+            local comp = actor:AddComponentByClass(hism, false, {
+                Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 },
+                Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+            if not (comp and comp:IsValid()) then break end
             comp.Mobility = MOBILITY_MOVABLE
             comp:SetStaticMesh(mesh)
             comp:SetCollisionEnabled(COLLISION_NONE)
-            local gc = type(group.cull) == "table" and group.cull or cull
-            comp:SetCullDistances(gc[1], gc[2])
+            local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
+            comp:SetCullDistances(math.min(gc[1], far), far)
             comp:SetCastShadow(group.shadow ~= false)
             local material = type(group.material) == "string" and resolveMesh(group.material)
             if material then comp:SetMaterial(0, material) end
             if type(group.tint) == "table" and kml then
-                for i = 0, comp:GetNumMaterials() - 1 do
-                    local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
-                    mid:SetVectorParameterValue(FName("Color Overlay"),
-                        { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
-                    comp:SetMaterial(i, mid)
+                -- One tinted instance a slot, shared by the bands.
+                if not mids then
+                    mids = {}
+                    for i = 0, comp:GetNumMaterials() - 1 do
+                        local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
+                        mid:SetVectorParameterValue(FName("Color Overlay"),
+                            { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                        mids[i] = mid
+                    end
                 end
+                for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
             end
-            for _ = 1, size do
+            comps[#comps + 1] = comp
+        end
+        if #comps > 0 then
+            Current.actors["__foliage_" .. g] = actor
+            for k = 1, size do
                 local x, y, z, yaw, scale
                 x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
                 local h = yaw * math.pi / 256
                 local s = scale / 100
-                comp:AddInstance({ Rotation = { X = 0, Y = 0, Z = math.sin(h), W = math.cos(h) },
+                comps[(k - 1) % #comps + 1]:AddInstance({ Rotation = { X = 0, Y = 0, Z = math.sin(h), W = math.cos(h) },
                     Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, true)
                 sx, sy, n = sx + x, sy + y, n + 1
             end

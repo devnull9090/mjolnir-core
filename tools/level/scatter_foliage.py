@@ -39,7 +39,10 @@ Writes the instances to `--bin` (FOLIAGE_MAGIC: per group a count, then
 x, y, z as float32 cm, yaw in 256ths of a turn and scale in hundredths, a
 byte each) and out.json, the level file's `foliage` entry for
 MJOLNIRLevelLoader: the file, and per group its mesh and optional tint,
-material, cull distances and shadow. Unreal cm: the glTF is CE in metres,
+material, cull distances, shadow and cull bands (the game's foliage
+materials do not fade: the loader spreads a group's clumps over `bands`
+meshes culled across its cull range, so the grass thins out with distance
+rather than ending at one ring). Unreal cm: the glTF is CE in metres,
 y up (Unreal x = x, y = z, z = y), plus the terrain mesh's `--offset`.
 """
 import argparse
@@ -83,7 +86,7 @@ RULES = [
                 (MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var4_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var12_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var19_lod0", 0.9, 1.5, 0)],
-     "tint": GRASS_TINT, "cull": [5000, 9000]},
+     "tint": GRASS_TINT, "cull": [4000, 12000], "bands": 8},
     {"name": "tufts", "on": "grass", "share": [0.12, 0.45], "density": 0.8, "slope": 40, "above": [0.6, None],
      "falloff": True,
      "meshes": [(MEGA + "Sea_Wheatgrass_ui2oagjia/S_Sea_Wheatgrass_ui2oagjia_0_Var9_lod0", 0.64, 0.96, 0),
@@ -92,7 +95,7 @@ RULES = [
                 (MEGA + "Ribbon_Grass_tbdpec3r/S_Ribbon_Grass_tbdpec3r_Var3_lod0", 0.42, 0.58, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var6_lod0", 0.62, 0.79, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var7_lod0", 0.62, 0.79, 0)],
-     "tint": TUFT_TINT, "cull": [4000, 7000]},
+     "tint": TUFT_TINT, "cull": [3500, 9000], "bands": 4},
     {"name": "rocky ground", "on": "sand", "share": [0.5, 0.8], "density": 0.06, "slope": 25, "above": [-0.4, 1.5],
      "cluster": [14.0, 0.62],
      "meshes": [("/Game/Megascans/3D_Assets/Nordic_Beach_Rocky_Ground_ve3qdhmqx/S_Nordic_Beach_Rocky_Ground_Uluwata_B",
@@ -325,6 +328,8 @@ def main():
         g = {"mesh": object_path(path), "rule": rule["name"], "cull": rule["cull"]}
         if rule.get("tint"):
             g["tint"] = rule["tint"]
+        if rule.get("bands"):
+            g["bands"] = rule["bands"]
         material = rule.get("materials", {}).get(path)
         if material:
             g["material"] = object_path(material)
