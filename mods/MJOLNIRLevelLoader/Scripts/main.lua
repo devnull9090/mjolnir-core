@@ -700,6 +700,10 @@ local function runtimeMaterial(world, spec, name)
             end
         end
         mid:SetScalarParameterValue(FName("GameDetail"), n > 0 and 1.0 or 0.0)
+        -- CE's micro detail goes: the game's surface is the fine grain now,
+        -- and Death Island's (detail_ground) left dark blotches a metre or
+        -- two across all over the new sand.
+        if n > 0 then mid:SetScalarParameterValue(FName("HasMicro"), 0.0) end
         for param, v in pairs(GameDetail.params) do mid:SetScalarParameterValue(FName(param), v) end
     end
     if TerrainLights.on then
