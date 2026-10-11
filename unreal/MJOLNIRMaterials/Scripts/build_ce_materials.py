@@ -58,6 +58,8 @@ TRIAL_ROOT = os.environ.get("MJ_CE_ROOT")
 if TRIAL_ROOT:
     ROOT = TRIAL_ROOT.rstrip("/")
 CHUNK = int(os.environ.get("MJ_CE_CHUNK", "988"))
+# The game-detail experiment (GAME_DETAIL_CODE) is in trial builds only.
+GAME_DETAIL = bool(TRIAL_ROOT)
 
 # What happens to the shown sRGB colour after the material. Inside B40's world
 # the game's colour correction scaled it by 0.6 (docs/re/fork_renderer.md);
@@ -1212,6 +1214,58 @@ def fog_inputs(g):
             ("FogOpaque", g.scalar("FogOpaque", 1.0), "")]
 
 
+# Game detail (trial builds, an experiment, 2026-10-11): a surface's detail
+# maps can be the game's own Megascans surfaces (Campaign Evolved's B30 beach:
+# its sand and grass) instead of CE's. The loader sets GamePrimary and
+# GameSecondary (albedo), GamePrimaryN and GameSecondaryN (normal maps) and
+# GameDetail 1 on the slots it picks. The albedo is sampled on world xy
+# (GameTile cm a tile; a second, rotated and larger sample blended in over a
+# smooth noise so the tiles don't repeat), taken to CE's gamma space and
+# divided by its own mean (its last mip): a detail map averaging 0.5, which
+# CE's blend doubles onto the base map, so the base map keeps the level's
+# colours and the game's surface gives the grain. GameDetailStrength scales
+# it about 0.5. CE's alpha (the detail's specular mask, and what picks
+# primary or secondary) is kept from CE's own map.
+GAME_NOISE = r"""
+#define GD_HASH(p) frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453)
+#define GD_NOISE(p) lerp(lerp(GD_HASH(floor(p)), GD_HASH(floor(p) + float2(1, 0)), smoothstep(0, 1, frac(p).x)), \
+    lerp(GD_HASH(floor(p) + float2(0, 1)), GD_HASH(floor(p) + float2(1, 1)), smoothstep(0, 1, frac(p).x)), smoothstep(0, 1, frac(p).y))
+float2 uv = World.xy / max(Tile, 1.0);
+float2 uv2 = float2(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 0.37 + 0.31;
+float w = smoothstep(0.25, 0.75, GD_NOISE(uv * 0.21));
+"""
+GAME_DETAIL_CODE = r"""
+if (GameDetail < 0.5 || Has < 0.5) return Ce;
+""" + GAME_NOISE + r"""
+float3 a = lerp(Texture2DSample(Tex, TexSampler, uv).rgb, Texture2DSample(Tex, TexSampler, uv2).rgb, w);
+float3 mean = Texture2DSampleLevel(Tex, TexSampler, float2(0.5, 0.5), 13.0).rgb;
+float3 d = 0.5 * pow(max(a, 1e-4), 1.0 / 2.2) / max(pow(max(mean, 1e-4), 1.0 / 2.2), 1e-3);
+return float4(saturate(lerp(0.5.xxx, d, Strength)), Ce.a);
+#undef GD_NOISE
+#undef GD_HASH
+"""
+# The game surfaces' normal maps (two channels, BC5) on the same world
+# mapping, picked like the detail maps (base alpha for a blended shader,
+# else the secondary's alpha), in world space (the tile's u along x, v
+# along y); the graph takes it to tangent space (GAME_BUMP_CODE).
+GAME_NORMAL_CODE = r"""
+if (GameDetail < 0.5) return float3(0, 0, 1);
+""" + GAME_NOISE + r"""
+float2 p = lerp(Texture2DSample(PN, PNSampler, uv).rg, Texture2DSample(PN, PNSampler, uv2).rg, w) * 2.0 - 1.0;
+float2 s = lerp(Texture2DSample(SN, SNSampler, uv).rg, Texture2DSample(SN, SNSampler, uv2).rg, w) * 2.0 - 1.0;
+float pick = Type > 0.5 ? Base.a : Qa;
+float2 xy = lerp(HasS > 0.5 ? s : 0.0.xx, HasP > 0.5 ? p : 0.0.xx, pick) * Strength;
+return normalize(float3(xy.x, -xy.y, 1.0));
+#undef GD_NOISE
+#undef GD_HASH
+"""
+# CE's bump normal (tangent space), tilted by the game surface's.
+GAME_BUMP_CODE = r"""
+if (GameDetail < 0.5) return CeN;
+return normalize(CeN + float3(GameN.xy, 0.0));
+"""
+
+
 def build_environment(name, masked, defaults, two_sided=False):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     # Lit, for object shadows (SUN_WEIGHT_CODE); with ShadowStrength 0 the
@@ -1294,6 +1348,40 @@ def build_environment(name, masked, defaults, two_sided=False):
     bump_is_mask = g.scalar("BumpIsSpecMask", 0.0)
     bump_n = g.custom(NORMAL_CODE, [("Bump", bump, "RGBA"), ("HasBump", has_bump, ""),
                                     ("BumpIsSpecMask", bump_is_mask, "")], description="CE bump normal")
+    primary_in, secondary_in = (primary, "RGBA"), (secondary, "RGBA")
+    if GAME_DETAIL:
+        world = g.node(unreal.MaterialExpressionWorldPosition, x=-2000)
+        tile = g.scalar("GameTile", 300.0)
+        game_on = g.scalar("GameDetail", 0.0)
+        strength = g.scalar("GameDetailStrength", 1.0)
+        albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
+        normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+
+        def game_texture(pname, default, sampler):
+            return g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=pname,
+                          texture=default, sampler_type=sampler)
+
+        detail = []
+        for ce, pname in ((primary, "GamePrimary"), (secondary, "GameSecondary")):
+            detail.append(g.custom(GAME_DETAIL_CODE, [
+                ("Ce", ce, "RGBA"), ("Tex", game_texture(pname, albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
+                ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
+                ("Has", g.scalar("Has" + pname, 0.0), ""), ("Strength", strength, "")],
+                output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description=f"game detail {pname}"))
+        primary_in, secondary_in = (detail[0], ""), (detail[1], "")
+        game_w = g.custom(GAME_NORMAL_CODE, [
+            ("PN", game_texture("GamePrimaryN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
+            ("SN", game_texture("GameSecondaryN", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL), ""),
+            ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
+            ("Base", base, "RGBA"), ("Qa", secondary, "A"), ("Type", g.scalar("Type", 0.0), ""),
+            ("HasP", g.scalar("HasGamePrimary", 0.0), ""), ("HasS", g.scalar("HasGameSecondary", 0.0), ""),
+            ("Strength", g.scalar("GameNormalStrength", 1.0), "")], description="game detail normal")
+        game_t = g.node(unreal.MaterialExpressionTransform, x=-800,
+                        transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
+                        transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
+        link(game_w, "", game_t, "")
+        bump_n = g.custom(GAME_BUMP_CODE, [("CeN", bump_n, ""), ("GameN", game_t, ""), ("GameDetail", game_on, "")],
+                          description="CE bump normal with game detail")
     bump_w = g.node(unreal.MaterialExpressionTransform, x=-800,
                     transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
                     transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
@@ -1306,7 +1394,7 @@ def build_environment(name, masked, defaults, two_sided=False):
     time = g.node(unreal.MaterialExpressionTime)
 
     inputs = [
-        ("Base", base, "RGBA"), ("Primary", primary, "RGBA"), ("Secondary", secondary, "RGBA"),
+        ("Base", base, "RGBA"), ("Primary", *primary_in), ("Secondary", *secondary_in),
         ("Micro", micro, "RGBA"), ("Bump", bump, "RGBA"), ("Lightmap", lightmap, "RGBA"),
         ("SelfIllum", self_illum, "RGBA"), ("Incident", vc, ""), ("IncidentWeight", vc, "A"),
         ("Multi", multi, "RGBA"), ("ObjTint", obj_tint, "RGBA"), ("ObjCC", obj_cc, "RGBA"),

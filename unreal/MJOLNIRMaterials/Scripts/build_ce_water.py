@@ -232,32 +232,36 @@ float f = saturate(wave * 3.2 - (1.0 - n) * 1.4);
 return saturate(f * Amount) * step(0.01, Shore.y + d) * smoothstep(2.0, 8.0, d);
 """
 
-# The metres of water along the view ray between the surface and what lies
-# behind it: scene depth less the water's own (both along the camera's axis),
-# stretched to the ray. Shallows give nothing at the waterline; deep water,
+# Two lengths. First, the metres of water along the view ray between the
+# surface and what lies behind it: scene depth less the water's own (both
+# along the camera's axis), stretched to the ray. Shallows give nothing at the waterline; deep water,
 # or water seen at a grazing angle, a lot.
 #
-# The sea is taken to be at least Shelf.x metres deep Shelf.y metres from
-# the shore (rising towards it as 1 - exp(-d / Shelf.y)), whatever is under
-# it: CE's seas are a metre or two deep to the horizon (Death Island,
-# Yoyorast), and the sand showed through all of it like a wading pool. Near
-# the shore the real floor wins, so the shallows stay clear.
+# The second: the same, with the sea taken to be at least Shelf.x metres
+# deep (rising as 1 - exp(-d / Shelf.y) from Shelf.z metres out), whatever
+# is under it: CE's seas are a metre or two deep to the horizon (Death
+# Island, Yoyorast), and the sand showed through all of it like a wading
+# pool. It deepens the water's colour only: the reflection, faded by the
+# real path, came on at once where the shelf started at the waterline, and
+# drew the line along the beach again.
 WATER_PATH = r"""
 float behind = max(Scene - Pixel, 0.0);
 float ray = length(P - Cam) / max(Pixel, 1.0);
-float shelf = Shelf.x * (1.0 - exp(-Shore.x / max(Shelf.y, 0.01))) * step(0.01, Shore.x + Shore.y);
+float real = behind * ray * 0.01;
+float shelf = Shelf.x * (1.0 - exp(-max(Shore.x - Shelf.z, 0.0) / max(Shelf.y, 0.01)))
+    * step(0.01, Shore.x + Shore.y);
 float up = max(abs(normalize(Cam - P).z), 0.05);
-return max(behind * ray * 0.01, shelf / up);
+return float2(real, max(real, shelf / up));
 """
 # What gets through, per colour (Beer's law). Thin Translucent stretches it
 # by 1 / N.V itself (a sheet's thickness); the path is the whole ray already.
 WATER_TRANSMITTANCE = r"""
 float nv = saturate(abs(dot(Parameters.WorldNormal, Parameters.CameraVector)) + 1e-5);
-return exp(-Absorption.rgb * L * nv) * (1.0 - Foam);
+return exp(-Absorption.rgb * L.y * nv) * (1.0 - Foam);
 """
 # How much of the surface is the water's own colour (and foam, which hides
 # all), never below MinCover: the reflection rides on it (WATER_EMISSIVE).
-WATER_OPACITY = "return max(saturate(max(1.0 - exp(-L / max(Clarity, 0.01)), Foam)), MinCover);\n"
+WATER_OPACITY = "return max(saturate(max(1.0 - exp(-L.y / max(Clarity, 0.01)), Foam)), MinCover);\n"
 
 # The reflection: CE's own (build_ce_materials.py, WATER_CODE): its cube map
 # along the reflected view, brightened from PerpBrightness looking straight
@@ -299,7 +303,7 @@ float3 lin = lerp(hi, lo, step(frame, 0.04045));
 lin = lerp(dot(lin, float3(0.2126, 0.7152, 0.0722)).xxx, lin, Saturation);
 // A film of water a few centimetres deep reflects as faintly as it tints:
 // at full strength, sand just under the surface showed as blue puddles.
-return lin * (1.0 - Foam) * smoothstep(0.0, max(Film, 0.001), L);
+return lin * (1.0 - Foam) * smoothstep(0.0, max(Film, 0.001), L.x);
 """
 # Thin Translucent scales the emissive by the opacity (it is a layer of
 # colour on the water); the reflection is not, so it goes in divided by it.
@@ -452,10 +456,10 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
                                  ("Pixel", g.node(unreal.MaterialExpressionPixelDepth, x=-2000), ""),
                                  ("P", world, ""),
                                  ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
-                                 ("Shore", shore, ""), ("Shelf", g.vector4("Shelf", (6.0, 40.0, 0.0, 0.0)), "")],
-                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="water path")
+                                 ("Shore", shore, ""), ("Shelf", g.vector4("Shelf", (6.0, 40.0, 5.0, 0.0)), "")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="water path")
     film = g.scalar("EdgeFilm", 1.0)
-    spec = g.custom("return Specular * smoothstep(0.0, max(Film, 0.001), L);",
+    spec = g.custom("return Specular * smoothstep(0.0, max(Film, 0.001), L.x);",
                     [("Specular", g.scalar("Specular", 0.5), ""), ("Film", film, ""),
                      ("L", path, "")],
                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="waterline specular")

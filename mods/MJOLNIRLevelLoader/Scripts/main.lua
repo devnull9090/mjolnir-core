@@ -43,6 +43,9 @@
 --   mjolnir_water [ocean|ce|default] | [waves <x>|waves default]
 --                          draw a converted level's CE water as rolling,
 --                          reflecting water (M_CE_Ocean, see applyWater)
+--   mjolnir_terrain_detail [game|ce] | param <Name> <value>
+--                          draw CE's sand and grass detail with the game's own
+--                          surfaces (an experiment, see GameDetail)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -538,6 +541,44 @@ end
 local TerrainShadows = { cast = false, strength = nil, lightmap = nil, proxy = false, ao = nil }
 local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 
+--- Game detail experiment (`mjolnir_terrain_detail`, 2026-10-11): a CE
+--- surface whose detail map is one of GAME_SURFACES' is drawn with the
+--- game's own surface instead (Campaign Evolved's B30 beach: Megascans sand
+--- and grass), through the trial masters' GameDetail path
+--- (build_ce_materials.py GAME_DETAIL_CODE): the game's albedo as the
+--- detail map's grain, the base map keeping the level's colours, and its
+--- normal map in the bump shading. Off by default; it lasts until the game
+--- closes. `params` are scalars set on every such slot (GameTile,
+--- GameDetailStrength, GameNormalStrength); at the master's 1 the game's
+--- grain was faint under Death Island's base map, 2 shows it.
+local GameDetail = { on = false, params = { GameDetailStrength = 2.0 } }
+local MEGASCANS = "/Game/Megascans/Surfaces/"
+local GAME_SURFACES = {
+    T_levels_b30_bitmaps_detail_sand = {
+        d = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
+        n = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
+    },
+    T_levels_a30_bitmaps_detail_grass = {
+        d = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D.T_Ground_Grass_tb3nce_Desat_4K_NSVT_D",
+        n = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N.T_Ground_Grass_NSVT_4K_N",
+    },
+}
+
+--- The game surfaces for a CE environment spec's detail maps, as
+--- { Primary = surface, Secondary = surface } (either may be absent), or nil.
+local function gameSurfaces(spec)
+    if not GameDetail.on or type(spec.textures) ~= "table" then return nil end
+    local found = nil
+    for _, slot in ipairs({ "Primary", "Secondary" }) do
+        local leaf = type(spec.textures[slot]) == "string" and spec.textures[slot]:match("%.([%w_]+)$")
+        if leaf and GAME_SURFACES[leaf] then
+            found = found or {}
+            found[slot] = GAME_SURFACES[leaf]
+        end
+    end
+    return found
+end
+
 --- Dynamic lights on the terrain (`mjolnir_terrain_lights`), on by default
 --- for converted levels since 2026-10-06. Unreal draws the terrain's direct
 --- light (UnrealLit: the runtime pack's CE environment masters,
@@ -612,7 +653,8 @@ local function runtimeMaterial(world, spec, name)
     local parent = nil
     -- The lightmap experiment draws the CE environment masters with the
     -- trial build, when it is installed.
-    local master = (TerrainShadows.lightmap or TerrainLights.trial) and type(spec.parent) == "string"
+    local game = gameSurfaces(spec)
+    local master = (TerrainShadows.lightmap or TerrainLights.trial or game) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
@@ -643,6 +685,22 @@ local function runtimeMaterial(world, spec, name)
     end
     for param, value in pairs(spec.scalars or {}) do
         mid:SetScalarParameterValue(FName(param), value)
+    end
+    if game and master then
+        local n = 0
+        for slot, surface in pairs(game) do
+            local d, nrm = resolveMesh(surface.d), resolveMesh(surface.n)
+            if d and nrm then
+                mid:SetTextureParameterValue(FName("Game" .. slot), d)
+                mid:SetTextureParameterValue(FName("Game" .. slot .. "N"), nrm)
+                mid:SetScalarParameterValue(FName("HasGame" .. slot), 1.0)
+                n = n + 1
+            else
+                Log(string.format("material '%s': game surface for %s not found", name, slot))
+            end
+        end
+        mid:SetScalarParameterValue(FName("GameDetail"), n > 0 and 1.0 or 0.0)
+        for param, v in pairs(GameDetail.params) do mid:SetScalarParameterValue(FName(param), v) end
     end
     if TerrainLights.on then
         mid:SetScalarParameterValue(FName("DynamicAlbedo"), TerrainLights.albedo)
@@ -2972,6 +3030,30 @@ local function terrainDebug(args)
     Log(string.format("terrain debug view %d on %d material(s)", layer, n))
 end
 
+--- `mjolnir_terrain_detail [game|ce] | param <Name> <value>`: see GameDetail.
+--- `game`/`ce` respawn the level (the masters change), as does a param. No
+--- argument reports it.
+local function terrainDetail(args)
+    args = args or {}
+    local mode = args[1]
+    if mode == "game" or mode == "ce" then
+        GameDetail.on = mode == "game"
+        if GameDetail.on and not resolveMesh(TRIAL_MASTERS .. "M_CE_Environment.M_CE_Environment") then
+            Log("terrain detail: trial masters (" .. TRIAL_MASTERS .. ", chunk 983) not installed")
+        end
+    elseif mode == "param" and args[2] and tonumber(args[3]) then
+        GameDetail.params[args[2]] = tonumber(args[3])
+    elseif mode ~= nil then
+        Log("usage: mjolnir_terrain_detail [game|ce] | param <Name> <value>")
+        return
+    end
+    local params = {}
+    for k, v in pairs(GameDetail.params) do params[#params + 1] = string.format("%s %g", k, v) end
+    Log(string.format("terrain detail: %s%s", GameDetail.on and "game" or "ce",
+        #params > 0 and (" (" .. table.concat(params, ", ") .. ")") or ""))
+    if mode ~= nil then reload() end
+end
+
 --- `mjolnir_terrain_lights [on|off] [albedo] [noproxy]`: see TerrainLights.
 --- `on`/`off` respawn the level (the masters change); an albedo alone sets
 --- DynamicAlbedo on the materials as they stand, `margin <texels>` their
@@ -3305,7 +3387,11 @@ local function initialize()
         waterCommand(args)
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water")
+    RegisterConsoleCommandHandler("mjolnir_terrain_detail", function(_, args)
+        terrainDetail(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail")
     watch()
 end
 
