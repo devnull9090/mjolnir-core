@@ -20,6 +20,9 @@ with ue-asset's placements_csv example, 2026-10-11):
   in clusters on sand from just under the sea to 1.5 m above it.
 - stones: B30's Uluwatu rocks, scaled small and set into the sand, among
   the rocky ground.
+- shells, pebbles, driftwood: B30's beach decorators (its landscape grass
+  types): coral pieces in the band above the sea, small beach rocks in
+  patches over all the sand, and the odd dry branch.
 
 Nothing taller than knee height goes anywhere a player can walk: the
 simulation knows only CE's collision, so a scattered rock is something to
@@ -55,6 +58,7 @@ from refine_water_gltf import read_accessor  # noqa: E402
 
 FOLIAGE_MAGIC = b"MJFG"
 MEGA = "/Game/Megascans/3D_Plants/"
+MEGA3D = "/Game/Megascans/3D_Assets/"
 ROCKS = "/Game/Env/Bio/Rock/Uluwatu/"
 # CE detail maps by what they are (substrings of the bitmap names).
 DETAIL_CLASSES = (("grass", ("detail_grass",)), ("sand", ("detail_sand",)))
@@ -106,6 +110,31 @@ RULES = [
                    ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A":
                    ROCKS + "Rock_Uluwatu_Med_A/Materials/MI_Rock_Uluwatu_Med_A_Waterline"},
      "cull": [5000, 9000], "shadow": True},
+    # B30's beach decorators (its landscape grass types LG_B30_rippledsand_assets
+    # and LG_B30_stone_assets): shell-sized coral and beach rocks, 10 to 35 cm,
+    # and dry branches half a metre long, all lying in the sand.
+    {"name": "shells", "on": "sand", "share": [0.5, 0.8], "density": 1.6, "slope": 25, "above": [-0.3, 3.0],
+     "cluster": [9.0, 0.45],
+     "meshes": [(MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var2", 0.7, 1.2, 4),
+                (MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var3", 0.7, 1.2, 2),
+                (MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var4", 0.7, 1.2, 2),
+                (MEGA3D + "Thai_Beach_Corals_Pack_ufzkbcjfa/S_Thai_Beach_Corals_Pack_ufzkbcjfa_high_Var5", 0.7, 1.2, 1),
+                (MEGA3D + "Coral_Stone_wfcmegzr/S_Coral_Stone_wfcmegzr_lod0_Var1", 0.8, 1.4, 0)],
+     "cull": [2500, 4000], "shadow": True},
+    {"name": "pebbles", "on": "sand", "share": [0.4, 0.8], "density": 2.4, "slope": 30, "above": [-0.5, None],
+     "cluster": [5.0, 0.64],
+     "meshes": [(MEGA3D + "Small_Beach_Rock_wfbscavr/S_Small_Beach_Rock_wfbscavr_lod0_Var1", 0.6, 1.6, 1),
+                (MEGA3D + "Small_Beach_Rock_wd5nfa1/S_Small_Beach_Rock_wd5nfa1_high", 0.6, 1.4, 2),
+                (MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1", 0.6, 1.6, 1),
+                (MEGA3D + "Small_Beach_Rock_wd3nech/S_Small_Beach_Rock_wd3nech_lod0_Var1", 0.6, 1.6, 1),
+                (MEGA3D + "Small_Beach_Rock_wd2ocdo/S_Small_Beach_Rock_wd2ocdo_high", 0.6, 1.4, 2),
+                (MEGA3D + "Small_Beach_Rock_wd5mfgo/S_Small_Beach_Rock_wd5mfgo_high_Var1", 0.6, 1.4, 1),
+                (MEGA3D + "Small_Beach_Rock_wfcpeggr/S_Small_Beach_Rock_wfcpeggr_lod0_Var1", 0.8, 2.0, 1)],
+     "cull": [3000, 5000], "shadow": True},
+    {"name": "driftwood", "on": "sand", "share": [0.5, 0.8], "density": 0.025, "slope": 20, "above": [0.3, None],
+     "meshes": [(MEGA3D + "DryBranches/SM_DryBranches_01", 1.0, 2.2, 0),
+                (MEGA3D + "DryBranches/SM_DryBranches_02", 1.0, 2.2, 0)],
+     "cull": [4000, 6500], "shadow": True},
 ]
 
 

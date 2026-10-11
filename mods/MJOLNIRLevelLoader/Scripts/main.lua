@@ -286,6 +286,32 @@ end
 -- Loading and validation
 --------------------------------------------------------------------------------
 
+--- B30's ground (level.landscape.pbr) is Megascans surfaces made for
+--- daylight; under a CE dusk (Death Island's weak sun and purple sky) the
+--- sand went mauve and its shade navy. `pbr.light` { sun = { scale, tint },
+--- sky = { scale, tint } } scales and tints the level's sun and sky light
+--- here, as the file is read, so the CE masters (told the sun's colour and
+--- strength, runtimeMaterial's Sun* parameters) agree with the lights spawned.
+local function landscapeLight(level)
+    local land = type(level.landscape) == "table" and level.landscape
+    local light = land and type(land.pbr) == "table" and land.pbr.light
+    local env = level.environment
+    if type(light) ~= "table" or type(env) ~= "table" then return end
+    for key, envKey in pairs({ sun = "sun", sky = "skylight" }) do
+        local change, target = light[key], env[envKey]
+        if type(change) == "table" and type(target) == "table" then
+            if type(change.scale) == "number" and type(target.intensity) == "number" then
+                target.intensity = target.intensity * change.scale
+            end
+            if type(change.tint) == "table" then
+                local c = type(target.color) == "table" and target.color or { 1, 1, 1 }
+                target.color = { (c[1] or 1) * (change.tint[1] or 1), (c[2] or 1) * (change.tint[2] or 1),
+                    (c[3] or 1) * (change.tint[3] or 1) }
+            end
+        end
+    end
+end
+
 --- Decode and sanity-check a level file. Full validation is the CLI's job
 --- (`mjolnir level validate`); the loader checks only what it consumes.
 local function loadLevelFile(scenario, fileKey)
@@ -313,6 +339,7 @@ local function loadLevelFile(scenario, fileKey)
     end
     -- Files the level names (its foliage) sit beside it.
     level._dir = path:match("^(.*)\\[^\\]+$")
+    landscapeLight(level)
     return level
 end
 

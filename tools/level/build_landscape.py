@@ -348,9 +348,14 @@ def main():
                 # Tuned on Death Island's dusk (2026-10-11): normals, grain
                 # contrast, CE shade as occlusion, second sand; a warm tint
                 # against the purple sky; ripples to 5 m over the sea.
-                "look": [2.5, 2.0, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40],
+                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40],
                 # B30's ground grass ships desaturated, for its material to tint.
-                "grass_tint": [0.62, 0.78, 0.36, 1.0]},
+                "grass_tint": [0.62, 0.78, 0.36, 1.0],
+                # The level's sun and sky light, scaled and tinted (the loader,
+                # as it reads the level file): a stronger, warmer sun and warm
+                # shade, where the purple dusk sky had turned the sand mauve.
+                "light": {"sun": {"scale": 1.5, "tint": [1.0, 0.93, 0.75]},
+                          "sky": {"scale": 1.0, "tint": [1.0, 0.78, 0.55]}}},
     }
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")
