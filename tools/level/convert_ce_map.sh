@@ -169,9 +169,10 @@ if [ "$cook" = "1" ]; then
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
-  # The three meshes, packages of the map's own beside its materials
-  # (<root>/SM_<map>_Terrain, _Translucent and _Sky), built from the shipped
-  # cylinder, cone and sphere, in one container per map.
+  # The meshes, packages of the map's own beside its materials
+  # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
+  # translucent sections hold CE water), built from the shipped cylinder,
+  # cone, sphere and cube, in one container per map.
   root="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['root'])" "$out/materials.spec.json")"
   root="${root%%[[:space:]]}"   # Windows Python ends its lines with CRLF
   leaf="${root##*/}"

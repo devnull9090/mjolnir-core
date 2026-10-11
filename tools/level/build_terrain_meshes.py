@@ -20,6 +20,15 @@ opaque terrain and scenery) leaves slot 0 to `--fallback`, an opaque
 material. Any later mesh (the transparent sections) gives slot 0 to its first
 section, so the mesh is drawn in the translucency pass.
 
+CE water (M_CE_Water sections) leaves the translucent mesh for one of its
+own, `SM_<map>_Water`, built last so the other meshes keep their ids. Slot 0
+deciding the passes is why: the loader can draw that water as the game's
+ocean (MJOLNIRLevelLoader `mjolnir_water`), a Single Layer Water material,
+and Unreal draws it as water only on a mesh whose slot 0 is water too. On
+the translucent mesh it was drawn unlit, and giving slot 0 the ocean there
+took the glass, teleporter fields and shore foam out of the translucency
+pass (Death Island, 2026-10-10).
+
 Writes `<out>/terrain.json`: a list of decor entries, one per mesh, for
 gen_ce_level.py --terrain.
 """
@@ -29,6 +38,31 @@ import os
 import re
 import subprocess
 import sys
+
+WATER_PARENT = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
+# After the sky (-100), before the rest of the translucency: CE's shore foam
+# and wave masks are drawn over the water.
+WATER_SORT_PRIORITY = -50
+
+
+def gltf_subset(src, dst, keep):
+    """Write `dst`, the glTF `src` with only the primitives whose material name
+    `keep` accepts, its materials pruned and renumbered. The buffers stay
+    where they are: `dst` sits beside `src`, so their URIs still resolve.
+    Returns the number of primitives kept."""
+    doc = json.load(open(src, encoding="utf-8"))
+    names = [m["name"] for m in doc.get("materials", [])]
+    for mesh in doc.get("meshes", []):
+        mesh["primitives"] = [p for p in mesh.get("primitives", [])
+                              if "material" in p and keep(names[p["material"]])]
+    used = sorted({p["material"] for m in doc.get("meshes", []) for p in m["primitives"]})
+    renumber = {old: new for new, old in enumerate(used)}
+    doc["materials"] = [doc["materials"][i] for i in used]
+    for mesh in doc.get("meshes", []):
+        for p in mesh["primitives"]:
+            p["material"] = renumber[p["material"]]
+    json.dump(doc, open(dst, "w", encoding="utf-8"))
+    return sum(len(m["primitives"]) for m in doc.get("meshes", []))
 
 
 def main():
@@ -51,8 +85,27 @@ def main():
     by_pattern = {s["pattern"]: s for s in spec["slots"]}
     entries, added = [], []
     exe = lambda n: os.path.join(a.examples, n + (".exe" if os.name == "nt" else ""))
-    for k, mesh in enumerate(a.meshes):
-        gltf, donor, package = mesh.split("=")
+
+    def is_water(name):
+        s = by_pattern.get(name.lower() + "$")
+        return bool(s) and s["material"].get("parent") == WATER_PARENT
+
+    # The translucent mesh's water becomes a mesh of its own, built last.
+    jobs = [mesh.split("=") for mesh in a.meshes]
+    water_jobs = []
+    for job in jobs:
+        gltf, _, package = job
+        if not (package.endswith("_Translucent") and os.path.isfile(gltf)):
+            continue
+        base = gltf[: -len(".gltf")]
+        if gltf_subset(gltf, base + "_water.gltf", is_water):
+            gltf_subset(gltf, base + "_nowater.gltf", lambda n: not is_water(n))
+            job[0] = base + "_nowater.gltf"
+            water_jobs.append([base + "_water.gltf", "basicshapes/cube",
+                               package[: -len("_Translucent")] + "_Water"])
+    jobs += water_jobs
+
+    for k, (gltf, donor, package) in enumerate(jobs):
         leaf = package.rsplit("/", 1)[-1]
         uasset = os.path.join(a.out, f"{leaf}.uasset")
         doc = json.load(open(gltf, encoding="utf-8"))
@@ -98,6 +151,8 @@ def main():
         if leaf.endswith("_Sky"):
             # Drawn before every other translucent thing, as CE's sky is.
             entry["sort_priority"] = -100
+        elif leaf.endswith("_Water"):
+            entry["sort_priority"] = WATER_SORT_PRIORITY
         entries.append(entry)
 
     po = subprocess.run([exe("package_add"), a.paks, a.out, "--name", a.container] + added,

@@ -64,6 +64,7 @@ local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
 local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
+local FluxOcean = dofile(MOD_DIR .. "\\Scripts\\flux_ocean.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -2417,10 +2418,19 @@ local function fluxWave(world, z)
     return actor
 end
 
---- What BP_FluxOceanWave's SetMaterialData gives a surface's material, less
---- the coastline and shore terms (no coastline here) and the wind.
+--- The beach's look (flux_ocean.lua), then what BP_FluxOceanWave's
+--- SetMaterialData gives a surface's material, less the coastline and shore
+--- terms (there is no coastline here). Its formulas: choppiness is the
+--- wave's choppiness x its length / its height, the wind its 2D direction,
+--- animation speed and push.
 local function tellWave(mid, wave, z)
     local function set(fn) pcall(fn) end
+    for name, value in pairs(FluxOcean.scalars) do
+        set(function() mid:SetScalarParameterValue(FName(name), value) end)
+    end
+    for name, v in pairs(FluxOcean.vectors) do
+        set(function() mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] }) end)
+    end
     set(function() mid:SetTextureParameterValue(FName("WaveTextureRenderTarget"), wave.WaveTexture) end)
     set(function() mid:SetTextureParameterValue(FName("WaveTextureAnimation"), wave.OceanWaveAnimation) end)
     set(function()
@@ -2429,7 +2439,15 @@ local function tellWave(mid, wave, z)
     end)
     set(function() mid:SetScalarParameterValue(FName("WaveTextureHeight"), wave.OceanWaveHeight) end)
     set(function() mid:SetScalarParameterValue(FName("WaveTextureOffsetZ"), z) end)
-    set(function() mid:SetScalarParameterValue(FName("WaveTextureChoppiness"), wave.OceanWaveChoppiness) end)
+    set(function()
+        mid:SetScalarParameterValue(FName("WaveTextureChoppiness"),
+            wave.OceanWaveChoppiness * wave.OceanWaveLength / wave.OceanWaveHeight)
+    end)
+    set(function()
+        local d = wave.OceanWaveWindDirection
+        mid:SetVectorParameterValue(FName("WaveTextureWind"),
+            { R = d.X, G = d.Y, B = wave.OceanWaveAnimationSpeed, A = wave.OceanWaveWindPush })
+    end)
 end
 
 local function skyLight()
