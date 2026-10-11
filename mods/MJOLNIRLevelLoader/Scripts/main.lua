@@ -2820,26 +2820,33 @@ local Footprints = {
     STRIDE = 70, SIDE = 12, -- cm between prints, and either side of the line
     FADE = 0.03, -- of the prints' depth lost every FADE_MS
     FADE_MS = 2000,
-    on = true, walkers = {}, world = nil, rts = nil, cur = 1, cx = 0, cy = 0, fadedAt = 0,
+    on = true, walkers = {}, world = nil, rt = nil, cx = 0, cy = 0, fadedAt = 0,
 }
 
---- The render targets, made for this world and handed to the landscape.
+--- A new, black render target. Only the landscape's material instances
+--- keep one alive: a target held by Lua alone is garbage collected (a spare
+--- held for re-centring went within a minute, and drawing on it took the
+--- game down, 2026-10-11), so there is only ever the one in use.
+function Footprints.newTarget(world)
+    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local rt = krl and krl:CreateRenderTarget2D(world, Footprints.RES, Footprints.RES, 0,
+        { R = 0, G = 0, B = 0, A = 1 }, false, false)
+    if rt and rt:IsValid() then return rt end
+    return nil
+end
+
+--- The render target, made for this world and handed to the landscape.
 function Footprints.targets(world)
     -- By name: two Lua handles on one world are not equal, and comparing
     -- them made new targets every tick.
     local name = world:GetFullName()
-    if Footprints.world == name and Footprints.rts and Footprints.rts[1]:IsValid() then return Footprints.rts end
-    Footprints.world, Footprints.rts, Footprints.walkers = name, nil, {}
+    if Footprints.world == name and Footprints.rt and Footprints.rt:IsValid() then return Footprints.rt end
+    Footprints.world, Footprints.rt, Footprints.walkers = name, nil, {}
     local land = FindFirstOf("Landscape")
-    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
-    if not (land and land:IsValid() and krl) then return nil end
-    local rts = {}
-    for i = 1, 2 do
-        rts[i] = krl:CreateRenderTarget2D(world, Footprints.RES, Footprints.RES, 0, { R = 0, G = 0, B = 0, A = 1 },
-            false, false)
-        if not (rts[i] and rts[i]:IsValid()) then return nil end
-    end
-    Footprints.rts, Footprints.cur, Footprints.land = rts, 1, land
+    if not (land and land:IsValid()) then return nil end
+    local rt = Footprints.newTarget(world)
+    if not rt then return nil end
+    Footprints.rt, Footprints.land = rt, land
     local pawn = getPawn()
     local p = pawn and pawn:K2_GetActorLocation() or { X = 0, Y = 0 }
     Footprints.cx, Footprints.cy = p.X, p.Y
@@ -2848,42 +2855,54 @@ function Footprints.targets(world)
     land:SetLandscapeMaterialScalarParameterValue(FName("FootRelief"), Footprints.RELIEF)
     land:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), Footprints.on and 1.0 or 0.0)
     Footprints.hand()
-    return rts
+    return rt
 end
 
---- The current target and its square, to the landscape.
+--- The current target and its square, to the landscape (which also keeps
+--- the target from being collected).
 function Footprints.hand()
     local land = Footprints.land
-    land:SetLandscapeMaterialTextureParameterValue(FName("FootRT"), Footprints.rts[Footprints.cur])
+    land:SetLandscapeMaterialTextureParameterValue(FName("FootRT"), Footprints.rt)
     land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"),
         { R = Footprints.cx, G = Footprints.cy, B = Footprints.SIZE, A = Footprints.SIZE })
 end
 
---- Draw on the current target: `fn(canvas)` between begin and end.
-function Footprints.draw(world, fn)
+--- Draw on `rt` (the current target by default): `fn(canvas)` between
+--- begin and end. A target that is gone, or a begin that hands back no
+--- canvas, draws nothing: an end with no begin behind it crashed the game.
+function Footprints.draw(world, fn, rt)
+    rt = rt or Footprints.rt
+    if not (rt and rt:IsValid()) then return false end
     local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
     -- UE4SS hands the out parameters back shifted: the canvas (and size) in
     -- the first table, the drawing context in the second.
     local c1, c2, c3 = {}, {}, {}
-    krl:BeginDrawCanvasToRenderTarget(world, Footprints.rts[Footprints.cur], c1, c2, c3)
-    local ok, err = pcall(fn, c1.Canvas)
+    krl:BeginDrawCanvasToRenderTarget(world, rt, c1, c2, c3)
+    local canvas = c1.Canvas
+    if not (canvas and canvas:IsValid()) then
+        Log("footprints: no canvas to draw on; off (mjolnir_footprints on to try again)")
+        Footprints.on = false
+        return false
+    end
+    local ok, err = pcall(fn, canvas)
     krl:EndDrawCanvasToRenderTarget(world, c2)
     if not ok then Log("footprints: " .. tostring(err)) end
+    return ok
 end
 
---- Move the square to centre on (x, y), carrying the prints over.
+--- Move the square to centre on (x, y), carrying the prints over into a
+--- new target.
 function Footprints.recentre(world, x, y)
-    local old = Footprints.rts[Footprints.cur]
+    local old = Footprints.rt
+    local rt = Footprints.newTarget(world)
+    if not (rt and old and old:IsValid()) then return end
     local scale = Footprints.RES / Footprints.SIZE
     local dx, dy = (Footprints.cx - x) * scale, (Footprints.cy - y) * scale
-    local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
-    Footprints.cur = 3 - Footprints.cur
-    krl:ClearRenderTarget2D(world, Footprints.rts[Footprints.cur], { R = 0, G = 0, B = 0, A = 1 })
     Footprints.draw(world, function(canvas)
         canvas:K2_DrawTexture(old, { X = dx, Y = dy }, { X = Footprints.RES, Y = Footprints.RES }, { X = 0, Y = 0 },
             { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 0, 0, { X = 0.5, Y = 0.5 })
-    end)
-    Footprints.cx, Footprints.cy = x, y
+    end, rt)
+    Footprints.rt, Footprints.cx, Footprints.cy = rt, x, y
     Footprints.hand()
 end
 
