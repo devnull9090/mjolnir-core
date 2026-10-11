@@ -317,6 +317,19 @@ def distance_to(mask, cell, limit):
     return np.minimum(d, limit)
 
 
+def bilinear(grid, pos, x0, z0, cell):
+    """`grid` (cell centres at x0 + (i + 0.5) cell) at each pos's x, z."""
+    nz, nx = grid.shape
+    fx = np.clip((pos[:, 0] - x0) / cell - 0.5, 0.0, nx - 1.0)
+    fz = np.clip((pos[:, 2] - z0) / cell - 0.5, 0.0, nz - 1.0)
+    ix, iz = np.minimum(fx.astype(int), nx - 2), np.minimum(fz.astype(int), nz - 2)
+    tx, tz = fx - ix, fz - iz
+    g = lambda a, b: grid[a, b]
+    top = g(iz, ix) * (1 - tx) + g(iz, ix + 1) * tx
+    bot = g(iz + 1, ix) * (1 - tx) + g(iz + 1, ix + 1) * tx
+    return top * (1 - tz) + bot * tz
+
+
 def bake_shore(path, terrain, cell=2.0, limit=200.0, deep=50.0):
     """Write each water vertex's distance to the shore (m, up to `limit`) and
     the depth of the sea floor under it (m, up to `deep`) into the water glTF
@@ -346,11 +359,13 @@ def bake_shore(path, terrain, cell=2.0, limit=200.0, deep=50.0):
     dist = distance_to(h > sea, cell, limit)
     shallow = 0
     for p, pos in zip(prims, positions):
-        ix = np.clip(((pos[:, 0] - x0) / cell).astype(int), 0, nx - 1)
-        iz = np.clip(((pos[:, 2] - z0) / cell).astype(int), 0, nz - 1)
         outside = (pos[:, 0] < x0) | (pos[:, 0] > x1) | (pos[:, 2] < z0) | (pos[:, 2] > z1)
-        d = np.where(outside, limit, dist[iz, ix])
-        depth = np.where(outside, deep, np.clip(sea - h[iz, ix], 0.0, deep))
+        # Bilinear between cell centres: nearest-cell values jumped from
+        # vertex to vertex, the damped swell with them, and the waterline on
+        # a gentle beach came out as a staircase (Death Island, 2026-10-11).
+        d = np.where(outside, limit, bilinear(dist, pos, x0, z0, cell))
+        floor = bilinear(np.clip(sea - h, -deep, deep), pos, x0, z0, cell)
+        depth = np.where(outside, deep, np.clip(floor, 0.0, deep))
         shallow += int((depth < 3.0).sum())
         uv = np.stack([d, depth], axis=1).astype(np.float32)
         a = doc["accessors"][p["attributes"]["TEXCOORD_1"]]

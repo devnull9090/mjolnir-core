@@ -114,7 +114,7 @@ float4 W[4] = { W0, W1, W2, W3 };
 // The swell dies over shallow water and at the waterline (Shore: TEXCOORD_1,
 // metres to the shore and depth of the sea floor, refine_water_gltf.py
 // bake_shore): a trough left sandbars dry, drawn flat green.
-float damp = saturate((Shore.y - 0.05) / max(DampDepth, 0.01)) * saturate(Shore.x / 6.0);
+float damp = saturate((Shore.y - 0.05) / max(DampDepth, 0.01)) * saturate(Shore.x / 20.0);
 float3 o = 0;
 float3 nx = float3(1, 0, 0), ny = float3(0, 1, 0);
 float t = Time * Speed;
@@ -167,13 +167,17 @@ static float strength(float2 xy, float t)
 }
 static float h(float d, float2 xy, float t, float4 S)
 {
-    float env = saturate(1.0 - d / max(S.x, 1.0)) * saturate(d / 1.5);
+    float env = saturate(1.0 - d / max(S.x, 1.0)) * smoothstep(2.0, 10.0, d);
     float crest = 0.5 + 0.5 * sin(6.2831853 * phase(d, xy, t, S));
     return S.w * env * crest * crest * crest * strength(xy, t);
 }
 """
 
-GERSTNER_OFFSET = GERSTNER + "return o + float3(0, 0, ShoreFns::h(Shore.x, P.xy, Time, ShoreParams));\n"
+# The waterline stays where CE drew it: no vertical motion in the last 5 m
+# (the swell and shore waves lifting the edge cut a staircase into a gentle
+# beach, and showed the water mesh's edge as a blue wall, 2026-10-11).
+GERSTNER_OFFSET = GERSTNER + (
+    "return (o + float3(0, 0, ShoreFns::h(Shore.x, P.xy, Time, ShoreParams))) * saturate(Shore.x / 5.0);\n")
 # The shore waves' slope in the pixel shader: dh/dd from h either side, and
 # the shore distance's world gradient from the screen derivatives of it and
 # of the (unoffset) position, solved in the plane.
