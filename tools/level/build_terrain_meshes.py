@@ -30,7 +30,8 @@ took the glass, teleporter fields and shore foam out of the translucency
 pass (Death Island, 2026-10-10). The water is refined first
 (refine_water_gltf.py) into triangles small enough to carry the ocean's
 waves, densest over the playable area (`--placement`, the staging's
-placement.json).
+placement.json), then given each vertex's distance to the shore and the
+sea floor's depth (bake_shore, into TEXCOORD_1).
 
 Writes `<out>/terrain.json`: a list of decor entries, one per mesh, for
 gen_ce_level.py --terrain.
@@ -42,7 +43,7 @@ import re
 import subprocess
 import sys
 
-from refine_water_gltf import playable_area, refine_file
+from refine_water_gltf import bake_shore, playable_area, refine_file
 
 WATER_PARENT = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
 # After the sky (-100), before the rest of the translucency: CE's shore foam
@@ -114,6 +115,10 @@ def main():
                                                         a.water_near, a.water_growth, center, radius)
             print(f"water: {before} -> {after} triangle(s), {a.water_near} m within {radius:.0f} m "
                   f"of ({center[0]:.0f}, {center[1]:.0f})")
+            # Shore distance and sea-floor depth per vertex, for M_CE_Ocean's
+            # swell damping and shore waves; the first mesh is the terrain.
+            sea, _, shallow, n = bake_shore(base + "_water_dense.gltf", jobs[0][0])
+            print(f"water: shore baked, sea level {sea:.2f} m, {shallow} of {n} vertices over < 3 m of water")
             water_jobs.append([base + "_water_dense.gltf", "basicshapes/cube",
                                package[: -len("_Translucent")] + "_Water"])
     jobs += water_jobs

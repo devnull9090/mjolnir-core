@@ -6,7 +6,7 @@ Island's near water: 40 of them, edges up to 443 m), on which the waves
 average out to a flat sheet.
 
     refine_water_gltf.py <in.gltf> <out.gltf> [--near 4] [--growth 0.08]
-        [--center x,z --radius r | --placement <staging>/placement.json]
+        [--center x,z --radius r | --placement <staging>/placement.json] [--terrain scene.gltf]
 
 Longest-edge bisection (Rivara): a triangle whose longest edge is longer
 than the target splits that edge at its middle, and so does the triangle
@@ -24,7 +24,8 @@ the distant ring stays cheap. glTF units are metres, y up.
 
 Every attribute is interpolated at the midpoint (normals and tangents
 renormalized, the tangent's handedness kept), and the output gets a buffer
-of its own.
+of its own. With `--terrain`, each vertex's distance to the shore and the
+sea floor's depth under it go into TEXCOORD_1 (bake_shore).
 """
 import argparse
 import json
@@ -260,6 +261,110 @@ def refine_file(src, dst, near=4.0, growth=0.08, center=None, radius=None):
     return before, after, center, radius
 
 
+def terrain_heights(terrain, x0, z0, cell, nx, nz):
+    """The highest terrain surface over each cell of a grid (glTF metres, y
+    up): every triangle of the terrain glTF `terrain` rasterized at its cells'
+    centres. Cells nothing covers are -inf."""
+    doc = json.load(open(terrain, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(os.path.abspath(terrain)), doc["buffers"][0]["uri"]), "rb").read()
+    h = np.full((nz, nx), -np.inf)
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            for a, b, c in pos[idx]:
+                lo_x = max(int(np.floor((min(a[0], b[0], c[0]) - x0) / cell)), 0)
+                hi_x = min(int(np.ceil((max(a[0], b[0], c[0]) - x0) / cell)), nx - 1)
+                lo_z = max(int(np.floor((min(a[2], b[2], c[2]) - z0) / cell)), 0)
+                hi_z = min(int(np.ceil((max(a[2], b[2], c[2]) - z0) / cell)), nz - 1)
+                if lo_x > hi_x or lo_z > hi_z:
+                    continue
+                gx = x0 + (np.arange(lo_x, hi_x + 1) + 0.5) * cell
+                gz = z0 + (np.arange(lo_z, hi_z + 1) + 0.5) * cell
+                px, pz = np.meshgrid(gx, gz)
+                # Barycentric coordinates in the xz plane.
+                d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if abs(d) < 1e-9:
+                    continue
+                w0 = ((b[2] - c[2]) * (px - c[0]) + (c[0] - b[0]) * (pz - c[2])) / d
+                w1 = ((c[2] - a[2]) * (px - c[0]) + (a[0] - c[0]) * (pz - c[2])) / d
+                w2 = 1.0 - w0 - w1
+                inside = (w0 >= -1e-6) & (w1 >= -1e-6) & (w2 >= -1e-6)
+                if not inside.any():
+                    continue
+                y = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                sub = h[lo_z:hi_z + 1, lo_x:hi_x + 1]
+                np.maximum(sub, np.where(inside, y, -np.inf), out=sub)
+    return h
+
+
+def distance_to(mask, cell, limit):
+    """Metres from each cell to the nearest cell of `mask`, up to `limit`
+    (chamfer distance, 8 neighbours, repeated dilation)."""
+    big = limit + cell
+    d = np.where(mask, 0.0, big)
+    diag = cell * math.sqrt(2.0)
+    for _ in range(int(limit / cell) + 2):
+        prev = d
+        p = np.pad(d, 1, constant_values=big)
+        d = np.minimum.reduce([
+            d,
+            p[:-2, 1:-1] + cell, p[2:, 1:-1] + cell, p[1:-1, :-2] + cell, p[1:-1, 2:] + cell,
+            p[:-2, :-2] + diag, p[:-2, 2:] + diag, p[2:, :-2] + diag, p[2:, 2:] + diag,
+        ])
+        if np.array_equal(d, prev):
+            break
+    return np.minimum(d, limit)
+
+
+def bake_shore(path, terrain, cell=2.0, limit=200.0, deep=50.0):
+    """Write each water vertex's distance to the shore (m, up to `limit`) and
+    the depth of the sea floor under it (m, up to `deep`) into the water glTF
+    `path`'s TEXCOORD_1, from the terrain glTF `terrain`. Neither water
+    material reads TEXCOORD_1 otherwise (CE's water is unlit, no lightmap), and
+    mesh_rewrite writes it at full precision. M_CE_Ocean damps its swell over
+    shallow water with it (a trough left sandbars dry) and runs its shore
+    waves towards the beach."""
+    doc = json.load(open(path, encoding="utf-8"))
+    bin_path = os.path.join(os.path.dirname(os.path.abspath(path)), doc["buffers"][0]["uri"])
+    data = bytearray(open(bin_path, "rb").read())
+    prims = [p for m in doc["meshes"] for p in m["primitives"]]
+    positions = [read_accessor(doc, bytes(data), p["attributes"]["POSITION"]).astype(np.float64) for p in prims]
+    allp = np.concatenate(positions)
+    sea = float(np.median(allp[:, 1]))
+    # Only the water near land needs a fine grid: its bounds, cut to where
+    # the terrain is (the distant ring reaches kilometres past any shore).
+    tdoc = json.load(open(terrain, encoding="utf-8"))
+    tlo = np.min([tdoc["accessors"][p["attributes"]["POSITION"]]["min"] for m in tdoc["meshes"] for p in m["primitives"]], axis=0)
+    thi = np.max([tdoc["accessors"][p["attributes"]["POSITION"]]["max"] for m in tdoc["meshes"] for p in m["primitives"]], axis=0)
+    x0 = max(allp[:, 0].min(), tlo[0] - limit)
+    z0 = max(allp[:, 2].min(), tlo[2] - limit)
+    x1 = min(allp[:, 0].max(), thi[0] + limit)
+    z1 = min(allp[:, 2].max(), thi[2] + limit)
+    nx, nz = int(np.ceil((x1 - x0) / cell)) + 1, int(np.ceil((z1 - z0) / cell)) + 1
+    h = terrain_heights(terrain, x0, z0, cell, nx, nz)
+    dist = distance_to(h > sea, cell, limit)
+    shallow = 0
+    for p, pos in zip(prims, positions):
+        ix = np.clip(((pos[:, 0] - x0) / cell).astype(int), 0, nx - 1)
+        iz = np.clip(((pos[:, 2] - z0) / cell).astype(int), 0, nz - 1)
+        outside = (pos[:, 0] < x0) | (pos[:, 0] > x1) | (pos[:, 2] < z0) | (pos[:, 2] > z1)
+        d = np.where(outside, limit, dist[iz, ix])
+        depth = np.where(outside, deep, np.clip(sea - h[iz, ix], 0.0, deep))
+        shallow += int((depth < 3.0).sum())
+        uv = np.stack([d, depth], axis=1).astype(np.float32)
+        a = doc["accessors"][p["attributes"]["TEXCOORD_1"]]
+        view = doc["bufferViews"][a["bufferView"]]
+        assert view.get("byteStride") in (None, 8) and a["componentType"] == FLOAT
+        start = view.get("byteOffset", 0) + a.get("byteOffset", 0)
+        data[start:start + uv.nbytes] = uv.tobytes()
+        a.pop("min", None)
+        a.pop("max", None)
+    open(bin_path, "wb").write(bytes(data))
+    json.dump(doc, open(path, "w", encoding="utf-8"))
+    return sea, nx * nz, shallow, len(allp)
+
+
 def playable_area(placement, margin=30.0):
     """The playable area of a staged CE map (halo2ue's placement.json): the
     centre and radius, in glTF metres, of its player starts and netgame
@@ -284,6 +389,7 @@ def main():
     ap.add_argument("--center", help="x,z of the playable area (glTF metres)")
     ap.add_argument("--radius", type=float, help="radius of the playable area, metres")
     ap.add_argument("--placement", help="a staging placement.json to take the playable area from")
+    ap.add_argument("--terrain", help="the terrain glTF: bake shore distance and depth into TEXCOORD_1 (bake_shore)")
     a = ap.parse_args()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     radius = a.radius
@@ -292,6 +398,9 @@ def main():
     before, after, center, radius = refine_file(a.src, a.dst, a.near, a.growth, center, radius)
     print(f"{os.path.basename(a.src)}: {before} -> {after} triangle(s), {a.near} m near "
           f"({center[0]:.0f}, {center[1]:.0f}) r {radius:.0f} m, +{a.growth} m/m beyond")
+    if a.terrain:
+        sea, cells, shallow, n = bake_shore(a.dst, a.terrain)
+        print(f"shore: sea level {sea:.2f} m, {cells} cell(s), {shallow} of {n} vertices over < 3 m of water")
 
 
 if __name__ == "__main__":

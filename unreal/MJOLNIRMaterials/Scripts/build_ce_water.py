@@ -111,6 +111,10 @@ class Graph:
 # derivatives of the same sum (GPU Gems 1, ch. 1).
 GERSTNER = r"""
 float4 W[4] = { W0, W1, W2, W3 };
+// The swell dies over shallow water and at the waterline (Shore: TEXCOORD_1,
+// metres to the shore and depth of the sea floor, refine_water_gltf.py
+// bake_shore): a trough left sandbars dry, drawn flat green.
+float damp = saturate((Shore.y - 0.05) / max(DampDepth, 0.01)) * saturate(Shore.x / 6.0);
 float3 o = 0;
 float3 nx = float3(1, 0, 0), ny = float3(0, 1, 0);
 float t = Time * Speed;
@@ -121,7 +125,7 @@ float t = Time * Speed;
     float c = sqrt(980.0 / k);
     float2 d = W[i].xy;
     d = d * rsqrt(max(dot(d, d), 1e-6));
-    float q = saturate(W[i].w * Amp);
+    float q = saturate(W[i].w * Amp * damp);
     float a = q / k;
     float f = k * (dot(d, P.xy) - c * t);
     float s = sin(f), co = cos(f);
@@ -132,8 +136,48 @@ float t = Time * Speed;
 }
 """
 
-GERSTNER_OFFSET = GERSTNER + "return o;\n"
-GERSTNER_NORMAL = GERSTNER + "return normalize(cross(nx, ny));\n"
+# Shore waves: bands that roll towards the beach within Reach metres of it,
+# Len metres apart, Freq a second, cresting Height cm high; they fade at the
+# waterline itself (the last 1.5 m). h(d) is their height at d metres from
+# the shore; a crest is where d / Len + Freq t is a quarter past a whole
+# number, so it moves to smaller d as time runs.
+SHORE_H = r"""
+float shore_h(float d, float t, float4 S)
+{
+    float env = saturate(1.0 - d / max(S.x, 1.0)) * saturate(d / 1.5);
+    float ph = 6.2831853 * (d / max(S.y, 0.1) + t * S.z);
+    float crest = 0.5 + 0.5 * sin(ph);
+    return S.w * env * crest * crest * crest;
+}
+"""
+
+GERSTNER_OFFSET = GERSTNER + "return o + float3(0, 0, ShoreWave(Shore.x, Time, ShoreParams));\n"
+# The shore waves' slope in the pixel shader: dh/dd from h either side, and
+# the shore distance's world gradient from the screen derivatives of it and
+# of the (unoffset) position, solved in the plane.
+GERSTNER_NORMAL = GERSTNER + r"""
+float3 n = normalize(cross(nx, ny));
+float slope = (ShoreWave(Shore.x + 0.25, Time, ShoreParams) - ShoreWave(Shore.x - 0.25, Time, ShoreParams)) / 50.0;
+float2 a = ddx(Flat.xy), b = ddy(Flat.xy);
+float da = ddx(Shore.x), db = ddy(Shore.x);
+float det = a.x * b.y - a.y * b.x;
+float2 g = abs(det) > 1e-4 ? float2(da * b.y - db * a.y, a.x * db - b.x * da) / det * 100.0 : float2(0, 0);
+float gl = length(g);
+if (gl > 1.5) g *= 1.5 / gl;
+return normalize(n + float3(-slope * g, 0));
+"""
+
+# Foam: the crests of the shore waves and a wash at the waterline, broken up
+# by the ripple maps; opacity of the foam layer over the water.
+FOAM = r"""
+float d = Shore.x;
+float env = saturate(1.0 - d / max(ShoreParams.x, 1.0));
+float ph = 6.2831853 * (d / max(ShoreParams.y, 0.1) + Time * ShoreParams.z);
+float crest = saturate(0.5 + 0.5 * sin(ph));
+float f = env * pow(crest, 6.0) + saturate(1.0 - d / 2.5) * 0.8;
+f *= saturate(0.55 + 4.0 * length(Ripple.xy));
+return saturate(f * Amount) * step(0.01, Shore.y + d);
+"""
 
 # M_CE_Water's ripple uv and normal (build_ce_materials.py), unchanged.
 RIPPLE_UV = r"""
@@ -165,6 +209,15 @@ return normalize(Swell + r * Strength);
 """
 
 
+def with_shore(code):
+    """`code` with ShoreWave(d, t, S), SHORE_H's shore_h, inlined: a Custom
+    node's code is one function body, so the helper is a static function in
+    a nested struct (the usual way to define one inside a Custom node)."""
+    body = SHORE_H.replace("float shore_h(", "static float h(")
+    return ("struct ShoreFns {" + body + "};\n"
+            "#define ShoreWave(d, t, S) ShoreFns::h(d, t, S)\n" + code + "#undef ShoreWave\n")
+
+
 def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     """M_CE_Ocean; the switches build the test variants (MJ_WATER_TESTS):
     without the water shading model, without the wave offset, or without
@@ -188,14 +241,20 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
         return
     time = g.node(unreal.MaterialExpressionTime)
     world = g.node(unreal.MaterialExpressionWorldPosition, x=-2000)
+    still = g.node(unreal.MaterialExpressionWorldPosition, x=-2000,
+                  world_position_shader_offset=unreal.WorldPositionIncludedOffsets.WPT_EXCLUDE_ALL_SHADER_OFFSETS)
+    shore = g.node(unreal.MaterialExpressionTextureCoordinate, x=-2000, coordinate_index=1)
+    shore_params = g.vector4("ShoreParams", (40.0, 14.0, 0.12, 22.0))
     waves = [("W0", g.vector4("Wave0", (1.0, 0.35, 6000.0, 0.10)), ""),
              ("W1", g.vector4("Wave1", (0.6, 1.0, 3100.0, 0.08)), ""),
              ("W2", g.vector4("Wave2", (-0.4, 1.0, 1700.0, 0.06)), ""),
              ("W3", g.vector4("Wave3", (1.0, -0.7, 900.0, 0.05)), "")]
     common = waves + [("P", world, ""), ("Time", time, ""),
-                      ("Amp", g.scalar("WaveAmplitude", 1.0), ""), ("Speed", g.scalar("WaveSpeed", 1.0), "")]
-    offset = g.custom(GERSTNER_OFFSET, common, description="Gerstner offset")
-    swell_n = g.custom(GERSTNER_NORMAL, common, description="Gerstner normal")
+                      ("Amp", g.scalar("WaveAmplitude", 1.0), ""), ("Speed", g.scalar("WaveSpeed", 1.0), ""),
+                      ("Shore", shore, ""), ("ShoreParams", shore_params, ""),
+                      ("DampDepth", g.scalar("DampDepth", 1.0), "")]
+    offset = g.custom(with_shore(GERSTNER_OFFSET), common, description="Gerstner offset")
+    swell_n = g.custom(with_shore(GERSTNER_NORMAL), common + [("Flat", still, "")], description="Gerstner normal")
     # World Position Offset has no MaterialProperty in the editor's Python;
     # MjolnirUIBuilder wires it (as build_ce_materials.py's sky_offset does).
     if wpo and not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, offset, ""):
@@ -226,7 +285,17 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
                      transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
     link(normal, "", tangent, "")
     mel.connect_material_property(tangent, "", unreal.MaterialProperty.MP_NORMAL)
-    mel.connect_material_property(g.scalar("Roughness", 0.16), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    foam = g.custom(FOAM, [("Shore", shore, ""), ("Time", time, ""), ("ShoreParams", shore_params, ""),
+                           ("Ripple", ripple_t, ""), ("Amount", g.scalar("FoamAmount", 1.0), "")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="shore foam")
+    rough = g.node(unreal.MaterialExpressionLinearInterpolate, x=-300)
+    link(g.scalar("Roughness", 0.16), "", rough, "A")
+    link(g.scalar("FoamRoughness", 0.6), "", rough, "B")
+    link(foam, "", rough, "Alpha")
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(g.vector("FoamColor", (0.8, 0.85, 0.85, 1.0)), "",
+                                  unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(foam, "", unreal.MaterialProperty.MP_OPACITY)
     mel.connect_material_property(g.scalar("Specular", 0.5), "", unreal.MaterialProperty.MP_SPECULAR)
     if slw:
         build_water_output(g)
