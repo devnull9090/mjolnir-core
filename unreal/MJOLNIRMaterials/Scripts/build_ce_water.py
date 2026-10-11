@@ -236,10 +236,18 @@ return saturate(f * Amount) * step(0.01, Shore.y + d) * smoothstep(2.0, 8.0, d);
 # behind it: scene depth less the water's own (both along the camera's axis),
 # stretched to the ray. Shallows give nothing at the waterline; deep water,
 # or water seen at a grazing angle, a lot.
+#
+# The sea is taken to be at least Shelf.x metres deep Shelf.y metres from
+# the shore (rising towards it as 1 - exp(-d / Shelf.y)), whatever is under
+# it: CE's seas are a metre or two deep to the horizon (Death Island,
+# Yoyorast), and the sand showed through all of it like a wading pool. Near
+# the shore the real floor wins, so the shallows stay clear.
 WATER_PATH = r"""
 float behind = max(Scene - Pixel, 0.0);
 float ray = length(P - Cam) / max(Pixel, 1.0);
-return behind * ray * 0.01;
+float shelf = Shelf.x * (1.0 - exp(-Shore.x / max(Shelf.y, 0.01))) * step(0.01, Shore.x + Shore.y);
+float up = max(abs(normalize(Cam - P).z), 0.05);
+return max(behind * ray * 0.01, shelf / up);
 """
 # What gets through, per colour (Beer's law). Thin Translucent stretches it
 # by 1 / N.V itself (a sheet's thickness); the path is the whole ray already.
@@ -251,19 +259,30 @@ return exp(-Absorption.rgb * L * nv) * (1.0 - Foam);
 # all), never below MinCover: the reflection rides on it (WATER_EMISSIVE).
 WATER_OPACITY = "return max(saturate(max(1.0 - exp(-L / max(Clarity, 0.01)), Foam)), MinCover);\n"
 
-# The reflection: CE's own (build_ce_materials.py, WATER_REFLECT_CODE and
-# WATER_CODE): its cube map along the reflected view (y flipped: CE's cube
-# faces; the seam across the sea when the sky light was given the cube
-# unflipped), brightened from PerpBrightness looking straight down to
-# ParaBrightness at a grazing angle, tinted from PerpTint to ParaTint, in
-# CE's gamma space and then made linear. Nothing below the horizon: the
-# ripples reflected the cube's lower half as dark blots.
+# The reflection: CE's own (build_ce_materials.py, WATER_CODE): its cube map
+# along the reflected view, brightened from PerpBrightness looking straight
+# down to ParaBrightness at a grazing angle, tinted from PerpTint to
+# ParaTint, in CE's gamma space and then made linear. Nothing below the
+# horizon or just at it: the ripples reflected the cube's lower half as
+# dark (Death Island) or saturated blue (Yoyorast) blots.
+#
+# The view goes into CE's axes (y flipped: Unreal's y is CE's -y), and then
+# to the slot that holds each face: CE stores its faces +X, +Y, -X, -Y, +Z,
+# -Z, and the converter writes them as they come into a cube Unreal reads
+# as +X, -X, +Y, -Y, ... (ce_material_spec.py write_cube_dds), so CE's -X
+# face sits in the +Y slot and its +Y face in the -X slot. A view towards
+# -X is turned to look up the +Y slot at the same face coordinates, and one
+# towards +Y to look up the -X slot. (Yoyorast's water, 2026-10-11: the sky
+# on one half of the sea, a saturated blue face on the other, a hard seam.)
 REFLECT_DIR = r"""
 float3 E = Cam * rsqrt(max(dot(Cam, Cam), 1e-8));
 float3 R = 2.0 * dot(N, E) * N - E;
-R.z = max(R.z, 0.02);
-R = normalize(R);
-return float3(R.x, -R.y, R.z);
+R.z = max(R.z, 0.08);
+float3 d = normalize(float3(R.x, -R.y, R.z));
+float3 a = abs(d);
+if (a.x >= a.y && a.x >= a.z && d.x < 0.0) return float3(d.z, -d.x, -d.y);
+if (a.y >= a.x && a.y >= a.z && d.y > 0.0) return float3(-d.y, -d.z, d.x);
+return d;
 """
 REFLECTION = r"""
 float f = saturate(dot(N, normalize(Cam)));
@@ -274,9 +293,13 @@ float3 frame = lerp(c8, c, tint) * lerp(ParaBrightness, PerpBrightness, f) * Str
 frame = max(frame, 0.0);
 float3 lo = frame / 12.92;
 float3 hi = pow((frame + 0.055) / 1.055, 2.4);
+float3 lin = lerp(hi, lo, step(frame, 0.04045));
+// Towards grey by 1 - Saturation: CE's cube is a painted blue sky, and a
+// sea of waves tilting into it flashed neon blue under Yoyorast's pale one.
+lin = lerp(dot(lin, float3(0.2126, 0.7152, 0.0722)).xxx, lin, Saturation);
 // A film of water a few centimetres deep reflects as faintly as it tints:
 // at full strength, sand just under the surface showed as blue puddles.
-return lerp(hi, lo, step(frame, 0.04045)) * (1.0 - Foam) * smoothstep(0.0, max(Film, 0.001), L);
+return lin * (1.0 - Foam) * smoothstep(0.0, max(Film, 0.001), L);
 """
 # Thin Translucent scales the emissive by the opacity (it is a layer of
 # colour on the water); the reflection is not, so it goes in divided by it.
@@ -428,7 +451,8 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
     path = g.custom(WATER_PATH, [("Scene", g.node(unreal.MaterialExpressionSceneDepth, x=-2000), ""),
                                  ("Pixel", g.node(unreal.MaterialExpressionPixelDepth, x=-2000), ""),
                                  ("P", world, ""),
-                                 ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), "")],
+                                 ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
+                                 ("Shore", shore, ""), ("Shelf", g.vector4("Shelf", (6.0, 40.0, 0.0, 0.0)), "")],
                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="water path")
     film = g.scalar("EdgeFilm", 1.0)
     spec = g.custom("return Specular * smoothstep(0.0, max(Film, 0.001), L);",
@@ -453,6 +477,7 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
                                        ("ParaBrightness", g.scalar("ParaBrightness", 1.0), ""),
                                        ("PerpTint", g.vector("PerpTint"), ""), ("ParaTint", g.vector("ParaTint"), ""),
                                        ("Strength", g.scalar("ReflectionStrength", 1.0), ""), ("Foam", foam, ""),
+                                       ("Saturation", g.scalar("ReflectionSaturation", 0.35), ""),
                                        ("L", path, ""), ("Film", film, "")],
                           description="CE reflection")
     screen = g.node(unreal.MaterialExpressionEyeAdaptationInverse, x=-300)
