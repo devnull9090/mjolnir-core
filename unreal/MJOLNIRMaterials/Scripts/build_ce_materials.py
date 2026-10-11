@@ -1310,6 +1310,20 @@ return normalize(CeN + float3(GameN.xy, 0.0));
 """
 
 
+LAND_CUT_CODE = r"""
+float m = AlphaTest > 0.5 ? Pick : 1.0;
+if (LandCut < 0.5) return m;
+float2 uv = (W.xy - R.xy) / R.zw;
+if (any(uv < 0.0) || any(uv > 1.0)) return m;
+// A texel a landscape vertex: vertex i of N sits at texel centre (i + 0.5) / N.
+float h = Texture2DSampleLevel(Mask, MaskSampler, (uv * (N - 1.0) + 0.5) / N, 0).r;
+// Short of half (Edge), so the mesh overlaps the landscape's edge (the
+// landscape sits a few cm over it) rather than leaving pinholes where their
+// interpolations, and the landscape's LODs, differ.
+return m * saturate((h - Edge) * 100.0);
+"""
+
+
 def build_environment(name, masked, defaults, two_sided=False, land=False):
     """`land`: the landscape master (tools/level/build_landscape.py). A
     landscape has no CE texture coordinates, so its base and lightmap UVs
@@ -1534,7 +1548,22 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
         link(bump, "A", pick, "A")
         link(base, "A", pick, "B")
         link(g.scalar("AlphaFromBase", 0.0), "", pick, "Alpha")
-        mel.connect_material_property(pick, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+        # A ground slot a Landscape draws (MJOLNIRLevelLoader, LandCut 1,
+        # AlphaTest 0): the mesh keeps only the landscape's holes, from the
+        # same hole mask over the same rectangle (build_landscape.py
+        # landmask.png, a texel a landscape vertex), so the two meet.
+        mask = g.custom(LAND_CUT_CODE, [
+            ("Pick", pick, ""), ("AlphaTest", g.scalar("AlphaTest", 1.0), ""),
+            ("LandCut", g.scalar("LandCut", 0.0), ""),
+            ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+            ("R", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
+            ("N", g.scalar("LandMaskSize", 505.0), ""),
+            ("Edge", g.scalar("LandCutEdge", 0.25), ""),
+            ("Mask", g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="LandMask",
+                            texture=defaults["T_CE_White"],
+                            sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), "")],
+            output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="landscape cut")
+        mel.connect_material_property(mask, "", unreal.MaterialProperty.MP_OPACITY_MASK)
     elif land:
         # The landscape's holes (its visibility layer, build_landscape.py):
         # where the ground is a cliff or a plateau's overhanging lip, the

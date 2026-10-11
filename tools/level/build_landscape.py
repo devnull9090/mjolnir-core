@@ -15,15 +15,16 @@ Landscape from:
 - heights.r16: (N*63+1)^2 little-endian uint16 heights, row by row from the
   square's -y edge, 32768 the actor's z, 128 a unit of its z scale (100 cm).
   A vertex over the ground takes the ground's height (the lowest, where two
-  layers overlap: a plateau's overhanging lip stays the mesh's) plus `--lift` cm; one off it takes the lowest ground within
-  8 quads (its neighbours' further out), sinking 2 m a metre away (to 30 m),
-  so the landscape tucks under the cliffs and the sea floor: averaging the
-  ground on both sides of a cliff stood it up through the rock.
+  layers overlap: a plateau's overhanging lip stays the mesh's) plus `--lift`
+  cm. Off the ground is a hole (below): a vertex beside the ground takes its
+  ground neighbours' mean height, so the half-drawn quads along a hole's edge
+  stay level; further out, the ground's heights diffused (only distant LODs
+  see them).
 - holes.r8: a byte a vertex, 255 where the landscape is cut away (its
   visibility layer): off the ground; on both sides of a step of more than
   2 m between neighbouring vertices (where a plateau's lip overhangs a cliff
-  that recedes under it), grown a vertex so no half-cut quad stands up a
-  wall; and around any quad whose surface rides more than 15 cm over the
+  that recedes under it) or where two layers of ground overlap, grown a
+  vertex so no half-cut quad stands up a wall; and around any quad whose surface rides more than 15 cm over the
   ground (checked at the bakes' resolution), where the grid is too coarse for
   a sharp top (Death Island's mossy boulder). The terrain mesh draws those.
 - base.png, lightmap.png, bake.png, sunshare.png: the shader's base map and
@@ -32,6 +33,8 @@ Landscape from:
   side, for the landscape master (build_ce_materials.py M_CE_Landscape), which
   reads them by world XY (LandRect). Texels off the ground take the nearest
   ground's value.
+- landmask.png: holes.r8 as a texture, for the terrain mesh's ground slots,
+  which draw only the holes (`cut` in landscape.json).
 - landscape.json: where the actor goes, its scale and components, the
   rectangle (LandRect), the files, and `material`: the ground slot's own
   material with the bakes (as build_ce_landscape.py imports them) in place
@@ -55,9 +58,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from refine_water_gltf import read_accessor  # noqa: E402
 
 QUADS = 63
-SINK = 2.0  # m down a metre off the ground
-SINK_MAX = 30.0  # m
-REACH = 8  # quads: off the ground, the lowest ground this near
 STEP = 2.0  # m between neighbouring vertices: a cliff, cut out
 ABOVE = 15.0  # cm the landscape may ride over the ground (beyond --lift) before it is cut
 BAKED = ("Base", "Lightmap", "Bake", "SunShare")
@@ -81,14 +81,15 @@ def sample(img, uv):
             + g(y0 + 1, x0) * (1 - tx) * ty + g(y0 + 1, x0 + 1) * tx * ty)
 
 
-def raster(tris, origin, step, size, fields):
+def raster(tris, origin, step, size, fields, highest=False):
     """Each triangle (Unreal cm, xy over z) seen from above at the points
     origin + (i, j) * step of a size x size grid: the lowest triangle's z
     and its interpolated `fields` (per-vertex arrays, by triangle). Returns
     z (nan off the ground) and each field's grid. The lowest, because where
     a plateau's grass overhangs the beach the beach is the ground a player
-    walks; taking the plateau stood a wall up in front of the cliff."""
-    z = np.full((size, size), np.inf)
+    walks; taking the plateau stood a wall up in front of the cliff.
+    `highest` takes the top layer instead (to find where layers overlap)."""
+    z = np.full((size, size), -np.inf if highest else np.inf)
     out = [np.zeros((size, size, f.shape[-1])) for f in fields]
     for t in range(len(tris)):
         p = tris[t]
@@ -113,7 +114,7 @@ def raster(tris, origin, step, size, fields):
             continue
         zz = w0 * p[0, 2] + w1 * p[1, 2] + w2 * p[2, 2]
         sub = z[lo[1]:hi[1] + 1, lo[0]:hi[0] + 1]
-        take = inside & (zz < sub)
+        take = inside & ((zz > sub) if highest else (zz < sub))
         if not take.any():
             continue
         sub[take] = zz[take]
@@ -123,27 +124,6 @@ def raster(tris, origin, step, size, fields):
             o[lo[1]:hi[1] + 1, lo[0]:hi[0] + 1][take] = val[take]
     z[~np.isfinite(z)] = np.nan
     return z, out
-
-
-def distance(mask):
-    """Grid steps from each cell to the nearest True cell (chamfer 3-4)."""
-    big = 1e9
-    d = np.where(mask, 0.0, big)
-    h, w = d.shape
-    for _ in range(2):
-        for y in range(h):
-            row = d[y]
-            if y > 0:
-                prev = d[y - 1]
-                row = np.minimum(row, prev + 3)
-                row[1:] = np.minimum(row[1:], prev[:-1] + 4)
-                row[:-1] = np.minimum(row[:-1], prev[1:] + 4)
-            for x in range(1, w):
-                if row[x - 1] + 3 < row[x]:
-                    row[x] = row[x - 1] + 3
-            d[y] = row
-        d = d[::-1, ::-1]
-    return d / 3.0
 
 
 def fill(values, mask, iterations=400):
@@ -234,15 +214,18 @@ def main():
     # Heights.
     z, _ = raster(tris, origin, a.quad, size, [])
     ground = np.isfinite(z)
+    # Off the ground the landscape is a hole: its heights matter only for the
+    # half-drawn quads along a hole's edge and for distant LODs. A vertex
+    # beside the ground takes its ground neighbours' mean, so an edge quad
+    # stays level with the ground (sunk, it opened a crack under the cliff
+    # mesh); further out, the ground's heights diffused.
     zf = fill(np.nan_to_num(z)[..., None], ground)[..., 0]
-    low = np.where(ground, z, np.inf)
-    for _ in range(REACH):
-        p = np.pad(low, 1, mode="edge")
-        low = np.minimum.reduce([p[1:-1, 1:-1], p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:],
-                                 p[:-2, :-2], p[:-2, 2:], p[2:, :-2], p[2:, 2:]])
-    zf = np.where(np.isfinite(low), np.minimum(low, zf), zf)
-    dist = distance(ground) * a.quad / 100.0  # m
-    zf = np.where(ground, z + a.lift, zf + a.lift - np.minimum(SINK * dist, SINK_MAX) * 100.0)
+    zg = np.pad(np.where(ground, z, 0.0), 1)
+    ng = np.pad(ground.astype(float), 1)
+    sums = sum(zg[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+    counts = sum(ng[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+    ring = ~ground & (counts > 0)
+    zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
     lowest = np.where(ground, z, np.inf)
     highest = np.where(ground, z, -np.inf)
     pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)
@@ -252,6 +235,12 @@ def main():
                               for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
     step = STEP * 100.0
     cliff = ground & ((z - n_lo > step) | (n_hi - z > step))
+    # Where two layers of ground overlap (a plateau's grass over the beach
+    # below), the landscape can be only one: it is cut, and the mesh keeps
+    # both (cut there, the mesh lost the upper one and a ridge top opened).
+    ztop, _ = raster(tris, origin, a.quad, size, [], highest=True)
+    layered = ground & (ztop - z > 100.0)
+    cliff |= layered
     pc = np.pad(cliff, 1)
     cut = ~ground | np.logical_or.reduce([pc[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
                                          for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
@@ -282,7 +271,10 @@ def main():
             cut[i0[oy] + dy, i0[ox] + dx] = True
     holes = np.where(cut, 255, 0).astype(np.uint8)
     holes.tofile(os.path.join(a.out, "holes.r8"))
-    print(f"holes: {cut.mean() * 100:.0f}% of the vertices ({cliff.sum()} on cliffs, "
+    # The same mask as a texture, a texel a vertex: the terrain mesh's
+    # ground slots draw only where it is cut (the masked CE master's LandCut).
+    Image.fromarray(holes, "L").convert("RGBA").save(os.path.join(a.out, "landmask.png"))
+    print(f"holes: {cut.mean() * 100:.0f}% of the vertices ({cliff.sum()} on cliffs or layered ground, "
           f"{over.sum()} texel(s) where the grid rode over the ground)")
     pg = np.round(pg[..., 0]).astype(int)
     images = {}
@@ -326,6 +318,13 @@ def main():
         "rect": [float(origin[0]), float(origin[1]), side, side],
         "textures": written, "lift": a.lift,
         "material": material,
+        # The mesh slots of this ground (by their base map) give way to the
+        # landscape bar its holes: the loader draws them with the masked
+        # master, LandCut on.
+        "cut": {"base": slots[rep]["material"]["textures"].get("Base"),
+                "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
+                "rect": [float(origin[0]), float(origin[1]), side, side]},
+        "masks": {"LandMask": "landmask.png"},
     }
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")

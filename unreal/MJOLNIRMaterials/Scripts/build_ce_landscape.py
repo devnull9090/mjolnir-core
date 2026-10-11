@@ -78,6 +78,12 @@ def import_texture(file, name):
 # (only the world is retargeted, tools/level/bake_editor_world.sh).
 for param, file in spec["textures"].items():
     import_texture(os.path.join(src, file), f"T_Land{param}")
+# The hole mask for the terrain mesh's ground slots: a texel a vertex, read
+# bilinear at the top mip only.
+for name, file in (spec.get("masks") or {}).items():
+    tex = import_texture(os.path.join(src, file), f"T_{name}")
+    tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+    eal.save_loaded_asset(tex)
 
 try:
     ok = les.new_level(PACKAGE, False)

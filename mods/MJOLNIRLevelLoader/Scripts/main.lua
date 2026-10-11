@@ -675,8 +675,20 @@ local function runtimeMaterial(world, spec, name, target)
     -- The lightmap experiment draws the CE environment masters with the
     -- trial build, when it is installed.
     local game = GameDetail.surfacesFor(spec)
-    local master = (TerrainShadows.lightmap or TerrainLights.trial or game) and type(spec.parent) == "string"
+    -- A ground slot a Landscape draws (level.landscape.cut, by its base
+    -- map): the trial's masked master, which keeps only the landscape's holes.
+    local land = Current.level and Current.level.landscape
+    local cut = not target and type(land) == "table" and type(land.cut) == "table"
+        and type(spec.textures) == "table" and land.cut.base ~= nil and spec.textures.Base == land.cut.base
+        and land.cut or nil
+    local master = (TerrainShadows.lightmap or TerrainLights.trial or game or cut) and type(spec.parent) == "string"
         and spec.parent:match("^/Game/MJOLNIR/CE/(M_CE_Environment[%w]*%.M_CE_Environment[%w]*)$")
+    if cut and master then
+        local sides = master:match("^M_CE_Environment(%w*)%.")
+        if sides and not sides:find("Masked", 1, true) then
+            master = "M_CE_EnvironmentMasked" .. sides .. ".M_CE_EnvironmentMasked" .. sides
+        end
+    end
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
     local mid = target
@@ -709,6 +721,20 @@ local function runtimeMaterial(world, spec, name, target)
     end
     for param, value in pairs(spec.scalars or {}) do
         mid:SetScalarParameterValue(FName(param), value)
+    end
+    if cut and master then
+        local mask = type(cut.mask) == "string" and resolveMesh(cut.mask)
+        local r = type(cut.rect) == "table" and cut.rect
+        if mask and r then
+            mid:SetTextureParameterValue(FName("LandMask"), mask)
+            mid:SetVectorParameterValue(FName("LandRect"), { R = r[1], G = r[2], B = r[3], A = r[4] })
+            mid:SetScalarParameterValue(FName("LandMaskSize"), cut.size or 505)
+            mid:SetScalarParameterValue(FName("AlphaTest"), 0.0)
+            mid:SetScalarParameterValue(FName("LandCut"), 1.0)
+            if type(cut.edge) == "number" then mid:SetScalarParameterValue(FName("LandCutEdge"), cut.edge) end
+        else
+            Log(string.format("material '%s': landscape cut mask not found: %s", name, tostring(cut.mask)))
+        end
     end
     if game and master then
         local n = 0
@@ -2769,6 +2795,12 @@ function Land.apply(world)
     }
     local ok, mid, err = pcall(runtimeMaterial, world, spec.material, "landscape", target)
     Log("landscape: " .. ((ok and mid) and "ground material applied" or tostring(ok and err or mid)))
+    -- As the terrain mesh: its shadows come from the shadow proxies (and the
+    -- CE lightmaps), not the ground itself.
+    pcall(function()
+        local comps = land.LandscapeComponents
+        for i = 1, #comps do comps[i]:SetCastShadow(false) end
+    end)
 end
 
 local function spawnDecor(world)
