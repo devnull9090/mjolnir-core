@@ -334,6 +334,11 @@ return n * rsqrt(max(dot(n, n), 1e-8));
 # The swell's normal tilted by the ripples' (world space, the ripple map's
 # flat being +z): the ripple's deviation from flat, scaled, added on.
 COMBINE_NORMAL = r"""
+// The swell's slopes fade out with distance (SwellFade: from, to cm, what is
+// kept): four regular waves alias into stripes along the horizon (Death
+// Island from its plateaus), where their shape is lost to the pixel anyway.
+float far = smoothstep(SwellFade.x, SwellFade.y, length(Cam - P)) * (1.0 - SwellFade.z);
+Swell = normalize(lerp(Swell, float3(0, 0, 1), far));
 float3 r = Ripple - float3(0, 0, 1);
 float near = saturate(1.0 - Shore.x / 30.0) * step(0.01, Shore.x + Shore.y);
 // Chop: two layers of the detail wave map (normal in rg), crossing.
@@ -431,7 +436,10 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
                                        ("C0", chops[0], "RGBA"), ("C1", chops[1], "RGBA"),
                                        ("Chop", g.scalar("ChopStrength", 0.07), ""),
                                        ("Strength", g.scalar("DetailStrength", 0.05), ""),
-                                       ("Shore", shore, ""), ("NearShore", g.scalar("NearShoreDetail", 3.0), "")],
+                                       ("Shore", shore, ""), ("NearShore", g.scalar("NearShoreDetail", 3.0), ""),
+                                       ("P", still, ""),
+                                       ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
+                                       ("SwellFade", g.vector4("SwellFade", (3000.0, 20000.0, 0.15, 0.0)), "")],
                       description="water normal")
     tangent = g.node(unreal.MaterialExpressionTransform, x=-300,
                      transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
