@@ -204,11 +204,23 @@ float2 xy = P.xy;
 float env = saturate(1.0 - d / max(ShoreParams.x, 1.0));
 float crest = saturate(0.5 + 0.5 * sin(6.2831853 * ShoreFns::phase(d, xy, Time, ShoreParams)));
 float wave = env * pow(crest, 5.0) * ShoreFns::strength(xy, Time);
-float reach = 1.0 + 3.0 * (0.5 + 0.5 * sin(Time * 0.6 + 6.2831853 * ShoreFns::n2(xy * 0.0003)));
+float reach = 2.0 + 3.0 * (0.5 + 0.5 * sin(Time * 0.6 + 6.2831853 * ShoreFns::n2(xy * 0.0003)));
 float swash = saturate(1.0 - d / reach);
 float n = 0.6 * ShoreFns::n2(xy * 0.004 + Time * 0.05) + 0.4 * ShoreFns::n2(xy * 0.017 - Time * 0.08);
 float f = saturate((wave * 1.4 + swash) * 1.5 - (1.0 - n) * 0.9);
-return saturate(f * Amount) * step(0.01, Shore.y + d);
+// The foam thins out over the last 2.5 m: run up to the waterline it drew
+// a hard white edge along the sand (Death Island, 2026-10-11).
+return saturate(f * Amount) * step(0.01, Shore.y + d) * smoothstep(0.4, 2.5, d);
+"""
+
+# The water's opacity mask: present from Width metres out, dissolving towards
+# the waterline through a per-pixel, per-frame dither that TSR resolves into
+# a soft blend with the sand under it (interleaved gradient noise).
+SHORE_FADE = r"""
+float a = smoothstep(0.0, max(Width, 0.01), Shore.x) + step(Shore.x + Shore.y, 0.01);
+float2 px = Parameters.SvPosition.xy + 5.588238 * float(View.StateFrameIndexMod8);
+float n = frac(52.9829189 * frac(dot(px, float2(0.06711056, 0.00583715))));
+return a > n ? 1.0 : 0.0;
 """
 
 # M_CE_Water's ripple uv and normal (build_ce_materials.py), unchanged.
@@ -268,7 +280,11 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_SINGLE_LAYER_WATER if slw
                           else unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    # Masked: the water dissolves over its last metres before the shore
+    # (SHORE_FADE). The game forces r.Water.SingleLayer.Refraction to 0
+    # (a console or loader set leaves it at 0), so Single Layer Water never
+    # shows what is under it, and its edge against the sand was a hard line.
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED if graph else unreal.BlendMode.BLEND_OPAQUE)
     m.set_editor_property("two_sided", True)
     m.set_editor_property("used_with_static_lighting", False)
     # The shore foam moves in the pixel shader, not with the geometry; TSR
@@ -352,11 +368,24 @@ def build_ocean(flat, name="M_CE_Ocean", slw=True, wpo=True, graph=True):
     link(g.scalar("Roughness", 0.16), "", rough, "A")
     link(g.scalar("FoamRoughness", 0.6), "", rough, "B")
     link(foam, "", rough, "Alpha")
-    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    # At the waterline the water is clear and dull, so the sand under it
+    # carries on into the sea instead of meeting a bright reflective edge.
+    edge = g.custom("return smoothstep(0.3, 4.0, Shore.x) + step(Shore.x + Shore.y, 0.01);",
+                    [("Shore", shore, "")], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                    description="waterline")
+    edge_rough = g.custom("return lerp(0.7, R, saturate(E));", [("R", rough, ""), ("E", edge, "")],
+                          output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="waterline roughness")
+    mel.connect_material_property(edge_rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(g.vector("FoamColor", (0.8, 0.85, 0.85, 1.0)), "",
                                   unreal.MaterialProperty.MP_BASE_COLOR)
     mel.connect_material_property(foam, "", unreal.MaterialProperty.MP_OPACITY)
-    mel.connect_material_property(g.scalar("Specular", 0.5), "", unreal.MaterialProperty.MP_SPECULAR)
+    fade = g.custom(SHORE_FADE, [("Shore", shore, ""), ("Width", g.scalar("ShoreFade", 2.5), "")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="shore fade")
+    mel.connect_material_property(fade, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    spec = g.node(unreal.MaterialExpressionMultiply, x=-300)
+    link(g.scalar("Specular", 0.5), "", spec, "A")
+    link(edge, "", spec, "B")
+    mel.connect_material_property(spec, "", unreal.MaterialProperty.MP_SPECULAR)
     if slw:
         build_water_output(g)
     else:

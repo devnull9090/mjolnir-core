@@ -2325,9 +2325,9 @@ end
 --- converted before the split keep CE's water.
 ---
 --- What else changes while it is on (Death Island, 2026-10-11):
---- - r.Water.SingleLayer.Refraction 1. The game ships it off (Fluid Flux
----   draws its own underwater pass), and without it the water shows nothing
----   of what is under it: the shallows were black.
+--- (r.Water.SingleLayer.Refraction stays 0 whatever a console or this
+--- loader sets: the game forces it, Fluid Flux drawing its own underwater
+--- pass. M_CE_Ocean dissolves over its last metres before the shore instead.)
 --- - The sky light captures the scene (the atmosphere), with a lower
 ---   hemisphere that is not black. Rippled normals reflect below the
 ---   horizon, and a black lower half drew black blots. CE's reflection cube
@@ -2452,15 +2452,6 @@ local function rebuild(world, s)
     return ok and mat and pcall(function() s.comp:SetMaterial(s.slot, mat) end)
 end
 
---- r.Water.SingleLayer.Refraction (see above), through the local controller.
-local function waterRefraction(on)
-    local kismet = findObject("/Script/Engine.Default__KismetSystemLibrary")
-    local pc = getPlayerController()
-    if kismet and pc then
-        kismet:ExecuteConsoleCommand(pc, "r.Water.SingleLayer.Refraction " .. (on and "1" or "0"), pc)
-    end
-end
-
 --- Draw the level's CE water in the style asked for (waterStyle), once the
 --- decor is up; again whenever `mjolnir_water` changes it.
 local function applyWater(world)
@@ -2474,7 +2465,6 @@ local function applyWater(world)
         for _, s in ipairs(slots) do rebuild(world, s) end
         for _, s in ipairs(foam) do rebuild(world, s) end
         pcall(oceanSky, false)
-        pcall(waterRefraction, false)
         Current.water = { style = "ce" }
         Log(string.format("water: %d slot(s) back to CE's", #slots))
         return
@@ -2502,7 +2492,6 @@ local function applyWater(world)
         if pcall(fadeOut, s) then faded = faded + 1 end
     end
     pcall(oceanSky, true)
-    pcall(waterRefraction, true)
     Current.water = { style = "ocean", slots = done }
     Log(string.format("water: %d of %d slot(s) as M_CE_Ocean, waves x%.2f, %d foam slot(s) faded", done, #slots,
         waveAmplitude(), faded))
