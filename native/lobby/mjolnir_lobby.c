@@ -1039,9 +1039,180 @@ static void deliver_gdk_join(unsigned char *subsystem, struct join_request *req)
     free(req);
 }
 
+/* The invite the handler builds reaches nobody who joins. The handler parks
+   it, the subsystem's tick turns it into a search result and raises
+   OnSessionUserInviteAccepted on the GDK session interface (2026-10-10, all
+   verified in the log). The only listener there is that interface's Online
+   Services adapter, and nothing subscribes to the join event it re-raises.
+   The game's join listens on the other session interface, PlayFab's, whose
+   adapter is bound with the same delegate type. And the result names the
+   connection string CUSTOMJOININFO, the GDK subsystem's key, while PlayFab's
+   join reads CONNECTIONSTRING.
+
+   So for a join this file delivered, the GDK session's
+   TriggerOnSessionUserInviteAcceptedDelegates (IOnlineSession vtable +0x348)
+   renames the setting and raises the invite on PlayFab's session instead.
+   The game then leaves its fireteam and joins as it does on Steam. */
+#define SESSION_TRIGGER_INVITE 0x348 /* IOnlineSession vtable slot */
+#define SESSION_INVITE_LISTENERS 0x1E8 /* the multicast's invocation list */
+#define RESULT_SETTINGS 0x28           /* FOnlineSessionSearchResult -> FOnlineSessionSettings */
+#define SETTINGS_MAP 0x38              /* TMap<FName, FOnlineSessionSetting>, 0x38-byte elements */
+
+typedef void(__fastcall *trigger_invite_t)(void *session, unsigned char ok, int controller, void *user_id, void *result);
+static trigger_invite_t real_gdk_trigger;
+static void *gdk_session_seen;
+static volatile LONG64 gdk_join_until; /* GetTickCount64 deadline for a join we delivered */
+
+/* Listener `index` (its delegate instance) on a session's invite delegate. */
+static unsigned long long *invite_listener(unsigned char *session, int index) {
+    unsigned char *list = *(unsigned char **)(session + SESSION_INVITE_LISTENERS);
+    int num = *(int *)(session + SESSION_INVITE_LISTENERS + 8);
+    if (!list || index >= num || num > 64) return NULL;
+    return *(unsigned long long **)(list + (size_t)index * 0x10);
+}
+
+/* The heap holds one delegate instance per adapter; the instance's +0x18
+   is its adapter, and the session it sits on is a pointer the adapter
+   holds whose invite listeners include that instance. */
+static int scan_for(unsigned long long *q, size_t n, unsigned long long want, unsigned long long **hits, int max) {
+    int found = 0;
+    __try {
+        for (size_t i = 0; i < n && found < max; i++)
+            if (q[i] == want) hits[found++] = q + i;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return found;
+}
+
+static unsigned char *session_of(unsigned long long *inst) {
+    __try {
+        unsigned char *adapter = (unsigned char *)inst[3];
+        if (!adapter || !in_image(*(void **)adapter)) return NULL;
+        for (int k = 0; k < 0x500 / 8; k++) {
+            __try {
+                unsigned char *cand = *(unsigned char **)(adapter + k * 8);
+                if (!cand || !in_image(*(void **)cand)) continue;
+                for (int j = 0; j < 8; j++) {
+                    unsigned long long *l = invite_listener(cand, j);
+                    if (!l) break;
+                    if (l == inst) return cand;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return NULL;
+}
+
+static unsigned char *find_playfab_session(unsigned char *gdk_session) {
+    static unsigned char *cached;
+    unsigned long long *mine = invite_listener(gdk_session, 0);
+    if (!mine) return NULL;
+    unsigned long long want = mine[0];
+    /* The base IOnlineSession implementation, shared by every session interface. */
+    trigger_invite_t trigger = real_gdk_trigger;
+    if (cached) {
+        __try {
+            unsigned long long *l = invite_listener(cached, 0);
+            if (l && l[0] == want && *(void **)(*(unsigned char **)cached + SESSION_TRIGGER_INVITE) == (void *)trigger)
+                return cached;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        cached = NULL;
+    }
+    unsigned long long *hits[16];
+    int found = 0;
+    MEMORY_BASIC_INFORMATION mbi;
+    unsigned char *p = NULL;
+    while (found < 16 && VirtualQuery(p, &mbi, sizeof mbi)) {
+        if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE && mbi.Protect == PAGE_READWRITE)
+            found += scan_for((unsigned long long *)mbi.BaseAddress, mbi.RegionSize / 8, want, hits + found, 16 - found);
+        p = (unsigned char *)mbi.BaseAddress + mbi.RegionSize;
+    }
+    for (int i = 0; i < found && !cached; i++) {
+        if (hits[i] == mine) continue;
+        unsigned char *s = session_of(hits[i]);
+        if (s && s != gdk_session && *(void **)(*(unsigned char **)s + SESSION_TRIGGER_INVITE) == (void *)trigger)
+            cached = s;
+    }
+    fireteam_log("join: %d Online Services adapter(s); the other session interface %p", found, (void *)cached);
+    return cached;
+}
+
+/* Rename the result's CUSTOMJOININFO setting to CONNECTIONSTRING. Only while
+   the map has a single hash bucket (under four settings), where a lookup
+   walks every element and the key's hash does not matter. */
+static int rename_join_setting(unsigned char *result) {
+    if (!resolve()) return 0;
+    unsigned long long from = 0, to = 0;
+    fname_ctor(&from, L"CUSTOMJOININFO", FNAME_ADD, NULL);
+    fname_ctor(&to, L"CONNECTIONSTRING", FNAME_ADD, NULL);
+    unsigned char *map = result + RESULT_SETTINGS + SETTINGS_MAP;
+    unsigned char *elements = *(unsigned char **)map;
+    int num = *(int *)(map + 8);
+    int hash_size = *(int *)(map + 0x48);
+    if (hash_size != 1) {
+        fireteam_log("join: the invite's settings have %d hash buckets, left alone", hash_size);
+        return 0;
+    }
+    for (int i = 0; elements && i < num && i < 8; i++) {
+        unsigned long long *key = (unsigned long long *)(elements + (size_t)i * 0x38);
+        if (*key == to) return 1;
+        if (*key == from) {
+            *key = to;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void __fastcall hook_gdk_trigger(void *session, unsigned char ok, int controller, void *user_id, void *result) {
+    if (ok && result && GetTickCount64() < (ULONGLONG)gdk_join_until) {
+        InterlockedExchange64(&gdk_join_until, 0);
+        unsigned char *playfab = NULL;
+        int renamed = 0;
+        __try {
+            renamed = rename_join_setting((unsigned char *)result);
+            playfab = find_playfab_session((unsigned char *)session);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("join: the invite was unreadable (0x%08lx)", (unsigned long)GetExceptionCode());
+        }
+        if (playfab && renamed) {
+            fireteam_log("join: the invite goes to the PlayFab session");
+            real_gdk_trigger(playfab, ok, controller, user_id, result);
+            return;
+        }
+        fireteam_log("join: the invite stays on the Xbox session (setting %s, PlayFab session %s)",
+                     renamed ? "renamed" : "not found", playfab ? "found" : "not found");
+    }
+    real_gdk_trigger(session, ok, controller, user_id, result);
+}
+
+static const char *hook_gdk_trigger_slot(unsigned char *session) {
+    if (session == gdk_session_seen) return NULL;
+    gdk_session_seen = session;
+    void **slot = (void **)(*(unsigned char **)session + SESSION_TRIGGER_INVITE);
+    if (*slot == (void *)hook_gdk_trigger) return "already hooked";
+    if (!in_image(*slot)) return "invite trigger is not in the exe, left alone";
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    real_gdk_trigger = (trigger_invite_t)*slot;
+    *slot = (void *)hook_gdk_trigger;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return "hooked";
+}
+
 static unsigned char __fastcall hook_gdk_tick(void *ticker, float delta) {
+    unsigned char *subsystem = (unsigned char *)ticker - GDK_TICKER;
     struct join_request *req = (struct join_request *)InterlockedExchangePointer((void *volatile *)&pending_join, NULL);
-    if (req) deliver_gdk_join((unsigned char *)ticker - GDK_TICKER, req);
+    if (req) {
+        unsigned char *session = *(unsigned char **)(subsystem + GDK_SESSION);
+        const char *why = session ? hook_gdk_trigger_slot(session) : "no session";
+        if (why) fireteam_log("join: GDK session invite trigger: %s", why);
+        InterlockedExchange64(&gdk_join_until, (LONG64)(GetTickCount64() + 30000));
+        deliver_gdk_join(subsystem, req);
+    }
     return real_gdk_tick(ticker, delta);
 }
 
