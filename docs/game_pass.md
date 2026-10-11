@@ -106,7 +106,42 @@ The URI it sends is
 `ms-xbl-mjolnir://inviteHandleAccept/?invitedUser=<xuid>&sender=<id>&connectionString=<string>`.
 PlayFab connection strings (`cv2:<lobby>|<n>|kv1:<key>`) contain no `&`.
 
-Verified 2026-10-10 on the Xbox app: every hook installed, a converted map
-started from the MULTIPLAYER menu, and a join request was delivered to the
-invite handler (`join: delivered`). A join between two players is still
-untested.
+### Why a delivered invite went nowhere
+
+Delivering the invite was not enough. Every join from the Xbox app stopped
+after `join: delivered`, with no `PFMultiplayerJoinLobby` and no error, and
+the player saw nothing happen. The GDK subsystem does its whole part, all in
+one tick: the task parks the invite (`0x664bb80`), the tick builds a search
+result and hands it on (`0x664bd60`), and the session raises
+`OnSessionUserInviteAccepted` (IOnlineSession vtable `+0x348`) with
+success. Two things then lose it:
+
+- **Nobody listens there.** The GDK session's only listener is its Online
+  Services adapter, and nothing subscribes to the join event that adapter
+  re-raises. The game listens on the other session interface, PlayFab's.
+  Its adapter is bound with the same delegate type, and its join event has
+  one handler.
+- **The key is the GDK one.** The result carries the connection string as
+  `CUSTOMJOININFO`. PlayFab's join reads `CONNECTIONSTRING`. Raised on the
+  PlayFab session with the GDK key, the game left its fireteam and showed
+  FAILED TO JOIN without calling PlayFab.
+
+So for a join it delivered (within 30 s), `mjolnir_lobby` hooks the GDK
+session's trigger slot and does two things instead. It renames the setting
+in place. That is safe while the settings map has a single hash bucket
+(fewer than four settings), where a lookup walks every element. Then it
+raises the invite on the PlayFab session. It finds that session by its
+adapter's delegate instance: a heap scan for the vtable of the GDK
+session's own listener, once per game. The adapter is the instance's
+`+0x18`, and the session is the pointer the adapter holds whose invite
+listeners include that instance. Every other invite reaches the GDK session
+as shipped.
+
+A real Xbox invite raises the same event on the same session, so it
+probably goes nowhere in the shipped game either. That is untested.
+
+Verified 2026-10-10 on the Xbox app with a dummy connection string: the game
+left its fireteam, called `PFMultiplayerJoinLobby` with the string (returned
+0) and showed its own FAILED TO JOIN when PlayFab refused the fake key. That
+is what the Steam build does with the same string. A join between two real
+players is still untested.
