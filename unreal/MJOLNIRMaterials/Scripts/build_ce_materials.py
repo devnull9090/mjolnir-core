@@ -2206,6 +2206,20 @@ float3 sandMean = Texture2DSampleLevel(SandD, SandDSampler, float2(0.5, 0.5), 13
 sandA = max(sandMean + (sandA - sandMean) * Look.y, 0.0);
 sandA = lerp(sandA, sandB, bw) * SandTint.rgb;
 sandN = lerp(sandN, sandBN, bw);
+// Far sand (Macro: strength, far start and end cm, scale): the same sand
+// read Macro.w times larger, its colour against its mean over the whole
+// beach (light and dark drifts tens of metres across), and in the distance
+// its normal in place of the fine one, which mips away to nothing there.
+float farW = smoothstep(Macro.y, Macro.z, length(Cam - W));
+if (Macro.x > 0.0)
+{
+    float2 mu = P / max(Tiles.x * Macro.w, 1.0) + 0.27;
+    float2 mu2 = LP_ROT(mu, 0.37);
+    float3 mA = lerp(Texture2DSample(SandD, SandDSampler, mu).rgb, Texture2DSample(SandD, SandDSampler, mu2).rgb, 0.5);
+    float3 rel = clamp(mA / max(sandMean, 1e-3), 0.6, 1.5);
+    sandA *= lerp(1.0.xxx, rel, Macro.x * (0.35 + 0.65 * farW));
+    sandN = lerp(sandN, LP_NRM(SandN, SandNSampler, mu, mu2, 0.5) * 1.5, farW * Macro.x);
+}
 float2 ru = P / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
 float3 ripA = lerp(Texture2DSample(RipD, RipDSampler, ru).rgb, Texture2DSample(RipD, RipDSampler, ru2).rgb, w) * SandTint.rgb;
 float2 ripN = LP_NRM(RipN, RipNSampler, ru, ru2, w);
@@ -2338,6 +2352,8 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         # Par: parallax depth of the sand (cm), of the footprints (cm), the
         # distance it fades out by (cm), ray steps; 0 depth is off.
         ("Par", g.vector4("LandParallax", (0.0, 0.0, 2500.0, 12.0)), ""),
+        # Macro: far sand's strength, where it takes over (cm from, to), scale.
+        ("Macro", g.vector4("LandMacro", (0.0, 1500.0, 6000.0, 9.0)), ""),
     ]
     c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
     outs = []

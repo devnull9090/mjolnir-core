@@ -358,13 +358,17 @@ def main():
                 "rect": [float(origin[0]), float(origin[1]), side, side],
                 # Tuned on Death Island's dusk (2026-10-11): normals, grain
                 # contrast, CE shade as occlusion, second sand; a warm tint
-                # against the purple sky; ripples to 5 m over the sea.
-                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40],
+                # against the purple sky; ripples to 12 m over the sea (at 5 m,
+                # most of the beach was flat grain; B30's ripples run up it).
+                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [1200, 40],
                 # B30's ground grass ships desaturated, for its material to tint.
                 "grass_tint": [0.62, 0.78, 0.36, 1.0],
                 # Parallax: the sand's relief and the footprints 4 cm deep,
                 # out to 25 m, 14 ray steps (Death Island at 4K: +0.2 ms GPU).
                 "parallax": [4.0, 4.0, 2500, 14],
+                # Far sand: drifts of the sand 9 times larger, its normal
+                # taking over from 15 to 60 m.
+                "macro": [0.6, 1500, 6000, 9],
                 # The level's sun and sky light, scaled and tinted (the loader,
                 # as it reads the level file): a stronger, warmer sun and warm
                 # shade, where the purple dusk sky had turned the sand mauve.

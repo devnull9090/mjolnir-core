@@ -184,8 +184,16 @@ STOCK_TITLES = {
 # Maps whose CE water the loader draws as rolling, see-through water
 # (M_CE_Ocean, MJOLNIRLevelLoader `environment.water`) by default, by scenario
 # name: open seas, tuned on 2026-10-11. Other maps keep CE's water until
-# theirs is looked at (rivers, lakes, Damnation's falls).
-OCEAN_MAPS = {"deathisland", "yoyorast_island_v2"}
+# theirs is looked at (rivers, lakes, Damnation's falls). Each with M_CE_Ocean
+# parameters of its own (`params`), over CE's: Death Island's sun on its
+# water at full CE glancing brightness (ParaBrightness 1) and shore foam 0.7
+# washed the shallows milky white; at half, with a little more roughness and
+# less chop near the shore, they are clear down to the pebbles.
+OCEAN_MAPS = {
+    "deathisland": {"ParaBrightness": 0.55, "ParaTint": [0.8, 0.9, 0.95, 1.0], "Roughness": 0.22,
+                    "FoamAmount": 0.35, "Specular": 0.35, "NearShoreDetail": 1.5},
+    "yoyorast_island_v2": {},
+}
 
 # Under a multiplayer (Megalo) engine the simulation never reads the scenario's
 # player starting locations: it spawns players only at scenery whose
@@ -1267,7 +1275,8 @@ def main():
         "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
                                       f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
                         **sky_and_weather(placement, a.staging),
-                        **({"water": {"style": "ocean"}} if name in OCEAN_MAPS else {}),
+                        **({"water": {"style": "ocean", **({"params": OCEAN_MAPS[name]} if OCEAN_MAPS[name] else {})}}
+                           if name in OCEAN_MAPS else {}),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,
                                  "manual_exposure": True, "exposure_bias": 0.0, "local_exposure": 1.0}},
         "blam": {

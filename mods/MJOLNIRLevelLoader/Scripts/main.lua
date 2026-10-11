@@ -2896,6 +2896,8 @@ function Land.pbr(set, pbr)
     vec("LandLook", pbr.look)
     -- Depth: sand and footprint depth (cm), fade distance (cm), ray steps.
     vec("LandParallax", pbr.parallax)
+    -- Far sand: strength, where it takes over (cm from, to), scale.
+    vec("LandMacro", pbr.macro)
     -- CE's baked light, as occlusion: the lightmap bake and its levels.
     local lm = type(pbr.lightmap) == "string" and resolveMesh(pbr.lightmap)
     local levels = lightmapSun()
