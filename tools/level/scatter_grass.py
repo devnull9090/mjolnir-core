@@ -41,7 +41,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from refine_water_gltf import read_accessor  # noqa: E402
 
 GRASS_DETAILS = ("detail_grass",)
-MAX_SLOPE = math.radians(35.0)
+# A natural surface without a grass detail (Death Island's cliffs) can paint
+# its grass into the base map: there, flat ground whose base colour is green
+# (green over red and blue by GREEN_MARGIN, gamma) is grass too. Only
+# shaders whose detail maps are one of these, so green metal stays bare.
+NATURAL_DETAILS = ("cliff", "rock", "ground", "dirt", "sand")
+GREEN_MARGIN = (0.03, 0.10)
+MAX_SLOPE = math.radians(50.0)
 FOLIAGE_MAGIC = b"MJFG"
 # B30's grass is tinted grey for a dry beach (its instances' Color Overlay,
 # 0.286); CE's grass is green.
@@ -61,8 +67,9 @@ def object_path(package):
 
 def grass_slots(spec):
     """{glTF material name (lower case): (base texture file, which detail is
-    grass: "Primary" or "Secondary", shader type)} for the slots whose
-    detail maps include a grass one."""
+    grass: "Primary" or "Secondary", or "Green" for a natural surface whose
+    grass is in its base map, shader type)} for the slots whose detail maps
+    include a grass one or a natural one."""
     files = {t["name"]: t["file"] for t in spec["textures"]}
     out = {}
     for s in spec["slots"]:
@@ -70,26 +77,35 @@ def grass_slots(spec):
         tex = m.get("textures") or {}
         which = [k for k in ("Primary", "Secondary") if any(g in tex.get(k, "") for g in GRASS_DETAILS)]
         base = tex.get("Base", "").rsplit(".", 1)[-1]
-        if which and base in files:
+        if base not in files or "Environment" not in m.get("parent", ""):
+            continue
+        if not which and any(n in v.lower() for v in tex.values() for n in NATURAL_DETAILS):
+            which = ["Green"]
+        if which:
             out[s["pattern"].rstrip("$")] = (files[base], which[0], (m.get("scalars") or {}).get("Type", 0))
     return out
 
 
-def grass_weight(alpha, which, shader_type):
+def grass_weight(rgba, which, shader_type):
     """How much CE's blend shows the grass detail: a blended shader picks the
-    primary detail where the base alpha is 1 (TEXTURE_PASS_CODE)."""
+    primary detail where the base alpha is 1 (TEXTURE_PASS_CODE), or, for a
+    "Green" surface, how green its base colour is."""
+    if which == "Green":
+        g = rgba[:, 1] - np.maximum(rgba[:, 0], rgba[:, 2])
+        return np.clip((g - GREEN_MARGIN[0]) / (GREEN_MARGIN[1] - GREEN_MARGIN[0]), 0.0, 1.0)
+    alpha = rgba[:, 3]
     if shader_type < 0.5:
         return np.ones_like(alpha) if which == "Primary" else np.zeros_like(alpha)
     return alpha if which == "Primary" else 1.0 - alpha
 
 
-def sample_alpha(img, uv):
-    """The image's alpha (0..1) at UVs (wrapping), bilinear."""
-    h, w = img.shape
+def sample_rgba(img, uv):
+    """The image's RGBA (0..1, gamma) at UVs (wrapping), bilinear."""
+    h, w, _ = img.shape
     x = (uv[:, 0] % 1.0) * w - 0.5
     y = (uv[:, 1] % 1.0) * h - 0.5
     x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
-    tx, ty = x - x0, y - y0
+    tx, ty = (x - x0)[:, None], (y - y0)[:, None]
     g = lambda yy, xx: img[yy % h, xx % w]
     return (g(y0, x0) * (1 - tx) * (1 - ty) + g(y0, x0 + 1) * tx * (1 - ty)
             + g(y0 + 1, x0) * (1 - tx) * ty + g(y0 + 1, x0 + 1) * tx * ty)
@@ -127,7 +143,7 @@ def main():
                 continue
             file, which, shader_type = hit
             if file not in images:
-                images[file] = np.asarray(Image.open(file).convert("RGBA"), dtype=np.float32)[:, :, 3] / 255.0
+                images[file] = np.asarray(Image.open(file).convert("RGBA"), dtype=np.float32) / 255.0
             img = images[file]
             pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
             uv = read_accessor(doc, data, prim["attributes"]["TEXCOORD_0"]).astype(np.float64)
@@ -153,7 +169,7 @@ def main():
                 w0, w1, w2 = 1 - s, s * (1 - r2), s * r2
                 pts = np.outer(w0, p0) + np.outer(w1, p1) + np.outer(w2, p2)
                 uvs = np.outer(w0, uv[i0]) + np.outer(w1, uv[i1]) + np.outer(w2, uv[i2])
-                weight = grass_weight(sample_alpha(img, uvs), which, shader_type)
+                weight = grass_weight(sample_rgba(img, uvs), which, shader_type)
                 for p, wgt in zip(pts, weight):
                     # Thin out where the blend is part grass, all of it where none.
                     if rng.random() > (wgt - 0.3) / 0.4:

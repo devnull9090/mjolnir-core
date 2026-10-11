@@ -554,8 +554,13 @@ local TRIAL_MASTERS = "/Game/MJOLNIR/CETrial/"
 --- detail map's grain, the base map keeping the level's colours, and its
 --- normal map in the bump shading. Off by default; it lasts until the game
 --- closes. `params` are scalars set on every such slot (GameTile,
---- GameDetailStrength, GameNormalStrength); at the master's 1 the game's
---- grain was faint under Death Island's base map, 2 shows it.
+--- GameDetailStrength, GameNormalStrength, GameAlbedoGain); at the master's
+--- 1 the game's grain was faint under Death Island's base map, 2 shows it.
+--- Each surface says how much of CE's colour it keeps (`keep`: the sand
+--- 0.2, its base map smeared it; the grass 0.85, B30's is a desaturated
+--- albedo for tinting) and may name a second albedo (`b`) blended in over
+--- patches tens of metres across. Slots also get GameWet (the sea's height,
+--- from the level's water mesh): wet sand just above the waterline.
 local GameDetail = { on = false, params = { GameDetailStrength = 2.0 } }
 do
     -- (A block: the file is at Lua's 200 locals.)
@@ -564,10 +569,13 @@ do
         T_levels_b30_bitmaps_detail_sand = {
             d = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
             n = MEGASCANS .. "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N.T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
+            b = MEGASCANS .. "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_D.T_Beach_Sand_xdheagk_2K_NSVT_D",
+            keep = 0.2,
         },
         T_levels_a30_bitmaps_detail_grass = {
             d = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D.T_Ground_Grass_tb3nce_Desat_4K_NSVT_D",
             n = MEGASCANS .. "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N.T_Ground_Grass_NSVT_4K_N",
+            keep = 0.85,
         },
     }
 end
@@ -702,6 +710,12 @@ local function runtimeMaterial(world, spec, name)
                 mid:SetTextureParameterValue(FName("Game" .. slot), d)
                 mid:SetTextureParameterValue(FName("Game" .. slot .. "N"), nrm)
                 mid:SetScalarParameterValue(FName("HasGame" .. slot), 1.0)
+                mid:SetScalarParameterValue(FName("Game" .. slot .. "Keep"), surface.keep or 1.0)
+                local b = surface.b and resolveMesh(surface.b)
+                if b then
+                    mid:SetTextureParameterValue(FName("Game" .. slot .. "B"), b)
+                    mid:SetScalarParameterValue(FName("HasGame" .. slot .. "B"), 1.0)
+                end
                 n = n + 1
             else
                 Log(string.format("material '%s': game surface for %s not found", name, slot))
@@ -713,6 +727,14 @@ local function runtimeMaterial(world, spec, name)
         -- two across all over the new sand.
         if n > 0 then mid:SetScalarParameterValue(FName("HasMicro"), 0.0) end
         for param, v in pairs(GameDetail.params) do mid:SetScalarParameterValue(FName(param), v) end
+        for _, item in ipairs(Current.level and Current.level.decor or {}) do
+            if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
+                and type(item.pos) == "table" then
+                local z = item.pos[3] + ((Current.level.canvas or {}).origin or { 0, 0, 0 })[3]
+                mid:SetVectorParameterValue(FName("GameWet"), { R = z, G = 60, B = 0.35, A = 0 })
+                break
+            end
+        end
     end
     if TerrainLights.on then
         mid:SetScalarParameterValue(FName("DynamicAlbedo"), TerrainLights.albedo)

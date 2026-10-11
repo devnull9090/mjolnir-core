@@ -1226,6 +1226,20 @@ def fog_inputs(g):
 # colours and the game's surface gives the grain. GameDetailStrength scales
 # it about 0.5. CE's alpha (the detail's specular mask, and what picks
 # primary or secondary) is kept from CE's own map.
+#
+# GamePrimaryKeep and GameSecondaryKeep (0..1) are how much of that CE
+# colour stays, each detail map's own (B30's grass is a desaturated albedo
+# for tinting, and lost Death Island's green at 0.2; its sand did best at
+# that): at 0 the surface
+# is the game's own albedo (times GameAlbedoGain), the detail map worked
+# back from it (the colour over twice the base map, as CE's blend doubles
+# it onto the base). Death Island's base map is a texel or two a metre over
+# the whole island, and its painted blotches came through as smears on the
+# new sand (2026-10-11). Sand within GameWet.y cm above GameWet.x (the sea,
+# cm; 0 off) is wet: darker by GameWet.z, fading out over the band.
+# GamePrimaryB / GameSecondaryB, when set (HasGamePrimaryB), is a second
+# surface blended in over patches tens of metres across (a plain sand
+# looked flat over a whole beach).
 GAME_NOISE = r"""
 #define GD_HASH(p) frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453)
 #define GD_NOISE(p) lerp(lerp(GD_HASH(floor(p)), GD_HASH(floor(p) + float2(1, 0)), smoothstep(0, 1, frac(p).x)), \
@@ -1239,8 +1253,21 @@ if (GameDetail < 0.5 || Has < 0.5) return Ce;
 """ + GAME_NOISE + r"""
 float3 a = lerp(Texture2DSample(Tex, TexSampler, uv).rgb, Texture2DSample(Tex, TexSampler, uv2).rgb, w);
 float3 mean = Texture2DSampleLevel(Tex, TexSampler, float2(0.5, 0.5), 13.0).rgb;
-float3 d = 0.5 * pow(max(a, 1e-4), 1.0 / 2.2) / max(pow(max(mean, 1e-4), 1.0 / 2.2), 1e-3);
-return float4(saturate(lerp(0.5.xxx, d, Strength)), Ce.a);
+if (HasB > 0.5)
+{
+    // A second surface over patches tens of metres across.
+    float wb = smoothstep(0.35, 0.65, GD_NOISE(uv * 0.07 + 3.7));
+    a = lerp(a, Texture2DSample(TexB, TexBSampler, uv * 0.83 + 0.5).rgb, wb);
+    mean = lerp(mean, Texture2DSampleLevel(TexB, TexBSampler, float2(0.5, 0.5), 13.0).rgb, wb);
+}
+float3 ag = pow(max(a, 1e-4), 1.0 / 2.2);
+float3 d = 0.5 * ag / max(pow(max(mean, 1e-4), 1.0 / 2.2), 1e-3);
+d = lerp(0.5.xxx, d, Strength);
+float3 own = ag * AlbedoGain * 0.5 / max(Base.rgb, 0.02);
+d = lerp(own, d, saturate(BaseKeep));
+if (Wet.x != 0.0)
+    d *= lerp(1.0 - Wet.z, 1.0, smoothstep(Wet.x, Wet.x + max(Wet.y, 1.0), World.z));
+return float4(max(d, 0.0), Ce.a);
 #undef GD_NOISE
 #undef GD_HASH
 """
@@ -1354,6 +1381,8 @@ def build_environment(name, masked, defaults, two_sided=False):
         tile = g.scalar("GameTile", 300.0)
         game_on = g.scalar("GameDetail", 0.0)
         strength = g.scalar("GameDetailStrength", 1.0)
+        albedo_gain = g.scalar("GameAlbedoGain", 1.0)
+        wet = g.vector4("GameWet", (0.0, 60.0, 0.35, 0.0))
         albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
         normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
 
@@ -1366,7 +1395,11 @@ def build_environment(name, masked, defaults, two_sided=False):
             detail.append(g.custom(GAME_DETAIL_CODE, [
                 ("Ce", ce, "RGBA"), ("Tex", game_texture(pname, albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
                 ("World", world, ""), ("Tile", tile, ""), ("GameDetail", game_on, ""),
-                ("Has", g.scalar("Has" + pname, 0.0), ""), ("Strength", strength, "")],
+                ("Has", g.scalar("Has" + pname, 0.0), ""), ("Strength", strength, ""),
+                ("Base", base, "RGBA"), ("BaseKeep", g.scalar(pname + "Keep", 1.0), ""),
+                ("AlbedoGain", albedo_gain, ""), ("Wet", wet, ""),
+                ("TexB", game_texture(pname + "B", albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR), ""),
+                ("HasB", g.scalar("Has" + pname + "B", 0.0), "")],
                 output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description=f"game detail {pname}"))
         primary_in, secondary_in = (detail[0], ""), (detail[1], "")
         game_w = g.custom(GAME_NORMAL_CODE, [
