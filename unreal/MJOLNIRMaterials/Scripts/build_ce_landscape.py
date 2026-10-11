@@ -5,12 +5,14 @@
 
 Reads <dir>/landscape.json and builds /Game/Levels/Halo1/Solo/LTS/LTS (a
 classic level, its folder labelled for chunk 979): a Landscape from
-heights.r16, drawn with the CE landscape master (MJ_LANDSCAPE_MASTER,
-default /Game/MJOLNIR/CETrial/M_CE_Landscape, from build_ce_materials.py),
+heights.r16 with holes.r8 its visibility layer, drawn with the B30 ground
+master (MJ_LANDSCAPE_MASTER, default /Game/MJOLNIR/CETrial/M_CE_LandscapePBR;
+M_CE_Landscape draws CE's look instead; both from build_ce_materials.py),
 and the world-space bakes in /Game/MJOLNIR/Landscape/LTS (T_LandBase,
-T_LandLightmap, T_LandBake, T_LandSunShare; both folders labelled for 979). MJOLNIRLevelLoader sets the ground slot's parameters, the
-bakes and their rectangle (LandRect) on it at runtime; the landscape has
-dynamic material instances for that.
+T_LandLightmap, T_LandBake, T_LandSunShare, T_LandMask; both folders
+labelled for 979). MJOLNIRLevelLoader sets the material's textures and
+parameters at runtime (level.landscape.pbr, or the ground slot's own for the
+CE look); the landscape has dynamic material instances for that.
 
 Then: tools/ue/cook.ps1 -Map /Game/Levels/Halo1/Solo/LTS/LTS and
 tools/level/bake_editor_world.sh, which retargets the cooked world to the
@@ -29,7 +31,7 @@ FOLDER = PACKAGE.rsplit("/", 1)[0]
 # they live where the project always cooks (DirectoriesToAlwaysCook).
 TEXTURES = "/Game/MJOLNIR/Landscape/LTS"
 CHUNK = 979
-MASTER = os.environ.get("MJ_LANDSCAPE_MASTER", "/Game/MJOLNIR/CETrial/M_CE_Landscape")
+MASTER = os.environ.get("MJ_LANDSCAPE_MASTER", "/Game/MJOLNIR/CETrial/M_CE_LandscapePBR")
 
 src = os.environ.get("MJ_LANDSCAPE")
 if not src:

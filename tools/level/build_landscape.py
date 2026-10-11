@@ -325,6 +325,14 @@ def main():
                 "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
                 "rect": [float(origin[0]), float(origin[1]), side, side]},
         "masks": {"LandMask": "landmask.png"},
+        # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
+        # bake says where grass grows, over the same rectangle.
+        "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",
+                "rect": [float(origin[0]), float(origin[1]), side, side],
+                # Tuned on Death Island's dusk (2026-10-11): normals, grain
+                # contrast, CE shade as occlusion, second sand; a warm tint
+                # against the purple sky; ripples to 5 m over the sea.
+                "look": [2.5, 2.0, 0.6, 0.7], "sand_tint": [0.92, 0.82, 0.72, 1.0], "sea": [500, 40]},
     }
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")

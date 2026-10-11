@@ -2779,14 +2779,93 @@ end
 --- to the landscape's per-component instances.
 local Land = {}
 
+--- B30's ground (M_CE_LandscapePBR, level.landscape.pbr): the game's
+--- Megascans sand, rippled sand and ground grass, the CE base bake that
+--- says where grass grows (and its rectangle), and the sea's height for the
+--- rippled and wet bands.
+Land.MEGASCANS = "/Game/Megascans/Surfaces/"
+Land.SURFACES = {
+    SandD = "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D",
+    SandN = "Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_N",
+    SandO = "Thai_Beach_Sand_tefgafrk/T_ThaiBeachSand_tefgafrk_2K_NSVT_ORDp",
+    RipD = "Thai_Rippled_Beach_Sand_vb1ldadn/T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_D",
+    RipN = "Thai_Rippled_Beach_Sand_vb1ldadn/T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_N",
+    RipO = "Thai_Rippled_Beach_Sand_vb1ldadn/T_ThaiRippledBeachSand_vb1ldadn_2K_NSVT_ORDp",
+    GrassD = "Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D",
+    GrassN = "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N",
+    GrassO = "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_OHRG",
+    SandBD = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_D",
+    SandBN = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_N",
+}
+
+function Land.pbr(land, pbr)
+    local missing = 0
+    for param, path in pairs(Land.SURFACES) do
+        local leaf = path:match("([^/]+)$")
+        local tex = resolveMesh(Land.MEGASCANS .. path .. "." .. leaf)
+        if tex then
+            land:SetLandscapeMaterialTextureParameterValue(FName(param), tex)
+        else
+            missing = missing + 1
+        end
+    end
+    local base = type(pbr.base) == "string" and resolveMesh(pbr.base)
+    if base then land:SetLandscapeMaterialTextureParameterValue(FName("Base"), base) end
+    local r = type(pbr.rect) == "table" and pbr.rect
+    if r then land:SetLandscapeMaterialVectorParameterValue(FName("LandRect"), { R = r[1], G = r[2], B = r[3], A = r[4] }) end
+    local function vec(param, v)
+        if type(v) == "table" then
+            land:SetLandscapeMaterialVectorParameterValue(FName(param), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 0 })
+        end
+    end
+    vec("GrassTint", pbr.grass_tint)
+    vec("SandTint", pbr.sand_tint)
+    vec("LandLook", pbr.look)
+    -- CE's baked light, as occlusion: the lightmap bake and its levels.
+    local lm = type(pbr.lightmap) == "string" and resolveMesh(pbr.lightmap)
+    local levels = lightmapSun()
+    if lm and levels then
+        land:SetLandscapeMaterialTextureParameterValue(FName("LM"), lm)
+        land:SetLandscapeMaterialVectorParameterValue(FName("LandLMLevels"), { R = levels[1], G = levels[2], B = 0, A = 0 })
+    end
+    vec("LandTiles", pbr.tiles)
+    vec("LandMix", pbr.mix)
+    vec("LandWet", pbr.wet)
+    -- The sea, from the level's water (as GameWet): the rippled band and the
+    -- wet edge sit over it.
+    local sea = nil
+    for _, item in ipairs(Current.level.decor or {}) do
+        if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
+            and type(item.pos) == "table" then
+            sea = item.pos[3] + ((Current.level.canvas or {}).origin or { 0, 0, 0 })[3]
+            break
+        end
+    end
+    local band = type(pbr.sea) == "table" and pbr.sea or {}
+    land:SetLandscapeMaterialVectorParameterValue(FName("LandSea"),
+        { R = sea or 0, G = band[1] or 150, B = band[2] or 40, A = sea and 1 or 0 })
+    return missing
+end
+
 function Land.apply(world)
     local spec = Current.level and Current.level.landscape
-    if type(spec) ~= "table" or type(spec.material) ~= "table" then return end
+    if type(spec) ~= "table" then return end
     local land = FindFirstOf("Landscape")
     if not (land and land:IsValid()) then
         Log("landscape: the level names one but the world has none")
         return
     end
+    if type(spec.pbr) == "table" then
+        local ok, missing = pcall(Land.pbr, land, spec.pbr)
+        Log("landscape: " .. (ok and string.format("B30 ground applied (%d surface map(s) missing)", missing)
+            or tostring(missing)))
+        pcall(function()
+            local comps = land.LandscapeComponents
+            for i = 1, #comps do comps[i]:SetCastShadow(false) end
+        end)
+        return
+    end
+    if type(spec.material) ~= "table" then return end
     local target = {
         IsValid = function() return land:IsValid() end,
         SetScalarParameterValue = function(_, n, v) land:SetLandscapeMaterialScalarParameterValue(n, v) end,
@@ -2815,7 +2894,8 @@ local Footprints = {
     MAP = "/HaloLandscapeDeformations/Resources/T_Spartan_Decal_Footprint_11.T_Spartan_Decal_Footprint_11",
     BLACK = "/Engine/EngineResources/Black.Black",
     RES = 4096, SIZE = 4096, -- texels and cm a side: 1 cm a texel (at 2 the tread was lost)
-    DARK = 0.85, RELIEF = 3.0, -- how much a print darkens the ground, and bends it
+    DARK = 0.85, RELIEF = 3.0, -- how much a print darkens the ground, and bends it (CE ground)
+    SHADE_RELIEF = 8.0, SHADE_AO = 0.6, -- on the B30 ground: no darkening, only light and occlusion
     PRINT = 38, -- cm a side of the print's square map
     STRIDE = 70, SIDE = 12, -- cm between prints, and either side of the line
     FADE = 0.03, -- of the prints' depth lost every FADE_MS
@@ -2854,8 +2934,16 @@ function Footprints.targets(world)
     land:SetLandscapeMaterialScalarParameterValue(FName("FootDark"), Footprints.DARK)
     land:SetLandscapeMaterialScalarParameterValue(FName("FootRelief"), Footprints.RELIEF)
     land:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), Footprints.on and 1.0 or 0.0)
+    Footprints.params()
     Footprints.hand()
     return rt
+end
+
+--- The B30 ground's footprint parameters (M_CE_LandscapePBR FootParams:
+--- strength, relief, texel, occlusion).
+function Footprints.params()
+    Footprints.land:SetLandscapeMaterialVectorParameterValue(FName("FootParams"),
+        { R = Footprints.on and 1.0 or 0.0, G = Footprints.SHADE_RELIEF, B = 1.0 / Footprints.RES, A = Footprints.SHADE_AO })
 end
 
 --- The current target and its square, to the landscape (which also keeps
@@ -2985,6 +3073,7 @@ function Footprints.command(args)
         Footprints.on, Footprints.hold = (a == "on"), false
         if Footprints.land and Footprints.land:IsValid() then
             Footprints.land:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), Footprints.on and 1.0 or 0.0)
+            Footprints.params()
         end
     elseif a == "test" then
         -- A trail ahead of the camera, to look at without walking; the

@@ -2113,8 +2113,190 @@ build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=Tr
 build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
 build_sun_light(defaults)
 build_linear_copy(defaults)
+
+LAND_PBR_CODE = r"""
+// The ground as Campaign Evolved's B30 draws it: the game's Megascans
+// surfaces, lit by Unreal (no CE lightmap). Layers: the flat sand, rippled
+// sand in a band above the sea, ground grass where CE's base map says grass
+// (its alpha: 1 sand, 0 grass), the wet edge of the sea. Each surface is
+// read twice, the second turned and scaled, and the two blended by a slow
+// noise so no tile repeats. Footprints (FootRT) shade as dents: their slope
+// bends the normal, their depth occludes.
+#define LP_HASH(p) frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453)
+#define LP_NOISE(p) lerp(lerp(LP_HASH(floor(p)), LP_HASH(floor(p) + float2(1, 0)), smoothstep(0, 1, frac(p).x)), \
+    lerp(LP_HASH(floor(p) + float2(0, 1)), LP_HASH(floor(p) + float2(1, 1)), smoothstep(0, 1, frac(p).x)), smoothstep(0, 1, frac(p).y))
+#define LP_ROT(uv, k) (float2((uv).x * 0.8 - (uv).y * 0.6, (uv).x * 0.6 + (uv).y * 0.8) * (k) + 0.31)
+#define LP_NRM(T, S, a, b, w) (lerp(Texture2DSample(T, S, a).rg, Texture2DSample(T, S, b).rg, w) * 2.0 - 1.0)
+
+float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
+float4 ce = Texture2DSample(Base, BaseSampler, luv);
+float cellNoise = LP_NOISE(W.xy / max(Tiles.w, 1.0));
+float w = smoothstep(0.25, 0.75, cellNoise);
+
+// Layer weights.
+float grass = smoothstep(Mix.x, Mix.y, 1.0 - ce.a + (LP_NOISE(W.xy / 180.0) - 0.5) * 0.25);
+float h = W.z - Sea.x; // cm over the sea
+float hasSea = Sea.w > 0.5 ? 1.0 : 0.0;
+float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
+float ripple = hasSea * (1.0 - grass) * (1.0 - smoothstep(rtop * 0.7, rtop, h));
+float wet = hasSea * (1.0 - smoothstep(0.0, Sea.z, h));
+
+// Sand, flat and rippled.
+float2 su = W.xy / max(Tiles.x, 1.0); float2 su2 = LP_ROT(su, 0.43);
+float3 sandA = lerp(Texture2DSample(SandD, SandDSampler, su).rgb, Texture2DSample(SandD, SandDSampler, su2).rgb, w);
+float2 sandN = LP_NRM(SandN, SandNSampler, su, su2, w);
+float4 sandO = lerp(Texture2DSample(SandO, SandOSampler, su), Texture2DSample(SandO, SandOSampler, su2), w);
+// A second sand (B30's darker beach sand) over patches tens of metres
+// across, and the grain's contrast raised (Look.y): at dusk the light is
+// flat and the sand's own colour has to carry it.
+float2 bu = W.xy / max(Tiles.x * 1.3, 1.0) + 0.43;
+float bw = smoothstep(0.3, 0.7, LP_NOISE(W.xy / 2400.0 + 5.3)) * Look.w;
+float3 sandB = Texture2DSample(SandBD, SandBDSampler, bu).rgb;
+float2 sandBN = Texture2DSample(SandBN, SandBNSampler, bu).rg * 2.0 - 1.0;
+float3 sandMean = Texture2DSampleLevel(SandD, SandDSampler, float2(0.5, 0.5), 13.0).rgb;
+sandA = max(sandMean + (sandA - sandMean) * Look.y, 0.0);
+sandA = lerp(sandA, sandB, bw) * SandTint.rgb;
+sandN = lerp(sandN, sandBN, bw);
+float2 ru = W.xy / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
+float3 ripA = lerp(Texture2DSample(RipD, RipDSampler, ru).rgb, Texture2DSample(RipD, RipDSampler, ru2).rgb, w) * SandTint.rgb;
+float2 ripN = LP_NRM(RipN, RipNSampler, ru, ru2, w);
+float4 ripO = lerp(Texture2DSample(RipO, RipOSampler, ru), Texture2DSample(RipO, RipOSampler, ru2), w);
+// Grass ground.
+float2 gu = W.xy / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
+float3 grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSample(GrassD, GrassDSampler, gu2).rgb, w) * GrassTint.rgb;
+float2 grN = LP_NRM(GrassN, GrassNSampler, gu, gu2, w);
+float4 grO = lerp(Texture2DSample(GrassO, GrassOSampler, gu), Texture2DSample(GrassO, GrassOSampler, gu2), w);
+
+float3 albedo = lerp(lerp(sandA, ripA, ripple), grA, grass);
+float2 nxy = lerp(lerp(sandN, ripN, ripple), grN, grass);
+float rough = lerp(lerp(sandO.g, ripO.g, ripple), grO.b, grass);
+float ao = lerp(lerp(sandO.r, ripO.r, ripple), grO.r, grass);
+
+// CE's own colour, a little: the map's paths and patches.
+float3 cel = pow(max(ce.rgb, 1e-3), 2.2);
+float cell = max(dot(cel, float3(0.2126, 0.7152, 0.0722)), 1e-3);
+albedo *= lerp(1.0.xxx, clamp(cel / max(Mix.w, 1e-3), 0.5, 1.8), Mix.z);
+
+// CE's baked light as occlusion (Look.z): the lightmap relative to its
+// sunlit level, softened; it keeps the shade CE's lighting gave (trees,
+// cliff feet) where Unreal's sky light alone is flat.
+if (Look.z > 0.0 && LMLevels.y > LMLevels.x)
+{
+    float lm = dot(Texture2DSample(LM, LMSampler, luv).rgb, float3(0.2126, 0.7152, 0.0722));
+    float occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
+    ao *= lerp(1.0, 0.35 + 0.65 * occ, Look.z);
+}
+nxy *= Look.x;
+
+// The wet edge: darker and glossier.
+albedo *= lerp(1.0, Sea.z > 0.0 ? WetLook.x : 1.0, wet);
+rough = lerp(rough, WetLook.y, wet);
+
+// Footprints.
+if (Foot.x > 0.0)
+{
+    float2 fuv = (W.xy - FootRect.xy) / FootRect.zw + 0.5;
+    float edge = saturate(min(min(fuv.x, 1.0 - fuv.x), min(fuv.y, 1.0 - fuv.y)) * 20.0);
+    if (edge > 0.0)
+    {
+        float t = Foot.z;
+        float d = Texture2DSampleLevel(FootRT, FootRTSampler, fuv, 0).r;
+        float dl = Texture2DSampleLevel(FootRT, FootRTSampler, fuv - float2(t, 0.0), 0).r;
+        float dr = Texture2DSampleLevel(FootRT, FootRTSampler, fuv + float2(t, 0.0), 0).r;
+        float db = Texture2DSampleLevel(FootRT, FootRTSampler, fuv - float2(0.0, t), 0).r;
+        float dt = Texture2DSampleLevel(FootRT, FootRTSampler, fuv + float2(0.0, t), 0).r;
+        float k = Foot.x * edge;
+        nxy += float2(dr - dl, dt - db) * Foot.y * k;
+        ao *= 1.0 - Foot.w * d * k;
+        rough = lerp(rough, rough * 0.85, d * k);
+    }
+}
+
+Normal = normalize(float3(nxy.x, -nxy.y, 1.0));
+Rough = saturate(rough);
+AO = saturate(ao);
+return max(albedo, 0.0);
+#undef LP_HASH
+#undef LP_NOISE
+#undef LP_ROT
+#undef LP_NRM
+"""
+
+
+def build_landscape_pbr(defaults):
+    """M_CE_LandscapePBR: a converted map's landscape drawn as B30's beach is
+    (LAND_PBR_CODE): Unreal-lit Megascans layers, masked by the landscape's
+    holes. MJOLNIRLevelLoader sets every texture (the game's own, which this
+    project does not have) and the layer and sea parameters at runtime."""
+    m = fresh(ROOT, "M_CE_LandscapePBR", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    m.set_editor_property("opacity_mask_clip_value", 0.5)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
+
+    def tex(name, default, sampler):
+        return (name, g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name,
+                             texture=default, sampler_type=sampler), "")
+
+    colour, normal, linear = (unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
+                              unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL,
+                              unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
+    normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+    inputs = [
+        ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+        tex("Base", white, linear),
+        ("LandRect", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
+        tex("SandD", albedo_default, colour), tex("SandN", normal_default, normal), tex("SandO", white, linear),
+        tex("RipD", albedo_default, colour), tex("RipN", normal_default, normal), tex("RipO", white, linear),
+        tex("GrassD", albedo_default, colour), tex("GrassN", normal_default, normal), tex("GrassO", white, linear),
+        ("GrassTint", g.vector4("GrassTint", (1.0, 1.0, 1.0, 1.0)), ""),
+        # Tiles: cm a tile of sand, ripples, grass; the anti-tiling noise's cell.
+        ("Tiles", g.vector4("LandTiles", (250.0, 250.0, 300.0, 700.0)), ""),
+        # Sea: its height (cm), the ripple band and wet band (cm over it), has sea.
+        ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
+        # Mix: grass share edges (lo, hi), CE colour strength, CE colour's mean.
+        ("Mix", g.vector4("LandMix", (0.35, 0.65, 0.25, 0.25)), ""),
+        ("WetLook", g.vector4("LandWet", (0.6, 0.35, 0.0, 0.0)), ""),
+        tex("SandBD", albedo_default, colour), tex("SandBN", normal_default, normal),
+        ("SandTint", g.vector4("SandTint", (1.0, 1.0, 1.0, 1.0)), ""),
+        # Look: normal strength, grain contrast, CE shading as occlusion, second sand.
+        ("Look", g.vector4("LandLook", (1.5, 1.6, 0.6, 0.7)), ""),
+        tex("LM", white, linear),
+        # LMLevels: the lightmap's shadow and sunlit levels (the loader's LightmapSun).
+        ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
+        tex("FootRT", grey, linear),
+        ("FootRect", g.vector4("FootRect", (0.0, 0.0, 4096.0, 4096.0)), ""),
+        # Foot: strength, relief, texel, occlusion.
+        ("Foot", g.vector4("FootParams", (0.0, 4.0, 1.0 / 4096.0, 0.6)), ""),
+    ]
+    c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
+    outs = []
+    for name, kind in (("Normal", unreal.CustomMaterialOutputType.CMOT_FLOAT3),
+                       ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+        o = unreal.CustomOutput()
+        o.set_editor_property("output_name", name)
+        o.set_editor_property("output_type", kind)
+        outs.append(o)
+    c.set_editor_property("additional_outputs", outs)
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(c, "Normal", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(c, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
+    mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
+                                  unreal.MaterialProperty.MP_SPECULAR)
+    holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
+    mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 if TRIAL_ROOT:
     build_environment("M_CE_Landscape", False, defaults, land=True)
+    build_landscape_pbr(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")
