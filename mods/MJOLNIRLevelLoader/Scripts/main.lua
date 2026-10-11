@@ -40,9 +40,9 @@
 --   mjolnir_terrain_lights [on|off] [albedo] [noproxy] [fill]
 --                          let the game's lights light a converted level's
 --                          terrain (an experiment, see TerrainLights)
---   mjolnir_water [flux|ce|default] | [waves <cm>|waves default]
---                          draw a converted level's CE water as the game's
---                          own ocean (see applyWater)
+--   mjolnir_water [ocean|ce|default] | [waves <x>|waves default]
+--                          draw a converted level's CE water as rolling,
+--                          reflecting water (M_CE_Ocean, see applyWater)
 
 --------------------------------------------------------------------------------
 -- Paths (same derivation as MJOLNIRBridge: relative paths depend on the
@@ -64,7 +64,6 @@ local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
 local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
-local FluxOcean = dofile(MOD_DIR .. "\\Scripts\\flux_ocean.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -2310,42 +2309,43 @@ local function updateWeather()
 end
 
 --------------------------------------------------------------------------------
--- Water: the game's own ocean on a converted map's CE water
+-- Water: CE water as rolling, reflecting water (M_CE_Ocean)
 --------------------------------------------------------------------------------
 
---- `environment.water` / `mjolnir_water`: CE water (M_CE_Water) drawn as the
---- game's Fluid Flux ocean, the water of The Silent Cartographer's beach
---- (docs/ce_map_conversion.md, "Water"). Two parts:
+--- `environment.water` / `mjolnir_water`: a converted map's CE water
+--- (M_CE_Water) drawn with M_CE_Ocean (chunk 982,
+--- unreal/MJOLNIRMaterials/Scripts/build_ce_water.py): Single Layer Water,
+--- with a Gerstner swell moving the surface and CE's own ripple maps on top
+--- (docs/ce_map_conversion.md, "Water").
 ---
---- Waves. BP_FluxOceanWave renders its wave texture every tick by itself and
---- keeps the wave time in a parameter collection the ocean material reads.
---- It hands the texture and its settings only to Fluid Flux surfaces
---- (ApplyToSurfaces), which a CE water mesh is not, so each water slot gets a
---- dynamic instance of the ocean material told them here, as the wave's
---- SetMaterialData tells a surface.
+--- Only water on a mesh of its own (SM_<map>_Water, build_terrain_meshes.py).
+--- Unreal takes a rewritten mesh's passes from slot 0: on the translucent
+--- mesh, Single Layer Water drew unlit, and giving it slot 0 took the glass,
+--- teleporter fields and shore foam out of the translucency pass. Maps
+--- converted before the split keep CE's water.
 ---
---- Reflections. The ocean is Single Layer Water and reflects what Lumen
---- finds: the screen first, then the sky light. A converted map's sky is a
---- translucent mesh, drawn after the pass those traces read, and the sky
---- light captures the atmosphere alone, so the sea reflected neither and was
---- a flat dark green (Death Island, 2026-10-10). The sky light takes CE's own
---- reflection cube of that sky instead, the one its water reflected.
+--- Reflections: the water reflects what Lumen finds, the screen first, then
+--- the sky light. A converted map's sky is a translucent mesh, drawn after the
+--- pass those traces read, and the sky light captures the atmosphere alone, so
+--- the sky light takes CE's own reflection cube of the sky, the one its water
+--- reflected.
 ---
---- Fields: `style` ("flux" or "ce", the default), `height` (the surface in
---- world cm; else the plane of the level's planar fog, which on Death Island
---- is the sea), `wave_height` (cm, 60 by default: CE's water collision is
---- flat, and the ocean's own 230 drew waves a player stood under),
---- `reflection` (the sky light's cube; else the first water slot's own).
-local FLUX_OCEAN = "/Game/FluidFlux/Surface/Templates/Ocean/Materials/MI_OceanOverGerstner.MI_OceanOverGerstner"
-local FLUX_WAVE = "/Game/FluidFlux/Waves/Blueprints/BP_FluxOceanWave.BP_FluxOceanWave_C"
+--- (The game's own Fluid Flux ocean, tried first on 2026-10-10, draws its
+--- waves only beyond a few hundred metres of the camera: near the player it
+--- leaves the surface to Fluid Flux's runtime mesh generator.)
+---
+--- Fields: `style` ("ocean" or "ce", the default), `waves` (the swell's
+--- WaveAmplitude, 1 by default), `reflection` (the sky light's cube; else the
+--- first water slot's own), `params` (more of M_CE_Ocean's parameters by name:
+--- numbers for scalars, 4-number lists for vectors).
+local OCEAN = "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"
 local CE_WATER = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
-local WAVE_HEIGHT = 60.0
 local SKY_SPECIFIED_CUBEMAP = 1 -- ESkyLightSourceType::SLS_SpecifiedCubemap
 local SKY_CAPTURED_SCENE = 0
 
--- `mjolnir_water`: the style and wave height for every level loaded later,
--- until the game closes; nil hands them back to each level file.
-local WaterOverride = { style = nil, waveHeight = nil }
+-- `mjolnir_water`: the style and swell for every level loaded later, until
+-- the game closes; nil hands them back to each level file.
+local WaterOverride = { style = nil, waves = nil }
 
 local function waterEnv()
     local env = Current.level and Current.level.environment
@@ -2356,22 +2356,24 @@ local function waterStyle()
     return WaterOverride.style or waterEnv().style or "ce"
 end
 
-local function waveHeight()
-    return WaterOverride.waveHeight or waterEnv().wave_height or WAVE_HEIGHT
+local function waveAmplitude()
+    return WaterOverride.waves or waterEnv().waves or 1.0
 end
 
 --- Every decor slot the level draws with M_CE_Water, from the level file
---- (each slot's spec, so CE's material can be rebuilt from it). The tint
---- pass beside some (M_CE_WaterBackground) and sky water stay as they are.
+--- (each slot's spec, so CE's material can be rebuilt from it), and whether
+--- its mesh is the water's own. The tint pass beside some
+--- (M_CE_WaterBackground) and sky water stay as they are.
 local function ceWaterSlots()
     local slots = {}
     for _, item in ipairs(type(Current.level.decor) == "table" and Current.level.decor or {}) do
         local actor = type(item) == "table" and Current.actors[item.id]
         if actor and actor:IsValid() and type(item.materials) == "table" then
             local comp = actor.StaticMeshComponent
+            local own = type(item.mesh) == "string" and item.mesh:find("_Water%.") ~= nil
             for i, entry in ipairs(item.materials) do
                 if type(entry) == "table" and entry.parent == CE_WATER then
-                    slots[#slots + 1] = { comp = comp, slot = i - 1, spec = entry, id = item.id }
+                    slots[#slots + 1] = { comp = comp, slot = i - 1, spec = entry, id = item.id, own = own }
                 end
             end
         end
@@ -2379,75 +2381,21 @@ local function ceWaterSlots()
     return slots
 end
 
---- The water's surface in world cm (see the fields above).
-local function seaLevel()
-    local h = waterEnv().height
-    if type(h) == "number" then return h end
-    for _, item in ipairs(Current.level.decor or {}) do
-        for _, entry in ipairs(type(item) == "table" and type(item.materials) == "table" and item.materials or {}) do
-            local p = type(entry) == "table" and type(entry.vectors) == "table" and entry.vectors.PlanarFogPlane
-            if type(p) == "table" and type(p[3]) == "number" and math.abs(p[3]) > 0.99 then
-                return p[4] / p[3]
-            end
-        end
+--- An M_CE_Ocean spec from a CE water slot's: its ripple maps and their
+--- motion, the swell, and the level's own parameters.
+local function oceanSpec(spec)
+    local o = { parent = OCEAN, textures = {}, scalars = { WaveAmplitude = waveAmplitude() }, vectors = {} }
+    for k, v in pairs(type(spec.textures) == "table" and spec.textures or {}) do
+        if k:find("^RippleMap") then o.textures[k] = v end
     end
-    return Current.level.canvas.origin[3]
-end
-
---- A Blueprint's class, loaded through its asset (resolveMesh) when it is
---- not in memory. findObject, never StaticFindObject: a class path that is
---- not loaded comes back as a phantom, and touching one exits the process.
-local function resolveClass(path)
-    local class = findObject(path)
-    if class then return class end
-    resolveMesh((path:gsub("_C$", "")))
-    return findObject(path)
-end
-
-local function fluxWave(world, z)
-    local wave = Current.actors["__flux_wave"]
-    if wave and wave:IsValid() then return wave end
-    local class = resolveClass(FLUX_WAVE)
-    if not class then return nil, "no " .. FLUX_WAVE end
-    local origin = Current.level.canvas.origin
-    local ok, actor = pcall(function()
-        return world:SpawnActor(class, { X = origin[1], Y = origin[2], Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 })
-    end)
-    if not (ok and actor and actor:IsValid()) then return nil, "the wave did not spawn" end
-    Current.actors["__flux_wave"] = actor
-    return actor
-end
-
---- The beach's look (flux_ocean.lua), then what BP_FluxOceanWave's
---- SetMaterialData gives a surface's material, less the coastline and shore
---- terms (there is no coastline here). Its formulas: choppiness is the
---- wave's choppiness x its length / its height, the wind its 2D direction,
---- animation speed and push.
-local function tellWave(mid, wave, z)
-    local function set(fn) pcall(fn) end
-    for name, value in pairs(FluxOcean.scalars) do
-        set(function() mid:SetScalarParameterValue(FName(name), value) end)
+    for k, v in pairs(type(spec.vectors) == "table" and spec.vectors or {}) do
+        if k:find("^Ripple") then o.vectors[k] = v end
     end
-    for name, v in pairs(FluxOcean.vectors) do
-        set(function() mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] }) end)
+    local p = waterEnv().params
+    for k, v in pairs(type(p) == "table" and p or {}) do
+        if type(v) == "number" then o.scalars[k] = v elseif type(v) == "table" then o.vectors[k] = v end
     end
-    set(function() mid:SetTextureParameterValue(FName("WaveTextureRenderTarget"), wave.WaveTexture) end)
-    set(function() mid:SetTextureParameterValue(FName("WaveTextureAnimation"), wave.OceanWaveAnimation) end)
-    set(function()
-        local t = wave.TextureTransform
-        mid:SetVectorParameterValue(FName("WaveTextureOffsetScale"), { R = t.R, G = t.G, B = t.B, A = t.A })
-    end)
-    set(function() mid:SetScalarParameterValue(FName("WaveTextureHeight"), wave.OceanWaveHeight) end)
-    set(function() mid:SetScalarParameterValue(FName("WaveTextureOffsetZ"), z) end)
-    set(function()
-        mid:SetScalarParameterValue(FName("WaveTextureChoppiness"),
-            wave.OceanWaveChoppiness * wave.OceanWaveLength / wave.OceanWaveHeight)
-    end)
-    set(function()
-        local d = wave.OceanWaveWindDirection
-        mid:SetVectorParameterValue(FName("WaveTextureWind"),
-            { R = d.X, G = d.Y, B = wave.OceanWaveAnimationSpeed, A = wave.OceanWaveWindPush })
-    end)
+    return o
 end
 
 local function skyLight()
@@ -2483,76 +2431,62 @@ local function applyWater(world)
     if #slots == 0 then return end
     local style = waterStyle()
     local was = Current.water and Current.water.style or "ce"
-    if style ~= "flux" then
-        if was ~= "flux" then return end
+    if style ~= "ocean" then
+        if was ~= "ocean" then return end
         for _, s in ipairs(slots) do
             local ok, mat = pcall(runtimeMaterial, world, s.spec, string.format("%s_%d", s.id, s.slot))
             if ok and mat then pcall(function() s.comp:SetMaterial(s.slot, mat) end) end
         end
         pcall(captureSky)
-        local wave = Current.actors["__flux_wave"]
-        if wave and wave:IsValid() then pcall(function() wave:K2_DestroyActor() end) end
-        Current.actors["__flux_wave"] = nil
         Current.water = { style = "ce" }
         Log(string.format("water: %d slot(s) back to CE's", #slots))
         return
     end
 
-    local z = seaLevel()
-    local wave, err = fluxWave(world, z)
-    if not wave then
-        Log("water: " .. tostring(err) .. "; CE's kept")
+    local own = {}
+    for _, s in ipairs(slots) do
+        if s.own then own[#own + 1] = s end
+    end
+    if #own == 0 then
+        Log("water: this map's water shares its translucent mesh (converted before SM_<map>_Water); CE's kept")
         return
     end
-    pcall(function() wave.OceanWaveHeight = waveHeight() end)
-    local base = resolveMesh(FLUX_OCEAN)
-    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
-    if not (base and kml) then
-        Log("water: the ocean material did not load; CE's kept")
+    if not resolveMesh(OCEAN) then
+        Log("water: M_CE_Ocean is not installed (pakchunk982); CE's kept")
         return
     end
     local done = 0
-    for _, s in ipairs(slots) do
-        local ok = pcall(function()
-            local mid = kml:CreateDynamicMaterialInstance(world, base, FName(string.format("%s_%d_flux", s.id, s.slot)), 0)
-            tellWave(mid, wave, z)
-            s.comp:SetMaterial(s.slot, mid)
-        end)
-        if ok then done = done + 1 end
+    for _, s in ipairs(own) do
+        local ok, mat = pcall(runtimeMaterial, world, oceanSpec(s.spec), string.format("%s_%d_ocean", s.id, s.slot))
+        if ok and mat and pcall(function() s.comp:SetMaterial(s.slot, mat) end) then done = done + 1 end
     end
-    local textures = slots[1].spec.textures or {}
+    local textures = own[1].spec.textures or {}
     local reflected, why = reflectSky(waterEnv().reflection or textures.ReflectionCube)
-    Current.water = { style = "flux", slots = done, height = z }
-    Log(string.format("water: %d of %d slot(s) as the game's ocean at z %.0f, waves %.0f cm, %s", done, #slots, z,
-        waveHeight(), reflected and "the sky light reflecting CE's cube" or ("sky light as it was: " .. tostring(why))))
+    Current.water = { style = "ocean", slots = done }
+    Log(string.format("water: %d of %d slot(s) as M_CE_Ocean, waves x%.2f, %s", done, #slots, waveAmplitude(),
+        reflected and "the sky light reflecting CE's cube" or ("sky light as it was: " .. tostring(why))))
 end
 
---- `mjolnir_water [flux|ce|default] | [waves <cm>|waves default]`: draw CE
---- water as the game's ocean or as CE's, on this level and every one loaded
---- later until the game closes (`default` hands it back to the level file).
+--- `mjolnir_water [ocean|ce|default] | [waves <x>|waves default]`: draw CE
+--- water as M_CE_Ocean or as CE's, on this level and every one loaded later
+--- until the game closes (`default` hands it back to the level file).
 --- No argument reports it.
 local function waterCommand(args)
     local arg, value = args and args[1], args and args[2]
-    if arg == "flux" or arg == "ce" then
+    if arg == "ocean" or arg == "ce" then
         WaterOverride.style = arg
     elseif arg == "default" then
         WaterOverride.style = nil
     elseif arg == "waves" and (tonumber(value) or value == "default") then
-        WaterOverride.waveHeight = tonumber(value)
-        -- A new height reaches the materials through a fresh application.
-        if Current.water and Current.water.style == "flux" then
-            local wave = Current.actors["__flux_wave"]
-            if wave and wave:IsValid() then pcall(function() wave:K2_DestroyActor() end) end
-            Current.actors["__flux_wave"] = nil
-        end
+        WaterOverride.waves = tonumber(value)
     elseif arg ~= nil then
-        Log("usage: mjolnir_water [flux | ce | default] | [waves <cm> | waves default]")
+        Log("usage: mjolnir_water [ocean | ce | default] | [waves <x> | waves default]")
         return
     end
     local world = getWorld()
     if arg ~= nil and world then applyWater(world) end
-    Log(string.format("water: %s%s, waves %.0f cm%s", waterStyle(), WaterOverride.style and " (set by command)" or "",
-        waveHeight(), Current.water and Current.water.height and string.format(", surface z %.0f", Current.water.height) or ""))
+    Log(string.format("water: %s%s, waves x%.2f", waterStyle(), WaterOverride.style and " (set by command)" or "",
+        waveAmplitude()))
 end
 
 local function spawnDecor(world)
