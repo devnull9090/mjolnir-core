@@ -157,6 +157,110 @@ def fill(values, mask, iterations=400):
     return out
 
 
+def shift_filter(img, radius, op):
+    """`op` (np.maximum or np.minimum) of every value within `radius` texels
+    (a disc), edges padded with the image's own."""
+    out = img.copy()
+    p = np.pad(img, radius, mode="edge")
+    h, w = img.shape
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx * dx + dy * dy <= radius * radius:
+                out = op(out, p[radius + dy:radius + dy + h, radius + dx:radius + dx + w])
+    return out
+
+
+def propagate(values, known, steps, op):
+    """Grow `values` from the `known` texels outward `steps` texels, each new
+    texel taking `op` (np.maximum or np.minimum) of its known neighbours:
+    every texel near a seed learns the nearest seed's value."""
+    fill_v = -np.inf if op is np.maximum else np.inf
+    v = np.where(known, values, fill_v)
+    k = known.copy()
+    h, w = v.shape
+    for _ in range(steps):
+        pv = np.pad(v, 1, constant_values=fill_v)
+        pk = np.pad(k, 1)
+        best = np.full_like(v, fill_v)
+        got = np.zeros_like(k)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy or dx:
+                    nk = pk[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
+                    nv = pv[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
+                    best = np.where(nk, op(best, nv), best)
+                    got |= nk
+        new = got & ~k
+        if not new.any():
+            break
+        v = np.where(new, best, v)
+        k |= new
+    return v, k
+
+
+def box_blur(img, radius):
+    """A box blur `radius` texels each way, twice (near a gaussian)."""
+    for _ in range(2):
+        p = np.pad(img, radius, mode="edge")
+        c = np.cumsum(np.cumsum(np.pad(p, ((1, 0), (1, 0))), 0), 1)
+        k = 2 * radius + 1
+        img = (c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]) / (k * k)
+    return img
+
+
+def edge_bake(tris, centres, step, n, z_low, on, out_dir):
+    """edge.png over the bakes' square, for where walls and ground meet:
+    R the height of the ground at the top of a wall (its nearest lip's,
+    within 4 m; else the highest within 1.5 m), over `range`; G the lip
+    (ground that drops more than 2 m within 3 m), B the foot (ground a wall
+    rises more than 2 m over within 3 m), both softened over metres; A the
+    height of the ground at the bottom of a wall (its nearest foot's).
+    M_CE_CliffPBR drapes turf, earth and moss down from the lip by R;
+    M_CE_LandscapePBR wears the grass at a lip and roughens a foot."""
+    z_hi, _ = raster(tris, centres, step, n, [], highest=True)
+    lo_f = np.where(on, z_low, np.inf)
+    hi_f = np.where(np.isfinite(z_hi), z_hi, -np.inf)
+    r_top = max(1, int(round(150.0 / step)))
+    r_edge = max(1, int(round(300.0 / step)))
+    # Each wall's lip and foot heights, from the drop itself: the texels
+    # where the top surface falls more than 2 m within two texels (a lip)
+    # or the lowest rises as much (a foot), spread outward 4 m, so a wall
+    # knows the edge right above it and the ground right below it. (The
+    # highest ground within 3 m read the beach under a wall standing over
+    # it, or the plateau rising behind its lip.)
+    tight_lo = shift_filter(np.where(on, hi_f, np.inf), 2, np.minimum)
+    tight_hi = shift_filter(np.where(on, lo_f, -np.inf), 2, np.maximum)
+    lip_seed = on & (hi_f - tight_lo > 200.0)
+    foot_seed = on & (tight_hi - lo_f > 200.0)
+    reach = max(1, int(round(400.0 / step)))
+    lip_z, lip_k = propagate(hi_f, lip_seed, reach, np.maximum)
+    foot_z, foot_k = propagate(lo_f, foot_seed, reach, np.minimum)
+    top = np.where(lip_k, lip_z, shift_filter(hi_f, r_top, np.maximum))
+    # A lip is where the top surface drops, a foot where the lowest one
+    # rises: under an arch (the plateau over the beach) neither does, where
+    # mixing the two had both everywhere.
+    near_lo = shift_filter(np.where(on, hi_f, np.inf), r_edge, np.minimum)
+    near_hi = shift_filter(np.where(on, lo_f, -np.inf), r_edge, np.maximum)
+    lip = on & (hi_f - near_lo > 200.0)
+    foot = on & (near_hi - lo_f > 200.0)
+    soft = max(1, int(round(120.0 / step)))
+    lip = np.clip(box_blur(lip.astype(float), soft) * 2.0, 0, 1)
+    foot = np.clip(box_blur(foot.astype(float), soft) * 2.0, 0, 1)
+    # A: the ground at the bottom of a wall (the lowest within 3 m).
+    bottom = np.where(foot_k, foot_z, shift_filter(np.where(on, lo_f, np.inf), r_top, np.minimum))
+    finite = np.isfinite(top)
+    fb = np.isfinite(bottom)
+    lo, hi = float(min(top[finite].min(), bottom[fb].min())), float(top[finite].max())
+    t = np.where(finite, (top - lo) / max(hi - lo, 1.0), 0.0)
+    b = np.where(fb, (bottom - lo) / max(hi - lo, 1.0), 0.0)
+    rgba = np.stack([t, lip, foot, b], -1)
+    Image.fromarray(np.clip(np.round(rgba * 255), 0, 255).astype(np.uint8), "RGBA").save(
+        os.path.join(out_dir, "edge.png"))
+    print(f"edges: lips {(lip > 0.5).mean() * 100:.1f}%, feet {(foot > 0.5).mean() * 100:.1f}% of the square; "
+          f"tops {lo / 100:.1f}..{hi / 100:.1f} m")
+    return [lo, hi]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("gltf")
@@ -292,6 +396,7 @@ def main():
     Image.fromarray(holes, "L").convert("RGBA").save(os.path.join(a.out, "landmask.png"))
     print(f"holes: {cut.mean() * 100:.0f}% of the vertices ({cliff.sum()} on cliffs or layered ground, "
           f"{over.sum()} texel(s) where the grid rode over the ground)")
+    edge_range = edge_bake(tris, centres, step, n, z2, on, a.out)
     pg = np.round(pg[..., 0]).astype(int)
     images = {}
     written = {}
@@ -351,7 +456,31 @@ def main():
                 # them. Overlapping, the landscape rides 8 cm (--lift) above.
                 "edge": 0.02,
                 "rect": [float(origin[0]), float(origin[1]), side, side]},
-        "masks": {"LandMask": "landmask.png"},
+        "masks": {"LandMask": "landmask.png", "LandEdge": "edge.png"},
+        # The cliffs in the game's rock (M_CE_CliffPBR, the loader's
+        # Land.cliffs): every slot whose primary detail map is a cliff's.
+        "cliff": {"details": sorted({sl["material"]["textures"]["Primary"].rsplit(".", 1)[-1]
+                                     for sl in spec["slots"]
+                                     if "detail_cliff" in sl["material"].get("textures", {}).get("Primary", "")
+                                     and "Lightmap" in sl["material"].get("textures", {})}),
+                  # Megascans rough rock for the grain, jagged rock over metres
+                  # (as weathered sandstone; the cliff and shale rocks read as
+                  # cobbles);
+                  # a light tint with a little of CE's banding (its own colour
+                  # is a dark brown, which went black in the shade); the fill
+                  # is the sand's bounce, which this sky light alone lacks.
+                  "rock_a": {"d": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_D",
+                             "n": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_N",
+                             "o": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_NSVT_ORHG"},
+                  "rock_b": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
+                             "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
+                             "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
+                  "tiles": [250, 900, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.35, 0.3, 1.3],
+                  "tint": [2.2, 2.0, 1.75, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
+                  # Under the lip, turf to 70 cm and earth to 160 cm (ragged),
+                  # stains 9 m down; at the foot sand banked 45 cm up, shade
+                  # over 1.5 m.
+                  "drape": [90, 220, 900, 1.0], "foot": [35, 150, 0.45, 1.0], "sand": [0.5, 0.45, 0.4, 1.0]},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
         # bake says where grass grows, over the same rectangle.
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",
@@ -370,6 +499,13 @@ def main():
                 # Parallax: the sand's relief and the footprints 4 cm deep,
                 # out to 25 m, 14 ray steps (Death Island at 4K: +0.2 ms GPU).
                 "parallax": [4.0, 4.0, 2500, 14],
+                # Where walls and ground meet (edge_bake): the ground and cliff
+                # masters read it over the landscape's rectangle, its heights
+                # over `range` (cm); edge_look: grass worn at a lip, earth tint
+                # there, shade at a foot.
+                "edge": {"texture": f"{FOLDER}/T_LandEdge.T_LandEdge", "range": edge_range,
+                         "rect": [float(origin[0]), float(origin[1]), side, side]},
+                "edge_look": [0.8, 0.5, 0.45],
                 # Far sand: drifts of the sand 9 times larger, its normal
                 # taking over from 15 to 60 m.
                 "macro": [0.6, 1500, 6000, 9],

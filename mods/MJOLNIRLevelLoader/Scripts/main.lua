@@ -2869,6 +2869,17 @@ Land.SURFACES = {
     SandBN = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_N",
 }
 
+--- The sea's height (cm), from the level's water mesh, or nil.
+function Land.seaHeight()
+    for _, item in ipairs(Current.level.decor or {}) do
+        if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
+            and type(item.pos) == "table" then
+            return item.pos[3] + ((Current.level.canvas or {}).origin or { 0, 0, 0 })[3]
+        end
+    end
+    return nil
+end
+
 --- `set` takes the parameters: { tex = fn(name, texture), vec = fn(name,
 --- {R,G,B,A}) }, for the landscape (Land.landSetter) or a mesh's instance.
 function Land.pbr(set, pbr)
@@ -2898,6 +2909,14 @@ function Land.pbr(set, pbr)
     vec("LandParallax", pbr.parallax)
     -- Far sand: strength, where it takes over (cm from, to), scale.
     vec("LandMacro", pbr.macro)
+    -- Where the ground meets a wall (pbr.edge: the landscape's edge map):
+    -- grass worn at a lip, earth tint there, shade at a foot.
+    local edge = type(pbr.edge) == "table" and type(pbr.edge.texture) == "string" and resolveMesh(pbr.edge.texture)
+    if edge then
+        set.tex("LandEdge", edge)
+        local l = type(pbr.edge_look) == "table" and pbr.edge_look or { 0.8, 0.5, 0.45 }
+        set.vec("LandEdgeLook", { R = l[1] or 0, G = l[2] or 0, B = l[3] or 0, A = 1 })
+    end
     -- CE's baked light, as occlusion: the lightmap bake and its levels.
     local lm = type(pbr.lightmap) == "string" and resolveMesh(pbr.lightmap)
     local levels = lightmapSun()
@@ -2910,14 +2929,7 @@ function Land.pbr(set, pbr)
     vec("LandWet", pbr.wet)
     -- The sea, from the level's water (as GameWet): the rippled band and the
     -- wet edge sit over it.
-    local sea = nil
-    for _, item in ipairs(Current.level.decor or {}) do
-        if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
-            and type(item.pos) == "table" then
-            sea = item.pos[3] + ((Current.level.canvas or {}).origin or { 0, 0, 0 })[3]
-            break
-        end
-    end
+    local sea = Land.seaHeight()
     local band = type(pbr.sea) == "table" and pbr.sea or {}
     set.vec("LandSea", { R = sea or 0, G = band[1] or 150, B = band[2] or 40, A = sea and 1 or 0 })
     return missing
@@ -2928,6 +2940,125 @@ function Land.landSetter(land)
         tex = function(n, t) land:SetLandscapeMaterialTextureParameterValue(FName(n), t) end,
         vec = function(n, v) land:SetLandscapeMaterialVectorParameterValue(FName(n), v) end,
     }
+end
+
+--- The cliffs under a B30 landscape (level.landscape.cliff) in the game's
+--- own rock: M_CE_CliffPBR, triplanar and lit by Unreal (CE's cliff map is
+--- a 1024 x 256 strip stretched over 20 m walls). A slot is a cliff by its
+--- primary detail map (`details`, the bitmap names); each keeps its own base
+--- map (the banding's colours) and lightmap page (shade). `rock_a` (the
+--- grain) and `rock_b` (metres across) name Megascans surfaces as
+--- { d, n, o } under Land.MEGASCANS; `tiles`, `mix`, `look`, `tint`, `rough`
+--- are the master's CliffTiles, CliffMix, CliffLook, RockTint, CliffRough;
+--- `fill` [r, g, b, strength] the bounce light off the sand (strength in the
+--- level's light units); `soil` the earth under the turf (as a rock), `drape`
+--- and `foot` CliffDrape and CliffFoot, `sand` CliffSand, which blend a wall
+--- into the ground at its lip and foot by the landscape's edge map
+--- (level.landscape.pbr.edge). Returns the slots changed.
+Land.ROCK_A = {
+    d = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_8K_D",
+    n = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_8K_N",
+    o = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_ORHG",
+}
+Land.SOIL = {
+    d = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_D",
+    n = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_N",
+    o = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_ORHG",
+}
+Land.ROCK_B = {
+    d = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_D",
+    n = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_N",
+    o = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_NSVT_ORHG",
+}
+
+function Land.megascans(path)
+    if type(path) ~= "string" then return nil end
+    if path:sub(1, 1) == "/" then return resolveMesh(path) end
+    local leaf = path:match("([^/]+)$")
+    return resolveMesh(Land.MEGASCANS .. path .. "." .. leaf)
+end
+
+function Land.cliffs(world, spec)
+    local cliff = spec.cliff
+    if type(cliff) ~= "table" then return 0 end
+    local details = {}
+    for _, d in ipairs(type(cliff.details) == "table" and cliff.details or {}) do details[d] = true end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_CliffPBR.M_CE_CliffPBR")
+    if not (kml and parent) then return 0 end
+    local textures = {}
+    for prefix, rock in pairs({ RockA = cliff.rock_a or Land.ROCK_A, RockB = cliff.rock_b or Land.ROCK_B }) do
+        textures[prefix .. "D"] = Land.megascans(rock.d)
+        textures[prefix .. "N"] = Land.megascans(rock.n)
+        textures[prefix .. "O"] = Land.megascans(rock.o)
+    end
+    textures.GrassD = Land.megascans(Land.SURFACES.GrassD)
+    textures.GrassN = Land.megascans(Land.SURFACES.GrassN)
+    -- The earth under the turf at a lip.
+    local soil = type(cliff.soil) == "table" and cliff.soil or Land.SOIL
+    textures.SoilD = Land.megascans(soil.d)
+    textures.SoilN = Land.megascans(soil.n)
+    textures.SoilO = Land.megascans(soil.o)
+    -- The landscape's edge map: where each wall's top and foot are.
+    local edge = type(spec.pbr) == "table" and type(spec.pbr.edge) == "table" and spec.pbr.edge
+    textures.Edge = edge and type(edge.texture) == "string" and resolveMesh(edge.texture) or nil
+    local function vec(mid, name, v)
+        if type(v) == "table" then
+            mid:SetVectorParameterValue(FName(name), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 1 })
+        end
+    end
+    local levels = lightmapSun()
+    local sea = Land.seaHeight()
+    Land.cliffMids = {}
+    local changed = 0
+    for index, item in ipairs(Current.level.decor or {}) do
+        local id = (type(item) == "table" and item.id) or ("#" .. index)
+        local actor = Current.actors[id]
+        if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
+            local comp = actor.StaticMeshComponent
+            for i, entry in ipairs(item.materials) do
+                local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
+                local leaf = t and type(t.Primary) == "string" and t.Primary:match("%.([%w_]+)$")
+                if leaf and details[leaf] then
+                    local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_cliff_%d", i)), 0)
+                    if mid and mid:IsValid() then
+                        for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
+                        local base = type(t.Base) == "string" and resolveMesh(t.Base)
+                        if base then mid:SetTextureParameterValue(FName("Base"), base) end
+                        -- (Scenery's "lightmap" is CE's object lighting, no page.)
+                        local lm = type(t.Lightmap) == "string" and not t.Lightmap:find("object_lighting", 1, true)
+                            and resolveMesh(t.Lightmap)
+                        if lm and levels then
+                            mid:SetTextureParameterValue(FName("LM"), lm)
+                            vec(mid, "LandLMLevels", { levels[1], levels[2], 0, 0 })
+                        end
+                        vec(mid, "GrassTint", spec.pbr and spec.pbr.grass_tint)
+                        vec(mid, "CliffTiles", cliff.tiles)
+                        vec(mid, "CliffMix", cliff.mix)
+                        vec(mid, "CliffLook", cliff.look)
+                        vec(mid, "RockTint", cliff.tint)
+                        vec(mid, "CliffRough", cliff.rough)
+                        if textures.Edge then
+                            vec(mid, "EdgeRect", edge.rect)
+                            vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
+                        end
+                        vec(mid, "CliffDrape", cliff.drape)
+                        vec(mid, "CliffFoot", cliff.foot)
+                        vec(mid, "CliffSand", cliff.sand)
+                        -- The fill is light: exposed as the level's lights are.
+                        local f = cliff.fill
+                        if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
+                        if sea then vec(mid, "LandSea", { sea, 0, cliff.wet or 60, 1 }) end
+                        if pcall(function() comp:SetMaterial(i - 1, mid) end) then
+                            changed = changed + 1
+                            Land.cliffMids[#Land.cliffMids + 1] = mid
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return changed
 end
 
 --- The terrain mesh's ground slots under a B30 landscape (level.landscape.cut)
@@ -2967,6 +3098,23 @@ function Land.ground(world, spec)
                         local lm = type(entry.textures.Lightmap) == "string" and resolveMesh(entry.textures.Lightmap)
                         if lm then mid:SetTextureParameterValue(FName("LM"), lm) end
                         mid:SetScalarParameterValue(FName("MeshUV"), 1.0)
+                        -- Steep ground in the cliffs' rock (level.landscape.cliff).
+                        local cl = type(spec.cliff) == "table" and spec.cliff
+                        if cl then
+                            local rock = type(cl.rock_a) == "table" and cl.rock_a or Land.ROCK_A
+                            local rd, rn = Land.megascans(rock.d), Land.megascans(rock.n)
+                            if rd and rn then
+                                mid:SetTextureParameterValue(FName("RockD"), rd)
+                                mid:SetTextureParameterValue(FName("RockN"), rn)
+                                local t = type(cl.tint) == "table" and cl.tint or { 1, 1, 1 }
+                                mid:SetVectorParameterValue(FName("RockTint"), { R = t[1], G = t[2], B = t[3], A = 1 })
+                                local st = type(cl.steep) == "table" and cl.steep or { 0.45, 0.75, 250, 1 }
+                                mid:SetVectorParameterValue(FName("GroundSteep"), { R = st[1], G = st[2], B = st[3], A = st[4] })
+                                local f = type(cl.fill) == "table" and cl.fill or { 1, 0.8, 0.62, 0 }
+                                mid:SetVectorParameterValue(FName("CliffFill"),
+                                    { R = f[1], G = f[2], B = f[3], A = (f[4] or 0) * lightScale() })
+                            end
+                        end
                         local blended = type(entry.scalars) == "table" and (entry.scalars.Type or 0) > 0.5
                         mid:SetScalarParameterValue(FName("PlainSand"), blended and 0.0 or 1.0)
                         if pcall(function() comp:SetMaterial(i - 1, mid) end) then
@@ -2995,6 +3143,8 @@ function Land.apply(world)
             or tostring(missing)))
         local gok, slots = pcall(Land.ground, world, spec)
         Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots) or tostring(slots)))
+        local cok, cliffs = pcall(Land.cliffs, world, spec)
+        Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs) or tostring(cliffs)))
         pcall(function()
             local comps = land.LandscapeComponents
             for i = 1, #comps do comps[i]:SetCastShadow(false) end

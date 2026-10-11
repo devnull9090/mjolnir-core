@@ -2236,6 +2236,16 @@ float3 grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSampl
 float2 grN = LP_NRM(GrassN, GrassNSampler, gu, gu2, w);
 float4 grO = lerp(Texture2DSample(GrassO, GrassOSampler, gu), Texture2DSample(GrassO, GrassOSampler, gu2), w);
 
+// Where the ground meets a wall (the edge map, edge_bake): at a lip the
+// grass wears through to earth in ragged patches; at a foot the sand is
+// damper and darker and shaded where it meets the rock.
+float lip = 0.0, foot = 0.0;
+if (EdgeLook.w > 0.5)
+{
+    float4 ed = Edge.SampleLevel(EdgeSampler, luv, 0);
+    lip = ed.g; foot = ed.b;
+}
+grass *= 1.0 - lip * EdgeLook.x * smoothstep(0.25, 0.75, LP_NOISE(W.xy / 120.0 + 7.1));
 float3 albedo = lerp(lerp(sandA, ripA, ripple), grA, grass);
 float2 nxy = lerp(lerp(sandN, ripN, ripple), grN, grass);
 float rough = lerp(lerp(sandO.g, ripO.g, ripple), grO.b, grass);
@@ -2256,6 +2266,10 @@ if (Look.z > 0.0 && LMLevels.y > LMLevels.x)
     ao *= lerp(1.0, 0.35 + 0.65 * occ, Look.z);
 }
 nxy *= Look.x;
+albedo *= lerp(1.0.xxx, float3(0.8, 0.68, 0.55), lip * EdgeLook.y * (1.0 - grass));
+albedo *= 1.0 - foot * 0.15;
+rough = lerp(rough, rough * 0.85, foot);
+ao *= 1.0 - foot * EdgeLook.z;
 
 // The wet edge: darker and glossier.
 albedo *= lerp(1.0, Sea.z > 0.0 ? WetLook.x : 1.0, wet);
@@ -2283,6 +2297,41 @@ if (Foot.x > 0.0)
 }
 
 Normal = normalize(float3(nxy.x, -nxy.y, 1.0));
+Emissive = 0.0;
+
+// Steep ground is rock (Steep: normal z where it is all rock, where it
+// starts, tile cm, strength): a beach shader CE ran up a wall (Death
+// Island's) drew sand on it, black in the shade. The cliffs' rock
+// (M_CE_CliffPBR's grain), from three sides, with their fill light.
+float3 nw = normalize(Nw);
+if (Steep.w > 0.0 && nw.z < Steep.y)
+{
+    float rag = LP_NOISE(float2(W.x + W.y, W.z) / 90.0);
+    float st = smoothstep(Steep.y, Steep.x, nw.z + (rag - 0.5) * 0.25) * Steep.w;
+    float3 sg = float3(nw.x < 0 ? -1.0 : 1.0, nw.y < 0 ? -1.0 : 1.0, nw.z < 0 ? -1.0 : 1.0);
+    float3 bw = pow(abs(nw), 4.0);
+    bw /= max(bw.x + bw.y + bw.z, 1e-4);
+    float2 ux = float2(W.z * sg.x, W.y) / Steep.z, uy = float2(W.x * sg.y, W.z) / Steep.z, uz = float2(-W.x * sg.z, W.y) / Steep.z;
+    float3 rA = Texture2DSample(RockD, RockDSampler, ux).rgb * bw.x + Texture2DSample(RockD, RockDSampler, uy).rgb * bw.y
+              + Texture2DSample(RockD, RockDSampler, uz).rgb * bw.z;
+    float3 tx = float3(Texture2DSample(RockN, RockNSampler, ux).rg * 2.0 - 1.0, 1.0);
+    float3 ty = float3(Texture2DSample(RockN, RockNSampler, uy).rg * 2.0 - 1.0, 1.0);
+    float3 tz = float3(Texture2DSample(RockN, RockNSampler, uz).rg * 2.0 - 1.0, 1.0);
+    tx = float3(tx.xy + nw.zy, abs(nw.x) * tx.z);
+    ty = float3(ty.xy + nw.xz, abs(nw.y) * ty.z);
+    tz = float3(tz.xy + nw.xy, abs(nw.z) * tz.z);
+    tx.z *= sg.x; ty.z *= sg.y; tz.z *= sg.z;
+    float3 rN = normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
+    // World to the surface's tangent space (TangentToWorld is orthonormal).
+    float3 rT = normalize(mul(Parameters.TangentToWorld, rN));
+    float3 rMean = Texture2DSampleLevel(RockD, RockDSampler, float2(0.5, 0.5), 13.0).rgb;
+    float3 rock = rMean * RockTint.rgb * max(1.0 + (rA / max(rMean, 1e-3) - 1.0) * 1.3, 0.0);
+    albedo = lerp(albedo, rock, st);
+    Normal = normalize(lerp(Normal, rT, st));
+    rough = lerp(rough, 0.8, st);
+    Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * (0.75 - 0.35 * rN.z) * saturate(ao) * st;
+}
+
 Rough = saturate(rough);
 AO = saturate(ao);
 return max(albedo, 0.0);
@@ -2327,6 +2376,15 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
                               unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
     albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
     normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+    edge_tex = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="LandEdge",
+                      texture=white, sampler_type=linear)
+    edge_tex.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+    rock_d = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="RockD",
+                    texture=albedo_default, sampler_type=colour)
+    rock_n = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="RockN",
+                    texture=normal_default, sampler_type=normal)
+    for t in (rock_d, rock_n):
+        t.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
     inputs = [
         ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
         tex("Base", white, linear),
@@ -2361,13 +2419,27 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("Par", g.vector4("LandParallax", (0.0, 0.0, 2500.0, 12.0)), ""),
         # Macro: far sand's strength, where it takes over (cm from, to), scale.
         ("Macro", g.vector4("LandMacro", (0.0, 1500.0, 6000.0, 9.0)), ""),
+        # The edge map (edge_bake) over LandRect, by the shared clamped sampler
+        # (the landscape master is at its own samplers' limit).
+        ("Edge", edge_tex, ""),
+        # Steep faces in the cliffs' rock (shared samplers: the landscape
+        # master is at its own samplers' limit).
+        ("Nw", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+        ("RockD", rock_d, ""), ("RockN", rock_n, ""),
+        ("RockTint", g.vector4("RockTint", (1.0, 1.0, 1.0, 1.0)), ""),
+        # Steep: normal z where all rock, where rock starts, tile cm, strength.
+        ("Steep", g.vector4("GroundSteep", (0.45, 0.75, 250.0, 0.0)), ""),
+        ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
+        # EdgeLook: grass worn at a lip, earth tint there, foot shade, on.
+        ("EdgeLook", g.vector4("LandEdgeLook", (0.0, 0.0, 0.0, 0.0)), ""),
     ]
     c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
     outs = []
     for name, kind in (("Normal", unreal.CustomMaterialOutputType.CMOT_FLOAT3),
                        ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
                        ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
-                       ("PDO", unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+                       ("PDO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("Emissive", unreal.CustomMaterialOutputType.CMOT_FLOAT3)):
         o = unreal.CustomOutput()
         o.set_editor_property("output_name", name)
         o.set_editor_property("output_type", kind)
@@ -2375,6 +2447,7 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     c.set_editor_property("additional_outputs", outs)
     mel.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
     mel.connect_material_property(c, "Normal", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(c, "Emissive", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel.connect_material_property(c, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
     # Python's MaterialProperty has no Pixel Depth Offset (the plugin's does).
@@ -2397,10 +2470,267 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     eal.save_loaded_asset(m)
 
 
+CLIFF_PBR_CODE = r"""
+// A converted map's cliffs drawn in the game's own rock (M_CE_CliffPBR).
+// (Textures through Texture2DSample, never .Sample(): the ray tracing hit
+// shaders cannot take derivatives, and the macro samples a level there.)
+//
+// CE's cliff base map is a 1024 x 256 strip stretched over 20 m walls, so
+// the rock comes from Megascans surfaces mapped from three sides in world
+// space (triplanar: nothing stretches on a vertical face), at two scales
+// (RockA, the grain; RockB over metres, which breaks up CE's flat facets),
+// lit by Unreal as the B30 ground is. CE's colours stay as a little banding
+// (Look.y), its lightmap as soft occlusion (Look.z).
+//
+// Where the wall meets the ground it blends into it, from the landscape's
+// edge map (build_landscape.py edge_bake: R the ground's height at the top
+// of the wall, A at its foot, over EdgeRange): under the lip the plateau's
+// grass runs over the edge as turf with a ragged hem, then a band of bare
+// earth, then moss and water stains run down the rock; at the foot the sand
+// banks up against it and the rock darkens where it meets it.
+struct CLF
+{
+    static float noise(float2 p)
+    {
+        float2 i = floor(p), f = frac(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = frac(sin(dot(i, float2(127.1, 311.7))) * 43758.5453);
+        float b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);
+        float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453);
+        float d = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);
+        return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+    }
+    // The three projections of world position W at T cm a tile, mirrored so
+    // no face reads backwards.
+    static void uvs(float3 W, float3 sgn, float T, out float2 ux, out float2 uy, out float2 uz)
+    {
+        ux = float2(W.z * sgn.x, W.y) / T;
+        uy = float2(W.x * sgn.y, W.z) / T;
+        uz = float2(-W.x * sgn.z, W.y) / T;
+    }
+    static float4 tri(Texture2D D, SamplerState S, float2 ux, float2 uy, float2 uz, float3 bw)
+    {
+        return Texture2DSample(D, S, ux) * bw.x + Texture2DSample(D, S, uy) * bw.y + Texture2DSample(D, S, uz) * bw.z;
+    }
+    // A normal map from three sides, whiteout-blended onto the surface's
+    // normal n (Golus), in world space; k scales its slopes.
+    static float3 triN(Texture2D N, SamplerState S, float2 ux, float2 uy, float2 uz, float3 bw, float3 n,
+                       float3 sgn, float k)
+    {
+        float3 tx = float3((Texture2DSample(N, S, ux).rg * 2.0 - 1.0) * k, 1.0);
+        float3 ty = float3((Texture2DSample(N, S, uy).rg * 2.0 - 1.0) * k, 1.0);
+        float3 tz = float3((Texture2DSample(N, S, uz).rg * 2.0 - 1.0) * k, 1.0);
+        tx = float3(tx.xy + n.zy, abs(n.x) * tx.z);
+        ty = float3(ty.xy + n.xz, abs(n.y) * ty.z);
+        tz = float3(tz.xy + n.xy, abs(n.z) * tz.z);
+        tx.z *= sgn.x; ty.z *= sgn.y; tz.z *= sgn.z;
+        return normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
+    }
+};
+
+float3 n = normalize(Nw);
+float3 sgn = float3(n.x < 0 ? -1.0 : 1.0, n.y < 0 ? -1.0 : 1.0, n.z < 0 ? -1.0 : 1.0);
+float3 bw = pow(abs(n), Tiles.w);
+bw /= max(bw.x + bw.y + bw.z, 1e-4);
+
+float2 ux, uy, uz;
+CLF::uvs(W, sgn, Tiles.x, ux, uy, uz);
+float3 aA = CLF::tri(RockAD, RockADSampler, ux, uy, uz, bw).rgb;
+float4 oA = CLF::tri(RockAO, RockAOSampler, ux, uy, uz, bw);
+float3 nA = CLF::triN(RockAN, RockANSampler, ux, uy, uz, bw, n, sgn, Look.x);
+CLF::uvs(W, sgn, Tiles.y, ux, uy, uz);
+float3 aB = CLF::tri(RockBD, RockBDSampler, ux, uy, uz, bw).rgb;
+float4 oB = CLF::tri(RockBO, RockBOSampler, ux, uy, uz, bw);
+float3 nB = CLF::triN(RockBN, RockBNSampler, ux, uy, uz, bw, n, sgn, Look.x);
+
+// The large rock over patches, the fine one in between, its shapes (normal)
+// always under the grain's.
+float patch = smoothstep(0.35, 0.65, CLF::noise(W.xy / Tiles.z + W.z / (Tiles.z * 1.7))) * Mix.x;
+float3 meanA = Texture2DSampleLevel(RockAD, RockADSampler, float2(0.5, 0.5), 13.0).rgb;
+float3 meanB = Texture2DSampleLevel(RockBD, RockBDSampler, float2(0.5, 0.5), 13.0).rgb;
+float3 rel = lerp(aA / max(meanA, 1e-3), aB / max(meanB, 1e-3), patch);
+rel = max(1.0 + (rel - 1.0) * Look.w, 0.0);
+float3 Nr = normalize(nA + (nB - n) * Mix.y);
+
+// CE's colour (its base map by its own UVs, gamma), as a little banding;
+// RockTint the rest.
+float3 ce = pow(max(Texture2DSample(Base, BaseSampler, TC0).rgb, 1e-3), 2.2);
+float3 rockCol = lerp(lerp(meanA, meanB, patch) * RockTint.rgb, ce * Mix.z, Look.y);
+float3 albedo = rockCol * rel;
+// Roughness into RoughR's range: the surfaces' ORHG green read glossy (wet
+// black patches in the shade).
+float rough = lerp(RoughR.x, RoughR.y, lerp(oA.g, oB.g, patch));
+float ao = lerp(oA.r, oB.r, patch);
+
+// Where the wall meets the ground.
+float turf = 0.0, soil = 0.0, streak = 0.0, sand = 0.0, contact = 0.0;
+float rag = CLF::noise(float2((W.x + W.y) / 80.0, W.z / 60.0)) * 0.6 + CLF::noise(float2((W.x - W.y) / 23.0, W.z / 19.0)) * 0.4;
+if (EdgeRange.y > EdgeRange.x)
+{
+    float4 e = Texture2DSampleLevel(Edge, EdgeSampler, (W.xy - EdgeRect.xy) / EdgeRect.zw, 0);
+    float below = lerp(EdgeRange.x, EdgeRange.y, e.r) - W.z;   // cm under the lip
+    float above = W.z - lerp(EdgeRange.x, EdgeRange.y, e.a);   // cm over the foot
+    // A wall reaching above all the ground near it (a stack's crown) has no lip.
+    float lipOn = smoothstep(-250.0, -60.0, below);
+    float t = Drape.x * (0.3 + 1.4 * rag);
+    turf = (1.0 - smoothstep(t * 0.7, t, below)) * lipOn;
+    float d = Drape.y * (0.4 + 1.2 * rag);
+    soil = (1.0 - smoothstep(d * 0.5, d, below)) * lipOn * (1.0 - turf);
+    // Stains: runs straight down from the lip, fading over Drape.z.
+    float run = CLF::noise(float2((W.x + W.y) / 38.0 + n.x * 3.0, W.z / 1400.0));
+    streak = smoothstep(0.55, 0.9, run) * (1.0 - smoothstep(0.0, Drape.z, below)) * step(0.0, below) * lipOn
+             * (1.0 - turf - soil);
+    // The foot: sand banked against the rock, ragged, and contact shade.
+    float sb = Foot.x * (0.4 + 1.2 * rag);
+    sand = 1.0 - smoothstep(sb * 0.6, sb, above);
+    contact = 1.0 - smoothstep(0.0, Foot.y, above);
+}
+// Grass on ledges that look up.
+turf = max(turf, smoothstep(0.65, 0.88, n.z) * smoothstep(0.35, 0.6, rag + 0.15));
+turf *= Drape.w; soil *= Drape.w; streak *= Drape.w; sand *= Foot.w;
+
+if (turf + soil > 0.002)
+{
+    CLF::uvs(W, sgn, 300.0, ux, uy, uz);
+    float3 gA = CLF::tri(GrassD, GrassDSampler, ux, uy, uz, bw).rgb * GrassTint.rgb;
+    float3 gN = CLF::triN(GrassN, GrassNSampler, ux, uy, uz, bw, n, sgn, 1.0);
+    CLF::uvs(W, sgn, 250.0, ux, uy, uz);
+    float3 sA = CLF::tri(SoilD, SoilDSampler, ux, uy, uz, bw).rgb;
+    float4 sO = CLF::tri(SoilO, SoilOSampler, ux, uy, uz, bw);
+    float3 sN = CLF::triN(SoilN, SoilNSampler, ux, uy, uz, bw, n, sgn, 1.0);
+    albedo = lerp(lerp(albedo, sA, soil), gA, turf);
+    Nr = normalize(lerp(lerp(Nr, sN, soil), gN, turf));
+    rough = lerp(lerp(rough, lerp(RoughR.x, RoughR.y, sO.g), soil), 0.85, turf);
+    ao = lerp(lerp(ao, sO.r, soil), ao * 0.9, turf);
+}
+// Stains: darker, a little green, rougher where moss holds.
+albedo *= lerp(1.0.xxx, float3(0.55, 0.6, 0.45), streak);
+// The foot: sand over the rock, and the shade where the two meet.
+albedo = lerp(albedo, SandCol.rgb, sand);
+Nr = normalize(lerp(Nr, n, sand * 0.7));
+rough = lerp(rough, 0.9, sand);
+ao *= 1.0 - Foot.z * contact;
+
+// CE's baked light as occlusion: overhangs and clefts keep their shade.
+float occ = 1.0;
+if (LMLevels.y > LMLevels.x)
+{
+    float lm = dot(Texture2DSample(LM, LMSampler, TC1).rgb, float3(0.2126, 0.7152, 0.0722));
+    occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
+    ao *= lerp(1.0, 0.3 + 0.7 * occ, Look.z);
+}
+
+// Wet rock just over the sea.
+if (Sea.w > 0.5)
+{
+    float wet = 1.0 - smoothstep(0.0, Sea.z, W.z - Sea.x);
+    albedo *= lerp(1.0, 0.55, wet);
+    rough = lerp(rough, 0.3, wet);
+}
+
+// Fill (Fill.rgb x Fill.a): the light the sunlit sand throws back onto the
+// rock. This scene's sky light alone left a wall in shade black, where CE's
+// lightmap had lit it; strongest on faces that look out and down, a little
+// of CE's shade in it.
+float facing = 0.75 - 0.35 * Nr.z;
+Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
+
+Normal = Nr;
+Rough = saturate(rough);
+AO = saturate(ao);
+return max(albedo, 0.0);
+"""
+
+
+def build_cliff_pbr(defaults):
+    """M_CE_CliffPBR (CLIFF_PBR_CODE): a converted map's cliff slots in the
+    game's own rock, triplanar and lit by Unreal. MJOLNIRLevelLoader sets the
+    rock surfaces (game textures) and each slot's own base map and lightmap
+    page at runtime (Land.cliffs)."""
+    m = fresh(ROOT, "M_CE_CliffPBR", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("used_with_static_lighting", False)
+    m.set_editor_property("two_sided", True)
+    g = Graph(m)
+    white = defaults["T_CE_White"]
+    colour, normal, linear = (unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
+                              unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL,
+                              unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
+    normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+
+    def tex(name, default, sampler):
+        return (name, g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name,
+                             texture=default, sampler_type=sampler), "")
+
+    inputs = [
+        ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+        ("Nw", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+        tex("Base", white, linear), ("TC0", g.uv(0), ""), ("TC1", g.uv(1), ""),
+        tex("RockAD", albedo_default, colour), tex("RockAN", normal_default, normal), tex("RockAO", white, linear),
+        tex("RockBD", albedo_default, colour), tex("RockBN", normal_default, normal), tex("RockBO", white, linear),
+        tex("GrassD", albedo_default, colour), tex("GrassN", normal_default, normal),
+        tex("SoilD", albedo_default, colour), tex("SoilN", normal_default, normal), tex("SoilO", white, linear),
+        ("GrassTint", g.vector4("GrassTint", (1.0, 1.0, 1.0, 1.0)), ""),
+        ("RockTint", g.vector4("RockTint", (1.0, 1.0, 1.0, 1.0)), ""),
+        # The landscape's edge map (edge_bake), its rectangle and height range
+        # (cm; off while the range is empty).
+        tex("Edge", white, linear),
+        ("EdgeRect", g.vector4("EdgeRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
+        ("EdgeRange", g.vector4("EdgeRange", (0.0, 0.0, 0.0, 0.0)), ""),
+        # Drape: turf and earth depth under the lip, stain length (cm), strength.
+        ("Drape", g.vector4("CliffDrape", (70.0, 160.0, 900.0, 1.0)), ""),
+        # Foot: sand bank height, contact shade height (cm), shade, strength.
+        ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
+        ("SandCol", g.vector4("CliffSand", (0.5, 0.45, 0.4, 1.0)), ""),
+        # Tiles: cm a tile of the grain rock and of the large rock, the patch
+        # noise's cell, triplanar blend sharpness.
+        ("Tiles", g.vector4("CliffTiles", (300.0, 1200.0, 2500.0, 4.0)), ""),
+        # Mix: the large rock's share of colour, of shape, CE colour gain, moss.
+        ("Mix", g.vector4("CliffMix", (0.6, 1.0, 1.0, 1.0)), ""),
+        # Look: normal strength, CE colour share, CE shade as occlusion, grain
+        # contrast.
+        ("Look", g.vector4("CliffLook", (1.0, 0.7, 0.6, 1.0)), ""),
+        tex("LM", white, linear),
+        ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
+        # Rough: the range the surfaces' roughness maps to.
+        ("RoughR", g.vector4("CliffRough", (0.6, 1.0, 0.0, 0.0)), ""),
+        # Fill: the bounce light's colour and strength (scene units).
+        ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
+    ]
+    c = g.custom(CLIFF_PBR_CODE, inputs, description="cliff rock")
+    outs = []
+    for name, kind in (("Normal", unreal.CustomMaterialOutputType.CMOT_FLOAT3),
+                       ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("Emissive", unreal.CustomMaterialOutputType.CMOT_FLOAT3)):
+        o = unreal.CustomOutput()
+        o.set_editor_property("output_name", name)
+        o.set_editor_property("output_type", kind)
+        outs.append(o)
+    c.set_editor_property("additional_outputs", outs)
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(c, "Emissive", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    # The normal is worked out in world space; the material takes tangent space.
+    tangent = g.node(unreal.MaterialExpressionTransform, x=-300,
+                     transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD,
+                     transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
+    link(c, "Normal", tangent, "")
+    mel.connect_material_property(tangent, "", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(c, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
+    mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
+                                  unreal.MaterialProperty.MP_SPECULAR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 if TRIAL_ROOT:
     build_environment("M_CE_Landscape", False, defaults, land=True)
     build_landscape_pbr(defaults)
     build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
+    build_cliff_pbr(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")
