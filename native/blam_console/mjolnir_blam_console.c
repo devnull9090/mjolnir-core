@@ -42,7 +42,11 @@
 #include <string.h>
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
-#define EXPECTED_TIMESTAMP   0x6a7a740au   // IMAGE_FILE_HEADER.TimeDateStamp
+// IMAGE_FILE_HEADER.TimeDateStamp: Steam's copy and the Xbox app's. The two
+// differ only in the header and Steam's signature, not in code or data
+// (docs/game_pass.md), so the RVAs below serve both.
+#define TIMESTAMP_STEAM      0x6a7a740au
+#define TIMESTAMP_GAME_PASS  0x6a7a741du
 #define RVA_EVALUATE         0x1f8b30      // hs_compile_and_evaluate (inner)
 #define RVA_SHELL_PTR        0x2c40028     // the shell object, once created
 #define RVA_QUEUE_VTABLE     0x7b0610      // vtable of the queue object at shell+0x140
@@ -207,9 +211,10 @@ static int fingerprint_ok(HMODULE sim, char *why, size_t why_size) {
     uint8_t *base = (uint8_t *)sim;
     IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)base;
     IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXPECTED_TIMESTAMP) {
-        snprintf(why, why_size, "simulation DLL timestamp 0x%08x, expected 0x%08x: the game updated and the offsets need re-deriving",
-                 nt->FileHeader.TimeDateStamp, EXPECTED_TIMESTAMP);
+    uint32_t stamp = nt->FileHeader.TimeDateStamp;
+    if (stamp != TIMESTAMP_STEAM && stamp != TIMESTAMP_GAME_PASS) {
+        snprintf(why, why_size, "simulation DLL timestamp 0x%08x, expected 0x%08x or 0x%08x: the game updated and the offsets need re-deriving",
+                 stamp, TIMESTAMP_STEAM, TIMESTAMP_GAME_PASS);
         return 0;
     }
     if (strcmp((const char *)(base + RVA_ANCHOR_STRING), "sleep_until") != 0) {

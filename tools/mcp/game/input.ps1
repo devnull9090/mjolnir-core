@@ -32,6 +32,8 @@
 #>
 param(
     [string]$ProcessName = "HaloCampaignEvolved",
+    # One game of two (Steam and the Xbox app run side by side): its pid.
+    [int]$ProcessId = 0,
     [Parameter(Mandatory = $true)][string]$Steps,
     [int]$DefaultHoldMs = 40,
     [int]$GapMs = 60
@@ -155,7 +157,7 @@ $MOUSE_FLAGS = @{
 # Focus first: SendInput goes to whatever has focus, so without this the keys
 # land in whatever the user happens to be looking at.
 $process = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    Where-Object { $_.MainWindowHandle -ne 0 -and (-not $ProcessId -or $_.Id -eq $ProcessId) } | Select-Object -First 1
 if (-not $process) {
     ConvertTo-Json -Compress @{ ok = $false; error = "no window found for process '$ProcessName'" }
     exit 1

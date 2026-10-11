@@ -35,8 +35,10 @@
 // multiplayer match. Each site is checked for the exact shipped or patched bytes first,
 // so a different build is refused rather than corrupted.
 //
-// Everything here is CU4-specific (RVAs below, guarded by the PE timestamp or
-// the bytes themselves).
+// Everything here is CU4-specific: the exe's RVAs are per build (exe_profiles,
+// picked by the PE timestamp), the simulation's are guarded by the bytes
+// themselves. Steam and the Xbox app ship different exes of CU4 but the same
+// simulation DLL (docs/game_pass.md).
 // Loaded by mods/MJOLNIRLevelLoader/Scripts/main.lua with package.loadlib.
 
 #define WIN32_LEAN_AND_MEAN
@@ -46,16 +48,33 @@
 #include <string.h>
 #include <wchar.h>
 
-#define EXE_TIMESTAMP 0x8a03f777u
+// The exe's addresses, one set per build. The Game Pass set was found from the
+// Steam one by native/signatures/port_rvas.py (every function matches
+// instruction for instruction; each global is read back from the code that
+// uses it).
+typedef struct {
+    uint32_t timestamp;
+    const char *name;
+    // FModuleManager& FModuleManager::Get()
+    uint32_t module_manager_get;
+    // IModuleInterface* FModuleManager::GetModule(FName)
+    uint32_t module_manager_get_module;
+    // Hash of a name view, as the FName constructor wants it.
+    uint32_t name_hash;
+    // FName construction from a name view: (FName* out, view*, EFindName, hash)
+    uint32_t name_make;
+    uint32_t mount_pak_delegate, mount_pak_handler;
+    uint32_t unmount_pak_delegate, unmount_pak_handler;
+    uint32_t gmalloc;
+    uint32_t levels_glue_get, levels_glue_add_row;
+} exe_profile_t;
 
-// FModuleManager& FModuleManager::Get()
-#define RVA_MODULE_MANAGER_GET 0x36D29F0u
-// IModuleInterface* FModuleManager::GetModule(FName)
-#define RVA_MODULE_MANAGER_GET_MODULE 0x36D3540u
-// Hash of a name view, as the FName constructor wants it.
-#define RVA_NAME_HASH 0x3709650u
-// FName construction from a name view: (FName* out, view*, EFindName, hash)
-#define RVA_NAME_MAKE 0x36FCC60u
+static const exe_profile_t exe_profiles[] = {
+    {0x8a03f777u, "Steam CU4", 0x36D29F0u, 0x36D3540u, 0x3709650u, 0x36FCC60u, 0xD349040u, 0x4694C00u, 0xD349248u,
+     0x4694CC0u, 0xD4B7428u, 0x7B7DFC0u, 0x7BAC140u},
+    {0x3d94a571u, "Game Pass CU4", 0x32EBF10u, 0x32ECA60u, 0x33214B0u, 0x3316080u, 0xC31C940u, 0x4239420u, 0xC31CB48u,
+     0x42394E0u, 0xC47DF60u, 0x7749E60u, 0x7777F20u},
+};
 
 // IModuleInterface: 8 virtuals; FAssetRegistryModule::Get() is the ninth.
 #define MODULE_SLOT_GET 8
@@ -100,6 +119,22 @@ static int g_hooked;
 static map_entry_t g_maps[MAX_MAPS];
 static int g_nmaps;
 static long g_misses_logged;
+static const exe_profile_t *g_exe;
+
+// The running exe's profile, or NULL for a build we have no addresses for.
+static const exe_profile_t *exe_profile(void) {
+    if (g_exe) return g_exe;
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + ((IMAGE_DOS_HEADER *)g_base)->e_lfanew);
+    for (size_t i = 0; i < sizeof exe_profiles / sizeof exe_profiles[0]; i++)
+        if (exe_profiles[i].timestamp == nt->FileHeader.TimeDateStamp) g_exe = &exe_profiles[i];
+    return g_exe;
+}
+
+static uint32_t exe_timestamp(void) {
+    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
+    return ((IMAGE_NT_HEADERS *)(g_base + ((IMAGE_DOS_HEADER *)g_base)->e_lfanew))->FileHeader.TimeDateStamp;
+}
 
 static void Log(const char *fmt, ...) {
     va_list ap;
@@ -125,9 +160,9 @@ static uint64_t make_fname(const wchar_t *s) {
     for (int32_t i = 0; i < v.len; i++)
         if (s[i] >= 0x80) v.wide = 1;
     memset(v.pad, 0, sizeof v.pad);
-    uint64_t hash = ((name_hash_fn)(g_base + RVA_NAME_HASH))(s, &v.len);
+    uint64_t hash = ((name_hash_fn)(g_base + g_exe->name_hash))(s, &v.len);
     uint64_t out = 0;
-    ((name_make_fn)(g_base + RVA_NAME_MAKE))(&out, &v, 1, hash);
+    ((name_make_fn)(g_base + g_exe->name_make))(&out, &v, 1, hash);
     return out;
 }
 
@@ -455,17 +490,14 @@ __declspec(dllexport) int mjolnir_map_registry_open(void *L) {
         Log("already open");
         return 0;
     }
-    g_base = (uint8_t *)GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
-        Log("refused: exe timestamp %08x is not CU4 (%08x); the RVAs would be wrong", nt->FileHeader.TimeDateStamp,
-            EXE_TIMESTAMP);
+    if (!exe_profile()) {
+        Log("refused: exe timestamp %08x is no build we have addresses for; the RVAs would be wrong", exe_timestamp());
         return 0;
     }
+    Log("exe: %s", g_exe->name);
     uint64_t module_name = make_fname(L"AssetRegistry");
-    void *manager = ((manager_get_fn)(g_base + RVA_MODULE_MANAGER_GET))();
-    void *module = manager ? ((get_module_fn)(g_base + RVA_MODULE_MANAGER_GET_MODULE))(manager, module_name) : NULL;
+    void *manager = ((manager_get_fn)(g_base + g_exe->module_manager_get))();
+    void *module = manager ? ((get_module_fn)(g_base + g_exe->module_manager_get_module))(manager, module_name) : NULL;
     if (!module) {
         Log("AssetRegistry module not found (manager %p)", manager);
         return 0;
@@ -511,9 +543,7 @@ __declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
 // FUN_144690200 binds it; the method is checked before it is called).
 
 // FCoreDelegates::MountPak (TDelegate inline storage: instance pointer)
-#define RVA_MOUNT_PAK_DELEGATE 0xD349040u
 // FPakPlatformFile::HandleMountPakDelegate
-#define RVA_MOUNT_PAK_HANDLER 0x4694C00u
 
 typedef struct {
     wchar_t *data;
@@ -542,7 +572,7 @@ static void write_reply(const char *file, const char *text) {
 
 // Mount one .pak (and its IoStore sibling); 1 on success.
 static int mount_one(const wchar_t *pak, char *why, size_t why_cap) {
-    void **storage = (void **)(g_base + RVA_MOUNT_PAK_DELEGATE);
+    void **storage = (void **)(g_base + g_exe->mount_pak_delegate);
     uint8_t *instance = (uint8_t *)*storage;
     if (!instance) {
         snprintf(why, why_cap, "MountPak is not bound");
@@ -550,16 +580,16 @@ static int mount_one(const wchar_t *pak, char *why, size_t why_cap) {
     }
     void *pak_file = *(void **)(instance + 0x18);
     void *method = *(void **)(instance + 0x20);
-    if (method != (void *)(g_base + RVA_MOUNT_PAK_HANDLER) || !pak_file) {
+    if (method != (void *)(g_base + g_exe->mount_pak_handler) || !pak_file) {
         snprintf(why, why_cap, "MountPak is bound to %p (expected %p)", method,
-                 (void *)(g_base + RVA_MOUNT_PAK_HANDLER));
+                 (void *)(g_base + g_exe->mount_pak_handler));
         return 0;
     }
     // The engine copies what it keeps; the string only has to outlive the call.
     wchar_t buffer[MAX_PATH_CHARS];
     wcscpy_s(buffer, MAX_PATH_CHARS, pak);
     fstring_t path = {buffer, (int32_t)wcslen(buffer) + 1, MAX_PATH_CHARS};
-    void *mounted = ((mount_pak_fn)(g_base + RVA_MOUNT_PAK_HANDLER))(pak_file, &path, -1);
+    void *mounted = ((mount_pak_fn)(g_base + g_exe->mount_pak_handler))(pak_file, &path, -1);
     if (!mounted) {
         snprintf(why, why_cap, "the engine refused %ls", pak);
         return 0;
@@ -575,11 +605,8 @@ static int mount_one(const wchar_t *pak, char *why, size_t why_cap) {
 __declspec(dllexport) int mjolnir_mount_paks(void *L) {
     (void)L;
     ensure_init();
-    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
-        write_reply("mount_reply.txt", "error this game build is not CU4; maps cannot be mounted live");
+    if (!exe_profile()) {
+        write_reply("mount_reply.txt", "error this game build is not one MJOLNIR knows; maps cannot be mounted live");
         return 0;
     }
     char request[MAX_PATH];
@@ -620,14 +647,12 @@ __declspec(dllexport) int mjolnir_mount_paks(void *L) {
 // pak, and its IoStore container from the package store and the
 // IoDispatcher. A map updated while the game runs replaces its previous
 // release's containers this way (docs/live_map_install.md).
-#define RVA_UNMOUNT_PAK_DELEGATE 0xD349248u
-#define RVA_UNMOUNT_PAK_HANDLER 0x4694CC0u
 
 typedef uint8_t(__fastcall *unmount_pak_fn)(void *pak_file, const fstring_t *path);
 
 // Unmount one .pak; 1 when the engine unmounted it, 0 when it had none such.
 static int unmount_one(const wchar_t *pak, char *why, size_t why_cap) {
-    void **storage = (void **)(g_base + RVA_UNMOUNT_PAK_DELEGATE);
+    void **storage = (void **)(g_base + g_exe->unmount_pak_delegate);
     uint8_t *instance = (uint8_t *)*storage;
     if (!instance) {
         snprintf(why, why_cap, "UnmountPak is not bound");
@@ -635,15 +660,15 @@ static int unmount_one(const wchar_t *pak, char *why, size_t why_cap) {
     }
     void *pak_file = *(void **)(instance + 0x18);
     void *method = *(void **)(instance + 0x20);
-    if (method != (void *)(g_base + RVA_UNMOUNT_PAK_HANDLER) || !pak_file) {
+    if (method != (void *)(g_base + g_exe->unmount_pak_handler) || !pak_file) {
         snprintf(why, why_cap, "UnmountPak is bound to %p (expected %p)", method,
-                 (void *)(g_base + RVA_UNMOUNT_PAK_HANDLER));
+                 (void *)(g_base + g_exe->unmount_pak_handler));
         return -1;
     }
     wchar_t buffer[MAX_PATH_CHARS];
     wcscpy_s(buffer, MAX_PATH_CHARS, pak);
     fstring_t path = {buffer, (int32_t)wcslen(buffer) + 1, MAX_PATH_CHARS};
-    return ((unmount_pak_fn)(g_base + RVA_UNMOUNT_PAK_HANDLER))(pak_file, &path) ? 1 : 0;
+    return ((unmount_pak_fn)(g_base + g_exe->unmount_pak_handler))(pak_file, &path) ? 1 : 0;
 }
 
 // Lua C function, 0 results. `unmount_request.txt`: one .pak per line, as
@@ -652,11 +677,8 @@ static int unmount_one(const wchar_t *pak, char *why, size_t why_cap) {
 __declspec(dllexport) int mjolnir_unmount_paks(void *L) {
     (void)L;
     ensure_init();
-    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
-        write_reply("unmount_reply.txt", "error this game build is not CU4");
+    if (!exe_profile()) {
+        write_reply("unmount_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
     char request[MAX_PATH];
@@ -704,7 +726,6 @@ __declspec(dllexport) int mjolnir_unmount_paks(void *L) {
 // exit; docs/new_scenario_loading.md).
 
 // FMalloc* GMalloc; Malloc(count, alignment) at vtable +0x28, Free at +0x48.
-#define RVA_GMALLOC 0xD4B7428u
 #define GMALLOC_MALLOC 0x28
 #define GMALLOC_FREE 0x48
 
@@ -756,8 +777,6 @@ typedef struct {
 // The subsystem: 0x7B7DFC0 returns it. Its per-map entries: a sparse array
 // at +0x138 {ptr, num}, 0x14c bytes each, keyed by MapGuid at +0, campaign id at
 // +0x120 (16 bytes).
-#define RVA_LEVELS_GLUE_GET 0x7B7DFC0u
-#define RVA_LEVELS_GLUE_ADD_ROW 0x7BAC140u
 #define GLUE_MAPS 0x138
 #define GLUE_MAP_SIZE 0x14c
 #define GLUE_MAP_GUID 0
@@ -778,7 +797,7 @@ static uint8_t *glue_entry(uint8_t *glue, const uint8_t guid[16]) {
 
 // Give the frontend levels glue the new row, as boot gives it every cooked one.
 static int glue_add(fname_t name, uint8_t *row, const uint8_t *tmpl, char *why, size_t cap) {
-    uint8_t *glue = (uint8_t *)((glue_get_fn)(g_base + RVA_LEVELS_GLUE_GET))();
+    uint8_t *glue = (uint8_t *)((glue_get_fn)(g_base + g_exe->levels_glue_get))();
     if (!glue) {
         snprintf(why, cap, "the frontend levels subsystem is not up");
         return 0;
@@ -788,7 +807,7 @@ static int glue_add(fname_t name, uint8_t *row, const uint8_t *tmpl, char *why, 
     memcpy(element, &name, 8);
     *(uint8_t **)(element + 8) = row;
     void *self = glue;
-    ((glue_add_row_fn)(g_base + RVA_LEVELS_GLUE_ADD_ROW))(&self, element, row);
+    ((glue_add_row_fn)(g_base + g_exe->levels_glue_add_row))(&self, element, row);
     uint8_t *mine = glue_entry(glue, row + ROW_MAP_GUID);
     if (!mine) {
         snprintf(why, cap, "the frontend levels subsystem did not take the row");
@@ -803,7 +822,7 @@ typedef void *(__fastcall *malloc_fn)(void *self, size_t count, uint32_t alignme
 typedef void(__fastcall *free_fn)(void *self, void *p);
 
 static void *engine_malloc(size_t n) {
-    void *gmalloc = *(void **)(g_base + RVA_GMALLOC);
+    void *gmalloc = *(void **)(g_base + g_exe->gmalloc);
     if (!gmalloc) return NULL;
     void **vt = *(void ***)gmalloc;
     void *p = ((malloc_fn)vt[GMALLOC_MALLOC / 8])(gmalloc, n, 16);
@@ -812,7 +831,7 @@ static void *engine_malloc(size_t n) {
 }
 
 static void engine_free(void *p) {
-    void *gmalloc = *(void **)(g_base + RVA_GMALLOC);
+    void *gmalloc = *(void **)(g_base + g_exe->gmalloc);
     if (!gmalloc || !p) return;
     void **vt = *(void ***)gmalloc;
     ((free_fn)vt[GMALLOC_FREE / 8])(gmalloc, p);
@@ -962,11 +981,8 @@ static fname_t fname_of(const wchar_t *s) {
 __declspec(dllexport) int mjolnir_scenario_add(void *L) {
     (void)L;
     ensure_init();
-    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
-        write_reply("scenario_reply.txt", "error this game build is not CU4");
+    if (!exe_profile()) {
+        write_reply("scenario_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
     char request[MAX_PATH];
@@ -1095,11 +1111,8 @@ static int grow_handles(uint8_t *campaign, int32_t want) {
 __declspec(dllexport) int mjolnir_scenario_place(void *L) {
     (void)L;
     ensure_init();
-    if (!g_base) g_base = (uint8_t *)GetModuleHandleA(NULL);
-    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)g_base;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(g_base + dos->e_lfanew);
-    if (nt->FileHeader.TimeDateStamp != EXE_TIMESTAMP) {
-        write_reply("place_reply.txt", "error this game build is not CU4");
+    if (!exe_profile()) {
+        write_reply("place_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
     char request[MAX_PATH];

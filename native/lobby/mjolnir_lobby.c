@@ -222,7 +222,18 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
 }
 
 /* The exe's import address table slot for `name` from `dll`, or NULL. */
+/* The Xbox app's exe imports the same PlayFab and Party functions from the
+   GDK builds of their DLLs (docs/game_pass.md); the Steam names are the ones
+   this file asks for. */
+static const char *store_dll(const char *dll) {
+    if (GetModuleHandleA(dll)) return dll;
+    if (_stricmp(dll, "PlayFabMultiplayerWin.dll") == 0) return "PlayFabMultiplayerGDK.dll";
+    if (_stricmp(dll, "PartyWin.dll") == 0) return "Party.dll";
+    return dll;
+}
+
 static void **iat_slot(const char *dll, const char *name) {
+    dll = store_dll(dll);
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
     IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
     IMAGE_DATA_DIRECTORY imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
@@ -656,7 +667,7 @@ static const char *hook_sim_send_routine(void) {
 }
 
 static void *playfab(const char *name) {
-    HMODULE pf = GetModuleHandleA("PlayFabMultiplayerWin.dll");
+    HMODULE pf = GetModuleHandleA(store_dll("PlayFabMultiplayerWin.dll"));
     return pf ? (void *)GetProcAddress(pf, name) : NULL;
 }
 
@@ -942,6 +953,122 @@ static const char *hook_online_tick_slot(void) {
     if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
     real_online_tick = (online_tick_t)fn;
     *slot = (void *)hook_online_tick;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return "hooked";
+}
+
+/* --- Joins by connection string on the Xbox app ---------------------------
+
+   The Xbox app's exe has no Steam subsystem. Its GDK one takes a "join game"
+   as an invite URI: FOnlineSessionGDK registers a callback with
+   XGameInviteRegisterForEvent (Game Pass CU4 0x663bf40, `(session, const
+   char *uri)`), which reads `connectionString`, `sender` and `invitedUser`
+   from the URI's query and queues the join for the subsystem's next tick;
+   the invited user must be a signed-in one, or it asks Xbox to sign them in.
+   So the request is delivered the way Xbox delivers one: from the GDK
+   subsystem's own tick (FTSTickerObjectBase::Tick at subsystem+0x70, 0x6686270),
+   with the session from subsystem+0xF8 and the player's XUID from the
+   subsystem's XUID -> XUserHandle map at +0x208 (docs/game_pass.md). */
+
+typedef unsigned char(__fastcall *gdk_tick_t)(void *ticker, float delta);
+typedef void(__fastcall *gdk_invite_t)(void *session, const char *uri);
+
+static gdk_tick_t real_gdk_tick;
+static gdk_invite_t gdk_invite;
+
+#define GDK_TICKER 0x70         /* the subsystem's FTSTickerObjectBase */
+#define GDK_SESSION 0xF8        /* TSharedPtr<FOnlineSessionGDK> */
+#define GDK_SESSION_OWNER 0x2D8 /* the session's subsystem */
+#define GDK_USERS 0x208         /* TMap<uint64 XUID, XUserHandle>, 0x38-byte elements */
+
+static const unsigned char GDK_TICK[] = {
+    0x40, 0x55, 0x56, 0x41, 0x55, 0x41, 0x57, 0x48, 0x8D, 0xAC, 0x24, 0xC8, 0xFC, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0x38,
+    0x04, 0x00, 0x00, 0xC5, 0x78, 0x29, 0x84, 0x24, 0xF0, 0x03, 0x00, 0x00, 0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00,
+    0x48, 0x33, 0xC4, 0x48, 0x89, 0x85, 0xE0, 0x02, 0x00, 0x00, 0x45, 0x33, 0xFF, 0x48, 0x89, 0x4D, 0xB0, 0x41, 0x8B,
+    0xF7, 0x44, 0x89, 0x7C, 0x24, 0x70, 0xC5, 0x78, 0x28, 0xC1, 0x4C, 0x8B, 0xE9, 0xE8};
+static const unsigned char GDK_TICK_MASK[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+static const unsigned char GDK_INVITE[] = {
+    0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0xAC, 0x24, 0x60, 0xFE, 0xFF,
+    0xFF, 0x48, 0x81, 0xEC, 0xA0, 0x02, 0x00, 0x00, 0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00, 0x48, 0x33, 0xC4,
+    0x48, 0x89, 0x85, 0x90, 0x01, 0x00, 0x00, 0x4C, 0x8B, 0xE9, 0x48, 0x8D, 0x4D, 0x70, 0xE8, 0x00, 0x00, 0x00,
+    0x00, 0x45, 0x33, 0xF6, 0x33, 0xFF, 0x33, 0xF6, 0x4C, 0x89};
+static const unsigned char GDK_INVITE_MASK[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+/* The first signed-in player's XUID, or 0. */
+static unsigned long long gdk_local_xuid(unsigned char *subsystem) {
+    unsigned char *users = subsystem + GDK_USERS;
+    unsigned char *elements = *(unsigned char **)users;
+    int num = *(int *)(users + 8);
+    unsigned *heap_bits = *(unsigned **)(users + 0x20);
+    unsigned *bits = heap_bits ? heap_bits : (unsigned *)(users + 0x10);
+    for (int i = 0; elements && i < num && i < 64; i++) {
+        if (!(bits[i / 32] >> (i % 32) & 1)) continue;
+        unsigned long long xuid = *(unsigned long long *)(elements + (size_t)i * 0x38);
+        if (xuid) return xuid;
+    }
+    return 0;
+}
+
+static void deliver_gdk_join(unsigned char *subsystem, struct join_request *req) {
+    char reply[128];
+    __try {
+        unsigned char *session = *(unsigned char **)(subsystem + GDK_SESSION);
+        unsigned long long xuid = gdk_local_xuid(subsystem);
+        if (!session || !in_image(*(void **)session) || *(unsigned char **)(session + GDK_SESSION_OWNER) != subsystem) {
+            snprintf(reply, sizeof reply, "error the GDK session interface was not found\n");
+        } else if (!xuid) {
+            snprintf(reply, sizeof reply, "error no Xbox user is signed in\n");
+        } else {
+            static char uri[sizeof req->connect + 160];
+            snprintf(uri, sizeof uri,
+                     "ms-xbl-mjolnir://inviteHandleAccept/?invitedUser=%llu&sender=%llu&connectionString=%s", xuid,
+                     req->friend_id, req->connect);
+            gdk_invite(session, uri);
+            snprintf(reply, sizeof reply, "delivered\n");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        snprintf(reply, sizeof reply, "error the GDK invite handler faulted (0x%08lx)\n",
+                 (unsigned long)GetExceptionCode());
+    }
+    fireteam_log("join: %.*s", (int)strcspn(reply, "\n"), reply);
+    write_reply("join_reply.txt", reply, strlen(reply));
+    free(req);
+}
+
+static unsigned char __fastcall hook_gdk_tick(void *ticker, float delta) {
+    struct join_request *req = (struct join_request *)InterlockedExchangePointer((void *volatile *)&pending_join, NULL);
+    if (req) deliver_gdk_join((unsigned char *)ticker - GDK_TICKER, req);
+    return real_gdk_tick(ticker, delta);
+}
+
+static const char *hook_gdk_tick_slot(void) {
+    static char why[80];
+    int hits;
+    unsigned char *invite = find_code_masked(GDK_INVITE, GDK_INVITE_MASK, sizeof GDK_INVITE, &hits);
+    if (!invite) {
+        snprintf(why, sizeof why, "invite handler pattern matched %d times, left alone", hits);
+        return why;
+    }
+    unsigned char *fn = find_code_masked(GDK_TICK, GDK_TICK_MASK, sizeof GDK_TICK, &hits);
+    if (!fn) {
+        snprintf(why, sizeof why, "subsystem tick pattern matched %d times, left alone", hits);
+        return why;
+    }
+    void **slot = find_vtable_slot(fn, &hits);
+    if (!slot) {
+        if (find_vtable_slot((void *)hook_gdk_tick, &hits)) return "already hooked";
+        snprintf(why, sizeof why, "subsystem tick is in %d vtable slots, left alone", hits);
+        return why;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return "VirtualProtect failed";
+    gdk_invite = (gdk_invite_t)invite;
+    real_gdk_tick = (gdk_tick_t)fn;
+    *slot = (void *)hook_gdk_tick;
     VirtualProtect(slot, sizeof *slot, old, &old);
     return "hooked";
 }
@@ -3478,8 +3605,9 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     return 0;
 }
 
-/* native\join_request.txt: "<connection string> [<host SteamID64>]". The join
-   goes out on the next online tick; native\join_reply.txt says how it went. */
+/* native\join_request.txt: "<connection string> [<host SteamID64 or XUID>]".
+   The join goes out on the next online tick (Steam) or subsystem tick (the
+   Xbox app); native\join_reply.txt says how it went. */
 __declspec(dllexport) int mjolnir_join(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
@@ -3492,7 +3620,7 @@ __declspec(dllexport) int mjolnir_join(void *L) {
     FILE *f = fopen(path, "r");
     if (!req) {
         problem = "out of memory";
-    } else if (!real_online_tick) {
+    } else if (!real_online_tick && !real_gdk_tick) {
         problem = "the online tick is not hooked";
     } else if (!f) {
         problem = "no request";
@@ -3887,7 +4015,10 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PFLobbyForceRemoveMember: %s",
                  swap_import("PlayFabMultiplayerWin.dll", "PFLobbyForceRemoveMember", (void *)hook_lobby_force_remove,
                              (void **)&real_lobby_force_remove));
-    fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
+    if (GetModuleHandleA("PlayFabMultiplayerGDK.dll"))
+        fireteam_log("GDK subsystem tick (joins by connection string): %s", hook_gdk_tick_slot());
+    else
+        fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
     fireteam_log("LeaveSession (solo starts keep a public lobby): %s", hook_leave_session_slot());
     fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
     fireteam_log("pawn BeginPlay (a joiner before its Blam game): %s", hook_pawn_begin_play_slot());
