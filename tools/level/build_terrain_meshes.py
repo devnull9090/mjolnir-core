@@ -27,7 +27,10 @@ ocean (MJOLNIRLevelLoader `mjolnir_water`), a Single Layer Water material,
 and Unreal draws it as water only on a mesh whose slot 0 is water too. On
 the translucent mesh it was drawn unlit, and giving slot 0 the ocean there
 took the glass, teleporter fields and shore foam out of the translucency
-pass (Death Island, 2026-10-10).
+pass (Death Island, 2026-10-10). The water is refined first
+(refine_water_gltf.py) into triangles small enough to carry the ocean's
+waves, densest over the playable area (`--placement`, the staging's
+placement.json).
 
 Writes `<out>/terrain.json`: a list of decor entries, one per mesh, for
 gen_ce_level.py --terrain.
@@ -38,6 +41,8 @@ import os
 import re
 import subprocess
 import sys
+
+from refine_water_gltf import playable_area, refine_file
 
 WATER_PARENT = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
 # After the sky (-100), before the rest of the translucency: CE's shore foam
@@ -74,6 +79,9 @@ def main():
     ap.add_argument("--offset", default="0,0,0")
     ap.add_argument("--fallback", required=True, help="opaque material for the first mesh's slot 0")
     ap.add_argument("--container", required=True, help="container base name for the map's meshes")
+    ap.add_argument("--placement", help="the staging's placement.json: where the water is refined most")
+    ap.add_argument("--water-near", type=float, default=4.0, help="water edge length over the playable area, m")
+    ap.add_argument("--water-growth", type=float, default=0.08, help="water edge length added per metre beyond it")
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.normpath(os.path.join(here, "..", ".."))
     ap.add_argument("--repo", default=repo)
@@ -101,7 +109,12 @@ def main():
         if gltf_subset(gltf, base + "_water.gltf", is_water):
             gltf_subset(gltf, base + "_nowater.gltf", lambda n: not is_water(n))
             job[0] = base + "_nowater.gltf"
-            water_jobs.append([base + "_water.gltf", "basicshapes/cube",
+            center, radius = playable_area(a.placement) if a.placement else (None, None)
+            before, after, center, radius = refine_file(base + "_water.gltf", base + "_water_dense.gltf",
+                                                        a.water_near, a.water_growth, center, radius)
+            print(f"water: {before} -> {after} triangle(s), {a.water_near} m within {radius:.0f} m "
+                  f"of ({center[0]:.0f}, {center[1]:.0f})")
+            water_jobs.append([base + "_water_dense.gltf", "basicshapes/cube",
                                package[: -len("_Translucent")] + "_Water"])
     jobs += water_jobs
 

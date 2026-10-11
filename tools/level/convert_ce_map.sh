@@ -179,7 +179,7 @@ if [ "$cook" = "1" ]; then
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
-    --container "pakchunk986-MJOLNIRMESH-${code}_P" \
+    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" \
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky"
