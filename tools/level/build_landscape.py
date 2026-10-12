@@ -490,8 +490,9 @@ def main():
                   "tint": [0.8, 0.66, 0.56, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
                   # Under the lip a ragged turf rim to 35 cm, no earth band (the
                   # damp soil drew black lines along every lip), stains 7 m down;
-                  # at the foot sand banked 35 cm up, shade over 1.5 m.
-                  "drape": [35, 35, 700, 1.0], "foot": [35, 150, 0.45, 1.0]},
+                  # at the foot only the contact shade over 1.5 m (the banked
+                  # sand, foot.w, painted whole leaning walls pale).
+                  "drape": [35, 35, 700, 1.0], "foot": [35, 150, 0.45, 0.0]},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
         # bake says where grass grows, over the same rectangle.
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",
@@ -522,6 +523,9 @@ def main():
                 "edge": {"texture": f"{FOLDER}/T_LandEdge.T_LandEdge", "range": edge_range,
                          "rect": [float(origin[0]), float(origin[1]), side, side]},
                 "edge_look": [0.8, 0.5, 0.45],
+                # Banks steeper than about 23 degrees turn grass, all grass by
+                # 37 (CE's split drew stripes down them; the original is green).
+                "slope": [0.92, 0.8, 1.0, 0],
                 # Far sand: drifts of the sand 9 times larger, its normal
                 # taking over from 15 to 60 m.
                 "macro": [0.6, 1500, 6000, 9],

@@ -2956,6 +2956,8 @@ function Land.pbr(set, pbr)
     vec("LandParallax", pbr.parallax)
     -- Far sand: strength, where it takes over (cm from, to), scale.
     vec("LandMacro", pbr.macro)
+    -- Banks as grass: normal z where it starts, all grass, strength.
+    vec("GroundSlope", pbr.slope)
     -- Where the ground meets a wall (pbr.edge: the landscape's edge map):
     -- grass worn at a lip, earth tint there, shade at a foot.
     local edge = type(pbr.edge) == "table" and type(pbr.edge.texture) == "string" and resolveMesh(pbr.edge.texture)

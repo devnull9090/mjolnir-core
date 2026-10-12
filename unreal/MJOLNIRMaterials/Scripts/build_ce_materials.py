@@ -2143,6 +2143,11 @@ float grass = smoothstep(Mix.x, Mix.y, 1.0 - ce.a + (LP_NOISE(W.xy / 180.0) - 0.
 // Island's mossy boulder top, its banks): green over red and blue, as
 // scatter_foliage.py's "green" rule reads the base map.
 grass = max(grass, smoothstep(0.03, 0.10, ce.g - max(ce.r, ce.b)));
+// Banks are grass (Slope: normal z where grass starts, where it is all
+// grass, strength): CE's base map split a steep bank into sand and grass
+// stripes, smeared down the slope by the world mapping; the original drew
+// it green, and sand does not lie on a 45 degree bank.
+grass = max(grass, smoothstep(Slope.x, Slope.y, normalize(Nw).z) * Slope.z);
 float h = W.z - Sea.x; // cm over the sea
 float hasSea = Sea.w > 0.5 ? 1.0 : 0.0;
 float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
@@ -2243,7 +2248,10 @@ float lip = 0.0, foot = 0.0;
 if (EdgeLook.w > 0.5)
 {
     float4 ed = Edge.SampleLevel(EdgeSampler, luv, 0);
-    lip = ed.g; foot = ed.b;
+    // Only on ground that lies flat: on a bank or a boulder's top (the mesh's
+    // ground beside a lip) the wear striped the grass with sand.
+    float flat = smoothstep(0.85, 0.95, normalize(Nw).z);
+    lip = ed.g * flat; foot = ed.b;
 }
 grass *= 1.0 - lip * EdgeLook.x * smoothstep(0.25, 0.75, LP_NOISE(W.xy / 120.0 + 7.1));
 float3 albedo = lerp(lerp(sandA, ripA, ripple), grA, grass);
@@ -2436,6 +2444,8 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("RockTint", g.vector4("RockTint", (1.0, 1.0, 1.0, 1.0)), ""),
         # Steep: normal z where all rock, where rock starts, tile cm, strength.
         ("Steep", g.vector4("GroundSteep", (0.45, 0.75, 250.0, 0.0)), ""),
+        # Slope: normal z where banks start to be grass, all grass, strength.
+        ("Slope", g.vector4("GroundSlope", (0.92, 0.8, 0.0, 0.0)), ""),
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
         # EdgeLook: grass worn at a lip, earth tint there, foot shade, on.
         ("EdgeLook", g.vector4("LandEdgeLook", (0.0, 0.0, 0.0, 0.0)), ""),
@@ -2598,7 +2608,10 @@ if (EdgeRange.y > EdgeRange.x)
     // over its lip) took turf as green slabs metres up.
     float lipOn = smoothstep(-60.0, -15.0, below) * step(0.004, e.r);
     float t = Drape.x * (0.3 + 1.4 * rag);
-    turf = (1.0 - smoothstep(t * 0.7, t, below)) * lipOn;
+    // Only on a wall (steep) right under an edge (the lip mask): a sloping
+    // rock face crossing the lip's height drew the rim as a green hairline.
+    float wallness = 1.0 - smoothstep(0.45, 0.7, n.z);
+    turf = (1.0 - smoothstep(t * 0.7, t, below)) * lipOn * wallness * smoothstep(0.25, 0.6, e.g);
     float d = Drape.y * (0.4 + 1.2 * rag);
     soil = (1.0 - smoothstep(d * 0.5, d, below)) * lipOn * (1.0 - turf);
     // Stains: runs straight down from the lip, fading over Drape.z.
@@ -2615,8 +2628,9 @@ if (EdgeRange.y > EdgeRange.x)
     contact = (1.0 - smoothstep(0.0, Foot.y, above)) * footOn;
 }
 // Grass on ledges that look up (a boulder's top is all grass; a ledge
-// part-way, its edge ragged).
-turf = max(turf, smoothstep(0.55, 0.8, n.z + (rag - 0.5) * 0.3));
+// part-way, its edge ragged), by the surface's own normal, not the rock's
+// bumps (with them, every up-facing seam of the rock drew a green hairline).
+turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2));
 turf *= Drape.w; soil *= Drape.w; streak *= Drape.w; sand *= Foot.w;
 
 if (turf + soil > 0.002)
