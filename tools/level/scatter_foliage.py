@@ -256,12 +256,13 @@ def keep_share(share, lo, hi, falloff):
 # as one surface. Nothing sticks out far enough to matter to the simulation,
 # which knows only CE's collision. Each rock: (mesh, scale range, its depth
 # along the normal at scale 1 in cm, the share of rocks); density a square
-# metre of wall; walls steeper than `steep` (normal z).
+# metre of wall; walls steeper than `steep` (normal z); `clear` cm kept
+# from built surfaces (ladders, walkways: rocks had walled them off).
 CLADDING = {
     "meshes": [(ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.4, 140, 0.3),
                (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 160, 0.3),
                (ROCKS + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B", 0.06, 0.16, 2950, 0.4)],
-    "density": 0.055, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6,
+    "density": 0.055, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6, "clear": 150,
 }
 
 
@@ -279,6 +280,51 @@ def cliff_slots(spec):
     return out
 
 
+def built_points(doc, data, spec, off, step=100.0):
+    """Points (Unreal cm, n x 3) over every surface that is not natural ground
+    or cliff: CE's ladders, walkways, bases, bridges; a cladding rock keeps
+    clear of them. Every triangle sampled about every `step` cm."""
+    natural = set(cliff_slots(spec)) | set(ground_slots(spec))
+    skip = ("water", "sky", "fog", "wave", "flare", "light")
+    pts = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"].lower()
+            key = next((k for k in natural if name.startswith(k.lower())), None)
+            if key or any(w in name for w in skip):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1) + np.array(off)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            for i0, i1, i2 in idx:
+                p0, p1, p2 = pos[i0], pos[i1], pos[i2]
+                edge = max(np.linalg.norm(p1 - p0), np.linalg.norm(p2 - p1), np.linalg.norm(p0 - p2))
+                k = max(1, int(edge / step))
+                for u in range(k + 1):
+                    for v in range(k + 1 - u):
+                        w0, w1 = u / k, v / k
+                        pts.append(w0 * p0 + w1 * p1 + (1 - w0 - w1) * p2)
+    return np.array(pts) if pts else np.zeros((0, 3))
+
+
+class PointGrid:
+    """Points hashed into cubes of `cell` cm, for 'anything within r' tests."""
+    def __init__(self, pts, cell=300.0):
+        self.cell, self.cells = cell, {}
+        for q in pts:
+            self.cells.setdefault(tuple((q // cell).astype(int)), []).append(q)
+
+    def near(self, c, r):
+        lo, hi = ((c - r) // self.cell).astype(int), ((c + r) // self.cell).astype(int)
+        for i in range(lo[0], hi[0] + 1):
+            for j in range(lo[1], hi[1] + 1):
+                for k in range(lo[2], hi[2] + 1):
+                    for q in self.cells.get((i, j, k), ()):
+                        if np.dot(q - c, q - c) < r * r:
+                            return True
+        return False
+
+
 def clad(doc, data, spec, off, a, groups, bases, lights, rng):
     """Scatter the cladding rocks over the cliff walls into `groups` (as the
     rules do), each with its colour: the CE lightmap's chroma where it sits.
@@ -287,6 +333,18 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
     images = {}
     total = 0
     rocks = []
+    # Keep clear of what players use: CE's built surfaces (a ladder, a
+    # walkway, a base) by the rock's reach plus CLADDING["clear"], and the
+    # top of the wall (its lip, by the edge map): no rock above it, where
+    # it would stand on the path along the cliff top.
+    built = PointGrid(built_points(doc, data, spec, off))
+    edge = None
+    if a.edge:
+        e = json.load(open(a.edge, encoding="utf-8"))["pbr"]["edge"]
+        img = np.asarray(Image.open(os.path.join(os.path.dirname(os.path.abspath(a.edge)), "edge.png"))
+                         .convert("RGBA"), dtype=np.float32) / 255.0
+        edge = (img, e["rect"], e["range"])
+    dropped = 0
     weights = [m[4] for m in CLADDING["meshes"]]
     for mesh in doc["meshes"]:
         for prim in mesh["primitives"]:
@@ -326,6 +384,20 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     out = rng.uniform(*CLADDING["protrude"])
                     inset = depth * scale - out
                     cx, cy, cz = x - nu[0] * inset, y - nu[1] * inset, z - nu[2] * inset
+                    reach = depth * scale
+                    if built.near(np.array([cx, cy, cz]), reach + CLADDING["clear"]):
+                        dropped += 1
+                        continue
+                    if edge is not None:
+                        img, rect, rng_z = edge
+                        h, w = img.shape[:2]
+                        uu, vv = (cx - rect[0]) / rect[2], (cy - rect[1]) / rect[3]
+                        if 0 <= uu < 1 and 0 <= vv < 1:
+                            px = img[int(vv * h), int(uu * w)]
+                            top = rng_z[0] + px[0] * (rng_z[1] - rng_z[0])
+                            if px[0] > 0.004 and cz + reach * 0.7 > top - 30.0:
+                                dropped += 1
+                                continue
                     u = w0 * uv1[i0] + w1 * uv1[i1] + w2 * uv1[i2]
                     rgb = sample_rgba(lm, u[None, :])[0, :3]
                     lin = np.power(np.maximum(rgb, 1e-3), 2.2)
@@ -334,6 +406,7 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     tilt = (float(nu[0]), float(nu[1]))
                     rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col], base_path))
                     total += 1
+    print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip)")
     # A group a mesh and a light (the loader gives each group one material,
     # its CladLight the cluster's centre): the lights in CLADDING["lights"]
     # clusters (k-means), keyed apart from the stones' groups of the meshes.
