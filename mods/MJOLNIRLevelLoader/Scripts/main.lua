@@ -297,6 +297,7 @@ local function landscapeLight(level)
     local light = land and type(land.pbr) == "table" and land.pbr.light
     local env = level.environment
     if type(light) ~= "table" or type(env) ~= "table" then return end
+    if type(land.pbr.haze) == "table" then env.haze = land.pbr.haze end
     for key, envKey in pairs({ sun = "sun", sky = "skylight" }) do
         local change, target = light[key], env[envKey]
         if type(change) == "table" and type(target) == "table" then
@@ -1350,6 +1351,25 @@ local function spawnEnvironment(world)
             c:SetFogMaxOpacity(1.0)
             c:SetFogInscatteringColor({ R = skyFog.color[1] * k, G = skyFog.color[2] * k, B = skyFog.color[3] * k, A = 1.0 })
             pcall(function() c:SetDirectionalInscatteringColor({ R = 0, G = 0, B = 0, A = 1.0 }) end)
+        end)
+    end
+    -- `environment.haze` (a B30 landscape's, landscapeLight): Unreal's height
+    -- fog as distance haze, for the surfaces that do not fog themselves as
+    -- CE's masters do (the landscape, the cliffs' rock). Cut off short of the
+    -- sky mesh, which it otherwise turned to storm cloud. Its colour exposed
+    -- as the lights are (the light scale).
+    local haze = env.haze
+    if type(haze) == "table" and type(haze.color) == "table" then
+        place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
+            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, {}, false) end)
+            local c = actor.Component
+            c.Mobility = MOBILITY_MOVABLE
+            c:SetFogDensity(haze.density or 0.02)
+            c:SetFogHeightFalloff(haze.falloff or 0.08)
+            c:SetStartDistance(haze.start or 2500)
+            c:SetFogMaxOpacity(haze.max_opacity or 0.7)
+            c.FogCutoffDistance = haze.cutoff or 80000
+            c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
         end)
     end
     -- `environment.post`: an unbound post-process volume. Converted CE levels
@@ -3248,11 +3268,25 @@ function Land.apply(world)
             or tostring(missing)))
         local gok, slots = pcall(Land.ground, world, spec)
         Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots) or tostring(slots)))
+        -- The cliffs' fill (the sand's bounce) on the landscape too, its share
+        -- on flat ground GroundSlope.w (pbr.slope[4]).
+        local f = type(spec.cliff) == "table" and spec.cliff.fill
+        if type(f) == "table" then
+            pcall(function()
+                land:SetLandscapeMaterialVectorParameterValue(FName("CliffFill"),
+                    { R = f[1], G = f[2], B = f[3], A = (f[4] or 0) * lightScale() })
+            end)
+        end
         local cok, cliffs = pcall(Land.cliffs, world, spec)
         Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs) or tostring(cliffs)))
         pcall(function()
             local comps = land.LandscapeComponents
-            for i = 1, #comps do comps[i]:SetCastShadow(false) end
+            for i = 1, #comps do
+                comps[i]:SetCastShadow(false)
+                -- Out of Lumen's bounce, as the cladding: lit by the fill
+                -- (emissive), the ground flooded the whole scene orange.
+                comps[i]:SetAffectDynamicIndirectLighting(false)
+            end
         end)
         return
     end

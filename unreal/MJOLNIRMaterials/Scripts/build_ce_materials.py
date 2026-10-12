@@ -2341,10 +2341,12 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
 // The fill on every face that leans (the sand's bounce): under an
 // overhanging lip, the sand between the rock's ragged edge took none and
 // went black in the shadow.
-if (Steep.w > 0.0)
+// Flat ground takes a share of it too (Slope.w): a cliff's shadow on the
+// sand was lit by the sky alone, CE's deep blue, and drew a navy band.
 {
-    float lean = max(saturate((0.95 - nw.z) * 2.0), 0.0);
-    Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * (0.75 - 0.35 * nw.z) * saturate(ao) * lean;
+    float lean = Steep.w > 0.0 ? max(saturate((0.95 - nw.z) * 2.0), 0.0) : 0.0;
+    float share = max(lean * (0.75 - 0.35 * nw.z), Slope.w);
+    Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * saturate(ao) * share;
 }
 
 Rough = saturate(rough);
@@ -2444,7 +2446,8 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("RockTint", g.vector4("RockTint", (1.0, 1.0, 1.0, 1.0)), ""),
         # Steep: normal z where all rock, where rock starts, tile cm, strength.
         ("Steep", g.vector4("GroundSteep", (0.45, 0.75, 250.0, 0.0)), ""),
-        # Slope: normal z where banks start to be grass, all grass, strength.
+        # Slope: normal z where banks start to be grass, all grass, strength,
+        # and the cliffs' fill's share on flat ground.
         ("Slope", g.vector4("GroundSlope", (0.92, 0.8, 0.0, 0.0)), ""),
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
         # EdgeLook: grass worn at a lip, earth tint there, foot shade, on.

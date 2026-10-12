@@ -250,18 +250,18 @@ def keep_share(share, lo, hi, falloff):
 # the CE cliff walls. The loader spawns them as mesh actors, not instances
 # (this game's renderer drew our materials black on instanced meshes), one
 # material a group of rocks of like CE light. Set into the walls, sticking
-# out 15 to 70 cm, so the flat CE faces get a rock's silhouette, ledges and
-# shadows. They are drawn in the cliffs' own
-# world-space rock (M_CE_CliffPBR), so wall and rock read as one surface.
-# Nothing sticks out far enough to matter to the simulation, which knows
-# only CE's collision. Each rock: (mesh, scale range, its depth along the
-# normal at scale 1 in cm, the share of rocks); density a square metre of
-# wall; walls steeper than `steep` (normal z).
+# out 25 to 110 cm (at 15 to 70 the walls still read flat from afar), so the
+# flat CE faces get a rock's silhouette, ledges and shadows. They are drawn
+# in the cliffs' own world-space rock (M_CE_CliffPBR), so wall and rock read
+# as one surface. Nothing sticks out far enough to matter to the simulation,
+# which knows only CE's collision. Each rock: (mesh, scale range, its depth
+# along the normal at scale 1 in cm, the share of rocks); density a square
+# metre of wall; walls steeper than `steep` (normal z).
 CLADDING = {
-    "meshes": [(ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 0.9, 2.0, 140, 0.35),
-               (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 0.9, 2.0, 160, 0.35),
-               (ROCKS + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B", 0.05, 0.12, 2950, 0.3)],
-    "density": 0.035, "steep": 0.8, "protrude": [15, 70], "above": 0.3, "lights": 6,
+    "meshes": [(ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.4, 140, 0.3),
+               (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 160, 0.3),
+               (ROCKS + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B", 0.06, 0.16, 2950, 0.4)],
+    "density": 0.055, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6,
 }
 
 

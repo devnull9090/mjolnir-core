@@ -524,8 +524,10 @@ def main():
                          "rect": [float(origin[0]), float(origin[1]), side, side]},
                 "edge_look": [0.8, 0.5, 0.45],
                 # Banks steeper than about 23 degrees turn grass, all grass by
-                # 37 (CE's split drew stripes down them; the original is green).
-                "slope": [0.92, 0.8, 1.0, 0],
+                # 37 (CE's split drew stripes down them; the original is green);
+                # the cliffs' fill at a quarter on flat ground (a cliff's shadow
+                # on the sand was CE's deep blue sky alone, a navy band).
+                "slope": [0.92, 0.8, 1.0, 0.25],
                 # Far sand: drifts of the sand 9 times larger, its normal
                 # taking over from 15 to 60 m.
                 "macro": [0.6, 1500, 6000, 9],
@@ -533,6 +535,10 @@ def main():
                 # as it reads the level file): a stronger sun, both a touch
                 # warm against the purple dusk sky (which turned the sand
                 # mauve); warmer, everything went gold beside the original.
+                # Distance haze (the loader's environment.haze): a thin blue
+                # height fog from 25 m, cut off at 800 m (the sky mesh).
+                "haze": {"density": 0.02, "falloff": 0.08, "start": 2500, "cutoff": 80000,
+                         "max_opacity": 0.7, "color": [0.00168, 0.00192, 0.00248]},
                 "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
                           "sky": {"scale": 1.0, "tint": [1.0, 0.95, 0.85]}}},
     }
