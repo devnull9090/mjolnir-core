@@ -27,7 +27,7 @@ def fresh(name, cls, factory):
     return unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT, cls, factory)
 
 
-def build_material(name="M_CE_TessTest", tessellate=True):
+def build_material(name="M_CE_TessTest", tessellate=True, wpo=False):
     m = fresh(name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("used_with_nanite", True)
     m.set_editor_property("used_with_static_lighting", False)
@@ -70,6 +70,16 @@ def build_material(name="M_CE_TessTest", tessellate=True):
     mel.connect_material_expressions(cell, "", c, "Cell")
     ok = unreal.MjolnirUIBuilderLibrary.connect_displacement(m, c, "")
     log(f"displacement connected: {ok}")
+    if wpo:
+        # The same sine as a vertex offset along z: Nanite's programmable
+        # raster without tessellation.
+        lift = node(unreal.MaterialExpressionCustom, code="return float3(0, 0, (H - 0.5) * 60.0);",
+                    output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3, description="sine lift")
+        ci = unreal.CustomInput()
+        ci.set_editor_property("input_name", "H")
+        lift.set_editor_property("inputs", [ci])
+        mel.connect_material_expressions(c, "", lift, "H")
+        log(f"wpo connected: {unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, lift, '')}")
     col = node(unreal.MaterialExpressionVectorParameter, parameter_name="Colour",
                default_value=unreal.LinearColor(0.8, 0.3, 0.1, 1.0))
     mel.connect_material_property(col, "", unreal.MaterialProperty.MP_BASE_COLOR)
@@ -93,4 +103,5 @@ def build_mesh(material):
 
 build_mesh(build_material())
 build_material("M_CE_TessCtrl", tessellate=False)
+build_material("M_CE_TessWPO", tessellate=False, wpo=True)
 log("built")

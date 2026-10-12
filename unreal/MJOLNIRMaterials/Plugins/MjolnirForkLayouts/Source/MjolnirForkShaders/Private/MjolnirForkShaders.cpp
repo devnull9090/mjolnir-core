@@ -48,6 +48,13 @@ namespace
 		{ TEXT("Private/SceneData.ush"),
 		  TEXT("LoadPrimitivePrimitiveSceneDataElement(PrimitiveIndex,  34 + DataIndex)"),
 		  TEXT("LoadPrimitivePrimitiveSceneDataElement(PrimitiveIndex,  35 + DataIndex) /* MJOLNIR: fork */") },
+		// No shader change: MjolnirForkLayouts gives the Nanite raster
+		// shaders' FRasterizePassParameters the fork's offsets, and a
+		// changed source hash keeps the shader cache from handing back
+		// raster shaders bound at the stock ones.
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("#define SHADOW_DEPTH_SHADER DEPTH_ONLY"),
+		  TEXT("#define SHADOW_DEPTH_SHADER DEPTH_ONLY // MJOLNIR: bound at the fork's FRasterizePassParameters offsets") },
 	};
 
 	const TCHAR* GDirectories[] = { TEXT("Shared"), TEXT("Private") };
