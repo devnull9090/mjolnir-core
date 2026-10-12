@@ -70,6 +70,14 @@ public:
 	static bool ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
 
 	/**
+	 * Connect From's output OutputName ("" for the first) to Material's
+	 * Displacement (Nanite tessellation's height, 0..1 about the material's
+	 * DisplacementScaling centre), which Python's MaterialProperty lacks too.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool ConnectDisplacement(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
 	 * Spawn a Landscape in World from a heightmap, as the editor's New
 	 * Landscape tool does: ComponentsX x ComponentsY components of
 	 * SectionsPerComponent^2 sections of QuadsPerSection quads, Heights the

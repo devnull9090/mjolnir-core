@@ -239,6 +239,17 @@ bool UMjolnirUIBuilderLibrary::ConnectWorldPositionOffset(UMaterial* Material, U
 	return true;
 }
 
+bool UMjolnirUIBuilderLibrary::ConnectDisplacement(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
+{
+	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_Displacement))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("MJOLNIR: could not connect Displacement on %s"), Material ? *Material->GetName() : TEXT("(none)"));
+		return false;
+	}
+	Material->MarkPackageDirty();
+	return true;
+}
+
 bool UMjolnirUIBuilderLibrary::ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
 {
 	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_PixelDepthOffset))
