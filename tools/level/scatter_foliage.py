@@ -82,6 +82,9 @@ GREEN_MARGIN = (0.03, 0.10)
 # The grass and tufts in the original's deeper green (matched side by side,
 # 2026-10-11; B30's own tint is a dry grey).
 GRASS_TINT = [0.12, 0.3, 0.08]
+# Grass, tufts and lip grass thin out from 100 m to 300 m (80 to 220 m for
+# tufts): at 40 to 120 m whole fields went bare a short way off (Blood
+# Gulch, 2026-10-12); about 1 ms more a frame there.
 TUFT_TINT = [0.3, 0.42, 0.18]
 
 # Each rule: the ground class it grows on and the share of it it needs
@@ -96,7 +99,7 @@ RULES = [
                 (MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var4_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var12_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var19_lod0", 0.9, 1.5, 0)],
-     "tint": GRASS_TINT, "cull": [4000, 12000], "bands": 8},
+     "tint": GRASS_TINT, "cull": [10000, 30000], "bands": 10},
     {"name": "tufts", "on": "grass", "share": [0.12, 0.45], "density": 0.8, "slope": 40, "above": [0.6, None],
      "falloff": True,
      "meshes": [(MEGA + "Sea_Wheatgrass_ui2oagjia/S_Sea_Wheatgrass_ui2oagjia_0_Var9_lod0", 0.64, 0.96, 0),
@@ -105,7 +108,7 @@ RULES = [
                 (MEGA + "Ribbon_Grass_tbdpec3r/S_Ribbon_Grass_tbdpec3r_Var3_lod0", 0.42, 0.58, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var6_lod0", 0.62, 0.79, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var7_lod0", 0.62, 0.79, 0)],
-     "tint": TUFT_TINT, "cull": [3500, 9000], "bands": 4},
+     "tint": TUFT_TINT, "cull": [8000, 22000], "bands": 6},
     {"name": "rocky ground", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.06, "slope": 15, "above": [-0.4, 1.5],
      "cluster": [14.0, 0.62],
      "meshes": [("/Game/Megascans/3D_Assets/Nordic_Beach_Rocky_Ground_ve3qdhmqx/S_Nordic_Beach_Rocky_Ground_Uluwata_B",
@@ -132,7 +135,7 @@ RULES = [
                 (MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var12_lod0", 1.1, 1.7, 0),
                 (MEGA + "Sea_Wheatgrass_ui2oagjia/S_Sea_Wheatgrass_ui2oagjia_Var1_lod0", 0.6, 0.9, 0),
                 (MEGA + "Ribbon_Grass_tbdpec3r/S_Ribbon_Grass_tbdpec3r_Var2_lod0", 0.6, 0.85, 0)],
-     "tint": GRASS_TINT, "cull": [4000, 10000], "bands": 4},
+     "tint": GRASS_TINT, "cull": [10000, 25000], "bands": 6},
     # B30's beach decorators (its landscape grass types LG_B30_rippledsand_assets
     # and LG_B30_stone_assets): shell-sized coral and beach rocks, 10 to 35 cm,
     # and dry branches half a metre long, all lying in the sand.

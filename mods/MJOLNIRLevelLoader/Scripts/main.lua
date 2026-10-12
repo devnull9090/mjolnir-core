@@ -2951,7 +2951,12 @@ end
 --- {R,G,B,A}) }, for the landscape (Land.landSetter) or a mesh's instance.
 function Land.pbr(set, pbr)
     local missing = 0
-    for param, path in pairs(Land.SURFACES) do
+    -- `pbr.surfaces`: the level's own surfaces over Land.SURFACES, by
+    -- parameter (Blood Gulch's paths are packed earth, not beach sand).
+    local surfaces = {}
+    for param, path in pairs(Land.SURFACES) do surfaces[param] = path end
+    for param, path in pairs(type(pbr.surfaces) == "table" and pbr.surfaces or {}) do surfaces[param] = path end
+    for param, path in pairs(surfaces) do
         local leaf = path:match("([^/]+)$")
         local tex = resolveMesh(Land.MEGASCANS .. path .. "." .. leaf)
         if tex then

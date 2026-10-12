@@ -68,13 +68,22 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 
 
 # Each map's look over the defaults, by --name. Blood Gulch (LBG; tuned
-# 2026-10-12): in daylight Death Island's cool sand tint drew the paths pink
-# and CE's red cliff map boosted 1.4x orange; tan sand, CE's colour at 0.15,
-# warmer shade (fill 0.6 on flat ground), cliffs at 0.9x CE colour, half of
-# it, under a grey-brown tint.
+# 2026-10-12): its paths are packed earth (Megascans trampled path, stones
+# on soil in patches), not beach sand, in the original's reddish brown (its
+# CE base map lit, about #af6e3d): CE's colour at 0.5 under an orange tint,
+# grain contrast 1.15 (2.6 drew the busy earth texture pink); warmer shade
+# (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
+# cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
     "LBG": {
-        "pbr": {"sand_tint": [0.74, 0.8, 0.66, 1.0], "mix": [0.35, 0.65, 0.15, 0.25], "slope": [0.92, 0.8, 1.0, 0.6]},
+        "pbr": {"sand_tint": [0.92, 0.84, 0.64, 1.0], "mix": [0.35, 0.65, 0.5, 0.25], "slope": [0.92, 0.8, 1.0, 0.6],
+                "look": [3.0, 1.15, 0.6, 0.5], "tiles": [400, 250, 300, 700],
+                "surfaces": {
+                    "SandD": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
+                    "SandN": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
+                    "SandO": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
+                    "SandBD": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_A30_D",
+                    "SandBN": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_N"}},
         "cliff": {"mix": [0.6, 1.6, 0.9, 1.0], "look": [2.2, 0.5, 0.3, 1.5], "tint": [0.85, 0.78, 0.7, 1.0]},
     },
 }
