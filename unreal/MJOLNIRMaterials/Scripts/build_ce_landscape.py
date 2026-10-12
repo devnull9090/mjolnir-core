@@ -3,18 +3,19 @@
     set MJ_LANDSCAPE=<dir written by tools/level/build_landscape.py>
     powershell -File tools/ue/editor_cmd.ps1 -Script Scripts/build_ce_landscape.py
 
-Reads <dir>/landscape.json and builds /Game/Levels/Halo1/Solo/LTS/LTS (a
-classic level, its folder labelled for chunk 979): a Landscape from
+Reads <dir>/landscape.json and builds /Game/Levels/Halo1/Solo/<NAME>/<NAME>
+(MJ_LANDSCAPE_NAME, default LTS: a classic level, its folder labelled for
+chunk MJ_LANDSCAPE_CHUNK, default 979): a Landscape from
 heights.r16 with holes.r8 its visibility layer, drawn with the B30 ground
 master (MJ_LANDSCAPE_MASTER, default /Game/MJOLNIR/CETrial/M_CE_LandscapePBR;
 M_CE_Landscape draws CE's look instead; both from build_ce_materials.py),
-and the world-space bakes in /Game/MJOLNIR/Landscape/LTS (T_LandBase,
+and the world-space bakes in /Game/MJOLNIR/Landscape/<NAME> (T_LandBase,
 T_LandLightmap, T_LandBake, T_LandSunShare, T_LandMask; both folders
-labelled for 979). MJOLNIRLevelLoader sets the material's textures and
+labelled for the chunk). MJOLNIRLevelLoader sets the material's textures and
 parameters at runtime (level.landscape.pbr, or the ground slot's own for the
 CE look); the landscape has dynamic material instances for that.
 
-Then: tools/ue/cook.ps1 -Map /Game/Levels/Halo1/Solo/LTS/LTS and
+Then: tools/ue/cook.ps1 -Map /Game/Levels/Halo1/Solo/<NAME>/<NAME> and
 tools/level/bake_editor_world.sh, which retargets the cooked world to the
 game's property layout and bakes the map around it.
 """
@@ -25,12 +26,16 @@ from array import array
 
 import unreal
 
-PACKAGE = "/Game/Levels/Halo1/Solo/LTS/LTS"
+# One landscape a map, each its own world, bake folder and chunk (MJ_LANDSCAPE_NAME,
+# MJ_LANDSCAPE_CHUNK; Death Island's are the defaults, LTS and 979): two maps
+# sharing them would overwrite each other's bakes.
+NAME = os.environ.get("MJ_LANDSCAPE_NAME", "LTS")
+PACKAGE = f"/Game/Levels/Halo1/Solo/{NAME}/{NAME}"
 FOLDER = PACKAGE.rsplit("/", 1)[0]
 # The bakes: nothing in the world refers to them (the loader sets them), so
 # they live where the project always cooks (DirectoriesToAlwaysCook).
-TEXTURES = "/Game/MJOLNIR/Landscape/LTS"
-CHUNK = 979
+TEXTURES = f"/Game/MJOLNIR/Landscape/{NAME}"
+CHUNK = int(os.environ.get("MJ_LANDSCAPE_CHUNK", "979"))
 MASTER = os.environ.get("MJ_LANDSCAPE_MASTER", "/Game/MJOLNIR/CETrial/M_CE_LandscapePBR")
 
 src = os.environ.get("MJ_LANDSCAPE")
@@ -116,7 +121,7 @@ if not les.save_current_level():
 
 # Labels are primary assets, named apart: one name in two folders is one id,
 # and the second label would be the only one.
-for folder, name in ((FOLDER, "PAL_MJOLNIR_LTS"), (TEXTURES, "PAL_MJOLNIR_LTSBakes")):
+for folder, name in ((FOLDER, f"PAL_MJOLNIR_{NAME}"), (TEXTURES, f"PAL_MJOLNIR_{NAME}Bakes")):
     label = tools.create_asset(name, folder, unreal.PrimaryAssetLabel, unreal.DataAssetFactory())
     rules = label.get_editor_property("rules")
     rules.set_editor_property("chunk_id", CHUNK)

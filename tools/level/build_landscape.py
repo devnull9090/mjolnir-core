@@ -62,8 +62,22 @@ QUADS = 63
 STEP = 2.0  # m between neighbouring vertices: a cliff, cut out
 ABOVE = 15.0  # cm the landscape may ride over the ground (beyond --lift) before it is cut
 BAKED = ("Base", "Lightmap", "Bake", "SunShare")
-# Where build_ce_landscape.py puts the bakes (T_Land<param>).
+# Where build_ce_landscape.py puts the bakes (T_Land<param>): its
+# MJ_LANDSCAPE_NAME's folder (--name, LTS by default, Death Island's).
 FOLDER = "/Game/MJOLNIR/Landscape/LTS"
+
+
+# Each map's look over the defaults, by --name. Blood Gulch (LBG; tuned
+# 2026-10-12): in daylight Death Island's cool sand tint drew the paths pink
+# and CE's red cliff map boosted 1.4x orange; tan sand, CE's colour at 0.15,
+# warmer shade (fill 0.6 on flat ground), cliffs at 0.9x CE colour, half of
+# it, under a grey-brown tint.
+MAP_LOOKS = {
+    "LBG": {
+        "pbr": {"sand_tint": [0.74, 0.8, 0.66, 1.0], "mix": [0.35, 0.65, 0.15, 0.25], "slope": [0.92, 0.8, 1.0, 0.6]},
+        "cliff": {"mix": [0.6, 1.6, 0.9, 1.0], "look": [2.2, 0.5, 0.3, 1.5], "tint": [0.85, 0.78, 0.7, 1.0]},
+    },
+}
 
 
 def load_image(path):
@@ -280,7 +294,11 @@ def main():
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
     ap.add_argument("--lift", type=float, default=8.0, help="cm above the ground mesh")
     ap.add_argument("--offset", default="0,0,0", help="the terrain mesh's offset (cm)")
+    ap.add_argument("--name", default="LTS",
+                    help="the landscape's name, one a map (build_ce_landscape.py MJ_LANDSCAPE_NAME): its bakes' folder")
     a = ap.parse_args()
+    global FOLDER
+    FOLDER = f"/Game/MJOLNIR/Landscape/{a.name}"
     os.makedirs(a.out, exist_ok=True)
     off = np.array([float(v) for v in a.offset.split(",")])
 
@@ -542,6 +560,9 @@ def main():
                 "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
                           "sky": {"scale": 1.0, "tint": [1.0, 0.95, 0.85]}}},
     }
+    # The map's own look over the defaults (tuned on Death Island's dusk).
+    for section, fields in MAP_LOOKS.get(a.name, {}).items():
+        doc_out[section].update(fields)
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")
 
