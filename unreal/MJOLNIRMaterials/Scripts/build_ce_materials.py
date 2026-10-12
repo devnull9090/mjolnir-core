@@ -2594,7 +2594,9 @@ if (EdgeRange.y > EdgeRange.x)
     // A wall reaching above all the ground near it (a stack's crown) has no lip.
     // No lip within reach (R 0: a wall leaning back from the ground under
     // it), no drape; a wall reaching above its lip (a stack's crown) neither.
-    float lipOn = smoothstep(-400.0, -150.0, below) * step(0.004, e.r);
+    // Only up to 60 cm above the lip: a wall rising from a plateau (a tower
+    // over its lip) took turf as green slabs metres up.
+    float lipOn = smoothstep(-60.0, -15.0, below) * step(0.004, e.r);
     float t = Drape.x * (0.3 + 1.4 * rag);
     turf = (1.0 - smoothstep(t * 0.7, t, below)) * lipOn;
     float d = Drape.y * (0.4 + 1.2 * rag);

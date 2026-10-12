@@ -470,24 +470,24 @@ def main():
                                      for sl in spec["slots"]
                                      if "detail_cliff" in sl["material"].get("textures", {}).get("Primary", "")
                                      and "Lightmap" in sl["material"].get("textures", {})}),
-                  # Megascans rough rock for the grain, jagged rock over metres
-                  # (as weathered sandstone; the cliff and shale rocks read as
-                  # cobbles);
+                  # Megascans jagged rock at 5 m and 14 m (rough rock read as a
+                  # rubble wall at any scale; Jagged_Rock and the 8K shale drew
+                  # far cliffs black);
                   # a near-neutral tint with half CE's banding (brighter, the
                   # cliffs read as yellow sponge from afar); the fill
                   # is the sand's bounce, which this sky light alone lacks.
-                  "rock_a": {"d": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_D",
-                             "n": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_N",
-                             "o": "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_NSVT_ORHG"},
+                  "rock_a": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
+                             "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
+                             "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
                   "rock_b": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
                              "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
                              "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
-                  "tiles": [250, 900, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
+                  "tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
                   "tint": [1.25, 1.25, 1.3, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
-                  # Under the lip a thin rim, turf to 30 cm and earth to 70 cm
-                  # (ragged; deeper, the bands read as paint), stains 7 m down;
+                  # Under the lip a ragged turf rim to 35 cm, no earth band (the
+                  # damp soil drew black lines along every lip), stains 7 m down;
                   # at the foot sand banked 35 cm up, shade over 1.5 m.
-                  "drape": [30, 70, 700, 1.0], "foot": [35, 150, 0.45, 1.0]},
+                  "drape": [35, 35, 700, 1.0], "foot": [35, 150, 0.45, 1.0]},
         # The B30 ground (M_CE_LandscapePBR, the loader's Land.pbr): the base
         # bake says where grass grows, over the same rectangle.
         "pbr": {"base": f"{FOLDER}/T_LandBase.T_LandBase", "lightmap": f"{FOLDER}/T_LandLightmap.T_LandLightmap",

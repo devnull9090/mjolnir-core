@@ -2956,9 +2956,9 @@ end
 --- into the ground at its lip and foot by the landscape's edge map
 --- (level.landscape.pbr.edge). Returns the slots changed.
 Land.ROCK_A = {
-    d = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_8K_D",
-    n = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_8K_N",
-    o = "Cracked_Shale_Beach_Rock_ve4lfbng/T_Cracked_Shale_Beach_Rock_ve4lfbng_ORHG",
+    d = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
+    n = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
+    o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
 Land.SOIL = {
     d = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_D",
@@ -2966,9 +2966,9 @@ Land.SOIL = {
     o = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_ORHG",
 }
 Land.ROCK_B = {
-    d = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_D",
-    n = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_4K_NSVT_N",
-    o = "Rock_Rough_tbphbbeg/T_Rock_Rough_tbphbbeg_NSVT_ORHG",
+    d = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
+    n = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
+    o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
 
 function Land.megascans(path)
