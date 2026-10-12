@@ -188,10 +188,11 @@ STOCK_TITLES = {
 # parameters of its own (`params`), over CE's: Death Island's sun on its
 # water at full CE glancing brightness (ParaBrightness 1) and shore foam 0.7
 # washed the shallows milky white; at half, with a little more roughness and
-# less chop near the shore, they are clear down to the pebbles.
+# less chop near the shore, they are clear down to the pebbles. No crest
+# foam: from the beach it drew a still, pale stripe across the sea.
 OCEAN_MAPS = {
     "deathisland": {"ParaBrightness": 0.55, "ParaTint": [0.8, 0.9, 0.95, 1.0], "Roughness": 0.22,
-                    "FoamAmount": 0.35, "Specular": 0.35, "NearShoreDetail": 1.5},
+                    "FoamAmount": 0.0, "Specular": 0.35, "NearShoreDetail": 1.5},
     "yoyorast_island_v2": {},
 }
 

@@ -484,6 +484,11 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
     cube = g.node(unreal.MaterialExpressionTextureSampleParameterCube, x=-1100, parameter_name="ReflectionCube",
                   texture=black_cube, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
     link(direction, "", cube, "UVs")
+    # One mip, set: REFLECT_DIR's face remapping jumps between faces, and the
+    # derivatives across the jump picked the smallest mip, a dark line down
+    # the sea from the horizon (Death Island, 2026-10-11).
+    cube.set_editor_property("mip_value_mode", unreal.TextureMipValueMode.TMVM_MIP_LEVEL)
+    cube.set_editor_property("const_mip_value", 0)
     reflection = g.custom(REFLECTION, [("Cam", cam, ""), ("N", normal, ""), ("Cube", cube, "RGB"),
                                        ("PerpBrightness", g.scalar("PerpBrightness", 0.1), ""),
                                        ("ParaBrightness", g.scalar("ParaBrightness", 1.0), ""),
