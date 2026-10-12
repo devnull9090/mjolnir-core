@@ -15,6 +15,7 @@
   "base_level": "C:/haloce/ce_conversions/upgrade/DTI/base_level.json",
   "mesh_container": "C:/haloce/ce_conversions/upgrade/DTI/mesh/pakchunk986-MJOLNIRMESH-DTI_P",
   "shaders": ["deathbeach", "underwater"], "components": 10, "landscape": "LTS", "chunk": 979,
+  "tints": {"pebbles": "0.8,0.7,0.6:Albedo Tint", "stones": "0.8,0.7,0.6:Albedo Tint"},
   "environment": {"skylight": {"lower": [0.3, 0.27, 0.2]}},
   "hub": "ce-death-island"
  },
