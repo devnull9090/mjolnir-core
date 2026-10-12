@@ -37,7 +37,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 PROJECT = os.path.join(REPO, "unreal", "MJOLNIRMaterials")
 STAGED = os.path.join(PROJECT, "Saved", "StagedBuilds", "Windows", "Meteorite", "Content", "Paks")
-STAGES = ("land", "foliage", "swap", "editor", "cook", "bake", "assemble", "install")
+STAGES = ("land", "foliage", "swap", "collision", "editor", "cook", "bake", "assemble", "install")
 GAME = os.environ.get("HCE_GAME", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved")
 PAKS = os.path.join(GAME, "Meteorite", "Content", "Paks")
 UE4SS = os.path.join(GAME, "Meteorite", "Binaries", "Win64", "ue4ss")
@@ -147,6 +147,33 @@ def stage_swap(code, m, p):
     print("  " + out.strip().splitlines()[-1][:200])
 
 
+def stage_collision(code, m, p):
+    """The B30 rocks, tree trunks and reachable cliff cladding in the map's
+    collision: tools/level/b30_collision.py's hulls replace the swapped CE
+    scenery's own collision (merge_ce_collision.py --extra), and
+    `mjolnir level collision --own-bsp` builds the BSP the bake uses. The
+    Blam simulation does all collision, so without this players walked
+    through every B30 rock and tree (2026-10-12)."""
+    extra = os.path.join(p["work"], "b30_collision.json")
+    out = run([sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
+               os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
+               "--scene", os.path.join(p["scene"], "scene.gltf")])
+    print("  " + out.strip().splitlines()[-1][:200])
+    scene = os.path.join(p["work"], "collision_scene.json")
+    out = run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
+    print("  " + out.strip().splitlines()[0][:200])
+    mjolnir = os.environ.get("MJOLNIR", "C:/haloce/.claude/worktrees/server-list-hosting-d9e78e/target/release/mjolnir.exe")
+    sbsp = os.path.join(p["work"], m["sbsp"])
+    out = run([mjolnir, "level", "collision", scene, "--out", sbsp, "--own-bsp", "--bsp-index", "0", "--paks", PAKS])
+    print("  " + (out.strip().splitlines() or [""])[-1][:200])
+
+
+def bake_sbsp(m, p):
+    """The map's BSP: the collision stage's, else the conversion's own."""
+    own = os.path.join(p["work"], m["sbsp"])
+    return own if os.path.exists(own) else os.path.join(p["conv"], m["sbsp"])
+
+
 def stage_editor(code, m, p):
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env={"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"],
@@ -190,7 +217,7 @@ def stage_bake(code, m, p):
                 os.remove(f)
     world = f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}"
     out = run([bash(), "tools/level/bake_editor_world.sh", world, str(m["chunk"]), p["level"].replace("\\", "/"),
-               os.path.join(p["conv"], m["sbsp"]).replace("\\", "/"), code, p["bake"].replace("\\", "/")],
+               bake_sbsp(m, p).replace("\\", "/"), code, p["bake"].replace("\\", "/")],
               env=dict(tool_env, MSYS2_ARG_CONV_EXCL="/Game"))
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
