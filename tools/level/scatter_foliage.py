@@ -124,10 +124,8 @@ RULES = [
     {"name": "short grass", "on": "grass", "share": [0.3, 0.7], "density": 1.2, "slope": 45, "above": [0.3, None],
      "banks": BANKS,
      "cluster": [6.0, 0.4],
-     "meshes": [(BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_A/SM_Grass_AcorusCalamus_Short_A", 0.7, 1.1, 0),
-                (BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_B/SM_Grass_AcorusCalamus_Short_B", 0.7, 1.1, 0),
-                (BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_C/SM_Grass_AcorusCalamus_Short_C", 0.7, 1.1, 0),
-                (BIO + "GroundcoverClump/Grass_GroundcoverClump_A/SM_Grass_GroundcoverClump_A", 0.8, 1.3, 0)],
+     # (Not B30's AcorusCalamus: on our maps it drew dark brown spikes.)
+     "meshes": [(BIO + "GroundcoverClump/Grass_GroundcoverClump_A/SM_Grass_GroundcoverClump_A", 0.7, 1.3, 0)],
      "cull": [5000, 12000], "bands": 3},
     # Stands of tall grass, sedge and rushes (55 to 100 cm), clustered.
     {"name": "tall grass", "on": "grass", "share": [0.3, 0.7], "density": 0.5, "slope": 35, "above": [0.6, None],
@@ -298,14 +296,14 @@ def value_noise(x, y, cell, seed):
     return (h(ix, iy) * (1 - tx) + h(ix + 1, iy) * tx) * (1 - ty) + (h(ix, iy + 1) * (1 - tx) + h(ix + 1, iy + 1) * tx) * ty
 
 
-def scenery_footprints(gltf, off):
+def scenery_footprints(gltf, off, staging=None):
     """The map's placed scenery (halo2ue's staging/placement.json beside the
     scene) as (x, y, radius) cm: the simulation spawns it (B30's boulders,
     trees), so the scene knows nothing of it, and grass grew up through the
     boulders (Blood Gulch, 2026-10-12). The radius is 80% of the model's
     furthest reach across, so the grass still meets its foot."""
-    root = os.path.dirname(os.path.abspath(gltf))
-    path = os.path.join(root, "staging", "placement.json")
+    staging = staging or os.path.join(os.path.dirname(os.path.abspath(gltf)), "staging")
+    path = os.path.join(staging, "placement.json")
     if not os.path.exists(path):
         return []
     placement = json.load(open(path, encoding="utf-8"))
@@ -315,7 +313,7 @@ def scenery_footprints(gltf, off):
     for e in placement.get("entries", []):
         if e.get("kind") != "scenery" or not e.get("model"):
             continue
-        model = os.path.join(root, "staging", e["model"])
+        model = os.path.join(staging, e["model"])
         if model not in reach:
             r = 0.0
             try:
@@ -334,9 +332,24 @@ def scenery_footprints(gltf, off):
     return out
 
 
-def under_scenery(scenery, x, y):
+SCENERY_CELL = 1000.0
+
+
+def scenery_grid(scenery):
+    """The footprints by 10 m cell, each in every cell its circle reaches."""
+    grid = {}
     for sx, sy, r in scenery:
-        if r > 0.0 and (x - sx) ** 2 + (y - sy) ** 2 < r * r:
+        if r <= 0.0:
+            continue
+        for i in range(int((sx - r) // SCENERY_CELL), int((sx + r) // SCENERY_CELL) + 1):
+            for j in range(int((sy - r) // SCENERY_CELL), int((sy + r) // SCENERY_CELL) + 1):
+                grid.setdefault((i, j), []).append((sx, sy, r))
+    return grid
+
+
+def under_scenery(grid, x, y):
+    for sx, sy, r in grid.get((int(x // SCENERY_CELL), int(y // SCENERY_CELL)), ()):
+        if (x - sx) ** 2 + (y - sy) ** 2 < r * r:
             return True
     return False
 
@@ -574,12 +587,26 @@ def main():
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--only", help="comma-separated rule names")
+    ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
+                                      "beside the scene")
+    ap.add_argument("--rule-tint", action="append", default=[], metavar="RULE=R,G,B[:PARAM]",
+                    help="a rule's tint for this map (and the material parameter it goes through; Megascans "
+                         "3D assets take 'Albedo Tint'): Blood Gulch's pebbles in its red earth; repeatable")
     a = ap.parse_args()
 
     for pair in a.detail:
         name, cls = pair.split("=", 1)
         EXTRA_DETAILS.append((cls, (name.lower(),)))
-    rules = [r for r in RULES if not a.only or r["name"] in a.only.split(",")]
+    rules = [dict(r) for r in RULES if not a.only or r["name"] in a.only.split(",")]
+    for spec in a.rule_tint:
+        name, _, rest = spec.partition("=")
+        rgb, _, param = rest.partition(":")
+        for r in rules:
+            if r["name"] == name:
+                r["tint"] = [float(v) for v in rgb.split(",")]
+                r.pop("tints", None)
+                if param:
+                    r["tint_param"] = param
     if a.sea is None:
         # A rule that lives in a band above the sea has no place on a map
         # without one: unbounded, the shore stones would cover every sand.
@@ -599,8 +626,9 @@ def main():
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     off = [float(v) for v in a.offset.split(",")]
-    scenery = scenery_footprints(a.gltf, off)
-    print(f"{len(scenery)} scenery object(s) kept clear of foliage")
+    footprints = scenery_footprints(a.gltf, off, a.staging)
+    scenery = scenery_grid(footprints)
+    print(f"{len(footprints)} scenery object(s) kept clear of foliage")
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
     images = {}

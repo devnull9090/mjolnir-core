@@ -44,6 +44,7 @@
 --                          draw a converted level's CE water as rolling,
 --                          reflecting water (M_CE_Ocean, see applyWater)
 --   mjolnir_foliage [on|off]
+--   mjolnir_effects [on|off]
 --                          the game's grass on a converted level's grassy
 --                          ground, from its level file (see Foliage.spawn)
 --   mjolnir_terrain_detail [game|ce] | param <Name> <value>
@@ -1329,8 +1330,31 @@ local function spawnEnvironment(world)
         if type(skylight.color) == "table" then
             c:SetLightColor({ R = skylight.color[1], G = skylight.color[2], B = skylight.color[3], A = 1.0 })
         end
+        -- `skylight.lower`: the colour of the lower hemisphere (the ground's
+        -- bounce), not black; with `skylight.lower_from_below` the capture's
+        -- own lower half is ignored for it. A CE sky dome's deep blue lit
+        -- every shade from below navy (Blood Gulch's pebbles drew blue).
+        if type(skylight.lower) == "table" then
+            pcall(function()
+                c.LowerHemisphereColor = { R = skylight.lower[1], G = skylight.lower[2], B = skylight.lower[3], A = 1.0 }
+                c.bLowerHemisphereIsBlack = false
+            end)
+        end
         c:RecaptureSky()
     end)
+    -- `environment.clouds`: Unreal's volumetric clouds over the level, for a
+    -- sky whose CE dome is a painted backdrop (its clouds stay, the
+    -- volumetric ones drift over the map itself). Needs the atmosphere.
+    local clouds = env.clouds
+    if type(clouds) == "table" and env.atmosphere ~= false then
+        place("__clouds", "/Script/Engine.VolumetricCloud", nil, function(actor)
+            local c = actor.VolumetricCloudComponent
+            pcall(function() c:SetLayerBottomAltitude(clouds.bottom or 3.0) end)
+            pcall(function() c:SetLayerHeight(clouds.height or 4.0) end)
+            local m = type(clouds.material) == "string" and resolveMesh(clouds.material)
+            if m then pcall(function() c:SetMaterial(m) end) end
+        end)
+    end
     -- `environment.sky_fog`: a CE sky with no model is its outdoor fog's
     -- colour (Coldsnap's night). The masters fog the level towards it and
     -- reach it at the opaque distance; a height fog that starts there turns
@@ -2816,6 +2840,69 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
     return pos
 end
 
+--- The level's ambient life and weather (level.effects, from
+--- tools/level/scenery_swap.py's effects): the game's own Niagara systems,
+--- `placed` [{ system, pos, rot, scale }] where they are (gulls over a
+--- beach, butterflies over the grass, leaves falling from a tree, surf on
+--- the shore) and `camera` [system] riding with the player's camera (dust
+--- in the air). `mjolnir_effects off` leaves them out until the game closes.
+local Effects = { on = true }
+
+function Effects.spawn(world)
+    local fx = Current.level and Current.level.effects
+    if not Effects.on or type(fx) ~= "table" then return end
+    local nfl = findObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    if not nfl then return end
+    local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+    local placed, failed = 0, 0
+    for _, e in ipairs(type(fx.placed) == "table" and fx.placed or {}) do
+        local system = type(e) == "table" and type(e.system) == "string" and resolveMesh(e.system)
+        local p = type(e) == "table" and e.pos
+        if system and type(p) == "table" then
+            local r = type(e.rot) == "table" and e.rot or {}
+            local s = tonumber(e.scale) or 1.0
+            local ok = pcall(function()
+                nfl:SpawnSystemAtLocation(world, system,
+                    { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                    { Pitch = r[1] or 0, Yaw = r[2] or 0, Roll = r[3] or 0 }, { X = s, Y = s, Z = s },
+                    false, true, 0, false)
+            end)
+            if ok then placed = placed + 1 else failed = failed + 1 end
+        else
+            failed = failed + 1
+        end
+    end
+    local attached = 0
+    local pc = getPlayerController()
+    local root = pc and pc.PlayerCameraManager and pc.PlayerCameraManager.TransformComponent
+    for _, path in ipairs(type(fx.camera) == "table" and fx.camera or {}) do
+        local system = type(path) == "string" and resolveMesh(path)
+        if system and root then
+            if pcall(function()
+                nfl:SpawnSystemAttached(system, root, FName("None"), { X = 0, Y = 0, Z = 0 },
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, 0, false, true, 0, false)
+            end) then attached = attached + 1 end
+        end
+    end
+    Log(string.format("effects: %d placed, %d on the camera, %d failed", placed, attached, failed))
+end
+
+--- The game's foliage quality (Settings > Video, sg.FoliageQuality 0..3):
+--- below Epic the grass groups keep one clump in `keep` and every group
+--- culls at `cull` of its distance, so a lower setting pays less for B30's
+--- grass (Blood Gulch's valley: ~2 ms of a 14 ms frame at Epic, 4K).
+Foliage.QUALITY = { [0] = { keep = 4, cull = 0.45 }, [1] = { keep = 3, cull = 0.6 },
+    [2] = { keep = 2, cull = 0.8 }, [3] = { keep = 1, cull = 1.0 } }
+Foliage.GRASSY = { grass = true, ["short grass"] = true, ["lip grass"] = true, weeds = true, tufts = true }
+
+function Foliage.quality()
+    local ok, q = pcall(function()
+        return findObject("/Script/Engine.Default__KismetSystemLibrary"):GetConsoleVariableIntValue("sg.FoliageQuality")
+    end)
+    q = ok and tonumber(q) or 3
+    return Foliage.QUALITY[math.max(0, math.min(3, q))] or Foliage.QUALITY[3]
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
     if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
@@ -2836,6 +2923,7 @@ function Foliage.spawn(world)
     local tilted = magic == Foliage.MAGIC2 or magic == Foliage.MAGIC3
     local coloured = magic == Foliage.MAGIC3
     Foliage.cliffGroups = {}
+    local quality = Foliage.quality()
     local total, sx, sy, n = 0, 0, 0, 0
     for g = 1, count do
         local size
@@ -2854,6 +2942,8 @@ function Foliage.spawn(world)
         -- all the grass goes; bands thin it out over the range instead.
         local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
         local gc = type(group.cull) == "table" and group.cull or cull
+        gc = { gc[1] * quality.cull, gc[2] * quality.cull }
+        local keep = Foliage.GRASSY[group.rule] and quality.keep or 1
         local comps, mids = {}, nil
         for b = 1, (actor and actor:IsValid()) and bands or 0 do
             local comp = actor:AddComponentByClass(hism, false, {
@@ -2913,10 +3003,12 @@ function Foliage.spawn(world)
                 else
                     x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
                 end
-                local s = scale / 100
-                comps[(k - 1) % #comps + 1]:AddInstance({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
-                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, true)
-                sx, sy, n = sx + x, sy + y, n + 1
+                if k % keep == 0 then
+                    local s = scale / 100
+                    comps[(k // keep - 1) % #comps + 1]:AddInstance({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
+                        Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, true)
+                    sx, sy, n = sx + x, sy + y, n + 1
+                end
             end
             total = total + size
         else
@@ -2926,8 +3018,8 @@ function Foliage.spawn(world)
         ::continue::
     end
     local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
-    Log(string.format("foliage: %d clump(s) in %d group(s), %.1f s%s", total, count, os.clock() - started,
-        wind and ", wind on" or ""))
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f), %.1f s%s",
+        total, count, n, quality.keep, quality.cull, os.clock() - started, wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
@@ -3616,6 +3708,8 @@ local function spawnDecor(world)
     if not ok then Log("water: " .. tostring(err)) end
     ok, err = pcall(Foliage.spawn, world)
     if not ok then Log("foliage: " .. tostring(err)) end
+    ok, err = pcall(Effects.spawn, world)
+    if not ok then Log("effects: " .. tostring(err)) end
     Land.apply(world)
 end
 
@@ -4034,6 +4128,16 @@ function Foliage.command(args)
     Log("foliage: " .. (Foliage.on and "on" or "off"))
 end
 
+--- `mjolnir_effects [on|off]`: see Effects.spawn; respawns the level.
+function Effects.command(args)
+    local mode = args and args[1]
+    if mode == "on" or mode == "off" then
+        Effects.on = mode == "on"
+        reload()
+    end
+    Log("effects: " .. (Effects.on and "on" or "off"))
+end
+
 --- `mjolnir_terrain_detail [game|ce] | param <Name> <value>`: see GameDetail.
 --- `game`/`ce` respawn the level (the masters change), as does a param. No
 --- argument reports it.
@@ -4403,7 +4507,11 @@ local function initialize()
         Footprints.command(args)
         return true
     end)
-    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail, mjolnir_foliage, mjolnir_footprints")
+    RegisterConsoleCommandHandler("mjolnir_effects", function(_, args)
+        Effects.command(args)
+        return true
+    end)
+    Log("commands registered: mjolnir_level_status / _reload / _clear, mjolnir_terrain_shadows, mjolnir_light_scale, mjolnir_terrain_lights, mjolnir_water, mjolnir_terrain_detail, mjolnir_foliage, mjolnir_footprints, mjolnir_effects")
     watch()
 end
 

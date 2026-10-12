@@ -1350,6 +1350,69 @@ return m * saturate((h - Edge) * 100.0);
 """
 
 
+# A structure's surface under Unreal's light (Surface.x on: a slot
+# tools/level/upgrade_ce_map.py marks, the bases and their metal): CE drew
+# its panels flat and matte, the seams and plates only in the texture. The
+# normal comes from the base map's own relief (its luminance as a height,
+# central differences a texel apart, Surface.y strength) and the micro
+# detail's, over CE's bump map; seams (dark in the base) are rougher than
+# plate; the Forerunner kit's scratch mask (Wear, world space, Surface.w)
+# wears the plate brighter and smoother; rain streaks run down the walls.
+# Roughness (Surface.z the plate's) and specular are the material's again
+# (0 and 1 otherwise, CE's matte). Texture2DSample only (the hit shaders).
+SURFACE_CODE = r"""
+Rough = 1.0;
+Spec = 0.0;
+Wear = 0.0;
+if (Surface.x <= 0.0) return BumpN;
+float2 t = Texel.xy;
+float3 lw = float3(0.299, 0.587, 0.114);
+float c  = dot(Texture2DSample(BaseT, BaseTSampler, UV).rgb, lw);
+float hx = dot(Texture2DSample(BaseT, BaseTSampler, UV + float2(t.x, 0)).rgb, lw)
+         - dot(Texture2DSample(BaseT, BaseTSampler, UV - float2(t.x, 0)).rgb, lw);
+float hy = dot(Texture2DSample(BaseT, BaseTSampler, UV + float2(0, t.y)).rgb, lw)
+         - dot(Texture2DSample(BaseT, BaseTSampler, UV - float2(0, t.y)).rgb, lw);
+float2 mt = Texel.zw;
+float mx = dot(Texture2DSample(MicroT, MicroTSampler, MUV + float2(mt.x, 0)).rgb, lw)
+         - dot(Texture2DSample(MicroT, MicroTSampler, MUV - float2(mt.x, 0)).rgb, lw);
+float my = dot(Texture2DSample(MicroT, MicroTSampler, MUV + float2(0, mt.y)).rgb, lw)
+         - dot(Texture2DSample(MicroT, MicroTSampler, MUV - float2(0, mt.y)).rgb, lw);
+float2 slope = -float2(hx, hy) * Surface.y - float2(mx, my) * Surface.y * 0.35 * HasMicro;
+float3 n = normalize(float3(BumpN.xy + slope, BumpN.z));
+// Wear: the kit's scratches over the plate, from the side the wall faces.
+float3 nw = normalize(Nw);
+float3 bw = pow(abs(nw), 4.0); bw /= max(bw.x + bw.y + bw.z, 1e-4);
+float s = Texture2DSample(WearT, WearTSampler, W.yz / 140.0).r * bw.x
+        + Texture2DSample(WearT, WearTSampler, W.xz / 140.0).r * bw.y
+        + Texture2DSample(WearT, WearTSampler, W.xy / 140.0).r * bw.z;
+Wear = saturate(s * 1.6 - 0.25) * Surface.w;
+float seam = 1.0 - smoothstep(0.08, 0.3, c);
+// Paint stays matte: on a saturated base the sheen reflected the grey sky
+// over it and Yoyorast's red trim drew rust (2026-10-12). Bare metal (grey
+// in CE's map) takes the sheen.
+float3 bc = Texture2DSample(BaseT, BaseTSampler, UV).rgb;
+float mxc = max(bc.r, max(bc.g, bc.b));
+float paint = smoothstep(0.15, 0.4, (mxc - min(bc.r, min(bc.g, bc.b))) / max(mxc, 1e-3));
+Rough = saturate(lerp(lerp(Surface.z, 0.85, seam) - Wear * 0.25, 0.95, paint));
+Spec = 0.35 * Surface.x * (1.0 - paint);
+return n;
+"""
+
+# Wear and weathering into the base colour (Surface as SURFACE_CODE): the
+# scratched plate brighter, a wall streaked darker below its ledges.
+SURFACE_BASE_CODE = r"""
+if (Surface.x <= 0.0) return B;
+float3 nw = normalize(Nw);
+float wall = 1.0 - smoothstep(0.35, 0.7, abs(nw.z));
+float h = frac(sin(dot(floor(float2((W.x + W.y) / 45.0, 0.0)), float2(127.1, 311.7))) * 43758.5453);
+float run = smoothstep(0.55, 0.95, h) * (0.6 + 0.4 * sin(W.z / 90.0 + h * 6.28));
+float4 o = B;
+o.rgb *= 1.0 - run * wall * 0.22 * Surface.x;
+o.rgb = lerp(o.rgb, saturate(o.rgb * 1.35 + 0.06), Wear * 0.6);
+return o;
+"""
+
+
 def build_environment(name, masked, defaults, two_sided=False, land=False):
     """`land`: the landscape master (tools/level/build_landscape.py). A
     landscape has no CE texture coordinates, so its base and lightmap UVs
@@ -1520,6 +1583,35 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
         bump_n = g.custom("float3 n = N; n.xy += F.yz * Relief; return normalize(n);",
                           [("N", bump_n, ""), ("F", foot, ""), ("Relief", g.scalar("FootRelief", 1.0), "")],
                           description="footprint normal")
+    # Structures (SURFACE_CODE): relief from the base map, roughness, wear.
+    surface = g.vector4("Surface", (0.0, 3.0, 0.45, 0.6))
+    world_pos = g.node(unreal.MaterialExpressionWorldPosition, x=-2000)
+    nw_vertex = g.node(unreal.MaterialExpressionVertexNormalWS)
+    base_t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Base", texture=white,
+                    sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    micro_t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Micro", texture=grey,
+                     sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    wear_t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="SurfaceWear",
+                    texture=defaults["T_CE_Grey"], sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    surf = g.custom(SURFACE_CODE, [
+        ("BumpN", bump_n, ""), ("BaseT", base_t, ""), ("UV", uv0, ""), ("MicroT", micro_t, ""),
+        ("MUV", scaled("MicroScale", "MicroAspect"), ""), ("HasMicro", g.scalar("HasMicro", 0.0), ""),
+        ("Texel", g.vector4("SurfaceTexel", (1.0 / 256.0, 1.0 / 256.0, 1.0 / 128.0, 1.0 / 128.0)), ""),
+        ("Surface", surface, ""), ("W", world_pos, ""), ("Nw", nw_vertex, ""), ("WearT", wear_t, "")],
+        description="structure surface")
+    outs = []
+    for oname in ("Rough", "Spec", "Wear"):
+        o = unreal.CustomOutput()
+        o.set_editor_property("output_name", oname)
+        o.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+        outs.append(o)
+    surf.set_editor_property("additional_outputs", outs)
+    bump_n = surf
+    base_tex = base
+    base = g.custom(SURFACE_BASE_CODE, [("B", base, base_pin), ("Surface", surface, ""), ("W", world_pos, ""),
+                                        ("Nw", nw_vertex, ""), ("Wear", surf, "Wear")],
+                    output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="structure wear")
+    base_pin = ""
     link(bump_n, "", bump_w, "")
     vertex_n = g.node(unreal.MaterialExpressionVertexNormalWS)
     reflect_flat = g.scalar("ReflectFlat", 0.0)
@@ -1589,12 +1681,16 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     sun_split(g, g.to_screen(c), lightmap, has_lightmap, bake, has_bake, bake_range, sun_mask_node(g, white),
               sunlit=sunlit, bump_n=bump_n, sunshare=sunshare, has_sunshare=has_sunshare, ambient=ambient,
               debug_extra=[("Full", sunlit, ""), ("Amb", amb_raw, "")])
+    # A structure's own roughness and specular (SURFACE_CODE); sun_split
+    # left CE's matte constants on them.
+    mel.connect_material_property(surf, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(surf, "Spec", unreal.MaterialProperty.MP_SPECULAR)
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).
         pick = g.node(unreal.MaterialExpressionLinearInterpolate, x=-300)
         link(bump, "A", pick, "A")
-        link(base, "A", pick, "B")
+        link(base_tex, "A", pick, "B")
         link(g.scalar("AlphaFromBase", 0.0), "", pick, "Alpha")
         # A ground slot a Landscape draws (MJOLNIRLevelLoader, LandCut 1,
         # AlphaTest 0): the mesh keeps only the landscape's holes, from the
@@ -2326,7 +2422,9 @@ float ao = lerp(lerp(lerp(sandO.r, ripO.r, ripple), dirtO.r, dirtW), grO.r, gras
 // CE's own colour, a little: the map's paths and patches.
 float3 cel = pow(max(ce.rgb, 1e-3), 2.2);
 float cell = max(dot(cel, float3(0.2126, 0.7152, 0.0722)), 1e-3);
-albedo *= lerp(1.0.xxx, clamp(cel / max(Mix.w, 1e-3), 0.5, 1.8), Mix.z);
+// On grass no more than 1.15x: CE's pale path paint bleeding into a grass
+// bank lifted the grass ground nearly white (Blood Gulch, 2026-10-12).
+albedo *= lerp(1.0.xxx, clamp(cel / max(Mix.w, 1e-3), 0.5, lerp(1.8, 1.15, grass)), Mix.z);
 
 // CE's baked light as occlusion (Look.z): the lightmap relative to its
 // sunlit level, softened; it keeps the shade CE's lighting gave (trees,
@@ -2398,6 +2496,9 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     float3 rT = normalize(mul(Parameters.TangentToWorld, rN));
     float3 rMean = Texture2DSampleLevel(RockD, RockDSampler, float2(0.5, 0.5), 13.0).rgb;
     float3 rock = rMean * RockTint.rgb * max(1.0 + (rA / max(rMean, 1e-3) - 1.0) * 1.3, 0.0);
+    // In CE's colour as the ground around it: grey rock on Blood Gulch's red
+    // banks drew pale, nearly white patches (2026-10-12).
+    rock *= lerp(1.0.xxx, clamp(cel / max(Mix.w, 1e-3), 0.5, 1.5), Mix.z);
     albedo = lerp(albedo, rock, st);
     Normal = normalize(lerp(Normal, rT, st));
     rough = lerp(rough, 0.8, st);
@@ -2413,7 +2514,15 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * saturate(ao) * share;
 }
 
-Rough = saturate(rough);
+// Grass is a diffuse surface: its ORHG roughness (about 0.7) still drew a
+// sheen at Blood Gulch's low sun, the turf near white from across the
+// valley (2026-10-12). Earth and sand keep their own.
+Rough = saturate(lerp(rough, max(rough, 0.92), grass));
+// Specular: grass all but matte (a slope lit from behind it by a low sun
+// still drew a white sheen at the engine's 0.5, Blood Gulch, 2026-10-12);
+// earth and sand a little.
+// (At 0 Unreal's Fresnel drops its grazing term too: saturate(50 x F0).)
+Spec = lerp(0.3, 0.0, grass);
 AO = saturate(ao);
 return max(albedo, 0.0);
 #undef LP_HASH
@@ -2541,6 +2650,7 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
                        ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
                        ("AO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
                        ("PDO", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("Spec", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
                        ("Emissive", unreal.CustomMaterialOutputType.CMOT_FLOAT3)):
         o = unreal.CustomOutput()
         o.set_editor_property("output_name", name)
@@ -2554,8 +2664,7 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
     mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
     # Python's MaterialProperty has no Pixel Depth Offset (the plugin's does).
     unreal.MjolnirUIBuilderLibrary.connect_pixel_depth_offset(m, c, "PDO")
-    mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
-                                  unreal.MaterialProperty.MP_SPECULAR)
+    mel.connect_material_property(c, "Spec", unreal.MaterialProperty.MP_SPECULAR)
     if land:
         holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
     else:
@@ -2957,7 +3066,23 @@ def build_cliff_pbr(defaults):
     eal.save_loaded_asset(m)
 
 
+def build_hidden():
+    """M_CE_Hidden: draws nothing, casts nothing. A terrain slot whose CE
+    scenery B30's own assets replace (tools/level/scenery_swap.py) points
+    at it: the scenery is baked into the terrain mesh, a slot a shader."""
+    m = fresh(ROOT, "M_CE_Hidden", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.0), "",
+                                  unreal.MaterialProperty.MP_OPACITY_MASK)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 if TRIAL_ROOT:
+    build_hidden()
     build_environment("M_CE_Landscape", False, defaults, land=True)
     build_landscape_pbr(defaults)
     build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
