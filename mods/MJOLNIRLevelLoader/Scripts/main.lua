@@ -3106,7 +3106,7 @@ function Land.cliffs(world, spec)
                             -- (at the cliffs' 2.6 the boulders went white).
                             local mx = type(cliff.mix) == "table" and cliff.mix or { 0.6, 1, 1, 1 }
                             local lk = type(cliff.look) == "table" and cliff.look or { 1.2, 0.55, 0.3, 1.5 }
-                            vec(mid, "CliffMix", { mx[1], mx[2], 1.0, mx[4] })
+                            vec(mid, "CliffMix", { mx[1], mx[2], 0.75, mx[4] })
                             vec(mid, "CliffLook", { lk[1], 0.7, lk[3], 1.2 })
                         end
                         -- The foot's sand tint: the ground's own (as the beach).

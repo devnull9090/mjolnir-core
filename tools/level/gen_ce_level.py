@@ -192,7 +192,9 @@ STOCK_TITLES = {
 # foam: from the beach it drew a still, pale stripe across the sea.
 OCEAN_MAPS = {
     "deathisland": {"ParaBrightness": 0.55, "ParaTint": [0.8, 0.9, 0.95, 1.0], "Roughness": 0.22,
-                    "FoamAmount": 0.0, "Specular": 0.35, "NearShoreDetail": 1.5},
+                    "FoamAmount": 0.0, "Specular": 0.35, "NearShoreDetail": 1.5,
+                    # The original's dark green sea, not a blue one.
+                    "WaterColor": [0.03, 0.1, 0.07, 1.0], "PerpTint": [0.25, 0.45, 0.38, 1.0]},
     "yoyorast_island_v2": {},
 }
 

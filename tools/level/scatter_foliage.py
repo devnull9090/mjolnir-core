@@ -79,8 +79,10 @@ DETAIL_CLASSES = (("grass", ("detail_grass",)), ("sand", ("detail_sand",)))
 # maps are one of NATURAL_DETAILS, so green metal stays bare.
 NATURAL_DETAILS = ("cliff", "rock", "ground", "dirt", "sand")
 GREEN_MARGIN = (0.03, 0.10)
-GRASS_TINT = [0.38, 0.5, 0.26]
-TUFT_TINT = [0.55, 0.6, 0.38]
+# The grass and tufts in the original's deeper green (matched side by side,
+# 2026-10-11; B30's own tint is a dry grey).
+GRASS_TINT = [0.12, 0.3, 0.08]
+TUFT_TINT = [0.3, 0.42, 0.18]
 
 # Each rule: the ground class it grows on and the share of it it needs
 # (`share`: [low, high], thinned linearly between), clumps a square metre,

@@ -473,8 +473,9 @@ def main():
                   # Megascans jagged rock at 5 m and 14 m (rough rock read as a
                   # rubble wall at any scale; Jagged_Rock and the 8K shale drew
                   # far cliffs black);
-                  # a near-neutral tint with half CE's banding (brighter, the
-                  # cliffs read as yellow sponge from afar); the fill
+                  # CE's own colour leading (look.y 0.85, at 1.4x: at 2.6x the
+                  # rock went gold) under a brown tint, as the original's
+                  # streaky brown walls; the fill
                   # is the sand's bounce, which this sky light alone lacks.
                   "rock_a": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
                              "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
@@ -482,11 +483,11 @@ def main():
                   "rock_b": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
                              "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
                              "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
-                  "tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.6, 2.6, 1.0], "look": [2.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
-                  # CE's light colour at 0.8: the dusk's purple shade and warm
-                  # sun, as on CE's own surfaces beside the rock.
-                  "ce_tint": [0.8, 0, 0, 0],
-                  "tint": [1.25, 1.25, 1.3, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
+                  "tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.6, 1.4, 1.0], "look": [2.2, 0.85, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
+                  # CE's light colour at 0.5: some of the dusk's purple shade
+                  # and warm sun, as on CE's own surfaces beside the rock.
+                  "ce_tint": [0.5, 0, 0, 0],
+                  "tint": [0.8, 0.66, 0.56, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
                   # Under the lip a ragged turf rim to 35 cm, no earth band (the
                   # damp soil drew black lines along every lip), stains 7 m down;
                   # at the foot sand banked 35 cm up, shade over 1.5 m.
@@ -499,16 +500,18 @@ def main():
                 # contrast, CE shade as occlusion, second sand; ripples to 12 m
                 # over the sea (at 5 m most of the beach was flat grain; B30's
                 # ripples run up it).
-                # Sand tint near grey and CE's own colour at 0.12 (mix): under
-                # the warmed light, the warmer tint and CE's base map turned the
-                # sand salmon; B30's is a grey beige.
-                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.86, 0.85, 0.84, 1.0], "sea": [1200, 80],
+                # Colours matched to the original map side by side
+                # (2026-10-11): sand a cool grey tint (the Megascans sand is
+                # peach under the warmed light; CE's is grey beige), the grass
+                # a deeper green, CE's own colour at 0.4 (mix: its grey sand and darker
+                # patches from afar).
+                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.66, 0.74, 0.78, 1.0], "sea": [1200, 80],
                 # A damp band 80 cm up from the sea, darker and a little glossy
                 # (B30's waterline; 40 cm and gloss 0.35 read as a foil strip).
                 "wet": [0.55, 0.55, 0, 0],
-                "mix": [0.35, 0.65, 0.12, 0.25],
+                "mix": [0.35, 0.65, 0.4, 0.25],
                 # B30's ground grass ships desaturated, for its material to tint.
-                "grass_tint": [0.62, 0.78, 0.36, 1.0],
+                "grass_tint": [0.34, 0.62, 0.2, 1.0],
                 # Parallax: the sand's relief and the footprints 4 cm deep,
                 # out to 25 m, 14 ray steps (Death Island at 4K: +0.2 ms GPU).
                 "parallax": [4.0, 4.0, 2500, 14],
@@ -523,10 +526,11 @@ def main():
                 # taking over from 15 to 60 m.
                 "macro": [0.6, 1500, 6000, 9],
                 # The level's sun and sky light, scaled and tinted (the loader,
-                # as it reads the level file): a stronger, warmer sun and warm
-                # shade, where the purple dusk sky had turned the sand mauve.
-                "light": {"sun": {"scale": 1.5, "tint": [1.0, 0.93, 0.75]},
-                          "sky": {"scale": 1.0, "tint": [1.0, 0.78, 0.55]}}},
+                # as it reads the level file): a stronger sun, both a touch
+                # warm against the purple dusk sky (which turned the sand
+                # mauve); warmer, everything went gold beside the original.
+                "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
+                          "sky": {"scale": 1.0, "tint": [1.0, 0.95, 0.85]}}},
     }
     json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")
