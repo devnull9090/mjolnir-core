@@ -499,7 +499,10 @@ def main():
                 # Sand tint near grey and CE's own colour at 0.12 (mix): under
                 # the warmed light, the warmer tint and CE's base map turned the
                 # sand salmon; B30's is a grey beige.
-                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.86, 0.85, 0.84, 1.0], "sea": [1200, 40],
+                "look": [5.0, 2.6, 0.6, 0.7], "sand_tint": [0.86, 0.85, 0.84, 1.0], "sea": [1200, 80],
+                # A damp band 80 cm up from the sea, darker and a little glossy
+                # (B30's waterline; 40 cm and gloss 0.35 read as a foil strip).
+                "wet": [0.55, 0.55, 0, 0],
                 "mix": [0.35, 0.65, 0.12, 0.25],
                 # B30's ground grass ships desaturated, for its material to tint.
                 "grass_tint": [0.62, 0.78, 0.36, 1.0],
