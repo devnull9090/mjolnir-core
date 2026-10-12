@@ -224,7 +224,8 @@ def stage_assemble(code, m, p):
         if leaves:
             append_foliage(os.path.join(p["work"], "foliage.bin"), leaves)
             level["foliage"]["groups"].append({"mesh": swap["leaves"]["mesh"], "rule": "tree leaves",
-                                               "cull": [20000, 45000], "shadow": True})
+                                               "cull": [20000, 45000], "shadow": True,
+                                               "scalars": swap["leaves"].get("scalars")})
             print(f"  {code}: {len(leaves)} leaf cluster(s) on the swapped trees")
         print(f"  {code}: {swap['count']} scenery object(s) swapped, {hidden} CE slot(s) hidden")
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
@@ -247,8 +248,80 @@ def stage_assemble(code, m, p):
                 if first is not None and i != first and isinstance(m, dict) and "M_CE_Water" in m.get("parent", ""):
                     mats[i] = json.loads(json.dumps(mats[first]))
     structures = mark_structures(level)
+    lights = ce_lights(p)
+    if lights:
+        level["lights"] = lights
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
-    print(f"  {code}: level file with {len(level['foliage']['groups'])} foliage group(s), {structures} structure slot(s)")
+    print(f"  {code}: level file with {len(level['foliage']['groups'])} foliage group(s), {structures} structure slot(s), "
+          f"{len(lights)} light(s)")
+
+
+# CE's placed lights as Unreal point lights (the loader's `lights`): a CE
+# radiosity intensity of 3 (Death Island's fixtures) is about 25 cd before
+# the loader's light scale, bright enough to light a base's hall without
+# flattening it (2026-10-12). Each light steps LIGHT_STEP cm out of its
+# fixture: CE's marker sits on the fixture's face, and in Unreal the
+# fixture's own shadow hid a wall sconce and the floor above leaked an
+# underside lamp's light through its seams.
+LIGHT_CD = 25.0 / 3.0
+LIGHT_RADIUS = 2000.0
+LIGHT_STEP = 30.0
+
+
+def ce_lights(p):
+    """The conversion's scene_lights.json (merge_ce_scene.py --lights) in the
+    level's own terms: position (Unreal cm), colour, candela, radius. A
+    fixture's marker points into the wall for some models and out of the
+    fixture for others, so each light steps out along whichever way of its
+    axis has more room before the scene's geometry."""
+    path = os.path.join(p["scene"], "scene_lights.json")
+    if not os.path.exists(path):
+        return []
+    lights = [l for l in json.load(open(path, encoding="utf-8")).get("lights") or []
+              if l.get("intensity", 0) > 0 and max(l.get("colour") or [0]) > 0]
+    if not lights:
+        return []
+    import numpy as np
+    sys.path.insert(0, HERE)
+    from refine_water_gltf import read_accessor
+    gltf = os.path.join(p["scene"], "scene.gltf")
+    doc = json.load(open(gltf, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()
+    tris = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            tris.append(pos[idx])
+    tris = np.concatenate(tris)  # glTF metres, y up
+    v0, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+
+    def room(origin, d):
+        """Metres along d before the first triangle (Moller-Trumbore), at most 10."""
+        pv = np.cross(d, e2)
+        det = np.einsum("ij,ij->i", e1, pv)
+        ok = np.abs(det) > 1e-9
+        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+        tv = origin - v0
+        u = np.einsum("ij,ij->i", tv, pv) * inv
+        qv = np.cross(tv, e1)
+        v = (qv @ d) * inv
+        t = np.einsum("ij,ij->i", e2, qv) * inv
+        hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-3)
+        return float(t[hit].min()) if hit.any() else 10.0
+
+    out = []
+    for l in lights:
+        g = np.asarray(l["pos"], dtype=np.float64)
+        d = np.asarray(l.get("dir") or [0.0, -1.0, 0.0], dtype=np.float64)
+        d = d / max(np.linalg.norm(d), 1e-9)
+        if room(g, -d) > room(g, d):
+            d = -d
+        g = g + d * (LIGHT_STEP / 100.0)
+        out.append({"name": l.get("name"), "pos": [round(g[0] * 100, 1), round(g[2] * 100, 1), round(g[1] * 100, 1)],
+                    "colour": [round(c, 3) for c in l["colour"]], "intensity": round(l["intensity"] * LIGHT_CD, 2),
+                    "radius": LIGHT_RADIUS})
+    return out
 
 
 def append_foliage(path, records):

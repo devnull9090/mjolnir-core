@@ -226,6 +226,18 @@ def model_box(path, cache={}):
     return cache[path]
 
 
+# The Kuenovo trees' sway (MIP_ManedKuenovo, on MM_Foliage_MET) for pieces
+# placed one by one: the material phases its motion by each instance's
+# position (PerInstanceWindVariation 1000), so a tree of 20 to 60 pieces and
+# its leaf clusters swung every piece its own way, by metres at our sizes
+# (2026-10-12). One phase for all, no wind-driven sway (its 180 degree
+# range in our flowmap wind was most of the motion), small idle angles and a
+# third of the leaf flutter: about a third of the motion, measured on DTI's
+# cliff trees from frame differences.
+TREE_CALM = {"PerInstanceWindVariation": 0.0, "Wind Sway Max Angle": 0.0, "Wind Bend Max Angle": 0.0,
+             "Bend Max Angle": 1.0, "Branch Lift Max Angle": 2.0, "Branch Spin Max Angle": 1.5,
+             "Branch Sway Max Angle": 1.5, "Flutter Intensity": 3.0}
+
 FX = "/Game/FX/Library/Environment/PNW/"
 EFFECTS = {
     "butterflies": FX + "Creatures/Insects/Butterfly/NS_Creature_ButterflySwarm_01",
@@ -337,7 +349,8 @@ def swap(a):
                 ox, oy, oz = (v * s for v in part["off"])
                 decor.append({"id": f"swap_{n}_{part['mesh'].rsplit('_', 1)[-1]}", "mesh": object_path(part["mesh"]),
                               "pos": [round(x + ox * c - oy * sn, 1), round(y + ox * sn + oy * c, 1), round(z + oz, 1)],
-                              "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3})
+                              "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
+                              "scalars": TREE_CALM})
         else:
             if kind == "bigrock":
                 mesh = BIG_ROCK
@@ -382,7 +395,7 @@ def swap(a):
         effects = make_effects(fol, a.sea, trees)
         print(f"{len(effects['placed'])} effect(s) placed")
     json.dump({"decor": decor, "hide": hide, "count": sum(replaced.values()), "effects": effects,
-               "leaves": {"mesh": object_path(LEAVES), "records": leaves}},
+               "leaves": {"mesh": object_path(LEAVES), "records": leaves, "scalars": TREE_CALM}},
               open(a.out, "w", encoding="utf-8"), indent=1)
     print(f"{len(leaves)} leaf cluster(s) on the trees")
     print(f"{sum(replaced.values())} scenery object(s) in B30's assets ({len(decor)} decor entries, "

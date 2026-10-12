@@ -238,6 +238,10 @@ local Current = {
     -- CE material instances told the sun's illuminance (runtimeMaterial),
     -- for `mjolnir_light_scale`.
     sunMids = {},
+    -- Material instances with a level file's `scalars` (scalarMid), by
+    -- source material, shared by every decor piece and foliage group that
+    -- asks for the same values.
+    scalarMids = {},
 }
 
 local function resetState()
@@ -259,6 +263,7 @@ local function resetState()
     Current.movingSounds = {}
     Current.volumed = {}
     Current.sunMids = {}
+    Current.scalarMids = {}
     Current.water = nil
     -- Flag state is per match: the first drop of a match took the last
     -- match's team.
@@ -279,6 +284,7 @@ local function clearActors()
     end
     Current.actors = {}
     Current.sunMids = {}
+    Current.scalarMids = {}
     Current.movingSounds = {}
     Current.volumed = {}
     Current.spawned = 0
@@ -1157,6 +1163,33 @@ local function applySunMask(world)
         fills > 0 and string.format(", %d sky fill light(s)", fills) or "")
 end
 
+--- A copy of `src` with a level file's `scalars` ({ name = value }), one a
+--- source material and set of values for the whole level. B30's trees
+--- (MM_Foliage_MET) sway by their material's own angles, each instance on its
+--- own phase: a swapped tree, built from 20 to 60 pieces and its leaf
+--- clusters, swung every piece its own way by metres (2026-10-12).
+local function scalarMid(world, src, scalars)
+    if not (src and src:IsValid()) or type(scalars) ~= "table" then return nil end
+    local names = {}
+    for name, v in pairs(scalars) do
+        if type(v) == "number" then names[#names + 1] = name end
+    end
+    table.sort(names)
+    local key = src:GetFullName()
+    for _, name in ipairs(names) do key = key .. "|" .. name .. "=" .. tostring(scalars[name]) end
+    local mid = Current.scalarMids[key]
+    if mid and mid:IsValid() then return mid end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    if not kml then return nil end
+    local n = 0
+    for _ in pairs(Current.scalarMids) do n = n + 1 end
+    mid = kml:CreateDynamicMaterialInstance(world, src, FName(string.format("scalars_%d", n)), 0)
+    if not (mid and mid:IsValid()) then return nil end
+    for _, name in ipairs(names) do mid:SetScalarParameterValue(FName(name), scalars[name]) end
+    Current.scalarMids[key] = mid
+    return mid
+end
+
 local function spawnDecorItem(world, origin, item)
     if type(item) ~= "table" or type(item.mesh) ~= "string"
         or type(item.pos) ~= "table" then
@@ -1249,6 +1282,17 @@ local function spawnDecorItem(world, origin, item)
                 }
             end
         end
+    end
+    -- `scalars`: values on the mesh's own materials (scalarMid), e.g. a
+    -- swapped tree's sway.
+    if type(item.scalars) == "table" then
+        pcall(function()
+            local comp = actor.StaticMeshComponent
+            for i = 0, comp:GetNumMaterials() - 1 do
+                local mid = scalarMid(world, comp:GetMaterial(i), item.scalars)
+                if mid then comp:SetMaterial(i, mid) end
+            end
+        end)
     end
     -- After the materials: the strength is set on them.
     if (TerrainShadows.cast or TerrainShadows.strength) and isTerrain(item) then
@@ -2747,7 +2791,7 @@ end
 --- `foliage` in the level file (tools/level/scatter_grass.py): `file`, the
 --- clumps beside the level file (FOLIAGE_MAGIC, then per group a count and
 --- that many x, y, z float32 cm, yaw in 256ths of a turn and scale in
---- hundredths), `groups` [{ mesh, tint, tint_param, params, material, cull, shadow, bands }] in the
+--- hundredths), `groups` [{ mesh, tint, tint_param, params, scalars, material, cull, shadow, bands }] in the
 --- file's order (tools/level/scatter_foliage.py: grass, tufts, rocky
 --- ground, stones), and optional `cull` [start, end] cm for groups without
 --- their own and `wind` { dir = [x, y], strength = 0..1 }.
@@ -2887,6 +2931,50 @@ function Effects.spawn(world)
     Log(string.format("effects: %d placed, %d on the camera, %d failed", placed, attached, failed))
 end
 
+--- CE's placed lights (level.lights, tools/level/upgrade_ce_map.py
+--- ce_lights: a base's wall sconces and floor lamps), as shadowed point
+--- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
+--- before the light scale, lightScale), `radius` (cm). The terrain shades
+--- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
+--- surfaces out of their reach.
+local PlacedLights = {}
+
+function PlacedLights.spawn(world)
+    local lights = Current.level and Current.level.lights
+    if type(lights) ~= "table" or #lights == 0 then return end
+    local cls = findObject("/Script/Engine.PointLight")
+    if not cls then return end
+    local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+    local k = lightScale()
+    local n = 0
+    for i, l in ipairs(lights) do
+        local key = "__light_" .. i
+        local p = type(l) == "table" and l.pos
+        if type(p) == "table" and not (Current.actors[key] and Current.actors[key]:IsValid()) then
+            local ok, actor = pcall(function()
+                return world:SpawnActor(cls, { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                    { Pitch = 0, Yaw = 0, Roll = 0 })
+            end)
+            if ok and actor and actor:IsValid() then
+                pcall(function()
+                    local c = actor.LightComponent
+                    local colour = type(l.colour) == "table" and l.colour or { 1, 1, 1 }
+                    c.Mobility = MOBILITY_MOVABLE
+                    c.IntensityUnits = 1 -- candelas
+                    c:SetIntensity((tonumber(l.intensity) or 25) * k)
+                    c:SetAttenuationRadius(tonumber(l.radius) or 2000)
+                    c:SetLightColor({ R = colour[1], G = colour[2], B = colour[3], A = 1 }, true)
+                    c:SetCastShadows(true)
+                    c.SourceRadius = 8
+                end)
+                Current.actors[key] = actor
+                n = n + 1
+            end
+        end
+    end
+    Log(string.format("lights: %d of CE's placed lights", n))
+end
+
 --- The game's foliage quality (Settings > Video, sg.FoliageQuality 0..3):
 --- below Epic the grass groups keep one clump in `keep` and every group
 --- culls at `cull` of its distance, so a lower setting pays less for B30's
@@ -2984,10 +3072,20 @@ function Foliage.spawn(world)
                                 end
                             end
                         end
+                        for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
+                            if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
+                        end
                         mids[i] = mid
                     end
                 end
                 for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
+            elseif type(group.scalars) == "table" then
+                -- `scalars`: values on the mesh's own materials (scalarMid),
+                -- e.g. a swapped tree's leaf clusters.
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
+                    if mid then comp:SetMaterial(i, mid) end
+                end
             end
             comps[#comps + 1] = comp
         end
@@ -3710,6 +3808,8 @@ local function spawnDecor(world)
     if not ok then Log("foliage: " .. tostring(err)) end
     ok, err = pcall(Effects.spawn, world)
     if not ok then Log("effects: " .. tostring(err)) end
+    ok, err = pcall(PlacedLights.spawn, world)
+    if not ok then Log("lights: " .. tostring(err)) end
     Land.apply(world)
 end
 
@@ -4073,6 +4173,10 @@ local function setLightScale(args)
     local sunEnv, skyEnv = env.sun or {}, env.skylight or {}
     if sun then pcall(function() sun.LightComponent:SetIntensity((sunEnv.intensity or 8.0) * k) end) end
     if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * k) end) end
+    for i, l in ipairs(type(Current.level.lights) == "table" and Current.level.lights or {}) do
+        local a = actor("__light_" .. i)
+        if a then pcall(function() a.LightComponent:SetIntensity((tonumber(l.intensity) or 25) * k) end) end
+    end
     if post then
         pcall(function()
             local s = post.Settings
