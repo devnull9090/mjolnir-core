@@ -3,6 +3,7 @@
 
     scatter_foliage.py <scene.gltf> <materials.spec.json> <out.json> --bin foliage.bin
         [--sea cm] [--offset x,y,z] [--lift cm] [--center x,y --radius r] [--seed 1] [--only rule,...]
+        [--detail name=class ...] [--edge landscape.json] [--no-cladding]
 
 CE draws its ground as detail maps: a blended shader_environment (Death
 Island's beach) picks between two by its base map's alpha (TEXTURE_PASS_CODE
@@ -168,9 +169,14 @@ def object_path(package):
     return package + "." + package.rsplit("/", 1)[-1]
 
 
+# --detail name=class pairs: maps whose detail bitmaps say nothing of what
+# they are (a protected map's protected_bitm_nNNNN) name them.
+EXTRA_DETAILS = []
+
+
 def detail_class(path):
     lower = path.lower()
-    for cls, names in DETAIL_CLASSES:
+    for cls, names in EXTRA_DETAILS + list(DETAIL_CLASSES):
         if any(n in lower for n in names):
             return cls
     return None
@@ -466,12 +472,17 @@ def main():
                          "Without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--edge", help="a landscape.json (build_landscape.py) whose edge map places the lip rules")
     ap.add_argument("--no-cladding", action="store_true", help="leave the cliffs' cladding rocks out")
+    ap.add_argument("--detail", action="append", default=[], metavar="NAME=CLASS",
+                    help="a detail bitmap (substring of its name) and its class, sand or grass; repeatable")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--only", help="comma-separated rule names")
     a = ap.parse_args()
 
+    for pair in a.detail:
+        name, cls = pair.split("=", 1)
+        EXTRA_DETAILS.append((cls, (name.lower(),)))
     rules = [r for r in RULES if not a.only or r["name"] in a.only.split(",")]
     if a.sea is None:
         # A rule that lives in a band above the sea has no place on a map

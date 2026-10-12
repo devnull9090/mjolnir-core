@@ -195,7 +195,8 @@ OCEAN_MAPS = {
                     "FoamAmount": 0.0, "Specular": 0.35, "NearShoreDetail": 1.5,
                     # The original's dark green sea, not a blue one.
                     "WaterColor": [0.03, 0.1, 0.07, 1.0], "PerpTint": [0.25, 0.45, 0.38, 1.0]},
-    "yoyorast_island_v2": {},
+    # No crest foam: from above it drew still white rings around the islands.
+    "yoyorast_island_v2": {"FoamAmount": 0.0},
 }
 
 # Under a multiplayer (Megalo) engine the simulation never reads the scenario's

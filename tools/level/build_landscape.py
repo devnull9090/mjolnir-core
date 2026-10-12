@@ -75,6 +75,12 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 # (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
 # cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
+    # Yoyorast Island (LYY, 2026-10-12): its grey island rock took a purple
+    # cast from CE's bluish lightmap at the dusk share; CE's light at 0.15,
+    # its colour at 1.1x under a warm grey tint.
+    "LYY": {
+        "cliff": {"ce_tint": [0.15, 0, 0, 0], "tint": [0.85, 0.8, 0.72, 1.0], "mix": [0.6, 1.6, 1.1, 1.0]},
+    },
     "LBG": {
         "pbr": {"sand_tint": [0.92, 0.84, 0.64, 1.0], "mix": [0.35, 0.65, 0.5, 0.25], "slope": [0.92, 0.8, 1.0, 0.6],
                 "look": [3.0, 1.15, 0.6, 0.5], "tiles": [400, 250, 300, 700],
@@ -396,7 +402,10 @@ def main():
     pc = np.pad(grow, 1)
     cut = ~ground | np.logical_or.reduce([pc[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
                                          for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
-    zc = 0.0
+    # The actor's z: the ground's middle height, rounded to the metre. A
+    # height is 16 bits, +-256 m about it at z scale 100 (Yoyorast's ground
+    # lies at -258 m, which clipped at a fixed 0).
+    zc = float(np.round((np.nanmin(z) + np.nanmax(z)) / 2.0 / 100.0) * 100.0)
     h = np.clip(np.round(32768 + (zf - zc) * 128.0 / 100.0), 0, 65535).astype("<u2")
     h.tofile(os.path.join(a.out, "heights.r16"))
     print(f"heights: {ground.mean() * 100:.0f}% over the ground, z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m")
