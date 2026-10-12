@@ -2712,7 +2712,14 @@ end
 --- MJF2 files (scatter_foliage.py since 2026-10-11) add to each clump the
 --- ground's normal x and y in 127ths, a signed byte each: rocks lie along
 --- the slope (0, 0 stands upright, as every MJFG clump does).
-local Foliage = { MAGIC = "MJFG", MAGIC2 = "MJF2", CULL = { 5000, 9000 }, on = true }
+--- MJF3 adds three colour bytes a record (100ths; 255s for none), the CE
+--- light where a cliff group's rock sits. Cliff groups (`cliff`,
+--- scatter_foliage's cladding) are mesh actors, one a rock, not instances:
+--- this game's renderer drew our materials black on instanced meshes. They
+--- are drawn in the cliffs' rock once the landscape is applied (Land.cliffs,
+--- from Foliage.cliffGroups: the actors, the wall's base map, the group's
+--- light).
+local Foliage = { MAGIC = "MJFG", MAGIC2 = "MJF2", MAGIC3 = "MJF3", CULL = { 5000, 9000 }, on = true, cliffGroups = {} }
 
 --- A clump's rotation: turned `yaw` (radians) about the vertical, then tilted
 --- so its up is the ground normal (nx, ny, up).
@@ -2757,6 +2764,36 @@ function Foliage.wind(world, wind, centre)
     return true
 end
 
+--- A cliff group's rocks (MJF3 records from `pos`) as mesh actors, no
+--- collision; returns the position after them.
+function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
+    local cls = findObject("/Script/Engine.StaticMeshActor")
+    local actors = {}
+    for k = 1, size do
+        local x, y, z, yaw, scale, nx, ny
+        x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbbxxx", raw, pos)
+        if mesh and cls then
+            local actor = world:SpawnActor(cls, { X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 })
+            if actor and actor:IsValid() then
+                local s = scale / 100
+                actor:SetMobility(MOBILITY_MOVABLE)
+                local c = actor.StaticMeshComponent
+                c:SetStaticMesh(mesh)
+                c:SetCollisionEnabled(COLLISION_NONE)
+                -- Out of Lumen's bounce: 3,000 rocks lit by the cliffs' fill
+                -- (emissive) bounced the whole scene orange.
+                pcall(function() c:SetAffectDynamicIndirectLighting(false) end)
+                actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
+                actors[#actors + 1] = actor
+                Current.actors[string.format("__clad_%d_%d", g, k)] = actor
+            end
+        end
+    end
+    Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = actors, base = group.base, light = group.light }
+    return pos
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
     if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
@@ -2764,7 +2801,7 @@ function Foliage.spawn(world)
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
     local magic = raw and raw:sub(1, 4)
-    if magic ~= Foliage.MAGIC and magic ~= Foliage.MAGIC2 then
+    if magic ~= Foliage.MAGIC and magic ~= Foliage.MAGIC2 and magic ~= Foliage.MAGIC3 then
         Log("foliage: " .. foliage.file .. " missing or not a foliage file")
         return
     end
@@ -2774,13 +2811,20 @@ function Foliage.spawn(world)
     local cull = type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
     local started = os.clock()
     local _, count, pos = string.unpack("<II", raw, 5)
-    local tilted = magic == Foliage.MAGIC2
+    local tilted = magic == Foliage.MAGIC2 or magic == Foliage.MAGIC3
+    local coloured = magic == Foliage.MAGIC3
+    Foliage.cliffGroups = {}
     local total, sx, sy, n = 0, 0, 0, 0
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)
         local group = foliage.groups[g] or {}
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
+        if group.cliff == true and coloured then
+            pos = Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
+            total = total + size
+            goto continue
+        end
         local actor = mesh and cls and hism and world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
         -- `bands` > 1: the group's clumps dealt in turn to that many meshes,
         -- culled at distances spread over its cull range. The game's foliage
@@ -2822,7 +2866,9 @@ function Foliage.spawn(world)
             for k = 1, size do
                 local x, y, z, yaw, scale
                 local nx, ny = 0, 0
-                if tilted then
+                if coloured then
+                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbbxxx", raw, pos)
+                elseif tilted then
                     x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbb", raw, pos)
                 else
                     x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
@@ -2834,9 +2880,10 @@ function Foliage.spawn(world)
             end
             total = total + size
         else
-            pos = pos + size * (tilted and 16 or 14)
+            pos = pos + size * (coloured and 19 or tilted and 16 or 14)
             Log("foliage: group " .. g .. " not spawned (" .. tostring(group.mesh) .. ")")
         end
+        ::continue::
     end
     local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
     Log(string.format("foliage: %d clump(s) in %d group(s), %.1f s%s", total, count, os.clock() - started,
@@ -3040,6 +3087,7 @@ function Land.cliffs(world, spec)
                         vec(mid, "RockTint", cliff.tint)
                         vec(mid, "CliffRough", cliff.rough)
                         vec(mid, "CliffFar", cliff.far)
+                        vec(mid, "CliffCETint", cliff.ce_tint)
                         if textures.Edge then
                             vec(mid, "EdgeRect", edge.rect)
                             vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
@@ -3074,6 +3122,43 @@ function Land.cliffs(world, spec)
                     end
                 end
             end
+        end
+    end
+    -- The cladding rocks (Foliage.cliffGroups): the same rock, their CE base
+    -- map the wall's, their CE light their group's (no lightmap page).
+    for gi, group in ipairs(Foliage.cliffGroups or {}) do
+        local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_clad_%d", gi)), 0)
+        if mid and mid:IsValid() then
+            for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
+            local base = type(group.base) == "string" and resolveMesh(group.base)
+            if base then mid:SetTextureParameterValue(FName("Base"), base) end
+            vec(mid, "GrassTint", spec.pbr and spec.pbr.grass_tint)
+            vec(mid, "CliffTiles", cliff.tiles)
+            vec(mid, "CliffMix", cliff.mix)
+            vec(mid, "CliffLook", cliff.look)
+            vec(mid, "RockTint", cliff.tint)
+            vec(mid, "CliffRough", cliff.rough)
+            vec(mid, "CliffFar", cliff.far)
+            vec(mid, "CliffCETint", cliff.ce_tint)
+            local f = cliff.fill
+            if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
+            if textures.Edge then
+                vec(mid, "EdgeRect", edge.rect)
+                vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
+            end
+            -- Rocks have no lip of their own and no foot: no turf, no sand.
+            local d = type(cliff.drape) == "table" and cliff.drape or { 35, 35, 700 }
+            vec(mid, "CliffDrape", { d[1], d[2], d[3], 0 })
+            vec(mid, "CliffFoot", { 35, 150, 0.45, 0 })
+            if sea then vec(mid, "LandSea", { sea, 0, cliff.wet or 60, 1 }) end
+            vec(mid, "CladLight", group.light)
+            for _, actor in ipairs(group.actors) do
+                if actor:IsValid() then
+                    pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)
+                end
+            end
+            changed = changed + 1
+            Land.cliffMids[#Land.cliffMids + 1] = mid
         end
     end
     return changed

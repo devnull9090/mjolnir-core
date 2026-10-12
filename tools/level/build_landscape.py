@@ -482,7 +482,10 @@ def main():
                   "rock_b": {"d": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
                              "n": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
                              "o": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG"},
-                  "tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.0, 2.6, 1.0], "look": [1.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
+                  "tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.6, 2.6, 1.0], "look": [2.2, 0.55, 0.3, 1.5], "far": [2500, 9000, 0.6, 0],
+                  # CE's light colour at 0.8: the dusk's purple shade and warm
+                  # sun, as on CE's own surfaces beside the rock.
+                  "ce_tint": [0.8, 0, 0, 0],
                   "tint": [1.25, 1.25, 1.3, 1.0], "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 1.0],
                   # Under the lip a ragged turf rim to 35 cm, no earth band (the
                   # damp soil drew black lines along every lip), stains 7 m down;

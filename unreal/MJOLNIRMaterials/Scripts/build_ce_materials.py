@@ -2649,14 +2649,34 @@ Nr = normalize(lerp(Nr, n, sand * 0.7));
 rough = lerp(rough, 0.9, sand);
 ao *= 1.0 - Foot.z * contact;
 
-// CE's baked light as occlusion: overhangs and clefts keep their shade.
+// CE's baked light: as occlusion (overhangs and clefts keep their shade),
+// and its colour (CETint.x): the original's dusk light, purple in the shade
+// and warm in the sun, which CE's own surfaces beside the rock (the bases,
+// the arch) still carry. Its chroma only, so Unreal's sun still shades.
 float occ = 1.0;
+float3 ceLight = 1.0.xxx;
 if (LMLevels.y > LMLevels.x)
 {
-    float lm = dot(Texture2DSample(LM, LMSampler, TC1).rgb, float3(0.2126, 0.7152, 0.0722));
+    float3 lmc = Texture2DSample(LM, LMSampler, TC1).rgb;
+    float lm = dot(lmc, float3(0.2126, 0.7152, 0.0722));
     occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
     ao *= lerp(1.0, 0.3 + 0.7 * occ, Look.z);
+    float3 lin = pow(max(lmc, 1e-3), 2.2);
+    ceLight = clamp(lin / max(dot(lin, float3(0.2126, 0.7152, 0.0722)), 1e-3), 0.4, 2.0);
 }
+// A cladding rock (scatter_foliage's cladding: a mesh actor, no lightmap
+// page) takes the CE light of the walls it sits on from its group
+// (CladLight: rgb, negative when none). (Not instance data: this game's
+// renderer drew our materials black on instanced meshes.)
+if (CladLight.r >= 0.0)
+{
+    ceLight = clamp(CladLight.rgb, 0.4, 2.0);
+}
+albedo *= lerp(1.0.xxx, ceLight, CETint.x);
+// No albedo over 0.9: CE's light colour can lift a channel past 1, and Lumen
+// bounced such a surface into a runaway orange flood over the whole scene
+// (3,000 cladding rocks, 2026-10-12).
+albedo = min(albedo, 0.9);
 
 // Wet rock just over the sea.
 if (Sea.w > 0.5)
@@ -2687,6 +2707,9 @@ def build_cliff_pbr(defaults):
     page at runtime (Land.cliffs)."""
     m = fresh(ROOT, "M_CE_CliffPBR", unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    # The cladding rocks, B30's Uluwatu meshes, are Nanite (a cooked game
+    # cannot add a usage flag at runtime).
+    m.set_editor_property("used_with_nanite", True)
     m.set_editor_property("used_with_static_lighting", False)
     m.set_editor_property("two_sided", True)
     g = Graph(m)
@@ -2698,8 +2721,13 @@ def build_cliff_pbr(defaults):
     normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
 
     def tex(name, default, sampler):
-        return (name, g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name,
-                             texture=default, sampler_type=sampler), "")
+        # Shared samplers (wrap, or clamp for the edge map): the master is
+        # past the 16 a material may have of its own.
+        t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name,
+                   texture=default, sampler_type=sampler)
+        t.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS
+                              if name == "Edge" else unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+        return (name, t, "")
 
     inputs = [
         ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
@@ -2726,6 +2754,9 @@ def build_cliff_pbr(defaults):
         ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
         # Far: the large rock takes over from, to (cm); weathering streaks.
         ("Far", g.vector4("CliffFar", (2500.0, 9000.0, 0.6, 0.0)), ""),
+        # CETint: CE's light colour's share.
+        ("CETint", g.vector4("CliffCETint", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("CladLight", g.vector4("CladLight", (-1.0, -1.0, -1.0, 0.0)), ""),
         # Tiles: cm a tile of the grain rock and of the large rock, the patch
         # noise's cell, triplanar blend sharpness.
         ("Tiles", g.vector4("CliffTiles", (300.0, 1200.0, 2500.0, 4.0)), ""),

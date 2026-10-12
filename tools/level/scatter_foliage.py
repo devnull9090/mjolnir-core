@@ -64,7 +64,10 @@ from refine_water_gltf import read_accessor  # noqa: E402
 
 # MJF2: the records carry the ground's normal (MJFG, without it, stood every
 # rock level, and a 3.5 m slab on a slope floated on its downhill side).
-FOLIAGE_MAGIC = b"MJF2"
+# MJF3: and a colour, three bytes in 100ths (255 255 255: none), the CE light
+# a cladding rock takes from the wall it sits on.
+FOLIAGE_MAGIC = b"MJF3"
+NO_COLOUR = (2.55, 2.55, 2.55)
 MEGA = "/Game/Megascans/3D_Plants/"
 MEGA3D = "/Game/Megascans/3D_Assets/"
 ROCKS = "/Game/Env/Bio/Rock/Uluwatu/"
@@ -241,6 +244,115 @@ def keep_share(share, lo, hi, falloff):
     return min(1.0, max(0.0, (share - lo) / max(hi - lo, 1e-6)))
 
 
+# Cladding: B30's own cliff rocks (its PCG cliffs are built of them) set into
+# the CE cliff walls. The loader spawns them as mesh actors, not instances
+# (this game's renderer drew our materials black on instanced meshes), one
+# material a group of rocks of like CE light. Set into the walls, sticking
+# out 15 to 70 cm, so the flat CE faces get a rock's silhouette, ledges and
+# shadows. They are drawn in the cliffs' own
+# world-space rock (M_CE_CliffPBR), so wall and rock read as one surface.
+# Nothing sticks out far enough to matter to the simulation, which knows
+# only CE's collision. Each rock: (mesh, scale range, its depth along the
+# normal at scale 1 in cm, the share of rocks); density a square metre of
+# wall; walls steeper than `steep` (normal z).
+CLADDING = {
+    "meshes": [(ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 0.9, 2.0, 140, 0.35),
+               (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 0.9, 2.0, 160, 0.35),
+               (ROCKS + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B", 0.05, 0.12, 2950, 0.3)],
+    "density": 0.035, "steep": 0.8, "protrude": [15, 70], "above": 0.3, "lights": 6,
+}
+
+
+def cliff_slots(spec):
+    """{glTF material name: (base file, lightmap file, base object path)} for
+    the CE cliff shaders (a cliff detail map and a lightmap page)."""
+    files = {t["name"]: t["file"] for t in spec["textures"]}
+    out = {}
+    for s in spec["slots"]:
+        tex = s["material"].get("textures") or {}
+        leaf = lambda k: tex.get(k, "").rsplit(".", 1)[-1]
+        if "detail_cliff" in tex.get("Primary", "") and leaf("Base") in files and leaf("Lightmap") in files \
+                and "object_lighting" not in tex.get("Lightmap", ""):
+            out[s["pattern"].rstrip("$")] = (files[leaf("Base")], files[leaf("Lightmap")], tex["Base"])
+    return out
+
+
+def clad(doc, data, spec, off, a, groups, bases, lights, rng):
+    """Scatter the cladding rocks over the cliff walls into `groups` (as the
+    rules do), each with its colour: the CE lightmap's chroma where it sits.
+    Returns how many."""
+    slots = cliff_slots(spec)
+    images = {}
+    total = 0
+    rocks = []
+    weights = [m[4] for m in CLADDING["meshes"]]
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            hit = slots.get(doc["materials"][prim["material"]]["name"].lower())
+            if not hit:
+                continue
+            base_file, lm_file, base_path = hit
+            for f in (lm_file,):
+                if f not in images:
+                    images[f] = np.asarray(Image.open(f).convert("RGBA"), dtype=np.float32) / 255.0
+            lm = images[lm_file]
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            uv1 = read_accessor(doc, data, prim["attributes"]["TEXCOORD_1"]).astype(np.float64)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            for i0, i1, i2 in idx:
+                p0, p1, p2 = pos[i0], pos[i1], pos[i2]
+                n = np.cross(p1 - p0, p2 - p0)
+                area = 0.5 * np.linalg.norm(n)
+                if area <= 0:
+                    continue
+                # Outward, in Unreal's axes (the glTF's y and z swapped).
+                nu = np.array([n[0], n[2], n[1]]) / (2 * area)
+                if abs(nu[2]) > CLADDING["steep"]:
+                    continue
+                count = area * CLADDING["density"]
+                k = int(count) + (1 if rng.random() < count - int(count) else 0)
+                for _ in range(k):
+                    r1, r2 = rng.random(), rng.random()
+                    sq = math.sqrt(r1)
+                    w0, w1, w2 = 1 - sq, sq * (1 - r2), sq * r2
+                    p = w0 * p0 + w1 * p1 + w2 * p2
+                    x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2]
+                    if a.sea is not None and (z - a.sea) / 100.0 < CLADDING["above"]:
+                        continue
+                    path, smin, smax, depth, _ = rng.choices(CLADDING["meshes"], weights)[0]
+                    scale = rng.uniform(smin, smax)
+                    out = rng.uniform(*CLADDING["protrude"])
+                    inset = depth * scale - out
+                    cx, cy, cz = x - nu[0] * inset, y - nu[1] * inset, z - nu[2] * inset
+                    u = w0 * uv1[i0] + w1 * uv1[i1] + w2 * uv1[i2]
+                    rgb = sample_rgba(lm, u[None, :])[0, :3]
+                    lin = np.power(np.maximum(rgb, 1e-3), 2.2)
+                    lum = float(lin @ np.array([0.2126, 0.7152, 0.0722]))
+                    col = tuple(float(c) for c in np.clip(lin / max(lum, 1e-3), 0.4, 2.0))
+                    tilt = (float(nu[0]), float(nu[1]))
+                    rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col], base_path))
+                    total += 1
+    # A group a mesh and a light (the loader gives each group one material,
+    # its CladLight the cluster's centre): the lights in CLADDING["lights"]
+    # clusters (k-means), keyed apart from the stones' groups of the meshes.
+    if rocks:
+        cols = np.array([r[1][6] for r in rocks])
+        k = min(CLADDING["lights"], len(rocks))
+        centres = cols[np.linspace(0, len(cols) - 1, k).astype(int)].copy()
+        for _ in range(12):
+            lab = np.argmin(((cols[:, None, :] - centres[None]) ** 2).sum(-1), 1)
+            for c in range(k):
+                if (lab == c).any():
+                    centres[c] = cols[lab == c].mean(0)
+        for (path, rec, base_path), c in zip(rocks, lab):
+            key = f"{path}|cladding{c}"
+            groups.setdefault(key, ({"name": "cladding", "cull": [0, 0], "shadow": True, "cliff": True},
+                                    []))[1].append(rec)
+            bases.setdefault(key, base_path)
+            lights[key] = [round(float(v), 3) for v in centres[c]]
+    return total
+
+
 def near_lip(edge, x, y):
     """Whether the edge map has any lip at (x, y) Unreal cm."""
     img, rect, _ = edge
@@ -275,6 +387,7 @@ def main():
                          "less about half its parallax depth (the sand is drawn that far down; Death Island: 6). "
                          "Without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--edge", help="a landscape.json (build_landscape.py) whose edge map places the lip rules")
+    ap.add_argument("--no-cladding", action="store_true", help="leave the cliffs' cladding rocks out")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
@@ -385,18 +498,25 @@ def main():
                         groups.setdefault(path, (rule, []))[1].append(
                             [x, y, z - sink * scale, R.uniform(0, 360), scale, tilt])
                         counts[rule["name"]] += 1
+    clad_bases, clad_lights = {}, {}
+    if not a.no_cladding:
+        n_clad = clad(doc, data, spec, off, a, groups, clad_bases, clad_lights, random.Random(a.seed + 13))
+        counts["cladding"] = n_clad
     ordered = sorted(groups.items(), key=lambda kv: kv[0])
     with open(a.bin, "wb") as f:
-        f.write(FOLIAGE_MAGIC + struct.pack("<II", 2, len(ordered)))
+        f.write(FOLIAGE_MAGIC + struct.pack("<II", 3, len(ordered)))
         for _, (_, inst) in ordered:
             f.write(struct.pack("<I", len(inst)))
-            for x, y, z, yaw, scale, (nx, ny) in inst:
-                f.write(struct.pack("<fffBBbb", x, y, z, int(yaw / 360.0 * 256) % 256,
+            for rec in inst:
+                x, y, z, yaw, scale, (nx, ny) = rec[:6]
+                col = rec[6] if len(rec) > 6 else NO_COLOUR
+                f.write(struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256,
                                     max(1, min(255, round(scale * 100))) & 0xFF,
-                                    max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127)))))
+                                    max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))),
+                                    *(max(0, min(255, round(c * 100))) for c in col)))
     out_groups = []
     for path, (rule, _) in ordered:
-        g = {"mesh": object_path(path), "rule": rule["name"], "cull": rule["cull"]}
+        g = {"mesh": object_path(path.split("|")[0]), "rule": rule["name"], "cull": rule["cull"]}
         if rule.get("tint"):
             g["tint"] = rule["tint"]
         if rule.get("bands"):
@@ -405,6 +525,12 @@ def main():
         if material:
             g["material"] = object_path(material)
         g["shadow"] = bool(rule.get("shadow", True))
+        if rule.get("cliff"):
+            # Drawn in the cliffs' rock (M_CE_CliffPBR) with the base map of
+            # the wall it clads, its instance colour the wall's CE light.
+            g["cliff"] = True
+            g["base"] = clad_bases.get(path)
+            g["light"] = clad_lights.get(path)
         out_groups.append(g)
     json.dump({"file": os.path.basename(a.bin), "groups": out_groups}, open(a.out, "w", encoding="utf-8"), indent=1)
     print(", ".join(f"{v} {k}" for k, v in counts.items()) + f" over {len(slots)} ground slot(s) -> {a.bin}")
