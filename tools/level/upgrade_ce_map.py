@@ -256,15 +256,19 @@ def stage_assemble(code, m, p):
           f"{len(lights)} light(s)")
 
 
-# CE's placed lights as Unreal point lights (the loader's `lights`): a CE
-# radiosity intensity of 3 (Death Island's fixtures) is about 25 cd before
-# the loader's light scale, bright enough to light a base's hall without
-# flattening it (2026-10-12). Each light steps LIGHT_STEP cm out of its
-# fixture: CE's marker sits on the fixture's face, and in Unreal the
-# fixture's own shadow hid a wall sconce and the floor above leaked an
-# underside lamp's light through its seams.
-LIGHT_CD = 25.0 / 3.0
-LIGHT_RADIUS = 2000.0
+# CE's placed lights as Unreal point lights (the loader's `lights`). With
+# physical inverse-square falloff the surfaces beside a floor lamp burned
+# white long before its pool reached the hall, so the lights use Unreal's
+# non-physical falloff (exponent LIGHT_FALLOFF): a CE radiosity intensity
+# of 3 (Death Island's fixtures) is 600 unitless at the loader's light
+# scale of 256, pools at the lamps and the hall's dark red kept
+# (2026-10-12). Each light steps LIGHT_STEP cm out of its fixture: CE's
+# marker sits on the fixture's face, and in Unreal the fixture's own shadow
+# hid a wall sconce and the floor above leaked an underside lamp's light
+# through its seams.
+LIGHT_UNITS = 600.0 / 256.0 / 3.0
+LIGHT_FALLOFF = 4.0
+LIGHT_RADIUS = 1500.0
 LIGHT_STEP = 30.0
 
 
@@ -318,9 +322,9 @@ def ce_lights(p):
         if room(g, -d) > room(g, d):
             d = -d
         g = g + d * (LIGHT_STEP / 100.0)
-        out.append({"name": l.get("name"), "pos": [round(g[0] * 100, 1), round(g[2] * 100, 1), round(g[1] * 100, 1)],
-                    "colour": [round(c, 3) for c in l["colour"]], "intensity": round(l["intensity"] * LIGHT_CD, 2),
-                    "radius": LIGHT_RADIUS})
+        out.append({"name": l.get("name"), "pos": [round(float(g[0]) * 100, 1), round(float(g[2]) * 100, 1), round(float(g[1]) * 100, 1)],
+                    "colour": [round(c, 3) for c in l["colour"]], "intensity": round(l["intensity"] * LIGHT_UNITS, 3),
+                    "falloff": LIGHT_FALLOFF, "radius": LIGHT_RADIUS})
     return out
 
 

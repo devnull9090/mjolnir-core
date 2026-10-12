@@ -2934,7 +2934,8 @@ end
 --- CE's placed lights (level.lights, tools/level/upgrade_ce_map.py
 --- ce_lights: a base's wall sconces and floor lamps), as shadowed point
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
---- before the light scale, lightScale), `radius` (cm). The terrain shades
+--- before the light scale, lightScale; unitless with `falloff`), `falloff`
+--- (optional: Unreal's non-physical falloff exponent), `radius` (cm). The terrain shades
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
 --- surfaces out of their reach.
 local PlacedLights = {}
@@ -2960,7 +2961,15 @@ function PlacedLights.spawn(world)
                     local c = actor.LightComponent
                     local colour = type(l.colour) == "table" and l.colour or { 1, 1, 1 }
                     c.Mobility = MOBILITY_MOVABLE
-                    c.IntensityUnits = 1 -- candelas
+                    if tonumber(l.falloff) then
+                        -- Unreal's non-physical falloff (unitless): no
+                        -- burned-white surfaces beside the lamp.
+                        c.bUseInverseSquaredFalloff = false
+                        c.LightFalloffExponent = tonumber(l.falloff)
+                        c.IntensityUnits = 0
+                    else
+                        c.IntensityUnits = 1 -- candelas
+                    end
                     c:SetIntensity((tonumber(l.intensity) or 25) * k)
                     c:SetAttenuationRadius(tonumber(l.radius) or 2000)
                     c:SetLightColor({ R = colour[1], G = colour[2], B = colour[3], A = 1 }, true)
