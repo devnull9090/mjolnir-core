@@ -1332,7 +1332,17 @@ if (LandCut < 0.5) return m;
 float2 uv = (W.xy - R.xy) / R.zw;
 if (any(uv < 0.0) || any(uv > 1.0)) return m;
 // A texel a landscape vertex: vertex i of N sits at texel centre (i + 0.5) / N.
-float h = Texture2DSampleLevel(Mask, MaskSampler, (uv * (N - 1.0) + 0.5) / N, 0).r;
+// Grown by Grow texels (the mask's most over a 3 x 3 spread): the mesh runs
+// under the landscape's edge a metre or two, so a low view past that edge
+// meets mesh, not the void under the landscape. At 1 quad the landscape's
+// lift (8 cm) left a see-through seam at a base's door (Blood Gulch,
+// 2026-10-12).
+float2 c = (uv * (N - 1.0) + 0.5) / N;
+float g = Grow / N;
+float h = 0.0;
+[unroll] for (int i = -1; i <= 1; i++)
+    [unroll] for (int j = -1; j <= 1; j++)
+        h = max(h, Texture2DSampleLevel(Mask, MaskSampler, c + float2(i, j) * g, 0).r);
 // Short of half (Edge), so the mesh overlaps the landscape's edge (the
 // landscape sits a few cm over it) rather than leaving pinholes where their
 // interpolations, and the landscape's LODs, differ.
@@ -1597,6 +1607,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
             ("R", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
             ("N", g.scalar("LandMaskSize", 505.0), ""),
             ("Edge", g.scalar("LandCutEdge", 0.25), ""),
+            ("Grow", g.scalar("LandCutGrow", 1.5), ""),
             ("Mask", g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="LandMask",
                             texture=defaults["T_CE_White"],
                             sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), "")],
@@ -2147,12 +2158,28 @@ grass = max(grass, smoothstep(0.03, 0.10, ce.g - max(ce.r, ce.b)));
 // grass, strength): CE's base map split a steep bank into sand and grass
 // stripes, smeared down the slope by the world mapping; the original drew
 // it green, and sand does not lie on a 45 degree bank.
-grass = max(grass, smoothstep(Slope.x, Slope.y, normalize(Nw).z) * Slope.z);
+// The normal's z wanders by a two-scale noise (metres, then a hand
+// across): the landscape's normal is linear over each 1 m triangle, so a
+// plain threshold cut the bank's grass along triangle edges in a sawtooth
+// (Blood Gulch, 2026-10-12).
+float rag2 = LP_NOISE(W.xy / 160.0 + 1.7) * 0.65 + LP_NOISE(W.xy / 45.0 + 6.2) * 0.35 - 0.5;
+float bankZ = normalize(Nw).z + rag2 * 0.14;
+grass = max(grass, smoothstep(Slope.x, Slope.y, bankZ) * Slope.z);
 float h = W.z - Sea.x; // cm over the sea
 float hasSea = Sea.w > 0.5 ? 1.0 : 0.0;
 float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
 float ripple = hasSea * (1.0 - grass) * (1.0 - smoothstep(rtop * 0.7, rtop, h));
 float wet = hasSea * (1.0 - smoothstep(0.0, Sea.z, h));
+// Inland the sand turns to earth (Inland: from, to cm over the sea, ragged
+// cm, strength): a beach is sand by the water and packed dirt up the hill;
+// a map with no sea (Blood Gulch) is earth throughout. The edge is ragged by
+// a noise metres across, so the change wanders as a real one does.
+float inland = 0.0;
+if (Inland.w > 0.0)
+{
+    float wander = (LP_NOISE(W.xy / 1100.0 + 2.7) * 0.7 + LP_NOISE(W.xy / 260.0 + 8.3) * 0.3 - 0.5) * Inland.z;
+    inland = (hasSea > 0.5 ? smoothstep(Inland.x, Inland.y, h + wander) : 1.0) * Inland.w * (1.0 - ripple);
+}
 
 // Depth (Par: sand depth cm, footprint depth cm, fade distance cm, steps):
 // the sand's and the ripples' displacement maps and the footprints as one
@@ -2161,7 +2188,8 @@ float wet = hasSea * (1.0 - smoothstep(0.0, Sea.z, h));
 // landscape's tangent frame; near the camera only.
 float2 P = W.xy;
 PDO = 0.0;
-float parD = (Par.x + Par.y) * (1.0 - grass) * (1.0 - smoothstep(Par.z * 0.5, Par.z, length(Cam - W)));
+float parD = (Par.x + Par.y) * (1.0 - grass) * (1.0 - smoothstep(Par.z * 0.5, Par.z, length(Cam - W)))
+            * (1.0 - 0.7 * inland); // packed earth stands in less relief than sand
 if (parD > 0.05 && Par.w >= 1.0)
 {
     float3 V = normalize(Cam - W);
@@ -2235,6 +2263,41 @@ float2 ru = P / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
 float3 ripA = lerp(Texture2DSample(RipD, RipDSampler, ru).rgb, Texture2DSample(RipD, RipDSampler, ru2).rgb, w) * SandTint.rgb;
 float2 ripN = LP_NRM(RipN, RipNSampler, ru, ru2, w);
 float4 ripO = lerp(Texture2DSample(RipO, RipOSampler, ru), Texture2DSample(RipO, RipOSampler, ru2), w);
+// Earth inland (DirtD: packed earth; MidD: sandy gravel, in the band where
+// sand gives way and in patches; GravD: gravel in patches; Dirt: the sandy
+// patches' share, the gravel's share, the patch cell cm, sandy share inland).
+// Sampled only where there is earth.
+float3 dirtA = 0.0; float2 dirtN = 0.0; float4 dirtO = float4(1.0, 0.8, 0.5, 0.0);
+float dirtW = inland;
+[branch] if (inland > 0.002)
+{
+    float2 du = P / max(Tiles.x * 1.6, 1.0) + 0.17; float2 du2 = LP_ROT(du, 0.47);
+    dirtA = lerp(Texture2DSample(DirtD, DirtDSampler, du).rgb, Texture2DSample(DirtD, DirtDSampler, du2).rgb, w);
+    dirtN = LP_NRM(DirtN, DirtNSampler, du, du2, w);
+    dirtO = lerp(Texture2DSample(DirtO, DirtOSampler, du), Texture2DSample(DirtO, DirtOSampler, du2), w);
+    // Sandy gravel: peaking where sand turns to earth, and in patches.
+    float band = saturate(inland * (1.0 - inland) * 4.0) * Dirt.x;
+    float pn = LP_NOISE(W.xy / max(Dirt.z, 1.0) + 4.4);
+    float midW = max(band, smoothstep(0.55, 0.75, pn) * Dirt.w * inland);
+    if (midW > 0.002)
+    {
+        float2 mu = P / max(Tiles.x * 1.2, 1.0) + 0.61;
+        dirtA = lerp(dirtA, Texture2DSample(MidD, MidDSampler, mu).rgb, midW);
+        dirtN = lerp(dirtN, Texture2DSample(MidN, MidNSampler, mu).rg * 2.0 - 1.0, midW);
+        dirtO = lerp(dirtO, Texture2DSample(MidO, MidOSampler, mu), midW);
+    }
+    // Gravel over the earth in patches of their own.
+    float gn = LP_NOISE(W.xy / max(Dirt.z * 0.7, 1.0) + 9.1);
+    float gravW = smoothstep(0.6, 0.78, gn) * Dirt.y;
+    if (gravW > 0.002)
+    {
+        float2 vu = P / max(Tiles.x * 0.9, 1.0) + 0.29;
+        dirtA = lerp(dirtA, Texture2DSample(GravD, GravDSampler, vu).rgb, gravW);
+        dirtN = lerp(dirtN, Texture2DSample(GravN, GravNSampler, vu).rg * 2.0 - 1.0, gravW);
+        dirtO = lerp(dirtO, Texture2DSample(GravO, GravOSampler, vu), gravW);
+    }
+    dirtA *= DirtTint.rgb;
+}
 // Grass ground.
 float2 gu = P / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
 float3 grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSample(GrassD, GrassDSampler, gu2).rgb, w) * GrassTint.rgb;
@@ -2250,14 +2313,15 @@ if (EdgeLook.w > 0.5)
     float4 ed = Edge.SampleLevel(EdgeSampler, luv, 0);
     // Only on ground that lies flat: on a bank or a boulder's top (the mesh's
     // ground beside a lip) the wear striped the grass with sand.
-    float flat = smoothstep(0.85, 0.95, normalize(Nw).z);
+    float flat = smoothstep(0.85, 0.95, bankZ);
     lip = ed.g * flat; foot = ed.b;
 }
 grass *= 1.0 - lip * EdgeLook.x * smoothstep(0.25, 0.75, LP_NOISE(W.xy / 120.0 + 7.1));
-float3 albedo = lerp(lerp(sandA, ripA, ripple), grA, grass);
-float2 nxy = lerp(lerp(sandN, ripN, ripple), grN, grass);
-float rough = lerp(lerp(sandO.g, ripO.g, ripple), grO.b, grass);
-float ao = lerp(lerp(sandO.r, ripO.r, ripple), grO.r, grass);
+// (Earth's ORHG: occlusion, roughness, height; the sand's ORDp alike.)
+float3 albedo = lerp(lerp(lerp(sandA, ripA, ripple), dirtA, dirtW), grA, grass);
+float2 nxy = lerp(lerp(lerp(sandN, ripN, ripple), dirtN, dirtW), grN, grass);
+float rough = lerp(lerp(lerp(sandO.g, ripO.g, ripple), dirtO.g, dirtW), grO.b, grass);
+float ao = lerp(lerp(lerp(sandO.r, ripO.r, ripple), dirtO.r, dirtW), grO.r, grass);
 
 // CE's own colour, a little: the map's paths and patches.
 float3 cel = pow(max(ce.rgb, 1e-3), 2.2);
@@ -2364,7 +2428,17 @@ GROUND_CUT_CODE = r"""
 // (its hole mask, a texel a vertex), so the two meet in one look.
 float2 uv = (W.xy - R.xy) / R.zw;
 if (any(uv < 0.0) || any(uv > 1.0)) return 1.0;
-float h = Texture2DSampleLevel(Mask, MaskSampler, (uv * (N - 1.0) + 0.5) / N, 0).r;
+// Grown by Grow texels (the mask's most over a 3 x 3 spread): the mesh runs
+// under the landscape's edge a metre or two, so a low view past that edge
+// meets mesh, not the void under the landscape. At 1 quad the landscape's
+// lift (8 cm) left a see-through seam at a base's door (Blood Gulch,
+// 2026-10-12).
+float2 c = (uv * (N - 1.0) + 0.5) / N;
+float g = Grow / N;
+float h = 0.0;
+[unroll] for (int i = -1; i <= 1; i++)
+    [unroll] for (int j = -1; j <= 1; j++)
+        h = max(h, Texture2DSampleLevel(Mask, MaskSampler, c + float2(i, j) * g, 0).r);
 return saturate((h - Edge) * 100.0);
 """
 
@@ -2418,6 +2492,14 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("Mix", g.vector4("LandMix", (0.35, 0.65, 0.25, 0.25)), ""),
         ("WetLook", g.vector4("LandWet", (0.6, 0.35, 0.0, 0.0)), ""),
         tex("SandBD", albedo_default, colour), tex("SandBN", normal_default, normal),
+        # Earth inland (LAND_PBR_CODE: Inland, Dirt): packed earth, sandy
+        # gravel, gravel; off while Inland.w is 0.
+        tex("DirtD", albedo_default, colour), tex("DirtN", normal_default, normal), tex("DirtO", white, linear),
+        tex("MidD", albedo_default, colour), tex("MidN", normal_default, normal), tex("MidO", white, linear),
+        tex("GravD", albedo_default, colour), tex("GravN", normal_default, normal), tex("GravO", white, linear),
+        ("Inland", g.vector4("LandInland", (250.0, 700.0, 300.0, 0.0)), ""),
+        ("Dirt", g.vector4("LandDirt", (0.8, 0.35, 1800.0, 0.3)), ""),
+        ("DirtTint", g.vector4("DirtTint", (1.0, 1.0, 1.0, 1.0)), ""),
         ("SandTint", g.vector4("SandTint", (1.0, 1.0, 1.0, 1.0)), ""),
         # Look: normal strength, grain contrast, CE shading as occlusion, second sand.
         ("Look", g.vector4("LandLook", (1.5, 1.6, 0.6, 0.7)), ""),
@@ -2482,6 +2564,7 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
             ("R", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
             ("N", g.scalar("LandMaskSize", 505.0), ""),
             ("Edge", g.scalar("LandCutEdge", 0.25), ""),
+            ("Grow", g.scalar("LandCutGrow", 1.5), ""),
             ("Mask", g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="LandMask",
                             texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), "")],
             output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="landscape cut")
@@ -2546,6 +2629,58 @@ struct CLF
         tx.z *= sgn.x; ty.z *= sgn.y; tz.z *= sgn.z;
         return normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
     }
+    // No visible repeat (Quilez's texture variation): a slow noise over the
+    // tile coordinates picks, per region, a random offset of the tile, and
+    // where the noise steps to the next offset the two blend along the
+    // rock's own features (the colour difference). A whole cliff of one
+    // Megascans tile read as a grid of the same boulders (2026-10-12).
+    // The blend has no weight at a step, so the quad derivatives jumping
+    // there leave no seam; no ddx, so the ray tracing hit shaders compile.
+    // V: amount (0 plain tiling), noise frequency (per tile), steps.
+    static void vary(float2 uv, float3 V, out float2 oa, out float2 ob, out float f)
+    {
+        float k = noise(uv * V.y) * V.z;
+        float i = floor(k);
+        f = frac(k);
+        oa = frac(sin(float2(i, i + 0.37) * float2(127.1, 311.7)) * 43758.5453) * V.x;
+        ob = frac(sin(float2(i + 1.0, i + 1.37) * float2(127.1, 311.7)) * 43758.5453) * V.x;
+    }
+    // One projection of a surface (albedo, ORHG, normal xy in -1..1), varied.
+    static void one(Texture2D D, SamplerState DS, Texture2D O, SamplerState OS, Texture2D N, SamplerState NS,
+                    float2 uv, float3 V, out float3 d, out float4 o, out float2 nxy)
+    {
+        float2 oa, ob; float f;
+        vary(uv, V, oa, ob, f);
+        float3 da = Texture2DSample(D, DS, uv + oa).rgb;
+        float3 db = Texture2DSample(D, DS, uv + ob).rgb;
+        float w = smoothstep(0.2, 0.8, f - 0.15 * dot(da - db, 1.0.xxx));
+        d = lerp(da, db, w);
+        o = lerp(Texture2DSample(O, OS, uv + oa), Texture2DSample(O, OS, uv + ob), w);
+        nxy = lerp(Texture2DSample(N, NS, uv + oa).rg, Texture2DSample(N, NS, uv + ob).rg, w) * 2.0 - 1.0;
+    }
+    // A surface from three sides, varied; a side under 2% of the blend is
+    // skipped (most of a wall faces one way) and the rest renormalised.
+    static void rock(Texture2D D, SamplerState DS, Texture2D O, SamplerState OS, Texture2D N, SamplerState NS,
+                     float2 ux, float2 uy, float2 uz, float3 bw, float3 n, float3 sgn, float k, float3 V,
+                     out float3 d, out float4 o, out float3 nw)
+    {
+        float3 dx = 0, dy = 0, dz = 0;
+        float4 ox = 0, oy = 0, oz = 0;
+        float2 nx = 0, ny = 0, nz = 0;
+        float3 w = bw * step(0.02, bw);
+        w /= max(w.x + w.y + w.z, 1e-4);
+        [branch] if (w.x > 0.0) one(D, DS, O, OS, N, NS, ux, V, dx, ox, nx);
+        [branch] if (w.y > 0.0) one(D, DS, O, OS, N, NS, uy, V, dy, oy, ny);
+        [branch] if (w.z > 0.0) one(D, DS, O, OS, N, NS, uz, V, dz, oz, nz);
+        d = dx * w.x + dy * w.y + dz * w.z;
+        o = ox * w.x + oy * w.y + oz * w.z;
+        float3 tx = float3(nx * k, 1.0), ty = float3(ny * k, 1.0), tz = float3(nz * k, 1.0);
+        tx = float3(tx.xy + n.zy, abs(n.x) * tx.z);
+        ty = float3(ty.xy + n.xz, abs(n.y) * ty.z);
+        tz = float3(tz.xy + n.xy, abs(n.z) * tz.z);
+        tx.z *= sgn.x; ty.z *= sgn.y; tz.z *= sgn.z;
+        nw = normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z);
+    }
 };
 
 float3 n = normalize(Nw);
@@ -2554,14 +2689,16 @@ float3 bw = pow(abs(n), Tiles.w);
 bw /= max(bw.x + bw.y + bw.z, 1e-4);
 
 float2 ux, uy, uz;
+float3 aA, aB, nA, nB;
+float4 oA, oB;
 CLF::uvs(W, sgn, Tiles.x, ux, uy, uz);
-float3 aA = CLF::tri(RockAD, RockADSampler, ux, uy, uz, bw).rgb;
-float4 oA = CLF::tri(RockAO, RockAOSampler, ux, uy, uz, bw);
-float3 nA = CLF::triN(RockAN, RockANSampler, ux, uy, uz, bw, n, sgn, Look.x);
+CLF::rock(RockAD, RockADSampler, RockAO, RockAOSampler, RockAN, RockANSampler, ux, uy, uz, bw, n, sgn, Look.x,
+          Vary.xyz, aA, oA, nA);
+// The large rock's variation on a noise of its own (offset), so the two
+// scales do not step together.
 CLF::uvs(W, sgn, Tiles.y, ux, uy, uz);
-float3 aB = CLF::tri(RockBD, RockBDSampler, ux, uy, uz, bw).rgb;
-float4 oB = CLF::tri(RockBO, RockBOSampler, ux, uy, uz, bw);
-float3 nB = CLF::triN(RockBN, RockBNSampler, ux, uy, uz, bw, n, sgn, Look.x);
+CLF::rock(RockBD, RockBDSampler, RockBO, RockBOSampler, RockBN, RockBNSampler, ux + 17.3, uy + 17.3, uz + 17.3,
+          bw, n, sgn, Look.x, Vary.xyz, aB, oB, nB);
 
 // The large rock over patches, the fine one in between, its shapes (normal)
 // always under the grain's.
@@ -2787,6 +2924,9 @@ def build_cliff_pbr(defaults):
         ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
         # Rough: the range the surfaces' roughness maps to.
         ("RoughR", g.vector4("CliffRough", (0.6, 1.0, 0.0, 0.0)), ""),
+        # Vary: tile variation amount (0 plain tiling), its noise frequency
+        # per tile, steps over the noise's range (CLF::vary).
+        ("Vary", g.vector4("CliffVary", (1.0, 0.35, 6.0, 0.0)), ""),
         # Fill: the bounce light's colour and strength (scene units).
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
     ]
