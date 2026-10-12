@@ -139,6 +139,30 @@ def foliage_pose(m):
     return math.degrees(math.atan2(x[1], x[0])), scale, n[0], n[1]
 
 
+# A leaf cluster belongs to a tree only where it touches one of the tree's
+# own parts. The recipes took every cluster within 16 m of the trunk, and
+# B30's neighbouring trees left clusters hanging in the air, up to 72 m
+# from any branch of the tree they were given to (2026-10-12).
+LEAF_REACH = 150.0  # cm, in the tree's own frame
+
+
+def attached_leaves(recipe, bounds):
+    boxes = []
+    for part in recipe["parts"]:
+        b = bounds.get(part["mesh"].split(".")[0])
+        if b:
+            boxes.append(([part["off"][i] + b["min"][i] for i in range(3)],
+                          [part["off"][i] + b["max"][i] for i in range(3)]))
+    kept = []
+    for lf in recipe.get("leaves", []):
+        o = lf["off"]
+        gap = min((math.sqrt(sum(max(lo[i] - o[i], 0.0, o[i] - hi[i]) ** 2 for i in range(3))) for lo, hi in boxes),
+                  default=0.0)
+        if gap <= LEAF_REACH:
+            kept.append(lf)
+    return kept
+
+
 def recipes(a):
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     every = list(csv.DictReader(open(a.csv, encoding="utf-8")))
@@ -231,12 +255,12 @@ def model_box(path, cache={}):
 # position (PerInstanceWindVariation 1000), so a tree of 20 to 60 pieces and
 # its leaf clusters swung every piece its own way, by metres at our sizes
 # (2026-10-12). One phase for all, no wind-driven sway (its 180 degree
-# range in our flowmap wind was most of the motion), small idle angles and a
-# third of the leaf flutter: about a third of the motion, measured on DTI's
-# cliff trees from frame differences.
+# range in our flowmap wind was most of the motion), and after the user
+# still found them moving far too much, barely any idle sway and a little
+# leaf flutter: a breath of motion, not a tree in a gale.
 TREE_CALM = {"PerInstanceWindVariation": 0.0, "Wind Sway Max Angle": 0.0, "Wind Bend Max Angle": 0.0,
-             "Bend Max Angle": 1.0, "Branch Lift Max Angle": 2.0, "Branch Spin Max Angle": 1.5,
-             "Branch Sway Max Angle": 1.5, "Flutter Intensity": 3.0}
+             "Bend Max Angle": 0.3, "Branch Lift Max Angle": 0.5, "Branch Spin Max Angle": 0.4,
+             "Branch Sway Max Angle": 0.4, "Flutter Intensity": 1.0}
 
 FX = "/Game/FX/Library/Environment/PNW/"
 EFFECTS = {
@@ -340,7 +364,7 @@ def swap(a):
             # The tree's frame here (yaw and size; row vectors), its leaf
             # clusters into it.
             frame = [[s * c, s * sn, 0.0], [-s * sn, s * c, 0.0], [0.0, 0.0, s]]
-            for lf in r.get("leaves", []):
+            for lf in attached_leaves(r, bounds):
                 o = vmul(lf["off"], frame)
                 fy, fs, fnx, fny = foliage_pose(mmul(lf["m"], frame))
                 leaves.append([round(x + o[0], 1), round(y + o[1], 1), round(z + o[2], 1),
