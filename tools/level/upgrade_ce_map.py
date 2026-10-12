@@ -251,9 +251,21 @@ def stage_assemble(code, m, p):
     lights = ce_lights(p)
     if lights:
         level["lights"] = lights
+    decals, files = ce_decals(p)
+    level["decor"] = (level.get("decor") or []) + decals
+    # Grime is opt-in per map (ce_upgrade_maps.json "grime": true): on
+    # CE's dark metal the Megascans soil read as pale blocky patches, and
+    # it barely showed elsewhere (Yoyorast and Blood Gulch, 2026-10-12).
+    grime = grime_decals(p) if m.get("grime") else []
+    if grime:
+        level["decals"] = grime
+    out = os.path.join(p["work"], "decals")
+    os.makedirs(out, exist_ok=True)
+    for f in files:
+        shutil.copyfile(f, os.path.join(out, os.path.basename(f)))
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len(level['foliage']['groups'])} foliage group(s), {structures} structure slot(s), "
-          f"{len(lights)} light(s)")
+          f"{len(lights)} light(s), {len(decals)} CE decal(s), {len(grime)} grime decal(s)")
 
 
 # CE's placed lights as Unreal point lights (the loader's `lights`). With
@@ -272,6 +284,40 @@ LIGHT_RADIUS = 1500.0
 LIGHT_STEP = 30.0
 
 
+def ray_room(v0, e1, e2, origin, d, start=1e-3):
+    """Metres along d from origin before the first triangle (Moller-Trumbore;
+    triangles as corner v0 and edges e1, e2), at most 10."""
+    import numpy as np
+    pv = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, pv)
+    ok = np.abs(det) > 1e-9
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    tv = origin - v0
+    u = np.einsum("ij,ij->i", tv, pv) * inv
+    qv = np.cross(tv, e1)
+    v = (qv @ d) * inv
+    t = np.einsum("ij,ij->i", e2, qv) * inv
+    hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > start)
+    return float(t[hit].min()) if hit.any() else 10.0
+
+
+def scene_triangles(p):
+    """The conversion scene's triangles, (n, 3, 3) in glTF metres (y up)."""
+    import numpy as np
+    sys.path.insert(0, HERE)
+    from refine_water_gltf import read_accessor
+    gltf = os.path.join(p["scene"], "scene.gltf")
+    doc = json.load(open(gltf, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()
+    tris = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            tris.append(pos[idx])
+    return np.concatenate(tris)
+
+
 def ce_lights(p):
     """The conversion's scene_lights.json (merge_ce_scene.py --lights) in the
     level's own terms: position (Unreal cm), colour, candela, radius. A
@@ -286,33 +332,11 @@ def ce_lights(p):
     if not lights:
         return []
     import numpy as np
-    sys.path.insert(0, HERE)
-    from refine_water_gltf import read_accessor
-    gltf = os.path.join(p["scene"], "scene.gltf")
-    doc = json.load(open(gltf, encoding="utf-8"))
-    data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()
-    tris = []
-    for mesh in doc["meshes"]:
-        for prim in mesh["primitives"]:
-            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
-            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
-            tris.append(pos[idx])
-    tris = np.concatenate(tris)  # glTF metres, y up
+    tris = scene_triangles(p)
     v0, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
 
     def room(origin, d):
-        """Metres along d before the first triangle (Moller-Trumbore), at most 10."""
-        pv = np.cross(d, e2)
-        det = np.einsum("ij,ij->i", e1, pv)
-        ok = np.abs(det) > 1e-9
-        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
-        tv = origin - v0
-        u = np.einsum("ij,ij->i", tv, pv) * inv
-        qv = np.cross(tv, e1)
-        v = (qv @ d) * inv
-        t = np.einsum("ij,ij->i", e2, qv) * inv
-        hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-3)
-        return float(t[hit].min()) if hit.any() else 10.0
+        return ray_room(v0, e1, e2, origin, d)
 
     out = []
     for l in lights:
@@ -325,6 +349,216 @@ def ce_lights(p):
         out.append({"name": l.get("name"), "pos": [round(float(g[0]) * 100, 1), round(float(g[2]) * 100, 1), round(float(g[1]) * 100, 1)],
                     "colour": [round(c, 3) for c in l["colour"]], "intensity": round(l["intensity"] * LIGHT_UNITS, 3),
                     "falloff": LIGHT_FALLOFF, "radius": LIGHT_RADIUS})
+    return out
+
+
+# CE's scenario decals (placement.json `decals`: Blood Gulch's Forerunner
+# team symbols on its bases' pillars) as quads lying on the surface under
+# each, drawn by the CE transparent masters with CE's own texture (a PNG
+# beside the level file, imported at runtime). Unreal decals were not an
+# option: a decal-domain material from our cook fails the game's pipeline
+# state creation (PipelineStateCache.cpp:551, 2026-10-11 and 2026-10-12),
+# and the game's own decal masters sample only virtual textures.
+DECAL_QUAD = "/Engine/BasicShapes/Plane.Plane"  # 100 cm square, facing +Z
+DECAL_LIFT = 1.0  # cm off the surface
+# CE's additive decals went onto lightmapped surfaces far darker than our
+# Unreal-lit ones: Blood Gulch's symbols (red at most 148/255) barely showed
+# at CE's own strength (2026-10-12).
+DECAL_EXPOSURE = 6.0
+DECAL_PARENTS = {3: "Add", 7: "Add", 1: "Mul", 2: "Mul", 5: "Mul"}  # CE framebuffer blend; the rest alpha
+
+
+def ce_decals(p):
+    """CE's decals as decor (a quad each, its material a CE transparent
+    master over the decal's texture), and the textures they need, as
+    (decor, [source png]). Each quad lies on the nearest surface within
+    3 m of the decal's position, its texture upright on walls."""
+    path = os.path.join(staging(p), "placement.json")
+    decals = json.load(open(path, encoding="utf-8")).get("decals") or [] if os.path.exists(path) else []
+    if not decals:
+        return [], []
+    import math
+    import numpy as np
+    tris = scene_triangles(p)
+    cent = tris.mean(axis=1)
+    nrm = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+    nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
+    unit = 3.048
+    decor, files = [], []
+    for i, d in enumerate(decals):
+        tex = os.path.join(staging(p), "textures", d.get("texture") or "")
+        if not d.get("texture") or not os.path.exists(tex):
+            continue
+        g = np.array([d["pos"][0], d["pos"][2], -d["pos"][1]]) * unit
+        near = np.where(np.linalg.norm(cent - g, axis=1) < 3.0)[0]
+        if not len(near):
+            continue
+        dist = np.einsum("ij,ij->i", g - tris[near, 0], nrm[near])
+        k = near[np.argmin(np.abs(dist))]
+        # The quad faces the open side: CE's decal sits on the surface to
+        # within millimetres, either side of it.
+        ng = nrm[k]
+        v0, e1, e2 = tris[near, 0], tris[near, 1] - tris[near, 0], tris[near, 2] - tris[near, 0]
+        if ray_room(v0, e1, e2, g, -ng, 0.02) > ray_room(v0, e1, e2, g, ng, 0.02):
+            ng = -ng
+        n = np.array([ng[0], ng[2], ng[1]])  # Unreal axes (x, y, z) = glTF (x, z, y)
+        pos = np.array([g[0], g[2], g[1]]) * 100.0 + n * DECAL_LIFT
+        # The quad's x along the surface and level, its y up the surface
+        # (on a floor: x along Unreal's x), so the rotator never nears
+        # gimbal lock.
+        if abs(n[2]) < 0.9:
+            # (Plane's texture runs down its y: this way the texture is upright.)
+            x = np.cross(n, [0.0, 0.0, 1.0])
+            x /= np.linalg.norm(x)
+        else:
+            x = np.array([1.0, 0.0, 0.0]) - n * n[0]
+            x /= np.linalg.norm(x)
+        y = np.cross(n, x)
+        pitch = math.degrees(math.asin(max(-1.0, min(1.0, x[2]))))
+        yaw = math.degrees(math.atan2(x[1], x[0]))
+        roll = math.degrees(math.atan2(-y[2], n[2]))
+        size = float(d.get("radius") or 0.5) * 2 * unit  # m across, the quad 1 m
+        blend = int(d.get("blend_function") or 0)
+        name = os.path.basename(tex)
+        decor.append({"id": f"ce_decal_{i}", "mesh": DECAL_QUAD,
+                      "pos": [round(float(v), 1) for v in pos], "rot": [round(pitch, 2), round(yaw, 2), round(roll, 2)],
+                      "scale": [round(size, 3), round(size, 3), 1.0], "cast_shadow": False,
+                      "materials": [{"parent": f"/Game/MJOLNIR/CE/M_CE_Transparent{DECAL_PARENTS.get(blend, 'Alpha')}."
+                                               f"M_CE_Transparent{DECAL_PARENTS.get(blend, 'Alpha')}",
+                                     "textures": {"Map0": "decals/" + name},
+                                     "scalars": {"StageCount": 1, "ChicagoFlags": 0.0, "BlendFunction": float(blend),
+                                                 "FadeMode": 0.0,
+                                                 "Exposure": DECAL_EXPOSURE if DECAL_PARENTS.get(blend) == "Add" else 1.0},
+                                     "vectors": {"Stage0Xform": [1.0, 1.0, 0.0, 0.0], "Stage0UAnim": [0, 1.0, 0.0, 1.0],
+                                                 "Stage0VAnim": [0, 1.0, 0.0, 1.0], "Stage0RAnim": [0, 1.0, 0.0, 360.0],
+                                                 "Stage0Misc": [0.0, 0.0, 0.0, 0.0],
+                                                 "StageColorFunctions": [0, 0.0, 0.0, 0.0],
+                                                 "StageAlphaFunctions": [0, 0.0, 0.0, 0.0]}}]})
+        if tex not in files:
+            files.append(tex)
+    return decor, files
+
+
+# B30's grime on CE's structures, as the game's own Megascans decals: soil
+# splashed up a wall where it meets the ground, leaks run down from a
+# wall's top. Unreal decals project along their x; these face into the wall
+# with their z up. Sizes are half extents (cm): depth, width, height.
+SOIL = ["/Game/Env/Bio/DirtyDecals/Soil/MI_Decal_soil_Vertical_01.MI_Decal_soil_Vertical_01",
+        "/Game/Env/Bio/DirtyDecals/Soil/MI_Decal_soil_Vertical_02.MI_Decal_soil_Vertical_02"]
+LEAKS = ["/Game/Megascans/Decals/Leakage_tdfdfebc/MI_Leakage_tdfdfebc_4K.MI_Leakage_tdfdfebc_4K",
+         "/Game/Megascans/Decals/Leakage_tdlbcbrc/MI_Leakage_tdlbcbrc_4K.MI_Leakage_tdlbcbrc_4K"]
+SOIL_SIZE = [40.0, 160.0, 70.0]
+LEAK_SIZE = [40.0, 110.0, 180.0]
+GRIME_SPACING = 3.5  # m between decals of a kind
+GRIME_KEEP = {"soil": 0.7, "leak": 0.35}
+# At the Megascans instances' own opacity the grime barely showed on CE's
+# dark metal; 2.5 reads as dust kicked up the walls (Blood Gulch, 2026-10-12).
+GRIME_SCALARS = {"Opacity Intensity": 2.5}
+
+
+def grime_decals(p, seed=7):
+    """Soil and leak decals on the conversion's structure walls (materials
+    whose base map names metal, panels and the like: mark_structures's
+    STRUCTURE), as level `decals`. A wall's base counts where a ray down
+    from just outside its lowest edge meets something that is not
+    structure within 1.6 m; a wall's top where it stands 2.5 m or more."""
+    import math
+    import random
+    import numpy as np
+    sys.path.insert(0, HERE)
+    from refine_water_gltf import read_accessor
+    spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+    structure = {mat["name"] for mat in spec.get("materials") or []
+                 if any(w in str((mat.get("textures") or {}).get("Base", "")).rsplit("/", 1)[-1].lower() for w in STRUCTURE)}
+    gltf = os.path.join(p["scene"], "scene.gltf")
+    doc = json.load(open(gltf, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()
+    tris, is_struct = [], []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"]
+            if name.endswith("__sky") or "water" in name or "underwater" in name:
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+            tris.append(pos[idx])
+            is_struct.append(np.full(len(idx), name in structure))
+    if not tris:
+        return []
+    T = np.concatenate(tris)
+    S = np.concatenate(is_struct)
+    if not S.any():
+        return []
+    v0, e1, e2 = T[:, 0], T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]
+    cross = np.cross(e1, e2)
+    area = np.linalg.norm(cross, axis=1) / 2
+    nrm = cross / (2 * area[:, None] + 1e-12)
+    cent = T.mean(axis=1)
+    up = np.array([0.0, 1.0, 0.0])  # glTF
+
+    def first_hit(origin, d, reach):
+        """(distance, triangle) of the first hit along d within reach m, or None."""
+        near = np.where(np.linalg.norm(cent - origin, axis=1) < reach + 30.0)[0]
+        if not len(near):
+            return None
+        pv = np.cross(d, e2[near])
+        det = np.einsum("ij,ij->i", e1[near], pv)
+        ok = np.abs(det) > 1e-9
+        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+        tv = origin - v0[near]
+        u = np.einsum("ij,ij->i", tv, pv) * inv
+        qv = np.cross(tv, e1[near])
+        v = (qv @ d) * inv
+        t = np.einsum("ij,ij->i", e2[near], qv) * inv
+        hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-3) & (t < reach)
+        if not hit.any():
+            return None
+        k = np.argmin(np.where(hit, t, np.inf))
+        return float(t[k]), int(near[k])
+
+    rng = random.Random(seed)
+    taken = {"soil": set(), "leak": set()}
+    out = []
+    walls = np.where(S & (np.abs(nrm[:, 1]) < 0.25) & (area > 0.5))[0]
+    for w in walls:
+        n = nrm[w]
+        ys = T[w][:, 1]
+        for kind in ("soil", "leak"):
+            if kind == "leak" and ys.max() - ys.min() < 2.5:
+                continue
+            # The triangle's lowest (or highest) edge, sampled every couple of metres.
+            order = np.argsort(ys) if kind == "soil" else np.argsort(-ys)
+            a, b = T[w][order[0]], T[w][order[1]]
+            if abs(a[1] - b[1]) > 0.5:
+                continue
+            steps = max(1, int(np.linalg.norm(b - a) / 2.0))
+            for s in range(steps):
+                pt = a + (b - a) * ((s + 0.5) / steps)
+                cell = (round(pt[0] / GRIME_SPACING), round(pt[1] / GRIME_SPACING), round(pt[2] / GRIME_SPACING))
+                if cell in taken[kind]:
+                    continue
+                outside = pt + n * 0.3
+                if kind == "soil":
+                    hit = first_hit(outside + up * 0.4, -up, 2.0)
+                    if hit is None or S[hit[1]]:
+                        continue
+                    base = outside[1] + 0.4 - hit[0]
+                    centre = np.array([pt[0], base + SOIL_SIZE[2] / 100.0 * 0.8, pt[2]])
+                    size, material = SOIL_SIZE, rng.choice(SOIL)
+                else:
+                    # Open sky above the top: rain runs down from it.
+                    if first_hit(outside + up * 0.05, up, 3.0) is not None:
+                        continue
+                    centre = np.array([pt[0], pt[1] - LEAK_SIZE[2] / 100.0 * 0.9, pt[2]])
+                    size, material = LEAK_SIZE, rng.choice(LEAKS)
+                taken[kind].add(cell)
+                if rng.random() > GRIME_KEEP[kind]:
+                    continue
+                into = -np.array([n[0], n[2], n[1]])  # Unreal axes
+                yaw = math.degrees(math.atan2(into[1], into[0]))
+                c = np.array([centre[0], centre[2], centre[1]]) * 100.0
+                out.append({"material": material, "pos": [round(float(v), 1) for v in c],
+                            "rot": [0.0, round(yaw, 2), 0.0], "size": size, "scalars": GRIME_SCALARS})
     return out
 
 
@@ -388,6 +622,11 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
+    decals = os.path.join(p["work"], "decals")
+    if os.path.isdir(decals) and os.listdir(decals):
+        os.makedirs(os.path.join(data, "decals"), exist_ok=True)
+        for f in os.listdir(decals):
+            shutil.copyfile(os.path.join(decals, f), os.path.join(data, "decals", f))
     print(f"  {code}: installed over {os.path.basename(base)}")
 
 

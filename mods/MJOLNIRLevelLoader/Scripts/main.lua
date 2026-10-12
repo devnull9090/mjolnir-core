@@ -493,7 +493,17 @@ end
 
 local function textureFile(value)
     if value:match("^%a:[/\\]") then return value end
-    return MOD_DIR .. "\\" .. value:gsub("/", "\\")
+    local rel = value:gsub("/", "\\")
+    -- A map's own files (its decals' textures) sit beside its level file.
+    local dir = Current.level and Current.level._dir
+    if dir then
+        local f = io.open(dir .. "\\" .. rel, "rb")
+        if f then
+            f:close()
+            return dir .. "\\" .. rel
+        end
+    end
+    return MOD_DIR .. "\\" .. rel
 end
 
 --- A dynamic M_CE_LinearCopy over `tex` (importTexture's linear path), or
@@ -2938,9 +2948,9 @@ end
 --- (optional: Unreal's non-physical falloff exponent), `radius` (cm). The terrain shades
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
 --- surfaces out of their reach.
-local PlacedLights = {}
+local Placed = {}
 
-function PlacedLights.spawn(world)
+function Placed.lights(world)
     local lights = Current.level and Current.level.lights
     if type(lights) ~= "table" or #lights == 0 then return end
     local cls = findObject("/Script/Engine.PointLight")
@@ -2982,6 +2992,53 @@ function PlacedLights.spawn(world)
         end
     end
     Log(string.format("lights: %d of CE's placed lights", n))
+end
+
+--- The game's own decals (level.decals, tools/level/upgrade_ce_map.py
+--- grime_decals: Megascans soil splashed up a base's walls where they meet
+--- the ground, leaks run down from their tops): `material` (a shipped
+--- decal material instance), `pos` (cm, from the canvas origin), `rot`
+--- [pitch, yaw, roll] (the decal projects along its x), `size` (half
+--- extents, cm), `scalars` (optional, the material's parameters). Only the game's decal materials: ours fail its pipeline
+--- state creation, a fatal error (PipelineStateCache.cpp:551).
+function Placed.decals(world)
+    local decals = Current.level and Current.level.decals
+    if type(decals) ~= "table" or #decals == 0 then return end
+    local cls = findObject("/Script/Engine.DecalActor")
+    if not cls then return end
+    local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+    local n, failed = 0, 0
+    for i, d in ipairs(decals) do
+        local key = "__decal_" .. i
+        local p = type(d) == "table" and d.pos
+        local material = type(d) == "table" and type(d.material) == "string" and resolveMesh(d.material)
+        if type(p) == "table" and material and not (Current.actors[key] and Current.actors[key]:IsValid()) then
+            local r = type(d.rot) == "table" and d.rot or {}
+            local ok, actor = pcall(function()
+                return world:SpawnActor(cls, { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                    { Pitch = r[1] or 0, Yaw = r[2] or 0, Roll = r[3] or 0 })
+            end)
+            if ok and actor and actor:IsValid() then
+                local size = type(d.size) == "table" and d.size or { 30, 100, 100 }
+                pcall(function()
+                    -- `scalars`: the material's own parameters (scalarMid), e.g.
+                    -- a Megascans decal's "Opacity Intensity".
+                    actor.Decal:SetDecalMaterial(type(d.scalars) == "table" and scalarMid(world, material, d.scalars)
+                        or material)
+                    actor.Decal.DecalSize = { X = size[1], Y = size[2], Z = size[3] }
+                    -- Gone by the time it covers a few pixels.
+                    actor.Decal:SetFadeScreenSize(0.004)
+                end)
+                Current.actors[key] = actor
+                n = n + 1
+            else
+                failed = failed + 1
+            end
+        elseif not material then
+            failed = failed + 1
+        end
+    end
+    Log(string.format("decals: %d placed, %d failed", n, failed))
 end
 
 --- The game's foliage quality (Settings > Video, sg.FoliageQuality 0..3):
@@ -3817,8 +3874,10 @@ local function spawnDecor(world)
     if not ok then Log("foliage: " .. tostring(err)) end
     ok, err = pcall(Effects.spawn, world)
     if not ok then Log("effects: " .. tostring(err)) end
-    ok, err = pcall(PlacedLights.spawn, world)
+    ok, err = pcall(Placed.lights, world)
     if not ok then Log("lights: " .. tostring(err)) end
+    ok, err = pcall(Placed.decals, world)
+    if not ok then Log("decals: " .. tostring(err)) end
     Land.apply(world)
 end
 
