@@ -101,6 +101,8 @@ end
 
 local MOBILITY_MOVABLE = 2
 local COLLISION_NONE = 0
+-- EShadowCacheInvalidationBehavior::Rigid
+local SHADOW_CACHE_RIGID = 2
 
 local function Log(msg)
     print("[MJOLNIR LevelLoader] " .. tostring(msg) .. "\n")
@@ -2721,7 +2723,7 @@ end
 --- `foliage` in the level file (tools/level/scatter_grass.py): `file`, the
 --- clumps beside the level file (FOLIAGE_MAGIC, then per group a count and
 --- that many x, y, z float32 cm, yaw in 256ths of a turn and scale in
---- hundredths), `groups` [{ mesh, tint, material, cull, shadow, bands }] in the
+--- hundredths), `groups` [{ mesh, tint, tint_param, params, material, cull, shadow, bands }] in the
 --- file's order (tools/level/scatter_foliage.py: grass, tufts, rocky
 --- ground, stones), and optional `cull` [start, end] cm for groups without
 --- their own and `wind` { dir = [x, y], strength = 0..1 }.
@@ -2863,6 +2865,11 @@ function Foliage.spawn(world)
             comp:SetCollisionEnabled(COLLISION_NONE)
             local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
             comp:SetCullDistances(math.min(gc[1], far), far)
+            -- Rigid: the wind's vertex offset does not invalidate the virtual
+            -- shadow map's cached pages. Swaying grass re-rendered its
+            -- shadows every frame, ~1.5 ms of GPU on Yoyorast at 4K
+            -- (2026-10-12); the shadows stay, they just do not sway.
+            pcall(function() comp.ShadowCacheInvalidationBehavior = SHADOW_CACHE_RIGID end)
             comp:SetCastShadow(group.shadow ~= false)
             local material = type(group.material) == "string" and resolveMesh(group.material)
             if material then comp:SetMaterial(0, material) end
@@ -2872,8 +2879,21 @@ function Foliage.spawn(world)
                     mids = {}
                     for i = 0, comp:GetNumMaterials() - 1 do
                         local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
-                        mid:SetVectorParameterValue(FName("Color Overlay"),
+                        -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
+                        -- tints through "Color Tint", the Megascans one through
+                        -- "Color Overlay".
+                        local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
+                        mid:SetVectorParameterValue(FName(param),
                             { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                        -- `params`: more vector parameters by name, e.g. a
+                        -- B30 grass's "Subsurface Color Tint" with its tint.
+                        if type(group.params) == "table" then
+                            for name, v in pairs(group.params) do
+                                if type(v) == "table" then
+                                    mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+                                end
+                            end
+                        end
                         mids[i] = mid
                     end
                 end
@@ -2934,6 +2954,16 @@ Land.SURFACES = {
     GrassO = "Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_OHRG",
     SandBD = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_D",
     SandBN = "Beach_Sand_xdheagk/T_Beach_Sand_xdheagk_2K_NSVT_N",
+    -- Earth inland (pbr.inland): packed earth, sandy gravel, gravel.
+    DirtD = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
+    DirtN = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
+    DirtO = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
+    MidD = "Sandy_Gravel_Ground_vmndcca/T_T_Sandy_Gravel_Ground_vmndcca_B_2K_NSVT_D_copy",
+    MidN = "Sandy_Gravel_Ground_vmndcca/T_Sandy_Gravel_Ground_vmndcca_2K_NSVT_N",
+    MidO = "Sandy_Gravel_Ground_vmndcca/T_T_Sandy_Gravel_Ground_vmndcca_B_2K_NSVT_ORHG",
+    GravD = "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_D",
+    GravN = "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_N",
+    GravO = "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_ORHG",
 }
 
 --- The sea's height (cm), from the level's water mesh, or nil.
@@ -3000,6 +3030,13 @@ function Land.pbr(set, pbr)
     end
     vec("LandTiles", pbr.tiles)
     vec("LandMix", pbr.mix)
+    -- Earth inland: from, to (cm over the sea), ragged (cm), strength; with
+    -- no sea the strength is the earth's share everywhere. `dirt`: sandy
+    -- gravel's share in the change, gravel's share, patch cell (cm), sandy
+    -- patches inland; `dirt_tint` the earth's colour.
+    vec("LandInland", pbr.inland)
+    vec("LandDirt", pbr.dirt)
+    vec("DirtTint", pbr.dirt_tint)
     vec("LandWet", pbr.wet)
     -- The sea, from the level's water (as GameWet): the rippled band and the
     -- wet edge sit over it.

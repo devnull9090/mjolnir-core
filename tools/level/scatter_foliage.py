@@ -87,12 +87,30 @@ GRASS_TINT = [0.12, 0.3, 0.08]
 # tufts): at 40 to 120 m whole fields went bare a short way off (Blood
 # Gulch, 2026-10-12); about 1 ms more a frame there.
 TUFT_TINT = [0.3, 0.42, 0.18]
+# The grass in patches of three greens (`tints`, by a noise of `tint_cell`
+# m): lusher, the original's, sun-dried. One green over a whole field read
+# as a carpet (2026-10-12).
+GRASS_TINTS = [[0.06, 0.24, 0.05], GRASS_TINT, [0.3, 0.34, 0.1]]
+BIO = "/Game/Env/Bio/Grass/"
+# Banks grow grass whatever CE painted them (`banks`: from, all by, degrees,
+# density there against flat grass: half, about 1.2 ms of Blood Gulch's 2.5):
+# the ground masters draw a bank green from about 23 degrees, all green by
+# 37 (LAND_PBR_CODE's Slope), and the grass stopped at its foot, the bank
+# bare (Blood Gulch, 2026-10-12).
+BANKS = [21.0, 34.0, 0.5]
+# B30's tall grass, sedge and rushes ("Color Tint" multiplies their tan).
+TALL_TINT = [0.45, 0.8, 0.3]
 
 # Each rule: the ground class it grows on and the share of it it needs
 # (`share`: [low, high], thinned linearly between), clumps a square metre,
 # slope limit (degrees), height above the sea (m), cluster noise (cell
 # size m and threshold: None for none), meshes (with their own scale ranges
 # and how far to sink them, cm a unit of scale), and the loader settings.
+# `patch` [cell m, low, high]: every scale times low..high by a noise of that
+# cell, so the grass stands short in some patches and tall in others;
+# `tints` and `tint_cell`: a group a tint, chosen by patch; `tint_param` the
+# material parameter the loader tints (B30's own MM_Foliage_MET grasses take
+# "Color Tint", the Megascans ones "Color Overlay").
 RULES = [
     {"name": "grass", "on": "grass", "share": [0.3, 0.7], "density": 5.0, "slope": 50, "above": [0.3, None],
      "meshes": [(MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var11_lod0", 0.9, 1.5, 0),
@@ -100,7 +118,42 @@ RULES = [
                 (MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var4_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var12_lod0", 0.9, 1.5, 0),
                 (MEGA + "Wild_Grass_vczndjqja/S_Wild_Grass_vczndjqja_Var19_lod0", 0.9, 1.5, 0)],
-     "tint": GRASS_TINT, "cull": [10000, 30000], "bands": 10},
+     "patch": [9.0, 0.45, 1.45], "tints": GRASS_TINTS, "tint_cell": 16.0, "banks": BANKS,
+     "tint": GRASS_TINT, "cull": [10000, 30000], "bands": 8},
+    # B30's own short grass and ground cover between the clumps, in patches.
+    {"name": "short grass", "on": "grass", "share": [0.3, 0.7], "density": 1.2, "slope": 45, "above": [0.3, None],
+     "banks": BANKS,
+     "cluster": [6.0, 0.4],
+     "meshes": [(BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_A/SM_Grass_AcorusCalamus_Short_A", 0.7, 1.1, 0),
+                (BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_B/SM_Grass_AcorusCalamus_Short_B", 0.7, 1.1, 0),
+                (BIO + "AcorusCalamus/Grass_AcorusCalamus_Short_C/SM_Grass_AcorusCalamus_Short_C", 0.7, 1.1, 0),
+                (BIO + "GroundcoverClump/Grass_GroundcoverClump_A/SM_Grass_GroundcoverClump_A", 0.8, 1.3, 0)],
+     "cull": [5000, 12000], "bands": 3},
+    # Stands of tall grass, sedge and rushes (55 to 100 cm), clustered.
+    {"name": "tall grass", "on": "grass", "share": [0.3, 0.7], "density": 0.5, "slope": 35, "above": [0.6, None],
+     "cluster": [10.0, 0.5],
+     "meshes": [("/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01", 0.9, 1.3, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Leaves_A", 0.8, 1.2, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Leaves_B", 0.8, 1.2, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Leaves_C", 0.8, 1.2, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Leaves_E", 0.8, 1.2, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Flowers_A", 0.8, 1.1, 0),
+                (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Flowers_C", 0.8, 1.1, 0),
+                (BIO + "Rushes/Grass_Rushes_A/SM_Grass_Rushes_A", 0.8, 1.2, 0),
+                (BIO + "Rushes/Grass_Rushes_B/SM_Grass_Rushes_B", 0.8, 1.2, 0)],
+     # B30's own colour is a dry tan; multiplied green (and the light through
+     # the blades with it) they stand with the CE grass around them.
+     "tint": TALL_TINT, "tint_param": "Color Tint", "params": {"Subsurface Color Tint": [0.6, 1.0, 0.5]},
+     "cull": [8000, 20000], "bands": 5},
+    # Low leafy weeds and clover here and there.
+    {"name": "weeds", "on": "grass", "share": [0.3, 0.7], "density": 0.4, "slope": 35, "above": [0.3, None],
+     "cluster": [5.0, 0.68],
+     "meshes": [("/Game/Megascans/3D_Plants/Leafy_Dandelions_qmbrl/SM_Leafy_Dandelions_qmbrl_01", 0.8, 1.3, 0),
+                ("/Game/Megascans/3D_Plants/Leafy_Dandelions_qmbrl/SM_Leafy_Dandelions_qmbrl_03", 0.8, 1.3, 0),
+                ("/Game/Megascans/3D_Plants/Clovers_rbdjz/SM_Clovers_rbdjz_01", 0.8, 1.2, 0),
+                ("/Game/Megascans/3D_Plants/Clovers_rbdjz/SM_Clovers_rbdjz_02", 0.8, 1.2, 0),
+                ("/Game/Megascans/3D_Plants/Leafy_Weeds_rbcuh/SM_Leafy_Weeds_rbcuh_01", 0.8, 1.3, 0)],
+     "cull": [3000, 6000], "bands": 2, "shadow": False},
     {"name": "tufts", "on": "grass", "share": [0.12, 0.45], "density": 0.8, "slope": 40, "above": [0.6, None],
      "falloff": True,
      "meshes": [(MEGA + "Sea_Wheatgrass_ui2oagjia/S_Sea_Wheatgrass_ui2oagjia_0_Var9_lod0", 0.64, 0.96, 0),
@@ -245,6 +298,49 @@ def value_noise(x, y, cell, seed):
     return (h(ix, iy) * (1 - tx) + h(ix + 1, iy) * tx) * (1 - ty) + (h(ix, iy + 1) * (1 - tx) + h(ix + 1, iy + 1) * tx) * ty
 
 
+def scenery_footprints(gltf, off):
+    """The map's placed scenery (halo2ue's staging/placement.json beside the
+    scene) as (x, y, radius) cm: the simulation spawns it (B30's boulders,
+    trees), so the scene knows nothing of it, and grass grew up through the
+    boulders (Blood Gulch, 2026-10-12). The radius is 80% of the model's
+    furthest reach across, so the grass still meets its foot."""
+    root = os.path.dirname(os.path.abspath(gltf))
+    path = os.path.join(root, "staging", "placement.json")
+    if not os.path.exists(path):
+        return []
+    placement = json.load(open(path, encoding="utf-8"))
+    unit = placement.get("world_unit_meters", 3.048) * 100.0
+    reach = {}
+    out = []
+    for e in placement.get("entries", []):
+        if e.get("kind") != "scenery" or not e.get("model"):
+            continue
+        model = os.path.join(root, "staging", e["model"])
+        if model not in reach:
+            r = 0.0
+            try:
+                doc = json.load(open(model, encoding="utf-8"))
+                for mesh in doc["meshes"]:
+                    for prim in mesh["primitives"]:
+                        acc = doc["accessors"][prim["attributes"]["POSITION"]]
+                        ax = max(abs(acc["min"][0]), abs(acc["max"][0]))
+                        az = max(abs(acc["min"][2]), abs(acc["max"][2]))
+                        r = max(r, math.hypot(ax, az))
+            except (OSError, KeyError, ValueError):
+                r = 0.0
+            reach[model] = r * 100.0 * 0.8
+        x, y, _ = e["pos"]
+        out.append((x * unit + off[0], -y * unit + off[1], reach[model]))
+    return out
+
+
+def under_scenery(scenery, x, y):
+    for sx, sy, r in scenery:
+        if r > 0.0 and (x - sx) ** 2 + (y - sy) ** 2 < r * r:
+            return True
+    return False
+
+
 def keep_share(share, lo, hi, falloff):
     """How likely a point is kept for its share of the rule's class: up from
     `lo` to all at `hi`, or (`falloff`, an edge) up to `lo` and back down by
@@ -271,7 +367,7 @@ CLADDING = {
     "meshes": [(ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.4, 140, 0.3),
                (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 160, 0.3),
                (ROCKS + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B", 0.06, 0.16, 2950, 0.4)],
-    "density": 0.055, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6, "clear": 150,
+    "density": 0.1, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6, "clear": 150,
 }
 
 
@@ -503,6 +599,8 @@ def main():
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     off = [float(v) for v in a.offset.split(",")]
+    scenery = scenery_footprints(a.gltf, off)
+    print(f"{len(scenery)} scenery object(s) kept clear of foliage")
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
     images = {}
@@ -558,8 +656,16 @@ def main():
                     if share is None:
                         continue
                     lo, hi = rule["share"]
-                    for p, sh in zip(pts, share):
-                        if R.random() > keep_share(sh, lo, hi, rule.get("falloff")):
+                    bk = rule.get("banks")
+                    thin = None
+                    if bk and slope > bk[0]:
+                        bank = min(1.0, (slope - bk[0]) / max(bk[1] - bk[0], 1e-3))
+                        by_bank = lo + (hi - lo) * bank
+                        # Where only the bank grows it, at the bank's density.
+                        thin = np.where(by_bank > share, bk[2] if len(bk) > 2 else 1.0, 1.0)
+                        share = np.maximum(share, by_bank)
+                    for j, (p, sh) in enumerate(zip(pts, share)):
+                        if R.random() > keep_share(sh, lo, hi, rule.get("falloff")) * (1.0 if thin is None else thin[j]):
                             continue
                         x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2] + a.lift
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
@@ -571,11 +677,22 @@ def main():
                                 continue
                         if rule.get("edge") == "lip" and not on_lip(edge, x, y, z):
                             continue
+                        if under_scenery(scenery, x, y):
+                            continue
                         cl = rule.get("cluster")
                         if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
                             continue
                         path, smin, smax, sink = rule["meshes"][R.randrange(len(rule["meshes"]))]
                         scale = R.uniform(smin, smax)
+                        pt = rule.get("patch")
+                        if pt:
+                            scale *= pt[1] + (pt[2] - pt[1]) * value_noise(x, y, pt[0], a.seed + 7)
+                        key = path
+                        if rule.get("tints"):
+                            # Ragged patch edges: the noise jittered a little.
+                            v = value_noise(x + 7919.0, y - 3571.0, rule.get("tint_cell", 15.0), a.seed + 11)
+                            v = min(0.999, max(0.0, v + (R.random() - 0.5) * 0.2))
+                            key = f"{path}|tint{int(v * len(rule['tints']))}"
                         # Along the ground: its normal in Unreal's axes (y and z
                         # swapped from the glTF's, which flips the cross product).
                         tilt = (0.0, 0.0)
@@ -584,7 +701,7 @@ def main():
                             if nu[2] < 0:
                                 nu = -nu
                             tilt = (float(nu[0]), float(nu[1]))
-                        groups.setdefault(path, (rule, []))[1].append(
+                        groups.setdefault(key, (rule, []))[1].append(
                             [x, y, z - sink * scale, R.uniform(0, 360), scale, tilt])
                         counts[rule["name"]] += 1
     clad_bases, clad_lights = {}, {}
@@ -608,9 +725,15 @@ def main():
         g = {"mesh": object_path(path.split("|")[0]), "rule": rule["name"], "cull": rule["cull"]}
         if rule.get("tint"):
             g["tint"] = rule["tint"]
+        if "|tint" in path:
+            g["tint"] = rule["tints"][int(path.rsplit("|tint", 1)[1])]
+        if rule.get("tint_param"):
+            g["tint_param"] = rule["tint_param"]
+        if rule.get("params"):
+            g["params"] = rule["params"]
         if rule.get("bands"):
             g["bands"] = rule["bands"]
-        material = rule.get("materials", {}).get(path)
+        material = rule.get("materials", {}).get(path.split("|")[0])
         if material:
             g["material"] = object_path(material)
         g["shadow"] = bool(rule.get("shadow", True))

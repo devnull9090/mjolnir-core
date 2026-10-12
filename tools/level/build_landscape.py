@@ -61,6 +61,7 @@ from refine_water_gltf import read_accessor  # noqa: E402
 QUADS = 63
 STEP = 2.0  # m between neighbouring vertices: a cliff, cut out
 ABOVE = 15.0  # cm the landscape may ride over the ground (beyond --lift) before it is cut
+SETTLE = 40.0  # cm a vertex may come down to meet the ground before it is cut instead
 BAKED = ("Base", "Lightmap", "Bake", "SunShare")
 # Where build_ce_landscape.py puts the bakes (T_Land<param>): its
 # MJ_LANDSCAPE_NAME's folder (--name, LTS by default, Death Island's).
@@ -89,7 +90,9 @@ MAP_LOOKS = {
                     "SandN": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
                     "SandO": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
                     "SandBD": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_A30_D",
-                    "SandBN": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_N"}},
+                    "SandBN": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_N"},
+                # No sea: earth throughout, in the colour its paths had as sand.
+                "inland": [0, 0, 0, 1.0], "dirt_tint": [0.92, 0.84, 0.64, 1.0]},
         "cliff": {"mix": [0.6, 1.6, 0.9, 1.0], "look": [2.2, 0.5, 0.3, 1.5], "tint": [0.85, 0.78, 0.7, 1.0]},
     },
 }
@@ -406,9 +409,6 @@ def main():
     # height is 16 bits, +-256 m about it at z scale 100 (Yoyorast's ground
     # lies at -258 m, which clipped at a fixed 0).
     zc = float(np.round((np.nanmin(z) + np.nanmax(z)) / 2.0 / 100.0) * 100.0)
-    h = np.clip(np.round(32768 + (zf - zc) * 128.0 / 100.0), 0, 65535).astype("<u2")
-    h.tofile(os.path.join(a.out, "heights.r16"))
-    print(f"heights: {ground.mean() * 100:.0f}% over the ground, z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m")
 
     # Bakes, one texel's centre at a time over the same square.
     n = a.texture
@@ -425,8 +425,34 @@ def main():
     fx = (np.arange(n) + 0.5) * step / a.quad
     i0 = np.clip(np.floor(fx).astype(int), 0, size - 2)
     t = (fx - i0)
-    zl = (zf[i0][:, i0] * np.outer(1 - t, 1 - t) + zf[i0][:, i0 + 1] * np.outer(1 - t, t)
-          + zf[i0 + 1][:, i0] * np.outer(t, 1 - t) + zf[i0 + 1][:, i0 + 1] * np.outer(t, t))
+
+    def surface():
+        return (zf[i0][:, i0] * np.outer(1 - t, 1 - t) + zf[i0][:, i0 + 1] * np.outer(1 - t, t)
+                + zf[i0 + 1][:, i0] * np.outer(t, 1 - t) + zf[i0 + 1][:, i0 + 1] * np.outer(t, t))
+
+    # First the grid settles onto the ground: where its surface rides over
+    # the ground (a bank's toe, a dip a metre across), the vertices around
+    # come down, up to SETTLE cm. Cut there instead, the mesh drew patches
+    # whose own normals read the bank flatter, dirt notches with a hard edge
+    # in a grass bank (Blood Gulch, 2026-10-12). What a vertex cannot reach
+    # (a real ledge) is still cut, below.
+    lowered = np.zeros_like(zf)
+    keep = ground & ~cut
+    for _ in range(8):
+        zl = surface()
+        excess = np.where(on, zl - z2 - (a.lift + ABOVE * 0.5), 0.0)
+        oy, ox = np.nonzero(excess > 0.5)
+        if not len(oy):
+            break
+        need = np.zeros_like(zf)
+        for dy in (0, 1):
+            for dx in (0, 1):
+                np.maximum.at(need, (i0[oy] + dy, i0[ox] + dx), excess[oy, ox] * 0.6)
+        need = np.where(keep, np.minimum(need, SETTLE - lowered), 0.0)
+        zf -= need
+        lowered += need
+    print(f"settled {int((lowered > 0.5).sum())} vertices onto the ground (up to {lowered.max():.0f} cm)")
+    zl = surface()
     over = on & (zl - z2 > a.lift + ABOVE)
     oy, ox = np.nonzero(over)
     for dy in (0, 1):
@@ -434,6 +460,28 @@ def main():
             cut[i0[oy] + dy, i0[ox] + dx] = True
     holes = np.where(cut, 255, 0).astype(np.uint8)
     holes.tofile(os.path.join(a.out, "holes.r8"))
+    # The lift (the landscape over the mesh where they overlap) tapers to
+    # nothing at a hole's edge: a vertex beside a hole sits on the ground,
+    # the next half lifted, the rest lifted whole. Lifted to its edge, the
+    # landscape stood 8 cm over the mesh it met, and a view along the ground
+    # (a base's door, Blood Gulch, 2026-10-12) saw under it through the step.
+    near = cut.copy()
+    ring = []
+    for _ in range(2):
+        pn = np.pad(near, 1)
+        grown = np.logical_or.reduce([pn[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
+                                      for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
+        ring.append(grown & ~near)
+        near = grown
+    share = np.ones_like(zf)
+    share[cut] = 0.0  # a hole's own vertices shape the half-drawn quads at its edge
+    share[ring[0]] = 0.0
+    share[ring[1]] = 0.5
+    zh = zf - a.lift * (1.0 - share)
+    h = np.clip(np.round(32768 + (zh - zc) * 128.0 / 100.0), 0, 65535).astype("<u2")
+    h.tofile(os.path.join(a.out, "heights.r16"))
+    print(f"heights: {ground.mean() * 100:.0f}% over the ground, z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m, "
+          f"lift tapered over {int(ring[0].sum() + ring[1].sum())} vertices by the holes")
     # The same mask as a texture, a texel a vertex: the terrain mesh's
     # ground slots draw only where it is cut (the masked CE master's LandCut).
     Image.fromarray(holes, "L").convert("RGBA").save(os.path.join(a.out, "landmask.png"))
@@ -567,6 +615,13 @@ def main():
                 # Far sand: drifts of the sand 9 times larger, its normal
                 # taking over from 15 to 60 m.
                 "macro": [0.6, 1500, 6000, 9],
+                # Earth inland (2026-10-12): the sand gives way to packed
+                # earth from 3 to 9 m over the sea, its edge wandering 4 m;
+                # sandy gravel where the two meet and in a quarter of the
+                # earth, gravel in patches 18 m across; a map with no sea is
+                # earth throughout.
+                "inland": [300, 900, 400, 1.0], "dirt": [0.8, 0.35, 1800, 0.25],
+                "dirt_tint": [0.85, 0.8, 0.72, 1.0],
                 # The level's sun and sky light, scaled and tinted (the loader,
                 # as it reads the level file): a stronger sun, both a touch
                 # warm against the purple dusk sky (which turned the sand
