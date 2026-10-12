@@ -154,12 +154,28 @@ pub fn package(
     to: &Usmap,
     scripts: &ScriptObjects,
 ) -> Result<Vec<String>, String> {
+    package_where(pkg, from, to, scripts, |_| true)
+}
+
+/// [`package`] for the exports whose class `want` accepts; the rest are kept
+/// as cooked.
+pub fn package_where(
+    pkg: &mut ZenPackage,
+    from: &Usmap,
+    to: &Usmap,
+    scripts: &ScriptObjects,
+    want: impl Fn(&str) -> bool,
+) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for index in 0..pkg.export_map.len() {
         let Some(class) = export_class(pkg, scripts, index) else {
             lines.push(format!("export {index}: not a script class; kept"));
             continue;
         };
+        if !want(&class) {
+            lines.push(format!("export {index} {class}: not asked for; kept"));
+            continue;
+        }
         if !from.structs.contains_key(&class) || !to.structs.contains_key(&class) {
             lines.push(format!(
                 "export {index} {class}: missing from a layout; kept"
