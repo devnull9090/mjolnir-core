@@ -414,22 +414,8 @@ SNOW_RULES = [
                 (MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1_Snow", 1.0, 2.5, 8),
                 (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 1.0, 2.2, 8)],
      "cull": [3500, 6000], "shadow": True},
-    # Along every lip (a walkway's edge, a cliff top): B40's snow drifts,
-    # half buried, the snow a wind leaves along an edge.
-    {"name": "lip snow", "wall": "lip", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.35,
-     "support": 205.0,
-     "slope": 35, "above": [None, None],
-     # Their geometry starts above their pivots (A 6 cm, B 78 cm): the sink
-     # takes that back out, then half buries them (B hovered most of a metre
-     # over Ice Fields' ledges, 2026-10-13).
-     "meshes": [("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A", 0.6, 1.1, 18),
-                ("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B", 0.5, 0.9, 110)],
-     # B40's own snow on them (the meshes' default drew glassy blue ice).
-     "materials": {"/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A":
-                   "/Game/Env/Bio/Frozen/Glacial/+Materials/MM_Frozen_Snowpile_Med",
-                   "/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B":
-                   "/Game/Env/Bio/Frozen/Glacial/+Materials/MM_Frozen_Snowpile_Med"},
-     "cull": [5000, 9000], "shadow": True},
+    # (B40's snow drifts along lips were tried and left out: on CE's narrow
+    # walkways they stood in the path, mounds a player walks through.)
 ]
 SNOW_CLADDING = {
     "meshes": [(GLACIAL + "Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B", 0.8, 1.8, 180, 0.3),
