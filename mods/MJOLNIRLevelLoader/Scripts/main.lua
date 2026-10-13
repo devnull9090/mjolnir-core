@@ -2870,8 +2870,8 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
     local cls = findObject("/Script/Engine.StaticMeshActor")
     local actors = {}
     for k = 1, size do
-        local x, y, z, yaw, scale, nx, ny
-        x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbbxxx", raw, pos)
+        local x, y, z, yaw, scale, nx, ny, lr, lg, lb
+        x, y, z, yaw, scale, nx, ny, lr, lg, lb, pos = string.unpack("<fffBBbbBBB", raw, pos)
         if mesh and cls then
             local actor = world:SpawnActor(cls, { X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 })
             if actor and actor:IsValid() then
@@ -2883,6 +2883,16 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
                 -- Out of Lumen's bounce: 3,000 rocks lit by the cliffs' fill
                 -- (emissive) bounced the whole scene orange.
                 pcall(function() c:SetAffectDynamicIndirectLighting(false) end)
+                -- The CE light where it sits (group.lm: the record's colour
+                -- bytes, gamma), which M_CE_CliffPBR shades it by
+                -- (CladLight.a 2) as the wall under it is shaded.
+                if group.lm then
+                    pcall(function()
+                        c:SetCustomPrimitiveDataFloat(0, lr / 255)
+                        c:SetCustomPrimitiveDataFloat(1, lg / 255)
+                        c:SetCustomPrimitiveDataFloat(2, lb / 255)
+                    end)
+                end
                 actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
                     Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
                 actors[#actors + 1] = actor
@@ -2890,7 +2900,8 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
             end
         end
     end
-    Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = actors, base = group.base, light = group.light }
+    Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = actors, base = group.base, light = group.light,
+        lm = group.lm }
     return pos
 end
 
@@ -3345,6 +3356,32 @@ function Land.megascans(path)
     return resolveMesh(Land.MEGASCANS .. path .. "." .. leaf)
 end
 
+--- Spawn the tessellated cliffs (Land.cliffs, cliff.tess): the mesh at the
+--- origin, its sections in `mids`, then the terrain's own cliff slots
+--- hidden. Out of Lumen's bounce and casting no shadow, as the terrain
+--- mesh (its shadow proxy still casts the cliffs' shadows): the copy's
+--- Lumen cards bounced its fill over the whole scene (2026-10-13).
+function Land.tessCliffs(world, tess, mids, terrain, hidden)
+    local mesh = resolveMesh(tess.mesh)
+    if not mesh then error("tessellated cliff mesh not found: " .. tostring(tess.mesh)) end
+    local key = "__cliff_tess"
+    local actor = Current.actors[key]
+    if not (actor and actor:IsValid()) then
+        actor = world:SpawnActor(findObject("/Script/Engine.StaticMeshActor"), { X = 0, Y = 0, Z = 0 },
+            { Pitch = 0, Yaw = 0, Roll = 0 })
+        if not (actor and actor:IsValid()) then error("spawn failed") end
+        Current.actors[key] = actor
+    end
+    local c = actor.StaticMeshComponent
+    c.Mobility = MOBILITY_MOVABLE
+    c:SetStaticMesh(mesh)
+    c:SetCollisionEnabled(COLLISION_NONE)
+    c:SetCastShadow(false)
+    c:SetAffectDynamicIndirectLighting(false)
+    for k, m in ipairs(mids) do c:SetMaterial(k - 1, m) end
+    for _, slot in ipairs(tess.slots) do terrain:SetMaterial(slot, hidden) end
+end
+
 function Land.cliffs(world, spec)
     local cliff = spec.cliff
     if type(cliff) ~= "table" then return 0 end
@@ -3353,6 +3390,19 @@ function Land.cliffs(world, spec)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_CliffPBR.M_CE_CliffPBR")
     if not (kml and parent) then return 0 end
+    -- Tessellated cliffs (cliff.tess): the terrain's cliff slots drawn by a
+    -- Nanite copy of themselves (tools/level/cliff_mesh.py, `mesh`, Unreal
+    -- cm at the origin, a section a slot of `slots` on decor `item`) in
+    -- M_CE_CliffTess, displaced by the rock's height (`disp`, 0..1 of 50 cm),
+    -- the slots themselves hidden; `cladding` puts the cladding rocks on the
+    -- tessellated master too, at `clad_disp`.
+    local tess = type(cliff.tess) == "table" and cliff.tess or nil
+    local tessParent = tess and resolveMesh(TRIAL_MASTERS .. "M_CE_CliffTess.M_CE_CliffTess")
+    local hidden = tess and resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    if not (tessParent and hidden) then tess = nil end
+    local tessSection = {}
+    for k, slot in ipairs(tess and tess.slots or {}) do tessSection[slot] = k end
+    local tessMids, tessComp = {}, nil
     local textures = {}
     for prefix, rock in pairs({ RockA = cliff.rock_a or Land.ROCK_A, RockB = cliff.rock_b or Land.ROCK_B }) do
         textures[prefix .. "D"] = Land.megascans(rock.d)
@@ -3434,7 +3484,19 @@ function Land.cliffs(world, spec)
                         -- The fill is light: exposed as the level's lights are.
                         local f = cliff.fill
                         if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
+                        vec(mid, "CliffFillDir", cliff.fill_dir)
                         if sea then vec(mid, "LandSea", { sea, 0, cliff.wet or 60, 1 }) end
+                        -- The tessellated copy's section: the same rock.
+                        local k = tess and item.id == tess.item and tessSection[i - 1]
+                        if k then
+                            local tm = kml:CreateDynamicMaterialInstance(world, tessParent,
+                                FName(string.format("mjolnir_clifftess_%d", i - 1)), 0)
+                            if tm and tm:IsValid() and pcall(function() tm:CopyParameterOverrides(mid) end) then
+                                vec(tm, "CliffDisp", { tess.disp or 0.6, tess.mip or 400, 0, 0 })
+                                tessMids[k] = tm
+                                tessComp = comp
+                            end
+                        end
                         if pcall(function() comp:SetMaterial(i - 1, mid) end) then
                             changed = changed + 1
                             Land.cliffMids[#Land.cliffMids + 1] = mid
@@ -3444,10 +3506,20 @@ function Land.cliffs(world, spec)
             end
         end
     end
+    if tess and tessComp and #tessMids == #(tess.slots or {}) then
+        local ok, err = pcall(Land.tessCliffs, world, tess, tessMids, tessComp, hidden)
+        Log("landscape: " .. (ok and string.format("cliffs tessellated (%d section(s))", #tessMids) or tostring(err)))
+        for _, tm in ipairs(tessMids) do Land.cliffMids[#Land.cliffMids + 1] = tm end
+    elseif tess then
+        Log(string.format("landscape: cliffs not tessellated (%d of %d section material(s))", #tessMids,
+            #(tess.slots or {})))
+    end
     -- The cladding rocks (Foliage.cliffGroups): the same rock, their CE base
-    -- map the wall's, their CE light their group's (no lightmap page).
+    -- map the wall's, their CE light their own (group.lm: the lightmap under
+    -- each, custom primitive data) or their group's.
+    local cladParent = tess and tess.cladding and tessParent or parent
     for gi, group in ipairs(Foliage.cliffGroups or {}) do
-        local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_clad_%d", gi)), 0)
+        local mid = kml:CreateDynamicMaterialInstance(world, cladParent, FName(string.format("mjolnir_clad_%d", gi)), 0)
         if mid and mid:IsValid() then
             for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
             local base = type(group.base) == "string" and resolveMesh(group.base)
@@ -3462,6 +3534,13 @@ function Land.cliffs(world, spec)
             vec(mid, "CliffCETint", cliff.ce_tint)
             local f = cliff.fill
             if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
+            vec(mid, "CliffFillDir", cliff.fill_dir)
+            -- The rocks' own displacement (`clad_disp`): Megascans meshes are
+            -- detailed already, and the walls' 0.6 folded them, backfaces
+            -- showing as pale lavender patches (2026-10-13).
+            if cladParent ~= parent then
+                vec(mid, "CliffDisp", { tess.clad_disp or tess.disp or 0.6, tess.mip or 400, 0, 0 })
+            end
             if textures.Edge then
                 vec(mid, "EdgeRect", edge.rect)
                 vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
@@ -3471,7 +3550,13 @@ function Land.cliffs(world, spec)
             vec(mid, "CliffDrape", { d[1], d[2], d[3], 0 })
             vec(mid, "CliffFoot", { 35, 150, 0.45, 0 })
             if sea then vec(mid, "LandSea", { sea, 0, cliff.wet or 60, 1 }) end
-            vec(mid, "CladLight", group.light)
+            local gl = type(group.light) == "table" and group.light or { -1, -1, -1 }
+            if group.lm and levels then
+                vec(mid, "CladLight", { gl[1], gl[2], gl[3], 2 })
+                vec(mid, "LandLMLevels", { levels[1], levels[2], 0, 0 })
+            else
+                vec(mid, "CladLight", group.light)
+            end
             for _, actor in ipairs(group.actors) do
                 if actor:IsValid() then
                     pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)

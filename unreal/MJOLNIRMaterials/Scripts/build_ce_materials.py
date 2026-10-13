@@ -2918,9 +2918,14 @@ ao *= 1.0 - Foot.z * contact;
 // the arch) still carry. Its chroma only, so Unreal's sun still shades.
 float occ = 1.0;
 float3 ceLight = 1.0.xxx;
+// A cladding rock with its own CE light (CladLight.a 2: scatter_foliage's
+// lightmap sample where it sits, as custom primitive data 0..2) is shaded
+// as the wall under it is, colour and shade; one colour a group (the k-means
+// centre) left rocks in a wall's shade lit and tinted blue (2026-10-13).
+bool cladLM = CladLight.a > 1.5;
 if (LMLevels.y > LMLevels.x)
 {
-    float3 lmc = Texture2DSample(LM, LMSampler, TC1).rgb;
+    float3 lmc = cladLM ? CladLM : Texture2DSample(LM, LMSampler, TC1).rgb;
     float lm = dot(lmc, float3(0.2126, 0.7152, 0.0722));
     occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
     ao *= lerp(1.0, 0.3 + 0.7 * occ, Look.z);
@@ -2931,7 +2936,7 @@ if (LMLevels.y > LMLevels.x)
 // page) takes the CE light of the walls it sits on from its group
 // (CladLight: rgb, negative when none). (Not instance data: this game's
 // renderer drew our materials black on instanced meshes.)
-if (CladLight.r >= 0.0)
+if (CladLight.r >= 0.0 && !cladLM)
 {
     ceLight = clamp(CladLight.rgb, 0.4, 2.0);
 }
@@ -2953,7 +2958,11 @@ if (Sea.w > 0.5)
 // rock. This scene's sky light alone left a wall in shade black, where CE's
 // lightmap had lit it; strongest on faces that look out and down, a little
 // of CE's shade in it.
-float facing = 0.75 - 0.35 * Nr.z;
+// FillDir: the fill's share on a wall, and its change towards faces that
+// look up (negative: towards faces that look down, a bounce off the sand;
+// on rocks part-way up a wall that lit their undersides brighter than the
+// wall, 2026-10-13).
+float facing = max(FillDir.x + FillDir.y * Nr.z, 0.0);
 Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
 
 Normal = Nr;
@@ -3013,6 +3022,14 @@ float hB = CLD::tri(RockBO, RockBOSampler, W, sgn, bw, Tiles.y, 17.3, Vary.xyz, 
 float hgt = lerp(hA, hB, 0.7);
 return 0.5 + (hgt - 0.5) * Disp.x * saturate(VC.r);
 """
+
+
+def cpd3(g):
+    """Custom primitive data 0, 1 and 2 as a float3: a vector parameter
+    reading the component's data (5.5 has no node of its own for it)."""
+    return g.node(unreal.MaterialExpressionVectorParameter, x=-2000, parameter_name="CladLMData",
+                  default_value=unreal.LinearColor(1.0, 1.0, 1.0, 1.0), use_custom_primitive_data=True,
+                  primitive_data_index=0)
 
 
 def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
@@ -3094,6 +3111,11 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
         ("Vary", g.vector4("CliffVary", (1.0, 0.35, 6.0, 0.0)), ""),
         # Fill: the bounce light's colour and strength (scene units).
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
+        # FillDir: the fill on a wall, its change with the normal's z.
+        ("FillDir", g.vector4("CliffFillDir", (0.75, -0.35, 0.0, 0.0)), ""),
+        # A cladding rock's own CE light (custom primitive data 0..2, gamma),
+        # used when CladLight.a is 2.
+        ("CladLM", cpd3(g), ""),
     ]
     c = g.custom(CLIFF_PBR_CODE, inputs, description="cliff rock")
     outs = []

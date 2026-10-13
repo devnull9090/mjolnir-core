@@ -11,7 +11,9 @@ done by hand per map until 2026-10-12:
             shrubs, plants) in B30's own meshes, the CE slots hidden
   editor    the map's Landscape world in unreal/MJOLNIRMaterials
             (Scripts/build_ce_landscape.py), and once for the run the
-            trial masters (Scripts/build_ce_materials.py, chunk 983)
+            trial masters (Scripts/build_ce_materials.py, chunk 983) and
+            the maps' tessellated cliffs (cliff_mesh.py, then
+            Scripts/build_ce_cliffs.py, chunk 983 too)
   cook      tools/ue/cook.ps1 with every map's world, once for the run
   bake      bake_editor_world.sh: the map container around the world
   assemble  the map's level file: the conversion's, with the landscape,
@@ -38,6 +40,17 @@ CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 PROJECT = os.path.join(REPO, "unreal", "MJOLNIRMaterials")
 STAGED = os.path.join(PROJECT, "Saved", "StagedBuilds", "Windows", "Meteorite", "Content", "Paks")
 STAGES = ("land", "foliage", "swap", "collision", "editor", "cook", "bake", "assemble", "install")
+# The cliffs' fill (M_CE_CliffPBR CliffFillDir): its share on a wall, and its
+# change towards faces that look up. The master's own (0.75, -0.35) is a
+# bounce off the sand, strongest on faces looking down: cladding rocks part
+# way up a wall in shade drew their undersides brighter than the wall
+# (2026-10-13).
+CLIFF_FILL_DIR = [0.75, 0.0, 0.0, 0.0]
+# Tessellated cliffs (cliff_mesh.py, M_CE_CliffTess) unless a map's config
+# says "tess": false: displacement (0..1 of 50 cm either way), whether the
+# cladding rocks are tessellated too and theirs (at the walls' 0.6 the
+# Megascans rocks folded, backfaces showing as lavender patches).
+TESS = {"disp": 0.6, "cladding": True, "clad_disp": 0.2}
 GAME = os.environ.get("HCE_GAME", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved")
 PAKS = os.path.join(GAME, "Meteorite", "Content", "Paks")
 UE4SS = os.path.join(GAME, "Meteorite", "Binaries", "Win64", "ue4ss")
@@ -183,7 +196,11 @@ def stage_editor(code, m, p):
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env={"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"],
                           "MJ_LANDSCAPE_CHUNK": str(m["chunk"])})
-    log = open(os.path.join(PROJECT, "Saved_build_ce_landscape.log"), encoding="utf-8", errors="replace").read()
+    # The editor's own log too: its console capture has stopped short of the
+    # end (Death Island, 2026-10-13) with the world built.
+    log = "".join(open(f, encoding="utf-8", errors="replace").read() for f in (
+        os.path.join(PROJECT, "Saved_build_ce_landscape.log"), os.path.join(PROJECT, "Saved", "Logs", "Meteorite.log"))
+        if os.path.exists(f))
     if "landscape built" not in log or os.path.normcase(p["land"]) not in os.path.normcase(log.replace("/", "\\")):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
@@ -198,9 +215,38 @@ def build_masters():
     print("  trial masters built")
 
 
+def build_cliffs(maps, ps):
+    """The maps' cliff slots as Nanite meshes (tools/level/cliff_mesh.py),
+    built in the editor as SM_<CODE>_CliffTess (Scripts/build_ce_cliffs.py,
+    chunk 983 with the trial masters)."""
+    specs = []
+    for code, m in maps.items():
+        if m.get("tess") is False:
+            continue
+        p = ps[code]
+        out = os.path.join(p["work"], "cliff_mesh.json")
+        print("  " + run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
+                          os.path.join(p["scene"], "scene.gltf"), out, "--landscape",
+                          os.path.join(p["land"], "landscape.json"), "--swap",
+                          os.path.join(p["work"], "swap.json")]).strip().splitlines()[-1][:160])
+        specs.append(f"{code}={out}")
+    if not specs:
+        return
+    powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
+               env={"MJ_CLIFF_MESHES": ";".join(specs)})
+    log = open(os.path.join(PROJECT, "Saved_build_ce_cliffs.log"), encoding="utf-8", errors="replace").read()
+    built = [l.split("MJOLNIR cliffs: ", 1)[1] for l in log.splitlines() if "MJOLNIR cliffs: " in l]
+    if not built or built[-1] != "built" or "Traceback" in log or len(built) != len(specs) + 1:
+        sys.exit("the cliff meshes did not build: see " + os.path.join(PROJECT, "Saved_build_ce_cliffs.log"))
+    for line in built[:-1]:
+        print("  " + line[:160])
+
+
 def stage_cook(maps):
     worlds = "+".join(f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}" for m in maps)
-    out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"), ["-Map", worlds])
+    # StaticMesh too: chunk 983 carries the tessellated cliffs.
+    out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"),
+                     ["-Map", worlds, "-Classes", "Material,MaterialInstanceConstant,StaticMesh"])
     if "BUILD SUCCESSFUL" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
     log = open(os.path.join(PROJECT, "Saved_cook.log"), encoding="utf-8", errors="replace").read()
@@ -234,6 +280,14 @@ def stage_assemble(code, m, p):
     fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    cliff = level["landscape"].get("cliff")
+    if isinstance(cliff, dict):
+        cliff["fill_dir"] = CLIFF_FILL_DIR
+        mesh = os.path.join(p["work"], "cliff_mesh.json")
+        if m.get("tess") is not False and os.path.exists(mesh):
+            spec = json.load(open(mesh, encoding="utf-8"))
+            cliff["tess"] = dict(TESS, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
+                                 item=spec["item"], slots=spec["slots"])
     level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
     shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
     if m.get("water"):
@@ -697,6 +751,7 @@ def main():
         print(f"== {stage}", flush=True)
         if stage == "editor" and not a.no_masters:
             build_masters()
+            build_cliffs(maps, ps)
         if stage == "cook":
             stage_cook(list(maps.values()))
             continue

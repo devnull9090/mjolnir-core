@@ -1,10 +1,10 @@
 """A converted map's cliffs as one mesh for Nanite tessellation.
 
-    python tools/level/cliff_mesh.py <level.json> <scene.gltf> <out.json>
+    python tools/level/cliff_mesh.py <level.json> <scene.gltf> <out.json> [--landscape landscape.json]
 
 CE's cliffs are slots of the map's terrain mesh (SM_<CODE>_Terrain, a
 classic mesh), the slots whose detail map is one of level.landscape.cliff's
-`details`. Nanite tessellation needs a Nanite mesh, so this takes those
+`details` (or build_landscape.py's landscape.json's). Nanite tessellation needs a Nanite mesh, so this takes those
 slots' triangles from the conversion's scene.gltf (terrain slot i is the
 glTF's material i - 1, checked by lightmap page) and writes them in Unreal
 centimetres, one section a slot, for Scripts/build_ce_cliffs.py to build.
@@ -141,19 +141,26 @@ def main():
     ap.add_argument("level")
     ap.add_argument("scene")
     ap.add_argument("out")
+    ap.add_argument("--landscape", help="build_landscape.py's landscape.json, for the cliff details")
+    ap.add_argument("--swap", help="scenery_swap.py's swap.json: its hidden slots are not cliffs (CE boulders "
+                                   "baked into the terrain, which B30's own replace)")
     a = ap.parse_args()
     sys.path.insert(0, HERE)
     from refine_water_gltf import read_accessor
 
     level = json.load(open(a.level, encoding="utf-8"))
-    details = set((level.get("landscape") or {}).get("cliff", {}).get("details") or [])
+    land = json.load(open(a.landscape, encoding="utf-8")) if a.landscape else level.get("landscape") or {}
+    details = set((land.get("cliff") or {}).get("details") or [])
     terrain = next(i for i in level["decor"] if str(i.get("id", "")).endswith("_terrain"))
     doc = json.load(open(a.scene, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(a.scene), doc["buffers"][0]["uri"]), "rb").read()
     names = [m.get("name") for m in doc["materials"]]
 
+    hide = json.load(open(a.swap, encoding="utf-8")).get("hide", []) if a.swap and os.path.exists(a.swap) else []
     slots = []
     for i, m in enumerate(terrain.get("materials") or []):
+        if m in hide:
+            continue
         t = m.get("textures") if isinstance(m, dict) else None
         if not t or (t.get("Primary") or "").split(".")[-1] not in details:
             continue
@@ -219,6 +226,7 @@ def main():
     weight = border_fade(verts, border_edges, FADE)
 
     out = {
+        "item": terrain["id"],
         "slots": [s for s, _, _ in slots],
         "names": [n for _, _, n in slots],
         "positions": verts.round(3).tolist(),

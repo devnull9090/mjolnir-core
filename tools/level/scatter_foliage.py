@@ -522,7 +522,10 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     lum = float(lin @ np.array([0.2126, 0.7152, 0.0722]))
                     col = tuple(float(c) for c in np.clip(lin / max(lum, 1e-3), 0.4, 2.0))
                     tilt = (float(nu[0]), float(nu[1]))
-                    rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col], base_path))
+                    # rec[7]: the lightmap's own colour (gamma), the record's
+                    # bytes: the loader hands it to the rock (CladLight.a 2).
+                    rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col,
+                                         tuple(float(c) for c in np.clip(rgb, 0.0, 1.0))], base_path))
                     total += 1
     print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip)")
     # A group a mesh and a light (the loader gives each group one material,
@@ -743,11 +746,14 @@ def main():
             f.write(struct.pack("<I", len(inst)))
             for rec in inst:
                 x, y, z, yaw, scale, (nx, ny) = rec[:6]
-                col = rec[6] if len(rec) > 6 else NO_COLOUR
+                if len(rec) > 7:
+                    colour = [round(c * 255) for c in rec[7]]
+                else:
+                    colour = [round(c * 100) for c in (rec[6] if len(rec) > 6 else NO_COLOUR)]
                 f.write(struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256,
                                     max(1, min(255, round(scale * 100))) & 0xFF,
                                     max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))),
-                                    *(max(0, min(255, round(c * 100))) for c in col)))
+                                    *(max(0, min(255, c)) for c in colour)))
     out_groups = []
     for path, (rule, _) in ordered:
         g = {"mesh": object_path(path.split("|")[0]), "rule": rule["name"], "cull": rule["cull"]}
@@ -771,6 +777,8 @@ def main():
             g["cliff"] = True
             g["base"] = clad_bases.get(path)
             g["light"] = clad_lights.get(path)
+            # Each rock's record carries its CE lightmap colour (0..255).
+            g["lm"] = True
         out_groups.append(g)
     json.dump({"file": os.path.basename(a.bin), "groups": out_groups}, open(a.out, "w", encoding="utf-8"), indent=1)
     print(", ".join(f"{v} {k}" for k, v in counts.items()) + f" over {len(slots)} ground slot(s) -> {a.bin}")
