@@ -394,6 +394,7 @@ CLADDING = {
 GLACIAL = "/Game/Env/Bio/Rock/Glacial/"
 SNOW_RULES = [
     {"name": "snow stones", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.12, "slope": 35,
+     "support": 20.0,
      "above": [None, None], "cluster": [10.0, 0.55],
      # Half buried, as B40 lays them (sunk 1 to 2 cm a unit of scale they
      # stood on the snow, their shadows showing the gap, 2026-10-13).
@@ -405,6 +406,7 @@ SNOW_RULES = [
     # Where walls meet the ground (the edge map's feet): B40's snowy scree
     # and rubble banked along them, as its own walls stand.
     {"name": "foot rubble", "wall": "foot", "align": True, "on": "any", "share": [0.0, 0.0], "density": 1.0,
+     "support": 25.0,
      "slope": 40, "above": [None, None], "cluster": [6.0, 0.35],
      "meshes": [("/Game/Env/Bio/Rock/Scree/Scree_Rock_A/SM_Scree_Rock_01", 0.8, 2.6, 6),
                 ("/Game/Env/Bio/Rock/Scree/Scree_Rock_B/SM_Scree_Rock_02", 0.8, 2.6, 5),
@@ -415,6 +417,7 @@ SNOW_RULES = [
     # Along every lip (a walkway's edge, a cliff top): B40's snow drifts,
     # half buried, the snow a wind leaves along an edge.
     {"name": "lip snow", "wall": "lip", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.35,
+     "support": 205.0,
      "slope": 35, "above": [None, None],
      "meshes": [("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A", 0.6, 1.1, 12),
                 ("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B", 0.5, 0.9, 20)],
@@ -522,6 +525,16 @@ class WalkGrid:
                             if min(w1, w2, 1 - w1 - w2) < 0:
                                 continue
                             self.cells.setdefault((ix, iy), []).append(w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2])
+
+    def supports(self, x, y, z, r):
+        """Whether ground a player can stand on lies under (x, y) and r cm
+        out in each of four directions, within 40 cm of z: a piece that
+        size sits on it whole, overhanging nothing."""
+        for dx, dy in ((0, 0), (r, 0), (-r, 0), (0, r), (0, -r)):
+            zs = self.cells.get((math.floor((x + dx) / self.cell), math.floor((y + dy) / self.cell)))
+            if not zs or not any(abs(q - z) <= 40.0 for q in zs):
+                return False
+        return True
 
     def blocks(self, c, reach, across=PLAYER_R):
         """Whether a rock (a sphere: centre `c`, cm, radius `reach`) enters
@@ -841,6 +854,7 @@ def main():
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
     walls = WallGrid(doc, data, off) if any(r.get("wall") for r in rules) else None
+    ground = WalkGrid(doc, data, off) if any(r.get("support") for r in rules) else None
     images = {}
     groups = {}  # mesh -> (rule, instances)
     counts = {r["name"]: 0 for r in rules}
@@ -926,6 +940,12 @@ def main():
                             continue
                         path, smin, smax, sink = rule["meshes"][R.randrange(len(rule["meshes"]))]
                         scale = R.uniform(smin, smax)
+                        # `support` (cm a unit of scale): the piece's half-size,
+                        # all of it on walkable ground (on Ice Fields' cliff
+                        # ledges the drifts and rubble hung in the air).
+                        sup = rule.get("support")
+                        if sup and not ground.supports(x, y, z - a.lift, sup * scale):
+                            continue
                         pt = rule.get("patch")
                         if pt:
                             scale *= pt[1] + (pt[2] - pt[1]) * value_noise(x, y, pt[0], a.seed + 7)
