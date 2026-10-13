@@ -3535,9 +3535,12 @@ function Land.cliffs(world, spec)
         textures[prefix .. "N"] = Land.megascans(rock.n)
         textures[prefix .. "O"] = Land.megascans(rock.o)
     end
-    textures.GrassD = Land.megascans(Land.SURFACES.GrassD)
-    textures.GrassN = Land.megascans(Land.SURFACES.GrassN)
-    textures.SandD = Land.megascans(Land.SURFACES.SandD)
+    -- The level's own ground (pbr.surfaces) over B30's: Ice Fields' cliffs
+    -- take its snow on their ledges and at their feet, not B30's turf.
+    local own = type(spec.pbr) == "table" and type(spec.pbr.surfaces) == "table" and spec.pbr.surfaces or {}
+    textures.GrassD = Land.megascans(own.GrassD or Land.SURFACES.GrassD)
+    textures.GrassN = Land.megascans(own.GrassN or Land.SURFACES.GrassN)
+    textures.SandD = Land.megascans(own.SandD or Land.SURFACES.SandD)
     -- The earth under the turf at a lip.
     local soil = type(cliff.soil) == "table" and cliff.soil or Land.SOIL
     textures.SoilD = Land.megascans(soil.d)
