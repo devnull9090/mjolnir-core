@@ -714,16 +714,68 @@ def srgb_to_linear(c):
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
 
-def sky_and_weather(placement, staging):
+# The roof map's cell (cm, 2 wu) and how far above the camera a ceiling
+# keeps the weather out (cm): a room's or a tunnel's, not an overhang's far
+# up a cliff.
+ROOF_CELL = 609.6
+ROOF_REACH = 2500.0
+
+
+def weather_roofs(staging, to_ue):
+    """Where the level has a roof: {cell (cm), reach (cm), cells: {"ix,iy":
+    [ceiling z, cm]}}, from the CE collision BSPs' downward-facing surfaces
+    with a floor below them within the reach, sampled at each cell's centre,
+    in Unreal centimetres (cell ix spans [ix, ix + 1) * cell). The loader
+    hides the weather while a ceiling is above the camera within the reach.
+    CE stops its particles at the weather polys over a room's openings (the
+    BSP's weather polyhedra, mostly single planes, not volumes); the game's
+    snow fills a box about the camera and fell through Coldsnap's roofs
+    (2026-10-13). None without collision."""
+    tris = collision_triangles(staging)
+    if not tris:
+        return None
+    up, down = {}, {}
+    for tri in tris:
+        a, b, c = (to_ue(v) for v in tri)
+        u = [b[i] - a[i] for i in range(3)]
+        v = [c[i] - a[i] for i in range(3)]
+        nz = u[0] * v[1] - u[1] * v[0]
+        n = math.sqrt((u[1] * v[2] - u[2] * v[1]) ** 2 + (u[2] * v[0] - u[0] * v[2]) ** 2 + nz * nz)
+        det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+        # Unreal's y is CE's flipped, which turns the winding: up is -z here.
+        if n == 0 or abs(nz / n) < 0.3 or abs(det) < 1e-6:
+            continue
+        target = up if nz < 0 else down
+        xs, ys = (a[0], b[0], c[0]), (a[1], b[1], c[1])
+        for ix in range(math.floor(min(xs) / ROOF_CELL), math.floor(max(xs) / ROOF_CELL) + 1):
+            px = (ix + 0.5) * ROOF_CELL
+            for iy in range(math.floor(min(ys) / ROOF_CELL), math.floor(max(ys) / ROOF_CELL) + 1):
+                py = (iy + 0.5) * ROOF_CELL
+                w1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+                w2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+                if min(w1, w2, 1 - w1 - w2) < 0:
+                    continue
+                target.setdefault((ix, iy), []).append(w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2])
+    cells = {}
+    for key, zs in down.items():
+        floors = up.get(key, [])
+        keep = sorted({round(z) for z in zs if any(0 < z - f <= ROOF_REACH for f in floors)})
+        if keep:
+            cells[f"{key[0]},{key[1]}"] = keep
+    return {"cell": ROOF_CELL, "reach": ROOF_REACH, "cells": cells}
+
+
+def sky_and_weather(placement, staging, to_ue=None):
     """The level's `sky_fog` and `weather` (environment keys), as far as it has
     them. A sky with no model (Coldsnap's) is its outdoor fog's colour: the
     masters fog the level towards it in CE's display colours and reach it at
     the opaque distance, so the loader's height fog starts there, in the same
     colour made linear (the masters' SRGB_TO_LINEAR). The weather is the
-    particle system most of the BSP's clusters use. Both come from ce_fog.py's
-    fog.json, and the sky fog only where a cluster draws the sky: Chill Out's
-    model-less sky has a fog, but no cluster of its draws a sky, so CE never
-    shows it."""
+    particle system most of the BSP's clusters use, with the level's roofs
+    (weather_roofs, given `to_ue`). Both come from ce_fog.py's
+    fog.json, and the sky fog only where a cluster draws the sky: no cluster
+    of Chill Out's does, so CE never shows its sky or the sky's outdoor fog
+    (its rooms take the sky's indoor fog, ce_material_spec.sky_fog)."""
     out = {}
     try:
         cefog = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8"))
@@ -743,6 +795,9 @@ def sky_and_weather(placement, staging):
         kind = next((k for k in WEATHER_SYSTEMS if k in s["system"].lower()), None)
         if kind:
             out["weather"] = {**WEATHER_SYSTEMS[kind], "source": s["system"]}
+            roofs = to_ue and weather_roofs(staging, to_ue)
+            if roofs:
+                out["weather"]["roofs"] = roofs
             break
         print(f"  weather {s['system']}: no Unreal system for it, left out", file=sys.stderr)
     return out
@@ -1278,7 +1333,7 @@ def main():
         # (MJOLNIRLevelLoader "post").
         "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
                                       f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
-                        **sky_and_weather(placement, a.staging),
+                        **sky_and_weather(placement, a.staging, to_ue),
                         **({"water": {"style": "ocean", **({"params": OCEAN_MAPS[name]} if OCEAN_MAPS[name] else {})}}
                            if name in OCEAN_MAPS else {}),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,

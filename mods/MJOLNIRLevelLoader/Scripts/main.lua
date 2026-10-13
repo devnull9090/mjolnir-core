@@ -265,6 +265,7 @@ local function resetState()
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.water = nil
+    Current.weatherHidden = nil
     -- Flag state is per match: the first drop of a match took the last
     -- match's team.
     Current.lastFlagTeam = nil
@@ -2548,7 +2549,25 @@ end
 --- after the spawn smeared every flake across the screen. A copy is spawned
 --- where one is missing (the first spawns after the system loads can come
 --- back empty).
+---
+--- `weather.roofs` (gen_ce_level.weather_roofs): the ceilings over the
+--- level by cell. While one is above the camera within the reach the copies
+--- are hidden: the box about the camera snowed through Coldsnap's roofs,
+--- where CE's weather polys over the openings stopped its flakes.
 local function updateWeather()
+    -- Nested: the main chunk is at Lua's 200 locals.
+    local function underRoof(roofs, at)
+        if type(roofs) ~= "table" or type(roofs.cells) ~= "table" then return false end
+        local cell = roofs.cell or 609.6
+        local zs = roofs.cells[string.format("%d,%d", math.floor(at.X / cell), math.floor(at.Y / cell))]
+        if type(zs) ~= "table" then return false end
+        local reach = roofs.reach or 2500.0
+        for _, z in ipairs(zs) do
+            local above = z - at.Z
+            if above > 0 and above <= reach then return true end
+        end
+        return false
+    end
     local env = Current.furnished and Current.level and Current.level.environment
     local w = type(env) == "table" and env.weather
     if type(w) ~= "table" or type(w.system) ~= "string" then return end
@@ -2557,11 +2576,15 @@ local function updateWeather()
     if not (cm and cm:IsValid()) then return end
     local at = cm:GetCameraLocation()
     local here = { X = at.X, Y = at.Y, Z = at.Z }
+    local hidden = underRoof(w.roofs, here)
+    local changed = hidden ~= (Current.weatherHidden or false)
+    Current.weatherHidden = hidden
     local missing = {}
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
         if comp and comp:IsValid() then
             if w.follow ~= false then comp:K2_SetWorldLocation(here, false, {}, true) end
+            if changed then pcall(function() comp:SetVisibility(not hidden, false) end) end
         else
             missing[#missing + 1] = i
         end
@@ -2583,6 +2606,7 @@ local function updateWeather()
             end
         end
         comp:Activate(true)
+        if hidden then pcall(function() comp:SetVisibility(false, false) end) end
         Current.actors["__weather" .. i] = comp
     end
     Log(string.format("weather: %d of %d cop%s of %s", #missing, w.copies or 1,

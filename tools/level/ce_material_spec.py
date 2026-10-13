@@ -83,7 +83,21 @@ def write_cube_dds(path, faces):
 
 
 def sky_fog(staging):
-    """The scenario sky's outdoor fog as material parameters (cm), or {}."""
+    """The map's atmospheric fog as material parameters (cm), or {}: the
+    scenario sky's outdoor fog, or sky 0's indoor fog where no cluster draws
+    a sky (ce_fog.py's fog.json), as CE fogs those (Chill Out)."""
+    try:
+        cefog = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        cefog = {}
+    indoor = cefog.get("indoor_fog")
+    if cefog.get("sky_clusters") == 0 and indoor:
+        if indoor.get("max_density", 0) <= 0:
+            return {}
+        return {"scalars": {"FogDensity": indoor["max_density"],
+                            "FogStart": indoor["start_distance"] * WU_TO_CM,
+                            "FogOpaque": indoor["opaque_distance"] * WU_TO_CM},
+                "vectors": {"FogColor": list(indoor["color"]) + [1.0]}}
     try:
         placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
     except FileNotFoundError:
