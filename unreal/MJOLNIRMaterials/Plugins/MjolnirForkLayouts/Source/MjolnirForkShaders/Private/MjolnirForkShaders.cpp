@@ -68,16 +68,13 @@ namespace
 		  TEXT("#include \"NaniteRasterizationCommon.ush\"\nuint4 ViewSizeAndOffset; // MJOLNIR: the fork's FRasterizePassParameters member") },
 		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
 		  TEXT("#if NANITE_HW_RASTER_INTERPOLATE_DEPTH\n\tfloat2 ClipZW\t\t\t\t\t\t\t\t: TEXCOORD0;\n#endif\n\n#if !NANITE_MESH_SHADER\n\tPrimitiveAttributesPacked PrimitivePacked;\n#endif"),
-		  // SV_Position next, ahead of the vertex shader's packed attributes:
-		  // the fork's pixel shader reads TEXCOORD0, SV_Position, TEXCOORD1 in
-		  // that order, and a vertex shader with them the other way round
-		  // failed to link (register index, #660).
-		  TEXT("\tfloat4 ClipPos : TEXCOORD0; // MJOLNIR: the fork's, every permutation\n")
-		  TEXT("\tfloat4 Position : SV_Position; // MJOLNIR: the fork's register order\n\n")
+		  // SV_Position stays where stock has it, last: the fork's
+		  // vertex-shader-path pixel shader reads TEXCOORD0, TEXCOORD1,
+		  // SV_Position in that order (moving SV_Position up broke that link,
+		  // #660), and on the mesh-shader path TEXCOORD1 is per-primitive and
+		  // packs after the vertex outputs either way.
+		  TEXT("\tfloat4 ClipPos : TEXCOORD0; // MJOLNIR: the fork's, every permutation\n\n")
 		  TEXT("#if !NANITE_MESH_SHADER\n\tPrimitiveAttributesPacked PrimitivePacked;\n#endif") },
-		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
-		  TEXT("\tfloat4 Position\t\t\t\t\t\t\t\t: SV_Position;"),
-		  TEXT("\t// MJOLNIR: SV_Position moved up, beside ClipPos") },
 		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
 		  TEXT("#if NANITE_HW_RASTER_INTERPOLATE_DEPTH\n\tOut.ClipZW = PointClip.zw;\n#endif"),
 		  TEXT("\tOut.ClipPos = PointClip; // MJOLNIR: the fork's") },
@@ -88,6 +85,23 @@ namespace
 		  TEXT("\tfloat2 ViewSize = (float2)ViewSizeAndOffset.xy;\n")
 		  TEXT("\tfloat4 SvPosition = float4((Ndc.x * ViewSize.x + ViewSize.x) * 0.5 + ViewSizeAndOffset.z,\n")
 		  TEXT("\t\t(ViewSize.y - Ndc.y * ViewSize.y) * 0.5 + ViewSizeAndOffset.w, In.ClipPos.z / In.ClipPos.w, In.ClipPos.w);") },
+		// The fork's per-view Nanite data (StructuredBuffer<FPackedNaniteView>)
+		// is 992 bytes, not 896: an eleventh matrix after ViewToTranslatedWorld,
+		// LODScales a float4 followed by a uint2, and a uint4 after Padding1.
+		// Read with the stock layout, our programmable raster shaders took the
+		// fork's TranslatedWorldToView for TranslatedWorldToClip and a matrix
+		// row for ViewRect, and drew nothing (offsets read from the game's
+		// shader library, tools/ue/shader_archive/dxil_reads.py). Existing
+		// fields keep their names, so nothing that reads them changes.
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tfloat4x4\tViewToTranslatedWorld;\n"),
+		  TEXT("\tfloat4x4\tViewToTranslatedWorld;\n\tfloat4x4\tMjolnirForkMatrix; // MJOLNIR: the fork's eleventh matrix (992-byte view)\n") },
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tfloat2\t\tLODScales;\n"),
+		  TEXT("\tfloat2\t\tLODScales;\n\tfloat2\t\tMjolnirForkLODScalesZW; // MJOLNIR: the fork's LODScales is a float4\n\tuint2\t\tMjolnirForkUint2; // MJOLNIR: the fork's\n") },
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tuint\t\tPadding1;\n"),
+		  TEXT("\tuint\t\tPadding1;\n\tuint4\t\tMjolnirForkTail; // MJOLNIR: the fork's\n") },
 	};
 
 	const TCHAR* GDirectories[] = { TEXT("Shared"), TEXT("Private") };
