@@ -108,7 +108,18 @@ MAP_LOOKS = {
                     "GravD": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_4K_NSVT_D",
                     "GravN": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_4K_NSVT_N",
                     "GravO": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_NSVT_ORHG"}},
-        "cliff": {"material": "/Game/Env/Bio/Rock/Glacial/Materials/MIP_Rock_Glacial_Inst.MIP_Rock_Glacial_Inst"},
+        # Steep ground (the rims of CE's rock pillars, drawn as the cliffs'
+        # rock_a) in B40's windswept snowy stones, not the beach's brown
+        # jagged rock; the shade's fill a cool snow bounce, not the sand's
+        # warm one (both drew the snow tan, 2026-10-13).
+        "cliff": {"material": "/Game/Env/Bio/Rock/Glacial/Materials/MIP_Rock_Glacial_Inst.MIP_Rock_Glacial_Inst",
+                  "fill": [0.85, 0.92, 1.0, 1.0],
+                  "rock_a": {"d": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
+                             "n": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
+                             "o": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"},
+                  "rock_b": {"d": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
+                             "n": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
+                             "o": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"}},
     },
     # Yoyorast Island (LYY, 2026-10-12): its grey island rock took a purple
     # cast from CE's bluish lightmap at the dusk share; CE's light at 0.15,
