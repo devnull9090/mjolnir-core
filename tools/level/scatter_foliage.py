@@ -395,10 +395,12 @@ GLACIAL = "/Game/Env/Bio/Rock/Glacial/"
 SNOW_RULES = [
     {"name": "snow stones", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.12, "slope": 35,
      "above": [None, None], "cluster": [10.0, 0.55],
-     "meshes": [(MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1_Snow", 0.4, 1.6, 2),
-                (MEGA3D + "Small_Beach_Rock_wd2ocdo/S_Small_Beach_Rock_wd2ocdo_high_Snow", 0.4, 1.4, 2),
-                (MEGA3D + "SmallStonesPack/SM_SmallStonesPack__Snow", 0.5, 1.5, 1),
-                (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 0.4, 1.4, 2)],
+     # Half buried, as B40 lays them (sunk 1 to 2 cm a unit of scale they
+     # stood on the snow, their shadows showing the gap, 2026-10-13).
+     "meshes": [(MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1_Snow", 0.4, 1.6, 8),
+                (MEGA3D + "Small_Beach_Rock_wd2ocdo/S_Small_Beach_Rock_wd2ocdo_high_Snow", 0.4, 1.4, 8),
+                (MEGA3D + "SmallStonesPack/SM_SmallStonesPack__Snow", 0.5, 1.5, 4),
+                (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 0.4, 1.4, 8)],
      "cull": [4000, 7000], "shadow": True},
 ]
 SNOW_CLADDING = {
