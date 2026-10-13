@@ -416,6 +416,51 @@ def argb_to_rgba(c):
     return [c[1], c[2], c[3], c[0]]
 
 
+# The noise every stock plasma shader uses, which M_CE_Plasma carries itself
+# (build_ce_materials.py build_plasma, MJ_PLASMA_NOISE).
+PLASMA_DEFAULT_NOISE = "characters\\elite\\bitmaps\\plasma shield noise"
+
+
+def plasma(entry, s, textures_dir, texture):
+    """shader_transparent_plasma on M_CE_Plasma: its tints and brightness,
+    and each noise map's scale, period and drift (halo2ue's shader `tag`).
+    A noise map other than the master's own goes in as a volume atlas: MCC's
+    tag where the HEK has it (mcc_tags.volume_atlas), else halo2ue's export,
+    one slice, its border wrapped."""
+    import numpy as np
+    from PIL import Image
+    t = s["tag"]
+    entry["parent"] = master("M_CE_Plasma")
+    vec = entry["vectors"]
+
+    def tint(key):
+        c = list(t.get(f"{key}_tint_color") or [1, 1, 1])
+        b = t.get(f"{key}_brightness", 1.0)
+        return [c[0] * b, c[1] * b, c[2] * b, 1.0]
+
+    vec["PlasmaPerpendicular"] = tint("perpendicular")
+    vec["PlasmaParallel"] = tint("parallel")
+    for which, prefix in (("A", "primary"), ("B", "secondary")):
+        vec[f"PlasmaNoise{which}"] = [t.get(f"{prefix}_noise_map_scale", 1.0),
+                                      t.get(f"{prefix}_animation_period", 1.0), 0.0, 0.0]
+        vec[f"PlasmaNoise{which}Dir"] = list(t.get(f"{prefix}_animation_direction") or [0, 0, 0]) + [0.0]
+        ref = t.get(f"{prefix}_noise_map") or {}
+        path = ref.get("path") or ""
+        if not path or path.lower() == PLASMA_DEFAULT_NOISE:
+            continue
+        import mcc_tags
+        stem = mcc_tags.stem_for(path) + "_volume"
+        info = mcc_tags.volume_atlas(path, os.path.join(textures_dir, stem + ".png"))
+        if not info and ref.get("file") and os.path.exists(os.path.join(textures_dir, ref["file"])):
+            img = np.asarray(Image.open(os.path.join(textures_dir, ref["file"])).convert("RGBA"))
+            Image.fromarray(np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="wrap"), "RGBA").save(
+                os.path.join(textures_dir, stem + ".png"))
+            info = {"file": stem + ".png", "tile": [img.shape[1], img.shape[0]], "cols": 1, "depth": 1}
+        if info:
+            entry["textures"][f"Noise{which}Map"] = texture(info["file"])
+            vec[f"PlasmaAtlas{which}"] = [info["tile"][0], info["tile"][1], info["cols"], info["depth"]]
+
+
 def generic(entry, tag_path, texture, textures_dir):
     """MCC's shader_transparent_generic for a chicago shader the PC port made
     of it (mcc_tags.py; docs/ce_map_conversion.md, "MCC's generic shaders"),
@@ -686,6 +731,8 @@ def main():
             water(entry, s, texture, cube, halo)
         elif cls == "sgla" and s.get("tag"):
             glass(entry, s, texture, cube, halo)
+        elif cls == "spla" and s.get("tag"):
+            plasma(entry, s, textures_dir, texture)
         else:
             flags = s.get("shader_flags", 0)
             if cls == "senv":

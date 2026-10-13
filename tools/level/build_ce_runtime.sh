@@ -57,7 +57,9 @@ python "$here/ce_sounds.py" --events "$maps/sounds.map" "$out/events"
 
 echo "== 3/5 masters, flag textures and event sounds (chunk 988) and the UI (chunk 984)"
 run() { powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script "$1" | grep -E "editor exit|MJOLNIR"; }
-run Scripts/build_ce_materials.py
+# M_CE_Plasma's noise: MCC's plasma shield noise volume as an atlas.
+python "$here/mcc_tags.py" --plasma-noise "$out/T_CE_PlasmaNoise.png"
+MJ_PLASMA_NOISE="$(cygpath -w "$out/T_CE_PlasmaNoise.png")" run Scripts/build_ce_materials.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/ctf_textures")" \
   MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/CE/CTF" run Scripts/build_ce_textures.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")" \

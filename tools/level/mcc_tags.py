@@ -18,6 +18,7 @@ in a tag file (one little-endian u32 in a cache file). Pixel data inside a bitma
 PC renderer uploads it.
 
     python mcc_tags.py <tag path>     # print a generic shader as JSON
+    python mcc_tags.py --plasma-noise <out.png>   # M_CE_Plasma's noise atlas
 """
 import json
 import os
@@ -324,6 +325,44 @@ def write_bitmap(tag_path, out_dir, stem, index=0):
     return png
 
 
+def volume_atlas(tag_path, out_png, cols=8):
+    """A 3D bitmap tag's top level as a 2D atlas PNG for M_CE_Plasma: its
+    slices as tiles, `cols` a row, each with a one-texel border wrapped from
+    its opposite edge, so bilinear filtering inside a tile repeats as the
+    volume does. Returns {"file", "tile": [w, h], "cols", "depth"}, or None
+    when the tag is missing or not an uncompressed 3D texture.
+
+    shader_transparent_plasma samples its noise maps as volumes (MCC's
+    transparent_plasma.psh: Texture3D); halo2ue exports a bitmap's first
+    slice only, a 2D image."""
+    import numpy as np
+    from PIL import Image
+    path = tag_file(tag_path, "bitmap")
+    if not os.path.exists(path):
+        return None
+    t = TagFile(path, "bitm", BITM).root
+    bitmaps = t.get("bitmaps") or []
+    if not bitmaps:
+        return None
+    b = bitmaps[0]
+    fmt, w, h, d = b["format"], b["width"], b["height"], max(1, b["depth"])
+    if b["type"] != 1 or fmt in _DXT or fmt not in _BPP or fmt == 17:
+        return None
+    pixels = t["processed_pixel_data"]
+    size = _level_size(w, h, fmt)
+    rows = -(-d // cols)
+    atlas = np.zeros((rows * (h + 2), cols * (w + 2), 4), np.uint8)
+    for z in range(d):
+        off = b["pixels_offset"] + z * size
+        img = _raw(pixels[off:off + size], w, h, fmt)
+        tile = np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="wrap")
+        r, c = divmod(z, cols)
+        atlas[r * (h + 2):(r + 1) * (h + 2), c * (w + 2):(c + 1) * (w + 2)] = tile
+    os.makedirs(os.path.dirname(os.path.abspath(out_png)), exist_ok=True)
+    Image.fromarray(atlas, "RGBA").save(out_png)
+    return {"file": os.path.basename(out_png), "tile": [w, h], "cols": cols, "depth": d}
+
+
 def stem_for(tag_path):
     """The `mcc_` texture stem for a bitmap tag path, as halo2ue names a
     staged bitmap (path parts joined by `_`, spaces to `_`)."""
@@ -340,5 +379,16 @@ def _jsonable(v):
     return v
 
 
+# The plasma shield noise, which every stock shader_transparent_plasma uses
+# (M_CE_Plasma's own noise: build_ce_materials.py MJ_PLASMA_NOISE).
+PLASMA_NOISE = r"characters\elite\bitmaps\plasma shield noise"
+
+
 if __name__ == "__main__":
-    print(json.dumps(_jsonable(generic_shader(sys.argv[1])), indent=1))
+    if sys.argv[1] == "--plasma-noise":
+        info = volume_atlas(PLASMA_NOISE, sys.argv[2])
+        if not info:
+            sys.exit(f"no volume bitmap at {PLASMA_NOISE} under {TAGS}")
+        print(json.dumps(info))
+    else:
+        print(json.dumps(_jsonable(generic_shader(sys.argv[1])), indent=1))

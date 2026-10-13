@@ -10,6 +10,11 @@ SM_<CODE>_CliffTess (chunk 983 with the trial masters): Unreal centimetres
 (Land.cliffs), M_CE_CliffTess until it does. The vertex colour is the
 distance from the cliffs' border, which the material fades displacement by;
 UV2 and UV3 carry CE's own normals (`shade`), which the material shades by.
+
+An entry named SM_... (`SM_YOY_Plasma=...plasma_mesh.json`) is a slot mesh
+(cliff_mesh.py --parent): built under that name, Nanite only if the spec
+says so, its slots on the spec's `material` (a translucent master: a mesh
+enters the translucency pass by its own slots' materials).
 """
 import json
 import os
@@ -26,7 +31,7 @@ def log(msg):
 
 def build(code, spec_path):
     spec = json.load(open(spec_path, encoding="utf-8"))
-    name = f"SM_{code}_CliffTess"
+    name = code if code.startswith("SM_") else f"SM_{code}_CliffTess"
     path = f"{ROOT}/{name}"
     if eal.does_asset_exist(path):
         eal.delete_asset(path)
@@ -48,9 +53,9 @@ def build(code, spec_path):
         unreal.log_error(f"MJOLNIR cliffs: {code}: mesh not built")
         return
     nanite = mesh.get_editor_property("nanite_settings")
-    nanite.set_editor_property("enabled", True)
+    nanite.set_editor_property("enabled", bool(spec.get("nanite", True)))
     mesh.set_editor_property("nanite_settings", nanite)
-    material = unreal.load_asset(f"{ROOT}/M_CE_CliffTess")
+    material = unreal.load_asset(f"{ROOT}/{spec.get('material', 'M_CE_CliffTess')}")
     for i in range(len(spec["slots"])):
         mesh.set_material(i, material)
     eal.save_loaded_asset(mesh)

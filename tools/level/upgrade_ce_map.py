@@ -207,8 +207,11 @@ def stage_editor(code, m, p):
 
 
 def build_masters():
+    # M_CE_Plasma's noise: MCC's plasma shield noise volume as an atlas.
+    noise = os.path.join(PROJECT, "Saved", "ce_plasma", "T_CE_PlasmaNoise.png")
+    run([sys.executable, os.path.join(HERE, "mcc_tags.py"), "--plasma-noise", noise])
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_materials.py"],
-               env={"MJ_CE_ROOT": "/Game/MJOLNIR/CETrial", "MJ_CE_CHUNK": "983"})
+               env={"MJ_CE_ROOT": "/Game/MJOLNIR/CETrial", "MJ_CE_CHUNK": "983", "MJ_PLASMA_NOISE": noise})
     log = open(os.path.join(PROJECT, "Saved_build_ce_materials.log"), encoding="utf-8", errors="replace").read()
     if "trial materials built" not in log or "Traceback" in log:
         sys.exit("the trial masters did not build: see " + os.path.join(PROJECT, "Saved_build_ce_materials.log"))
@@ -230,6 +233,18 @@ def build_cliffs(maps, ps):
                           os.path.join(p["land"], "landscape.json"), "--swap",
                           os.path.join(p["work"], "swap.json")]).strip().splitlines()[-1][:160])
         specs.append(f"{code}={out}")
+    # Translucent slots a conversion left on the opaque terrain mesh (plasma:
+    # Yoyorast's beams), as a mesh of their own (level.slot_meshes).
+    for code, m in maps.items():
+        p = ps[code]
+        out = os.path.join(p["work"], "plasma_mesh.json")
+        made = run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
+                    os.path.join(p["scene"], "scene.gltf"), out, "--parent", "M_CE_Plasma"], check=False)
+        if "triangle(s) on M_CE_Plasma" in made:
+            print("  " + made.strip().splitlines()[-1][:160])
+            specs.append(f"SM_{code}_Plasma={out}")
+        elif os.path.exists(out):
+            os.remove(out)
     if not specs:
         return
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
@@ -280,6 +295,11 @@ def stage_assemble(code, m, p):
     fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    plasma = os.path.join(p["work"], "plasma_mesh.json")
+    if os.path.exists(plasma):
+        spec = json.load(open(plasma, encoding="utf-8"))
+        level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
+                                 "item": spec["item"], "slots": spec["slots"]}]
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR

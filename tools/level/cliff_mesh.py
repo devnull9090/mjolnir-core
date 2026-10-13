@@ -1,6 +1,12 @@
 """A converted map's cliffs as one mesh for Nanite tessellation.
 
     python tools/level/cliff_mesh.py <level.json> <scene.gltf> <out.json> [--landscape landscape.json]
+    python tools/level/cliff_mesh.py <level.json> <scene.gltf> <out.json> --parent M_CE_Plasma
+
+With --parent, the slots on that master instead, as they are (no welding,
+splitting or fade): translucent surfaces a conversion left on the opaque
+terrain mesh, which can draw no translucency (Yoyorast's plasma beams), as
+a mesh of their own (MJOLNIRLevelLoader level.slot_meshes).
 
 CE's cliffs are slots of the map's terrain mesh (SM_<CODE>_Terrain, a
 classic mesh), the slots whose detail map is one of level.landscape.cliff's
@@ -148,6 +154,7 @@ def main():
     ap.add_argument("scene")
     ap.add_argument("out")
     ap.add_argument("--landscape", help="build_landscape.py's landscape.json, for the cliff details")
+    ap.add_argument("--parent", help="take the slots on this master as they are (see above)")
     ap.add_argument("--swap", help="scenery_swap.py's swap.json: its hidden slots are not cliffs (CE boulders "
                                    "baked into the terrain, which B30's own replace)")
     a = ap.parse_args()
@@ -167,16 +174,20 @@ def main():
     for i, m in enumerate(terrain.get("materials") or []):
         if m in hide:
             continue
+        name = names[i - 1] if 0 < i <= len(names) else None
+        if a.parent:
+            if isinstance(m, dict) and (m.get("parent") or "").endswith("." + a.parent):
+                slots.append((i, i - 1, name))
+            continue
         t = m.get("textures") if isinstance(m, dict) else None
         if not t or (t.get("Primary") or "").split(".")[-1] not in details:
             continue
-        name = names[i - 1] if 0 < i <= len(names) else None
         lm = t.get("Lightmap") or ""
         if "object_lighting" not in lm and page_of(name) != texture_page(lm):
             sys.exit(f"terrain slot {i}: glTF material {name} is not on the slot's lightmap page {lm}")
         slots.append((i, i - 1, name))
     if not slots:
-        sys.exit("no cliff slots")
+        sys.exit("no slots on " + a.parent if a.parent else "no cliff slots")
 
     # Corners of every cliff triangle, Unreal cm: glTF (x, y, z) m -> (x, z, y) * 100.
     pos, nrm, uv0, uv1, section = [], [], [], [], []
@@ -205,6 +216,18 @@ def main():
     corners = np.concatenate(pos)
     uv0, uv1 = np.concatenate(uv0), np.concatenate(uv1)
     shade = np.concatenate(nrm)
+
+    if a.parent:
+        out = {
+            "item": terrain["id"], "slots": [s for s, _, _ in slots], "names": [n for _, _, n in slots],
+            "positions": corners.round(3).tolist(), "normals": shade.round(5).tolist(),
+            "indices": list(range(len(corners))), "uv0": uv0.round(6).tolist(), "uv1": uv1.round(6).tolist(),
+            "sections": list(section), "weight": [1.0] * len(corners), "nanite": False,
+            "material": a.parent,
+        }
+        json.dump(out, open(a.out, "w", encoding="utf-8"))
+        print(f"{len(corners) // 3} triangle(s) on {a.parent} from {len(slots)} slot(s) {[s for s, _, _ in slots]}")
+        return
 
     # Weld by position.
     key = np.round(corners / WELD).astype(np.int64)

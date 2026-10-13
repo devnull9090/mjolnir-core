@@ -742,6 +742,12 @@ local function runtimeMaterial(world, spec, name, target)
     end
     if master then parent = resolveMesh(TRIAL_MASTERS .. master) end
     parent = parent or (type(spec.parent) == "string" and resolveMesh(spec.parent))
+    -- A master newer than the installed runtime pack (M_CE_Plasma,
+    -- 2026-10-13): the trial build's copy, when that is installed.
+    if not parent and type(spec.parent) == "string" then
+        local leaf = spec.parent:match("^/Game/MJOLNIR/CE/([%w_]+%.[%w_]+)$")
+        if leaf then parent = resolveMesh(TRIAL_MASTERS .. leaf) end
+    end
     local mid = target
     if not mid then
         if not kml or not parent then return nil, "parent material not found: " .. tostring(spec.parent) end
@@ -3382,6 +3388,46 @@ function Land.tessCliffs(world, tess, mids, terrain, hidden)
     for _, slot in ipairs(tess.slots) do terrain:SetMaterial(slot, hidden) end
 end
 
+--- Slot meshes (level.slot_meshes, tools/level/cliff_mesh.py --parent):
+--- translucent surfaces a conversion left on the opaque terrain mesh, which
+--- can draw no translucency (a mesh enters that pass by its own slots), as a
+--- mesh of their own at the origin. Each section takes the material the
+--- loader made for its slot on decor `item`, and the slot is hidden.
+--- Yoyorast's plasma beams drew white, then nothing (2026-10-13).
+function Land.slotMeshes(world, level)
+    local n = 0
+    for gi, e in ipairs(type(level.slot_meshes) == "table" and level.slot_meshes or {}) do
+        local terrain = Current.actors[e.item]
+        local mesh = type(e.mesh) == "string" and resolveMesh(e.mesh)
+        local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+        if terrain and terrain:IsValid() and mesh and hidden then
+            local key = "__slot_mesh_" .. gi
+            local actor = Current.actors[key]
+            if not (actor and actor:IsValid()) then
+                actor = world:SpawnActor(findObject("/Script/Engine.StaticMeshActor"), { X = 0, Y = 0, Z = 0 },
+                    { Pitch = 0, Yaw = 0, Roll = 0 })
+                Current.actors[key] = actor
+            end
+            if actor and actor:IsValid() then
+                local c, tc = actor.StaticMeshComponent, terrain.StaticMeshComponent
+                c.Mobility = MOBILITY_MOVABLE
+                c:SetStaticMesh(mesh)
+                c:SetCollisionEnabled(COLLISION_NONE)
+                c:SetCastShadow(false)
+                for k, slot in ipairs(e.slots or {}) do
+                    c:SetMaterial(k - 1, tc:GetMaterial(slot))
+                    tc:SetMaterial(slot, hidden)
+                end
+                n = n + 1
+            end
+        else
+            Log("slot mesh " .. tostring(e.mesh) .. ": " .. (mesh and "decor '" .. tostring(e.item) .. "' not spawned"
+                or "mesh not found"))
+        end
+    end
+    return n
+end
+
 function Land.cliffs(world, spec)
     local cliff = spec.cliff
     if type(cliff) ~= "table" then return 0 end
@@ -3949,6 +3995,10 @@ local function spawnDecor(world)
     end
     Log(string.format("level '%s': %d decor spawned, %d failed",
         tostring(level.name), Current.spawned, Current.failed))
+    if type(level.slot_meshes) == "table" then
+        local sok, sn = pcall(Land.slotMeshes, world, level)
+        Log("slot meshes: " .. tostring(sok and sn or sn))
+    end
     if proxyWanted() then
         Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
     end

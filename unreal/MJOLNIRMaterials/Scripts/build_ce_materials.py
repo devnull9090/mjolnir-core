@@ -3173,6 +3173,109 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
     eal.save_loaded_asset(m)
 
 
+# shader_transparent_plasma (M_CE_Plasma), as MCC draws it
+# (HCEEK/shaders/fx/transparent_plasma.psh, vsh/transparent_plasma_m.vsh):
+# two volume noise maps, each at the surface's position in world units times
+# its noise map scale, drifting along its animation direction once a period;
+# their luminance (b) and alpha differenced into the plasma's veins; the tint
+# between the parallel and the perpendicular colour (each times its
+# brightness) by how squarely the surface faces the eye; added into the frame.
+# The volumes are 2D atlases (mcc_tags.volume_atlas: slices as tiles with a
+# wrapped border, Atlas = tile w, h, columns, slices), blended between
+# slices here. Explicit levels: no derivatives in the ray tracing shaders.
+PLASMA_CODE = r"""
+struct PLS
+{
+    static float4 vol(Texture2D T, SamplerState S, float3 p, float4 A)
+    {
+        float cols = max(A.z, 1.0), d = max(A.w, 1.0);
+        float rows = ceil(d / cols);
+        float2 tile = A.xy + 2.0;
+        float2 size = float2(cols, rows) * tile;
+        p = frac(p);
+        float z = p.z * d - 0.5;
+        float z0 = floor(z), f = z - z0;
+        float s0 = fmod(z0 + d, d), s1 = fmod(z0 + 1.0 + d, d);
+        float2 inner = 1.0 + p.xy * A.xy;
+        float2 c0 = (float2(fmod(s0, cols), floor(s0 / cols)) * tile + inner) / size;
+        float2 c1 = (float2(fmod(s1, cols), floor(s1 / cols)) * tile + inner) / size;
+        return lerp(Texture2DSampleLevel(T, S, c0, 0), Texture2DSampleLevel(T, S, c1, 0), f);
+    }
+};
+float3 P = W / 304.8;
+float3 pa = P * NoiseA.x + NoiseADir.xyz * (Time / max(abs(NoiseA.y), 1e-3)) * sign(NoiseA.y + 1e-6);
+float3 pb = P * NoiseB.x + NoiseBDir.xyz * (Time / max(abs(NoiseB.y), 1e-3)) * sign(NoiseB.y + 1e-6);
+float4 t0 = PLS::vol(NoiseAMap, NoiseAMapSampler, pa, AtlasA);
+float4 t1 = PLS::vol(NoiseBMap, NoiseBMapSampler, pb, AtlasB);
+float i1 = saturate(t0.b + 0.5 - t1.b);
+float i2 = saturate(t1.a + 0.5 - t0.a);
+float pl = i1 < 0.5 ? i1 : i2;
+pl = saturate(pl * pl * 4.0);
+float att = pl < 0.5 ? 0.0 : pow(2.0 * pl - 1.0, 2.0);
+float ne = abs(dot(normalize(N), normalize(Cam - W)));
+float3 tint = saturate(Para.rgb + ne * (Perp.rgb - Para.rgb));
+float3 col = saturate(pl * tint + att * 0.5) * pl * pl;
+return col * Bright.x * Exposure * DisplayGain;
+"""
+
+
+def build_plasma(defaults):
+    """M_CE_Plasma (PLASMA_CODE): additive, unlit, two-sided. Its noise maps
+    default to the plasma shield noise atlas (MJ_PLASMA_NOISE, written by
+    mcc_tags.volume_atlas from MCC's tag), the one CE's plasma shaders use."""
+    m = fresh(ROOT, "M_CE_Plasma", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    noise = defaults["T_CE_White"]
+    atlas = os.environ.get("MJ_PLASMA_NOISE")
+    if atlas and os.path.exists(atlas):
+        noise = import_texture(atlas, ROOT, "T_CE_PlasmaNoise")
+        # Raw values (the shader differences them), no compression, no mips
+        # (the atlas's tiles would bleed into each other), wrapping.
+        noise.set_editor_property("srgb", False)
+        noise.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
+        noise.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+        noise.set_editor_property("never_stream", True)
+        eal.save_loaded_asset(noise)
+    else:
+        unreal.log_warning("MJOLNIR: no MJ_PLASMA_NOISE; M_CE_Plasma's noise defaults to white")
+
+    def tex(name):
+        t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name, texture=noise,
+                   sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        t.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+        return (name, t, "")
+
+    atlas_default = (32.0, 32.0, 8.0, 32.0)
+    inputs = [
+        ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+        ("N", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+        ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
+        ("Time", g.node(unreal.MaterialExpressionTime, x=-2000), ""),
+        tex("NoiseAMap"), tex("NoiseBMap"),
+        # Scale (a world unit's share of the volume), period (s).
+        ("NoiseA", g.vector4("PlasmaNoiseA", (1.0, 1.0, 0.0, 0.0)), ""),
+        ("NoiseB", g.vector4("PlasmaNoiseB", (1.0, 1.0, 0.0, 0.0)), ""),
+        ("NoiseADir", g.vector4("PlasmaNoiseADir", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("NoiseBDir", g.vector4("PlasmaNoiseBDir", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("AtlasA", g.vector4("PlasmaAtlasA", atlas_default), ""),
+        ("AtlasB", g.vector4("PlasmaAtlasB", atlas_default), ""),
+        # Each tint colour times its brightness.
+        ("Perp", g.vector4("PlasmaPerpendicular", (0.0, 0.45, 0.9, 1.0)), ""),
+        ("Para", g.vector4("PlasmaParallel", (0.3, 0.65, 1.0, 1.0)), ""),
+        ("Bright", g.vector4("PlasmaBrightness", (1.0, 0.0, 0.0, 0.0)), ""),
+        ("Exposure", g.scalar("Exposure", 1.0), ""),
+        ("DisplayGain", g.scalar("DisplayGain", DISPLAY_GAIN), ""),
+    ]
+    c = g.custom(PLASMA_CODE, inputs, description="CE shader_transparent_plasma")
+    mel.connect_material_property(g.to_screen(c), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 def build_hidden():
     """M_CE_Hidden: draws nothing, casts nothing. A terrain slot whose CE
     scenery B30's own assets replace (tools/level/scenery_swap.py) points
@@ -3197,6 +3300,8 @@ if TRIAL_ROOT:
     build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True, shade_uv=True)
     # The cladding rocks tessellated: their own vertex normals.
     build_cliff_pbr(defaults, "M_CE_CladTess", tessellate=True)
+    # Until the runtime pack carries it (MJOLNIRLevelLoader falls back here).
+    build_plasma(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")
@@ -3218,4 +3323,5 @@ else:
     for two_sided in (False, True):
         build_glass(defaults, two_sided)
     build_flare(defaults)
+    build_plasma(defaults)
     unreal.log("MJOLNIR CE materials built")
