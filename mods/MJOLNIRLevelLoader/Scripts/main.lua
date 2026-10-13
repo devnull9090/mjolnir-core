@@ -3763,6 +3763,9 @@ function Land.ground(world, spec)
                                 for pname, v in pairs(type(look.vectors) == "table" and look.vectors or {}) do
                                     mid:SetVectorParameterValue(FName(pname), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 0 })
                                 end
+                                for pname, v in pairs(type(look.scalars) == "table" and look.scalars or {}) do
+                                    mid:SetScalarParameterValue(FName(pname), v)
+                                end
                             end
                         end
                         if pcall(function() comp:SetMaterial(i - 1, mid) end) then

@@ -382,7 +382,7 @@ def stage_assemble(code, m, p):
         slots = [i + 1 for i, mt in enumerate(doc["materials"])
                  if any(x in mt.get("name", "").lower() for x in look["shaders"])]
         if slots:
-            looks.append({"slots": slots, "vectors": look["vectors"]})
+            looks.append({"slots": slots, "vectors": look.get("vectors") or {}, "scalars": look.get("scalars") or {}})
     if looks and isinstance(level["landscape"].get("cut"), dict):
         level["landscape"]["cut"]["looks"] = looks
     plasma = os.path.join(p["work"], "plasma_mesh.json")
