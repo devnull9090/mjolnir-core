@@ -15,7 +15,10 @@ splits vertices per plane, and per-face normals would open a crack along
 every edge. The cliffs' outer border (edges one cliff triangle
 uses) is where they meet the ground mesh or the landscape, which do not
 move: each vertex's colour is its distance from it over FADE, 0 on it, and
-the material fades displacement by it. Vertex colours interpolate across a
+the material fades displacement by it. Shading keeps CE's own normals
+(`shade`, a corner each, into UV2 and UV3): with the welded ones its
+triplanar rock smeared across every crease and the ledge test drew turf
+along ridges (Yoyorast, 2026-10-13). Vertex colours interpolate across a
 triangle, and CE's cliff triangles span tens of metres, a wall often one
 strip with every corner on the border, so the mesh is first split until no
 edge is over SPLIT (bisecting the longest edges, both triangles at an edge
@@ -50,7 +53,7 @@ def texture_page(path):
     return int(m.group(1)) if m and int(m.group(1)) < 100 else 0
 
 
-def subdivide(verts, tris, uv0, uv1, section, longest):
+def subdivide(verts, tris, uv0, uv1, section, longest, shade):
     """Bisect edges longer than `longest`, longest first. Both triangles at
     an edge split at its one midpoint (the mesh stays welded); each corner's
     UVs are its triangle's own, the midpoint's the mean of the edge's ends."""
@@ -58,6 +61,7 @@ def subdivide(verts, tris, uv0, uv1, section, longest):
     tris = [list(t) for t in tris.tolist()]
     uv0 = [list(map(tuple, t)) for t in uv0.tolist()]
     uv1 = [list(map(tuple, t)) for t in uv1.tolist()]
+    shade = [list(map(tuple, t)) for t in shade.tolist()]
     section = list(section)
     at = {}  # edge -> triangles
 
@@ -96,20 +100,22 @@ def subdivide(verts, tris, uv0, uv1, section, longest):
             c = tri[ic]
             mid0 = tuple((uv0[t][ia][k] + uv0[t][ib][k]) / 2.0 for k in range(2))
             mid1 = tuple((uv1[t][ia][k] + uv1[t][ib][k]) / 2.0 for k in range(2))
+            mids = tuple((shade[t][ia][k] + shade[t][ib][k]) / 2.0 for k in range(3))
             for k in range(3):
                 at.get(key(tri[k], tri[(k + 1) % 3]), set()).discard(t)
             # Keep the winding: replace b by m in this triangle, and add one
             # with a replaced by m.
-            new_tri, new_u0, new_u1 = list(tri), list(uv0[t]), list(uv1[t])
-            tri[ib], uv0[t][ib], uv1[t][ib] = m, mid0, mid1
-            new_tri[ia], new_u0[ia], new_u1[ia] = m, mid0, mid1
+            new_tri, new_u0, new_u1, new_sh = list(tri), list(uv0[t]), list(uv1[t]), list(shade[t])
+            tri[ib], uv0[t][ib], uv1[t][ib], shade[t][ib] = m, mid0, mid1, mids
+            new_tri[ia], new_u0[ia], new_u1[ia], new_sh[ia] = m, mid0, mid1, mids
             tris.append(new_tri)
             uv0.append(new_u0)
             uv1.append(new_u1)
+            shade.append(new_sh)
             section.append(section[t])
             add(t)
             add(len(tris) - 1)
-    return (np.array(verts), np.array(tris), np.array(uv0), np.array(uv1), np.array(section))
+    return (np.array(verts), np.array(tris), np.array(uv0), np.array(uv1), np.array(section), np.array(shade))
 
 
 def border_fade(verts, border_edges, fade):
@@ -192,11 +198,13 @@ def main():
         idx[flip] = idx[flip][:, [0, 2, 1]]
         pos.append(P[idx].reshape(-1, 3))
         nrm.append(N[idx].reshape(-1, 3))
+        # (After the flip: N is per vertex, so the corners keep their own.)
         uv0.append(T0[idx].reshape(-1, 2))
         uv1.append(T1[idx].reshape(-1, 2))
         section += [k] * len(idx)
     corners = np.concatenate(pos)
     uv0, uv1 = np.concatenate(uv0), np.concatenate(uv1)
+    shade = np.concatenate(nrm)
 
     # Weld by position.
     key = np.round(corners / WELD).astype(np.int64)
@@ -207,13 +215,14 @@ def main():
     keep = (tris[:, 0] != tris[:, 1]) & (tris[:, 1] != tris[:, 2]) & (tris[:, 0] != tris[:, 2])
     tris, section = tris[keep], np.asarray(section)[keep]
     uv0, uv1 = uv0.reshape(-1, 3, 2)[keep], uv1.reshape(-1, 3, 2)[keep]
+    shade = shade.reshape(-1, 3, 3)[keep]
 
     # Border first, on the welded mesh as CE has it.
     edges = np.sort(np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]]), axis=1)
     uniq, counts = np.unique(edges, axis=0, return_counts=True)
     border_edges = uniq[counts == 1]
 
-    verts, tris, uv0, uv1, section = subdivide(verts, tris, uv0, uv1, section, SPLIT)
+    verts, tris, uv0, uv1, section, shade = subdivide(verts, tris, uv0, uv1, section, SPLIT, shade)
 
     # Area-weighted normals per welded vertex (the face cross product's length).
     a_, b_, c_ = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
@@ -234,6 +243,7 @@ def main():
         "indices": tris.reshape(-1).tolist(),
         "uv0": uv0.reshape(-1, 2).round(6).tolist(),
         "uv1": uv1.reshape(-1, 2).round(6).tolist(),
+        "shade": shade.reshape(-1, 3).round(5).tolist(),
         "sections": section.tolist(),
         "weight": weight.round(3).tolist(),
     }

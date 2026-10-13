@@ -3517,7 +3517,10 @@ function Land.cliffs(world, spec)
     -- The cladding rocks (Foliage.cliffGroups): the same rock, their CE base
     -- map the wall's, their CE light their own (group.lm: the lightmap under
     -- each, custom primitive data) or their group's.
-    local cladParent = tess and tess.cladding and tessParent or parent
+    -- (M_CE_CladTess: the cliffs' tessellated master shades by normals
+    -- the cliff mesh carries in UV2/UV3, which a rock's mesh has not.)
+    local cladTess = tess and tess.cladding and resolveMesh(TRIAL_MASTERS .. "M_CE_CladTess.M_CE_CladTess")
+    local cladParent = cladTess or parent
     for gi, group in ipairs(Foliage.cliffGroups or {}) do
         local mid = kml:CreateDynamicMaterialInstance(world, cladParent, FName(string.format("mjolnir_clad_%d", gi)), 0)
         if mid and mid:IsValid() then

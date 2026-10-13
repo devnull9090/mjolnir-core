@@ -534,12 +534,13 @@ bool UMjolnirUIBuilderLibrary::WriteUsmap(const FString& Path)
 bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions,
 	const TArray<FVector>& Normals, const TArray<int32>& Indices, const TArray<FVector2D>& UV0,
 	const TArray<FVector2D>& UV1, const TArray<int32>& Sections, const TArray<FName>& SlotNames,
-	const TArray<FLinearColor>& Colors)
+	const TArray<FLinearColor>& Colors, const TArray<FVector>& ShadeNormals)
 {
 	const int32 Tris = Indices.Num() / 3;
 	if (!Mesh || Normals.Num() != Positions.Num() || Indices.Num() % 3 != 0 || UV0.Num() != Indices.Num()
 		|| UV1.Num() != Indices.Num() || Sections.Num() != Tris || SlotNames.Num() == 0
-		|| (Colors.Num() != 0 && Colors.Num() != Positions.Num()))
+		|| (Colors.Num() != 0 && Colors.Num() != Positions.Num())
+		|| (ShadeNormals.Num() != 0 && ShadeNormals.Num() != Indices.Num()))
 	{
 		UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: inconsistent arrays"));
 		return false;
@@ -547,7 +548,7 @@ bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<F
 	FMeshDescription Desc;
 	FStaticMeshAttributes Attr(Desc);
 	Attr.Register();
-	Attr.GetVertexInstanceUVs().SetNumChannels(2);
+	Attr.GetVertexInstanceUVs().SetNumChannels(ShadeNormals.Num() ? 4 : 2);
 	TVertexAttributesRef<FVector3f> Pos = Attr.GetVertexPositions();
 	TVertexInstanceAttributesRef<FVector3f> Nrm = Attr.GetVertexInstanceNormals();
 	TVertexInstanceAttributesRef<FVector2f> UVs = Attr.GetVertexInstanceUVs();
@@ -596,6 +597,12 @@ bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<F
 			if (Colors.Num())
 			{
 				Col[Corner[K]] = FVector4f(Colors[I]);
+			}
+			if (ShadeNormals.Num())
+			{
+				const FVector N = ShadeNormals[3 * T + K].GetSafeNormal();
+				UVs.Set(Corner[K], 2, FVector2f(N.X, N.Y));
+				UVs.Set(Corner[K], 3, FVector2f(N.Z, 0.0f));
 			}
 		}
 		Desc.CreateTriangle(Groups[Sections[T]], MakeArrayView(Corner, 3));

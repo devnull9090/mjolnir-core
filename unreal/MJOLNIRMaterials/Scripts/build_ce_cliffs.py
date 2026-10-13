@@ -8,7 +8,8 @@ SM_<CODE>_CliffTess (chunk 983 with the trial masters): Unreal centimetres
 (placed at the origin, unscaled), one slot a terrain cliff slot, named
 `slot_<terrain slot>` so MJOLNIRLevelLoader gives each its slot's rock
 (Land.cliffs), M_CE_CliffTess until it does. The vertex colour is the
-distance from the cliffs' border, which the material fades displacement by.
+distance from the cliffs' border, which the material fades displacement by;
+UV2 and UV3 carry CE's own normals (`shade`), which the material shades by.
 """
 import json
 import os
@@ -41,6 +42,7 @@ def build(code, spec_path):
         spec["sections"],
         [f"slot_{s}" for s in spec["slots"]],
         [unreal.LinearColor(w, w, w, 1.0) for w in spec["weight"]],
+        [v(*n) for n in spec.get("shade", [])],
     )
     if not ok:
         unreal.log_error(f"MJOLNIR cliffs: {code}: mesh not built")

@@ -3032,7 +3032,7 @@ def cpd3(g):
                   primitive_data_index=0)
 
 
-def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
+def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=False):
     """M_CE_CliffPBR (CLIFF_PBR_CODE): a converted map's cliff slots in the
     game's own rock, triplanar and lit by Unreal. MJOLNIRLevelLoader sets the
     rock surfaces (game textures) and each slot's own base map and lightmap
@@ -3065,9 +3065,21 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
                               if name == "Edge" else unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
         return (name, t, "")
 
+    # The tessellated cliffs (`shade_uv`) shade by CE's own normals (UV2,
+    # UV3; their vertex normals are welded for displacement, cliff_mesh.py),
+    # the mesh unrotated at the origin, so object space is world space.
+    if shade_uv:
+        nxy = g.uv(2)
+        nz = g.node(unreal.MaterialExpressionComponentMask, x=-1900, r=True)
+        link(g.uv(3), "", nz, "")
+        shade_n = g.node(unreal.MaterialExpressionAppendVector, x=-1800)
+        link(nxy, "", shade_n, "A")
+        link(nz, "", shade_n, "B")
+    else:
+        shade_n = g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000)
     inputs = [
         ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
-        ("Nw", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+        ("Nw", shade_n, ""),
         tex("Base", white, linear), ("TC0", g.uv(0), ""), ("TC1", g.uv(1), ""),
         tex("RockAD", albedo_default, colour), tex("RockAN", normal_default, normal), tex("RockAO", white, linear),
         tex("RockBD", albedo_default, colour), tex("RockBN", normal_default, normal), tex("RockBO", white, linear),
@@ -3144,8 +3156,11 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
         m.set_editor_property("enable_tessellation", True)
         m.set_editor_property("displacement_scaling", unreal.DisplacementScaling(magnitude=100.0, center=0.5))
         named = {n: (src, pin) for n, src, pin in inputs}
+        # Heights by the welded normal (the shading one differs either side
+        # of a crease, which would open it).
         d = g.custom(CLIFF_DISPLACE_CODE, [
-            ("W", *named["W"]), ("Nw", *named["Nw"]), ("Cam", *named["Cam"]),
+            ("W", *named["W"]), ("Nw", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+            ("Cam", *named["Cam"]),
             ("RockAO", *named["RockAO"]), ("RockBO", *named["RockBO"]),
             ("Tiles", *named["Tiles"]), ("Vary", *named["Vary"]),
             ("VC", g.node(unreal.MaterialExpressionVertexColor, x=-2000), ""),
@@ -3179,7 +3194,9 @@ if TRIAL_ROOT:
     build_landscape_pbr(defaults)
     build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
     build_cliff_pbr(defaults)
-    build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True)
+    build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True, shade_uv=True)
+    # The cladding rocks tessellated: their own vertex normals.
+    build_cliff_pbr(defaults, "M_CE_CladTess", tessellate=True)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

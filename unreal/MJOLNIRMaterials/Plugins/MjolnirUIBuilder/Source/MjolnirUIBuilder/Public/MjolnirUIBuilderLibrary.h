@@ -101,14 +101,17 @@ public:
 	 * triangle into them, UV0 and UV1 one a corner (Indices' order),
 	 * Sections the material slot of each triangle and SlotNames the slots.
 	 * Colors, when given, one a position: the vertex colour (a material's
-	 * per-vertex weight).
+	 * per-vertex weight). ShadeNormals, when given, one a corner: a second
+	 * normal for the material, in UV2 (x, y) and UV3 (z) (the vertex normal
+	 * stays the welded one, which Nanite displaces along).
 	 * Normals are kept, tangents built, no lightmap UVs generated (UV1 is
 	 * the caller's). The caller sets Nanite and saves.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
 	static bool BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions, const TArray<FVector>& Normals,
 		const TArray<int32>& Indices, const TArray<FVector2D>& UV0, const TArray<FVector2D>& UV1,
-		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FLinearColor>& Colors);
+		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FLinearColor>& Colors,
+		const TArray<FVector>& ShadeNormals);
 
 	/**
 	 * Write every loaded class and struct's unversioned property schema, and
