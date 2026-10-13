@@ -3326,6 +3326,9 @@ function Land.pbr(set, pbr)
     vec("GrassTint", pbr.grass_tint)
     vec("SandTint", pbr.sand_tint)
     vec("LandLook", pbr.look)
+    -- Ice where CE's base map is painted dark (Ice Fields' frozen pond).
+    vec("LandIce", pbr.ice)
+    vec("LandIceColor", pbr.ice_color)
     -- Depth: sand and footprint depth (cm), fade distance (cm), ray steps.
     vec("LandParallax", pbr.parallax)
     -- Far sand: strength, where it takes over (cm from, to), scale.

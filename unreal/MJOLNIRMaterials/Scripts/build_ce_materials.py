@@ -2240,6 +2240,12 @@ float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
 // (MeshUV) its own base map and lightmap page by its own UVs, which hold the
 // right layer where a plateau overhangs the beach (the bakes hold the lower).
 float4 ce = Texture2DSample(Base, BaseSampler, MeshUV > 0.5 ? TC0 : luv);
+// Ice (Ice: darkness from, to, flattening, strength; off at 0): where CE's
+// base map is painted dark, as Ice Fields' frozen pond is (a blue-black
+// shape with feathered edges on its snow), glassy ice in IceColor (tint,
+// roughness), feathered as CE painted it. Taken before plain sand greys
+// the colour out.
+float ice = Ice.w > 0.0 ? smoothstep(Ice.x, Ice.y, 1.0 - dot(ce.rgb, float3(0.299, 0.587, 0.114))) * Ice.w : 0.0;
 if (Plain > 0.5) ce = float4(0.533, 0.533, 0.533, 1.0); // plain sand, no tint
 float cellNoise = LP_NOISE(W.xy / max(Tiles.w, 1.0));
 float w = smoothstep(0.25, 0.75, cellNoise);
@@ -2444,6 +2450,10 @@ ao *= 1.0 - foot * EdgeLook.z;
 // The wet edge: darker and glossier.
 albedo *= lerp(1.0, Sea.z > 0.0 ? WetLook.x : 1.0, wet);
 rough = lerp(rough, WetLook.y, wet);
+// The ice: tinted, glassy and flatter.
+albedo *= lerp(1.0.xxx, IceColor.rgb, ice);
+rough = lerp(rough, IceColor.a, ice);
+nxy *= 1.0 - Ice.z * ice;
 
 // Footprints.
 if (Foot.x > 0.0)
@@ -2643,6 +2653,10 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
         # EdgeLook: grass worn at a lip, earth tint there, foot shade, on.
         ("EdgeLook", g.vector4("LandEdgeLook", (0.0, 0.0, 0.0, 0.0)), ""),
+        # Ice: where CE's base is dark (from, to darkness), flattening,
+        # strength (0: off); IceColor: its tint and roughness.
+        ("Ice", g.vector4("LandIce", (0.35, 0.75, 0.7, 0.0)), ""),
+        ("IceColor", g.vector4("LandIceColor", (0.6, 0.75, 1.0, 0.03)), ""),
     ]
     c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
     outs = []

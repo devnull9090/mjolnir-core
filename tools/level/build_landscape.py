@@ -87,6 +87,11 @@ MAP_LOOKS = {
         "pbr": {"sand_tint": [1.0, 1.0, 1.0, 1.0], "grass_tint": [1.0, 1.0, 1.0, 1.0],
                 "dirt_tint": [1.0, 1.0, 1.0, 1.0], "slope": [0.92, 0.8, 0.0, 0.25], "inland": [0, 0, 0, 0.0],
                 "light": {"sun": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}, "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}},
+                # Its frozen pond is painted into CE's base map, dark blue with
+                # feathered edges: ice there (LandIce), feathered as painted;
+                # CE's colour otherwise left out (the base is baked as it is).
+                "ice": [0.35, 0.75, 0.7, 1.0], "ice_color": [0.55, 0.72, 1.0, 0.03],
+                "mix": [0.35, 0.65, 0.0, 0.25],
                 "surfaces": {
                     "SandD": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_D",
                     "SandN": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_N",
@@ -355,6 +360,8 @@ def main():
     ap.add_argument("--also", default="",
                     help="substrings of shaders drawn in the ground's look on the mesh but not part of the "
                          "landscape (Ice Fields' ice patches: its ground's base map, a shinier shader), comma-separated")
+    ap.add_argument("--real-base", action="store_true",
+                    help="bake plain ground's own CE base colour, not a neutral grey (pbr.ice reads it)")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -551,9 +558,11 @@ def main():
             sel = on & (pg == pi)
             if sel.any():
                 out[sel] = sample(images[f], (uv0g if name == "Base" else uv1g)[sel])
-        if name == "Base":
+        if name == "Base" and not a.real_base:
             # Plain sand: alpha 1 (sand), and a grey that tints nothing
             # (M_CE_LandscapePBR's CE colour is relative to 0.25 linear).
+            # With --real-base CE's own colour stays (the masters' ice reads
+            # it: Ice Fields' pond is painted into its ground's base map).
             out[plain] = [136.0, 136.0, 136.0, 255.0]
         out = fill(out, on, iterations=40)
         file = name.lower() + ".png"
