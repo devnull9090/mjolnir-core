@@ -425,6 +425,13 @@ def cliff_slots(spec):
     return out
 
 
+# What a player can stand on (normal z), and the space kept clear over it:
+# across (cm beyond a rock's reach) and up (cm below a rock's bottom).
+WALK_Z = 0.6
+WALK_CLEAR = 60.0
+WALK_HEIGHT = 200.0
+
+
 def built_points(doc, data, spec, off, step=100.0):
     """Points (Unreal cm, n x 3) over every surface that is not natural ground
     or cliff: CE's ladders, walkways, bases, bridges; a cladding rock keeps
@@ -450,6 +457,63 @@ def built_points(doc, data, spec, off, step=100.0):
                         w0, w1 = u / k, v / k
                         pts.append(w0 * p0 + w1 * p1 + (1 - w0 - w1) * p2)
     return np.array(pts) if pts else np.zeros((0, 3))
+
+
+class WalkGrid:
+    """The heights of everything a player can stand on (a triangle whose
+    normal is at least WALK_Z up: ground, ledges, ramps, floors, of any
+    shader but water and sky), by 1 m cell, sampled at each cell's centre:
+    a cladding rock keeps out of the space above them (`blocks`)."""
+    def __init__(self, doc, data, off, cell=100.0):
+        self.cell, self.cells = cell, {}
+        skip = ("water", "sky", "fog", "wave", "flare", "light")
+        for mesh in doc["meshes"]:
+            for prim in mesh["primitives"]:
+                name = doc["materials"][prim["material"]]["name"].lower()
+                if any(w in name for w in skip):
+                    continue
+                pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+                pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1) + np.array(off)
+                idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+                for i0, i1, i2 in idx:
+                    a, b, c = pos[i0], pos[i1], pos[i2]
+                    n = np.cross(b - a, c - a)
+                    ln = np.linalg.norm(n)
+                    # The glTF's winding in Unreal's axes (y and z swapped)
+                    # turns the normal over: up is -z here.
+                    if ln <= 0 or -n[2] / ln < WALK_Z:
+                        continue
+                    det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+                    if abs(det) < 1e-6:
+                        continue
+                    xs, ys = (a[0], b[0], c[0]), (a[1], b[1], c[1])
+                    for ix in range(math.floor(min(xs) / cell), math.floor(max(xs) / cell) + 1):
+                        px = (ix + 0.5) * cell
+                        for iy in range(math.floor(min(ys) / cell), math.floor(max(ys) / cell) + 1):
+                            py = (iy + 0.5) * cell
+                            w1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+                            w2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+                            if min(w1, w2, 1 - w1 - w2) < 0:
+                                continue
+                            self.cells.setdefault((ix, iy), []).append(w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2])
+
+    def blocks(self, c, reach):
+        """Whether a rock (centre `c`, cm, half-size `reach`) stands in the
+        space players move through: walkable ground within its reach plus
+        WALK_CLEAR across, from WALK_HEIGHT below its bottom to its top."""
+        r = reach + WALK_CLEAR
+        lo, hi = c[2] - reach - WALK_HEIGHT, c[2] + reach
+        for ix in range(math.floor((c[0] - r) / self.cell), math.floor((c[0] + r) / self.cell) + 1):
+            for iy in range(math.floor((c[1] - r) / self.cell), math.floor((c[1] + r) / self.cell) + 1):
+                zs = self.cells.get((ix, iy))
+                if not zs:
+                    continue
+                dx, dy = (ix + 0.5) * self.cell - c[0], (iy + 0.5) * self.cell - c[1]
+                if dx * dx + dy * dy > r * r:
+                    continue
+                if any(lo <= z <= hi for z in zs):
+                    return True
+        return False
 
 
 class PointGrid:
@@ -483,6 +547,12 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
     # top of the wall (its lip, by the edge map): no rock above it, where
     # it would stand on the path along the cliff top.
     built = PointGrid(built_points(doc, data, spec, off))
+    # And out of the space over walkable ground (a ledge path up a cliff, a
+    # ramp, a floor): on a natural ledge Ice Fields' rocks blocked the
+    # walkway up to a base (2026-10-13). As CE's walls had nothing on them,
+    # nothing may stand where players move.
+    walk = WalkGrid(doc, data, off)
+    walked = 0
     edge = None
     if a.edge:
         e = json.load(open(a.edge, encoding="utf-8"))["pbr"]["edge"]
@@ -533,6 +603,9 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     if built.near(np.array([cx, cy, cz]), reach + CLADDING["clear"]):
                         dropped += 1
                         continue
+                    if walk.blocks((cx, cy, cz), reach):
+                        walked += 1
+                        continue
                     if edge is not None:
                         img, rect, rng_z = edge
                         h, w = img.shape[:2]
@@ -554,7 +627,8 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col,
                                          tuple(float(c) for c in np.clip(rgb, 0.0, 1.0))], base_path))
                     total += 1
-    print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip)")
+    print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip), "
+          f"{walked} out of the space over walkable ground ({len(walk.cells)} walkable cells)")
     # A group a mesh and a light (the loader gives each group one material,
     # its CladLight the cluster's centre): the lights in CLADDING["lights"]
     # clusters (k-means), keyed apart from the stones' groups of the meshes.
