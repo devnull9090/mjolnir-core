@@ -352,6 +352,9 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--shader", required=True,
                     help="substrings of the ground shaders' names, comma-separated; the first sizes the square")
+    ap.add_argument("--also", default="",
+                    help="substrings of shaders drawn in the ground's look on the mesh but not part of the "
+                         "landscape (Ice Fields' ice patches: its ground's base map, a shinier shader), comma-separated")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -368,6 +371,7 @@ def main():
     spec = json.load(open(a.spec, encoding="utf-8"))
     files = {t["name"]: t["file"] for t in spec["textures"]}
     shaders = [x for x in a.shader.split(",") if x]
+    also = [x.lower() for x in a.also.split(",") if x]
     slots = {s["pattern"].rstrip("$"): s for s in spec["slots"] if any(x in s["pattern"] for x in shaders)}
     if not slots:
         sys.exit(f"no slot of a shader matching {a.shader!r}")
@@ -589,8 +593,13 @@ def main():
                 # material's slot is its index + 1, slot 0 the donor's): a base
                 # map can be shared, and Ice Fields' ice caves, on its ground's,
                 # took the sunlit snow (2026-10-13).
+                # With them the slots of --also: ground the landscape leaves to
+                # the mesh, in its look (CE drew Ice Fields' ice patches with its
+                # ground's base map and lightmap; in CE's own shader beside the
+                # landscape's snow they drew a hard seam, 2026-10-13).
                 "slots": sorted(i + 1 for i, mt in enumerate(doc["materials"])
-                                if mt.get("name", "").lower() in slots),
+                                if mt.get("name", "").lower() in slots
+                                or any(x in mt.get("name", "").lower() for x in also)),
                 "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
                 # The mesh draws wherever a hole reaches at all: the landscape
                 # cuts its own edge another way (its visibility layer), and

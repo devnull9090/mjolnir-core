@@ -126,6 +126,8 @@ def stage_land(code, m, p):
            "--name", m["landscape"]]
     if m.get("components"):
         cmd += ["--components", str(m["components"])]
+    if m.get("ground_also"):
+        cmd += ["--also", ",".join(m["ground_also"])]
     out = run(cmd)
     print("  " + "\n  ".join(l for l in out.splitlines() if l.startswith(("heights", "holes", "settled", "bakes"))))
 
