@@ -139,6 +139,15 @@ def cook_chunk(code):
     return 10000 + int(code, 36)
 
 
+# What CE samples for a bitmap a shader leaves empty: rasterizer\default 2d's
+# white bitmap (#1; #0 black, #2 grey, #3 flat normal), the runtime pack's
+# T_CE_White. A shader_model with a self-illumination colour and no
+# multipurpose map glows over all of it: MCC's ShaderModel lights by
+# saturate(light + multipurpose.g * colour), and Bungie's sirens carry only
+# a colour (Yoyorast's and Wizard's drew white, 2026-10-13).
+DEFAULT_WHITE = "/Game/MJOLNIR/CE/T_CE_White.T_CE_White"
+
+
 def model_shader(entry, s, texture):
     """shader_model's own terms on the environment master (ModelShader): the
     multipurpose map's masks (PC order: r auxiliary, g self-illumination,
@@ -151,6 +160,9 @@ def model_shader(entry, s, texture):
     sc, vec = entry["scalars"], entry["vectors"]
     sc["ModelShader"] = 1.0
     multi = texture(model.get("multipurpose"))
+    si = model.get("self_illum") or {}
+    if not multi and (any(si.get("lower") or []) or any(si.get("upper") or [])):
+        multi = DEFAULT_WHITE
     if multi:
         entry["textures"]["Multipurpose"] = multi
         sc["HasMulti"] = 1.0
@@ -161,7 +173,6 @@ def model_shader(entry, s, texture):
         sc["ModelCC"] = 1.0
         # Columns 2-5 of the object lighting page hold change colours A-D.
         sc["CCOffset"] = (1 + source) / 8.0
-    si = model.get("self_illum") or {}
     lower, upper = si.get("lower") or [0, 0, 0], si.get("upper") or [0, 0, 0]
     if multi and (any(lower) or any(upper)):
         sc["HasModelSelfIllum"] = 1.0
@@ -833,7 +844,9 @@ def main():
             # The planar fog (ce_fog.py): the masters that draw it.
             if leaf.startswith(("M_CE_Environment", "M_CE_Transparent")):
                 entry["vectors"].update(planar)
-        entry["textures"] = {k: f"{root}/Textures/{v}.{v}" for k, v in entry["textures"].items() if v}
+        # (An object path is a texture of the masters' own: DEFAULT_WHITE.)
+        entry["textures"] = {k: v if v.startswith("/") else f"{root}/Textures/{v}.{v}"
+                             for k, v in entry["textures"].items() if v}
         runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors", "bounds_scale") if entry.get(k)}
         materials.append(entry)
         slots.append({"name": mi, "pattern": mat["name"].lower() + "$", "material": runtime})
