@@ -315,6 +315,21 @@ float2 ub = UV * Global.z + Time * Global.y * float2(cos(Global.x), sin(Global.x
 return ub * Ripple.w + Time * Ripple.z * float2(cos(Ripple.y), sin(Ripple.y)) + Offset.xy;
 """
 
+# The ripples' own UV: the mesh's (CE's), or with RippleWorld (cm a UV
+# unit) the world's x and -y. CE's UVs on Death Island's water change
+# direction from triangle to triangle, and the ripple normals, turned by
+# those tangents, drew every triangle edge across the sea; its distant water
+# matched it nowhere (2026-10-13).
+RIPPLE_BASE_UV = r"""
+return RW > 0.0 ? float2(P.x, -P.y) / RW : UV;
+"""
+
+# The ripple normal in world space: by the mesh's tangents, or with
+# RippleWorld the world's own axes (x, -y, z), as its UV is.
+RIPPLE_WORLD_NORMAL = r"""
+return RW > 0.0 ? normalize(float3(RT.x, -RT.y, RT.z)) : RWN;
+"""
+
 RIPPLE_NORMAL = r"""
 float4 c = float4(R0c.x, R1c.x, R2c.x, R3c.x);
 if (c.x + c.y <= 0.0) c.y = 1.0;
@@ -408,7 +423,11 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
     if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, offset, ""):
         raise RuntimeError(f"cannot connect World Position Offset on {name}")
 
-    uv0 = g.node(unreal.MaterialExpressionTextureCoordinate, x=-2000, coordinate_index=0)
+    ripple_world = g.scalar("RippleWorld", 0.0)
+    uv0 = g.custom(RIPPLE_BASE_UV, [("UV", g.node(unreal.MaterialExpressionTextureCoordinate, x=-2000,
+                                                     coordinate_index=0), ""),
+                                    ("P", still, ""), ("RW", ripple_world, "")],
+                   output=unreal.CustomMaterialOutputType.CMOT_FLOAT2, description="ripple base uv")
     glob = g.vector4("RippleGlobal", (0, 0, 1, 0))
     samples, contribs = [], []
     for k in range(4):
@@ -426,6 +445,8 @@ def build_ocean(flat, black_cube, name="M_CE_Ocean"):
                       transform_source_type=unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_TANGENT,
                       transform_type=unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
     link(ripple_t, "", ripple_w, "")
+    ripple_w = g.custom(RIPPLE_WORLD_NORMAL, [("RT", ripple_t, ""), ("RWN", ripple_w, ""), ("RW", ripple_world, "")],
+                        description="ripple world normal")
     chop_scale = g.vector4("ChopScale", (1100.0, 60.0, 0.0, 0.0))
     chops = []
     for k, code in enumerate((CHOP_UV0, CHOP_UV1)):

@@ -29,6 +29,7 @@ editor and the cook take the project's mutex, so one run at a time.
 import argparse
 import glob
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -206,6 +207,15 @@ def stage_editor(code, m, p):
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
 
 
+def build_water():
+    """The water masters (Scripts/build_ce_water.py, chunk 982)."""
+    powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_water.py"])
+    log = open(os.path.join(PROJECT, "Saved_build_ce_water.log"), encoding="utf-8", errors="replace").read()
+    if "CE water built" not in log or "Traceback" in log:
+        sys.exit("the water masters did not build: see " + os.path.join(PROJECT, "Saved_build_ce_water.log"))
+    print("  water masters built")
+
+
 def build_masters():
     # M_CE_Plasma's noise: MCC's plasma shield noise volume as an atlas.
     noise = os.path.join(PROJECT, "Saved", "ce_plasma", "T_CE_PlasmaNoise.png")
@@ -290,6 +300,61 @@ def stage_bake(code, m, p):
     print(f"  {code}: map container baked")
 
 
+def scene_reach(p):
+    """The map's ground and water across (cm, the diagonal of scene.gltf's
+    bounds, from its accessors' min and max), or None."""
+    try:
+        doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    lo, hi = [math.inf] * 2, [-math.inf] * 2
+    for mesh in doc.get("meshes") or []:
+        for prim in mesh.get("primitives") or []:
+            acc = doc["accessors"][prim["attributes"]["POSITION"]]
+            if "min" in acc and "max" in acc:
+                # glTF y up: Unreal's x, y are glTF's x, z.
+                for i, k in enumerate((0, 2)):
+                    lo[i], hi[i] = min(lo[i], acc["min"][k]), max(hi[i], acc["max"][k])
+    if lo[0] == math.inf:
+        return None
+    return math.hypot(hi[0] - lo[0], hi[1] - lo[1]) * 100.0
+
+
+def ce_haze(level, reach=None):
+    """The map's own CE atmospheric fog (FogColor, FogDensity, FogStart,
+    FogOpaque, as its CE surfaces carry it) as Unreal's height fog
+    (MJOLNIRLevelLoader environment.haze), over everything: the colour made
+    linear (the loader exposes it by the light scale, as the level's
+    exposure takes it back out, so it shows as CE's colour), capped at CE's
+    maximum density, starting where CE's does and thick enough to reach the
+    cap at CE's opaque distance (CE's own is linear in distance; Unreal's
+    exponential comes within a few percent of it). The CE surfaces' own fog
+    is turned off, so nothing is fogged twice. Blood Gulch's warm haze (0.4
+    by 100 wu) had become Death Island's tuned one, a black fog at 1/200 of
+    the colour that darkened the far cliffs (2026-10-13). Cut off past the
+    map's own ground and water (`reach`, cm; at least 800 m), short of the
+    sky, which CE never fogged and sits 100 km and more out. None when no
+    surface carries a fog."""
+    for item in level.get("decor") or []:
+        for m in item.get("materials") or []:
+            sc = m.get("scalars") if isinstance(m, dict) else None
+            color = (m.get("vectors") or {}).get("FogColor") if isinstance(m, dict) else None
+            if not sc or not color or not sc.get("FogDensity"):
+                continue
+            density, start, opaque = sc["FogDensity"], sc.get("FogStart", 0.0), sc.get("FogOpaque", 30480.0)
+            lin = [((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92 for c in color[:3]]
+            haze = {"density": round(-math.log(max(1.0 - min(density, 0.99), 0.01)) / max(opaque, 1.0) * 1000.0, 5),
+                    "falloff": 0.02, "start": round(start, 1),
+                    "cutoff": round(max(80000.0, reach or 0.0)), "max_opacity": round(density, 3),
+                    "color": [round(c, 5) for c in lin]}
+            for other in level.get("decor") or []:
+                for mat in other.get("materials") or []:
+                    if isinstance(mat, dict) and (mat.get("scalars") or {}).get("FogDensity"):
+                        mat["scalars"]["FogDensity"] = 0.0
+            return haze
+    return None
+
+
 def stage_assemble(code, m, p):
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
@@ -300,6 +365,10 @@ def stage_assemble(code, m, p):
         spec = json.load(open(plasma, encoding="utf-8"))
         level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
                                  "item": spec["item"], "slots": spec["slots"]}]
+    if m.get("haze") == "ce" and isinstance(level["landscape"].get("pbr"), dict):
+        haze = ce_haze(level, scene_reach(p))
+        if haze:
+            level["landscape"]["pbr"]["haze"] = haze
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR
@@ -740,6 +809,10 @@ def install_shared():
     for e in ("utoc", "ucas"):
         shutil.copyfile(os.path.join(STAGED, f"pakchunk983-Windows.{e}"),
                         os.path.join(PAKS, f"pakchunk983-MJOLNIRCETRIAL-Windows.{e}"))
+        # The water masters (M_CE_Ocean, chunk 982), when this cook made them.
+        staged = os.path.join(STAGED, f"pakchunk982-Windows.{e}")
+        if os.path.exists(staged):
+            shutil.copyfile(staged, os.path.join(PAKS, f"pakchunk982-MJOLNIRWATER-Windows.{e}"))
     shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"),
                     os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
     print("  trial masters and the loader installed")
@@ -771,6 +844,7 @@ def main():
         print(f"== {stage}", flush=True)
         if stage == "editor" and not a.no_masters:
             build_masters()
+            build_water()
             build_cliffs(maps, ps)
         if stage == "cook":
             stage_cook(list(maps.values()))

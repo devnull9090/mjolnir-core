@@ -1,5 +1,5 @@
 {
- "_doc": "Converted CE maps tools/level/upgrade_ce_map.py takes through the B30 pipeline. conversion: the map's convert_ce_map.sh output (level file, sbsp, staging/placement.json); scene: the folder whose scene.gltf and materials.spec.json the landscape and foliage are baked from (the conversion when omitted); shaders: the ground shaders' name substrings (build_landscape --shader); landscape: the editor world's code (/Game/Levels/Halo1/Solo/<code>/<code>) and chunk; details: protected detail bitmaps by class (scatter_foliage --detail); water: parameters for the level's ocean; tints: foliage rule tints (scatter_foliage --rule-tint); rocks: beach (B30's Uluwatu, the default) or desert boulders for swapped CE rocks; base_level: the level file to build on when it is not the conversion's own (the separate water mesh and ocean settings of 2026-10-11 live only in the installed files, snapshotted); environment: merged into the level's environment (skylight.lower: the ground's bounce colour; clouds: volumetric clouds); mesh_container: a mesh container (.utoc/.ucas stem) to install over the hub copy's (the separate water mesh of 2026-10-11); hub: the hub slug the install replaces; components: landscape components a side when the default does not suit.",
+ "_doc": "Converted CE maps tools/level/upgrade_ce_map.py takes through the B30 pipeline. conversion: the map's convert_ce_map.sh output (level file, sbsp, staging/placement.json); scene: the folder whose scene.gltf and materials.spec.json the landscape and foliage are baked from (the conversion when omitted); shaders: the ground shaders' name substrings (build_landscape --shader); landscape: the editor world's code (/Game/Levels/Halo1/Solo/<code>/<code>) and chunk; details: protected detail bitmaps by class (scatter_foliage --detail); water: parameters for the level's ocean; haze: \"ce\" makes the landscape's height fog the map's own CE atmospheric fog, over every surface (upgrade_ce_map.ce_haze); tints: foliage rule tints (scatter_foliage --rule-tint); rocks: beach (B30's Uluwatu, the default) or desert boulders for swapped CE rocks; base_level: the level file to build on when it is not the conversion's own (the separate water mesh and ocean settings of 2026-10-11 live only in the installed files, snapshotted); environment: merged into the level's environment (skylight.lower: the ground's bounce colour; clouds: volumetric clouds); mesh_container: a mesh container (.utoc/.ucas stem) to install over the hub copy's (the separate water mesh of 2026-10-11); hub: the hub slug the install replaces; components: landscape components a side when the default does not suit.",
  "BGL": {
   "conversion": "C:/haloce/ce_conversions/release11/BGL",
   "level": "bloodgulch.level.json", "sbsp": "bloodgulch.sbsp",
@@ -7,6 +7,7 @@
   "tints": {"pebbles": "0.62,0.42,0.32:Albedo Tint", "stones": "0.62,0.42,0.32:Albedo Tint"},
   "environment": {"skylight": {"lower": [0.32, 0.22, 0.16]}, "post": {"exposure_bias": -0.5},
                   "clouds": {"bottom": 3.0, "height": 3.0, "material": "/Game/ArtTools/LightingTemplate/MI_VolumetricCloud_01.MI_VolumetricCloud_01"}},
+  "haze": "ce",
   "hub": "ce-blood-gulch"
  },
  "DTI": {
@@ -15,6 +16,8 @@
   "base_level": "C:/haloce/ce_conversions/upgrade/DTI/base_level.json",
   "mesh_container": "C:/haloce/ce_conversions/upgrade/DTI/mesh/pakchunk986-MJOLNIRMESH-DTI_P",
   "shaders": ["deathbeach", "underwater"], "components": 10, "landscape": "LTS", "chunk": 979,
+  "water": {"RippleWorld": 86000.0},
+  "haze": "ce",
   "tints": {"pebbles": "0.8,0.7,0.6:Albedo Tint", "stones": "0.8,0.7,0.6:Albedo Tint"},
   "environment": {"skylight": {"lower": [0.3, 0.27, 0.2]}},
   "hub": "ce-death-island"
@@ -28,6 +31,7 @@
   "shaders": ["protected_senv_2979", "protected_senv_2961", "protected_senv_3031"], "landscape": "LYY", "chunk": 977,
   "details": {"protected_bitm_n2963": "sand", "protected_bitm_n2964": "grass"},
   "water": {"FoamAmount": 0.0},
+  "haze": "ce",
   "environment": {"skylight": {"lower": [0.28, 0.26, 0.2]}},
   "hub": "ce-yoyorast-island-v2"
  }
