@@ -90,7 +90,8 @@ MAP_LOOKS = {
                 # Its frozen pond is painted into CE's base map, dark blue with
                 # feathered edges: ice there (LandIce), feathered as painted;
                 # CE's colour otherwise left out (the base is baked as it is).
-                "ice": [0.35, 0.75, 0.7, 1.0], "ice_color": [0.55, 0.72, 1.0, 0.03],
+                # More ice than snow (2026-10-13): nearly flat, a deeper blue.
+                "ice": [0.35, 0.75, 0.9, 1.0], "ice_color": [0.42, 0.62, 0.95, 0.02],
                 "mix": [0.35, 0.65, 0.0, 0.25],
                 "surfaces": {
                     "SandD": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_D",

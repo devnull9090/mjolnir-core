@@ -41,7 +41,7 @@
   "shaders": ["icefields_ground__"], "ground_also": ["icefields_ground_ice", "icefields_ice_caves"], "landscape": "LIF", "chunk": 976,
   "real_base": true,
   "ground_looks": [{"shaders": ["icefields_ice_caves"],
-                    "vectors": {"LandIce": [-1.0, 0.0, 0.6, 1.0], "GroundSteep": [0.35, 0.6, 250.0, 0.0],
+                    "vectors": {"LandIce": [-1.0, 0.0, 0.9, 1.0], "GroundSteep": [0.35, 0.6, 250.0, 0.0],
                                 "CliffFill": [0.85, 0.92, 1.0, 0.0]},
                     "scalars": {"LandCutEdge": -1.0}}],
   "biome": "snow", "rocks": "snow", "tess": false, "weather": "snow",
