@@ -28,8 +28,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PAKS = os.environ.get("HCE_PAKS", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks")
 MJOLNIR = os.environ.get("MJOLNIR_DEBUG", os.path.join(REPO, "target", "debug", "mjolnir.exe"))
-WU = 30.48  # cm per CE world unit
-HULL_POINTS = 48
+WU = 304.8  # cm per CE world unit (3.048 m)
+HULL_POINTS = int(os.environ.get("B30_HULL_POINTS", 48))
 # What collides, by mesh path: (substring, game material). Leaves, ferns,
 # grass and pebbles stay walk-through, as in B30.
 SOLID = [("/Rock/", "hard_terrain_stone"), ("Rock_", "hard_terrain_stone"), ("_Trunk", "tough_organic_wood"),
@@ -37,10 +37,11 @@ SOLID = [("/Rock/", "hard_terrain_stone"), ("Rock_", "hard_terrain_stone"), ("_T
 # Foliage rules that collide, and the smallest that does (cm of height).
 FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0}
 # The cliffs' cladding rocks (thousands a map) collide only where a player
-# can reach them: their underside within CLAD_REACH of the ground below,
+# can reach them: some hull point within CLAD_REACH above walkable ground,
 # each a coarser hull.
 CLAD_REACH = 250.0
-CLAD_POINTS = 16
+CLAD_POINTS = 16  # hull budget: 16 // 1 + 8 = 24 points, about 40 triangles
+WALKABLE = 0.6  # the ground normal's least z a player stands on
 
 
 def material_for(mesh):
@@ -107,15 +108,25 @@ def convex_hull(p):
     return faces
 
 
+MIN_HULL_SOURCE = 200  # vertices: a desert boulder's last LOD has 18
+
+
 def glb_positions(path):
-    """Vertex positions (Unreal cm, mesh local) of the glb's last mesh (the
-    coarsest LOD; `mjolnir mesh export` writes LODs in order)."""
+    """Vertex positions (Unreal cm, mesh local) of the glb's coarsest LOD
+    with at least MIN_HULL_SOURCE vertices (`mjolnir mesh export` writes
+    LODs in order), else its first."""
     b = open(path, "rb").read()
     jl = struct.unpack_from("<I", b, 12)[0]
     doc = json.loads(b[20:20 + jl])
     data = b[20 + jl + 8:]
+
+    def count(mesh):
+        return sum(doc["accessors"][p["attributes"]["POSITION"]]["count"] for p in mesh["primitives"])
+
+    rich = [m for m in doc["meshes"] if count(m) >= MIN_HULL_SOURCE]
+    mesh = rich[-1] if rich else doc["meshes"][0]
     pts = []
-    for prim in doc["meshes"][-1]["primitives"]:
+    for prim in mesh["primitives"]:
         acc = doc["accessors"][prim["attributes"]["POSITION"]]
         view = doc["bufferViews"][acc["bufferView"]]
         start = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
@@ -128,7 +139,8 @@ def glb_positions(path):
 
 # A leaning trunk's one hull is a slab of air beside it; trunks collide as a
 # stack of hulls, each a band of the trunk's height.
-TRUNK_SLICES = 4
+TRUNK_SLICES = int(os.environ.get("B30_TRUNK_SLICES", 3))
+TRUNK_POINTS = int(os.environ.get("B30_TRUNK_POINTS", 24))  # 24 // 3 + 8 = 16 points a slice
 
 
 def hull_of(mesh, hulls_dir, budget=HULL_POINTS):
@@ -263,6 +275,16 @@ class Ground:
         h = h[inside & (h <= z + 1.0)]
         return float(h.max()) if len(h) else None
 
+    def walkable(self, x, y, h, d=40.0):
+        """Whether the ground at height h under (x, y) is flat enough to
+        stand on, by its slope over d cm either side."""
+        hx = [self.below(x + d, y, h + 60.0), self.below(x - d, y, h + 60.0)]
+        hy = [self.below(x, y + d, h + 60.0), self.below(x, y - d, h + 60.0)]
+        if None in hx or None in hy:
+            return False
+        gx, gy = (hx[0] - hx[1]) / (2 * d), (hy[0] - hy[1]) / (2 * d)
+        return 1.0 / math.sqrt(1.0 + gx * gx + gy * gy) >= WALKABLE
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -272,6 +294,8 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--hulls", default="C:/haloce/ce_conversions/upgrade/hulls")
     ap.add_argument("--scene", help="the conversion's scene.gltf: the ground under the cliffs' cladding")
+    ap.add_argument("--only", help="comma-separated kinds to keep: swap, foliage, cladding (default all)")
+    ap.add_argument("--clad-limit", type=int, help="keep only this many cladding rocks, the biggest")
     a = ap.parse_args()
     os.makedirs(a.hulls, exist_ok=True)
     level = json.load(open(a.level, encoding="utf-8"))
@@ -287,8 +311,9 @@ def main():
             mats.append(material)
         counts[material] = counts.get(material, 0) + 1
 
+    kinds = set((a.only or "swap,foliage,cladding").split(","))
     skip = set()
-    for item in swap.get("decor", []):
+    for item in swap.get("decor", []) if "swap" in kinds else []:
         ident = str(item.get("id", ""))
         if ident.startswith("swap_"):
             skip.add(int(ident.split("_")[1]))
@@ -297,23 +322,32 @@ def main():
             continue
         r = item.get("rot", [0, 0, 0])
         place(item["mesh"], rotator_matrix(r[0], r[1], r[2]), np.asarray(item.get("scale", [1, 1, 1])),
-              np.asarray(item["pos"]), material)
+              np.asarray(item["pos"]), material, TRUNK_POINTS if "_Trunk" in item["mesh"] else HULL_POINTS)
 
     # A level file's foliage, or scatter_foliage.py's own foliage.json.
     groups = (level.get("foliage") or level).get("groups") or []
     records = foliage_records(a.foliage_bin) if groups else []
     ground = Ground(a.scene) if a.scene else None
+    clad = []
     for g, recs in zip(groups, records):
+        if g.get("rule") == "cladding" and "cladding" not in kinds:
+            continue
+        if g.get("rule") != "cladding" and "foliage" not in kinds:
+            continue
         if g.get("rule") == "cladding" and ground:
             pts, _faces = hull_of(g["mesh"], a.hulls, CLAD_POINTS)
             for x, y, z, yaw, scale, nx, ny, *_ in recs:
                 s = scale / 100.0
                 m = foliage_matrix(yaw * math.pi / 128.0, nx / 127.0, ny / 127.0)
-                bottom = float(((np.asarray(pts) * s) @ m)[:, 2].min()) + z
-                under = ground.below(x, y, z)
-                if under is None or bottom - under > CLAD_REACH:
+                # Rocks at a cliff's foot have their origin inside the
+                # cliff, with no ground below it: test under every hull
+                # point, keeping the rock when any is within reach of
+                # ground a player can stand on.
+                world = (np.asarray(pts) * s) @ m + [x, y, z]
+                if not any((h := ground.below(p[0], p[1], p[2])) is not None and p[2] - h <= CLAD_REACH
+                           and ground.walkable(p[0], p[1], h) for p in world):
                     continue
-                place(g["mesh"], m, s, np.array([x, y, z]), "hard_terrain_stone", CLAD_POINTS)
+                clad.append((s, g["mesh"], m, np.array([x, y, z])))
             continue
         floor = FOLIAGE_RULES.get(g.get("rule"))
         if floor is None:
@@ -328,9 +362,15 @@ def main():
             place(g["mesh"], foliage_matrix(yaw * math.pi / 128.0, nx / 127.0, ny / 127.0), s,
                   np.array([x, y, z]), material)
 
-    json.dump({"triangles": tris, "materials": mats, "skip_entries": sorted(skip)}, open(a.out, "w", encoding="utf-8"))
+    # The cliffs' cladding last, biggest first: what fits the BSP's tables.
+    clad.sort(key=lambda c: -c[0])
+    for s, mesh, m, at in clad[:a.clad_limit] if a.clad_limit is not None else clad:
+        place(mesh, m, s, at, "hard_terrain_stone", CLAD_POINTS)
+    json.dump({"triangles": tris, "materials": mats, "skip_entries": sorted(skip), "objects": sum(counts.values())},
+              open(a.out, "w", encoding="utf-8"))
+    kept = len(clad) if a.clad_limit is None else min(len(clad), a.clad_limit)
     print(f"{len(tris)} collision triangle(s) for {sum(counts.values())} object(s) {counts}; "
-          f"{len(skip)} CE placement(s) replaced")
+          f"{len(skip)} CE placement(s) replaced; {kept} cladding rock(s) of {len(clad)}")
 
 
 if __name__ == "__main__":

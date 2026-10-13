@@ -294,6 +294,7 @@ def main():
         for tri, material in zip(extra["triangles"], extra["materials"]):
             extra_added += add_triangle(tri, material)
         added += extra_added
+        objects += int(extra.get("objects", 0))
 
     blob = bytearray()
     for name in order:

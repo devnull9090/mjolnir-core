@@ -153,19 +153,24 @@ def stage_collision(code, m, p):
     scenery's own collision (merge_ce_collision.py --extra), and
     `mjolnir level collision --own-bsp` builds the BSP the bake uses. The
     Blam simulation does all collision, so without this players walked
-    through every B30 rock and tree (2026-10-12)."""
+    through every B30 rock and tree (2026-10-12).
+
+    Scenery that overflows the BSP's 16-bit tables goes to instances of
+    its own. A Blood Gulch built that way first loaded no scenario at all;
+    it loads (and collides) since merge_ce_collision.py counts the new
+    objects in the scene's object total (2026-10-12)."""
     extra = os.path.join(p["work"], "b30_collision.json")
-    out = run([sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
-               os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
-               "--scene", os.path.join(p["scene"], "scene.gltf")])
-    print("  " + out.strip().splitlines()[-1][:200])
     scene = os.path.join(p["work"], "collision_scene.json")
-    out = run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
-    print("  " + out.strip().splitlines()[0][:200])
-    mjolnir = os.environ.get("MJOLNIR", "C:/haloce/.claude/worktrees/server-list-hosting-d9e78e/target/release/mjolnir.exe")
     sbsp = os.path.join(p["work"], m["sbsp"])
+    mjolnir = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
+    made = run([sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
+                os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
+                "--scene", os.path.join(p["scene"], "scene.gltf")]).strip().splitlines()[-1]
+    run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
     out = run([mjolnir, "level", "collision", scene, "--out", sbsp, "--own-bsp", "--bsp-index", "0", "--paks", PAKS])
-    print("  " + (out.strip().splitlines() or [""])[-1][:200])
+    placed = [l.strip() for l in out.splitlines() if l.strip().startswith("scenery")]
+    print(f"  {code}: {made[:150]}")
+    print(f"  {code}: {(placed[-1] if placed else '')[:150]}")
 
 
 def bake_sbsp(m, p):
