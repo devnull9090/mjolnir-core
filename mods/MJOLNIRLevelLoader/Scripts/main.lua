@@ -1444,18 +1444,30 @@ local function spawnEnvironment(world)
     -- CE's masters do (the landscape, the cliffs' rock). Cut off short of the
     -- sky mesh, which it otherwise turned to storm cloud. Its colour exposed
     -- as the lights are (the light scale).
+    -- The sky light's capture takes the height fog in, and the sea reflects
+    -- the capture's horizon: under Death Island's CE fog (0.5, pale blue) it
+    -- drew near white. Nothing renders until the load lets go of the game
+    -- thread, so the capture asked for above would see the haze; it comes
+    -- up clear (opacity 0), the sky is captured again, and then it fades in.
     local haze = env.haze
     if type(haze) == "table" and type(haze.color) == "table" then
         place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
             pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, {}, false) end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
+            c.FogCutoffDistance = haze.cutoff or 80000
             c:SetFogDensity(haze.density or 0.02)
             c:SetFogHeightFalloff(haze.falloff or 0.08)
             c:SetStartDistance(haze.start or 2500)
-            c:SetFogMaxOpacity(haze.max_opacity or 0.7)
-            c.FogCutoffDistance = haze.cutoff or 80000
+            c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
+            ExecuteInGameThreadWithDelay(1000, function()
+                local sky = Current.actors.__sky
+                if sky and sky:IsValid() then pcall(function() sky.LightComponent:RecaptureSky() end) end
+                ExecuteInGameThreadWithDelay(2000, function()
+                    if actor:IsValid() then pcall(function() actor.Component:SetFogMaxOpacity(haze.max_opacity or 0.7) end) end
+                end)
+            end)
         end)
     end
     -- `environment.post`: an unbound post-process volume. Converted CE levels

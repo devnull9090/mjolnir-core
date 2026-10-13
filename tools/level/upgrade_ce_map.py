@@ -328,8 +328,10 @@ def ce_haze(level, reach=None):
     exposure takes it back out, so it shows as CE's colour), capped at CE's
     maximum density, starting where CE's does and thick enough to reach the
     cap at CE's opaque distance (CE's own is linear in distance; Unreal's
-    exponential comes within a few percent of it). The CE surfaces' own fog
-    is turned off, so nothing is fogged twice. Blood Gulch's warm haze (0.4
+    exponential comes within a few percent of it). The opaque CE surfaces'
+    (M_CE_Environment*) own fog is turned off, so they are not fogged twice;
+    the transparent ones keep theirs, which fades them as CE did (Unreal's
+    fog only darkens an additive surface). Blood Gulch's warm haze (0.4
     by 100 wu) had become Death Island's tuned one, a black fog at 1/200 of
     the colour that darkened the far cliffs (2026-10-13). Cut off past the
     map's own ground and water (`reach`, cm; at least 800 m), short of the
@@ -349,7 +351,8 @@ def ce_haze(level, reach=None):
                     "color": [round(c, 5) for c in lin]}
             for other in level.get("decor") or []:
                 for mat in other.get("materials") or []:
-                    if isinstance(mat, dict) and (mat.get("scalars") or {}).get("FogDensity"):
+                    if (isinstance(mat, dict) and (mat.get("scalars") or {}).get("FogDensity")
+                            and "/M_CE_Environment" in str(mat.get("parent", ""))):
                         mat["scalars"]["FogDensity"] = 0.0
             return haze
     return None
