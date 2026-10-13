@@ -419,8 +419,11 @@ SNOW_RULES = [
     {"name": "lip snow", "wall": "lip", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.35,
      "support": 205.0,
      "slope": 35, "above": [None, None],
-     "meshes": [("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A", 0.6, 1.1, 12),
-                ("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B", 0.5, 0.9, 20)],
+     # Their geometry starts above their pivots (A 6 cm, B 78 cm): the sink
+     # takes that back out, then half buries them (B hovered most of a metre
+     # over Ice Fields' ledges, 2026-10-13).
+     "meshes": [("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A", 0.6, 1.1, 18),
+                ("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B", 0.5, 0.9, 110)],
      # B40's own snow on them (the meshes' default drew glassy blue ice).
      "materials": {"/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A":
                    "/Game/Env/Bio/Frozen/Glacial/+Materials/MM_Frozen_Snowpile_Med",
