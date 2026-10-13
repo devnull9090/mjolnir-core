@@ -384,6 +384,31 @@ CLADDING = {
 }
 
 
+# A snow map (`--biome snow`, Ice Fields): B40's dressing, not B30's. No
+# grass, tufts or shore: its ground reads as "green" to the classes above
+# (CE's snow detail is a natural one), and B30's grass covered it. Snowy
+# small rocks over all natural ground instead, at B40's own scales (its
+# Small_*_Snow scatter, 0.3 to 2.5), and the cliffs clad with its glacial
+# rocks (snow-topped by their own materials; depths about 0.4 of the width,
+# as the Uluwatu ones; Lrg_B the big cliff piece, as Uluwatu's Cliff_B).
+GLACIAL = "/Game/Env/Bio/Rock/Glacial/"
+SNOW_RULES = [
+    {"name": "snow stones", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.12, "slope": 35,
+     "above": [None, None], "cluster": [10.0, 0.55],
+     "meshes": [(MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1_Snow", 0.4, 1.6, 2),
+                (MEGA3D + "Small_Beach_Rock_wd2ocdo/S_Small_Beach_Rock_wd2ocdo_high_Snow", 0.4, 1.4, 2),
+                (MEGA3D + "SmallStonesPack/SM_SmallStonesPack__Snow", 0.5, 1.5, 1),
+                (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 0.4, 1.4, 2)],
+     "cull": [4000, 7000], "shadow": True},
+]
+SNOW_CLADDING = {
+    "meshes": [(GLACIAL + "Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B", 0.8, 1.8, 180, 0.3),
+               (GLACIAL + "Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C", 0.8, 1.8, 215, 0.3),
+               (GLACIAL + "Rock_Glacial_Lrg_B/SM_Rock_Glacial_Lrg_B", 0.4, 1.0, 640, 0.4)],
+    "density": 0.1, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6, "clear": 150,
+}
+
+
 def cliff_slots(spec):
     """{glTF material name: (base file, lightmap file, base object path)} for
     the CE cliff shaders (a cliff detail map and a lightmap page)."""
@@ -589,6 +614,8 @@ def main():
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
+                    help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
     ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
                                       "beside the scene")
@@ -600,7 +627,11 @@ def main():
     for pair in a.detail:
         name, cls = pair.split("=", 1)
         EXTRA_DETAILS.append((cls, (name.lower(),)))
-    rules = [dict(r) for r in RULES if not a.only or r["name"] in a.only.split(",")]
+    if a.biome == "snow":
+        global CLADDING
+        CLADDING = SNOW_CLADDING
+    rules = [dict(r) for r in (SNOW_RULES if a.biome == "snow" else RULES)
+             if not a.only or r["name"] in a.only.split(",")]
     for spec in a.rule_tint:
         name, _, rest = spec.partition("=")
         rgb, _, param = rest.partition(":")

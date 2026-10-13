@@ -3470,6 +3470,27 @@ function Land.cliffs(world, spec)
     if type(cliff) ~= "table" then return 0 end
     local details = {}
     for _, d in ipairs(type(cliff.details) == "table" and cliff.details or {}) do details[d] = true end
+    -- `cliff.material`: a shipped material the cliff slots take as they are
+    -- (Ice Fields: B40's MIP_Rock_Glacial_Inst, rock and snow projected in
+    -- world space, so CE's UVs do not matter); the cladding rocks then keep
+    -- their meshes' own (B40's glacial rocks, snow-topped already).
+    local shipped = type(cliff.material) == "string" and resolveMesh(cliff.material)
+    if shipped then
+        local n = 0
+        for index, item in ipairs(Current.level.decor or {}) do
+            local actor = Current.actors[(type(item) == "table" and item.id) or ("#" .. index)]
+            if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
+                for i, entry in ipairs(item.materials) do
+                    local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
+                    local leaf = t and type(t.Primary) == "string" and t.Primary:match("%.([%w_]+)$")
+                    if leaf and details[leaf] and pcall(function() actor.StaticMeshComponent:SetMaterial(i - 1, shipped) end) then
+                        n = n + 1
+                    end
+                end
+            end
+        end
+        return n
+    end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_CliffPBR.M_CE_CliffPBR")
     if not (kml and parent) then return 0 end

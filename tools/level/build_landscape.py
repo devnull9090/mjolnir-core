@@ -76,6 +76,40 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 # (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
 # cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
+    # Ice Fields (LIF, 2026-10-13): B40's snow (its landscape's Megascans
+    # surfaces) in place of the beach: fresh windswept snow, windswept
+    # snow for the ripple band, melting snow in patches, snowy stones,
+    # snow-covered grass and gravel for the earth; everything untinted, no
+    # grass on the banks, no earth inland (no sea), a neutral light. Its
+    # cliffs are B40's glacial rock as shipped (cliff.material: the loader
+    # puts it on the cliff slots as it is).
+    "LIF": {
+        "pbr": {"sand_tint": [1.0, 1.0, 1.0, 1.0], "grass_tint": [1.0, 1.0, 1.0, 1.0],
+                "dirt_tint": [1.0, 1.0, 1.0, 1.0], "slope": [0.92, 0.8, 0.0, 0.25], "inland": [0, 0, 0, 0.0],
+                "light": {"sun": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}, "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}},
+                "surfaces": {
+                    "SandD": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_D",
+                    "SandN": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_N",
+                    "SandO": "Fresh_Windswept_Snow_uhpjdeyn/T_Fresh_Windswept_Snow_uhpjdeyn_NSVT_ORHG",
+                    "RipD": "Windswept_Snow_uephfgudy/T_Windswept_Snow_NSVT_D",
+                    "RipN": "Windswept_Snow_uephfgudy/T_Windswept_Snow_NSVT_N",
+                    "RipO": "Windswept_Snow_uephfgudy/T_Windswept_Snow_uephfgudy_NSVT_ORHG",
+                    "SandBD": "Melting_Snow_uepnbikfw/T_Melting_Snow_uepnbikfw_NSVT_D",
+                    "SandBN": "Melting_Snow_uepnbikfw/T_Melting_Snow_uepnbikfw_NSVT_N",
+                    "GrassD": "Snow_Covered_Ground_sinjagua/T_Snow_Covered_Ground_sinjagua_NSVT_D",
+                    "GrassN": "Snow_Covered_Ground_sinjagua/T_Snow_Covered_Ground_sinjagua_NSVT_N",
+                    "GrassO": "Snow_Covered_Ground_sinjagua/T_Snow_Covered_Ground_sinjagua_NSVT_ORHG",
+                    "DirtD": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
+                    "DirtN": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
+                    "DirtO": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG",
+                    "MidD": "Snow_Covered_Grass_ueolejtn/T_Snow_Covered_Grass_ueolejtn_NSVT_D",
+                    "MidN": "Snow_Covered_Grass_ueolejtn/T_Snow_Covered_Grass_ueolejtn_NSVT_N",
+                    "MidO": "Snow_Covered_Grass_ueolejtn/T_Snow_Covered_Grass_ueolejtn_NSVT_ORHG",
+                    "GravD": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_4K_NSVT_D",
+                    "GravN": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_4K_NSVT_N",
+                    "GravO": "Gravel_Natural_vglndb0g/T_Gravel_Natural_vglndb0g_NSVT_ORHG"}},
+        "cliff": {"material": "/Game/Env/Bio/Rock/Glacial/Materials/MIP_Rock_Glacial_Inst.MIP_Rock_Glacial_Inst"},
+    },
     # Yoyorast Island (LYY, 2026-10-12): its grey island rock took a purple
     # cast from CE's bluish lightmap at the dusk share; CE's light at 0.15,
     # its colour at 1.1x under a warm grey tint.

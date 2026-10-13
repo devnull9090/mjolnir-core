@@ -144,6 +144,8 @@ def stage_foliage(code, m, p):
         cmd += ["--detail", f"{name}={cls}"]
     for rule, tint in (m.get("tints") or {}).items():
         cmd += ["--rule-tint", f"{rule}={tint}"]
+    if m.get("biome"):
+        cmd += ["--biome", m["biome"]]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
@@ -152,11 +154,15 @@ def stage_foliage(code, m, p):
 def stage_swap(code, m, p):
     data = os.path.join(HERE, "data")
     sea = sea_height(json.load(open(p["level"], encoding="utf-8")))
+    # A snow map (`biome: snow`) takes B40's trees and rocks: its own
+    # recipes and bounds (scenery_swap.py recipes, `mjolnir mesh list`).
+    source = "b40" if m.get("biome") == "snow" else "b30"
     out = run([sys.executable, os.path.join(HERE, "scenery_swap.py"), "swap", p["scene"],
-               os.path.join(p["scene"], "materials.spec.json"), os.path.join(data, "b30_tree_recipes.json"),
-               os.path.join(data, "b30_scenery_bounds.json"), os.path.join(p["work"], "swap.json"),
+               os.path.join(p["scene"], "materials.spec.json"), os.path.join(data, f"{source}_tree_recipes.json"),
+               os.path.join(data, f"{source}_scenery_bounds.json"), os.path.join(p["work"], "swap.json"),
                "--rocks", m.get("rocks", "beach"), "--foliage", os.path.join(p["foliage"], "foliage.json"),
                "--staging", staging(p)]
+              + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
 
@@ -368,10 +374,6 @@ def stage_assemble(code, m, p):
         spec = json.load(open(plasma, encoding="utf-8"))
         level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
                                  "item": spec["item"], "slots": spec["slots"]}]
-    if m.get("haze") == "ce" and isinstance(level["landscape"].get("pbr"), dict):
-        haze = ce_haze(level, scene_reach(p))
-        if haze:
-            level["landscape"]["pbr"]["haze"] = haze
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR
@@ -406,6 +408,14 @@ def stage_assemble(code, m, p):
                                                "scalars": swap["leaves"].get("scalars")})
             print(f"  {code}: {len(leaves)} leaf cluster(s) on the swapped trees")
         print(f"  {code}: {swap['count']} scenery object(s) swapped, {hidden} CE slot(s) hidden")
+    # After the swap: the swap hides CE scenery by its slot's material as the
+    # spec has it, and the haze turns the terrain materials' own fog off, so
+    # run first it left every swapped CE rock and tree drawn under its
+    # stand-in (2026-10-13).
+    if m.get("haze") == "ce" and isinstance(level["landscape"].get("pbr"), dict):
+        haze = ce_haze(level, scene_reach(p))
+        if haze:
+            level["landscape"]["pbr"]["haze"] = haze
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
     # environment, a key at a time (skylight.lower, clouds, ...).
     env = level.setdefault("environment", {})
@@ -414,6 +424,23 @@ def stage_assemble(code, m, p):
             env[key].update(value)
         else:
             env[key] = value
+    # `weather: "snow"`: falling snow the CE map never had (Ice Fields, in
+    # B40's), the game's snow as Coldsnap's is (gen_ce_level.WEATHER_SYSTEMS),
+    # kept out from under the map's roofs and caves (weather_roofs).
+    if m.get("weather") and not env.get("weather"):
+        sys.path.insert(0, HERE)
+        import gen_ce_level
+        delta = json.load(open(os.path.join(p["conv"], m["sbsp"] + ".transform.json"), encoding="utf-8"))["delta"]
+
+        def to_ue(v):
+            return [round((v[0] + delta[0]) * 304.8, 1), round(-(v[1] + delta[1]) * 304.8, 1),
+                    round((v[2] + delta[2]) * 304.8, 1)]
+        weather = {**gen_ce_level.WEATHER_SYSTEMS[m["weather"]], "source": f"upgrade ({m['weather']})"}
+        roofs = gen_ce_level.weather_roofs(staging(p), to_ue)
+        if roofs:
+            weather["roofs"] = roofs
+        env["weather"] = weather
+        print(f"  {code}: {m['weather']} falling, {len((roofs or {}).get('cells') or {})} roof cell(s)")
     # One sea: CE's distant-water slot on the water mesh drawn exactly as
     # the near water (M_CE_Ocean takes each slot's ripples, tints and
     # brightness, and the distant one's paler set drew a seam across Death

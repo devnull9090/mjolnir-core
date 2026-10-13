@@ -6,14 +6,20 @@ crossed cards. This writes, for the natural ones, B30's meshes in their
 place (decor entries, sized to the CE model's reach so the Blam collision,
 which stays CE's, still matches what is seen) and the CE slots to hide.
 
-    python tools/level/scenery_swap.py recipes <placements.csv> <bounds.json> <out.json>
-    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert]
+    python tools/level/scenery_swap.py recipes <placements.csv> <bounds.json> <out.json> [--prefix P --leaves MESH]
+    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert|snow] [--biome b30|snow]
 
 `recipes`: B30's Maned Kuenovo trees from its World Partition cells
 (ue-asset's placements_csv example with the matrix columns, filtered to
 "kuenovo") and their parts' bounds (`mjolnir mesh list --filter Kuenovo`):
 for each variant the most isolated tree, as its parts' offsets from the
 trunk and its height, so a tree can be rebuilt at any spot, yaw and size.
+
+With --biome snow (Ice Fields) the stand-ins are B40's instead: its
+glacial boulders and the snow-packed dead Douglas firs, in B40's own snow
+materials, with snow gusts and snow falling from the trees for effects.
+`recipes --prefix Tree_DouglasFir_SnowDead_ --leaves <branch mesh>` builds
+the firs' recipes from B40's cells.
 
 `swap` writes { "decor": [...], "hide": [slot materials...], "count": n,
 "effects": {...} } for upgrade_ce_map.py's assemble stage, which appends the
@@ -35,6 +41,7 @@ import sys
 HIDDEN = "/Game/MJOLNIR/CETrial/M_CE_Hidden.M_CE_Hidden"
 ULU = "/Game/Env/Bio/Rock/Uluwatu/"
 DESERT = "/Game/Env/Bio/Rock/Desert/"
+GLACIAL = "/Game/Env/Bio/Rock/Glacial/"
 PLANTS = "/Game/Megascans/3D_Plants/"
 
 # Rock meshes by kind of map (their bounds from tools/level/data/
@@ -47,7 +54,15 @@ ROCKS = {
     "desert": [(DESERT + "Rock_Desert_Boulder_A/SM_Rock_Desert_Boulder_A", None),
                (DESERT + "Rock_Desert_Boulder_B/SM_Rock_Desert_Boulder_B", None),
                (DESERT + "Rock_Desert_Boulder_C/SM_Rock_Desert_Boulder_C", None)],
+    # B40's glacial boulders, in their own snow-topped materials (the
+    # meshes' defaults; B40 sets _NoSnow on a few by hand).
+    "snow": [(GLACIAL + "Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A", None),
+             (GLACIAL + "Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B", None),
+             (GLACIAL + "Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C", None)],
 }
+# A snow map's boulders wider than this (cm) take B40's large glacial rocks.
+SNOW_BIG = 700.0
+SNOW_BIG_ROCKS = [GLACIAL + f"Rock_Glacial_Lrg_{v}/SM_Rock_Glacial_Lrg_{v}" for v in "ABC"]
 # The biggest CE boulders (granite gigantic, 10 m and more) as B30's cliff
 # rock.
 BIG_ROCK = ULU + "Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B"
@@ -72,6 +87,19 @@ RULES = [
     ("plant fern", ("mesh", FERNS)),
     ("plant_broadleaf", ("mesh", BROADLEAF)),
 ]
+
+# A snow map (B40): CE's snowy pines as its dead Douglas firs (every
+# variant the recipes hold), its boulders as B40's glacial rocks. The firs'
+# parts and branch clusters carry B40's snow-packed materials, as its PCG
+# assemblies set them (their meshes' own are bare).
+SNOW_ASSEMBLY = "/Game/Levels/Halo1/Solo/B40/PCG/Assemblies/DouglasFir_SnowDead/"
+SNOW = {
+    "rules": [("tree_pine", ("tree", None)), ("boulder", ("rock", None)), ("rock", ("rock", None))],
+    "part_material": SNOW_ASSEMBLY + "MI_DouglasFirTrunk_Snow",
+    "leaves": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/InstanceMeshDefinitions/"
+              "SM_Tree_DouglasFir_SnowDead_A_Tree_Windswept_BranchDead_A",
+    "leaves_material": SNOW_ASSEMBLY + "MI_DouglasFirBranch_Snow",
+}
 
 
 def object_path(package):
@@ -166,11 +194,11 @@ def attached_leaves(recipe, bounds):
 def recipes(a):
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     every = list(csv.DictReader(open(a.csv, encoding="utf-8")))
-    rows = [r for r in every if "Tree_Maned_Kuenovo_" in r["mesh"] and "/Meshes/" in r["mesh"]]
-    leaf_rows = [r for r in every if r["mesh"] == LEAVES]
+    rows = [r for r in every if a.prefix in r["mesh"] and "/Meshes/" in r["mesh"]]
+    leaf_rows = [r for r in every if r["mesh"] == a.leaves]
     by_variant = collections.defaultdict(lambda: collections.defaultdict(set))
     for r in rows:
-        variant = r["mesh"].split("Tree_Maned_Kuenovo_")[1].split("/")[0]
+        variant = r["mesh"].split(a.prefix)[1].split("/")[0]
         key = tuple(round(float(r[k]), 3) for k in ("m00", "m01", "m02", "m10", "m11", "m12", "m20", "m21", "m22"))
         by_variant[variant][r["mesh"]].add((float(r["x"]), float(r["y"]), float(r["z"]), key))
     out = {}
@@ -271,6 +299,10 @@ EFFECTS = {
     "leaves": FX + "Plants/Trees/FallingLeaves/NS_FallingLeaves_Banyan_Lp_01",
     "dust": FX + "Atmospherics/DustMotes/NS_DustMotes_CameraAttached",
 }
+SNOW_EFFECTS = {
+    "gusts": FX + "Atmospherics/Snow/NS_PNW_SnowGusts_01",
+    "tree_snow": FX + "Atmospherics/Snow/NS_PNW_FallingTreeSnow_01",
+}
 
 
 def foliage_points(json_path, bin_path):
@@ -308,6 +340,17 @@ def spaced(points, gap, most, seed):
     return out
 
 
+def make_snow_effects(rocks, trees):
+    """A snow map's effects: snow gusting over the open ground (by the
+    swapped boulders) and snow falling from the swapped trees."""
+    placed = []
+    for x, y, z in spaced(rocks, 6000, 8, 3):
+        placed.append({"system": object_path(SNOW_EFFECTS["gusts"]), "pos": [round(x), round(y), round(z + 100)]})
+    for x, y, z, h in spaced(trees, 2500, 10, 5):
+        placed.append({"system": object_path(SNOW_EFFECTS["tree_snow"]), "pos": [round(x), round(y), round(z + h * 0.6)]})
+    return {"placed": placed, "camera": []}
+
+
 def make_effects(fol, sea, trees):
     placed = []
     for x, y, z in spaced(fol.get("grass", []) + fol.get("short grass", []), 4500, 8, 3):
@@ -335,7 +378,9 @@ def swap(a):
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     spec = json.load(open(a.spec, encoding="utf-8"))
     rocks = ROCKS[a.rocks]
-    decor, replaced, trees, leaves = [], collections.Counter(), [], []
+    snow = a.biome == "snow"
+    rules = SNOW["rules"] if snow else RULES
+    decor, replaced, trees, leaves, rock_spots = [], collections.Counter(), [], [], []
     hide_shaders = set()
     hide_tokens = set()
     for n, e in enumerate(placement["entries"]):
@@ -346,7 +391,7 @@ def swap(a):
         # By its tag path, else by its shaders' names (a protected map's
         # scenery is "protected\scen\175", its shader still the stock
         # boulder's).
-        rule = next((r for k, r in RULES if k in asset), None)             or next((r for k, r in RULES if any(k.replace(" ", "_") in sh for sh in shaders)), None)
+        rule = next((r for k, r in rules if k in asset), None)             or next((r for k, r in rules if any(k.replace(" ", "_") in sh for sh in shaders)), None)
         if not rule:
             continue
         kind, options = rule
@@ -356,7 +401,7 @@ def swap(a):
         key = f"{asset}|{n}"
         width = max(ext[0], ext[1])
         if kind == "tree":
-            variant = pick([v for v in options if v in recipes] or list(recipes), key)
+            variant = pick([v for v in options or [] if v in recipes] or list(recipes), key)
             r = recipes[variant]
             s = ext[2] / max(r["height"], 1.0)
             trees.append((x, y, z, ext[2]))
@@ -371,13 +416,18 @@ def swap(a):
                                round(fy, 1), round(fs, 3), round(fnx, 3), round(fny, 3)])
             for part in r["parts"]:
                 ox, oy, oz = (v * s for v in part["off"])
-                decor.append({"id": f"swap_{n}_{part['mesh'].rsplit('_', 1)[-1]}", "mesh": object_path(part["mesh"]),
-                              "pos": [round(x + ox * c - oy * sn, 1), round(y + ox * sn + oy * c, 1), round(z + oz, 1)],
-                              "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
-                              "scalars": TREE_CALM})
+                item = {"id": f"swap_{n}_{part['mesh'].rsplit('_', 1)[-1]}", "mesh": object_path(part["mesh"]),
+                        "pos": [round(x + ox * c - oy * sn, 1), round(y + ox * sn + oy * c, 1), round(z + oz, 1)],
+                        "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
+                        "scalars": TREE_CALM}
+                if snow:
+                    item["materials"] = [object_path(SNOW["part_material"])]
+                decor.append(item)
         else:
             if kind == "bigrock":
                 mesh = BIG_ROCK
+            elif kind == "rock" and snow and width > SNOW_BIG:
+                mesh = pick(SNOW_BIG_ROCKS, key)
             elif kind == "rock":
                 mesh = pick([m for m, _ in rocks], key)
             else:
@@ -405,6 +455,8 @@ def swap(a):
             decor.append({"id": f"swap_{n}", "mesh": object_path(mesh),
                           "pos": [round(x + cen[0], 1), round(y + cen[1], 1), round(zc, 1)],
                           "rot": [0.0, round(yaw, 1), 0.0], "scale": [round(sx, 3), round(sy, 3), round(sz, 3)]})
+            if kind in ("rock", "bigrock"):
+                rock_spots.append((x + cen[0], y + cen[1], z))
         replaced[asset.split("\\")[-1]] += 1
         hide_tokens.add(asset.rsplit("\\", 1)[0].replace("\\", "_").replace(" ", "_"))
         hide_shaders.update(shaders)
@@ -414,12 +466,18 @@ def swap(a):
         if any(slot["name"].startswith(t + "_shaders_") for t in hide_tokens)                 or any(slot["name"].startswith(sh + "__") for sh in hide_shaders):
             hide.append(slot["material"])
     effects = None
-    if a.foliage:
+    if snow:
+        effects = make_snow_effects(rock_spots, trees)
+        print(f"{len(effects['placed'])} effect(s) placed")
+    elif a.foliage:
         fol = foliage_points(a.foliage, os.path.join(os.path.dirname(a.foliage), "foliage.bin"))
         effects = make_effects(fol, a.sea, trees)
         print(f"{len(effects['placed'])} effect(s) placed")
+    leaf_group = {"mesh": object_path(SNOW["leaves"] if snow else LEAVES), "records": leaves, "scalars": TREE_CALM}
+    if snow:
+        leaf_group["material"] = object_path(SNOW["leaves_material"])
     json.dump({"decor": decor, "hide": hide, "count": sum(replaced.values()), "effects": effects,
-               "leaves": {"mesh": object_path(LEAVES), "records": leaves, "scalars": TREE_CALM}},
+               "leaves": leaf_group},
               open(a.out, "w", encoding="utf-8"), indent=1)
     print(f"{len(leaves)} leaf cluster(s) on the trees")
     print(f"{sum(replaced.values())} scenery object(s) in B30's assets ({len(decor)} decor entries, "
@@ -431,10 +489,14 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("recipes")
     r.add_argument("csv"); r.add_argument("bounds"); r.add_argument("out")
+    r.add_argument("--prefix", default="Tree_Maned_Kuenovo_", help="the trees' asset folder prefix")
+    r.add_argument("--leaves", default=LEAVES, help="the leaf (branch) cluster mesh placed beside the trees")
     s = sub.add_parser("swap")
     s.add_argument("scene"); s.add_argument("spec"); s.add_argument("recipes"); s.add_argument("bounds")
     s.add_argument("out")
     s.add_argument("--rocks", default="beach", choices=sorted(ROCKS))
+    s.add_argument("--biome", default="b30", choices=["b30", "snow"],
+                   help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
     s.add_argument("--foliage", help="the map's foliage.json (its foliage.bin beside it): place the effects")
     s.add_argument("--sea", type=float, help="the sea's height (cm)")
     s.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
