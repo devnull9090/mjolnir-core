@@ -402,6 +402,28 @@ SNOW_RULES = [
                 (MEGA3D + "SmallStonesPack/SM_SmallStonesPack__Snow", 0.5, 1.5, 4),
                 (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 0.4, 1.4, 8)],
      "cull": [4000, 7000], "shadow": True},
+    # Where walls meet the ground (the edge map's feet): B40's snowy scree
+    # and rubble banked along them, as its own walls stand.
+    {"name": "foot rubble", "wall": "foot", "align": True, "on": "any", "share": [0.0, 0.0], "density": 1.0,
+     "slope": 40, "above": [None, None], "cluster": [6.0, 0.35],
+     "meshes": [("/Game/Env/Bio/Rock/Scree/Scree_Rock_A/SM_Scree_Rock_01", 0.8, 2.6, 6),
+                ("/Game/Env/Bio/Rock/Scree/Scree_Rock_B/SM_Scree_Rock_02", 0.8, 2.6, 5),
+                ("/Game/Env/Bio/Rock/Scree/Scree_Rock_C/SM_Scree_Rock_03", 1.0, 3.0, 4),
+                (MEGA3D + "Small_Beach_Rock_webhcal/S_Small_Beach_Rock_webhcal_high_Var1_Snow", 1.0, 2.5, 8),
+                (MEGA3D + "Small_Granite_Rock_wgyxag2/S_Small_Granite_Rock_wgyxag2_lod0_Var1_Snow", 1.0, 2.2, 8)],
+     "cull": [3500, 6000], "shadow": True},
+    # Along every lip (a walkway's edge, a cliff top): B40's snow drifts,
+    # half buried, the snow a wind leaves along an edge.
+    {"name": "lip snow", "wall": "lip", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.35,
+     "slope": 35, "above": [None, None],
+     "meshes": [("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A", 0.6, 1.1, 12),
+                ("/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B", 0.5, 0.9, 20)],
+     # B40's own snow on them (the meshes' default drew glassy blue ice).
+     "materials": {"/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_A/SM_Frozen_Snowpile_Med_A":
+                   "/Game/Env/Bio/Frozen/Glacial/+Materials/MM_Frozen_Snowpile_Med",
+                   "/Game/Env/Bio/Frozen/Glacial/Frozen_Snowpile_Med_B/SM_Frozen_Snowpile_Med_B":
+                   "/Game/Env/Bio/Frozen/Glacial/+Materials/MM_Frozen_Snowpile_Med"},
+     "cull": [5000, 9000], "shadow": True},
 ]
 SNOW_CLADDING = {
     "meshes": [(GLACIAL + "Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B", 0.8, 1.8, 180, 0.3),
@@ -425,11 +447,15 @@ def cliff_slots(spec):
     return out
 
 
-# What a player can stand on (normal z), and the space kept clear over it:
-# across (cm beyond a rock's reach) and up (cm below a rock's bottom).
+# What a player can stand on (normal z), and the space a player takes over
+# it: a standing cylinder (radius, height cm) on every walkable spot.
 WALK_Z = 0.6
-WALK_CLEAR = 60.0
-WALK_HEIGHT = 200.0
+PLAYER_R = 45.0
+PLAYER_H = 220.0
+# A rock that would stand in that space is tried again pressed into its
+# wall (protruding these cm) before it is left out: the walls beside
+# walkways keep their relief (Ice Fields' ramp, bare once its rocks went).
+FLUSH = [8.0, 20.0]
 
 
 def built_points(doc, data, spec, off, step=100.0):
@@ -464,7 +490,7 @@ class WalkGrid:
     normal is at least WALK_Z up: ground, ledges, ramps, floors, of any
     shader but water and sky), by 1 m cell, sampled at each cell's centre:
     a cladding rock keeps out of the space above them (`blocks`)."""
-    def __init__(self, doc, data, off, cell=100.0):
+    def __init__(self, doc, data, off, cell=50.0):
         self.cell, self.cells = cell, {}
         skip = ("water", "sky", "fog", "wave", "flare", "light")
         for mesh in doc["meshes"]:
@@ -497,23 +523,81 @@ class WalkGrid:
                                 continue
                             self.cells.setdefault((ix, iy), []).append(w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2])
 
-    def blocks(self, c, reach):
-        """Whether a rock (centre `c`, cm, half-size `reach`) stands in the
-        space players move through: walkable ground within its reach plus
-        WALK_CLEAR across, from WALK_HEIGHT below its bottom to its top."""
-        r = reach + WALK_CLEAR
-        lo, hi = c[2] - reach - WALK_HEIGHT, c[2] + reach
+    def blocks(self, c, reach, across=PLAYER_R):
+        """Whether a rock (a sphere: centre `c`, cm, radius `reach`) enters
+        the space a player takes over any walkable spot (`across` cm
+        around it, from just under the ground to PLAYER_H over it). With
+        across 0 (a rock pressed flush into its wall): whether it rises out
+        of a walkable surface, the walkway at the wall's top or the floor
+        at its foot; beside one it only thickens the wall by its 8 to 20 cm."""
+        r = reach + across
         for ix in range(math.floor((c[0] - r) / self.cell), math.floor((c[0] + r) / self.cell) + 1):
             for iy in range(math.floor((c[1] - r) / self.cell), math.floor((c[1] + r) / self.cell) + 1):
                 zs = self.cells.get((ix, iy))
                 if not zs:
                     continue
                 dx, dy = (ix + 0.5) * self.cell - c[0], (iy + 0.5) * self.cell - c[1]
-                if dx * dx + dy * dy > r * r:
+                dh = math.sqrt(dx * dx + dy * dy)
+                if dh > r:
                     continue
-                if any(lo <= z <= hi for z in zs):
+                # The sphere's height at the cylinder's nearest side.
+                gap = max(0.0, dh - across)
+                half = math.sqrt(max(0.0, reach * reach - gap * gap))
+                if half <= 0.0:
+                    continue
+                if any(c[2] - half <= z + PLAYER_H and c[2] + half >= z + (-10.0 if across else 5.0) for z in zs):
                     return True
         return False
+
+
+class WallGrid:
+    """Points over every steep face (normal z under 0.5, any shader but
+    water and sky), by 1 m cell: where walls stand, for the scatter's wall
+    rules. `foot`: a wall rises over (x, y, z) within FOOT_REACH across;
+    `lip`: (x, y, z) stands over a drop, a wall falling away below it."""
+    def __init__(self, doc, data, off, step=60.0, cell=100.0):
+        self.cell, self.cells = cell, {}
+        skip = ("water", "sky", "fog", "wave", "flare", "light")
+        for mesh in doc["meshes"]:
+            for prim in mesh["primitives"]:
+                name = doc["materials"][prim["material"]]["name"].lower()
+                if any(w in name for w in skip):
+                    continue
+                pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+                pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1) + np.array(off)
+                idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+                for i0, i1, i2 in idx:
+                    p0, p1, p2 = pos[i0], pos[i1], pos[i2]
+                    n = np.cross(p1 - p0, p2 - p0)
+                    ln = np.linalg.norm(n)
+                    if ln <= 0 or abs(n[2]) / ln >= 0.5:
+                        continue
+                    edge = max(np.linalg.norm(p1 - p0), np.linalg.norm(p2 - p1), np.linalg.norm(p0 - p2))
+                    k = max(1, int(edge / step))
+                    for u in range(k + 1):
+                        for v in range(k + 1 - u):
+                            q = (u / k) * p0 + (v / k) * p1 + (1 - u / k - v / k) * p2
+                            self.cells.setdefault((int(q[0] // cell), int(q[1] // cell)), []).append(q)
+
+    def _any(self, x, y, reach, test):
+        for ix in range(int((x - reach) // self.cell), int((x + reach) // self.cell) + 1):
+            for iy in range(int((y - reach) // self.cell), int((y + reach) // self.cell) + 1):
+                for q in self.cells.get((ix, iy), ()):
+                    if (q[0] - x) ** 2 + (q[1] - y) ** 2 <= reach * reach and test(q[2]):
+                        return True
+        return False
+
+    def foot(self, x, y, z):
+        return self._any(x, y, FOOT_REACH, lambda qz: z + 60.0 <= qz <= z + 300.0)
+
+    def lip(self, x, y, z):
+        return self._any(x, y, LIP_REACH, lambda qz: z - 300.0 <= qz <= z - 80.0)
+
+
+# How far from a wall the wall rules reach (cm): rubble along its foot, snow
+# along the edge of a drop.
+FOOT_REACH = 130.0
+LIP_REACH = 90.0
 
 
 class PointGrid:
@@ -552,7 +636,7 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
     # walkway up to a base (2026-10-13). As CE's walls had nothing on them,
     # nothing may stand where players move.
     walk = WalkGrid(doc, data, off)
-    walked = 0
+    walked = flush = 0
     edge = None
     if a.edge:
         e = json.load(open(a.edge, encoding="utf-8"))["pbr"]["edge"]
@@ -604,8 +688,20 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                         dropped += 1
                         continue
                     if walk.blocks((cx, cy, cz), reach):
-                        walked += 1
-                        continue
+                        # Pressed flush; then smaller, for a short wall (a
+                        # walkway's side: the big rocks rose through its top).
+                        for k_ in (1.0, 0.45, 0.25):
+                            s_ = scale * k_
+                            out = rng.uniform(*FLUSH)
+                            inset = depth * s_ - out
+                            cx, cy, cz = x - nu[0] * inset, y - nu[1] * inset, z - nu[2] * inset
+                            if not walk.blocks((cx, cy, cz), depth * s_, across=0.0):
+                                scale, reach = s_, depth * s_
+                                break
+                        else:
+                            walked += 1
+                            continue
+                        flush += 1
                     if edge is not None:
                         img, rect, rng_z = edge
                         h, w = img.shape[:2]
@@ -628,7 +724,8 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                                          tuple(float(c) for c in np.clip(rgb, 0.0, 1.0))], base_path))
                     total += 1
     print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip), "
-          f"{walked} out of the space over walkable ground ({len(walk.cells)} walkable cells)")
+          f"{flush} pressed flush beside walkable ground, {walked} left out of the space over it "
+          f"({len(walk.cells)} walkable cells)")
     # A group a mesh and a light (the loader gives each group one material,
     # its CladLight the cluster's centre): the lights in CLADDING["lights"]
     # clusters (k-means), keyed apart from the stones' groups of the meshes.
@@ -650,23 +747,25 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
     return total
 
 
-def near_lip(edge, x, y):
-    """Whether the edge map has any lip at (x, y) Unreal cm."""
+def near_lip(edge, x, y, kind="lip"):
+    """Whether the edge map has any lip (or foot) at (x, y) Unreal cm."""
     img, rect, _ = edge
     h, w = img.shape[:2]
     u, v = (x - rect[0]) / rect[2], (y - rect[1]) / rect[3]
-    return 0 <= u < 1 and 0 <= v < 1 and img[int(v * h), int(u * w)][1] > 0.05
+    return 0 <= u < 1 and 0 <= v < 1 and img[int(v * h), int(u * w)][1 if kind == "lip" else 2] > 0.05
 
 
-def on_lip(edge, x, y, z):
-    """Whether (x, y, z) Unreal cm is on a lip by the edge map: its lip mask
-    over half, and within 80 cm of the lip's height."""
+def on_lip(edge, x, y, z, kind="lip"):
+    """Whether (x, y, z) Unreal cm is on a lip (or at a wall's foot) by the
+    edge map: its mask over half, and within 80 cm of its height."""
     img, rect, rng = edge
     h, w = img.shape[:2]
     u, v = (x - rect[0]) / rect[2], (y - rect[1]) / rect[3]
     if not (0 <= u < 1 and 0 <= v < 1):
         return False
     px = img[int(v * h), int(u * w)]
+    if kind == "foot":
+        return px[2] > 0.5 and px[3] > 0.0 and abs(z - (rng[0] + px[3] * (rng[1] - rng[0]))) < 80.0
     top = rng[0] + px[0] * (rng[1] - rng[0])
     return px[1] > 0.5 and abs(z - top) < 80.0
 
@@ -741,6 +840,7 @@ def main():
     print(f"{len(footprints)} scenery object(s) kept clear of foliage")
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
+    walls = WallGrid(doc, data, off) if any(r.get("wall") for r in rules) else None
     images = {}
     groups = {}  # mesh -> (rule, instances)
     counts = {r["name"]: 0 for r in rules}
@@ -774,10 +874,12 @@ def main():
                     # Lip rules: only triangles near a lip, from a stream of
                     # their own (the other rules place as they did).
                     R = rng
-                    if rule.get("edge") == "lip":
+                    if rule.get("wall"):
+                        R = rng_lip
+                    if rule.get("edge"):
                         R = rng_lip
                         cx, cy, cz = (p0 + p1 + p2) / 3.0 * 100.0
-                        if not near_lip(edge, cx + off[0], cz + off[1]):
+                        if not near_lip(edge, cx + off[0], cz + off[1], rule["edge"]):
                             continue
                     count = area * rule["density"]
                     k = int(count) + (1 if R.random() < count - int(count) else 0)
@@ -813,7 +915,9 @@ def main():
                             h = (z - a.lift - a.sea) / 100.0
                             if (low is not None and h < low) or (high is not None and h > high):
                                 continue
-                        if rule.get("edge") == "lip" and not on_lip(edge, x, y, z):
+                        if rule.get("edge") and not on_lip(edge, x, y, z, rule["edge"]):
+                            continue
+                        if rule.get("wall") and not getattr(walls, rule["wall"])(x, y, z - a.lift):
                             continue
                         if under_scenery(scenery, x, y):
                             continue
