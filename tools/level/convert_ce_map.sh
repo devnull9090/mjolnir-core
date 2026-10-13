@@ -185,13 +185,17 @@ if [ "$cook" = "1" ]; then
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky"
   # The game's grass, tufts and shore stones on the map's ground
   # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
-  # sea's height is the water mesh's, when the map has one.
+  # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves
+  # it out: it reads ground by CE's sand and grass detail, and covered
+  # Coldsnap's snow in 14 million blades of grass (2026-10-13).
+  if [ "${FOLIAGE:-1}" != "0" ]; then
   sea="$(python -c "import json,sys; w=[e for e in json.load(open(sys.argv[1])) if e['mesh'].split('.')[0].endswith('_Water')]; print(w[0]['pos'][2] if w else '')" "$out/terrain.json")"
   sea="${sea%%[[:space:]]}"
   sea_args=()
   [ -n "$sea" ] && sea_args=(--sea "$sea")
   python "$here/scatter_foliage.py" "$out/scene.gltf" "$out/materials.spec.json" "$out/foliage.json" \
     --bin "$out/$name.foliage.bin" --offset "$delta" "${sea_args[@]}"
+  fi
 else
   python "$here/ce_textures.py" "$staging" "$out/textures/$name" --prefix "textures/$name" | tail -1
   # One slot per composited shader, keyed on the glTF material names

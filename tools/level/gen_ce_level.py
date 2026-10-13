@@ -1378,11 +1378,11 @@ def main():
         level["health_pack"] = dict(HEALTH_PACK_MESH, materials=[ce_model_material("healthpack.png")])
     if vehicle_sets:
         level["vehicle_sets"] = vehicle_sets
-    if a.foliage:
+    foliage = json.load(open(a.foliage, encoding="utf-8")) if a.foliage else {}
+    if foliage.get("groups"):
         # The game's grass, tufts and shore stones (scatter_foliage.py), with
         # a steady breeze for the grass (MJOLNIRLevelLoader Foliage.wind).
-        level["foliage"] = {**json.load(open(a.foliage, encoding="utf-8")),
-                            "wind": {"dir": [0.9, 0.4], "strength": 0.4}}
+        level["foliage"] = {**foliage, "wind": {"dir": [0.9, 0.4], "strength": 0.4}}
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)
