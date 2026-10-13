@@ -738,6 +738,16 @@ local function runtimeMaterial(world, spec, name, target)
             local slot = tonumber(tostring(name):match("_(%d+)$"))
             local listed = false
             for _, s in ipairs(cut.slots) do listed = listed or s == slot end
+            -- A look that keeps its slot whole (LandCutEdge below 0: Ice
+            -- Fields' ice caves) keeps it whole here too: this material is
+            -- also the terrain's shadow proxy's, and cut it let the sun
+            -- through the tunnels' roof in the landscape's steps.
+            for _, look in ipairs(type(cut.looks) == "table" and cut.looks or {}) do
+                local whole = type(look.scalars) == "table" and (look.scalars.LandCutEdge or 0) < 0
+                for _, s in ipairs(whole and type(look.slots) == "table" and look.slots or {}) do
+                    if s == slot then listed = false end
+                end
+            end
             hit = listed
         end
         if not hit then cut = nil end

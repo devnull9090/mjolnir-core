@@ -2291,7 +2291,8 @@ if (Inland.w > 0.0)
 float2 P = W.xy;
 PDO = 0.0;
 float parD = (Par.x + Par.y) * (1.0 - grass) * (1.0 - smoothstep(Par.z * 0.5, Par.z, length(Cam - W)))
-            * (1.0 - 0.7 * inland); // packed earth stands in less relief than sand
+            * (1.0 - 0.7 * inland) // packed earth stands in less relief than sand
+            * (1.0 - Ice.z * ice); // ice is a sheet, not drifts
 if (parD > 0.05 && Par.w >= 1.0)
 {
     float3 V = normalize(Cam - W);
@@ -2450,8 +2451,10 @@ ao *= 1.0 - foot * EdgeLook.z;
 // The wet edge: darker and glossier.
 albedo *= lerp(1.0, Sea.z > 0.0 ? WetLook.x : 1.0, wet);
 rough = lerp(rough, WetLook.y, wet);
-// The ice: tinted, glassy and flatter.
-albedo *= lerp(1.0.xxx, IceColor.rgb, ice);
+// The ice: the snow's pattern faded out by Ice.z (to a flat 0.8, about
+// the snow's mean: tinted snow still read as snow, 2026-10-13), tinted,
+// glassy and flatter.
+albedo = lerp(albedo, lerp(albedo, 0.8.xxx, Ice.z) * IceColor.rgb, ice);
 rough = lerp(rough, IceColor.a, ice);
 nxy *= 1.0 - Ice.z * ice;
 
