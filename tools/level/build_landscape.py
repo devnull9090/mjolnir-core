@@ -585,6 +585,12 @@ def main():
         "cut": {"base": slots[rep]["material"]["textures"].get("Base"),
                 "bases": sorted({sl["material"]["textures"]["Base"] for sl in slots.values()
                                  if "Base" in sl["material"].get("textures", {})}),
+                # The terrain mesh's slots of this ground exactly (a glTF
+                # material's slot is its index + 1, slot 0 the donor's): a base
+                # map can be shared, and Ice Fields' ice caves, on its ground's,
+                # took the sunlit snow (2026-10-13).
+                "slots": sorted(i + 1 for i, mt in enumerate(doc["materials"])
+                                if mt.get("name", "").lower() in slots),
                 "mask": f"{FOLDER}/T_LandMask.T_LandMask", "size": size,
                 # The mesh draws wherever a hole reaches at all: the landscape
                 # cuts its own edge another way (its visibility layer), and

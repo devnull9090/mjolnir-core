@@ -731,6 +731,15 @@ local function runtimeMaterial(world, spec, name, target)
     if cut then
         local hit = spec.textures.Base == cut.base
         for _, b in ipairs(type(cut.bases) == "table" and cut.bases or {}) do hit = hit or spec.textures.Base == b end
+        -- `cut.slots`: the ground's slots exactly (the name ends in the
+        -- slot): Ice Fields' ice caves share its ground's base map, and cut
+        -- by the landscape's mask they opened holes in the tunnels.
+        if hit and type(cut.slots) == "table" then
+            local slot = tonumber(tostring(name):match("_(%d+)$"))
+            local listed = false
+            for _, s in ipairs(cut.slots) do listed = listed or s == slot end
+            hit = listed
+        end
         if not hit then cut = nil end
     end
     local master = (TerrainShadows.lightmap or TerrainLights.trial or game or cut) and type(spec.parent) == "string"
@@ -3684,6 +3693,13 @@ function Land.ground(world, spec)
     if type(cut) ~= "table" then return 0 end
     local bases = {}
     for _, b in ipairs(type(cut.bases) == "table" and cut.bases or { cut.base }) do bases[b] = true end
+    -- `cut.slots`: the ground's terrain slots exactly (0-based), over the
+    -- base maps, which slots of other shaders can share (Ice Fields' caves).
+    local exact = nil
+    if type(cut.slots) == "table" then
+        exact = {}
+        for _, s in ipairs(cut.slots) do exact[s] = true end
+    end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_GroundPBR.M_CE_GroundPBR")
     local mask = type(cut.mask) == "string" and resolveMesh(cut.mask)
@@ -3698,7 +3714,8 @@ function Land.ground(world, spec)
         if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
             local comp = actor.StaticMeshComponent
             for i, entry in ipairs(item.materials) do
-                if type(entry) == "table" and type(entry.textures) == "table" and bases[entry.textures.Base] then
+                if type(entry) == "table" and type(entry.textures) == "table" and bases[entry.textures.Base]
+                    and (not exact or exact[i - 1]) then
                     local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_ground_%d", i)), 0)
                     if mid and mid:IsValid() then
                         Land.pbr({
