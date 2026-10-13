@@ -2579,6 +2579,7 @@ local function updateWeather()
     local hidden = underRoof(w.roofs, here)
     local changed = hidden ~= (Current.weatherHidden or false)
     Current.weatherHidden = hidden
+    if changed then Log(hidden and "weather: under a roof, hidden" or "weather: in the open, shown") end
     local missing = {}
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
