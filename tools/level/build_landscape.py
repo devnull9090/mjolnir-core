@@ -626,8 +626,11 @@ def main():
                 # as it reads the level file): a stronger sun, both a touch
                 # warm against the purple dusk sky (which turned the sand
                 # mauve); warmer, everything went gold beside the original.
-                # Distance haze (the loader's environment.haze): a thin blue
-                # height fog from 25 m, cut off at 800 m (the sky mesh).
+                # Distance haze (the loader's environment.haze): a height fog
+                # from 25 m, cut off at 800 m (the sky mesh). Its colour is
+                # exposed by the light scale, so at 1/200 of a CE colour this
+                # one darkens more than it tints; the converted maps take
+                # their own CE fog instead (upgrade_ce_map.ce_haze).
                 "haze": {"density": 0.02, "falloff": 0.08, "start": 2500, "cutoff": 80000,
                          "max_opacity": 0.7, "color": [0.00168, 0.00192, 0.00248]},
                 "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
