@@ -11,6 +11,7 @@
 #include "MjolnirUIBuilderLibrary.generated.h"
 
 class UMaterial;
+class UStaticMesh;
 class UMaterialExpression;
 class UWidget;
 class UUserWidget;
@@ -92,6 +93,22 @@ public:
 	static class ALandscape* CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
 		int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
 		UMaterialInterface* Material, const TArray<uint8>& Holes);
+
+	/**
+	 * Build Mesh's one LOD from arrays, as an importer would: Positions in cm
+	 * and Normals one a position (every triangle at a position shares its
+	 * normal, so a welded surface displaces without cracks), Indices three a
+	 * triangle into them, UV0 and UV1 one a corner (Indices' order),
+	 * Sections the material slot of each triangle and SlotNames the slots.
+	 * Colors, when given, one a position: the vertex colour (a material's
+	 * per-vertex weight).
+	 * Normals are kept, tangents built, no lightmap UVs generated (UV1 is
+	 * the caller's). The caller sets Nanite and saves.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static bool BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions, const TArray<FVector>& Normals,
+		const TArray<int32>& Indices, const TArray<FVector2D>& UV0, const TArray<FVector2D>& UV1,
+		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FLinearColor>& Colors);
 
 	/**
 	 * Write every loaded class and struct's unversioned property schema, and

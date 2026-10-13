@@ -17,6 +17,9 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Engine/StaticMesh.h"
+#include "MeshDescription.h"
+#include "StaticMeshAttributes.h"
 #include "Modules/ModuleManager.h"
 #include "WidgetBlueprint.h"
 #include "Landscape.h"
@@ -526,4 +529,91 @@ bool UMjolnirUIBuilderLibrary::WriteUsmap(const FString& Path)
 	UE_LOG(LogMjolnirUI, Display, TEXT("WriteUsmap: %d enum(s), %d struct(s), %d name(s) -> %s"), Enums.Num(),
 		Structs.Num(), Body.Names.Num(), *Path);
 	return FFileHelper::SaveArrayToFile(File.Out, *Path);
+}
+
+bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions,
+	const TArray<FVector>& Normals, const TArray<int32>& Indices, const TArray<FVector2D>& UV0,
+	const TArray<FVector2D>& UV1, const TArray<int32>& Sections, const TArray<FName>& SlotNames,
+	const TArray<FLinearColor>& Colors)
+{
+	const int32 Tris = Indices.Num() / 3;
+	if (!Mesh || Normals.Num() != Positions.Num() || Indices.Num() % 3 != 0 || UV0.Num() != Indices.Num()
+		|| UV1.Num() != Indices.Num() || Sections.Num() != Tris || SlotNames.Num() == 0
+		|| (Colors.Num() != 0 && Colors.Num() != Positions.Num()))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: inconsistent arrays"));
+		return false;
+	}
+	FMeshDescription Desc;
+	FStaticMeshAttributes Attr(Desc);
+	Attr.Register();
+	Attr.GetVertexInstanceUVs().SetNumChannels(2);
+	TVertexAttributesRef<FVector3f> Pos = Attr.GetVertexPositions();
+	TVertexInstanceAttributesRef<FVector3f> Nrm = Attr.GetVertexInstanceNormals();
+	TVertexInstanceAttributesRef<FVector2f> UVs = Attr.GetVertexInstanceUVs();
+	TPolygonGroupAttributesRef<FName> Slots = Attr.GetPolygonGroupMaterialSlotNames();
+	TVertexInstanceAttributesRef<FVector4f> Col = Attr.GetVertexInstanceColors();
+
+	Desc.ReserveNewVertices(Positions.Num());
+	TArray<FVertexID> Vertices;
+	for (const FVector& P : Positions)
+	{
+		const FVertexID V = Desc.CreateVertex();
+		Pos[V] = FVector3f(P);
+		Vertices.Add(V);
+	}
+	TArray<FPolygonGroupID> Groups;
+	Mesh->GetStaticMaterials().Reset();
+	for (const FName& Name : SlotNames)
+	{
+		const FPolygonGroupID G = Desc.CreatePolygonGroup();
+		Slots[G] = Name;
+		Groups.Add(G);
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(nullptr, Name, Name));
+	}
+	Desc.ReserveNewVertexInstances(Indices.Num());
+	Desc.ReserveNewTriangles(Tris);
+	for (int32 T = 0; T < Tris; ++T)
+	{
+		if (!Groups.IsValidIndex(Sections[T]))
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: triangle %d names slot %d"), T, Sections[T]);
+			return false;
+		}
+		FVertexInstanceID Corner[3];
+		for (int32 K = 0; K < 3; ++K)
+		{
+			const int32 I = Indices[3 * T + K];
+			if (!Vertices.IsValidIndex(I))
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: index %d out of range"), I);
+				return false;
+			}
+			Corner[K] = Desc.CreateVertexInstance(Vertices[I]);
+			Nrm[Corner[K]] = FVector3f(Normals[I].GetSafeNormal());
+			UVs.Set(Corner[K], 0, FVector2f(UV0[3 * T + K]));
+			UVs.Set(Corner[K], 1, FVector2f(UV1[3 * T + K]));
+			if (Colors.Num())
+			{
+				Col[Corner[K]] = FVector4f(Colors[I]);
+			}
+		}
+		Desc.CreateTriangle(Groups[Sections[T]], MakeArrayView(Corner, 3));
+	}
+
+	Mesh->SetNumSourceModels(1);
+	FStaticMeshSourceModel& Source = Mesh->GetSourceModel(0);
+	Source.BuildSettings.bRecomputeNormals = false;
+	Source.BuildSettings.bRecomputeTangents = true;
+	Source.BuildSettings.bGenerateLightmapUVs = false;
+	Source.BuildSettings.bRemoveDegenerates = true;
+	Mesh->CreateMeshDescription(0, MoveTemp(Desc));
+	Mesh->CommitMeshDescription(0);
+	Mesh->SetLightMapCoordinateIndex(1);
+	Mesh->Build();
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("BuildStaticMesh: %s, %d vertices, %d triangles, %d slot(s)"),
+		*Mesh->GetPathName(), Positions.Num(), Tris, SlotNames.Num());
+	return true;
 }

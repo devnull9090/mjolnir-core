@@ -2963,12 +2963,68 @@ return max(albedo, 0.0);
 """
 
 
-def build_cliff_pbr(defaults):
+# Nanite tessellation's height for M_CE_CliffTess: the cliff rock's own
+# height maps (ORHG blue) sampled as M_CE_CliffPBR samples their colour
+# (CLF::uvs, CLF::vary, the same Tiles and Vary), so bumps sit under their
+# own shading. The large rock leads (the grain's three-metre tile as height
+# read as spikes). VC is the vertex colour: tools/level/cliff_mesh.py's
+# distance from the cliffs' border, so nothing moves where the wall meets
+# the ground. Disp: amount (0..1 of the material's magnitude), cm per mip
+# step. Out 0..1 about the DisplacementScaling centre (0.5). Explicit mips:
+# displacement runs in the rasterizer, with no derivatives.
+CLIFF_DISPLACE_CODE = r"""
+struct CLD
+{
+    static float noise(float2 p)
+    {
+        float2 i = floor(p), f = frac(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = frac(sin(dot(i, float2(127.1, 311.7))) * 43758.5453);
+        float b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);
+        float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453);
+        float d = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);
+        return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+    }
+    static float h(Texture2D O, SamplerState S, float2 uv, float3 V, float mip)
+    {
+        float k = noise(uv * V.y) * V.z;
+        float i = floor(k), f = frac(k);
+        float2 oa = frac(sin(float2(i, i + 0.37) * float2(127.1, 311.7)) * 43758.5453) * V.x;
+        float2 ob = frac(sin(float2(i + 1.0, i + 1.37) * float2(127.1, 311.7)) * 43758.5453) * V.x;
+        float w = smoothstep(0.2, 0.8, f);
+        return lerp(Texture2DSampleLevel(O, S, uv + oa, mip).b, Texture2DSampleLevel(O, S, uv + ob, mip).b, w);
+    }
+    static float tri(Texture2D O, SamplerState S, float3 W, float3 sgn, float3 bw, float T, float off, float3 V,
+                     float mip)
+    {
+        float2 ux = float2(W.z * sgn.x, W.y) / T + off;
+        float2 uy = float2(W.x * sgn.y, W.z) / T + off;
+        float2 uz = float2(-W.x * sgn.z, W.y) / T + off;
+        return h(O, S, ux, V, mip) * bw.x + h(O, S, uy, V, mip) * bw.y + h(O, S, uz, V, mip) * bw.z;
+    }
+};
+float3 n = normalize(Nw);
+float3 sgn = float3(n.x < 0 ? -1.0 : 1.0, n.y < 0 ? -1.0 : 1.0, n.z < 0 ? -1.0 : 1.0);
+float3 bw = pow(abs(n), Tiles.w);
+bw /= max(bw.x + bw.y + bw.z, 1e-4);
+float mip = clamp(log2(max(length(Cam - W), 1.0) / max(Disp.y, 1.0)), 0.0, 10.0);
+float hA = CLD::tri(RockAO, RockAOSampler, W, sgn, bw, Tiles.x, 0.0, Vary.xyz, mip);
+float hB = CLD::tri(RockBO, RockBOSampler, W, sgn, bw, Tiles.y, 17.3, Vary.xyz, mip);
+float hgt = lerp(hA, hB, 0.7);
+return 0.5 + (hgt - 0.5) * Disp.x * saturate(VC.r);
+"""
+
+
+def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False):
     """M_CE_CliffPBR (CLIFF_PBR_CODE): a converted map's cliff slots in the
     game's own rock, triplanar and lit by Unreal. MJOLNIRLevelLoader sets the
     rock surfaces (game textures) and each slot's own base map and lightmap
-    page at runtime (Land.cliffs)."""
-    m = fresh(ROOT, "M_CE_CliffPBR", unreal.Material, unreal.MaterialFactoryNew())
+    page at runtime (Land.cliffs).
+
+    With `tessellate`, M_CE_CliffTess: the same, for the cliffs as a Nanite
+    mesh of their own (tools/level/cliff_mesh.py), displaced by the rock's
+    height (CLIFF_DISPLACE_CODE), up to 50 cm either way (CliffDisp.x 1)."""
+    m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
     # The cladding rocks, B30's Uluwatu meshes, are Nanite (a cooked game
     # cannot add a usage flag at runtime).
@@ -3062,6 +3118,20 @@ def build_cliff_pbr(defaults):
     mel.connect_material_property(c, "AO", unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
     mel.connect_material_property(g.node(unreal.MaterialExpressionConstant, x=-300, r=0.5), "",
                                   unreal.MaterialProperty.MP_SPECULAR)
+    if tessellate:
+        m.set_editor_property("enable_tessellation", True)
+        m.set_editor_property("displacement_scaling", unreal.DisplacementScaling(magnitude=100.0, center=0.5))
+        named = {n: (src, pin) for n, src, pin in inputs}
+        d = g.custom(CLIFF_DISPLACE_CODE, [
+            ("W", *named["W"]), ("Nw", *named["Nw"]), ("Cam", *named["Cam"]),
+            ("RockAO", *named["RockAO"]), ("RockBO", *named["RockBO"]),
+            ("Tiles", *named["Tiles"]), ("Vary", *named["Vary"]),
+            ("VC", g.node(unreal.MaterialExpressionVertexColor, x=-2000), ""),
+            # Amount (0..1 of 100 cm, about the centre), cm per mip step.
+            ("Disp", g.vector4("CliffDisp", (0.6, 400.0, 0.0, 0.0)), ""),
+        ], output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="cliff displacement")
+        if not unreal.MjolnirUIBuilderLibrary.connect_displacement(m, d, ""):
+            unreal.log_error(f"MJOLNIR: {name}: displacement not connected")
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -3087,6 +3157,7 @@ if TRIAL_ROOT:
     build_landscape_pbr(defaults)
     build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
     build_cliff_pbr(defaults)
+    build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

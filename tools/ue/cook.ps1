@@ -5,11 +5,14 @@
 # power under all-core load; a mask such as 0x0F is the way to keep a cook
 # light while that is being investigated.
 #
-#   powershell -File tools/ue/cook.ps1 [-Mask 0x0F] [-Map /Game/Levels/X/X] [-TaggedProperties]
+#   powershell -File tools/ue/cook.ps1 [-Mask 0x0F] [-Map /Game/Levels/X/X] [-TaggedProperties] [-Classes A,B]
 #
 # -Map also cooks that world (only /Game/MJOLNIR is cooked by default);
 # -TaggedProperties cooks properties tagged rather than unversioned (the
-# landscape spike's contrast case, see unreal/MJOLNIRMapKit/README.md).
+# landscape spike's contrast case, see unreal/MJOLNIRMapKit/README.md);
+# -Classes the classes the retarget below re-encodes (default materials;
+# add StaticMesh when the cook carries meshes of ours, the cliffs' Nanite
+# meshes in chunk 983).
 #
 # After a cook (unversioned) every staged chunk container that holds
 # materials is rewritten with them re-encoded in the game's property layout
@@ -21,7 +24,7 @@
 # CommonActivatableWidget), which makes UAT treat it as a code project: the
 # editor target (our plugins and a receipt) is compiled before the cook, so
 # there is no -nocompileeditor.
-param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties)
+param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties, [string]$Classes = "Material,MaterialInstanceConstant")
 # MJ_CPU_MASK (hex) limits a whole batch, e.g. 0x0F for four cores; 0 or unset is every core.
 if ($env:MJ_CPU_MASK) { $Mask = [Convert]::ToInt64($env:MJ_CPU_MASK, 16) }
 $project = Join-Path $PSScriptRoot "..\..\unreal\MJOLNIRMaterials" | Resolve-Path
@@ -66,7 +69,7 @@ try {
                 # grows 1.1x to 1.7x): sizes printed, the hub caps archives.
                 $ucas = Join-Path $staged ($_.BaseName + ".ucas")
                 $before = (Get-Item $ucas).Length
-                $out = & $mjolnir ue retarget --paks $staged --container $_.BaseName --classes "Material,MaterialInstanceConstant" `
+                $out = & $mjolnir ue retarget --paks $staged --container $_.BaseName --classes $Classes `
                     --rewrite --out-dir $staged --name $_.BaseName 2>&1
                 $after = (Get-Item $ucas).Length
                 "retarget $($_.BaseName): $($out | Select-Object -Last 1) [ucas $([math]::Round($before / 1MB, 1)) -> $([math]::Round($after / 1MB, 1)) MB]"
