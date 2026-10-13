@@ -3749,6 +3749,19 @@ function Land.ground(world, spec)
                         end
                         local blended = type(entry.scalars) == "table" and (entry.scalars.Type or 0) > 0.5
                         mid:SetScalarParameterValue(FName("PlainSand"), blended and 0.0 or 1.0)
+                        -- `cut.looks`: a slot's own parameters over the ground's
+                        -- ({ slots, vectors = { name = {r, g, b, a} } }): Ice
+                        -- Fields' ice patches, the ground forced wet (a sea far
+                        -- above): glassy, darker, blue, flat.
+                        for _, look in ipairs(type(cut.looks) == "table" and cut.looks or {}) do
+                            local on = false
+                            for _, s in ipairs(type(look.slots) == "table" and look.slots or {}) do on = on or s == i - 1 end
+                            if on then
+                                for pname, v in pairs(type(look.vectors) == "table" and look.vectors or {}) do
+                                    mid:SetVectorParameterValue(FName(pname), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 0 })
+                                end
+                            end
+                        end
                         if pcall(function() comp:SetMaterial(i - 1, mid) end) then
                             changed = changed + 1
                             Land.groundMids[#Land.groundMids + 1] = mid

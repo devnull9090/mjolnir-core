@@ -371,6 +371,18 @@ def stage_assemble(code, m, p):
     fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    # `ground_looks`: some ground slots' own parameters over the ground's
+    # (MJOLNIRLevelLoader cut.looks), by shader name substring: Ice Fields'
+    # ice patches as ice.
+    looks = []
+    for look in m.get("ground_looks") or []:
+        doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+        slots = [i + 1 for i, mt in enumerate(doc["materials"])
+                 if any(x in mt.get("name", "").lower() for x in look["shaders"])]
+        if slots:
+            looks.append({"slots": slots, "vectors": look["vectors"]})
+    if looks and isinstance(level["landscape"].get("cut"), dict):
+        level["landscape"]["cut"]["looks"] = looks
     plasma = os.path.join(p["work"], "plasma_mesh.json")
     if os.path.exists(plasma):
         spec = json.load(open(plasma, encoding="utf-8"))
