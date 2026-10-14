@@ -1487,6 +1487,13 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     lightmap = g.texture("Lightmap", white, uv(1))
     # tools: crates/ue-texture/examples/lightmap_bake.rs, on the same UVs.
     bake = g.texture("Bake", white, uv(1))
+    # Its full size only (as BAKE_RANGE_CODE reads it): the bake dilates its
+    # charts six texels, then leaves the gutter white (open, sunlit), and the
+    # smaller mips averaged that white into the charts' edges, a speckled
+    # band of sun visibility along indoor creases (the `sunvis` debug view,
+    # Sidewinder, 2026-10-14).
+    bake.set_editor_property("mip_value_mode", unreal.TextureMipValueMode.TMVM_MIP_LEVEL)
+    bake.set_editor_property("const_mip_value", 0)
     has_bake = g.scalar("HasBake", 0.0)
     # The solver's sun shares on the lightmap's UVs (ce_material_spec.py
     # SunShare, from `mjolnir level lightmaps`): R the sun's share of the
