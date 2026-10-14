@@ -60,5 +60,14 @@
   "biome": "snow", "rocks": "snow", "tess": false, "weather": "snow",
   "haze": "ce",
   "hub": "ce-sidewinder"
+ },
+ "TMB": {
+  "conversion": "C:/haloce/ce_conversions/release11/TMB",
+  "level": "timberland.level.json", "sbsp": "timberland.sbsp",
+  "shaders": ["timberland_ground", "timberland_stream_bed"],
+  "cliff_shaders": ["timberland_rock_walls"],
+  "landscape": "LTM", "chunk": 974,
+  "haze": "ce",
+  "hub": "ce-timberland"
  }
 }

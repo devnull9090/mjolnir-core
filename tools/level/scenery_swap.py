@@ -70,6 +70,11 @@ SHRUBS = [PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_C
           PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_Combined_B"]
 FERNS = [PLANTS + f"Fern/SM_Fern_0{i}" for i in (1, 2, 3, 4, 5, 6)]
 BROADLEAF = [PLANTS + f"Taro/SM_Taro_{i:02d}" for i in (2, 3, 6, 7, 8, 10)]
+# CE's green pines (Timberland) as the game's dawn redwoods: whole trees in
+# one mesh each, needles and all (B30's Kuenovo are broadleaf, B40's firs
+# dead and snowed on).
+CONIFERS = ["/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_A/SM_Tree_Metasequoia_A",
+            "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_B/SM_Tree_Metasequoia_B"]
 
 # CE scenery (substring of the tag path) -> what stands in for it. Tree
 # variants by the CE tree's character; the rest by kind.
@@ -80,6 +85,7 @@ RULES = [
     ("tree_leafy", ("tree", ["Lrg_A", "Lrg_B", "Lrg_C", "Lrg_D"])),
     ("tree_desert_whitebark", ("tree", ["TwistedThick_A", "TwistedThick_B"])),
     ("tree_desert_dead", ("tree", ["TwistedLean_A"])),
+    ("tree_pine", ("conifer", CONIFERS)),
     ("boulder_granite_gigantic", ("bigrock", None)),
     ("boulder", ("rock", None)),
     ("rock", ("rock", None)),
@@ -443,7 +449,12 @@ def swap(a):
             bx = b["max"][0] - b["min"][0]
             by = b["max"][1] - b["min"][1]
             bz = b["max"][2] - b["min"][2]
-            if kind in ("rock", "bigrock"):
+            if kind == "conifer":
+                # The CE tree's height, its proportions the redwood's own,
+                # its foot on the CE tree's.
+                sx = sy = sz = ext[2] / max(bz, 1.0)
+                zc = z + base - b["min"][2] * sz
+            elif kind in ("rock", "bigrock"):
                 # Its height CE's (the top where CE's was: a CE boulder is
                 # mostly buried, and its visible part is what reads), its
                 # width fitted within 40% of that so it is not squashed.
@@ -456,9 +467,17 @@ def swap(a):
                 # its own (CE's broadleaf is 4 m across, a taro 1).
                 sx = sy = sz = min(max(width / max(max(bx, by), 1.0), ext[2] / max(bz, 1.0)), 2.5)
                 zc = z + base - b["min"][2] * sz
-            decor.append({"id": f"swap_{n}", "mesh": object_path(mesh),
-                          "pos": [round(x + cen[0], 1), round(y + cen[1], 1), round(zc, 1)],
-                          "rot": [0.0, round(yaw, 1), 0.0], "scale": [round(sx, 3), round(sy, 3), round(sz, 3)]})
+            item = {"id": f"swap_{n}", "mesh": object_path(mesh),
+                    "pos": [round(x + cen[0], 1), round(y + cen[1], 1), round(zc, 1)],
+                    "rot": [0.0, round(yaw, 1), 0.0], "scale": [round(sx, 3), round(sy, 3), round(sz, 3)]}
+            if kind == "conifer":
+                # Still (no wind: a swaying tree is rebuilt for ray tracing
+                # every frame), and CE's own trunk keeps colliding
+                # (b30_collision.py): a hull of the whole tree would be a
+                # cone of needles to walk into.
+                item["static"] = True
+                item["ce_collision"] = True
+            decor.append(item)
             if kind in ("rock", "bigrock"):
                 rock_spots.append((x + cen[0], y + cen[1], z))
         replaced[asset.split("\\")[-1]] += 1

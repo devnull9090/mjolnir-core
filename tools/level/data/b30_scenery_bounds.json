@@ -6214,5 +6214,33 @@
 97.6
 ],
 "verts": 1544
+},
+{
+"path": "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_A/SM_Tree_Metasequoia_A.SM_Tree_Metasequoia_A",
+"min": [
+-1296.625,
+-1231.125,
+-976.5
+],
+"max": [
+1243.875,
+1249.375,
+9042.875
+],
+"verts": 472493
+},
+{
+"path": "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_B/SM_Tree_Metasequoia_B.SM_Tree_Metasequoia_B",
+"min": [
+-1546.0625,
+-1534.5625,
+-983.875
+],
+"max": [
+1350.125,
+1333.25,
+8017.0625
+],
+"verts": 395546
 }
 ]
