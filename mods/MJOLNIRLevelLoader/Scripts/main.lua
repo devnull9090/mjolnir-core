@@ -1463,13 +1463,21 @@ local function spawnEnvironment(world)
             -- re-rolled each frame (2026-10-14). Finer sun shadows narrow it
             -- (`sun.shadow_lod`, the engine's -1.5 by default) and no dither
             -- stills it; resetState puts both back.
+            -- With weather, reflections trace the scene only, not the screen:
+            -- the falling flakes in front of the camera are in the screen, and
+            -- the ice reflected them as big dark blots sliding across it, far
+            -- off too (Sidewinder, 2026-10-14).
             pcall(function()
                 local ks = findObject("/Script/Engine.Default__KismetSystemLibrary")
                 Current.cvars = Current.cvars or {}
-                for name, value in pairs({
+                local set = {
                     ["r.Shadow.Virtual.SMRT.TexelDitherScaleDirectional"] = 0,
                     ["r.Shadow.Virtual.ResolutionLodBiasDirectional"] = tonumber(sun.shadow_lod) or -3,
-                }) do
+                }
+                if type(env.weather) == "table" and type(env.weather.system) == "string" then
+                    set["r.Lumen.Reflections.ScreenTraces"] = 0
+                end
+                for name, value in pairs(set) do
                     if Current.cvars[name] == nil then Current.cvars[name] = ks:GetConsoleVariableFloatValue(name) end
                     ks:ExecuteConsoleCommand(world, string.format("%s %g", name, value), getPlayerController())
                 end
