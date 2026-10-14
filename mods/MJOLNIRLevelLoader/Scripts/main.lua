@@ -3250,6 +3250,24 @@ function Effects.flux(world)
                     end)
                 end
             end
+            -- The capture does not see the Landscape, and CE's ground under it
+            -- is cut away: the river's flat 200 m was a hole the water fell
+            -- through. CE's ground whole for the one capture (its cut rect,
+            -- LandRect, moved off the map: both cut masters draw everything
+            -- outside it), cut again after it (Timberland, 2026-10-14).
+            local uncut = {}
+            local cut = type(Current.level.landscape) == "table" and Current.level.landscape.cut
+            for key in pairs(keep) do
+                local a = Current.actors[key]
+                for _, slot in ipairs(type(cut) == "table" and type(cut.slots) == "table" and cut.slots or {}) do
+                    pcall(function()
+                        local m = a.StaticMeshComponent:GetMaterial(slot)
+                        local r = m:K2_GetVectorParameterValue(FName("LandRect"))
+                        m:SetVectorParameterValue(FName("LandRect"), { R = 1.0e8, G = 1.0e8, B = 1.0, A = 1.0 })
+                        uncut[#uncut + 1] = { m, { R = r.R, G = r.G, B = r.B, A = r.A } }
+                    end)
+                end
+            end
             local d = spec.domain
             local c = { X = origin[1] + d.centre[1], Y = origin[2] + d.centre[2], Z = origin[3] + d.centre[3] }
             local surf = w:SpawnActor(cls(spec.surface or Effects.FLUX_SURFACE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
@@ -3289,8 +3307,14 @@ function Effects.flux(world)
             -- Volume, mode and velocity reach the simulation through the
             -- source's material, which only UpdateMaterial writes.
             for _, m in ipairs(comps) do m:UpdateMaterial() end
-            Log(string.format("flux: %dx%d at %g cm, %d source(s), %d actor(s) out of the ground capture",
-                d.res[1], d.res[2], d.cell, #comps, tagged))
+            pcall(function() dom:CaptureGroundHeightmap(true) end)
+            ExecuteInGameThreadWithDelay(1500, function()
+                for _, u in ipairs(uncut) do
+                    pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
+                end
+            end)
+            Log(string.format("flux: %dx%d at %g cm, %d source(s), %d actor(s) out of the ground capture, "
+                .. "%d ground slot(s) whole for it", d.res[1], d.res[2], d.cell, #comps, tagged, #uncut))
         end)
         if not ok then Log("flux: " .. tostring(err)) end
     end)
