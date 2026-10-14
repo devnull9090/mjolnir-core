@@ -419,9 +419,15 @@ def stage_assemble(code, m, p):
         leaves = (swap.get("leaves") or {}).get("records") or []
         if leaves:
             append_foliage(os.path.join(p["work"], "foliage.bin"), leaves)
-            level["foliage"]["groups"].append({"mesh": swap["leaves"]["mesh"], "rule": "tree leaves",
-                                               "cull": [20000, 45000], "shadow": True,
-                                               "scalars": swap["leaves"].get("scalars")})
+            group = {"mesh": swap["leaves"]["mesh"], "rule": "tree leaves",
+                     "cull": [20000, 45000], "shadow": True, "scalars": swap["leaves"].get("scalars")}
+            # A biome's own leaf material (B40's snow-packed branches) and
+            # stillness (scenery_swap.py): dropped here, the firs' branches
+            # drew bare and swayed.
+            for key in ("material", "static"):
+                if swap["leaves"].get(key) is not None:
+                    group[key] = swap["leaves"][key]
+            level["foliage"]["groups"].append(group)
             print(f"  {code}: {len(leaves)} leaf cluster(s) on the swapped trees")
         print(f"  {code}: {swap['count']} scenery object(s) swapped, {hidden} CE slot(s) hidden")
     # After the swap: the swap hides CE scenery by its slot's material as the

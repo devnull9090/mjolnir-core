@@ -421,7 +421,11 @@ def swap(a):
                         "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
                         "scalars": TREE_CALM}
                 if snow:
+                    # Dead firs: static (no wind; MJOLNIRLevelLoader decor
+                    # `static`): swaying, they cost a ray tracing rebuild a
+                    # frame and their shadows jumped.
                     item["materials"] = [object_path(SNOW["part_material"])]
+                    item["static"] = True
                 decor.append(item)
         else:
             if kind == "bigrock":
@@ -476,6 +480,7 @@ def swap(a):
     leaf_group = {"mesh": object_path(SNOW["leaves"] if snow else LEAVES), "records": leaves, "scalars": TREE_CALM}
     if snow:
         leaf_group["material"] = object_path(SNOW["leaves_material"])
+        leaf_group["static"] = True
     json.dump({"decor": decor, "hide": hide, "count": sum(replaced.values()), "effects": effects,
                "leaves": leaf_group},
               open(a.out, "w", encoding="utf-8"), indent=1)

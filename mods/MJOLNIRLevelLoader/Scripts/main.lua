@@ -1330,6 +1330,13 @@ local function spawnDecorItem(world, origin, item)
             end
         end)
     end
+    -- `static`: no vertex offset (wind) at all. A swaying mesh is rebuilt
+    -- for ray tracing every frame and re-renders its shadow pages; Ice
+    -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
+    -- shadows jumped as the player walked (2026-10-13).
+    if item.static then
+        pcall(function() actor.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
+    end
     -- After the materials: the strength is set on them.
     if (TerrainShadows.cast or TerrainShadows.strength) and isTerrain(item) then
         pcall(applyTerrainShadows, actor)
@@ -3180,6 +3187,8 @@ function Foliage.spawn(world)
             comp.Mobility = MOBILITY_MOVABLE
             comp:SetStaticMesh(mesh)
             comp:SetCollisionEnabled(COLLISION_NONE)
+            -- `static` (a group's): no wind, as decor's `static`.
+            if group.static then pcall(function() comp:SetEvaluateWorldPositionOffset(false) end) end
             local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
             comp:SetCullDistances(math.min(gc[1], far), far)
             -- Rigid: the wind's vertex offset does not invalidate the virtual
