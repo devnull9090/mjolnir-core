@@ -3511,6 +3511,19 @@ function Land.cliffs(world, spec)
                 end
             end
         end
+        -- With cliff.tess: the cliffs' subdivided copy (smoothed normals) in
+        -- the shipped material, for CE's faceted slots: Ice Fields' rock
+        -- lumps drew as hard-edged domes.
+        local tess = type(cliff.tess) == "table" and cliff.tess
+        local hidden = tess and resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+        local item = tess and hidden and Current.actors[tess.item]
+        if item and item:IsValid() then
+            local mids = {}
+            for k = 1, #(tess.slots or {}) do mids[k] = shipped end
+            local ok, err = pcall(Land.tessCliffs, world, tess, mids, item.StaticMeshComponent, hidden)
+            Log("landscape: " .. (ok and string.format("cliffs subdivided (%d section(s)) in the shipped rock", #mids)
+                or tostring(err)))
+        end
         return n
     end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
