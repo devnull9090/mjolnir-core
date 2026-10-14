@@ -2301,7 +2301,10 @@ if (parD > 0.05 && Par.w >= 1.0)
     float2 r0 = W.xy / max(Tiles.y, 1.0), r1 = LP_ROT(r0, 0.61);
     float2 s0x = ddx(s0), s0y = ddy(s0), s1x = ddx(s1), s1y = ddy(s1);
     float2 r0x = ddx(r0), r0y = ddy(r0), r1x = ddx(r1), r1y = ddy(r1);
-    float footOn = Foot.x > 0.0 ? 1.0 : 0.0;
+    // Prints only on ground that faces up (FOOT_UP): the print map is by
+    // world xy, and Ice Fields' cave ceilings took the prints of the floor
+    // under them (2026-10-13).
+    float footOn = Foot.x > 0.0 ? smoothstep(0.35, 0.6, normalize(Nw).z) : 0.0;
     // The prints softened (four taps 2.5 texels out): the game's boot map has
     // a sharp outline, which the ray stood up as a wall; B30's sink in from
     // a soft edge.
@@ -2472,7 +2475,7 @@ if (Foot.x > 0.0)
         float dr = Texture2DSampleLevel(FootRT, FootRTSampler, fuv + float2(t, 0.0), 0).r;
         float db = Texture2DSampleLevel(FootRT, FootRTSampler, fuv - float2(0.0, t), 0).r;
         float dt = Texture2DSampleLevel(FootRT, FootRTSampler, fuv + float2(0.0, t), 0).r;
-        float k = Foot.x * edge;
+        float k = Foot.x * edge * smoothstep(0.35, 0.6, normalize(Nw).z);
         nxy += float2(dr - dl, dt - db) * Foot.y * k;
         ao *= 1.0 - Foot.w * d * k;
         rough = lerp(rough, rough * 0.85, d * k);
