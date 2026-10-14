@@ -1239,7 +1239,20 @@ local function scalarMid(world, src, scalars)
     for _ in pairs(Current.scalarMids) do n = n + 1 end
     mid = kml:CreateDynamicMaterialInstance(world, src, FName(string.format("scalars_%d", n)), 0)
     if not (mid and mid:IsValid()) then return nil end
-    for _, name in ipairs(names) do mid:SetScalarParameterValue(FName(name), scalars[name]) end
+    for _, name in ipairs(names) do
+        -- "Name#k": layer k's parameter of a layered material (B40's glacial
+        -- rock tiles its base layer by "Tile U#0"), which a plain set by
+        -- name does not reach.
+        local param, layer = name:match("^(.-)#(%d+)$")
+        if param then
+            pcall(function()
+                mid:SetScalarParameterValueByInfo({ Name = FName(param), Association = 0, Index = tonumber(layer) },
+                    scalars[name])
+            end)
+        else
+            mid:SetScalarParameterValue(FName(name), scalars[name])
+        end
+    end
     Current.scalarMids[key] = mid
     return mid
 end
@@ -3538,7 +3551,7 @@ function Land.cliffs(world, spec)
     -- world space, so CE's UVs do not matter); the cladding rocks then keep
     -- their meshes' own (B40's glacial rocks, snow-topped already).
     -- `cliff.scalars` over the shipped material's own (scalarMid): its rock
-    -- tiles by CE's UVs ("Tile U", "Tile V"), and Sidewinder's cliff strip
+    -- tiles by CE's UVs ("Tile U#0", "Tile V#0"), and Sidewinder's cliff strip
     -- spans 92 m across to 26 m up, which squashed the rock flat
     -- (2026-10-13).
     local shipped = type(cliff.material) == "string" and resolveMesh(cliff.material)
