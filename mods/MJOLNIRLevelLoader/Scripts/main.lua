@@ -1059,11 +1059,11 @@ local function spawnShadowProxy(world, item)
     local land = Current.level and Current.level.landscape
     local cut = type(land) == "table" and type(land.cut) == "table" and land.cut
     local hidden = cut and resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
-    for _, s in ipairs(hidden and type(cut.slots) == "table" and cut.slots or {}) do
+    for _, slot in ipairs(hidden and type(cut.slots) == "table" and cut.slots or {}) do
         pcall(function()
-            local m = comp:GetMaterial(s)
+            local m = comp:GetMaterial(slot)
             if m and m:IsValid() and m:K2_GetScalarParameterValue(FName("LandCut")) > 0.5 then
-                comp:SetMaterial(s, hidden)
+                comp:SetMaterial(slot, hidden)
             end
         end)
     end
@@ -3040,7 +3040,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
     local actors = {}
     for k = 1, size do
         local x, y, z, yaw, scale, nx, ny, lr, lg, lb
-        x, y, z, yaw, scale, nx, ny, lr, lg, lb, pos = string.unpack("<fffBBbbBBB", raw, pos)
+        x, y, z, yaw, scale, nx, ny, lr, lg, lb, pos = string.unpack("<fffBBbbBBB", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         if mesh and cls then
             local actor = world:SpawnActor(cls, { X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 })
             if actor and actor:IsValid() then
@@ -3253,7 +3253,7 @@ function Foliage.spawn(world)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local cull = type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
     local started = os.clock()
-    local _, count, pos = string.unpack("<II", raw, 5)
+    local _, count, pos = string.unpack("<II", raw, 5)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
     local tilted = magic == Foliage.MAGIC2 or magic == Foliage.MAGIC3
     local coloured = magic == Foliage.MAGIC3
     Foliage.cliffGroups = {}
@@ -3261,7 +3261,7 @@ function Foliage.spawn(world)
     local total, sx, sy, n = 0, 0, 0, 0
     for g = 1, count do
         local size
-        size, pos = string.unpack("<I", raw, pos)
+        size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
         if group.cliff == true and coloured then
@@ -3343,11 +3343,11 @@ function Foliage.spawn(world)
                 local x, y, z, yaw, scale
                 local nx, ny = 0, 0
                 if coloured then
-                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbbxxx", raw, pos)
+                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbbxxx", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
                 elseif tilted then
-                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbb", raw, pos)
+                    x, y, z, yaw, scale, nx, ny, pos = string.unpack("<fffBBbb", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
                 else
-                    x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)
+                    x, y, z, yaw, scale, pos = string.unpack("<fffBB", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
                 end
                 if k % keep == 0 then
                     local s = scale / 100
