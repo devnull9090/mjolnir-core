@@ -318,13 +318,24 @@ def scenery_footprints(gltf, off, staging=None):
             r = 0.0
             try:
                 doc = json.load(open(model, encoding="utf-8"))
-                for mesh in doc["meshes"]:
-                    for prim in mesh["primitives"]:
-                        acc = doc["accessors"][prim["attributes"]["POSITION"]]
-                        ax = max(abs(acc["min"][0]), abs(acc["max"][0]))
-                        az = max(abs(acc["min"][2]), abs(acc["max"][2]))
-                        r = max(r, math.hypot(ax, az))
-            except (OSError, KeyError, ValueError):
+                if "tree" in e.get("asset", "").lower():
+                    # A tree by its trunk's foot (its points within 1.5 m of
+                    # its lowest), not its boughs: by the boughs' reach
+                    # Timberland's pines stood in bare circles 11 m across
+                    # (2026-10-14).
+                    data = open(os.path.join(os.path.dirname(model), doc["buffers"][0]["uri"]), "rb").read()
+                    pts = np.concatenate([read_accessor(doc, data, prim["attributes"]["POSITION"])
+                                          for mesh in doc["meshes"] for prim in mesh["primitives"]])
+                    foot = pts[pts[:, 1] < pts[:, 1].min() + 1.5]
+                    r = float(np.hypot(foot[:, 0], foot[:, 2]).max())
+                else:
+                    for mesh in doc["meshes"]:
+                        for prim in mesh["primitives"]:
+                            acc = doc["accessors"][prim["attributes"]["POSITION"]]
+                            ax = max(abs(acc["min"][0]), abs(acc["max"][0]))
+                            az = max(abs(acc["min"][2]), abs(acc["max"][2]))
+                            r = max(r, math.hypot(ax, az))
+            except (OSError, KeyError, ValueError, IndexError):
                 r = 0.0
             reach[model] = r * 100.0 * 0.8
         x, y, _ = e["pos"]
