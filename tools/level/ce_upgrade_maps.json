@@ -91,8 +91,9 @@
                 {"system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
                  "pos": [4140, -15560, -4600], "rot": [0, 90, 0]}]}]},
   "flux": {"feeds": [{"pos": [4500, -17100, -3650], "scale": 0.5, "volume": 2, "mode": 0},
-                     {"pos": [1400, -9300, -6600], "scale": 0.5, "volume": 3, "mode": 0}],
-           "outlet": [296, 7377, -6660]},
+                     {"pos": [1400, -9300, -6600], "scale": 0.5, "volume": 3, "mode": 0},
+                     {"pos": [850, 5517, -6640], "scale": 0.5, "volume": 3, "mode": 0}],
+           "outlet": [-1070, 9787, -6635]},
   "haze": "ce",
   "hub": "ce-timberland"
  }

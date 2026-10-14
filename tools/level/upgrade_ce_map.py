@@ -463,9 +463,12 @@ def flux_spec(code, fx, river, level):
     # flooded its whole domain in two minutes (2026-10-14).
     sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1,
                  "prime": True} for q in levels]
-    # One Set source stays, in the last pool (`outlet`, or the level point
+    # One Set source stays, at the river's end (`outlet`, or the level point
     # furthest from the first feed): the feed never stops, and with no way
-    # out the river would rise until it flooded the valley.
+    # out the river would rise until it flooded the valley. Not in a pool
+    # short of the end: it took all the water and the river stopped there.
+    # Feeds along a long river (Timberland's is 280 m) keep it running to the
+    # end: from the falls alone it soaked into the bed halfway.
     outlet = fx.get("outlet")
     if not outlet and levels:
         first = feeds[0]["pos"] if feeds else levels[0]
