@@ -433,6 +433,18 @@ def stage_assemble(code, m, p):
         level["shadow_shell"] = {"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_ShadowShell.SM_{code}_ShadowShell"}
     level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
     shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
+    # Waterfalls (MJOLNIRLevelLoader Effects.waterfalls): the game's large
+    # waterfall over CE's flat card, which is hidden by its textures' names.
+    if m.get("waterfalls"):
+        wf = m["waterfalls"]
+        level["waterfalls"] = wf["falls"]
+        tokens = [t.lower() for t in wf.get("hide", [])]
+        for item in level.get("decor") or []:
+            mats = item.get("materials") if isinstance(item, dict) else None
+            for i, entry in enumerate(mats or []):
+                tex = json.dumps((entry or {}).get("textures", {}) if isinstance(entry, dict) else {}).lower()
+                if any(t in tex for t in tokens):
+                    mats[i] = HIDDEN
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})
         water.setdefault("params", {}).update(m["water"])

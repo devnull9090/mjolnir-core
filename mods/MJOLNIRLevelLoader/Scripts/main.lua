@@ -3121,6 +3121,78 @@ function Effects.spawn(world)
     Log(string.format("effects: %d placed, %d on the camera, %d failed", placed, attached, failed))
 end
 
+--- The level's waterfalls (level.waterfalls): the game's large waterfall
+--- (BP_PNW_Liquid_Waterfall_DeformedMesh: a sheet of water bent along a
+--- ballistic path, built by its construction script) where CE drew a flat
+--- scrolling card, each { pos, yaw, params, vectors, scalars, effects }:
+--- `pos` the lip (cm from the canvas origin), `yaw` the way the water
+--- leaves it, `params` the Blueprint's own (duration, Speed, BaseWidth,
+--- EndWidth, BaseThickness, EndThickness, NoiseStrength, Instances...),
+--- `vectors`/`scalars` its water material's (SkyColor: the PNW sky's blue
+--- drew a saturated blue sheet under a CE dusk), `effects` the splash and
+--- spray at its foot [{ system, pos, rot, scale }]. The CE card is hidden by
+--- the level file itself (upgrade_ce_map.py). Timberland, 2026-10-14.
+Effects.WATERFALL = "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/BP_PNW_Liquid_Waterfall_DeformedMesh.BP_PNW_Liquid_Waterfall_DeformedMesh_C"
+Effects.WATERFALL_MESH = "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/Meshes/SM_Liquid_TileableWaterfallLower.SM_Liquid_TileableWaterfallLower"
+
+function Effects.waterfalls(world)
+    local list = Current.level and Current.level.waterfalls
+    if type(list) ~= "table" or #list == 0 then return end
+    local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+    local cls = ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(Effects.WATERFALL)))
+    if not (cls and cls:IsValid()) then error("waterfall class not found") end
+    local mesh = resolveMesh(Effects.WATERFALL_MESH)
+    local nfl = findObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+    local n, fx = 0, 0
+    for i, w in ipairs(list) do
+        local p = type(w) == "table" and w.pos
+        local key = "__waterfall_" .. i
+        if type(p) == "table" and not (Current.actors[key] and Current.actors[key]:IsValid()) then
+            local actor = world:SpawnActor(cls, { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                { Pitch = 0, Yaw = tonumber(w.yaw) or 0, Roll = 0 })
+            if actor and actor:IsValid() then
+                Current.actors[key] = actor
+                actor.Mesh = mesh
+                for k, v in pairs(type(w.params) == "table" and w.params or {}) do
+                    pcall(function() actor[k] = v end)
+                end
+                actor:UserConstructionScript()
+                pcall(function() actor["Text Render"]:SetVisibility(false, false) end)
+                pcall(function()
+                    local m = actor.InstancedStaticMesh:GetMaterial(0)
+                    for k, v in pairs(type(w.scalars) == "table" and w.scalars or {}) do
+                        m:SetScalarParameterValue(FName(k), v)
+                    end
+                    for k, v in pairs(type(w.vectors) == "table" and w.vectors or {}) do
+                        m:SetVectorParameterValue(FName(k), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+                    end
+                end)
+                n = n + 1
+            end
+            for j, e in ipairs(type(w.effects) == "table" and w.effects or {}) do
+                local system = type(e.system) == "string" and resolveMesh(e.system)
+                local q = type(e.pos) == "table" and e.pos
+                if system and q and nfl then
+                    local r = type(e.rot) == "table" and e.rot or {}
+                    local s = tonumber(e.scale) or 1.0
+                    local ok, comp = pcall(function()
+                        return nfl:SpawnSystemAtLocation(world, system,
+                            { X = origin[1] + q[1], Y = origin[2] + q[2], Z = origin[3] + q[3] },
+                            { Pitch = r[1] or 0, Yaw = r[2] or 0, Roll = r[3] or 0 }, { X = s, Y = s, Z = s },
+                            false, true, 0, false)
+                    end)
+                    if ok and comp then
+                        Current.actors[key .. "_fx" .. j] = comp
+                        fx = fx + 1
+                    end
+                end
+            end
+        end
+    end
+    Log(string.format("waterfalls: %d of %d, %d effect(s)", n, #list, fx))
+end
+
 --- CE's placed lights (level.lights, tools/level/upgrade_ce_map.py
 --- ce_lights: a base's wall sconces and floor lamps), as shadowed point
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
@@ -4262,6 +4334,8 @@ local function spawnDecor(world)
     if not ok then Log("foliage: " .. tostring(err)) end
     ok, err = pcall(Effects.spawn, world)
     if not ok then Log("effects: " .. tostring(err)) end
+    ok, err = pcall(Effects.waterfalls, world)
+    if not ok then Log("waterfalls: " .. tostring(err)) end
     ok, err = pcall(Placed.lights, world)
     if not ok then Log("lights: " .. tostring(err)) end
     ok, err = pcall(Placed.decals, world)
