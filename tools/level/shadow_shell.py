@@ -11,7 +11,8 @@ every inside corner of Sidewinder's rooms, crawling with the shadow map's
 dither (2026-10-14; a hidden block 10 cm behind one wall put it out).
 
 So every solid terrain triangle again, moved back along its own normal (into
-the solid it faces away from) by `--depth` cm, or by under half the distance
+the solid it faces away from), with a strip across the back of each inside
+corner where the two moved faces part by `--depth` cm, or by under half the distance
 to the nearest surface behind it, so a thin wall's copy never stands out in
 the room beyond. The copy is added to the proxy, not swapped for it (the
 moved faces open at convex edges; the planes themselves still close them).
@@ -127,7 +128,7 @@ def main():
         return float(t[hit].min()) if hit.any() else reach
 
     out_tris = []
-    depths = []
+    depth_of = np.zeros(len(tris))
     for i in range(len(tris)):
         tri, d = tris[i], -n[i]
         c = tri.mean(0)
@@ -138,9 +139,37 @@ def main():
         if depth < a.min:
             continue
         out_tris.append(tri + d * depth)
-        depths.append(depth)
+        depth_of[i] = depth
     if not out_tris:
         sys.exit("no faces with room behind them")
+    depths = depth_of[depth_of > 0]
+    # Inside corners: the two faces moved back part, leaving a wedge open
+    # behind the crease, and a sun coming in across the corner went through
+    # it (the floor's foot, the bends of Sidewinder's rooms). A strip from
+    # one face's moved edge to the other's closes it; it lies behind both
+    # faces, in the solid the corner turns about.
+    key = lambda q: (round(q[0], 1), round(q[1], 1), round(q[2], 1))
+    edges = {}
+    for i, tri in enumerate(tris):
+        for k in range(3):
+            e = tuple(sorted((key(tri[k]), key(tri[(k + 1) % 3]))))
+            edges.setdefault(e, []).append(i)
+    fillers = 0
+    for e, faces in edges.items():
+        if len(faces) != 2:
+            continue
+        i, j = faces
+        if depth_of[i] <= 0 and depth_of[j] <= 0:
+            continue
+        if abs(n[i] @ n[j]) > 0.98:
+            continue
+        p0, p1 = np.array(e[0]), np.array(e[1])
+        if (tris[j].mean(0) - p0) @ n[i] <= 0:
+            continue  # convex: the moved faces meet inside the solid already
+        oi, oj = -n[i] * depth_of[i], -n[j] * depth_of[j]
+        out_tris.append(np.array([p0 + oi, p1 + oi, p1 + oj]))
+        out_tris.append(np.array([p0 + oi, p1 + oj, p0 + oj]))
+        fillers += 1
     shell = np.stack(out_tris)
     corners = shell.reshape(-1, 3)
     # One normal a corner, the face's own: the shell is never drawn.
@@ -162,8 +191,9 @@ def main():
     }
     json.dump(out, open(a.out, "w", encoding="utf-8"))
     dep = np.array(depths)
-    print(f"{count // 3} shell triangle(s) of {len(tris)} solid ({len(tris) - count // 3} without room behind); "
-          f"depth {dep.min():.1f}..{dep.max():.1f} cm, {int((dep < a.depth).sum())} clamped")
+    print(f"{len(dep)} shell triangle(s) of {len(tris)} solid ({len(tris) - len(dep)} without room behind) and "
+          f"{fillers} inside corner(s) closed; depth {dep.min():.1f}..{dep.max():.1f} cm, "
+          f"{int((dep < a.depth).sum())} clamped")
 
 
 if __name__ == "__main__":
