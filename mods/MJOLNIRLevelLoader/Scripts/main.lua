@@ -3537,7 +3537,14 @@ function Land.cliffs(world, spec)
     -- (Ice Fields: B40's MIP_Rock_Glacial_Inst, rock and snow projected in
     -- world space, so CE's UVs do not matter); the cladding rocks then keep
     -- their meshes' own (B40's glacial rocks, snow-topped already).
+    -- `cliff.scalars` over the shipped material's own (scalarMid): its rock
+    -- tiles by CE's UVs ("Tile U", "Tile V"), and Sidewinder's cliff strip
+    -- spans 92 m across to 26 m up, which squashed the rock flat
+    -- (2026-10-13).
     local shipped = type(cliff.material) == "string" and resolveMesh(cliff.material)
+    if shipped and type(cliff.scalars) == "table" then
+        shipped = scalarMid(world, shipped, cliff.scalars) or shipped
+    end
     if shipped then
         local n = 0
         for index, item in ipairs(Current.level.decor or {}) do

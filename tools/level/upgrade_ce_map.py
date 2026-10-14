@@ -400,6 +400,8 @@ def stage_assemble(code, m, p):
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR
+        if m.get("cliff_scalars"):
+            cliff["scalars"] = dict(m["cliff_scalars"])
         mesh = os.path.join(p["work"], "cliff_mesh.json")
         if m.get("tess") is not False and os.path.exists(mesh):
             spec = json.load(open(mesh, encoding="utf-8"))
