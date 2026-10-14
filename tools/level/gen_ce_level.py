@@ -714,10 +714,12 @@ def srgb_to_linear(c):
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
 
-# The roof map's cell (cm, 2 wu) and how far above the camera a ceiling
-# keeps the weather out (cm): a room's or a tunnel's, not an overhang's far
-# up a cliff.
-ROOF_CELL = 609.6
+# The roof map's cell (cm, half a wu) and how far above the camera a
+# ceiling keeps the weather out (cm): a room's or a tunnel's, not an
+# overhang's far up a cliff. Each cell is sampled at its centre: at 2 wu a
+# cell whose centre fell just outside Sidewinder's facility snowed over the
+# room's edge (2026-10-13).
+ROOF_CELL = 152.4
 ROOF_REACH = 2500.0
 
 
