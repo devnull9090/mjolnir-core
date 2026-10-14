@@ -86,7 +86,7 @@ MAP_LOOKS = {
     "LIF": {
         "pbr": {"sand_tint": [1.0, 1.0, 1.0, 1.0], "grass_tint": [1.0, 1.0, 1.0, 1.0],
                 "dirt_tint": [1.0, 1.0, 1.0, 1.0], "slope": [0.92, 0.8, 0.0, 0.25], "inland": [0, 0, 0, 0.0],
-                "light": {"sun": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}, "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}},
+                "light": {"sun": {"scale": 0.8, "tint": [1.0, 1.0, 1.0]}, "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}},
                 # Its frozen pond is painted into CE's base map, dark blue with
                 # feathered edges: ice there (LandIce), feathered as painted;
                 # CE's colour otherwise left out (the base is baked as it is).
