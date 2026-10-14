@@ -418,8 +418,8 @@ def ce_haze(level, reach=None):
 def flux_spec(code, fx, river, level):
     """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
     domain round the river mesh, `fx.feeds` adding water where CE's water
-    falls in (BE_FluxMode 2, Adjust: up to the source's Z, so a feed set
-    above the water always pours), and Set sources (mode 1) holding the water
+    falls in (BE_FluxMode 0 Add, at a fixed rate, or 2 Adjust, the default:
+    up to the source's Z), and Set sources (mode 1) holding the water
     at CE's own level along every flat stretch. CE's stream stood 15-45 cm over Timberland's
     bed; the feed alone, with a drain, left the flat 200 m of it a wet film
     or a flood (2026-10-14)."""
@@ -444,8 +444,13 @@ def flux_spec(code, fx, river, level):
             continue
         levels.append([round(sum(t[0][i] * t[1] for t in tris) / area) for i in range(3)])
     feeds = fx.get("feeds", [])
-    sources = [{"pos": f["pos"], "scale": f.get("scale", 1.0), "volume": f.get("volume", 8.0), "mode": 2}
-               for f in feeds]
+    # A waterfall's feed is Add (mode 0) at the head of the stream above
+    # it, so the water runs to the lip and pours over: Adjust at the lip held
+    # a column of water to its Z over the void, drawn as a dark block, and a
+    # feed at the lip pooled on the plateau behind it (Timberland, 2026-10-14).
+    # Add has no level to stop at: volume 3 there flooded the gorge, 1 runs.
+    sources = [{"pos": f["pos"], "scale": f.get("scale", 1.0), "volume": f.get("volume", 8.0),
+                "mode": f.get("mode", 2)} for f in feeds]
     # No velocity on a Set source: it refills each step what its push
     # carried off, so every one became an endless spring and the river
     # flooded its whole domain in two minutes (2026-10-14).

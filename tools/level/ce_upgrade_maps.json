@@ -81,7 +81,7 @@
                 [-330, -2534, -6621], [1050, -326, -6596], [1036, 2184, -6607], [676, 5063, -6649],
                 [-483, 7857, -6653], [-1932, 10711, -6544]]},
   "waterfalls": {"hide": ["bitmaps_timberland_waterfall"], "falls": [
-   {"pos": [4150, -15950, -3700], "yaw": 90,
+   {"pos": [4150, -15950, -3700], "yaw": 90, "sheet": false,
     "params": {"duration": 1.45, "Speed": 280, "BaseWidth": 260, "EndWidth": 420, "BaseThickness": 30,
                "EndThickness": 160, "NoiseStrength": 45, "Instances": 10},
     "vectors": {"SkyColor": [0.62, 0.68, 0.72, 30.2], "SSS - Color": [0.68, 0.76, 0.8, 1]},
@@ -90,7 +90,7 @@
                  "pos": [4120, -15520, -4560], "rot": [0, 90, 0]},
                 {"system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
                  "pos": [4140, -15560, -4600], "rot": [0, 90, 0]}]}]},
-  "flux": {"feeds": [{"pos": [4130, -15450, -4540], "scale": 1.0, "volume": 8}]},
+  "flux": {"feeds": [{"pos": [4500, -17100, -3650], "scale": 0.5, "volume": 1, "mode": 0}]},
   "haze": "ce",
   "hub": "ce-timberland"
  }

@@ -3131,7 +3131,8 @@ end
 --- EndWidth, BaseThickness, EndThickness, NoiseStrength, Instances...),
 --- `vectors`/`scalars` its water material's (SkyColor: the PNW sky's blue
 --- drew a saturated blue sheet under a CE dusk), `effects` the splash and
---- spray at its foot [{ system, pos, rot, scale }]. The CE card is hidden by
+--- spray at its foot [{ system, pos, rot, scale }], `sheet` false to leave
+--- the Blueprint out (the falls drawn by Effects.flux). The CE card is hidden by
 --- the level file itself (upgrade_ce_map.py). Timberland, 2026-10-14.
 Effects.WATERFALL = "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/BP_PNW_Liquid_Waterfall_DeformedMesh.BP_PNW_Liquid_Waterfall_DeformedMesh_C"
 Effects.WATERFALL_MESH = "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/Meshes/SM_Liquid_TileableWaterfallLower.SM_Liquid_TileableWaterfallLower"
@@ -3149,8 +3150,12 @@ function Effects.waterfalls(world)
     for i, w in ipairs(list) do
         local p = type(w) == "table" and w.pos
         local key = "__waterfall_" .. i
-        if type(p) == "table" and not (Current.actors[key] and Current.actors[key]:IsValid()) then
-            local actor = world:SpawnActor(cls, { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+        -- `sheet: false`: the effects at its foot only, the water itself
+        -- being Fluid Flux's (Effects.flux).
+        local done = Current.actors[key] or Current.actors[key .. "_fx1"]
+        if type(p) == "table" and not (done and done:IsValid()) then
+            local actor = w.sheet ~= false and world:SpawnActor(cls,
+                { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
                 { Pitch = 0, Yaw = tonumber(w.yaw) or 0, Roll = 0 })
             if actor and actor:IsValid() then
                 Current.actors[key] = actor
