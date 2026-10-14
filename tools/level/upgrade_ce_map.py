@@ -130,6 +130,8 @@ def stage_land(code, m, p):
         cmd += ["--also", ",".join(m["ground_also"])]
     if m.get("real_base"):
         cmd += ["--real-base"]
+    if m.get("cliff_shaders"):
+        cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
     out = run(cmd)
     print("  " + "\n  ".join(l for l in out.splitlines() if l.startswith(("heights", "holes", "settled", "bakes"))))
 
@@ -150,6 +152,8 @@ def stage_foliage(code, m, p):
         cmd += ["--rule-tint", f"{rule}={tint}"]
     if m.get("biome"):
         cmd += ["--biome", m["biome"]]
+    if m.get("cliff_shaders"):
+        cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])

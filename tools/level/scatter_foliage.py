@@ -425,6 +425,11 @@ SNOW_CLADDING = {
 }
 
 
+# Cliff shaders by name (--cliff-shaders): Sidewinder's share its ground's
+# snow detail map.
+CLIFF_SHADERS = []
+
+
 def cliff_slots(spec):
     """{glTF material name: (base file, lightmap file, base object path)} for
     the CE cliff shaders (a cliff detail map and a lightmap page)."""
@@ -433,7 +438,8 @@ def cliff_slots(spec):
     for s in spec["slots"]:
         tex = s["material"].get("textures") or {}
         leaf = lambda k: tex.get(k, "").rsplit(".", 1)[-1]
-        if "detail_cliff" in tex.get("Primary", "") and leaf("Base") in files and leaf("Lightmap") in files \
+        named = any(x in s["pattern"].lower() for x in CLIFF_SHADERS)
+        if ("detail_cliff" in tex.get("Primary", "") or named) and leaf("Base") in files and leaf("Lightmap") in files \
                 and "object_lighting" not in tex.get("Lightmap", ""):
             out[s["pattern"].rstrip("$")] = (files[leaf("Base")], files[leaf("Lightmap")], tex["Base"])
     return out
@@ -791,6 +797,7 @@ def main():
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--cliff-shaders", default="", help="substrings of the cliff shaders' names, comma-separated")
     ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
@@ -804,6 +811,7 @@ def main():
     for pair in a.detail:
         name, cls = pair.split("=", 1)
         EXTRA_DETAILS.append((cls, (name.lower(),)))
+    CLIFF_SHADERS.extend(x.lower() for x in a.cliff_shaders.split(",") if x)
     if a.biome == "snow":
         global CLADDING
         CLADDING = SNOW_CLADDING

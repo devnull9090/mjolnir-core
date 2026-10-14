@@ -3519,6 +3519,20 @@ function Land.cliffs(world, spec)
     if type(cliff) ~= "table" then return 0 end
     local details = {}
     for _, d in ipairs(type(cliff.details) == "table" and cliff.details or {}) do details[d] = true end
+    -- `cliff.slots`: the terrain's cliff slots exactly (0-based), over the
+    -- detail maps (Sidewinder's cliffs share its ground's snow detail).
+    -- `details` then answers by slot: isCliff(leaf, slot).
+    local slotSet = nil
+    if type(cliff.slots) == "table" then
+        slotSet = {}
+        for _, s in ipairs(cliff.slots) do slotSet[s] = true end
+    end
+    local function isCliff(leaf, slot, item)
+        if slotSet then
+            return slotSet[slot] == true and type(item.mesh) == "string" and item.mesh:find("_Terrain%.") ~= nil
+        end
+        return leaf ~= nil and details[leaf] == true
+    end
     -- `cliff.material`: a shipped material the cliff slots take as they are
     -- (Ice Fields: B40's MIP_Rock_Glacial_Inst, rock and snow projected in
     -- world space, so CE's UVs do not matter); the cladding rocks then keep
@@ -3532,7 +3546,7 @@ function Land.cliffs(world, spec)
                 for i, entry in ipairs(item.materials) do
                     local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
                     local leaf = t and type(t.Primary) == "string" and t.Primary:match("%.([%w_]+)$")
-                    if leaf and details[leaf] and pcall(function() actor.StaticMeshComponent:SetMaterial(i - 1, shipped) end) then
+                    if t and isCliff(leaf, i - 1, item) and pcall(function() actor.StaticMeshComponent:SetMaterial(i - 1, shipped) end) then
                         n = n + 1
                     end
                 end
@@ -3606,7 +3620,7 @@ function Land.cliffs(world, spec)
             for i, entry in ipairs(item.materials) do
                 local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
                 local leaf = t and type(t.Primary) == "string" and t.Primary:match("%.([%w_]+)$")
-                if leaf and details[leaf] then
+                if t and isCliff(leaf, i - 1, item) then
                     local mid = kml:CreateDynamicMaterialInstance(world, parent, FName(string.format("mjolnir_cliff_%d", i)), 0)
                     if mid and mid:IsValid() then
                         for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end

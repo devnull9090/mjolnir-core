@@ -76,7 +76,7 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 # (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
 # cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
-    # Ice Fields (LIF, 2026-10-13): B40's snow (its landscape's Megascans
+    # Ice Fields (LIF, 2026-10-13; SNOW, shared with Sidewinder): B40's snow (its landscape's Megascans
     # surfaces) in place of the beach: fresh windswept snow, windswept
     # snow for the ripple band, melting snow in patches, snowy stones,
     # snow-covered grass and gravel for the earth; everything untinted, no
@@ -127,6 +127,7 @@ MAP_LOOKS = {
                              "n": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
                              "o": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"}},
     },
+    # (LSW, Sidewinder: below, from Ice Fields'.)
     # Yoyorast Island (LYY, 2026-10-12): its grey island rock took a purple
     # cast from CE's bluish lightmap at the dusk share; CE's light at 0.15,
     # its colour at 1.1x under a warm grey tint.
@@ -291,6 +292,20 @@ def box_blur(img, radius):
     return img
 
 
+# Sidewinder (LSW, 2026-10-13): Ice Fields' snow. Its ground is a blend
+# (CE's base alpha: snow, or the sandstone of the worn paths): the paths
+# in B40's windswept snowy stones (the grass layer). Its ice is its own
+# shader (the ponds, ground_looks), not dark paint in the base map, whose
+# dark paths would have iced over: no LandIce on the ground.
+import copy as _copy
+MAP_LOOKS["LSW"] = _copy.deepcopy(MAP_LOOKS["LIF"])
+MAP_LOOKS["LSW"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
+MAP_LOOKS["LSW"]["pbr"]["surfaces"].update({
+    "GrassD": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
+    "GrassN": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
+    "GrassO": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"})
+
+
 def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     """edge.png over the bakes' square, for where walls and ground meet:
     R the height of the ground at the top of a wall (its nearest lip's,
@@ -363,6 +378,9 @@ def main():
                          "landscape (Ice Fields' ice patches: its ground's base map, a shinier shader), comma-separated")
     ap.add_argument("--real-base", action="store_true",
                     help="bake plain ground's own CE base colour, not a neutral grey (pbr.ice reads it)")
+    ap.add_argument("--cliff-shaders", default="",
+                    help="substrings of the cliff shaders' names, comma-separated, when their detail maps do not "
+                         "say so (Sidewinder's cliffs share its ground's snow detail): cliff.slots, exact")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -619,7 +637,10 @@ def main():
                 "rect": [float(origin[0]), float(origin[1]), side, side]},
         "masks": {"LandMask": "landmask.png", "LandEdge": "edge.png"},
         # The cliffs in the game's rock (M_CE_CliffPBR, the loader's
-        # Land.cliffs): every slot whose primary detail map is a cliff's.
+        # Land.cliffs): every slot whose primary detail map is a cliff's;
+        # with --cliff-shaders, also cliff.slots, the terrain's slots of
+        # those shaders exactly (glTF material + 1), which the loader then
+        # matches instead of the detail maps.
         "cliff": {"details": sorted({sl["material"]["textures"]["Primary"].rsplit(".", 1)[-1]
                                      for sl in spec["slots"]
                                      if "detail_cliff" in sl["material"].get("textures", {}).get("Primary", "")
@@ -706,6 +727,11 @@ def main():
                 "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
                           "sky": {"scale": 1.0, "tint": [1.0, 0.95, 0.85]}}},
     }
+    cliff_shaders = [x.lower() for x in a.cliff_shaders.split(",") if x]
+    if cliff_shaders:
+        doc_out["cliff"]["slots"] = sorted(i + 1 for i, mt in enumerate(doc["materials"])
+                                           if any(x in mt.get("name", "").lower() for x in cliff_shaders)
+                                           and "__lmobj" not in mt.get("name", "").lower())
     # The map's own look over the defaults (tuned on Death Island's dusk).
     for section, fields in MAP_LOOKS.get(a.name, {}).items():
         doc_out[section].update(fields)
