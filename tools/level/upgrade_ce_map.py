@@ -152,6 +152,9 @@ def stage_foliage(code, m, p):
         cmd += ["--rule-tint", f"{rule}={tint}"]
     if m.get("biome"):
         cmd += ["--biome", m["biome"]]
+    if m.get("biome") == "snow":
+        # Snow grows only on the map's own ground (the landscape's shaders).
+        cmd += ["--ground-shaders", ",".join(m["shaders"] + m.get("ground_also", []))]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
     os.makedirs(p["foliage"], exist_ok=True)

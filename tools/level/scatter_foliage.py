@@ -798,6 +798,9 @@ def main():
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--cliff-shaders", default="", help="substrings of the cliff shaders' names, comma-separated")
+    ap.add_argument("--ground-shaders", default="",
+                    help="substrings of the ground shaders' names, comma-separated: only these grow anything "
+                         "(a facility's floor whose detail map is 'dirt splotch' read as natural ground)")
     ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
@@ -841,6 +844,11 @@ def main():
         rules = [r for r in rules if not r.get("edge")]
     spec = json.load(open(a.spec, encoding="utf-8"))
     slots = ground_slots(spec)
+    only = [x.lower() for x in a.ground_shaders.split(",") if x]
+    if only:
+        # Sidewinder's facility floors (B30's metal panels over a dirt
+        # splotch detail) grew snowy stones and rubble (2026-10-13).
+        slots = {k: v for k, v in slots.items() if any(x in k.lower() for x in only)}
     doc = json.load(open(a.gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
