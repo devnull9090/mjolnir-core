@@ -415,6 +415,23 @@ def ce_haze(level, reach=None):
     return None
 
 
+def flux_ground(code, level):
+    """What the Flux ground capture sees: CE's ground and the cliffs' copy."""
+    return [item["id"] for item in level.get("decor") or []
+            if f"/SM_{code}_Terrain." in str(item.get("mesh", ""))] + ["__cliff_tess"]
+
+
+def flux_coast(k, land):
+    """The sea as B30's (MJOLNIRLevelLoader Effects.fluxCoast): a coastline
+    domain over the landscape (`margin` cm round it, `cell` cm cells), the
+    sea at `water` cm."""
+    x, y, w, h = land["rect"]
+    margin, cell = k.get("margin", 6000.0), int(k.get("cell", 100))
+    res = [int(math.ceil((w + 2 * margin) / cell / 32.0)) * 32, int(math.ceil((h + 2 * margin) / cell / 32.0)) * 32]
+    return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
+            "height": k.get("height", 10000.0), "water": k["water"]}
+
+
 def flux_spec(code, fx, river, level):
     """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
     domain round the river mesh, `fx.feeds` adding water where CE's water
@@ -487,8 +504,7 @@ def flux_spec(code, fx, river, level):
               "res": res, "cell": cell, "height": height}
     # Out of the ground capture: everything the loader spawns but CE's
     # ground and the cliffs' copy; CE's own river mesh hidden outright.
-    ground = [item["id"] for item in level.get("decor") or []
-              if f"/SM_{code}_Terrain." in str(item.get("mesh", ""))] + ["__cliff_tess"]
+    ground = flux_ground(code, level)
     hide = [f"__slot_mesh_{i + 1}" for i, s in enumerate(level.get("slot_meshes") or [])
             if f"SM_{code}_River" in s.get("mesh", "")]
     return {"domain": domain, "sources": sources, "ground": ground, "hide": hide}
@@ -574,6 +590,14 @@ def stage_assemble(code, m, p):
         level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
         print(f"  {code}: flux {level['flux']['domain']['res']} at {level['flux']['domain']['cell']} cm, "
               f"{len(level['flux']['sources'])} source(s)")
+    if (m.get("flux") or {}).get("coast"):
+        flux = level.setdefault("flux", {})
+        flux["coast"] = flux_coast(m["flux"]["coast"], land)
+        flux.setdefault("ground", flux_ground(code, level))
+        # The sea is Flux's: our own water mesh (SM_<code>_Water) hidden.
+        flux.setdefault("hide", []).extend(item["id"] for item in level.get("decor") or []
+                                           if f"/SM_{code}_Water." in str(item.get("mesh", "")))
+        print(f"  {code}: flux coast {flux['coast']['res']} at {flux['coast']['cell']} cm, sea at {flux['coast']['water']}")
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})
         water.setdefault("params", {}).update(m["water"])

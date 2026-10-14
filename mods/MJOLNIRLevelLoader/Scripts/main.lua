@@ -3214,10 +3214,57 @@ Effects.FLUX_DOMAIN = "/Game/FluidFlux/Simulation/Blueprints/BP_FluxSimulationDo
 Effects.FLUX_SOURCE = "/Game/FluidFlux/Simulation/Modifiers/BP_FluxModifierSourceActor.BP_FluxModifierSourceActor_C"
 Effects.FLUX_SURFACE = "/Game/FluidFlux/Surface/Templates/River/BP_FluxSurface_River.BP_FluxSurface_River_C"
 
+--- The sea as B30's beach has it (level.flux.coast): Fluid Flux's ocean wave
+--- (BP_FluxOceanWave) and a coastline domain, which captures the ground
+--- under `centre` (`res` cells of `cell` cm, `height` cm deep), builds the
+--- shore's distance field from it and draws the sea with
+--- BP_FluxSurface_Coastline: waves to the camera, breaking on the beach.
+--- `water` is the sea level (cm). Returns a line for the log. Death Island,
+--- 2026-10-14.
+Effects.FLUX_COAST = "/Game/FluidFlux/Coastline/Blueprints/BP_FluxCoastlineDomain.BP_FluxCoastlineDomain_C"
+Effects.FLUX_WAVE = "/Game/FluidFlux/Waves/Blueprints/BP_FluxOceanWave.BP_FluxOceanWave_C"
+
+function Effects.fluxCoast(w, k, origin, cls, gs, tag)
+    local c = { X = origin[1] + k.centre[1], Y = origin[2] + k.centre[2], Z = origin[3] + k.water }
+    Current.actors["__flux_wave"] = w:SpawnActor(cls(Effects.FLUX_WAVE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
+    local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = c, Scale3D = { X = 1, Y = 1, Z = 1 } }
+    local dom = gs:BeginDeferredActorSpawnFromClass(w, cls(Effects.FLUX_COAST), xf, 1, nil, 0)
+    dom.AreaResolution = { X = k.res[1], Y = k.res[2] }
+    dom.AreaWorldPixelSize = math.floor(k.cell)
+    dom.AreaWorldHeight = k.height or 10000.0
+    dom.WaterSurfaceHeight = origin[3] + k.water
+    dom.HeightmapUpdateFrequency = 1000000.0
+    local cv = dom.CaptureVisibility
+    cv.ActorsWithTags_47_FB1C9D8B486CC31A912C34BC8E3BB996 = tag
+    cv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
+    cv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
+    dom.CaptureVisibility = cv
+    gs:FinishSpawningActor(dom, xf, 0)
+    Current.actors["__flux_coast"] = dom
+    -- The surface the domain made takes its waves from OceanWaveActor (B30
+    -- sets it in the level); unset, the sea was a pale flat sheet with no
+    -- swell and no surf. InitializeStates hands the wave to its materials.
+    local wave = Current.actors["__flux_wave"]
+    ExecuteInGameThreadWithDelay(1500, function()
+        pcall(function()
+            local surf = dom:IsValid() and dom.SurfaceActorRenderer
+            if surf and surf:IsValid() and wave:IsValid() then
+                -- `swell`: the wave height (cm); B30's is 140, the actor's 230.
+                wave.OceanWaveHeight = tonumber(k.swell) or 140.0
+                surf.OceanWaveActor = wave
+                surf:InitializeStates()
+            end
+        end)
+    end)
+    return string.format("coast %dx%d at %d cm, sea at %g", k.res[1], k.res[2], math.floor(k.cell), k.water)
+end
+
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
-    if type(spec) ~= "table" or type(spec.domain) ~= "table" then return end
-    if Current.actors["__flux_domain"] and Current.actors["__flux_domain"]:IsValid() then return end
+    if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
+    for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
+        if Current.actors[key] and Current.actors[key]:IsValid() then return end
+    end
     for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
         local a = Current.actors[key]
         if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
@@ -3255,88 +3302,104 @@ function Effects.flux(world)
             -- through. CE's ground whole for the one capture (its cut rect,
             -- LandRect, moved off the map: both cut masters draw everything
             -- outside it), cut again after it (Timberland, 2026-10-14).
+            -- Every ground slot with a cut rect (Death Island's cut slots are
+            -- picked by base map, so the level file names none).
             local uncut = {}
-            local cut = type(Current.level.landscape) == "table" and Current.level.landscape.cut
             for key in pairs(keep) do
                 local a = Current.actors[key]
-                for _, slot in ipairs(type(cut) == "table" and type(cut.slots) == "table" and cut.slots or {}) do
-                    pcall(function()
-                        local m = a.StaticMeshComponent:GetMaterial(slot)
-                        local r = m:K2_GetVectorParameterValue(FName("LandRect"))
-                        m:SetVectorParameterValue(FName("LandRect"), { R = 1.0e8, G = 1.0e8, B = 1.0, A = 1.0 })
-                        uncut[#uncut + 1] = { m, { R = r.R, G = r.G, B = r.B, A = r.A } }
-                    end)
-                end
-            end
-            local d = spec.domain
-            local c = { X = origin[1] + d.centre[1], Y = origin[2] + d.centre[2], Z = origin[3] + d.centre[3] }
-            local surf = w:SpawnActor(cls(spec.surface or Effects.FLUX_SURFACE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
-            Current.actors["__flux_surface"] = surf
-            local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = c, Scale3D = { X = 1, Y = 1, Z = 1 } }
-            local dom = gs:BeginDeferredActorSpawnFromClass(w, cls(Effects.FLUX_DOMAIN), xf, 1, nil, 0)
-            dom.AreaResolution = { X = d.res[1], Y = d.res[2] }
-            dom.AreaWorldPixelSize = d.cell
-            dom.AreaWorldHeight = d.height
-            dom.SurfaceActorReference = surf
-            -- One capture: the default re-captures every 0.4 s.
-            dom.HeightmapUpdateFrequency = 1000000.0
-            local sv = dom.SceneVisibility
-            sv.ActorsWithTags_47_FB1C9D8B486CC31A912C34BC8E3BB996 = tag
-            sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
-            sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
-            dom.SceneVisibility = sv
-            gs:FinishSpawningActor(dom, xf, 0)
-            Current.actors["__flux_domain"] = dom
-            local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
-            for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
-                local p, sc = s.pos, tonumber(s.scale) or 1.0
-                local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                    Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
-                    Scale3D = { X = sc, Y = sc, Z = sc } }
-                local a = gs:BeginDeferredActorSpawnFromClass(w, src, t, 1, nil, 0)
-                gs:FinishSpawningActor(a, t, 0)
-                local m = a.FluxModifierSource
-                m.Duration = -1.0
-                m.Volume = tonumber(s.volume) or 1.0
-                m.Mode = tonumber(s.mode) or 2
-                if type(s.velocity) == "table" then m.Velocity = { X = s.velocity[1], Y = s.velocity[2] } end
-                Current.actors["__flux_source_" .. i] = a
-                comps[#comps + 1] = m
-                if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
-            end
-            -- `prime` sources fill the river at the start, then go: held,
-            -- a Set source takes away the water that runs in, and the river
-            -- stood still (Timberland, 2026-10-14).
-            ExecuteInGameThreadWithDelay(tonumber(spec.prime_ms) or 60000, function()
-                if Current.worldName ~= name or Current.level ~= level then return end
-                local gone = 0
-                for _, key in ipairs(primed) do
-                    local a = Current.actors[key]
-                    if a and a:IsValid() then pcall(function() a:K2_DestroyActor() end) gone = gone + 1 end
-                    Current.actors[key] = nil
-                end
                 pcall(function()
-                    if dom:IsValid() then
-                        dom:FindWorldModifiers(true)
-                        for k, a in pairs(Current.actors) do
-                            if k:find("^__flux_source_") and a:IsValid() then a.FluxModifierSource:UpdateMaterial() end
-                        end
+                    local comp = a.StaticMeshComponent
+                    local n = comp:GetNumMaterials()
+                    pcall(function() n = math.max(n, comp.OverrideMaterials:GetArrayNum()) end)
+                    for slot = 0, n - 1 do
+                        pcall(function()
+                            local m = comp:GetMaterial(slot)
+                            local r = m:K2_GetVectorParameterValue(FName("LandRect"))
+                            if r.B > 1.0 and r.B < 1.0e7 then
+                                m:SetVectorParameterValue(FName("LandRect"), { R = 1.0e8, G = 1.0e8, B = 1.0, A = 1.0 })
+                                uncut[#uncut + 1] = { m, { R = r.R, G = r.G, B = r.B, A = r.A } }
+                            end
+                        end)
                     end
                 end)
-                Log(string.format("flux: river filled, %d priming source(s) removed", gone))
-            end)
-            dom:FindWorldModifiers(true)
-            -- Volume, mode and velocity reach the simulation through the
-            -- source's material, which only UpdateMaterial writes.
-            for _, m in ipairs(comps) do m:UpdateMaterial() end
-            pcall(function() dom:CaptureGroundHeightmap(true) end)
-            ExecuteInGameThreadWithDelay(1500, function()
+            end
+            local made = {}
+            if type(spec.domain) == "table" then
+                local d = spec.domain
+                local c = { X = origin[1] + d.centre[1], Y = origin[2] + d.centre[2], Z = origin[3] + d.centre[3] }
+                local surf = w:SpawnActor(cls(spec.surface or Effects.FLUX_SURFACE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
+                Current.actors["__flux_surface"] = surf
+                local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = c, Scale3D = { X = 1, Y = 1, Z = 1 } }
+                local dom = gs:BeginDeferredActorSpawnFromClass(w, cls(Effects.FLUX_DOMAIN), xf, 1, nil, 0)
+                dom.AreaResolution = { X = d.res[1], Y = d.res[2] }
+                dom.AreaWorldPixelSize = d.cell
+                dom.AreaWorldHeight = d.height
+                dom.SurfaceActorReference = surf
+                -- One capture: the default re-captures every 0.4 s.
+                dom.HeightmapUpdateFrequency = 1000000.0
+                local sv = dom.SceneVisibility
+                sv.ActorsWithTags_47_FB1C9D8B486CC31A912C34BC8E3BB996 = tag
+                sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
+                sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
+                dom.SceneVisibility = sv
+                gs:FinishSpawningActor(dom, xf, 0)
+                Current.actors["__flux_domain"] = dom
+                local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
+                for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
+                    local p, sc = s.pos, tonumber(s.scale) or 1.0
+                    local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                        Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                        Scale3D = { X = sc, Y = sc, Z = sc } }
+                    local a = gs:BeginDeferredActorSpawnFromClass(w, src, t, 1, nil, 0)
+                    gs:FinishSpawningActor(a, t, 0)
+                    local m = a.FluxModifierSource
+                    m.Duration = -1.0
+                    m.Volume = tonumber(s.volume) or 1.0
+                    m.Mode = tonumber(s.mode) or 2
+                    if type(s.velocity) == "table" then m.Velocity = { X = s.velocity[1], Y = s.velocity[2] } end
+                    Current.actors["__flux_source_" .. i] = a
+                    comps[#comps + 1] = m
+                    if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
+                end
+                -- `prime` sources fill the river at the start, then go: held,
+                -- a Set source takes away the water that runs in, and the river
+                -- stood still (Timberland, 2026-10-14).
+                ExecuteInGameThreadWithDelay(tonumber(spec.prime_ms) or 60000, function()
+                    if Current.worldName ~= name or Current.level ~= level then return end
+                    local gone = 0
+                    for _, key in ipairs(primed) do
+                        local a = Current.actors[key]
+                        if a and a:IsValid() then pcall(function() a:K2_DestroyActor() end) gone = gone + 1 end
+                        Current.actors[key] = nil
+                    end
+                    pcall(function()
+                        if dom:IsValid() then
+                            dom:FindWorldModifiers(true)
+                            for k, a in pairs(Current.actors) do
+                                if k:find("^__flux_source_") and a:IsValid() then a.FluxModifierSource:UpdateMaterial() end
+                            end
+                        end
+                    end)
+                    Log(string.format("flux: river filled, %d priming source(s) removed", gone))
+                end)
+                dom:FindWorldModifiers(true)
+                -- Volume, mode and velocity reach the simulation through the
+                -- source's material, which only UpdateMaterial writes.
+                for _, m in ipairs(comps) do m:UpdateMaterial() end
+                pcall(function() dom:CaptureGroundHeightmap(true) end)
+                made[#made + 1] = string.format("river %dx%d at %g cm, %d source(s)", d.res[1], d.res[2], d.cell, #comps)
+            end
+            if type(spec.coast) == "table" then
+                made[#made + 1] = Effects.fluxCoast(w, spec.coast, origin, cls, gs, tag)
+            end
+            -- The coastline captures half a second after it spawns.
+            ExecuteInGameThreadWithDelay(3000, function()
                 for _, u in ipairs(uncut) do
                     pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
                 end
             end)
-            Log(string.format("flux: %dx%d at %g cm, %d source(s), %d actor(s) out of the ground capture, "
-                .. "%d ground slot(s) whole for it", d.res[1], d.res[2], d.cell, #comps, tagged, #uncut))
+            Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it",
+                table.concat(made, ", "), tagged, #uncut))
         end)
         if not ok then Log("flux: " .. tostring(err)) end
     end)
