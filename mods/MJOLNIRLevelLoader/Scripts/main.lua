@@ -1038,6 +1038,24 @@ local function spawnShadowProxy(world, item)
     local count = src:GetNumMaterials()
     pcall(function() count = math.max(count, src.OverrideMaterials:GetArrayNum()) end)
     for i = 0, count - 1 do comp:SetMaterial(i, src:GetMaterial(i)) end
+    -- Under a landscape: its ground slots cast nothing (the landscape casts
+    -- the ground's shadows). CE's ground lies a few cm under and over the
+    -- landscape, and around every hole the two overlap: cast from there it
+    -- shadowed the landscape in blotches that changed with the camera (the
+    -- shadow map's resolution), Ice Fields, 2026-10-13; a strict cut (no
+    -- grow, half a hole) still left them. Whole slots (LandCut off: Ice
+    -- Fields' caves) keep casting.
+    local land = Current.level and Current.level.landscape
+    local cut = type(land) == "table" and type(land.cut) == "table" and land.cut
+    local hidden = cut and resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    for _, s in ipairs(hidden and type(cut.slots) == "table" and cut.slots or {}) do
+        pcall(function()
+            local m = comp:GetMaterial(s)
+            if m and m:IsValid() and m:K2_GetScalarParameterValue(FName("LandCut")) > 0.5 then
+                comp:SetMaterial(s, hidden)
+            end
+        end)
+    end
     comp.bCastHiddenShadow = true
     -- CE BSP surfaces are one-sided, and the lightmap bake's sun rays stop
     -- at either side: one-sided, the copy let the sun through the back of
