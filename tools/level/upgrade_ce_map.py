@@ -442,7 +442,7 @@ def flux_coast(k, land, code, level):
             if any(t in base for t in tokens):
                 floor.setdefault(item["id"], []).append(i)
     return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
-            "height": k.get("height", 10000.0), "water": k["water"], "floor": floor}
+            "height": k.get("height", 10000.0), "water": k["water"], "floor": floor, "swell": k.get("swell", 140)}
 
 
 def flux_spec(code, fx, river, level):

@@ -3268,10 +3268,27 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
         pcall(function()
             local surf = dom:IsValid() and dom.SurfaceActorRenderer
             if surf and surf:IsValid() and wave:IsValid() then
-                -- `swell`: the wave height (cm); B30's is 140, the actor's 230.
+                -- `swell`: the wave height (cm); B30's is 140, the actor's
+                -- 230. Death Island's sea floor lies a metre down far out,
+                -- so a 140 cm swell's troughs bared sandbars all over the
+                -- shallows: water "in random places" (2026-10-14).
                 wave.OceanWaveHeight = tonumber(k.swell) or 140.0
+                -- B30's shore waves (its MIDs' WaveProfile*/ShoreWave*,
+                -- which InitializeStates derives from these): with the
+                -- actor's defaults the beach got no run-up, only a flat
+                -- plane cutting the sand.
+                wave.WaveProfileSize = 550
+                wave.WaveAnimationDistance = 8
+                wave.WaveMovementSpeed = 0.3
+                wave.WaveAnimationSpeed = 2
+                wave.WaveProfileAreaBlend = 1.5
                 surf.OceanWaveActor = wave
                 surf:InitializeStates()
+                -- Two B30 values the actor does not set.
+                for _, m in ipairs({ surf.SurfaceOverInstance, surf.SurfaceDistantInstance }) do
+                    m:SetScalarParameterValue(FName("WaveGroundPrediction"), 1100)
+                    m:SetScalarParameterValue(FName("CoastlineScattringHeight"), 0.004)
+                end
             end
         end)
     end)
