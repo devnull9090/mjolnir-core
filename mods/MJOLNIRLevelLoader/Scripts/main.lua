@@ -1478,6 +1478,14 @@ local function spawnEnvironment(world)
                 if type(env.weather) == "table" and type(env.weather.system) == "string" then
                     set["r.Lumen.Reflections.ScreenTraces"] = 0
                 end
+                -- A Flux sea mirrors the CE sky mesh's horizon strip, which
+                -- Lumen finds far brighter than the sky drawn there: a hard
+                -- white line all along Death Island's horizon. Clamped, it
+                -- is a faint edge (2026-10-14).
+                local coast = type(Current.level.flux) == "table" and Current.level.flux.coast
+                if type(coast) == "table" then
+                    set["r.Lumen.Reflections.MaxRayIntensity"] = tonumber(coast.max_ray) or 2
+                end
                 for name, value in pairs(set) do
                     if Current.cvars[name] == nil then Current.cvars[name] = ks:GetConsoleVariableFloatValue(name) end
                     ks:ExecuteConsoleCommand(world, string.format("%s %g", name, value), getPlayerController())
@@ -3239,6 +3247,17 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     cv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
     cv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
     dom.CaptureVisibility = cv
+    -- The Landscape out of the coast's capture: it runs under the sea a
+    -- metre down, so the whole domain read as shallows, a milky square with
+    -- a hard edge against the open sea. CE's own beach (made whole for the
+    -- capture) gives the shore. The river keeps it: its banks.
+    pcall(function()
+        local land = FindFirstOf("Landscape")
+        if land and land:IsValid() then
+            local t = land.Tags
+            t[#t + 1] = tag
+        end
+    end)
     gs:FinishSpawningActor(dom, xf, 0)
     Current.actors["__flux_coast"] = dom
     -- The surface the domain made takes its waves from OceanWaveActor (B30
@@ -3323,6 +3342,22 @@ function Effects.flux(world)
                     end
                 end)
             end
+            -- The coast's `floor` (CE's sea floor slots) out of the capture as
+            -- well: a metre under the water everywhere, it made the whole
+            -- domain surf (upgrade_ce_map.flux_coast).
+            local floored = {}
+            local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+            local floor = type(spec.coast) == "table" and type(spec.coast.floor) == "table" and spec.coast.floor or {}
+            for key, slots in pairs(hidden and floor or {}) do
+                local a = Current.actors[key]
+                for _, slot in ipairs(a and a:IsValid() and slots or {}) do
+                    pcall(function()
+                        local comp = a.StaticMeshComponent
+                        floored[#floored + 1] = { comp, slot, comp:GetMaterial(slot) }
+                        comp:SetMaterial(slot, hidden)
+                    end)
+                end
+            end
             local made = {}
             if type(spec.domain) == "table" then
                 local d = spec.domain
@@ -3397,9 +3432,12 @@ function Effects.flux(world)
                 for _, u in ipairs(uncut) do
                     pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
                 end
+                for _, f in ipairs(floored) do
+                    pcall(function() f[1]:SetMaterial(f[2], f[3]) end)
+                end
             end)
-            Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it",
-                table.concat(made, ", "), tagged, #uncut))
+            Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
+                .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
         end)
         if not ok then Log("flux: " .. tostring(err)) end
     end)

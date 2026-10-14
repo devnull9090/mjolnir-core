@@ -421,15 +421,28 @@ def flux_ground(code, level):
             if f"/SM_{code}_Terrain." in str(item.get("mesh", ""))] + ["__cliff_tess"]
 
 
-def flux_coast(k, land):
+def flux_coast(k, land, code, level):
     """The sea as B30's (MJOLNIRLevelLoader Effects.fluxCoast): a coastline
     domain over the landscape (`margin` cm round it, `cell` cm cells), the
-    sea at `water` cm."""
+    sea at `water` cm. `floor`: the base maps of CE's sea floor, kept out of
+    the ground capture (`floor` slots by ground item): Death Island's lies a
+    metre under the water everywhere, so the whole domain was surf, a flat
+    milky square with a hard edge against the open sea round it."""
     x, y, w, h = land["rect"]
     margin, cell = k.get("margin", 6000.0), int(k.get("cell", 100))
     res = [int(math.ceil((w + 2 * margin) / cell / 32.0)) * 32, int(math.ceil((h + 2 * margin) / cell / 32.0)) * 32]
+    tokens = [t.lower() for t in k.get("floor", ["bitmaps_underwater"])]
+    ground = set(flux_ground(code, level))
+    floor = {}
+    for item in level.get("decor") or []:
+        if item.get("id") not in ground:
+            continue
+        for i, entry in enumerate(item.get("materials") or []):
+            base = str((entry.get("textures") or {}).get("Base", "")).lower() if isinstance(entry, dict) else ""
+            if any(t in base for t in tokens):
+                floor.setdefault(item["id"], []).append(i)
     return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
-            "height": k.get("height", 10000.0), "water": k["water"]}
+            "height": k.get("height", 10000.0), "water": k["water"], "floor": floor}
 
 
 def flux_spec(code, fx, river, level):
@@ -592,7 +605,7 @@ def stage_assemble(code, m, p):
               f"{len(level['flux']['sources'])} source(s)")
     if (m.get("flux") or {}).get("coast"):
         flux = level.setdefault("flux", {})
-        flux["coast"] = flux_coast(m["flux"]["coast"], land)
+        flux["coast"] = flux_coast(m["flux"]["coast"], land, code, level)
         flux.setdefault("ground", flux_ground(code, level))
         # The sea is Flux's: our own water mesh (SM_<code>_Water) hidden.
         flux.setdefault("hide", []).extend(item["id"] for item in level.get("decor") or []
