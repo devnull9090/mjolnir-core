@@ -4472,9 +4472,150 @@ function Footprints.stamp(world, x, y, yaw, side)
     end)
 end
 
+--- The campaign's own ground deformation (343's HaloLandscapeDeformations
+--- plugin), on a landscape level unless `landscape.deform` is false: its
+--- manager keeps a 9216-texel map over 153.6 m round the camera
+--- (MPC_DeformationGlobals DeformationCenterWP, snapped to 51.2 m), into
+--- which the brushes the game's Blueprints already carry draw: every
+--- warthog wheel and scorpion tread (T_WheelTextureElevation24, tread and
+--- all), Spartan and Elite feet, the ghost's melting. Campaign levels place
+--- the manager; ours spawns it, and registers the brushes itself (they do
+--- not find a manager that comes after them): those in the world, then each
+--- as it is made. Our landscape master reads the map as its footprints
+--- (FootRT/FootRect: the same uv), so the sand takes tracks with no re-cook.
+--- The map stands at 0.2 where nothing was drawn, so prints shade by their
+--- slope only (no occlusion). Death Island, 2026-10-14.
+Footprints.DEFORM_MANAGER = "/Game/Landscape/Deformation/BP_LandscapeDeformationManager_Configured.BP_LandscapeDeformationManager_Configured_C"
+Footprints.DEFORM_BRUSH = "/Script/HaloLandscapeDeformations.LandscapeDeformationBrushComponent"
+Footprints.DEFORM_MPC = "/HaloLandscapeDeformations/Toolkit/MPC_DeformationGlobals.MPC_DeformationGlobals"
+Footprints.DEFORM_SPAN = 15360
+Footprints.brushProps = {}
+
+--- Register one brush with the manager, once.
+function Footprints.addBrush(b)
+    local d = Footprints.deform
+    if not (d and d.manager:IsValid() and b and b:IsValid()) then return false end
+    local key = b:GetFullName()
+    if d.seen[key] or key:find("Default__", 1, true) then return false end
+    local owner = b:GetOwner()
+    if not (owner and owner:IsValid()) then return false end
+    d.seen[key] = true
+    return pcall(function() d.manager:AddLandscapeDeformationBrush(b) end)
+end
+
+--- The brush components an actor's class declares (its Blueprint variables).
+function Footprints.actorBrushes(actor)
+    local cls = actor:GetClass()
+    local name = cls:GetFName():ToString()
+    local props = Footprints.brushProps[name]
+    if not props then
+        props = {}
+        local brushClass = findObject(Footprints.DEFORM_BRUSH)
+        local k = cls
+        while k and k:IsValid() and not k:GetFullName():find("^Class /Script/") do
+            k:ForEachProperty(function(p)
+                if p:GetClass():GetFName():ToString() == "ObjectProperty" then
+                    local n = p:GetFName():ToString()
+                    local ok, pc = pcall(function() return p:GetPropertyClass() end)
+                    if ok and pc and brushClass then
+                        if pc:GetFullName() == brushClass:GetFullName() then props[#props + 1] = n end
+                    elseif n:find("LandscapeDeform") or n:find("^LDB_") or n:find("MeltingBrush") then
+                        props[#props + 1] = n
+                    end
+                end
+            end)
+            k = k:GetSuperStruct()
+        end
+        Footprints.brushProps[name] = props
+    end
+    local n = 0
+    for _, p in ipairs(props) do
+        local ok, b = pcall(function() return actor[p] end)
+        if ok and b and Footprints.addBrush(b) then n = n + 1 end
+    end
+    return n
+end
+
+function Footprints.deformStart(world)
+    local land = Current.level and Current.level.landscape
+    if not (type(land) == "table" and type(land.pbr) == "table" and land.deform ~= false) then return end
+    if Current.actors["__deform_manager"] and Current.actors["__deform_manager"]:IsValid() then return end
+    local ldl = FindFirstOf("Landscape")
+    if not (ldl and ldl:IsValid()) then return end
+    local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+    local cls = ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(Footprints.DEFORM_MANAGER)))
+    if not (cls and cls:IsValid()) then error("deformation manager class not found") end
+    local m = world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+    if not (m and m:IsValid()) then error("deformation manager did not spawn") end
+    Current.actors["__deform_manager"] = m
+    Footprints.deform = { manager = m, seen = {}, world = world:GetFullName(), cx = nil, cy = nil, land = ldl,
+        footprints = Footprints.deform and Footprints.deform.footprints or Footprints.on }
+    -- Brushes made from now on (a vehicle or player spawning), once each is
+    -- on its actor; the components that exist already, from their actors.
+    if not Footprints.watching and mayArm("deform") then
+        Footprints.watching = pcall(NotifyOnNewObject, Footprints.DEFORM_BRUSH, function(b)
+            ExecuteInGameThreadWithDelay(1000, function() pcall(Footprints.addBrush, b) end)
+        end)
+    end
+    local gs = findObject("/Script/Engine.Default__GameplayStatics")
+    local out = {}
+    gs:GetAllActorsOfClass(world, findObject("/Script/Engine.Pawn"), out)
+    local n = 0
+    for i = 1, #out do
+        pcall(function() n = n + Footprints.actorBrushes(out[i]:get()) end)
+    end
+    -- Vehicles and bipeds are not pawns: the actors of their classes.
+    for _, path in ipairs({ "BP_WarthogVehicleActor_C", "BP_ScorpionVehicleActor_C", "BP_GhostVehicleActor_C",
+        "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }) do
+        local one = FindFirstOf(path)
+        if one and one:IsValid() then
+            local all = {}
+            gs:GetAllActorsOfClass(world, one:GetClass(), all)
+            for i = 1, #all do pcall(function() n = n + Footprints.actorBrushes(all[i]:get()) end) end
+        end
+    end
+    -- Our own footprints give way to the game's.
+    Footprints.on = false
+    local v = { R = 1.0, G = 4.0, B = 1.0 / 9216.0, A = 0.0 }
+    ldl:SetLandscapeMaterialScalarParameterValue(FName("FootStrength"), 0.0)
+    ldl:SetLandscapeMaterialVectorParameterValue(FName("FootParams"), v)
+    ldl:SetLandscapeMaterialTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
+    for _, g in ipairs(Land.groundMids or {}) do
+        if g:IsValid() then
+            g:SetVectorParameterValue(FName("FootParams"), v)
+            g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
+        end
+    end
+    Log(string.format("deformation: the game's manager, %d brush(es) registered", n))
+end
+
+--- The map's centre to the sand, when the manager moves it. True while the
+--- game's deformation is on (our own footprints stand down).
+function Footprints.deformTick()
+    local d = Footprints.deform
+    if not d then return false end
+    local world = getWorld()
+    if not (world and world:GetFullName() == d.world and d.manager:IsValid()) then
+        Footprints.deform, Footprints.on = nil, d.footprints
+        return false
+    end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local c = kml:GetVectorParameterValue(world, findObject(Footprints.DEFORM_MPC), FName("DeformationCenterWP"))
+    if c.R ~= d.cx or c.G ~= d.cy then
+        d.cx, d.cy = c.R, c.G
+        local rect = { R = c.R, G = c.G, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+        d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+        for _, g in ipairs(Land.groundMids or {}) do
+            if g:IsValid() then g:SetVectorParameterValue(FName("FootRect"), rect) end
+        end
+    end
+    return true
+end
+
 --- Every player's pawn, stepping: a print each STRIDE it covers on the
 --- ground (a jump, a respawn or a teleporter is not a step).
 function Footprints.tick()
+    if Footprints.deformTick() then return end
     local land = Current.level and Current.level.landscape
     if not (Footprints.on and Current.furnished and type(land) == "table") then return end
     local world = getWorld()
@@ -4610,6 +4751,8 @@ local function spawnDecor(world)
     ok, err = pcall(Placed.decals, world)
     if not ok then Log("decals: " .. tostring(err)) end
     Land.apply(world)
+    ok, err = pcall(Footprints.deformStart, world)
+    if not ok then Log("deformation: " .. tostring(err)) end
 end
 
 --------------------------------------------------------------------------------
