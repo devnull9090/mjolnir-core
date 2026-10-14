@@ -415,6 +415,61 @@ def ce_haze(level, reach=None):
     return None
 
 
+def flux_spec(code, fx, river, level):
+    """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
+    domain round the river mesh, `fx.feeds` adding water where CE's water
+    falls in (BE_FluxMode 2, Adjust: up to the source's Z, so a feed set
+    above the water always pours), and Set sources (mode 1) holding the water
+    at CE's own level along every flat stretch. CE's stream stood 15-45 cm over Timberland's
+    bed; the feed alone, with a drain, left the flat 200 m of it a wet film
+    or a flood (2026-10-14)."""
+    pos, idx = river["positions"], river["indices"]
+    grid, cell = fx.get("grid", 1200.0), fx.get("cell", 25.0)
+    cells = {}
+    for t in range(0, len(idx), 3):
+        a, b, c = (pos[idx[t]], pos[idx[t + 1]], pos[idx[t + 2]])
+        u = [b[i] - a[i] for i in range(3)]
+        v = [c[i] - a[i] for i in range(3)]
+        n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+        length = math.sqrt(sum(x * x for x in n)) or 1.0
+        centre = [(a[i] + b[i] + c[i]) / 3.0 for i in range(3)]
+        key = (math.floor(centre[0] / grid), math.floor(centre[1] / grid))
+        cells.setdefault(key, []).append((centre, length / 2.0, abs(n[2]) / length))
+    levels = []
+    for tris in cells.values():
+        area = sum(t[1] for t in tris)
+        # The rapids (sloped water) are left to the feed: a level source
+        # on a slope floods its low side.
+        if area < fx.get("min_area", 1e4) or min(t[2] for t in tris) < 0.98:
+            continue
+        levels.append([round(sum(t[0][i] * t[1] for t in tris) / area) for i in range(3)])
+    feeds = fx.get("feeds", [])
+    sources = [{"pos": f["pos"], "scale": f.get("scale", 1.0), "volume": f.get("volume", 8.0), "mode": 2}
+               for f in feeds]
+    # No velocity on a Set source: it refills each step what its push
+    # carried off, so every one became an endless spring and the river
+    # flooded its whole domain in two minutes (2026-10-14).
+    sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1}
+                for q in levels]
+    pts = pos + [f["pos"] for f in feeds]
+    margin = fx.get("margin", 600.0)
+    lo = [min(q[i] for q in pts) - margin for i in range(2)]
+    hi = [max(q[i] for q in pts) + margin for i in range(2)]
+    # Cells in multiples of 32 per side (the simulation's thread groups).
+    res = [int(math.ceil((hi[i] - lo[i]) / cell / 32.0)) * 32 for i in range(2)]
+    height = fx.get("height", 5000.0)
+    bottom = min(q[2] for q in pts) - 300.0
+    domain = {"centre": [round((lo[0] + hi[0]) / 2), round((lo[1] + hi[1]) / 2), round(bottom + 0.75 * height)],
+              "res": res, "cell": cell, "height": height}
+    # Out of the ground capture: everything the loader spawns but CE's
+    # ground and the cliffs' copy; CE's own river mesh hidden outright.
+    ground = [item["id"] for item in level.get("decor") or []
+              if f"/SM_{code}_Terrain." in str(item.get("mesh", ""))] + ["__cliff_tess"]
+    hide = [f"__slot_mesh_{i + 1}" for i, s in enumerate(level.get("slot_meshes") or [])
+            if f"SM_{code}_River" in s.get("mesh", "")]
+    return {"domain": domain, "sources": sources, "ground": ground, "hide": hide}
+
+
 def stage_assemble(code, m, p):
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
@@ -491,6 +546,10 @@ def stage_assemble(code, m, p):
                 tex = json.dumps((entry or {}).get("textures", {}) if isinstance(entry, dict) else {}).lower()
                 if any(t in tex for t in tokens):
                     mats[i] = HIDDEN
+    if m.get("flux") and os.path.exists(river):
+        level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
+        print(f"  {code}: flux {level['flux']['domain']['res']} at {level['flux']['domain']['cell']} cm, "
+              f"{len(level['flux']['sources'])} source(s)")
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})
         water.setdefault("params", {}).update(m["water"])

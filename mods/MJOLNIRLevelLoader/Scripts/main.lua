@@ -266,6 +266,7 @@ local function resetState()
     Current.scalarMids = {}
     Current.water = nil
     Current.weatherHidden = nil
+    Current.fluxPending = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
     if Current.cvars then
@@ -3193,6 +3194,103 @@ function Effects.waterfalls(world)
     Log(string.format("waterfalls: %d of %d, %d effect(s)", n, #list, fx))
 end
 
+--- Fluid Flux over the level's rivers (level.flux, upgrade_ce_map.py
+--- flux_spec): A30's shallow-water simulation, live. `domain` { centre, res,
+--- cell, height } is the simulated rectangle (cells of `cell` cm; the area
+--- spans centre Z - 0.75 height .. + 0.25 height), `surface` the Flux surface
+--- Blueprint that draws it, `sources` [{ pos, scale, volume, mode, velocity }]
+--- its modifiers (BE_FluxMode: 0 Add, 1 Set, 2 Adjust; a source's Z is the
+--- level Set and Adjust work to, scale x 10 m its size; Duration -1 or it
+--- lasts one step). The ground is captured once, from above: every actor the
+--- loader spawned but `ground` is tagged out of it (a tree drew as a glass
+--- spike of water), and `hide` (CE's own river mesh) is hidden. It starts
+--- a few seconds in, the landscape streamed in first. Timberland, 2026-10-14.
+Effects.FLUX_DOMAIN = "/Game/FluidFlux/Simulation/Blueprints/BP_FluxSimulationDomain.BP_FluxSimulationDomain_C"
+Effects.FLUX_SOURCE = "/Game/FluidFlux/Simulation/Modifiers/BP_FluxModifierSourceActor.BP_FluxModifierSourceActor_C"
+Effects.FLUX_SURFACE = "/Game/FluidFlux/Surface/Templates/River/BP_FluxSurface_River.BP_FluxSurface_River_C"
+
+function Effects.flux(world)
+    local spec = Current.level and Current.level.flux
+    if type(spec) ~= "table" or type(spec.domain) ~= "table" then return end
+    if Current.actors["__flux_domain"] and Current.actors["__flux_domain"]:IsValid() then return end
+    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+        local a = Current.actors[key]
+        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+    end
+    if Current.fluxPending then return end
+    Current.fluxPending = true
+    local name, level = Current.worldName, Current.level
+    ExecuteInGameThreadWithDelay(tonumber(spec.delay_ms) or 4000, function()
+        local w = getWorld()
+        if not w or Current.worldName ~= name or Current.level ~= level then return end
+        Current.fluxPending = false
+        local ok, err = pcall(function()
+            local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            local gs = findObject("/Script/Engine.Default__GameplayStatics")
+            local function cls(path)
+                local c = ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
+                if not (c and c:IsValid()) then error("class not found: " .. path) end
+                return c
+            end
+            local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+            local tag, keep = FName("FluxHide"), {}
+            for _, key in ipairs(type(spec.ground) == "table" and spec.ground or {}) do keep[key] = true end
+            local tagged = 0
+            for key, a in pairs(Current.actors) do
+                if not keep[key] then
+                    pcall(function()
+                        local t = a.Tags
+                        t[#t + 1] = tag
+                        tagged = tagged + 1
+                    end)
+                end
+            end
+            local d = spec.domain
+            local c = { X = origin[1] + d.centre[1], Y = origin[2] + d.centre[2], Z = origin[3] + d.centre[3] }
+            local surf = w:SpawnActor(cls(spec.surface or Effects.FLUX_SURFACE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
+            Current.actors["__flux_surface"] = surf
+            local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = c, Scale3D = { X = 1, Y = 1, Z = 1 } }
+            local dom = gs:BeginDeferredActorSpawnFromClass(w, cls(Effects.FLUX_DOMAIN), xf, 1, nil, 0)
+            dom.AreaResolution = { X = d.res[1], Y = d.res[2] }
+            dom.AreaWorldPixelSize = d.cell
+            dom.AreaWorldHeight = d.height
+            dom.SurfaceActorReference = surf
+            -- One capture: the default re-captures every 0.4 s.
+            dom.HeightmapUpdateFrequency = 1000000.0
+            local sv = dom.SceneVisibility
+            sv.ActorsWithTags_47_FB1C9D8B486CC31A912C34BC8E3BB996 = tag
+            sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
+            sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
+            dom.SceneVisibility = sv
+            gs:FinishSpawningActor(dom, xf, 0)
+            Current.actors["__flux_domain"] = dom
+            local src, comps = cls(Effects.FLUX_SOURCE), {}
+            for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
+                local p, sc = s.pos, tonumber(s.scale) or 1.0
+                local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                    Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
+                    Scale3D = { X = sc, Y = sc, Z = sc } }
+                local a = gs:BeginDeferredActorSpawnFromClass(w, src, t, 1, nil, 0)
+                gs:FinishSpawningActor(a, t, 0)
+                local m = a.FluxModifierSource
+                m.Duration = -1.0
+                m.Volume = tonumber(s.volume) or 1.0
+                m.Mode = tonumber(s.mode) or 2
+                if type(s.velocity) == "table" then m.Velocity = { X = s.velocity[1], Y = s.velocity[2] } end
+                Current.actors["__flux_source_" .. i] = a
+                comps[#comps + 1] = m
+            end
+            dom:FindWorldModifiers(true)
+            -- Volume, mode and velocity reach the simulation through the
+            -- source's material, which only UpdateMaterial writes.
+            for _, m in ipairs(comps) do m:UpdateMaterial() end
+            Log(string.format("flux: %dx%d at %g cm, %d source(s), %d actor(s) out of the ground capture",
+                d.res[1], d.res[2], d.cell, #comps, tagged))
+        end)
+        if not ok then Log("flux: " .. tostring(err)) end
+    end)
+end
+
 --- CE's placed lights (level.lights, tools/level/upgrade_ce_map.py
 --- ce_lights: a base's wall sconces and floor lamps), as shadowed point
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
@@ -4336,6 +4434,8 @@ local function spawnDecor(world)
     if not ok then Log("effects: " .. tostring(err)) end
     ok, err = pcall(Effects.waterfalls, world)
     if not ok then Log("waterfalls: " .. tostring(err)) end
+    ok, err = pcall(Effects.flux, world)
+    if not ok then Log("flux: " .. tostring(err)) end
     ok, err = pcall(Placed.lights, world)
     if not ok then Log("lights: " .. tostring(err)) end
     ok, err = pcall(Placed.decals, world)
