@@ -1357,7 +1357,7 @@ return m * saturate((h - Edge) * 100.0);
 # central differences a texel apart, Surface.y strength) and the micro
 # detail's, over CE's bump map; seams (dark in the base) are rougher than
 # plate; the Forerunner kit's scratch mask (Wear, world space, Surface.w)
-# wears the plate brighter and smoother; rain streaks run down the walls.
+# wears the plate brighter and smoother.
 # Roughness (Surface.z the plate's) and specular are the material's again
 # (0 and 1 otherwise, CE's matte). Texture2DSample only (the hit shaders).
 SURFACE_CODE = r"""
@@ -1398,16 +1398,12 @@ Spec = 0.35 * Surface.x * (1.0 - paint);
 return n;
 """
 
-# Wear and weathering into the base colour (Surface as SURFACE_CODE): the
-# scratched plate brighter, a wall streaked darker below its ledges.
+# Wear into the base colour (Surface as SURFACE_CODE): the scratched plate
+# brighter. (Weathering streaks, 45 cm columns darkened floor to ceiling at
+# random, drew as black shadows down Sidewinder's walls, 2026-10-13: gone.)
 SURFACE_BASE_CODE = r"""
 if (Surface.x <= 0.0) return B;
-float3 nw = normalize(Nw);
-float wall = 1.0 - smoothstep(0.35, 0.7, abs(nw.z));
-float h = frac(sin(dot(floor(float2((W.x + W.y) / 45.0, 0.0)), float2(127.1, 311.7))) * 43758.5453);
-float run = smoothstep(0.55, 0.95, h) * (0.6 + 0.4 * sin(W.z / 90.0 + h * 6.28));
 float4 o = B;
-o.rgb *= 1.0 - run * wall * 0.22 * Surface.x;
 o.rgb = lerp(o.rgb, saturate(o.rgb * 1.35 + 0.06), Wear * 0.6);
 return o;
 """
