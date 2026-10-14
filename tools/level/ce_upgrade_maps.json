@@ -90,7 +90,7 @@
                  "pos": [4120, -15520, -4560], "rot": [0, 90, 0]},
                 {"system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
                  "pos": [4140, -15560, -4600], "rot": [0, 90, 0]}]}]},
-  "flux": {"feeds": [{"pos": [4500, -17100, -3650], "scale": 0.5, "volume": 1, "mode": 0}]},
+  "flux": {"feeds": [{"pos": [4500, -17100, -3650], "scale": 0.5, "volume": 2, "mode": 0}]},
   "haze": "ce",
   "hub": "ce-timberland"
  }

@@ -448,7 +448,8 @@ def flux_spec(code, fx, river, level):
     # it, so the water runs to the lip and pours over: Adjust at the lip held
     # a column of water to its Z over the void, drawn as a dark block, and a
     # feed at the lip pooled on the plateau behind it (Timberland, 2026-10-14).
-    # Add has no level to stop at: volume 3 there flooded the gorge, 1 runs.
+    # Add has no level to stop at: volume 3 there flooded the gorge, 1 ran
+    # thin, 2 fills the lip.
     sources = [{"pos": f["pos"], "scale": f.get("scale", 1.0), "volume": f.get("volume", 8.0),
                 "mode": f.get("mode", 2)} for f in feeds]
     # No velocity on a Set source: it refills each step what its push
