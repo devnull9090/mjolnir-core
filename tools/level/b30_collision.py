@@ -315,8 +315,6 @@ def main():
     skip = set()
     for item in swap.get("decor", []) if "swap" in kinds else []:
         ident = str(item.get("id", ""))
-        if item.get("ce_collision"):
-            continue  # CE's own collision stays (scenery_swap.py conifers)
         if ident.startswith("swap_"):
             skip.add(int(ident.split("_")[1]))
         material = material_for(item["mesh"])

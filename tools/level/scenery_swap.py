@@ -70,11 +70,6 @@ SHRUBS = [PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_C
           PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_Combined_B"]
 FERNS = [PLANTS + f"Fern/SM_Fern_0{i}" for i in (1, 2, 3, 4, 5, 6)]
 BROADLEAF = [PLANTS + f"Taro/SM_Taro_{i:02d}" for i in (2, 3, 6, 7, 8, 10)]
-# CE's green pines (Timberland) as the game's dawn redwoods: whole trees in
-# one mesh each, needles and all (B30's Kuenovo are broadleaf, B40's firs
-# dead and snowed on).
-CONIFERS = ["/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_A/SM_Tree_Metasequoia_A",
-            "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_B/SM_Tree_Metasequoia_B"]
 
 # CE scenery (substring of the tag path) -> what stands in for it. Tree
 # variants by the CE tree's character; the rest by kind.
@@ -85,7 +80,9 @@ RULES = [
     ("tree_leafy", ("tree", ["Lrg_A", "Lrg_B", "Lrg_C", "Lrg_D"])),
     ("tree_desert_whitebark", ("tree", ["TwistedThick_A", "TwistedThick_B"])),
     ("tree_desert_dead", ("tree", ["TwistedLean_A"])),
-    ("tree_pine", ("conifer", CONIFERS)),
+    # CE's green pines (Timberland) as A30's pines, from A30's cells
+    # (`recipes --prefix /Pine/`): B30's Kuenovo are broadleaf.
+    ("tree_pine", ("tree", ["Tree_Pine"])),
     ("boulder_granite_gigantic", ("bigrock", None)),
     ("boulder", ("rock", None)),
     ("rock", ("rock", None)),
@@ -387,6 +384,7 @@ def swap(a):
     snow = a.biome == "snow"
     rules = SNOW["rules"] if snow else RULES
     decor, replaced, trees, leaves, rock_spots = [], collections.Counter(), [], [], []
+    leaf_meshes = set()
     hide_shaders = set()
     hide_tokens = set()
     for n, e in enumerate(placement["entries"]):
@@ -409,6 +407,7 @@ def swap(a):
         if kind == "tree":
             variant = pick([v for v in options or [] if v in recipes] or list(recipes), key)
             r = recipes[variant]
+            leaf_meshes.add(r.get("leaf_mesh", LEAVES))
             s = ext[2] / max(r["height"], 1.0)
             trees.append((x, y, z, ext[2]))
             c, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
@@ -426,11 +425,17 @@ def swap(a):
                         "pos": [round(x + ox * c - oy * sn, 1), round(y + ox * sn + oy * c, 1), round(z + oz, 1)],
                         "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
                         "scalars": TREE_CALM}
-                if snow:
-                    # Dead firs: static (no wind; MJOLNIRLevelLoader decor
+                if r.get("static"):
+                    # A30's pines: still, and in their own materials as
+                    # they are (TREE_CALM's Kuenovo parameters drew their
+                    # bark and branch tips white, 2026-10-14).
+                    item.pop("scalars", None)
+                if snow or r.get("static"):
+                    # Dead firs and A30's pines: static (no wind; MJOLNIRLevelLoader decor
                     # `static`): swaying, they cost a ray tracing rebuild a
-                    # frame and their shadows jumped.
-                    item["materials"] = [object_path(SNOW["part_material"])]
+                    # frame and their shadows jumped. The firs in B40's snow.
+                    if snow:
+                        item["materials"] = [object_path(SNOW["part_material"])]
                     item["static"] = True
                 decor.append(item)
         else:
@@ -449,12 +454,7 @@ def swap(a):
             bx = b["max"][0] - b["min"][0]
             by = b["max"][1] - b["min"][1]
             bz = b["max"][2] - b["min"][2]
-            if kind == "conifer":
-                # The CE tree's height, its proportions the redwood's own,
-                # its foot on the CE tree's.
-                sx = sy = sz = ext[2] / max(bz, 1.0)
-                zc = z + base - b["min"][2] * sz
-            elif kind in ("rock", "bigrock"):
+            if kind in ("rock", "bigrock"):
                 # Its height CE's (the top where CE's was: a CE boulder is
                 # mostly buried, and its visible part is what reads), its
                 # width fitted within 40% of that so it is not squashed.
@@ -467,17 +467,9 @@ def swap(a):
                 # its own (CE's broadleaf is 4 m across, a taro 1).
                 sx = sy = sz = min(max(width / max(max(bx, by), 1.0), ext[2] / max(bz, 1.0)), 2.5)
                 zc = z + base - b["min"][2] * sz
-            item = {"id": f"swap_{n}", "mesh": object_path(mesh),
-                    "pos": [round(x + cen[0], 1), round(y + cen[1], 1), round(zc, 1)],
-                    "rot": [0.0, round(yaw, 1), 0.0], "scale": [round(sx, 3), round(sy, 3), round(sz, 3)]}
-            if kind == "conifer":
-                # Still (no wind: a swaying tree is rebuilt for ray tracing
-                # every frame), and CE's own trunk keeps colliding
-                # (b30_collision.py): a hull of the whole tree would be a
-                # cone of needles to walk into.
-                item["static"] = True
-                item["ce_collision"] = True
-            decor.append(item)
+            decor.append({"id": f"swap_{n}", "mesh": object_path(mesh),
+                          "pos": [round(x + cen[0], 1), round(y + cen[1], 1), round(zc, 1)],
+                          "rot": [0.0, round(yaw, 1), 0.0], "scale": [round(sx, 3), round(sy, 3), round(sz, 3)]})
             if kind in ("rock", "bigrock"):
                 rock_spots.append((x + cen[0], y + cen[1], z))
         replaced[asset.split("\\")[-1]] += 1
@@ -496,7 +488,15 @@ def swap(a):
         fol = foliage_points(a.foliage, os.path.join(os.path.dirname(a.foliage), "foliage.bin"))
         effects = make_effects(fol, a.sea, trees)
         print(f"{len(effects['placed'])} effect(s) placed")
-    leaf_group = {"mesh": object_path(SNOW["leaves"] if snow else LEAVES), "records": leaves, "scalars": TREE_CALM}
+    # One leaf mesh a map: the trees' own (a recipe's `leaf_mesh`, A30's
+    # pine branches), B30's Kuenovo branch by default.
+    if len(leaf_meshes) > 1:
+        print(f"  trees with different leaf meshes {sorted(leaf_meshes)}: the first draws all their leaves")
+    leaf_mesh = SNOW["leaves"] if snow else (sorted(leaf_meshes)[0] if leaf_meshes else LEAVES)
+    leaf_group = {"mesh": object_path(leaf_mesh), "records": leaves, "scalars": TREE_CALM}
+    if leaf_mesh != LEAVES and not snow:
+        leaf_group["static"] = True
+        leaf_group.pop("scalars", None)
     if snow:
         leaf_group["material"] = object_path(SNOW["leaves_material"])
         leaf_group["static"] = True

@@ -6216,31 +6216,1445 @@
 "verts": 1544
 },
 {
-"path": "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_A/SM_Tree_Metasequoia_A.SM_Tree_Metasequoia_A",
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_10.SM_Tree_Pine_A_Big_10",
 "min": [
--1296.625,
--1231.125,
--976.5
+-420.25,
+-272.0,
+-310.75
 ],
 "max": [
-1243.875,
-1249.375,
-9042.875
+39.3125,
+264.6875,
+56.8125
 ],
-"verts": 472493
+"verts": 662
 },
 {
-"path": "/Game/Env/Bio/Tree/Metasequoia/Tree_Metasequoia_B/SM_Tree_Metasequoia_B.SM_Tree_Metasequoia_B",
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_100.SM_Tree_Pine_A_Big_100",
 "min": [
--1546.0625,
--1534.5625,
--983.875
+-43.375,
+-957.8125,
+-847.25
 ],
 "max": [
-1350.125,
-1333.25,
-8017.0625
+2830.3125,
+1474.0625,
+180.6875
 ],
-"verts": 395546
+"verts": 3931
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_11.SM_Tree_Pine_A_Big_11",
+"min": [
+-609.8125,
+-45.25,
+-1239.75
+],
+"max": [
+527.6875,
+1946.5625,
+54.75
+],
+"verts": 5941
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_12.SM_Tree_Pine_A_Big_12",
+"min": [
+-36.25,
+-881.875,
+-1068.8125
+],
+"max": [
+2031.1875,
+493.25,
+58.6875
+],
+"verts": 4824
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_13.SM_Tree_Pine_A_Big_13",
+"min": [
+-237.375,
+-721.9375,
+-316.125
+],
+"max": [
+175.6875,
+44.0,
+57.25
+],
+"verts": 1595
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_14.SM_Tree_Pine_A_Big_14",
+"min": [
+-1195.5625,
+-61.3125,
+-1221.8125
+],
+"max": [
+53.9375,
+1259.875,
+102.0
+],
+"verts": 3628
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_15.SM_Tree_Pine_A_Big_15",
+"min": [
+-61.3125,
+-68.8125,
+-630.875
+],
+"max": [
+881.375,
+954.75,
+79.5
+],
+"verts": 2174
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_16.SM_Tree_Pine_A_Big_16",
+"min": [
+-62.875,
+-624.0625,
+-398.25
+],
+"max": [
+542.1875,
+66.625,
+86.25
+],
+"verts": 852
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_17.SM_Tree_Pine_A_Big_17",
+"min": [
+-692.0625,
+-754.8125,
+-558.9375
+],
+"max": [
+72.25,
+75.375,
+101.9375
+],
+"verts": 2643
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_18.SM_Tree_Pine_A_Big_18",
+"min": [
+-2341.1875,
+-445.25,
+-1700.9375
+],
+"max": [
+48.9375,
+891.25,
+81.5625
+],
+"verts": 6044
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_19.SM_Tree_Pine_A_Big_19",
+"min": [
+-419.25,
+-41.3125,
+-834.25
+],
+"max": [
+500.3125,
+1538.125,
+64.4375
+],
+"verts": 4665
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_2.SM_Tree_Pine_A_Big_2",
+"min": [
+-70.0,
+-38.0625,
+-77.0625
+],
+"max": [
+152.125,
+244.75,
+57.6875
+],
+"verts": 565
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_20.SM_Tree_Pine_A_Big_20",
+"min": [
+-53.0,
+-532.3125,
+-714.125
+],
+"max": [
+1109.125,
+442.3125,
+76.9375
+],
+"verts": 4011
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_21.SM_Tree_Pine_A_Big_21",
+"min": [
+-753.125,
+-2411.75,
+-1327.0625
+],
+"max": [
+645.625,
+43.375,
+74.375
+],
+"verts": 7474
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_22.SM_Tree_Pine_A_Big_22",
+"min": [
+-1022.8125,
+-57.8125,
+-817.75
+],
+"max": [
+61.875,
+968.625,
+88.0
+],
+"verts": 2340
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_23.SM_Tree_Pine_A_Big_23",
+"min": [
+-70.25,
+-67.0,
+-800.3125
+],
+"max": [
+1314.75,
+1295.75,
+89.1875
+],
+"verts": 4835
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_24.SM_Tree_Pine_A_Big_24",
+"min": [
+-65.125,
+-1599.5625,
+-1175.6875
+],
+"max": [
+1339.6875,
+63.3125,
+78.1875
+],
+"verts": 6013
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_25.SM_Tree_Pine_A_Big_25",
+"min": [
+-1792.75,
+-1538.375,
+-1051.5
+],
+"max": [
+80.375,
+76.125,
+98.125
+],
+"verts": 5195
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_26.SM_Tree_Pine_A_Big_26",
+"min": [
+-1580.875,
+-543.125,
+-943.6875
+],
+"max": [
+68.5,
+387.625,
+96.375
+],
+"verts": 4750
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_27.SM_Tree_Pine_A_Big_27",
+"min": [
+-672.75,
+-63.6875,
+-1171.125
+],
+"max": [
+806.6875,
+2134.875,
+107.375
+],
+"verts": 5690
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_28.SM_Tree_Pine_A_Big_28",
+"min": [
+-72.0,
+-642.625,
+-1237.25
+],
+"max": [
+1326.8125,
+569.9375,
+118.1875
+],
+"verts": 2189
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_29.SM_Tree_Pine_A_Big_29",
+"min": [
+-554.3125,
+-2230.0625,
+-1119.6875
+],
+"max": [
+736.0625,
+71.6875,
+99.375
+],
+"verts": 4807
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_3.SM_Tree_Pine_A_Big_3",
+"min": [
+-45.5625,
+-190.0625,
+-195.6875
+],
+"max": [
+311.3125,
+208.625,
+72.375
+],
+"verts": 732
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_30.SM_Tree_Pine_A_Big_30",
+"min": [
+-1117.375,
+-81.125,
+-971.5625
+],
+"max": [
+86.4375,
+1184.25,
+117.8125
+],
+"verts": 2993
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_31.SM_Tree_Pine_A_Big_31",
+"min": [
+-78.4375,
+-83.375,
+-1501.25
+],
+"max": [
+1875.0,
+1678.4375,
+104.3125
+],
+"verts": 5450
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_32.SM_Tree_Pine_A_Big_32",
+"min": [
+-75.3125,
+-1504.0,
+-1389.375
+],
+"max": [
+1586.25,
+78.0625,
+113.4375
+],
+"verts": 5180
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_33.SM_Tree_Pine_A_Big_33",
+"min": [
+-2073.125,
+-2137.0,
+-1445.9375
+],
+"max": [
+66.125,
+76.5625,
+102.0625
+],
+"verts": 5460
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_34.SM_Tree_Pine_A_Big_34",
+"min": [
+-2102.8125,
+-711.375,
+-1303.0
+],
+"max": [
+97.625,
+1010.3125,
+149.0
+],
+"verts": 4657
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_35.SM_Tree_Pine_A_Big_35",
+"min": [
+-421.1875,
+-65.125,
+-1071.8125
+],
+"max": [
+810.875,
+1693.5625,
+114.625
+],
+"verts": 3351
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_36.SM_Tree_Pine_A_Big_36",
+"min": [
+-103.9375,
+-698.6875,
+-1100.375
+],
+"max": [
+1963.4375,
+837.1875,
+148.6875
+],
+"verts": 2980
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_37.SM_Tree_Pine_A_Big_37",
+"min": [
+-635.6875,
+-1583.375,
+-1043.8125
+],
+"max": [
+665.75,
+97.0,
+155.4375
+],
+"verts": 3488
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_38.SM_Tree_Pine_A_Big_38",
+"min": [
+-1408.4375,
+-94.0625,
+-937.5625
+],
+"max": [
+120.8125,
+1411.625,
+142.125
+],
+"verts": 4777
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_39.SM_Tree_Pine_A_Big_39",
+"min": [
+-120.25,
+-103.875,
+-1689.9375
+],
+"max": [
+1809.0,
+2183.25,
+143.4375
+],
+"verts": 4052
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_4.SM_Tree_Pine_A_Big_4",
+"min": [
+-161.5625,
+-379.0,
+-195.4375
+],
+"max": [
+196.8125,
+41.5,
+96.0
+],
+"verts": 1139
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_40.SM_Tree_Pine_A_Big_40",
+"min": [
+-98.25,
+-2339.3125,
+-2098.3125
+],
+"max": [
+2404.9375,
+84.1875,
+110.25
+],
+"verts": 10281
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_41.SM_Tree_Pine_A_Big_41",
+"min": [
+-1635.1875,
+-1576.875,
+-1830.9375
+],
+"max": [
+102.0,
+98.25,
+116.4375
+],
+"verts": 7952
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_42.SM_Tree_Pine_A_Big_42",
+"min": [
+-2444.9375,
+-952.75,
+-1265.8125
+],
+"max": [
+93.875,
+662.375,
+168.4375
+],
+"verts": 5048
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_43.SM_Tree_Pine_A_Big_43",
+"min": [
+-561.5625,
+-110.4375,
+-1120.1875
+],
+"max": [
+728.75,
+1540.4375,
+165.0625
+],
+"verts": 4227
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_44.SM_Tree_Pine_A_Big_44",
+"min": [
+-110.8125,
+-745.8125,
+-2300.8125
+],
+"max": [
+2754.1875,
+1143.625,
+187.125
+],
+"verts": 6500
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_45.SM_Tree_Pine_A_Big_45",
+"min": [
+-820.125,
+-3177.1875,
+-1989.125
+],
+"max": [
+874.125,
+108.75,
+157.5625
+],
+"verts": 6728
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_46.SM_Tree_Pine_A_Big_46",
+"min": [
+-1371.4375,
+-2004.25,
+-1227.125
+],
+"max": [
+72.5,
+52.6875,
+74.25
+],
+"verts": 10319
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_47.SM_Tree_Pine_A_Big_47",
+"min": [
+-1535.75,
+-59.8125,
+-1719.5625
+],
+"max": [
+62.5,
+1812.25,
+110.5625
+],
+"verts": 11185
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_48.SM_Tree_Pine_A_Big_48",
+"min": [
+-63.0,
+-100.5,
+-1271.625
+],
+"max": [
+2308.6875,
+805.25,
+133.3125
+],
+"verts": 5875
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_49.SM_Tree_Pine_A_Big_49",
+"min": [
+-1777.8125,
+-486.25,
+-1166.875
+],
+"max": [
+89.625,
+528.5,
+106.1875
+],
+"verts": 6102
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_5.SM_Tree_Pine_A_Big_5",
+"min": [
+-560.25,
+-48.625,
+-377.25
+],
+"max": [
+49.5,
+644.0,
+73.875
+],
+"verts": 2387
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_50.SM_Tree_Pine_A_Big_50",
+"min": [
+-71.125,
+-45.75,
+-939.625
+],
+"max": [
+705.125,
+1816.5,
+103.375
+],
+"verts": 7348
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_51.SM_Tree_Pine_A_Big_51",
+"min": [
+-43.125,
+-1230.125,
+-807.3125
+],
+"max": [
+1139.5625,
+60.75,
+98.0
+],
+"verts": 6399
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_52.SM_Tree_Pine_A_Big_52",
+"min": [
+-1178.3125,
+-1519.875,
+-991.9375
+],
+"max": [
+46.3125,
+28.5625,
+172.4375
+],
+"verts": 9747
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_53.SM_Tree_Pine_A_Big_53",
+"min": [
+-1173.6875,
+-84.25,
+-1296.1875
+],
+"max": [
+65.75,
+1849.0,
+103.375
+],
+"verts": 6300
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_54.SM_Tree_Pine_A_Big_54",
+"min": [
+-35.8125,
+-241.75,
+-856.1875
+],
+"max": [
+1432.625,
+758.375,
+69.625
+],
+"verts": 4356
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_55.SM_Tree_Pine_A_Big_55",
+"min": [
+-2467.375,
+-436.8125,
+-1408.875
+],
+"max": [
+18.6875,
+616.9375,
+80.0
+],
+"verts": 19683
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_56.SM_Tree_Pine_A_Big_56",
+"min": [
+-29.1875,
+-16.25,
+-1194.75
+],
+"max": [
+1352.9375,
+2324.375,
+178.375
+],
+"verts": 19340
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_57.SM_Tree_Pine_A_Big_57",
+"min": [
+-44.625,
+-1788.625,
+-925.25
+],
+"max": [
+2090.0625,
+225.625,
+204.8125
+],
+"verts": 15957
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_58.SM_Tree_Pine_A_Big_58",
+"min": [
+-1299.6875,
+-427.3125,
+-1304.1875
+],
+"max": [
+337.1875,
+1432.0,
+84.0
+],
+"verts": 7437
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_59.SM_Tree_Pine_A_Big_59",
+"min": [
+-253.3125,
+-575.9375,
+-1032.5625
+],
+"max": [
+1693.5,
+989.8125,
+272.4375
+],
+"verts": 6417
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_6.SM_Tree_Pine_A_Big_6",
+"min": [
+-213.4375,
+-93.25,
+-74.8125
+],
+"max": [
+29.6875,
+36.6875,
+53.0
+],
+"verts": 102
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_60.SM_Tree_Pine_A_Big_60",
+"min": [
+-1190.375,
+-615.0,
+-764.5
+],
+"max": [
+103.875,
+707.125,
+92.625
+],
+"verts": 2930
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_61.SM_Tree_Pine_A_Big_61",
+"min": [
+-477.4375,
+-254.1875,
+-756.0
+],
+"max": [
+982.375,
+1212.625,
+205.4375
+],
+"verts": 4848
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_62.SM_Tree_Pine_A_Big_62",
+"min": [
+-243.5625,
+-1070.125,
+-566.8125
+],
+"max": [
+1164.1875,
+275.1875,
+154.6875
+],
+"verts": 4058
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_63.SM_Tree_Pine_A_Big_63",
+"min": [
+-1137.6875,
+-1528.5,
+-722.125
+],
+"max": [
+348.625,
+87.0,
+364.875
+],
+"verts": 4251
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_64.SM_Tree_Pine_A_Big_64",
+"min": [
+-1233.6875,
+-171.25,
+-1117.4375
+],
+"max": [
+342.875,
+1507.375,
+92.875
+],
+"verts": 6691
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_65.SM_Tree_Pine_A_Big_65",
+"min": [
+-67.4375,
+-402.4375,
+-594.3125
+],
+"max": [
+1067.3125,
+710.3125,
+107.0625
+],
+"verts": 2059
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_66.SM_Tree_Pine_A_Big_66",
+"min": [
+-1501.375,
+-456.125,
+-761.6875
+],
+"max": [
+38.9375,
+569.125,
+72.4375
+],
+"verts": 1994
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_67.SM_Tree_Pine_A_Big_67",
+"min": [
+-515.1875,
+-36.1875,
+-975.6875
+],
+"max": [
+978.8125,
+1543.25,
+150.5
+],
+"verts": 3622
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_68.SM_Tree_Pine_A_Big_68",
+"min": [
+-336.125,
+-1025.875,
+-590.5625
+],
+"max": [
+1197.5625,
+206.125,
+201.4375
+],
+"verts": 2382
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_69.SM_Tree_Pine_A_Big_69",
+"min": [
+-822.5625,
+-982.3125,
+-597.25
+],
+"max": [
+422.3125,
+148.0625,
+87.375
+],
+"verts": 1473
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_7.SM_Tree_Pine_A_Big_7",
+"min": [
+-51.9375,
+-51.1875,
+-240.0
+],
+"max": [
+337.8125,
+345.5625,
+45.0625
+],
+"verts": 1284
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_70.SM_Tree_Pine_A_Big_70",
+"min": [
+-1280.625,
+-44.875,
+-683.8125
+],
+"max": [
+145.5625,
+1181.875,
+277.25
+],
+"verts": 2801
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_71.SM_Tree_Pine_A_Big_71",
+"min": [
+-51.0625,
+-528.4375,
+-568.5625
+],
+"max": [
+1214.8125,
+899.4375,
+224.5
+],
+"verts": 2314
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_72.SM_Tree_Pine_A_Big_72",
+"min": [
+-1553.75,
+-859.375,
+-771.25
+],
+"max": [
+58.0625,
+561.9375,
+374.875
+],
+"verts": 3244
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_73.SM_Tree_Pine_A_Big_73",
+"min": [
+-54.25,
+-395.0625,
+-826.6875
+],
+"max": [
+1242.75,
+1867.6875,
+136.1875
+],
+"verts": 2714
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_74.SM_Tree_Pine_A_Big_74",
+"min": [
+-74.1875,
+-1192.125,
+-920.4375
+],
+"max": [
+1448.5625,
+247.0625,
+155.0625
+],
+"verts": 3351
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_75.SM_Tree_Pine_A_Big_75",
+"min": [
+-1116.5625,
+-925.1875,
+-984.8125
+],
+"max": [
+171.0,
+59.625,
+95.0625
+],
+"verts": 1929
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_76.SM_Tree_Pine_A_Big_76",
+"min": [
+-978.25,
+-248.0,
+-375.4375
+],
+"max": [
+323.0625,
+1096.9375,
+321.6875
+],
+"verts": 1259
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_77.SM_Tree_Pine_A_Big_77",
+"min": [
+-161.6875,
+-150.625,
+-614.0
+],
+"max": [
+1853.25,
+986.5625,
+179.4375
+],
+"verts": 3303
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_78.SM_Tree_Pine_A_Big_78",
+"min": [
+-1294.9375,
+-476.5625,
+-692.4375
+],
+"max": [
+48.75,
+820.625,
+80.5625
+],
+"verts": 1460
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_79.SM_Tree_Pine_A_Big_79",
+"min": [
+-283.625,
+-50.625,
+-482.8125
+],
+"max": [
+1038.0625,
+1618.6875,
+303.125
+],
+"verts": 3306
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_8.SM_Tree_Pine_A_Big_8",
+"min": [
+-40.75,
+-324.75,
+-216.8125
+],
+"max": [
+393.5,
+40.875,
+57.9375
+],
+"verts": 1281
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_80.SM_Tree_Pine_A_Big_80",
+"min": [
+-75.5625,
+-1490.5625,
+-1019.0625
+],
+"max": [
+1455.25,
+465.8125,
+174.375
+],
+"verts": 3445
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_81.SM_Tree_Pine_A_Big_81",
+"min": [
+-1266.0625,
+-943.1875,
+-596.5
+],
+"max": [
+363.9375,
+189.6875,
+296.8125
+],
+"verts": 1620
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_82.SM_Tree_Pine_A_Big_82",
+"min": [
+-1362.625,
+-120.1875,
+-711.5
+],
+"max": [
+225.1875,
+1269.5625,
+266.375
+],
+"verts": 2090
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_83.SM_Tree_Pine_A_Big_83",
+"min": [
+-91.5,
+-372.375,
+-511.875
+],
+"max": [
+1566.25,
+867.625,
+353.25
+],
+"verts": 1847
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_84.SM_Tree_Pine_A_Big_84",
+"min": [
+-1258.1875,
+-589.4375,
+-828.3125
+],
+"max": [
+71.4375,
+749.9375,
+120.0625
+],
+"verts": 1930
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_85.SM_Tree_Pine_A_Big_85",
+"min": [
+-433.25,
+-53.5625,
+-876.1875
+],
+"max": [
+1228.625,
+2112.6875,
+331.5
+],
+"verts": 2837
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_86.SM_Tree_Pine_A_Big_86",
+"min": [
+-84.0625,
+-1725.25,
+-959.3125
+],
+"max": [
+1320.625,
+49.0625,
+77.25
+],
+"verts": 3044
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_87.SM_Tree_Pine_A_Big_87",
+"min": [
+-1395.0,
+-2046.75,
+-1168.5
+],
+"max": [
+123.5,
+77.8125,
+197.1875
+],
+"verts": 3286
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_88.SM_Tree_Pine_A_Big_88",
+"min": [
+-1127.75,
+-148.5625,
+-691.125
+],
+"max": [
+301.375,
+1458.8125,
+210.625
+],
+"verts": 2118
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_89.SM_Tree_Pine_A_Big_89",
+"min": [
+-72.875,
+-236.0,
+-863.9375
+],
+"max": [
+1681.0,
+916.5,
+133.125
+],
+"verts": 3047
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_9.SM_Tree_Pine_A_Big_9",
+"min": [
+-133.0625,
+-122.875,
+-50.25
+],
+"max": [
+43.5,
+42.625,
+36.5625
+],
+"verts": 114
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_90.SM_Tree_Pine_A_Big_90",
+"min": [
+-2134.5625,
+-783.75,
+-933.3125
+],
+"max": [
+55.125,
+817.3125,
+195.5
+],
+"verts": 3463
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_91.SM_Tree_Pine_A_Big_91",
+"min": [
+-653.0,
+-81.75,
+-777.625
+],
+"max": [
+1091.5625,
+2047.6875,
+283.875
+],
+"verts": 2614
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_92.SM_Tree_Pine_A_Big_92",
+"min": [
+-91.9375,
+-1393.0,
+-645.5
+],
+"max": [
+1555.125,
+158.8125,
+342.8125
+],
+"verts": 2252
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_93.SM_Tree_Pine_A_Big_93",
+"min": [
+-760.125,
+-1233.4375,
+-674.8125
+],
+"max": [
+528.4375,
+104.4375,
+256.0
+],
+"verts": 1792
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_94.SM_Tree_Pine_A_Big_94",
+"min": [
+-1413.5,
+-92.0625,
+-690.9375
+],
+"max": [
+534.75,
+1263.0,
+271.375
+],
+"verts": 1696
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_95.SM_Tree_Pine_A_Big_95",
+"min": [
+-143.4375,
+-559.1875,
+-407.0625
+],
+"max": [
+1473.625,
+1269.375,
+586.5625
+],
+"verts": 1710
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_96.SM_Tree_Pine_A_Big_96",
+"min": [
+-1571.1875,
+-681.5625,
+-681.5625
+],
+"max": [
+50.375,
+1287.625,
+153.9375
+],
+"verts": 1907
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_97.SM_Tree_Pine_A_Big_97",
+"min": [
+-400.9375,
+-72.5,
+-809.8125
+],
+"max": [
+1536.8125,
+2533.1875,
+296.1875
+],
+"verts": 3978
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_98.SM_Tree_Pine_A_Big_98",
+"min": [
+-138.875,
+-1854.625,
+-615.8125
+],
+"max": [
+2217.0,
+77.25,
+755.75
+],
+"verts": 3418
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_99.SM_Tree_Pine_A_Big_99",
+"min": [
+-1604.875,
+-2110.6875,
+-934.75
+],
+"max": [
+317.3125,
+401.25,
+246.0
+],
+"verts": 3095
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5.SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5",
+"min": [
+-22.125,
+-22.3125,
+-1.75
+],
+"max": [
+47.8125,
+72.875,
+946.1875
+],
+"verts": 55
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Trunk.SM_Tree_Pine_A_Trunk",
+"min": [
+-1020.875,
+-1054.25,
+-1696.5625
+],
+"max": [
+1176.5625,
+1082.625,
+20738.812
+],
+"verts": 287812
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5.SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5",
+"min": [
+-22.125,
+-22.3125,
+-1.75
+],
+"max": [
+47.8125,
+72.875,
+946.1875
+],
+"verts": 55
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Windswept_A/InstanceMeshDefinitions/SM_Tree_Windswept_A_Tree_Protoype_Branch.SM_Tree_Windswept_A_Tree_Protoype_Branch",
+"min": [
+-367.5625,
+-8.75,
+-246.5
+],
+"max": [
+382.4375,
+982.25,
+134.1875
+],
+"verts": 4536
 }
 ]
