@@ -124,6 +124,142 @@ def subdivide(verts, tris, uv0, uv1, section, longest, shade):
     return (np.array(verts), np.array(tris), np.array(uv0), np.array(uv1), np.array(section), np.array(shade))
 
 
+def conformal_uv(corners, uv, section, unit):
+    """New texture coordinates for the cliff triangles (corners, 3 a
+    triangle), evenly scaled: CE's cliff UVs stretch a wall's strip of rock
+    13 times further along than up in places (Sidewinder, 2026-10-14), which
+    no one tiling undoes. Each of CE's own charts (triangles joined by
+    corners that share position and UV) is flattened again by least squares
+    conformal maps (no stretch, only a scale that varies slowly), turned so
+    its "down" is the world's (v grows downward, as CE's did), mirrored to
+    CE's handedness and scaled to `unit` cm a UV unit."""
+    n = len(corners) // 3
+    key = {}
+    vid = np.array([key.setdefault((tuple(np.round(corners[i], 1)), tuple(np.round(uv[i], 5)), int(section[i // 3])),
+                                   len(key)) for i in range(len(corners))])
+    tris = vid.reshape(-1, 3)
+    pos = np.zeros((len(key), 3))
+    pos[vid] = corners
+    # Charts: triangles joined across shared edges.
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    seen = {}
+    for t, tri in enumerate(tris):
+        for k in range(3):
+            e = (min(tri[k], tri[(k + 1) % 3]), max(tri[k], tri[(k + 1) % 3]))
+            if e in seen:
+                parent[find(t)] = find(seen[e])
+            else:
+                seen[e] = t
+    charts = {}
+    for t in range(n):
+        charts.setdefault(find(t), []).append(t)
+    out = np.array(uv, dtype=np.float64)
+    for ts in charts.values():
+        ts = np.array(ts)
+        verts = np.unique(tris[ts])
+        local = {v: i for i, v in enumerate(verts)}
+        T = np.array([[local[v] for v in tri] for tri in tris[ts]])
+        P = pos[verts]
+        m = len(verts)
+        if m < 3:
+            continue
+        # Each triangle in its own plane: the conformality condition's rows.
+        a_, b_, c_ = P[T[:, 0]], P[T[:, 1]], P[T[:, 2]]
+        e1, e2 = b_ - a_, c_ - a_
+        l1 = np.maximum(np.linalg.norm(e1, axis=1), 1e-9)
+        xa = e1 / l1[:, None]
+        nrm = np.cross(e1, e2)
+        area = np.linalg.norm(nrm, axis=1) / 2
+        ok = area > 1e-6
+        ya = np.cross(nrm / np.maximum(2 * area, 1e-12)[:, None], xa)
+        X = np.stack([np.zeros(len(T)), l1, (e2 * xa).sum(1)], 1)
+        Y = np.stack([np.zeros(len(T)), np.zeros(len(T)), (e2 * ya).sum(1)], 1)
+        sc = 1.0 / np.sqrt(np.maximum(2 * area, 1e-12))
+        rows, cols, vals = [], [], []
+        r = 0
+        for t in np.where(ok)[0]:
+            for j in range(3):
+                j1, j2 = (j + 1) % 3, (j + 2) % 3
+                wr, wi = (X[t, j2] - X[t, j1]) * sc[t], (Y[t, j2] - Y[t, j1]) * sc[t]
+                v = T[t, j]
+                rows += [r, r, r + 1, r + 1]
+                cols += [v, m + v, v, m + v]
+                vals += [wr, -wi, wi, wr]
+            r += 2
+        rows, cols, vals = np.array(rows), np.array(cols), np.array(vals)
+        # Pins: the chart's two farthest-apart corners, at their own distance.
+        i1 = int(np.argmax(np.linalg.norm(P - P[0], axis=1)))
+        i0 = int(np.argmax(np.linalg.norm(P - P[i1], axis=1)))
+        x = np.zeros(2 * m)
+        x[i1] = np.linalg.norm(P[i1] - P[i0])
+        pinned = np.zeros(2 * m, bool)
+        pinned[[i0, i1, m + i0, m + i1]] = True
+
+        def A(z):
+            return np.bincount(rows, weights=vals * z[cols], minlength=r)
+
+        def At(y):
+            return np.bincount(cols, weights=vals * y[rows], minlength=2 * m)
+        # Conjugate gradients on the normal equations, over the free unknowns.
+        rhs = -At(A(np.where(pinned, x, 0.0)))
+        rhs[pinned] = 0
+        z = np.zeros(2 * m)
+        res = rhs.copy()
+        d = res.copy()
+        rr = res @ res
+        stop = 1e-20 * max(rr, 1e-30)
+        for _ in range(20 * m):
+            q = At(A(d))
+            q[pinned] = 0
+            alpha = rr / max(d @ q, 1e-30)
+            z += alpha * d
+            res -= alpha * q
+            rr2 = res @ res
+            if rr2 < stop:
+                break
+            d = res + (rr2 / rr) * d
+            rr = rr2
+        x = np.where(pinned, x, z)
+        U = np.stack([x[:m], x[m:]], 1)
+        # World down as v, CE's handedness, `unit` cm a UV unit.
+        g = np.zeros(2)
+        hand = 0.0
+        for t in np.where(ok)[0]:
+            tri3, tri2 = P[T[t]], U[T[t]]
+            d1, d2 = tri2[1] - tri2[0], tri2[2] - tri2[0]
+            det = d1[0] * d2[1] - d1[1] * d2[0]
+            if abs(det) < 1e-12:
+                continue
+            q1, q2 = tri3[1] - tri3[0], tri3[2] - tri3[0]
+            # dz/du, dz/dv on the triangle, weighted by its area.
+            g += area[t] * np.array([(q1[2] * d2[1] - q2[2] * d1[1]) / det, (q2[2] * d1[0] - q1[2] * d2[0]) / det])
+            ce = uv[3 * ts[t]:3 * ts[t] + 3]
+            c1, c2 = ce[1] - ce[0], ce[2] - ce[0]
+            hand += area[t] * np.sign(det) * np.sign(c1[0] * c2[1] - c1[1] * c2[0])
+        if hand < 0:
+            U[:, 0] *= -1
+            g[0] *= -1
+        if np.linalg.norm(g) > 1e-9:
+            # Turn the chart so z grows towards -v.
+            ang = np.arctan2(-1.0, 0.0) - np.arctan2(g[1], g[0])
+            c, s_ = np.cos(ang), np.sin(ang)
+            U = U @ np.array([[c, s_], [-s_, c]])
+        area_uv = 0.0
+        for t in np.where(ok)[0]:
+            d1, d2 = U[T[t, 1]] - U[T[t, 0]], U[T[t, 2]] - U[T[t, 0]]
+            area_uv += abs(d1[0] * d2[1] - d1[1] * d2[0]) / 2
+        U *= np.sqrt(area[ok].sum() / max(area_uv, 1e-12)) / unit
+        for k, t in enumerate(ts):
+            out[3 * t:3 * t + 3] = U[T[k]]
+    return out, len(charts)
+
+
 def border_fade(verts, border_edges, fade):
     """Each vertex's distance from the border edges over `fade`, clamped to
     1, by a grid of points along them (a quarter of `fade` apart)."""
@@ -155,6 +291,11 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--landscape", help="build_landscape.py's landscape.json, for the cliff details")
     ap.add_argument("--parent", help="take the slots on this master as they are (see above)")
+    ap.add_argument("--flat", action="store_true",
+                    help="the cliff triangles as CE has them (its own normals, no welding or subdivision): "
+                         "a copy only to carry --conformal UVs, with no displacement")
+    ap.add_argument("--conformal", type=float, default=0.0, metavar="CM",
+                    help="new UVs, evenly scaled, CM cm a UV unit (conformal_uv)")
     ap.add_argument("--swap", help="scenery_swap.py's swap.json: its hidden slots are not cliffs (CE boulders "
                                    "baked into the terrain, which B30's own replace)")
     a = ap.parse_args()
@@ -180,7 +321,10 @@ def main():
                 slots.append((i, i - 1, name))
             continue
         t = m.get("textures") if isinstance(m, dict) else None
-        if not t or (t.get("Primary") or "").split(".")[-1] not in details:
+        # cliff.slots (build_landscape.py --cliff-shaders) names the slots
+        # exactly; else a slot is a cliff by its primary detail map.
+        exact = (land.get("cliff") or {}).get("slots")
+        if not t or (i not in exact if exact else (t.get("Primary") or "").split(".")[-1] not in details):
             continue
         lm = t.get("Lightmap") or ""
         if "object_lighting" not in lm and page_of(name) != texture_page(lm):
@@ -216,6 +360,31 @@ def main():
     corners = np.concatenate(pos)
     uv0, uv1 = np.concatenate(uv0), np.concatenate(uv1)
     shade = np.concatenate(nrm)
+    if a.conformal > 0:
+        uv0, nc = conformal_uv(corners, uv0, np.asarray(section), a.conformal)
+        print(f"conformal UVs on {nc} chart(s), {a.conformal:g} cm a unit")
+    if a.flat:
+        # Corners that agree in everything share a vertex, and the copy is a
+        # classic mesh: as Nanite, loose triangles simplified apart and a
+        # hairline of lit snow showed through between them (Sidewinder,
+        # 2026-10-14).
+        key = {}
+        attrs = np.concatenate([corners.round(2), uv0.round(5), uv1.round(5), shade.round(4)], 1)
+        index = np.array([key.setdefault(tuple(r), len(key)) for r in attrs])
+        first = np.zeros(len(key), dtype=np.int64)
+        first[index[::-1]] = np.arange(len(index))[::-1]
+        out = {
+            "item": terrain["id"], "slots": [s for s, _, _ in slots], "names": [n for _, _, n in slots],
+            # Positions, normals and weights a vertex; UVs and shade a corner
+            # (as the welded path writes them).
+            "positions": corners[first].round(3).tolist(), "normals": shade[first].round(5).tolist(),
+            "indices": index.tolist(), "uv0": uv0.round(6).tolist(), "uv1": uv1.round(6).tolist(),
+            "shade": shade.round(5).tolist(), "sections": list(section), "weight": [0.0] * len(first),
+            "nanite": False,
+        }
+        json.dump(out, open(a.out, "w", encoding="utf-8"))
+        print(f"{len(corners) // 3} cliff triangle(s), flat, from {len(slots)} slot(s) {[s for s, _, _ in slots]}")
+        return
 
     if a.parent:
         out = {

@@ -268,14 +268,18 @@ def build_cliffs(maps, ps):
     chunk 983 with the trial masters)."""
     specs = []
     for code, m in maps.items():
-        if m.get("tess") is False:
+        # cliff_uv: the cliffs drawn by a flat copy with even UVs instead
+        # (cliff_mesh.py --flat --conformal), tess or not.
+        uv = m.get("cliff_uv")
+        if m.get("tess") is False and not uv:
             continue
         p = ps[code]
         out = os.path.join(p["work"], "cliff_mesh.json")
+        extra = ["--flat", "--conformal", str(uv)] if uv else []
         print("  " + run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
                           os.path.join(p["scene"], "scene.gltf"), out, "--landscape",
                           os.path.join(p["land"], "landscape.json"), "--swap",
-                          os.path.join(p["work"], "swap.json")]).strip().splitlines()[-1][:160])
+                          os.path.join(p["work"], "swap.json")] + extra).strip().splitlines()[-1][:160])
         specs.append(f"{code}={out}")
     # Translucent slots a conversion left on the opaque terrain mesh (plasma:
     # Yoyorast's beams), as a mesh of their own (level.slot_meshes).
@@ -421,7 +425,7 @@ def stage_assemble(code, m, p):
         if m.get("cliff_scalars"):
             cliff["scalars"] = dict(m["cliff_scalars"])
         mesh = os.path.join(p["work"], "cliff_mesh.json")
-        if m.get("tess") is not False and os.path.exists(mesh):
+        if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
             spec = json.load(open(mesh, encoding="utf-8"))
             cliff["tess"] = dict(TESS, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
                                  item=spec["item"], slots=spec["slots"])
