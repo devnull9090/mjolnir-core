@@ -1084,6 +1084,34 @@ local function spawnShadowProxy(world, item)
     comp.bAffectDistanceFieldLighting = false
     comp:SetCastShadow(true)
     comp:SetHiddenInGame(true, false)
+    -- `shadow_shell` (tools/level/shadow_shell.py): the walls again, a little
+    -- behind themselves, beside the copy. Its one-sided planes let the sun
+    -- down every inside corner, where the neighbouring wall stands inside the
+    -- shadow map's bias and nothing stands behind it (Sidewinder, 2026-10-14).
+    local shell = Current.level and type(Current.level.shadow_shell) == "table"
+        and resolveMesh(Current.level.shadow_shell.mesh)
+    if shell and not (Current.actors["__shadow_shell"] and Current.actors["__shadow_shell"]:IsValid()) then
+        local sa = world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+        if sa and sa:IsValid() then
+            Current.actors["__shadow_shell"] = sa
+            local sc = sa.StaticMeshComponent
+            sc.Mobility = MOBILITY_MOVABLE
+            sc:SetStaticMesh(shell)
+            sc:SetCollisionEnabled(COLLISION_NONE)
+            sc.bCastHiddenShadow = true
+            sc.bCastShadowAsTwoSided = true
+            sc.bVisibleInRayTracing = false
+            sc.bVisibleInReflectionCaptures = false
+            sc.bVisibleInRealTimeSkyCaptures = false
+            sc.bAffectDynamicIndirectLighting = false
+            sc.bAffectDistanceFieldLighting = false
+            sc:SetCastShadow(true)
+            sc:SetHiddenInGame(true, false)
+            Log("terrain shadow shell: " .. tostring(Current.level.shadow_shell.mesh))
+        end
+    elseif Current.level and type(Current.level.shadow_shell) == "table" and not shell then
+        Log("terrain shadow shell not found: " .. tostring(Current.level.shadow_shell.mesh))
+    end
     return true
 end
 
@@ -1099,9 +1127,13 @@ local function applyShadowProxies(world)
                 else
                     Log("shadow proxy for '" .. item.id .. "': " .. tostring(ok and err or done))
                 end
-            elseif Current.actors[key] then
-                if Current.actors[key]:IsValid() then pcall(function() Current.actors[key]:K2_DestroyActor() end) end
-                Current.actors[key] = nil
+            else
+                for _, k in ipairs({ key, "__shadow_shell" }) do
+                    if Current.actors[k] then
+                        if Current.actors[k]:IsValid() then pcall(function() Current.actors[k]:K2_DestroyActor() end) end
+                        Current.actors[k] = nil
+                    end
+                end
             end
         end
     end

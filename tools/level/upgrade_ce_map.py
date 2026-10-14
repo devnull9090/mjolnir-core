@@ -245,6 +245,23 @@ def build_masters():
     print("  trial masters built")
 
 
+def shadow_shells(maps, ps):
+    """The maps' walls a little behind themselves (tools/level/shadow_shell.py),
+    for the shadow copy: CE's one-sided planes let the sun down every inside
+    corner (Sidewinder, 2026-10-14). Built with the cliffs as
+    SM_<CODE>_ShadowShell; returns build_ce_cliffs.py entries."""
+    specs = []
+    for code in maps:
+        p = ps[code]
+        out = os.path.join(p["work"], "shadow_shell.json")
+        print(f"  {code}: " + run([sys.executable, os.path.join(HERE, "shadow_shell.py"), p["out_level"]
+                                  if os.path.exists(p["out_level"]) else p["level"],
+                                  os.path.join(p["scene"], "scene.gltf"), out, "--swap",
+                                  os.path.join(p["work"], "swap.json")]).strip().splitlines()[-1][:160])
+        specs.append(f"SM_{code}_ShadowShell={out}")
+    return specs
+
+
 def build_cliffs(maps, ps):
     """The maps' cliff slots as Nanite meshes (tools/level/cliff_mesh.py),
     built in the editor as SM_<CODE>_CliffTess (Scripts/build_ce_cliffs.py,
@@ -272,6 +289,7 @@ def build_cliffs(maps, ps):
             specs.append(f"SM_{code}_Plasma={out}")
         elif os.path.exists(out):
             os.remove(out)
+    specs += shadow_shells(maps, ps)
     if not specs:
         return
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
@@ -407,6 +425,8 @@ def stage_assemble(code, m, p):
             spec = json.load(open(mesh, encoding="utf-8"))
             cliff["tess"] = dict(TESS, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
                                  item=spec["item"], slots=spec["slots"])
+    if os.path.exists(os.path.join(p["work"], "shadow_shell.json")):
+        level["shadow_shell"] = {"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_ShadowShell.SM_{code}_ShadowShell"}
     level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
     shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
     if m.get("water"):
