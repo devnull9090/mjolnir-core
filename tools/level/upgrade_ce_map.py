@@ -58,6 +58,8 @@ UE4SS = os.path.join(GAME, "Meteorite", "Binaries", "Win64", "ue4ss")
 LAUNCHER_STATE = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher", "hub_state.json")
 # What a swapped scenery slot draws (scenery_swap.py).
 HIDDEN = "/Game/MJOLNIR/CETrial/M_CE_Hidden.M_CE_Hidden"
+RIVER_SPLASH = ("/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/"
+                "NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01")
 # Structures: slots whose CE base map is one of these (metal, panels,
 # machinery) draw with the trial environment master's surface section
 # (build_ce_materials.py SURFACE_CODE): relief from the base map, roughness
@@ -293,6 +295,22 @@ def build_cliffs(maps, ps):
             specs.append(f"SM_{code}_Plasma={out}")
         elif os.path.exists(out):
             os.remove(out)
+    # Rivers (`rivers`): CE's flowing water as a mesh of its own, drawn by
+    # M_CE_Ocean: on the shared translucent mesh, whose passes its first
+    # slot decides, the water drew as a faint sheen over its bed whatever
+    # its depth and absorption (Timberland, 2026-10-14).
+    for code, m in maps.items():
+        if not m.get("rivers"):
+            continue
+        p = ps[code]
+        out = os.path.join(p["work"], "river_mesh.json")
+        made = run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
+                    os.path.join(p["scene"], "scene_translucent.gltf"), out, "--parent", "M_CE_TransparentAlpha",
+                    "--item", "_terrain_1", "--slot-offset", "0", "--texture", m["rivers"]["textures"][0],
+                    "--material", "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"], check=False)
+        print("  " + made.strip().splitlines()[-1][:160])
+        if "triangle(s) on" in made:
+            specs.append(f"SM_{code}_River={out}")
     specs += shadow_shells(maps, ps)
     if not specs:
         return
@@ -419,6 +437,12 @@ def stage_assemble(code, m, p):
         spec = json.load(open(plasma, encoding="utf-8"))
         level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
                                  "item": spec["item"], "slots": spec["slots"]}]
+    river = os.path.join(p["work"], "river_mesh.json")
+    if m.get("rivers") and os.path.exists(river):
+        spec = json.load(open(river, encoding="utf-8"))
+        level.setdefault("slot_meshes", []).append({
+            "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_River.SM_{code}_River", "item": spec["item"],
+            "slots": spec["slots"]})
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR
@@ -433,6 +457,28 @@ def stage_assemble(code, m, p):
         level["shadow_shell"] = {"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_ShadowShell.SM_{code}_ShadowShell"}
     level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
     shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
+    # Rivers: CE's flowing water (a transparent shader scrolling a stream
+    # texture, not shader_water) drawn by M_CE_Ocean instead: still (no
+    # swell), its ripples running along CE's own UVs, clear over its bed.
+    # Timberland's stream was a ghost of a texture over a dirt path
+    # (2026-10-14).
+    if m.get("rivers"):
+        rv = m["rivers"]
+        n = 0
+        for item in level.get("decor") or []:
+            mats = item.get("materials") if isinstance(item, dict) else None
+            for i, entry in enumerate(mats or []):
+                tex = json.dumps(entry.get("textures", {}) if isinstance(entry, dict) else {}).lower()
+                if any(t in tex for t in rv.get("textures", [])):
+                    spec = json.loads(json.dumps(rv["spec"]))
+                    spec["parent"] = "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"
+                    mats[i] = spec
+                    n += 1
+        print(f"  {code}: {n} river slot(s) as M_CE_Ocean")
+        # The game's river spray along it (MJOLNIRLevelLoader Effects).
+        fx = level.setdefault("effects", {"placed": [], "camera": []})
+        for pos in rv.get("splashes", []):
+            fx.setdefault("placed", []).append({"system": RIVER_SPLASH, "pos": pos})
     # Waterfalls (MJOLNIRLevelLoader Effects.waterfalls): the game's large
     # waterfall over CE's flat card, which is hidden by its textures' names.
     if m.get("waterfalls"):
@@ -460,7 +506,10 @@ def stage_assemble(code, m, p):
                     hidden += 1
         level["decor"] = (level.get("decor") or []) + swap["decor"]
         if swap.get("effects"):
+            # Over any the level has already (a river's spray).
+            before = (level.get("effects") or {}).get("placed") or []
             level["effects"] = swap["effects"]
+            level["effects"]["placed"] = list(swap["effects"].get("placed") or []) + before
         leaves = (swap.get("leaves") or {}).get("records") or []
         if leaves:
             append_foliage(os.path.join(p["work"], "foliage.bin"), leaves)

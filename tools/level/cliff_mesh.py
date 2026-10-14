@@ -291,6 +291,13 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--landscape", help="build_landscape.py's landscape.json, for the cliff details")
     ap.add_argument("--parent", help="take the slots on this master as they are (see above)")
+    ap.add_argument("--item", default="_terrain",
+                    help="the decor item whose slots these are, by the end of its id (the translucent mesh: _terrain_1)")
+    ap.add_argument("--slot-offset", type=int, default=1,
+                    help="a slot's glTF material is slot - this: 1 on the terrain mesh (slot 0 the fallback), "
+                         "0 on the translucent one (build_terrain_meshes.py)")
+    ap.add_argument("--texture", default="", help="with --parent: only slots with a texture whose path holds this")
+    ap.add_argument("--material", help="with --parent: the built mesh's material (an object path), else the parent's")
     ap.add_argument("--flat", action="store_true",
                     help="the cliff triangles as CE has them (its own normals, no welding or subdivision): "
                          "a copy only to carry --conformal UVs, with no displacement")
@@ -305,7 +312,7 @@ def main():
     level = json.load(open(a.level, encoding="utf-8"))
     land = json.load(open(a.landscape, encoding="utf-8")) if a.landscape else level.get("landscape") or {}
     details = set((land.get("cliff") or {}).get("details") or [])
-    terrain = next(i for i in level["decor"] if str(i.get("id", "")).endswith("_terrain"))
+    terrain = next(i for i in level["decor"] if str(i.get("id", "")).endswith(a.item))
     doc = json.load(open(a.scene, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(a.scene), doc["buffers"][0]["uri"]), "rb").read()
     names = [m.get("name") for m in doc["materials"]]
@@ -315,10 +322,11 @@ def main():
     for i, m in enumerate(terrain.get("materials") or []):
         if m in hide:
             continue
-        name = names[i - 1] if 0 < i <= len(names) else None
+        g = i - a.slot_offset
+        name = names[g] if 0 <= g < len(names) else None
         if a.parent:
-            if isinstance(m, dict) and (m.get("parent") or "").endswith("." + a.parent):
-                slots.append((i, i - 1, name))
+            if isinstance(m, dict) and (m.get("parent") or "").endswith("." + a.parent)                     and a.texture.lower() in json.dumps(m.get("textures") or {}).lower():
+                slots.append((i, g, name))
             continue
         t = m.get("textures") if isinstance(m, dict) else None
         # cliff.slots (build_landscape.py --cliff-shaders) names the slots
@@ -329,13 +337,13 @@ def main():
         lm = t.get("Lightmap") or ""
         if "object_lighting" not in lm and page_of(name) != texture_page(lm):
             sys.exit(f"terrain slot {i}: glTF material {name} is not on the slot's lightmap page {lm}")
-        slots.append((i, i - 1, name))
+        slots.append((i, g, name))
     if not slots:
         sys.exit("no slots on " + a.parent if a.parent else "no cliff slots")
 
     # Corners of every cliff triangle, Unreal cm: glTF (x, y, z) m -> (x, z, y) * 100.
     pos, nrm, uv0, uv1, section = [], [], [], [], []
-    for p in doc["meshes"][0]["primitives"]:
+    for p in [q for mesh in doc["meshes"] for q in mesh["primitives"]]:
         k = next((s for s, (_, g, _) in enumerate(slots) if g == p["material"]), None)
         if k is None:
             continue
@@ -392,7 +400,7 @@ def main():
             "positions": corners.round(3).tolist(), "normals": shade.round(5).tolist(),
             "indices": list(range(len(corners))), "uv0": uv0.round(6).tolist(), "uv1": uv1.round(6).tolist(),
             "sections": list(section), "weight": [1.0] * len(corners), "nanite": False,
-            "material": a.parent,
+            "material": a.material or a.parent,
         }
         json.dump(out, open(a.out, "w", encoding="utf-8"))
         print(f"{len(corners) // 3} triangle(s) on {a.parent} from {len(slots)} slot(s) {[s for s, _, _ in slots]}")

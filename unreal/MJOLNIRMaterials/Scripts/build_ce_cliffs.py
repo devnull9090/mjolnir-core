@@ -55,7 +55,8 @@ def build(code, spec_path):
     nanite = mesh.get_editor_property("nanite_settings")
     nanite.set_editor_property("enabled", bool(spec.get("nanite", True)))
     mesh.set_editor_property("nanite_settings", nanite)
-    material = unreal.load_asset(f"{ROOT}/{spec.get('material', 'M_CE_CliffTess')}")
+    want = spec.get("material", "M_CE_CliffTess")
+    material = unreal.load_asset(want if want.startswith("/") else f"{ROOT}/{want}")
     for i in range(len(spec["slots"])):
         mesh.set_material(i, material)
     eal.save_loaded_asset(mesh)
