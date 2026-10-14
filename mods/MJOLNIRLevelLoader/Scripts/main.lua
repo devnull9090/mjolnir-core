@@ -266,6 +266,17 @@ local function resetState()
     Current.scalarMids = {}
     Current.water = nil
     Current.weatherHidden = nil
+    -- The console variables a level changed (the sun's shadows,
+    -- spawnEnvironment) back as the game had them.
+    if Current.cvars then
+        pcall(function()
+            local ks = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            for name, value in pairs(Current.cvars) do
+                ks:ExecuteConsoleCommand(getWorld(), string.format("%s %g", name, value), getPlayerController())
+            end
+        end)
+        Current.cvars = nil
+    end
     -- Flag state is per match: the first drop of a match took the last
     -- match's team.
     Current.lastFlagTeam = nil
@@ -1413,6 +1424,24 @@ local function spawnEnvironment(world)
             if type(sun.source_angle) == "number" then
                 pcall(function() c:SetLightSourceAngle(sun.source_angle) end)
             end
+            -- CE's walls are one-sided planes, and the terrain copy's shadow
+            -- cannot hold the sun off the last shadow texel or two of a
+            -- concave crease: a lit sliver ran along every inside corner of
+            -- Sidewinder's rooms, crawling as the shadow map's texel dither
+            -- re-rolled each frame (2026-10-14). Finer sun shadows narrow it
+            -- (`sun.shadow_lod`, the engine's -1.5 by default) and no dither
+            -- stills it; resetState puts both back.
+            pcall(function()
+                local ks = findObject("/Script/Engine.Default__KismetSystemLibrary")
+                Current.cvars = Current.cvars or {}
+                for name, value in pairs({
+                    ["r.Shadow.Virtual.SMRT.TexelDitherScaleDirectional"] = 0,
+                    ["r.Shadow.Virtual.ResolutionLodBiasDirectional"] = tonumber(sun.shadow_lod) or -3,
+                }) do
+                    if Current.cvars[name] == nil then Current.cvars[name] = ks:GetConsoleVariableFloatValue(name) end
+                    ks:ExecuteConsoleCommand(world, string.format("%s %g", name, value), getPlayerController())
+                end
+            end)
             -- Channel 0 for objects, channel 1 for the terrain (spawnDecorItem).
             pcall(function() c:SetLightingChannels(true, true, false) end)
             -- The CE materials draw a share of their baked light as this sun
