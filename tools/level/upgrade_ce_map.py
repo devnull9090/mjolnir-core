@@ -424,6 +424,13 @@ def flux_spec(code, fx, river, level):
     bed; the feed alone, with a drain, left the flat 200 m of it a wet film
     or a flood (2026-10-14)."""
     pos, idx = river["positions"], river["indices"]
+    # Set sources every `grid` cm over the river's surface, each at CE's water
+    # level there, fill the river at the start (`prime`) and are taken away
+    # after it: held for good, they stopped the water flowing (a Set source
+    # takes away what runs in) and the river ended in the first pool below
+    # Timberland's falls; 220 of them at 4 m cost 80 ms a frame (each a draw
+    # a simulation step). Left alone, the water runs pool to pool over the
+    # bed's humps (2026-10-14).
     grid, cell = fx.get("grid", 1200.0), fx.get("cell", 25.0)
     cells = {}
     for t in range(0, len(idx), 3):
@@ -432,17 +439,16 @@ def flux_spec(code, fx, river, level):
         v = [c[i] - a[i] for i in range(3)]
         n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
         length = math.sqrt(sum(x * x for x in n)) or 1.0
-        centre = [(a[i] + b[i] + c[i]) / 3.0 for i in range(3)]
-        key = (math.floor(centre[0] / grid), math.floor(centre[1] / grid))
-        cells.setdefault(key, []).append((centre, length / 2.0, abs(n[2]) / length))
-    levels = []
-    for tris in cells.values():
-        area = sum(t[1] for t in tris)
         # The rapids (sloped water) are left to the feed: a level source
         # on a slope floods its low side.
-        if area < fx.get("min_area", 1e4) or min(t[2] for t in tris) < 0.98:
+        if abs(n[2]) / length < 0.98:
             continue
-        levels.append([round(sum(t[0][i] * t[1] for t in tris) / area) for i in range(3)])
+        for i in range(9):
+            for j in range(9 - i):
+                p = [a[k] + i / 8.0 * u[k] + j / 8.0 * v[k] for k in range(3)]
+                cells.setdefault((math.floor(p[0] / grid), math.floor(p[1] / grid)), []).append(p)
+    levels = [[round(sum(q[k] for q in ps) / len(ps)) for k in range(3)]
+              for ps in cells.values() if len(ps) >= fx.get("min_samples", 3)]
     feeds = fx.get("feeds", [])
     # A waterfall's feed is Add (mode 0) at the head of the stream above
     # it, so the water runs to the lip and pours over: Adjust at the lip held
@@ -455,8 +461,17 @@ def flux_spec(code, fx, river, level):
     # No velocity on a Set source: it refills each step what its push
     # carried off, so every one became an endless spring and the river
     # flooded its whole domain in two minutes (2026-10-14).
-    sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1}
-                for q in levels]
+    sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1,
+                 "prime": True} for q in levels]
+    # One Set source stays, in the last pool (`outlet`, or the level point
+    # furthest from the first feed): the feed never stops, and with no way
+    # out the river would rise until it flooded the valley.
+    outlet = fx.get("outlet")
+    if not outlet and levels:
+        first = feeds[0]["pos"] if feeds else levels[0]
+        outlet = max(levels, key=lambda q: math.hypot(q[0] - first[0], q[1] - first[1]))
+    if outlet:
+        sources.append({"pos": outlet, "scale": fx.get("level_scale", 1.0), "volume": 1.0, "mode": 1})
     pts = pos + [f["pos"] for f in feeds]
     margin = fx.get("margin", 600.0)
     lo = [min(q[i] for q in pts) - margin for i in range(2)]

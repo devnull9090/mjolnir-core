@@ -3287,7 +3287,7 @@ function Effects.flux(world)
             dom.SceneVisibility = sv
             gs:FinishSpawningActor(dom, xf, 0)
             Current.actors["__flux_domain"] = dom
-            local src, comps = cls(Effects.FLUX_SOURCE), {}
+            local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
             for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
                 local p, sc = s.pos, tonumber(s.scale) or 1.0
                 local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
@@ -3302,7 +3302,29 @@ function Effects.flux(world)
                 if type(s.velocity) == "table" then m.Velocity = { X = s.velocity[1], Y = s.velocity[2] } end
                 Current.actors["__flux_source_" .. i] = a
                 comps[#comps + 1] = m
+                if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
             end
+            -- `prime` sources fill the river at the start, then go: held,
+            -- a Set source takes away the water that runs in, and the river
+            -- stood still (Timberland, 2026-10-14).
+            ExecuteInGameThreadWithDelay(tonumber(spec.prime_ms) or 60000, function()
+                if Current.worldName ~= name or Current.level ~= level then return end
+                local gone = 0
+                for _, key in ipairs(primed) do
+                    local a = Current.actors[key]
+                    if a and a:IsValid() then pcall(function() a:K2_DestroyActor() end) gone = gone + 1 end
+                    Current.actors[key] = nil
+                end
+                pcall(function()
+                    if dom:IsValid() then
+                        dom:FindWorldModifiers(true)
+                        for k, a in pairs(Current.actors) do
+                            if k:find("^__flux_source_") and a:IsValid() then a.FluxModifierSource:UpdateMaterial() end
+                        end
+                    end
+                end)
+                Log(string.format("flux: river filled, %d priming source(s) removed", gone))
+            end)
             dom:FindWorldModifiers(true)
             -- Volume, mode and velocity reach the simulation through the
             -- source's material, which only UpdateMaterial writes.
