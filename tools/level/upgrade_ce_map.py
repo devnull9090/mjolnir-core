@@ -615,6 +615,15 @@ def stage_assemble(code, m, p):
     if (m.get("flux") or {}).get("coast"):
         flux = level.setdefault("flux", {})
         flux["coast"] = flux_coast(m["flux"]["coast"], land, code, level)
+        # With a seabed, CE's own flat sea floor goes: the landscape's floor
+        # covers its rectangle, and past it the old floor (Yoyorast's 1.5 m
+        # down) drew the open sea pale and shallow, a hard square round the
+        # coastline (2026-10-15).
+        if flux["coast"]["seabed"]:
+            ids = {item["id"]: item for item in level.get("decor") or []}
+            for key, slots in flux["coast"]["floor"].items():
+                for i in slots:
+                    ids[key]["materials"][i] = HIDDEN
         flux.setdefault("ground", flux_ground(code, level))
         # The sea is Flux's: our own water mesh (SM_<code>_Water) hidden.
         flux.setdefault("hide", []).extend(item["id"] for item in level.get("decor") or []
