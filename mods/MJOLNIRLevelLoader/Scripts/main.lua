@@ -3498,7 +3498,8 @@ end
 --- ce_lights: a base's wall sconces and floor lamps), as shadowed point
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
 --- before the light scale, lightScale; unitless with `falloff`), `falloff`
---- (optional: Unreal's non-physical falloff exponent), `radius` (cm). The terrain shades
+--- (optional: Unreal's non-physical falloff exponent), `radius` (cm),
+--- `specular` (optional highlight scale, default none). The terrain shades
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
 --- surfaces out of their reach.
 local Placed = {}
@@ -3538,6 +3539,13 @@ function Placed.lights(world)
                     c:SetLightColor({ R = colour[1], G = colour[2], B = colour[3], A = 1 }, true)
                     c:SetCastShadows(true)
                     c.SourceRadius = 8
+                    -- No highlights (`specular` to opt back in): CE's lamps
+                    -- lit through its lightmaps, which hold none, and a floor
+                    -- lamp's highlight showed through Death Island's walls on
+                    -- the floor outside at a low view, where the virtual
+                    -- shadow maps let it through (classic ones held it,
+                    -- 2026-10-15).
+                    c:SetSpecularScale(tonumber(l.specular) or 0)
                 end)
                 Current.actors[key] = actor
                 n = n + 1
