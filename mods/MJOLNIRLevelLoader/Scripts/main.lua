@@ -3499,7 +3499,8 @@ end
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
 --- before the light scale, lightScale; unitless with `falloff`), `falloff`
 --- (optional: Unreal's non-physical falloff exponent), `radius` (cm),
---- `specular` (optional highlight scale, default none). The terrain shades
+--- `shadow_distance` (optional: cm from the camera they shadow to, default
+--- 8000). The terrain shades
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
 --- surfaces out of their reach.
 local Placed = {}
@@ -3537,15 +3538,19 @@ function Placed.lights(world)
                     c:SetIntensity((tonumber(l.intensity) or 25) * k)
                     c:SetAttenuationRadius(tonumber(l.radius) or 2000)
                     c:SetLightColor({ R = colour[1], G = colour[2], B = colour[3], A = 1 }, true)
+                    -- The game's lights stop shadowing 25 m from the camera
+                    -- (MaxShadowDistance, r.Lighting.DefaultMaxShadowDistance
+                    -- 2500, fading over the last 5 m): a room seen through a
+                    -- doorway from further off lost its shadows, and they
+                    -- faded in as you walked up, and a floor lamp's half-faded
+                    -- shadow let its light onto the floor outside its
+                    -- building (Death Island, 2026-10-15).
+                    -- Set before SetCastShadows, whose render state rebuild
+                    -- at the end of the frame takes it in.
+                    c.MaxShadowDistance = tonumber(l.shadow_distance) or 8000
+                    c.ShadowFadeRange = 1000
                     c:SetCastShadows(true)
                     c.SourceRadius = 8
-                    -- No highlights (`specular` to opt back in): CE's lamps
-                    -- lit through its lightmaps, which hold none, and a floor
-                    -- lamp's highlight showed through Death Island's walls on
-                    -- the floor outside at a low view, where the virtual
-                    -- shadow maps let it through (classic ones held it,
-                    -- 2026-10-15).
-                    c:SetSpecularScale(tonumber(l.specular) or 0)
                 end)
                 Current.actors[key] = actor
                 n = n + 1
