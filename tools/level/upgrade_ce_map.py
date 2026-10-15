@@ -625,9 +625,14 @@ def stage_assemble(code, m, p):
                 for i in slots:
                     ids[key]["materials"][i] = HIDDEN
         flux.setdefault("ground", flux_ground(code, level))
-        # The sea is Flux's: our own water mesh (SM_<code>_Water) hidden.
-        flux.setdefault("hide", []).extend(item["id"] for item in level.get("decor") or []
-                                           if f"/SM_{code}_Water." in str(item.get("mesh", "")))
+        # The sea is Flux's: our own water mesh (SM_<code>_Water) sunk a
+        # metre, under the swell's troughs, where Flux's water hides it. It
+        # shows only when Flux's camera-projected grid drops out: with the
+        # horizon on the frustum's edge (a zoomed look out to sea, Yoyorast,
+        # 2026-10-15) the whole sea went, the bare seabed under it.
+        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 100.0),
+                        "ids": [item["id"] for item in level.get("decor") or []
+                                if f"/SM_{code}_Water." in str(item.get("mesh", ""))]}
         print(f"  {code}: flux coast {flux['coast']['res']} at {flux['coast']['cell']} cm, sea at {flux['coast']['water']}")
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})

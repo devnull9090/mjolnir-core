@@ -3313,6 +3313,16 @@ function Effects.flux(world)
         local a = Current.actors[key]
         if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
     end
+    -- `sink` { by, ids }: our own sea moved down under Flux's, a fallback for
+    -- the frames Flux's grid drops out (upgrade_ce_map.py); once only.
+    local sink = type(spec.sink) == "table" and spec.sink
+    for _, key in ipairs(sink and type(sink.ids) == "table" and sink.ids or {}) do
+        local a = Current.actors[key]
+        if a and a:IsValid() and not Current.actors["__sunk_" .. key] then
+            Current.actors["__sunk_" .. key] = a
+            pcall(function() a:K2_AddActorWorldOffset({ X = 0, Y = 0, Z = -(tonumber(sink.by) or 100.0) }, false, {}, false) end)
+        end
+    end
     if Current.fluxPending then return end
     Current.fluxPending = true
     local name, level = Current.worldName, Current.level
