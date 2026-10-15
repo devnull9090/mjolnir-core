@@ -1068,6 +1068,18 @@ local function spawnShadowProxy(world, item)
             end
         end)
     end
+    -- CE's light fixtures cast nothing: each placed light sits a step in
+    -- front of its fixture (upgrade_ce_map.py LIGHT_STEP), and the fixture
+    -- still shadowed its own lamp across the wall behind it. That shadow
+    -- came and went with the camera's distance (Death Island's sconces, gone
+    -- past ~22 m, 2026-10-15); CE's lightmaps have no such shadow.
+    local fixtureHidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    for i, m in ipairs(fixtureHidden and type(item.materials) == "table" and item.materials or {}) do
+        local base = type(m) == "table" and type(m.textures) == "table" and m.textures.Base
+        if type(base) == "string" and base:find("_light_fixtures_", 1, true) then
+            pcall(function() comp:SetMaterial(i - 1, fixtureHidden) end)
+        end
+    end
     comp.bCastHiddenShadow = true
     -- CE BSP surfaces are one-sided, and the lightmap bake's sun rays stop
     -- at either side: one-sided, the copy let the sun through the back of
