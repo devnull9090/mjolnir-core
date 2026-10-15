@@ -450,6 +450,17 @@ SNOW_CLADDING = {
 # Cliff shaders by name (--cliff-shaders): Sidewinder's share its ground's
 # snow detail map.
 CLIFF_SHADERS = []
+# A cliff slot in ground_slots' terms: grass by its faces' tilt.
+TURF = "turf"
+# M_CE_CliffPBR's turf on faces that look up: from normal z 0.7 to all of it
+# at 0.88.
+TURF_Z = (0.7, 0.88)
+
+
+def turf_share(nz):
+    """The cliff master's turf share on a face with normal z `nz`."""
+    t = min(1.0, max(0.0, (nz - TURF_Z[0]) / (TURF_Z[1] - TURF_Z[0])))
+    return t * t * (3.0 - 2.0 * t)
 
 
 def cliff_slots(spec):
@@ -893,6 +904,16 @@ def main():
         # Sidewinder's facility floors (B30's metal panels over a dirt
         # splotch detail) grew snowy stones and rubble (2026-10-13).
         slots = {k: v for k, v in slots.items() if any(x in k.lower() for x in only)}
+    # The cliffs' up-facing faces as grass: M_CE_CliffPBR draws turf there
+    # (TURF_Z, by the surface's normal), and Death Island's tunnel floor, a
+    # cliff shader (its detail rock, so no grass by it), lay as a bare lawn
+    # (2026-10-15). Only the grass rules take the turf.
+    turfed = set()
+    for k, v in cliff_slots(spec).items():
+        k = k.lower()
+        if not only or any(x in k for x in only):
+            turfed.add(k)
+            slots.setdefault(k, (v[0], TURF, None, 0))
     doc = json.load(open(a.gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
@@ -909,9 +930,11 @@ def main():
     counts = {r["name"]: 0 for r in rules}
     for mesh in doc["meshes"]:
         for prim in mesh["primitives"]:
-            hit = slots.get(doc["materials"][prim["material"]]["name"].lower())
+            name = doc["materials"][prim["material"]]["name"].lower()
+            hit = slots.get(name)
             if not hit:
                 continue
+            cliff = name in turfed
             file, primary, secondary, shader_type = hit
             if file not in images:
                 images[file] = np.asarray(Image.open(file).convert("RGBA"), dtype=np.float32) / 255.0
@@ -954,8 +977,14 @@ def main():
                     w0, w1, w2 = 1 - s, s * (1 - r2), s * r2
                     pts = np.outer(w0, p0) + np.outer(w1, p1) + np.outer(w2, p2)
                     uvs = np.outer(w0, uv[i0]) + np.outer(w1, uv[i1]) + np.outer(w2, uv[i2])
-                    share = (np.ones(len(uvs)) if rule["on"] == "any" else
-                             class_shares(sample_rgba(img, uvs), primary, secondary, shader_type).get(rule["on"]))
+                    share = None
+                    if primary != TURF:
+                        share = (np.ones(len(uvs)) if rule["on"] == "any" else
+                                 class_shares(sample_rgba(img, uvs), primary, secondary, shader_type).get(rule["on"]))
+                    if cliff and rule["on"] == "grass":
+                        turf = turf_share(n[1] / (2 * area))
+                        if turf > 0.0:
+                            share = np.maximum(share if share is not None else 0.0, turf)
                     if share is None:
                         continue
                     lo, hi = rule["share"]
