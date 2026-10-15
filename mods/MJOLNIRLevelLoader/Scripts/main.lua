@@ -4608,11 +4608,44 @@ function Footprints.deformStart(world)
             g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
         end
     end
-    Log(string.format("deformation: the game's manager, %d brush(es) registered", n))
+    Footprints.deformHook()
+    Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
+        Footprints.hooked and ", recentres followed" or ""))
 end
 
---- The map's centre to the sand, when the manager moves it. True while the
---- game's deformation is on (our own footprints stand down).
+--- The map's centre to the sand: FootRect on the landscape and the mesh's
+--- ground in its holes.
+function Footprints.deformRect(x, y)
+    local d = Footprints.deform
+    if not (d and d.land:IsValid()) then return end
+    d.cx, d.cy = x, y
+    local rect = { R = x, G = y, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+    d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+    for _, g in ipairs(Land.groundMids or {}) do
+        if g:IsValid() then g:SetVectorParameterValue(FName("FootRect"), rect) end
+    end
+end
+
+--- The manager recentres its map (every 51.2 m the camera goes) and shifts
+--- the map's contents in the same tick: the sand must follow in that tick.
+--- Followed from the 100 ms loop alone, the tracks were drawn off the map
+--- for a few frames at every step, a flash while moving (Death Island,
+--- 2026-10-15). Its SetMPCGridParameters sets the centre from its actor.
+function Footprints.deformHook()
+    if Footprints.hooked then return end
+    Footprints.hooked = pcall(RegisterHook,
+        "/HaloLandscapeDeformations/Toolkit/BP_LandscapeDeformationManager.BP_LandscapeDeformationManager_C:SetMPCGridParameters",
+        function(ctx)
+            pcall(function()
+                local l = ctx:get():K2_GetActorLocation()
+                Footprints.deformRect(l.X, l.Y)
+            end)
+        end)
+end
+
+--- The map's centre to the sand, when the manager moves it (the hook's
+--- backstop). True while the game's deformation is on (our own footprints
+--- stand down).
 function Footprints.deformTick()
     local d = Footprints.deform
     if not d then return false end
@@ -4623,14 +4656,7 @@ function Footprints.deformTick()
     end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local c = kml:GetVectorParameterValue(world, findObject(Footprints.DEFORM_MPC), FName("DeformationCenterWP"))
-    if c.R ~= d.cx or c.G ~= d.cy then
-        d.cx, d.cy = c.R, c.G
-        local rect = { R = c.R, G = c.G, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
-        d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
-        for _, g in ipairs(Land.groundMids or {}) do
-            if g:IsValid() then g:SetVectorParameterValue(FName("FootRect"), rect) end
-        end
-    end
+    if c.R ~= d.cx or c.G ~= d.cy then Footprints.deformRect(c.R, c.G) end
     return true
 end
 
