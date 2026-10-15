@@ -3235,7 +3235,12 @@ Effects.FLUX_WAVE = "/Game/FluidFlux/Waves/Blueprints/BP_FluxOceanWave.BP_FluxOc
 function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     local c = { X = origin[1] + k.centre[1], Y = origin[2] + k.centre[2], Z = origin[3] + k.water }
     Current.actors["__flux_wave"] = w:SpawnActor(cls(Effects.FLUX_WAVE), c, { Pitch = 0, Yaw = 0, Roll = 0 })
-    local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = c, Scale3D = { X = 1, Y = 1, Z = 1 } }
+    -- The domain a little over the water (`lift` cm, B30's ~6 m: its actor at
+    -- 605.7, its sea at 20), the sea's height given apart. Level with the
+    -- water, it found no shore: the surf drew no white water and no run-up
+    -- up the beach (Death Island, 2026-10-14).
+    local dz = { X = c.X, Y = c.Y, Z = c.Z + (tonumber(k.lift) or 600.0) }
+    local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = dz, Scale3D = { X = 1, Y = 1, Z = 1 } }
     local dom = gs:BeginDeferredActorSpawnFromClass(w, cls(Effects.FLUX_COAST), xf, 1, nil, 0)
     dom.AreaResolution = { X = k.res[1], Y = k.res[2] }
     dom.AreaWorldPixelSize = math.floor(k.cell)
