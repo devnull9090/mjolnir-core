@@ -673,6 +673,18 @@ def stage_assemble(code, m, p):
     # stand-in (2026-10-13).
     if m.get("haze") == "ce" and isinstance(level["landscape"].get("pbr"), dict):
         haze = ce_haze(level, scene_reach(p))
+        # A Flux coast: the haze out past the far ocean (Flux draws it some
+        # 10 km out, the sky mesh is far beyond) and free to thicken there,
+        # so the sea fades into the sky. Cut off at the map's reach and held
+        # to CE's 25%, the far ocean was a flat grey band under a hard
+        # horizon (Yoyorast, 2026-10-15). `haze_color` sets it to the sky's
+        # colour at the horizon.
+        coast = (m.get("flux") or {}).get("coast") or {}
+        if haze and coast:
+            haze["cutoff"] = max(haze["cutoff"], coast.get("haze_cutoff", 1500000))
+            haze["max_opacity"] = coast.get("haze_opacity", 1.0)
+            if coast.get("haze_color"):
+                haze["color"] = list(coast["haze_color"])
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
