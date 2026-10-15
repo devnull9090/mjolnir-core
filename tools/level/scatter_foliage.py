@@ -298,10 +298,13 @@ def value_noise(x, y, cell, seed):
 
 def scenery_footprints(gltf, off, staging=None):
     """The map's placed scenery (halo2ue's staging/placement.json beside the
-    scene) as (x, y, radius) cm: the simulation spawns it (B30's boulders,
-    trees), so the scene knows nothing of it, and grass grew up through the
-    boulders (Blood Gulch, 2026-10-12). The radius is 80% of the model's
-    furthest reach across, so the grass still meets its foot."""
+    scene) as (x, y, radius, z, reach) cm: the simulation spawns it (B30's
+    boulders, trees), so the scene knows nothing of it, and grass grew up
+    through the boulders (Blood Gulch, 2026-10-12). The radius is 80% of the
+    model's furthest reach across, so the grass still meets its foot; `reach`
+    is its furthest reach any way (it may stand turned), which keeps the
+    clearing to ground at its own height: a gigantic boulder in Death
+    Island's cave left the hilltop 38 m over it bare (2026-10-15)."""
     staging = staging or os.path.join(os.path.dirname(os.path.abspath(gltf)), "staging")
     path = os.path.join(staging, "placement.json")
     if not os.path.exists(path):
@@ -315,7 +318,7 @@ def scenery_footprints(gltf, off, staging=None):
             continue
         model = os.path.join(staging, e["model"])
         if model not in reach:
-            r = 0.0
+            r = tall = 0.0
             try:
                 doc = json.load(open(model, encoding="utf-8"))
                 if "tree" in e.get("asset", "").lower():
@@ -328,6 +331,7 @@ def scenery_footprints(gltf, off, staging=None):
                                           for mesh in doc["meshes"] for prim in mesh["primitives"]])
                     foot = pts[pts[:, 1] < pts[:, 1].min() + 1.5]
                     r = float(np.hypot(foot[:, 0], foot[:, 2]).max())
+                    tall = float(np.abs(pts).max())
                 else:
                     for mesh in doc["meshes"]:
                         for prim in mesh["primitives"]:
@@ -335,11 +339,13 @@ def scenery_footprints(gltf, off, staging=None):
                             ax = max(abs(acc["min"][0]), abs(acc["max"][0]))
                             az = max(abs(acc["min"][2]), abs(acc["max"][2]))
                             r = max(r, math.hypot(ax, az))
+                            tall = max(tall, max(abs(v) for v in acc["min"] + acc["max"]))
             except (OSError, KeyError, ValueError, IndexError):
-                r = 0.0
-            reach[model] = r * 100.0 * 0.8
-        x, y, _ = e["pos"]
-        out.append((x * unit + off[0], -y * unit + off[1], reach[model]))
+                r = tall = 0.0
+            reach[model] = (r * 100.0 * 0.8, tall * 100.0)
+        x, y, z = e["pos"]
+        r, tall = reach[model]
+        out.append((x * unit + off[0], -y * unit + off[1], r, z * unit + off[2], tall))
     return out
 
 
@@ -349,18 +355,23 @@ SCENERY_CELL = 1000.0
 def scenery_grid(scenery):
     """The footprints by 10 m cell, each in every cell its circle reaches."""
     grid = {}
-    for sx, sy, r in scenery:
+    for sx, sy, r, sz, tall in scenery:
         if r <= 0.0:
             continue
         for i in range(int((sx - r) // SCENERY_CELL), int((sx + r) // SCENERY_CELL) + 1):
             for j in range(int((sy - r) // SCENERY_CELL), int((sy + r) // SCENERY_CELL) + 1):
-                grid.setdefault((i, j), []).append((sx, sy, r))
+                grid.setdefault((i, j), []).append((sx, sy, r, sz, tall))
     return grid
 
 
-def under_scenery(grid, x, y):
-    for sx, sy, r in grid.get((int(x // SCENERY_CELL), int(y // SCENERY_CELL)), ()):
-        if (x - sx) ** 2 + (y - sy) ** 2 < r * r:
+# Ground this far (cm) past a scenery object's furthest reach, up or down,
+# is still its own: it may sit sunk in the ground.
+SCENERY_DEPTH_SLACK = 200.0
+
+
+def under_scenery(grid, x, y, z):
+    for sx, sy, r, sz, tall in grid.get((int(x // SCENERY_CELL), int(y // SCENERY_CELL)), ()):
+        if (x - sx) ** 2 + (y - sy) ** 2 < r * r and abs(z - sz) < tall + SCENERY_DEPTH_SLACK:
             return True
     return False
 
@@ -973,7 +984,7 @@ def main():
                             continue
                         if rule.get("wall") and not getattr(walls, rule["wall"])(x, y, z - a.lift):
                             continue
-                        if under_scenery(scenery, x, y):
+                        if under_scenery(scenery, x, y, z - a.lift):
                             continue
                         cl = rule.get("cluster")
                         if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
