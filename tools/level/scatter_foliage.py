@@ -458,18 +458,12 @@ TURF = "turf"
 TURF_Z = (0.7, 0.88)
 
 
-# Grass thins out where CE's lightmap is dark (linear luminance, from none
-# to all kept): the game's grass takes only Unreal's light, and in Death
-# Island's tunnel, the sun cut off by the hill, it stood black over a floor
-# CE's lightmap draws lit (2026-10-15). Sunlit ground reads about 0.86,
-# the tunnel 0.006 to 0.04.
-GRASS_LIT = (0.05, 0.25)
-
-
-def lit_share(lum):
-    """How much of a grass rule a point keeps for its lightmap luminance."""
-    t = np.clip((lum - GRASS_LIT[0]) / (GRASS_LIT[1] - GRASS_LIT[0]), 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
+# No grass under a roof (COVER_OVER cm or more over it, by CoverGrid): the
+# game's grass takes only Unreal's light, and in Death Island's tunnel it
+# stood black (2026-10-15). Not by CE's lightmap: thinned by that, it left
+# a bare circle under every tree (CE baked their shadows; the swapped trees
+# cast their own) and bare dusk-side slopes, a quarter of the grass.
+COVER_OVER = 150.0
 
 
 def turf_share(nz):
@@ -529,6 +523,51 @@ def built_points(doc, data, spec, off, step=100.0):
                         w0, w1 = u / k, v / k
                         pts.append(w0 * p0 + w1 * p1 + (1 - w0 - w1) * p2)
     return np.array(pts) if pts else np.zeros((0, 3))
+
+
+class CoverGrid:
+    """The surfaces facing down (a roof, an overhang, a tunnel's ceiling:
+    normal under -0.2, any shader but water and sky, and not CE's scenery
+    models, `__lmobj`: its trees' canopies took the grass from a circle
+    under each) over each `cell` cm square, sampled at the cell's centre."""
+    def __init__(self, doc, data, off, cell=100.0):
+        self.cell, self.top = cell, {}
+        skip = ("water", "sky", "fog", "wave", "flare", "light")
+        for mesh in doc["meshes"]:
+            for prim in mesh["primitives"]:
+                name = doc["materials"][prim["material"]]["name"].lower()
+                if any(w in name for w in skip) or name.endswith("__lmobj"):
+                    continue
+                pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+                pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1) + np.array(off)
+                idx = read_accessor(doc, data, prim["indices"]).reshape(-1, 3)
+                for i0, i1, i2 in idx:
+                    a, b, c = pos[i0], pos[i1], pos[i2]
+                    n = np.cross(b - a, c - a)
+                    ln = np.linalg.norm(n)
+                    # Unreal's axes turn the glTF's normal over (WalkGrid):
+                    # facing down is +z here.
+                    if ln <= 0 or n[2] / ln < 0.2:
+                        continue
+                    det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+                    if abs(det) < 1e-6:
+                        continue
+                    xs, ys = (a[0], b[0], c[0]), (a[1], b[1], c[1])
+                    for ix in range(math.floor(min(xs) / cell), math.floor(max(xs) / cell) + 1):
+                        px = (ix + 0.5) * cell
+                        for iy in range(math.floor(min(ys) / cell), math.floor(max(ys) / cell) + 1):
+                            py = (iy + 0.5) * cell
+                            w1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+                            w2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+                            if min(w1, w2, 1 - w1 - w2) < 0:
+                                continue
+                            z = w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2]
+                            self.top.setdefault((ix, iy), []).append(z)
+
+    def covered(self, x, y, z):
+        """Whether a roof stands COVER_OVER cm or more over (x, y, z)."""
+        zs = self.top.get((math.floor(x / self.cell), math.floor(y / self.cell)))
+        return bool(zs) and any(q > z + COVER_OVER for q in zs)
 
 
 class WalkGrid:
@@ -923,12 +962,6 @@ def main():
     # (TURF_Z, by the surface's normal), and Death Island's tunnel floor, a
     # cliff shader (its detail rock, so no grass by it), lay as a bare lawn
     # (2026-10-15). Only the grass rules take the turf.
-    files = {t["name"]: t["file"] for t in spec["textures"]}
-    lightmaps = {}
-    for sl in spec["slots"]:
-        leaf = ((sl["material"].get("textures") or {}).get("Lightmap") or "").rsplit(".", 1)[-1]
-        if leaf in files and "object_lighting" not in leaf:
-            lightmaps[sl["pattern"].rstrip("$").lower()] = files[leaf]
     turfed = set()
     for k, v in cliff_slots(spec).items():
         k = k.lower()
@@ -945,6 +978,7 @@ def main():
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
     walls = WallGrid(doc, data, off) if any(r.get("wall") for r in rules) else None
+    cover = CoverGrid(doc, data, off)
     ground = WalkGrid(doc, data, off) if any(r.get("support") for r in rules) else None
     images = {}
     groups = {}  # mesh -> (rule, instances)
@@ -956,13 +990,6 @@ def main():
             if not hit:
                 continue
             cliff = name in turfed
-            lm_file = lightmaps.get(name) if "TEXCOORD_1" in prim["attributes"] else None
-            lm = uv1 = None
-            if lm_file:
-                if lm_file not in images:
-                    images[lm_file] = np.asarray(Image.open(lm_file).convert("RGBA"), dtype=np.float32) / 255.0
-                lm = images[lm_file]
-                uv1 = read_accessor(doc, data, prim["attributes"]["TEXCOORD_1"]).astype(np.float64)
             file, primary, secondary, shader_type = hit
             if file not in images:
                 images[file] = np.asarray(Image.open(file).convert("RGBA"), dtype=np.float32) / 255.0
@@ -1024,11 +1051,6 @@ def main():
                         # Where only the bank grows it, at the bank's density.
                         thin = np.where(by_bank > share, bk[2] if len(bk) > 2 else 1.0, 1.0)
                         share = np.maximum(share, by_bank)
-                    if lm is not None and (rule["on"] == "grass" or rule.get("edge") == "lip"):
-                        uv1s = np.outer(w0, uv1[i0]) + np.outer(w1, uv1[i1]) + np.outer(w2, uv1[i2])
-                        lin = np.power(np.maximum(sample_rgba(lm, uv1s)[:, :3], 1e-3), 2.2)
-                        lit = lit_share(lin @ np.array([0.2126, 0.7152, 0.0722]))
-                        thin = lit if thin is None else thin * lit
                     for j, (p, sh) in enumerate(zip(pts, share)):
                         if R.random() > keep_share(sh, lo, hi, rule.get("falloff")) * (1.0 if thin is None else thin[j]):
                             continue
@@ -1047,6 +1069,8 @@ def main():
                         if rule.get("wall") and not getattr(walls, rule["wall"])(x, y, z - a.lift):
                             continue
                         if under_scenery(scenery, x, y, z - a.lift):
+                            continue
+                        if (rule["on"] == "grass" or rule.get("edge") == "lip") and cover.covered(x, y, z - a.lift):
                             continue
                         cl = rule.get("cluster")
                         if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
