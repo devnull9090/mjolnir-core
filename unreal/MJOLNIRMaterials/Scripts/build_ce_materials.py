@@ -2903,6 +2903,16 @@ if (EdgeRange.y > EdgeRange.x)
 // part-way, its edge ragged), by the surface's own normal, not the rock's
 // bumps (with them, every up-facing seam of the rock drew a green hairline).
 turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2));
+// Rock, not turf, where CE's light is dim (its lightmap's luminance, gamma,
+// 0.26 to 0.53: scatter_foliage's GRASS_LIT, linear 0.05 to 0.25): the
+// scatter grows no grass there (the game's grass, lit by Unreal alone, stood
+// black), and Death Island's tunnel floor read as a bare lawn (2026-10-15).
+// (Soil there, lit by Unreal alone, was a flat near-black like water.)
+if (LMLevels.y > LMLevels.x && CladLight.a < 1.5)
+{
+    float lmT = dot(Texture2DSample(LM, LMSampler, TC1).rgb, float3(0.2126, 0.7152, 0.0722));
+    turf *= smoothstep(0.26, 0.53, lmT);
+}
 turf *= Drape.w; soil *= Drape.w; streak *= Drape.w; sand *= Foot.w;
 
 if (turf + soil > 0.002)
