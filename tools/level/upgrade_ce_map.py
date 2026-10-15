@@ -134,8 +134,16 @@ def stage_land(code, m, p):
         cmd += ["--real-base"]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
+    # A coast with a seabed (flux.coast.seabed): the landscape's floor shelves
+    # away from the shore under the sea, for Fluid Flux's surf.
+    coast = (m.get("flux") or {}).get("coast") or {}
+    if coast.get("seabed"):
+        cmd += ["--sea", str(coast["water"])]
+        if isinstance(coast["seabed"], str):
+            cmd += ["--shelf", coast["seabed"]]
     out = run(cmd)
-    print("  " + "\n  ".join(l for l in out.splitlines() if l.startswith(("heights", "holes", "settled", "bakes"))))
+    print("  " + "\n  ".join(l for l in out.splitlines()
+                             if l.startswith(("heights", "holes", "settled", "bakes", "seabed"))))
 
 
 def stage_foliage(code, m, p):
@@ -442,7 +450,8 @@ def flux_coast(k, land, code, level):
             if any(t in base for t in tokens):
                 floor.setdefault(item["id"], []).append(i)
     return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
-            "height": k.get("height", 10000.0), "water": k["water"], "floor": floor, "swell": k.get("swell", 140)}
+            "height": k.get("height", 10000.0), "water": k["water"], "floor": floor, "swell": k.get("swell", 140),
+            "seabed": bool(k.get("seabed"))}
 
 
 def flux_spec(code, fx, river, level):

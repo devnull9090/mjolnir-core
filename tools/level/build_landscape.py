@@ -366,6 +366,39 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     return [lo, hi]
 
 
+def seabed(zf, sea, quad, shelf):
+    """The floor under the sea shelving away from the shore: no deeper than
+    it was, at least `shelf`'s depth for its distance from the nearest
+    vertex at or over the sea. CE's sea floors are a flat plane (Death
+    Island's a metre under the water out to the horizon), and Fluid Flux's
+    shore waves break only where the floor rises to the beach: with none,
+    no surf, and a swell big enough to see bared sandbars in its troughs
+    (2026-10-14). The landscape only: Blam's collision is CE's own."""
+    pts = [tuple(float(v) for v in p.split(":")) for p in shelf.split(",")]
+    land = zf >= sea
+    if not land.any():
+        return zf
+    # Distance (m) to the shore, an 8-neighbour step a quad at a time.
+    dist = np.where(land, 0.0, np.inf)
+    reach = int(math.ceil(pts[-1][0] * 100.0 / quad)) + 1
+    size = zf.shape[0]
+    for _ in range(reach):
+        pd = np.pad(dist, 1, constant_values=np.inf)
+        best = dist
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy or dx:
+                    step = quad / 100.0 * (1.4142 if dy and dx else 1.0)
+                    best = np.minimum(best, pd[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] + step)
+        dist = best
+    depth = np.interp(np.minimum(dist, pts[-1][0]), [p[0] for p in pts], [p[1] for p in pts])
+    floor = np.minimum(zf, sea - depth * 100.0)
+    out = np.where(land, zf, floor)
+    print(f"seabed: {int((out < zf - 1.0).sum())} vertices lowered under the sea at {sea / 100:.2f} m "
+          f"(to {depth.max():.1f} m deep)")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("gltf")
@@ -381,6 +414,9 @@ def main():
     ap.add_argument("--cliff-shaders", default="",
                     help="substrings of the cliff shaders' names, comma-separated, when their detail maps do not "
                          "say so (Sidewinder's cliffs share its ground's snow detail): cliff.slots, exact")
+    ap.add_argument("--sea", type=float, help="sea level (cm): the floor under it shelves away from the shore (seabed)")
+    ap.add_argument("--shelf", default="0:0,10:0.8,25:1.8,50:4,90:8",
+                    help="the seabed's depth (m) at distances (m) from the shore, as d:depth,...")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -457,6 +493,8 @@ def main():
     counts = sum(ng[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
     ring = ~ground & (counts > 0)
     zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
+    if a.sea is not None:
+        zf = seabed(zf, a.sea, a.quad, a.shelf)
     lowest = np.where(ground, z, np.inf)
     highest = np.where(ground, z, -np.inf)
     pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)

@@ -20,7 +20,7 @@
   "haze": "ce",
   "tints": {"pebbles": "0.8,0.7,0.6:Albedo Tint", "stones": "0.8,0.7,0.6:Albedo Tint"},
   "environment": {"skylight": {"lower": [0.3, 0.27, 0.2]}},
-  "flux": {"coast": {"water": 508, "swell": 75}},
+  "flux": {"coast": {"water": 508, "swell": 140, "seabed": true}},
   "hub": "ce-death-island"
  },
  "YOY": {

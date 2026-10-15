@@ -853,6 +853,28 @@ def main():
         edge = (img, e["rect"], e["range"])
     else:
         rules = [r for r in rules if not r.get("edge")]
+    # The landscape's own floor under the sea (build_landscape.py --sea
+    # shelves it away from the shore): a piece under the sea that would stand
+    # over it is left out. CE's sandbars half a metre down lie metres over
+    # Death Island's seabed, and its stones floated in the troughs
+    # (2026-10-14).
+    floor = None
+    if a.edge and a.sea is not None:
+        land = json.load(open(a.edge, encoding="utf-8"))
+        n = land["size"]
+        hts = np.fromfile(os.path.join(os.path.dirname(os.path.abspath(a.edge)), land["heights"]), "<u2")
+        zs = land["location"][2] + (hts.reshape(n, n).astype(np.float64) - 32768) * land["scale"][2] / 128.0
+        floor = (zs, land["location"], land["scale"])
+
+    def under_floor(x, y, z):
+        if floor is None or z >= a.sea:
+            return False
+        zs, loc, sc = floor
+        i = int(round((x - loc[0]) / sc[0]))
+        j = int(round((y - loc[1]) / sc[1]))
+        if not (0 <= i < zs.shape[1] and 0 <= j < zs.shape[0]):
+            return False
+        return z - zs[j, i] > 30.0
     spec = json.load(open(a.spec, encoding="utf-8"))
     slots = ground_slots(spec)
     only = [x.lower() for x in a.ground_shaders.split(",") if x]
@@ -945,6 +967,8 @@ def main():
                             h = (z - a.lift - a.sea) / 100.0
                             if (low is not None and h < low) or (high is not None and h > high):
                                 continue
+                        if under_floor(x, y, z - a.lift):
+                            continue
                         if rule.get("edge") and not on_lip(edge, x, y, z, rule["edge"]):
                             continue
                         if rule.get("wall") and not getattr(walls, rule["wall"])(x, y, z - a.lift):

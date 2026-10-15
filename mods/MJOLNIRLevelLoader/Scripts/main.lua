@@ -3250,8 +3250,11 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     -- The Landscape out of the coast's capture: it runs under the sea a
     -- metre down, so the whole domain read as shallows, a milky square with
     -- a hard edge against the open sea. CE's own beach (made whole for the
-    -- capture) gives the shore. The river keeps it: its banks.
+    -- capture) gives the shore. The river keeps it: its banks. A coast with a
+    -- `seabed` (build_landscape.py --sea: the floor shelving away from the
+    -- shore) keeps it too: the shelf is what the surf breaks on.
     pcall(function()
+        if k.seabed then return end
         local land = FindFirstOf("Landscape")
         if land and land:IsValid() then
             local t = land.Tags
@@ -3341,7 +3344,10 @@ function Effects.flux(world)
             -- Every ground slot with a cut rect (Death Island's cut slots are
             -- picked by base map, so the level file names none).
             local uncut = {}
-            for key in pairs(keep) do
+            -- Not for a seabed coast alone: its landscape is the floor, and
+            -- CE's flat one, made whole, would lie over it.
+            local seabed = type(spec.coast) == "table" and spec.coast.seabed
+            for key in pairs((type(spec.domain) == "table" or not seabed) and keep or {}) do
                 local a = Current.actors[key]
                 pcall(function()
                     local comp = a.StaticMeshComponent
@@ -3364,7 +3370,8 @@ function Effects.flux(world)
             -- domain surf (upgrade_ce_map.flux_coast).
             local floored = {}
             local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
-            local floor = type(spec.coast) == "table" and type(spec.coast.floor) == "table" and spec.coast.floor or {}
+            local floor = not seabed and type(spec.coast) == "table" and type(spec.coast.floor) == "table"
+                and spec.coast.floor or {}
             for key, slots in pairs(hidden and floor or {}) do
                 local a = Current.actors[key]
                 for _, slot in ipairs(a and a:IsValid() and slots or {}) do
