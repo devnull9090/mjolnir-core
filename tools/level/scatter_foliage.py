@@ -127,8 +127,9 @@ RULES = [
      # (Not B30's AcorusCalamus: on our maps it drew dark brown spikes.)
      "meshes": [(BIO + "GroundcoverClump/Grass_GroundcoverClump_A/SM_Grass_GroundcoverClump_A", 0.7, 1.3, 0)],
      "cull": [5000, 12000], "bands": 3},
-    # Stands of tall grass, sedge and rushes (55 to 100 cm), clustered.
-    {"name": "tall grass", "on": "grass", "share": [0.3, 0.7], "density": 0.5, "slope": 35, "above": [0.6, None],
+    # Stands of tall grass, sedge and rushes (55 to 100 cm), clustered; 0.2
+    # a square metre (0.5 crowded Death Island's slopes, 2026-10-15).
+    {"name": "tall grass", "on": "grass", "share": [0.3, 0.7], "density": 0.2, "slope": 35, "above": [0.6, None],
      "cluster": [10.0, 0.5],
      "meshes": [("/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01", 0.9, 1.3, 0),
                 (BIO + "Sedges/Grass_Sedges_A/SM_Grass_Sedges_A_Leaves_A", 0.8, 1.2, 0),
@@ -455,6 +456,20 @@ TURF = "turf"
 # M_CE_CliffPBR's turf on faces that look up: from normal z 0.7 to all of it
 # at 0.88.
 TURF_Z = (0.7, 0.88)
+
+
+# Grass thins out where CE's lightmap is dark (linear luminance, from none
+# to all kept): the game's grass takes only Unreal's light, and in Death
+# Island's tunnel, the sun cut off by the hill, it stood black over a floor
+# CE's lightmap draws lit (2026-10-15). Sunlit ground reads about 0.86,
+# the tunnel 0.006 to 0.04.
+GRASS_LIT = (0.05, 0.25)
+
+
+def lit_share(lum):
+    """How much of a grass rule a point keeps for its lightmap luminance."""
+    t = np.clip((lum - GRASS_LIT[0]) / (GRASS_LIT[1] - GRASS_LIT[0]), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
 
 
 def turf_share(nz):
@@ -908,6 +923,12 @@ def main():
     # (TURF_Z, by the surface's normal), and Death Island's tunnel floor, a
     # cliff shader (its detail rock, so no grass by it), lay as a bare lawn
     # (2026-10-15). Only the grass rules take the turf.
+    files = {t["name"]: t["file"] for t in spec["textures"]}
+    lightmaps = {}
+    for sl in spec["slots"]:
+        leaf = ((sl["material"].get("textures") or {}).get("Lightmap") or "").rsplit(".", 1)[-1]
+        if leaf in files and "object_lighting" not in leaf:
+            lightmaps[sl["pattern"].rstrip("$").lower()] = files[leaf]
     turfed = set()
     for k, v in cliff_slots(spec).items():
         k = k.lower()
@@ -935,6 +956,13 @@ def main():
             if not hit:
                 continue
             cliff = name in turfed
+            lm_file = lightmaps.get(name) if "TEXCOORD_1" in prim["attributes"] else None
+            lm = uv1 = None
+            if lm_file:
+                if lm_file not in images:
+                    images[lm_file] = np.asarray(Image.open(lm_file).convert("RGBA"), dtype=np.float32) / 255.0
+                lm = images[lm_file]
+                uv1 = read_accessor(doc, data, prim["attributes"]["TEXCOORD_1"]).astype(np.float64)
             file, primary, secondary, shader_type = hit
             if file not in images:
                 images[file] = np.asarray(Image.open(file).convert("RGBA"), dtype=np.float32) / 255.0
@@ -996,6 +1024,11 @@ def main():
                         # Where only the bank grows it, at the bank's density.
                         thin = np.where(by_bank > share, bk[2] if len(bk) > 2 else 1.0, 1.0)
                         share = np.maximum(share, by_bank)
+                    if lm is not None and (rule["on"] == "grass" or rule.get("edge") == "lip"):
+                        uv1s = np.outer(w0, uv1[i0]) + np.outer(w1, uv1[i1]) + np.outer(w2, uv1[i2])
+                        lin = np.power(np.maximum(sample_rgba(lm, uv1s)[:, :3], 1e-3), 2.2)
+                        lit = lit_share(lin @ np.array([0.2126, 0.7152, 0.0722]))
+                        thin = lit if thin is None else thin * lit
                     for j, (p, sh) in enumerate(zip(pts, share)):
                         if R.random() > keep_share(sh, lo, hi, rule.get("falloff")) * (1.0 if thin is None else thin[j]):
                             continue
