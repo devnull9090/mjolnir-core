@@ -139,10 +139,10 @@ def deep_floor(m, p, ids, floor):
     """With a wading zone: CE's own sea floor again, as a copy of its ground
     item with every other slot hidden, lowered to the deep seabed's depth
     (zone_shelf's 25 m, a little under). Past the landscape the sea had no
-    floor, and from the water a player saw over the landscape's edge to the
-    sunk backup sea far below (Yoyorast, 2026-10-16); the copy runs on to
-    the horizon (Yoyorast's floor is 3.2 km across). An id without
-    "_terrain": plain decor, no terrain shading or shadow copy."""
+    floor, and from the water a player saw over the landscape's edge to
+    our old sea far below (Yoyorast, 2026-10-16); the copy runs on to the
+    horizon (Yoyorast's floor is 3.2 km across). An id without "_terrain":
+    plain decor, no terrain shading or shadow copy."""
     coast = m["flux"]["coast"]
     if not coast.get("wade"):
         return []
@@ -161,6 +161,39 @@ def deep_floor(m, p, ids, floor):
                      "pos": [item["pos"][0], item["pos"][1], round(item["pos"][2] - (floor_z - target), 1)]})
         out.append(copy)
         print(f"  deep floor: {key} slots {slots} lowered {floor_z - target:.0f} cm")
+    return out
+
+
+def sea_sand(code, m, level, ids, floor):
+    """A Flux coast's last floor: our own sea mesh (SM_<code>_Water, one flat
+    sheet as wide as CE's sea) again, drawn as CE's sea floor (its first
+    floor slot's material, unlit by CE's lightmap: the sheet has none) and
+    lowered under the deepest seabed. The sea floor has holes (cut round
+    Yoyorast's pipe), and Flux's sea drops out with the horizon on the
+    frustum's edge: through both, sand, not the sky or a second sea
+    (2026-10-16). The water item itself stays first in decor, where the
+    loader takes the sea's height from it."""
+    coast = m["flux"]["coast"]
+    depth = coast.get("sand_depth", 2560.0 if coast.get("wade") else 900.0)
+    sand = None
+    for key, slots in floor.items():
+        entry = ids[key]["materials"][slots[0]]
+        if isinstance(entry, dict):
+            sand = json.loads(json.dumps(entry))
+            break
+    if sand is None:
+        return []
+    for k in ("HasLightmap", "HasBake"):
+        sand.setdefault("scalars", {})[k] = 0.0
+    out = []
+    for item in level.get("decor") or []:
+        if f"/SM_{code}_Water." not in str(item.get("mesh", "")):
+            continue
+        copy = {k: v for k, v in item.items() if k not in ("id", "materials", "pos")}
+        copy.update({"id": item["id"] + "_sand", "materials": [sand] * len(item["materials"]),
+                     "pos": [item["pos"][0], item["pos"][1], round(item["pos"][2] - depth, 1)], "cast_shadow": False})
+        out.append(copy)
+        print(f"  sea sand: {item['id']} as the sea floor, {depth:.0f} cm down")
     return out
 
 
@@ -685,25 +718,29 @@ def stage_assemble(code, m, p):
         # coastline (2026-10-15).
         if flux["coast"]["seabed"]:
             ids = {item["id"]: item for item in level.get("decor") or []}
-            deep = deep_floor(m, p, ids, flux["coast"]["floor"])
+            deep = deep_floor(m, p, ids, flux["coast"]["floor"]) + sea_sand(code, m, level, ids, flux["coast"]["floor"])
             for key, slots in flux["coast"]["floor"].items():
                 for i in slots:
                     ids[key]["materials"][i] = HIDDEN
             level["decor"] += deep
         flux.setdefault("ground", flux_ground(code, level))
-        # The sea is Flux's: our own water mesh (SM_<code>_Water) sunk under
-        # it, for when Flux's camera-projected grid drops out: with the
-        # horizon on the frustum's edge (a zoomed look out to sea, Yoyorast,
-        # 2026-10-15) the whole sea went, the bare seabed under it. 9 m, under
-        # the seabed's deepest (build_landscape.py --shelf, 8 m): a metre
-        # down it showed through Flux's clear shallows as a flat teal floor,
-        # and as a second sea under a player wading in the swell (Yoyorast,
-        # 2026-10-16). Under the shelf, a dropout leaves the shallows' floor
-        # bare and only the open sea covered.
-        # With a wading zone the seabed runs to 25 m (zone_shelf): under it.
-        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 2600.0 if m["flux"]["coast"].get("wade") else 900.0),
-                        "ids": [item["id"] for item in level.get("decor") or []
-                                if f"/SM_{code}_Water." in str(item.get("mesh", ""))]}
+        # The sea is Flux's alone. Our own water mesh (SM_<code>_Water) is
+        # hidden (it stays in the level, the loader's sea height), and CE's
+        # background water slot with it. Sunk under Flux's as a fallback for
+        # Flux's dropouts (its grid goes with the horizon on the frustum's
+        # edge) it showed as a second sea, through the shallows, under a
+        # player wading, and down the holes in the sea floor (Yoyorast,
+        # 2026-10-16). A dropout shows the seabed now (sea_sand).
+        water = [item["id"] for item in level.get("decor") or []
+                 if f"/SM_{code}_Water." in str(item.get("mesh", "")) and not item["id"].endswith("_sand")]
+        flux["hide"] = sorted(set(flux.get("hide", []) + water))
+        n = 0
+        for item in level.get("decor") or []:
+            for i, entry in enumerate(item.get("materials") or []):
+                if isinstance(entry, dict) and "M_CE_WaterBackground" in str(entry.get("parent", "")):
+                    item["materials"][i] = HIDDEN
+                    n += 1
+        print(f"  {code}: only Flux's sea ({len(water)} water mesh(es) hidden, {n} background water slot(s))")
         print(f"  {code}: flux coast {flux['coast']['res']} at {flux['coast']['cell']} cm, sea at {flux['coast']['water']}")
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})

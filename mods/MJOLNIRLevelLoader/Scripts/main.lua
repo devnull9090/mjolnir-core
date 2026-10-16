@@ -3315,35 +3315,6 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     return string.format("coast %dx%d at %d cm, sea at %g", k.res[1], k.res[2], math.floor(k.cell), k.water)
 end
 
---- The sunk sea (Effects.flux `sink`) hidden while the camera is within
---- SINK_CLEAR cm over the sea or under it: there the swell passes over the
---- eye and Flux draws its underwater view, through which a player wading on
---- Yoyorast's shallows saw the sunk sea far below as a second one
---- (2026-10-16). It is only for Flux's dropouts, seen from above.
-Effects.SINK_CLEAR = 150.0
-
-function Effects.sinkTick()
-    local list = Effects.sunk
-    if not list or #list == 0 then return end
-    local ok, z = pcall(function()
-        local gs = findObject("/Script/Engine.Default__GameplayStatics")
-        return gs:GetPlayerController(getWorld(), 0).PlayerCameraManager:GetCameraLocation().Z
-    end)
-    if not ok or type(z) ~= "number" then return end
-    local keep = {}
-    for _, s in ipairs(list) do
-        if s.actor:IsValid() then
-            local hide = z < s.sea + Effects.SINK_CLEAR
-            if s.hidden ~= hide then
-                s.hidden = hide
-                pcall(function() s.actor:SetActorHiddenInGame(hide) end)
-            end
-            keep[#keep + 1] = s
-        end
-    end
-    Effects.sunk = keep
-end
-
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
@@ -3353,22 +3324,6 @@ function Effects.flux(world)
     for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
         local a = Current.actors[key]
         if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-    end
-    -- `sink` { by, ids }: our own sea moved down under Flux's, a fallback for
-    -- the frames Flux's grid drops out (upgrade_ce_map.py); once only.
-    local sink = type(spec.sink) == "table" and spec.sink
-    for _, key in ipairs(sink and type(sink.ids) == "table" and sink.ids or {}) do
-        local a = Current.actors[key]
-        if a and a:IsValid() and not Current.actors["__sunk_" .. key] then
-            Current.actors["__sunk_" .. key] = a
-            pcall(function() a:K2_AddActorWorldOffset({ X = 0, Y = 0, Z = -(tonumber(sink.by) or 100.0) }, false, {}, false) end)
-            -- For Effects.sinkTick: hidden near or under the water.
-            if type(spec.coast) == "table" and tonumber(spec.coast.water) then
-                local origin = (Current.level.canvas or {}).origin or { 0, 0, 0 }
-                Effects.sunk = Effects.sunk or {}
-                Effects.sunk[#Effects.sunk + 1] = { actor = a, sea = origin[3] + spec.coast.water }
-            end
-        end
     end
     if Current.fluxPending then return end
     Current.fluxPending = true
@@ -5000,7 +4955,6 @@ local function watch()
     every(100, "event sounds", drainEvents)
     every(100, "weather", updateWeather)
     every(100, "footprints", Footprints.tick)
-    every(100, "sunk sea", Effects.sinkTick)
     -- A slider moved in the pause menu is heard within half a second.
     every(500, "sound volume", syncVolumes)
     -- A flag picked up or dropped is a new actor, drawn as a skull until it
