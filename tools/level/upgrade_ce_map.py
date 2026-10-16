@@ -625,12 +625,16 @@ def stage_assemble(code, m, p):
                 for i in slots:
                     ids[key]["materials"][i] = HIDDEN
         flux.setdefault("ground", flux_ground(code, level))
-        # The sea is Flux's: our own water mesh (SM_<code>_Water) sunk a
-        # metre, under the swell's troughs, where Flux's water hides it. It
-        # shows only when Flux's camera-projected grid drops out: with the
+        # The sea is Flux's: our own water mesh (SM_<code>_Water) sunk under
+        # it, for when Flux's camera-projected grid drops out: with the
         # horizon on the frustum's edge (a zoomed look out to sea, Yoyorast,
-        # 2026-10-15) the whole sea went, the bare seabed under it.
-        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 100.0),
+        # 2026-10-15) the whole sea went, the bare seabed under it. 9 m, under
+        # the seabed's deepest (build_landscape.py --shelf, 8 m): a metre
+        # down it showed through Flux's clear shallows as a flat teal floor,
+        # and as a second sea under a player wading in the swell (Yoyorast,
+        # 2026-10-16). Under the shelf, a dropout leaves the shallows' floor
+        # bare and only the open sea covered.
+        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 900.0),
                         "ids": [item["id"] for item in level.get("decor") or []
                                 if f"/SM_{code}_Water." in str(item.get("mesh", ""))]}
         print(f"  {code}: flux coast {flux['coast']['res']} at {flux['coast']['cell']} cm, sea at {flux['coast']['water']}")
