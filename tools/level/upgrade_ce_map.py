@@ -49,9 +49,11 @@ STAGES = ("land", "foliage", "swap", "collision", "editor", "cook", "bake", "ass
 CLIFF_FILL_DIR = [0.75, 0.0, 0.0, 0.0]
 # Tessellated cliffs (cliff_mesh.py, M_CE_CliffTess) unless a map's config
 # says "tess": false: displacement (0..1 of 50 cm either way), whether the
-# cladding rocks are tessellated too and theirs (at the walls' 0.6 the
-# Megascans rocks folded, backfaces showing as lavender patches).
-TESS = {"disp": 0.6, "cladding": True, "clad_disp": 0.2}
+# cladding rocks are tessellated too and theirs: none. The Megascans rocks
+# are detailed already; at the walls' 0.6 they folded, backfaces showing as
+# lavender patches, and even at 0.2 their triplanar rock smeared into
+# streaks down every overhang (Yoyorast, 2026-10-16; 0.06 still streaked).
+TESS = {"disp": 0.6, "cladding": True, "clad_disp": 0.0}
 GAME = os.environ.get("HCE_GAME", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved")
 PAKS = os.path.join(GAME, "Meteorite", "Content", "Paks")
 UE4SS = os.path.join(GAME, "Meteorite", "Binaries", "Win64", "ue4ss")
