@@ -84,11 +84,13 @@ async function verifyEd25519(
 
 /**
  * Verify the archive's signature member against the release it is supposed
- * to describe. `files` is the unzipped archive (from the scanner's pass —
- * the archive is never unzipped twice).
+ * to describe. `files` holds the members the scanner read whole (the
+ * signature among them) and `hashes` every member's SHA-256, from the
+ * scanner's one pass: the archive is never unzipped twice.
  */
 export async function checkArchiveSignature(
   files: Record<string, Uint8Array>,
+  hashes: Record<string, string>,
   expectedSlug: string,
   expectedVersion: string,
 ): Promise<SignatureCheck> {
@@ -157,18 +159,18 @@ export async function checkArchiveSignature(
   // Member-set equality, then per-member digests. Directory entries (name
   // ending "/") are not members; everything else is, including empty files —
   // the signer never writes empties, so an added one fails set equality.
-  const actual = new Map<string, Uint8Array>();
-  for (const [name, data] of Object.entries(files)) {
+  const actual = new Map<string, string>();
+  for (const [name, digest] of Object.entries(hashes)) {
     if (name === SIGNATURE_MEMBER || name.endsWith("/")) continue;
-    actual.set(name, data);
+    actual.set(name, digest);
   }
   for (const path of Object.keys(statement.files)) {
     if (!actual.has(path)) return bad(`Signed member ${path} is missing from the archive.`);
   }
-  for (const [path, data] of actual) {
+  for (const [path, digest] of actual) {
     const want = statement.files[path];
     if (!want) return bad(`Archive member ${path} is not covered by the signature.`);
-    if ((await sha256HexBytes(data)) !== want) {
+    if (digest !== want) {
       return bad(`Archive member ${path} does not match its signature.`);
     }
   }
