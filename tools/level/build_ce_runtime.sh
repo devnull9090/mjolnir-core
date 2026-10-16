@@ -26,6 +26,9 @@
 #                                    the body damage section (it ships on the
 #                                    head section, so every bullet hit was a
 #                                    headshot: docs/playtest_2026-10-03.md, 6)
+#   pakchunk990-MJOLNIRFLUX_P        Fluid Flux's infinite sea with fixed bounds
+#                                    tall enough for a sea far from Z 0 (rebuild
+#                                    after every game update: byte offsets)
 #   pakchunk985-MJOLNIRMENU_P        the main menu with its own MULTIPLAYER
 #                                    button, which opens the lobby in chunk 984
 #                                    (`mjolnir ue menu-button`; rebuild after
@@ -107,7 +110,20 @@ MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
   --set 'model materials[0].damage section=#0' \
   --out-dir "$(cygpath -m "$out")" --name pakchunk990-MJOLNIRSPARTAN_P > "$out/spartan_model.log"
 "$mjolnir" ue menu-button --out-dir "$(cygpath -m "$out")" | tail -1
-rm -f "$out"/*.pak
+# Fluid Flux's infinite sea (NS_InfiniteSurfaceMesh) has fixed bounds only
+# 50 m tall round Z 0 (the system's; its far emitter's are 100 m), made for a
+# sea at Z 0 like B30's. Yoyorast's is at -256 m: with the top of the view
+# level the whole box was above the frustum, the sea primitive was culled and
+# the sea vanished (looking down ~27 degrees at FOV 85, 2026-10-16). 10 km
+# tall. Byte offsets in the CU4 package; `ue patch` checks the old bytes, so a
+# game update that moves them fails here.
+# Each FBox: min xyz, max xyz (f64), IsValid.
+MSYS2_ARG_CONV_EXCL="/Game" "$mjolnir" ue patch \
+  --package /Game/FluidFlux/Surface/Meshes/Niagara/NS_InfiniteSurfaceMesh \
+  --edit "58425:0000000080842ec10000000080842ec1000000000088b3c00000000080842e410000000080842e41000000000088b34001:0000000080842ec10000000080842ec10000000080842ec10000000080842e410000000080842e410000000080842e4101" \
+  --edit "20966:00000000e0c840c100000000e0c840c1000000000088c3c000000000e0c8404100000000e0c84041000000000088c34001:00000000e0c840c100000000e0c840c10000000080842ec100000000e0c8404100000000e0c840410000000080842e4101" \
+  --out-dir "$(cygpath -m "$out")" --name pakchunk990-MJOLNIRFLUX_P | tail -1
+rm -f "${out:?}"/*.pak
 ls "$out"/*.utoc
 echo "done: $out"
 echo "package it: mjolnir map runtime $out --version <x.y.z> --sign"

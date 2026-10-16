@@ -30,6 +30,11 @@ pub enum UeCommand {
     Get(GetArgs),
     /// Set one property by path and write an override container.
     Set(SetArgs),
+    /// Overwrite bytes of a package at given offsets, checking what was
+    /// there first, and write an override container: for natively
+    /// serialized data the property codec does not model (a Niagara
+    /// system's fixed bounds).
+    Patch(PatchArgs),
     /// Decode and re-encode every export of the packages matching a
     /// substring, counting the ones that come back byte for byte.
     Roundtrip(RoundtripArgs),
@@ -130,6 +135,25 @@ pub struct SetArgs {
 }
 
 #[derive(Args)]
+pub struct PatchArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The package, as `/Game/...` or a substring of its path.
+    #[arg(long)]
+    pub package: String,
+    /// `offset:old-hex:new-hex`, offset in bytes into the package (decimal
+    /// or 0x), old and new the same length. Repeat for several.
+    #[arg(long, required = true)]
+    pub edit: Vec<String>,
+    /// Directory to write the container into.
+    #[arg(long, default_value = ".")]
+    pub out_dir: PathBuf,
+    /// Container name (`_P` is added when missing).
+    #[arg(long, default_value = "pakchunk996-MJOLNIRUE_P")]
+    pub name: String,
+}
+
+#[derive(Args)]
 pub struct RetargetArgs {
     /// Directory holding the cooked container and a `global.utoc` (the
     /// cook's staged `Paks` folder, or the game's).
@@ -186,6 +210,7 @@ pub fn run(a: UeArgs) -> Result<()> {
     match a.command {
         UeCommand::Get(a) => get(a),
         UeCommand::Set(a) => set(a),
+        UeCommand::Patch(a) => patch(a),
         UeCommand::Roundtrip(a) => roundtrip(a),
         UeCommand::MenuButton(a) => menu_button(a),
         UeCommand::Disasm(a) => disasm(a),
@@ -348,6 +373,58 @@ fn set(a: SetArgs) -> Result<()> {
         }
     }
 
+    write_override(
+        &containers[ci],
+        &oodle,
+        chunk,
+        &name,
+        data.len(),
+        patched,
+        &a.out_dir,
+        &a.name,
+    )
+}
+
+fn patch(a: PatchArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let (ci, chunk, name) = locate(&containers, &a.package)?;
+    let data = ue_iostore::read_chunk(&containers[ci], &chunk, None, &oodle)?;
+    let mut patched = data.clone();
+    let hex = |t: &str| -> Result<Vec<u8>> {
+        let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+        if t.len() % 2 != 0 {
+            bail!("{t:?}: odd number of hex digits");
+        }
+        (0..t.len() / 2)
+            .map(|i| {
+                u8::from_str_radix(&t[i * 2..i * 2 + 2], 16)
+                    .with_context(|| format!("{t:?} is not hex"))
+            })
+            .collect()
+    };
+    println!("{name}");
+    for e in &a.edit {
+        let parts: Vec<&str> = e.split(':').collect();
+        let [at, old, new] = parts[..] else {
+            bail!("{e:?} is not offset:old-hex:new-hex");
+        };
+        let at = match at.strip_prefix("0x") {
+            Some(h) => usize::from_str_radix(h, 16)?,
+            None => at.parse::<usize>()?,
+        };
+        let (old, new) = (hex(old)?, hex(new)?);
+        if old.len() != new.len() {
+            bail!("{e:?}: old and new differ in length");
+        }
+        let end = at + old.len();
+        if end > patched.len() || patched[at..end] != old[..] {
+            bail!("{e:?}: the package does not hold those bytes at {at}");
+        }
+        patched[at..end].copy_from_slice(&new);
+        println!("  {at}: {} bytes replaced", new.len());
+    }
+    ue_asset::package::ZenPackage::parse(&patched)?;
     write_override(
         &containers[ci],
         &oodle,
