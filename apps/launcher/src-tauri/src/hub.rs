@@ -853,9 +853,22 @@ fn install_one_as(
             continue;
         }
         if live.is_some() {
-            return Err(format!(
-                "{name} needs {dep_slug}, which is not installed. Install it from the                  MJOLNIR launcher and restart the game."
-            ));
+            let range = dep["range"].as_str().unwrap_or("");
+            let have = load_state()
+                .installed
+                .iter()
+                .find(|m| m.slug == dep_slug)
+                .map(|m| m.version.clone());
+            return Err(match have {
+                Some(v) => format!(
+                    "{name} needs {dep_slug} {range}, and {v} is installed. Update it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+                None => format!(
+                    "{name} needs {dep_slug}, which is not installed. Install it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+            });
         }
         if depth + 1 >= MAX_DEP_DEPTH {
             return Err(format!(
