@@ -464,6 +464,11 @@ TURF_Z = (0.7, 0.88)
 # a bare circle under every tree (CE baked their shadows; the swapped trees
 # cast their own) and bare dusk-side slopes, a quarter of the grass.
 COVER_OVER = 150.0
+# ...and no more than COVER_UNDER cm over it: a tunnel's, a room's or a
+# bridge's. Higher, it is an overhang the sky reaches under from the side:
+# a Forerunner structure 24 m over Yoyorast's slope left it a bare lawn, and
+# Death Island's leaning cliffs (8 to 40 m up) bared their feet (2026-10-16).
+COVER_UNDER = 800.0
 
 
 def turf_share(nz):
@@ -565,9 +570,9 @@ class CoverGrid:
                             self.top.setdefault((ix, iy), []).append(z)
 
     def covered(self, x, y, z):
-        """Whether a roof stands COVER_OVER cm or more over (x, y, z)."""
+        """Whether a roof stands COVER_OVER to COVER_UNDER cm over (x, y, z)."""
         zs = self.top.get((math.floor(x / self.cell), math.floor(y / self.cell)))
-        return bool(zs) and any(q > z + COVER_OVER for q in zs)
+        return bool(zs) and any(z + COVER_OVER < q <= z + COVER_UNDER for q in zs)
 
 
 class WalkGrid:
