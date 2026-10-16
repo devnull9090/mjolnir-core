@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 
 import { scanArchive } from "../src/lib/api/scan";
 import { checkArchiveSignature } from "../src/lib/api/signing";
@@ -31,8 +31,23 @@ for (const n of [0, 1, 55, 56, 63, 64, 65, 119, 120, 1000, 70_000]) {
   }
 }
 
-for (const file of process.argv.slice(2)) {
-  const bytes = new Uint8Array(await readFile(file));
+// A zip with a directory entry, an empty member, and stored and deflated
+// members, built here (no fixture file). Zips other tools write (data
+// descriptors from Python's zipfile on an unseekable stream, PowerShell's
+// Compress-Archive) were checked by passing them on the command line,
+// 2026-10-15.
+const synthetic = zipSync({
+  "mjolnir.json": [new TextEncoder().encode('{"schema_version":1,"name":"t","version":"1.0.0","type":"content"}'), { level: 6 }],
+  "content/": new Uint8Array(0),
+  "docs/empty.txt": new Uint8Array(0),
+  "docs/stored.md": [new TextEncoder().encode("stored ".repeat(500)), { level: 0 }],
+  "docs/deflated.md": [new TextEncoder().encode("deflated ".repeat(500)), { level: 9 }],
+});
+
+const inputs: [string, Uint8Array][] = [["(synthetic)", synthetic]];
+for (const file of process.argv.slice(2)) inputs.push([file, new Uint8Array(await readFile(file))]);
+
+for (const [file, bytes] of inputs) {
   const before = process.memoryUsage().heapUsed;
   const scan = scanArchive(bytes);
   const peak = process.memoryUsage().heapUsed - before;

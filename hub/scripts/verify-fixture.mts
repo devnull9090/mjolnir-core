@@ -12,6 +12,7 @@
 import { readFileSync } from "node:fs";
 
 import { checkArchiveSignature, SIGNATURE_MEMBER } from "../src/lib/api/signing";
+import { Sha256 } from "../src/lib/api/sha256";
 
 interface Fixture {
   slug: string;
@@ -46,7 +47,11 @@ const check = async (
   slug = fixture.slug,
   version = fixture.version,
 ) => {
-  const result = await checkArchiveSignature(files, slug, version);
+  // Each member's hash, as the scanner hands them to the check.
+  const hashes = Object.fromEntries(
+    Object.entries(files).map(([name, data]) => [name, new Sha256().update(data).hex()]),
+  );
+  const result = await checkArchiveSignature(files, hashes, slug, version);
   const ok = result.state === expect;
   if (!ok) failures++;
   const detail =

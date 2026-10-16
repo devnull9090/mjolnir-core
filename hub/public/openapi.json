@@ -4627,7 +4627,7 @@
           "publish"
         ],
         "summary": "Upload the .mjolnir archive",
-        "description": "Raw zip bytes, at most 50 MiB. Re-uploading while pending or rejected replaces the archive and resets the release to pending.",
+        "description": "Raw zip bytes, at most 90 MiB. Re-uploading while pending or rejected replaces the archive and resets the release to pending.",
         "parameters": [
           {
             "schema": {
