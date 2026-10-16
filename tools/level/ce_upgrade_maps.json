@@ -100,5 +100,12 @@
            "outlet": [-1070, 9787, -6635]},
   "haze": "ce",
   "hub": "ce-timberland"
+ },
+ "INF": {
+  "conversion": "C:/haloce/ce_conversions/release11/INF",
+  "level": "infinity.level.json", "sbsp": "infinity.sbsp",
+  "shaders": ["infinity_ground"],
+  "landscape": "LIN", "chunk": 973,
+  "hub": "ce-infinity"
  }
 }
