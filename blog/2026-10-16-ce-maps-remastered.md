@@ -80,6 +80,8 @@ islets and grass up its terraces.
 
 ![Yoyorast from the bay](/blog-images/ce-maps-remastered/yoyorast-overlook.jpg?before=/blog-images/ce-maps-remastered/yoyorast-overlook-classic.jpg)
 
+![The islet's beach, across the channel](/blog-images/ce-maps-remastered/yoyorast-beach.jpg?before=/blog-images/ce-maps-remastered/yoyorast-beach-classic.jpg)
+
 ![Grass against the cliff](/blog-images/ce-maps-remastered/yoyorast-grass.jpg?before=/blog-images/ce-maps-remastered/yoyorast-grass-classic.jpg)
 
 ![The islet](/blog-images/ce-maps-remastered/yoyorast-island.jpg?before=/blog-images/ce-maps-remastered/yoyorast-island-classic.jpg)
