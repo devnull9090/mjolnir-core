@@ -133,6 +133,8 @@ def sea_zone(code, m, p):
            "--sea", str(coast["water"]), "--wade", str(coast["wade"])]
     if coast.get("zone_ignore"):
         cmd += ["--ignore", ",".join(coast["zone_ignore"])]
+    if coast.get("apron"):
+        cmd += ["--apron", ",".join(coast["apron"]["shaders"])]
     print("  " + run(cmd).strip().splitlines()[-1])
     return out
 
@@ -260,6 +262,11 @@ def structure_surf(m, p, level):
     return [{"system": SURF, "pos": [round(x - origin[0]), round(y - origin[1]), round(sea - origin[2])]} for x, y in keep]
 
 
+# The apron's depth (m) by metres from a structure's waterline: as shallow as
+# CE's own floor (1.5 m) for 5 m, deep water by 40.
+APRON_SHELF = "0:1.5,5:1.5,12:5,22:12,40:25"
+
+
 def zone_shelf(wade):
     """The seabed by metres from land: none deeper than CE's floor (which it
     keeps) out to the wading line, then down to 25 m, Flux's open sea."""
@@ -290,6 +297,10 @@ def stage_land(code, m, p):
             # the wall stage_collision adds on the same line.
             zone = sea_zone(code, m, p)
             cmd += ["--zone", zone, "--shelf", coast.get("shelf") or zone_shelf(coast["wade"])]
+            # A shallow apron round the structures standing in the sea
+            # (`apron`: shaders, shelf), which Flux's waves feel.
+            if coast.get("apron"):
+                cmd += ["--apron-shelf", coast["apron"].get("shelf", APRON_SHELF)]
         elif isinstance(coast["seabed"], str):
             cmd += ["--shelf", coast["seabed"]]
     out = run(cmd)

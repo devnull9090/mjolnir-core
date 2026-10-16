@@ -20,6 +20,15 @@ at least `--min-width` m across: Yoyorast's 1.3 km pipe across the sea,
 70 cm wide, would have made a lane of shallows the length of the map. Writes zone.npz (dist m by cell, floor
 z cm, land), zone.json (grid and extents) and wall.json (collision extras
 in b30_collision.py's form: triangles in CE world units, materials).
+
+With `--apron`, also `apron` in zone.npz: metres from the waterline of the
+named structures (shader substrings), where build_landscape.py raises the
+seabed into a shallow apron, as at the foot of a breakwater. Fluid Flux's
+waves feel only shallow water: round a tower whose foot lay a metre under
+the surface they slowed and calmed, while along Yoyorast's walls and
+pillars, which drop to a seabed 25 m down, they ran on as if nothing stood
+there (2026-10-16). By the waterline, not the raster: the walls are a
+metre thick and the pillars hollow.
 """
 import argparse
 import json
@@ -55,6 +64,34 @@ def scene_triangles(gltf, ignore):
             pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1)
             out.append(pos[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)])
     return np.concatenate(out)
+
+
+def waterline_cells(gltf, tokens, sea, origin, cell, side):
+    """Cells the named shaders' surfaces cross the sea in."""
+    doc = json.load(open(gltf, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(os.path.abspath(gltf)), doc["buffers"][0]["uri"]), "rb").read()
+    mask = np.zeros((side, side), bool)
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            if not any(t in doc["materials"][prim["material"]]["name"].lower() for t in tokens):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            pos = np.stack([pos[:, 0] * 100.0, pos[:, 2] * 100.0, pos[:, 1] * 100.0], 1)
+            for t in pos[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]:
+                z = t[:, 2] - sea
+                if not (z.min() < 0 < z.max()):
+                    continue
+                ends = [t[i] + (t[j] - t[i]) * (z[i] / (z[i] - z[j]))
+                        for i, j in ((0, 1), (1, 2), (2, 0)) if (z[i] < 0) != (z[j] < 0)]
+                if len(ends) != 2:
+                    continue
+                k = max(2, int(np.linalg.norm(ends[1] - ends[0]) / (cell / 2)) + 1)
+                for f in np.linspace(0.0, 1.0, k):
+                    q = ends[0] + (ends[1] - ends[0]) * f
+                    c, r = int((q[0] - origin[0]) / cell), int((q[1] - origin[1]) / cell)
+                    if 0 <= r < side and 0 <= c < side:
+                        mask[r, c] = True
+    return mask
 
 
 def opening(mask, k):
@@ -196,6 +233,9 @@ def main():
     ap.add_argument("--ignore", default="", help="shader name substrings that are not land, comma-separated")
     ap.add_argument("--min-width", type=float, default=3.0, help="m: narrower land is not land (a pipe, a railing)")
     ap.add_argument("--tolerance", type=float, default=50.0, help="cm the wall may stray from the line")
+    ap.add_argument("--apron", default="", help="shader name substrings of structures standing in the sea, "
+                                                "comma-separated: their apron field (m from their waterline)")
+    ap.add_argument("--apron-reach", type=float, default=60.0, help="m the apron field covers")
     a = ap.parse_args()
     ignore = [t.lower() for t in a.ignore.split(",") if t]
     tris = scene_triangles(a.gltf, ignore)
@@ -216,8 +256,15 @@ def main():
     floor = np.where(np.isfinite(low) & (low < a.sea), low, np.nan)
     dist = distance(land, a.cell / 100.0, a.reach)
     os.makedirs(a.out, exist_ok=True)
+    extra = {}
+    tokens = [t.lower() for t in a.apron.split(",") if t]
+    if tokens:
+        struct = waterline_cells(a.gltf, tokens, a.sea, origin, a.cell, side)
+        apron = distance(struct, a.cell / 100.0, a.apron_reach)
+        extra["apron"] = np.where(np.isfinite(apron), apron, 1e6).astype(np.float32)
+        print(f"apron: {int(struct.sum())} waterline cell(s) on {a.apron}")
     np.savez_compressed(os.path.join(a.out, "zone.npz"), dist=dist.astype(np.float32), floor=floor.astype(np.float32),
-                        land=land)
+                        land=land, **extra)
     ys, xs = np.nonzero(land)
     land_rect = [float(origin[0] + xs.min() * a.cell), float(origin[1] + ys.min() * a.cell),
                  float(origin[0] + xs.max() * a.cell), float(origin[1] + ys.max() * a.cell)]

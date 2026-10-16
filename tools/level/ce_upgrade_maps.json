@@ -35,7 +35,8 @@
   "haze": "ce",
   "environment": {"skylight": {"lower": [0.28, 0.26, 0.2]}},
   "flux": {"coast": {"water": -25643.8, "swell": 140, "seabed": true, "floor": ["protected_bitm_n3032"], "wade": 30,
-                     "haze_color": [0.281, 0.406, 0.625], "surf": {"shaders": ["tubes_ext"], "gap": 1500, "depth": 100}}},
+                     "haze_color": [0.281, 0.406, 0.625], "surf": {"shaders": ["tubes_ext"], "gap": 1500, "depth": 100},
+                     "apron": {"shaders": ["tubes_ext"]}}},
   "hub": "ce-yoyorast-island-v2"
  },
  "ICE": {

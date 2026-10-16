@@ -373,22 +373,23 @@ ZONE_MARGIN = 60.0
 def load_zone(path):
     z = np.load(os.path.join(path, "zone.npz"))
     return {"meta": json.load(open(os.path.join(path, "zone.json"), encoding="utf-8")),
-            "dist": z["dist"], "land": z["land"]}
+            "dist": z["dist"], "land": z["land"], "apron": z["apron"] if "apron" in z.files else None}
 
 
-def zone_dist(zone, origin, quad, size):
-    """The zone's metres to land at each landscape vertex (inf off it)."""
+def zone_dist(zone, origin, quad, size, key="dist"):
+    """The zone's metres to land (or `key`'s field) at each landscape
+    vertex (inf off it)."""
     m = zone["meta"]
     ii = np.round((origin[0] + np.arange(size) * quad - m["origin"][0]) / m["cell"]).astype(int)
     jj = np.round((origin[1] + np.arange(size) * quad - m["origin"][1]) / m["cell"]).astype(int)
     ok_i, ok_j = (ii >= 0) & (ii < m["size"]), (jj >= 0) & (jj < m["size"])
     out = np.full((size, size), np.inf)
-    sub = zone["dist"][np.ix_(np.clip(jj, 0, m["size"] - 1), np.clip(ii, 0, m["size"] - 1))]
+    sub = zone[key][np.ix_(np.clip(jj, 0, m["size"] - 1), np.clip(ii, 0, m["size"] - 1))]
     out[np.ix_(ok_j, ok_i)] = sub[np.ix_(ok_j, ok_i)]
     return out
 
 
-def seabed(zf, sea, quad, shelf, dist_m=None):
+def seabed(zf, sea, quad, shelf, dist_m=None, apron=None):
     """The floor under the sea shelving away from the shore: no deeper than
     it was, at least `shelf`'s depth for its distance from the nearest
     vertex at or over the sea. CE's sea floors are a flat plane (Death
@@ -415,6 +416,14 @@ def seabed(zf, sea, quad, shelf, dist_m=None):
                     best = np.minimum(best, pd[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] + step)
         dist = best
     depth = np.interp(np.minimum(dist, pts[-1][0]), [p[0] for p in pts], [p[1] for p in pts])
+    if apron is not None:
+        # `apron` (m from the structures in the sea, profile): no deeper
+        # than its own shelf near them (sea_zone.py --apron).
+        a_dist, a_shelf = apron
+        ap = [tuple(float(v) for v in q.split(":")) for q in a_shelf.split(",")]
+        a_depth = np.interp(np.minimum(a_dist, ap[-1][0]), [q[0] for q in ap], [q[1] for q in ap])
+        print(f"seabed: apron over {int((a_depth < depth - 0.01).sum())} vertices")
+        depth = np.minimum(depth, a_depth)
     floor = np.minimum(zf, sea - depth * 100.0)
     out = np.where(land, zf, floor)
     print(f"seabed: {int((out < zf - 1.0).sum())} vertices lowered under the sea at {sea / 100:.2f} m "
@@ -438,6 +447,9 @@ def main():
                     help="substrings of the cliff shaders' names, comma-separated, when their detail maps do not "
                          "say so (Sidewinder's cliffs share its ground's snow detail): cliff.slots, exact")
     ap.add_argument("--sea", type=float, help="sea level (cm): the floor under it shelves away from the shore (seabed)")
+    ap.add_argument("--apron-shelf", default="",
+                    help="with --zone and its apron field: depth (m) by metres from the structures in the sea, "
+                         "'m:depth,...', which the seabed is no deeper than")
     ap.add_argument("--shelf", default="0:0,10:0.8,25:1.8,50:4,90:8",
                     help="the seabed's depth (m) at distances (m) from the shore, as d:depth,...")
     ap.add_argument("--zone", help="a sea_zone.py output folder: the landscape covers its land and wading zone, "
@@ -526,7 +538,10 @@ def main():
     ring = ~ground & (counts > 0)
     zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
     if a.sea is not None:
-        zf = seabed(zf, a.sea, a.quad, a.shelf, zone_dist(zone, origin, a.quad, size) if zone else None)
+        apron = None
+        if zone and zone.get("apron") is not None and a.apron_shelf:
+            apron = (zone_dist(zone, origin, a.quad, size, "apron"), a.apron_shelf)
+        zf = seabed(zf, a.sea, a.quad, a.shelf, zone_dist(zone, origin, a.quad, size) if zone else None, apron)
     lowest = np.where(ground, z, np.inf)
     highest = np.where(ground, z, -np.inf)
     pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)
