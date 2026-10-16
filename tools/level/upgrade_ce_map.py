@@ -135,6 +135,35 @@ def sea_zone(code, m, p):
     return out
 
 
+def deep_floor(m, p, ids, floor):
+    """With a wading zone: CE's own sea floor again, as a copy of its ground
+    item with every other slot hidden, lowered to the deep seabed's depth
+    (zone_shelf's 25 m, a little under). Past the landscape the sea had no
+    floor, and from the water a player saw over the landscape's edge to the
+    sunk backup sea far below (Yoyorast, 2026-10-16); the copy runs on to
+    the horizon (Yoyorast's floor is 3.2 km across). An id without
+    "_terrain": plain decor, no terrain shading or shadow copy."""
+    coast = m["flux"]["coast"]
+    if not coast.get("wade"):
+        return []
+    import numpy as np
+    z = np.load(os.path.join(p["work"], "zone", "zone.npz"))["floor"]
+    floor_z = float(np.nanmedian(z))
+    target = coast["water"] - 2520.0
+    out = []
+    for key, slots in floor.items():
+        item = ids[key]
+        mats = [HIDDEN] * len(item["materials"])
+        for i in slots:
+            mats[i] = item["materials"][i]
+        copy = {k: v for k, v in item.items() if k not in ("id", "materials", "pos")}
+        copy.update({"id": key.replace("_terrain", "") + "_deepfloor", "materials": mats,
+                     "pos": [item["pos"][0], item["pos"][1], round(item["pos"][2] - (floor_z - target), 1)]})
+        out.append(copy)
+        print(f"  deep floor: {key} slots {slots} lowered {floor_z - target:.0f} cm")
+    return out
+
+
 def zone_shelf(wade):
     """The seabed by metres from land: none deeper than CE's floor (which it
     keeps) out to the wading line, then down to 25 m, Flux's open sea."""
@@ -656,9 +685,11 @@ def stage_assemble(code, m, p):
         # coastline (2026-10-15).
         if flux["coast"]["seabed"]:
             ids = {item["id"]: item for item in level.get("decor") or []}
+            deep = deep_floor(m, p, ids, flux["coast"]["floor"])
             for key, slots in flux["coast"]["floor"].items():
                 for i in slots:
                     ids[key]["materials"][i] = HIDDEN
+            level["decor"] += deep
         flux.setdefault("ground", flux_ground(code, level))
         # The sea is Flux's: our own water mesh (SM_<code>_Water) sunk under
         # it, for when Flux's camera-projected grid drops out: with the
