@@ -278,8 +278,10 @@ def flux_dry_zones(m, p, level, cell=100.0):
     into zones (rectangles, cm from the canvas origin, with their floor and
     roof heights) for the loader (Effects.dryTick):
     `cut`: where the sea plane runs through the open space under land
-    (roof over the sea, land over the cell), split until none takes in
-    open sea: Flux's one cut rectangle goes to the one the camera is near.
+    (roof over the sea, land over the cell) and the open sea cannot reach
+    it along the surface (a sea cave keeps its water), split until none
+    takes in open sea: Flux's one cut rectangle goes to the one the camera
+    is near.
     `fog`: every such space with its floor under the sea, the corridors
     wholly under it too (the sea is over their roofs, so no cut), by metre
     cell [x, y, floor, roof]: Flux's underwater volumes hidden while the
@@ -342,6 +344,49 @@ def flux_dry_zones(m, p, level, cell=100.0):
                 cut[k] = (min(lo, f), max(hi, r))
     # Open sea: the highest surface over the cell under the sea.
     open_sea = {k for k, t in tops.items() if t < sea}
+    # Where the open sea reaches along its surface: from cells with nothing
+    # over the water (no roof under the surface: not a corridor beneath it),
+    # through any whose floor is under the sea with no roof or one over it.
+    def surface_open(k):
+        for f in ups.get(k, []):
+            if f < sea and all(q < f + 150 or q > sea for q in downs.get(k, [])):
+                return True
+        return False
+    seeds = [k for k in open_sea if not any(q < sea for q in downs.get(k, []))]
+    reached, stack = set(seeds), list(seeds)
+    while stack:
+        cx, cy = stack.pop()
+        for q in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+            if q not in reached and (q in open_sea or surface_open(q)):
+                reached.add(q)
+                stack.append(q)
+    # Any space within 3 m of that water is open to the sea (a sea cave, a
+    # beach under an overhang: Death Island's shore waves ran up under a
+    # cliff, 2026-10-16): the whole of it keeps its water.
+    near_sea = set(reached)
+    for _ in range(3):
+        near_sea |= {(x + dx, y + dy) for x, y in near_sea for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+    caves, seen_c = [], set()
+    for start in list(cut):
+        if start in seen_c:
+            continue
+        comp, stack = [], [start]
+        seen_c.add(start)
+        while stack:
+            c = stack.pop()
+            comp.append(c)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    q = (c[0] + dx, c[1] + dy)
+                    if q in cut and q not in seen_c:
+                        seen_c.add(q)
+                        stack.append(q)
+        # ...and one the sea never reaches into (no floor under it: Death
+        # Island's grass under an overhang, 0.9 m up) needs no cut.
+        if any(c in near_sea for c in comp) or all(cut[c][0] >= sea for c in comp):
+            caves += comp
+    for k in caves:
+        del cut[k]
     # The cut 2 m into the rock round each tunnel (where land is over it):
     # cut to its cells alone, a sliver of sea showed along a ramp's wall.
     for _ in range(2):
@@ -398,7 +443,8 @@ def flux_dry_zones(m, p, level, cell=100.0):
     out = {"cut": zones(cut, True),
            "fog": [[round(k[0] * cell - origin[0]), round(k[1] * cell - origin[1]), round(v[0] - origin[2]),
                     round(v[1] - origin[2])] for k, v in sorted(fog.items())], "cell": cell}
-    print(f"  flux: {len(out['cut'])} cut zone(s) over {len(cut)} m2 where the sea runs into tunnels, "
+    print(f"  flux: {len(out['cut'])} cut zone(s) over {len(cut)} m2 where the sea runs into tunnels "
+          f"({len(caves)} m2 the open sea reaches left wet), "
           f"{len(fog)} m2 of them under it (fog cells)")
     return out
 
