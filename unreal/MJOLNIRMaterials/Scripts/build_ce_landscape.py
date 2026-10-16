@@ -47,11 +47,23 @@ eal = unreal.EditorAssetLibrary
 les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 
-# Fresh folders: the world and its label, the bakes and theirs.
+# Fresh folders: the world and its label, the bakes and theirs. The asset
+# registry gathers in the background at startup: unscanned, the old world
+# was not found to delete, and new_level then refused the path ("an asset
+# already exists"), for whichever map's folder the gather had not reached
+# (Ice Fields, then Yoyorast, 2026-10-16). So scan first, and take what is
+# left off the disk.
 les.new_level("/Game/__MJOLNIR_Scratch")
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([FOLDER, TEXTURES], True)
 for folder in (FOLDER, TEXTURES):
     if eal.does_directory_exist(folder):
         eal.delete_directory(folder)
+disk = os.path.join(unreal.Paths.project_content_dir(), FOLDER[len("/Game/"):])
+for leaf in (f"{NAME}.umap", f"PAL_MJOLNIR_{NAME}.uasset"):
+    path = os.path.join(disk, leaf)
+    if os.path.exists(path):
+        unreal.log_warning(f"removing {path} the editor left")
+        os.remove(path)
 master = unreal.load_asset(MASTER)
 if not master:
     raise RuntimeError(f"no landscape master at {MASTER} (build_ce_materials.py with MJ_CE_ROOT)")
