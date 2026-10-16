@@ -366,7 +366,29 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     return [lo, hi]
 
 
-def seabed(zf, sea, quad, shelf):
+# m of deep sea the landscape runs on past the wading zone (sea_zone.py).
+ZONE_MARGIN = 60.0
+
+
+def load_zone(path):
+    z = np.load(os.path.join(path, "zone.npz"))
+    return {"meta": json.load(open(os.path.join(path, "zone.json"), encoding="utf-8")),
+            "dist": z["dist"], "land": z["land"]}
+
+
+def zone_dist(zone, origin, quad, size):
+    """The zone's metres to land at each landscape vertex (inf off it)."""
+    m = zone["meta"]
+    ii = np.round((origin[0] + np.arange(size) * quad - m["origin"][0]) / m["cell"]).astype(int)
+    jj = np.round((origin[1] + np.arange(size) * quad - m["origin"][1]) / m["cell"]).astype(int)
+    ok_i, ok_j = (ii >= 0) & (ii < m["size"]), (jj >= 0) & (jj < m["size"])
+    out = np.full((size, size), np.inf)
+    sub = zone["dist"][np.ix_(np.clip(jj, 0, m["size"] - 1), np.clip(ii, 0, m["size"] - 1))]
+    out[np.ix_(ok_j, ok_i)] = sub[np.ix_(ok_j, ok_i)]
+    return out
+
+
+def seabed(zf, sea, quad, shelf, dist_m=None):
     """The floor under the sea shelving away from the shore: no deeper than
     it was, at least `shelf`'s depth for its distance from the nearest
     vertex at or over the sea. CE's sea floors are a flat plane (Death
@@ -378,9 +400,10 @@ def seabed(zf, sea, quad, shelf):
     land = zf >= sea
     if not land.any():
         return zf
-    # Distance (m) to the shore, an 8-neighbour step a quad at a time.
-    dist = np.where(land, 0.0, np.inf)
-    reach = int(math.ceil(pts[-1][0] * 100.0 / quad)) + 1
+    # Distance (m) to the shore: the sea zone's (sea_zone.py, the same field
+    # the wading wall stands on), else an 8-neighbour step a quad at a time.
+    dist = np.where(land, 0.0, np.inf) if dist_m is None else np.where(land, 0.0, dist_m)
+    reach = 0 if dist_m is not None else int(math.ceil(pts[-1][0] * 100.0 / quad)) + 1
     size = zf.shape[0]
     for _ in range(reach):
         pd = np.pad(dist, 1, constant_values=np.inf)
@@ -417,6 +440,8 @@ def main():
     ap.add_argument("--sea", type=float, help="sea level (cm): the floor under it shelves away from the shore (seabed)")
     ap.add_argument("--shelf", default="0:0,10:0.8,25:1.8,50:4,90:8",
                     help="the seabed's depth (m) at distances (m) from the shore, as d:depth,...")
+    ap.add_argument("--zone", help="a sea_zone.py output folder: the landscape covers its land and wading zone, "
+                                   "and the seabed's distance to the shore is its")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
@@ -470,6 +495,13 @@ def main():
     # The square around the first shader's ground (the sea floor runs on for
     # kilometres; the rest of it stays the mesh's).
     lo, hi = tris[firsts][..., :2].reshape(-1, 2).min(0), tris[firsts][..., :2].reshape(-1, 2).max(0)
+    zone = load_zone(a.zone) if a.zone else None
+    if zone:
+        # Over all the land and its wading zone (sea_zone.py), out to the
+        # deep water past it: Yoyorast's walkways ran on past the island's
+        # ground, over the sea floor's square, and its shallows showed deep.
+        r, m = zone["meta"]["land_rect"], (zone["meta"]["wade"] + ZONE_MARGIN) * 100.0
+        lo, hi = np.minimum(lo, [r[0] - m, r[1] - m]), np.maximum(hi, [r[2] + m, r[3] + m])
     span = (hi - lo).max()
     comps = a.components or math.ceil(span / (QUADS * a.quad))
     side = comps * QUADS * a.quad
@@ -494,7 +526,7 @@ def main():
     ring = ~ground & (counts > 0)
     zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
     if a.sea is not None:
-        zf = seabed(zf, a.sea, a.quad, a.shelf)
+        zf = seabed(zf, a.sea, a.quad, a.shelf, zone_dist(zone, origin, a.quad, size) if zone else None)
     lowest = np.where(ground, z, np.inf)
     highest = np.where(ground, z, -np.inf)
     pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)

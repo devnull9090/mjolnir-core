@@ -122,6 +122,26 @@ def staging(p):
     return own if os.path.isdir(os.path.join(own, "models")) else os.path.join(p["conv"], "staging")
 
 
+def sea_zone(code, m, p):
+    """tools/level/sea_zone.py for a coast with a wading zone: the distance
+    field and the wall, in <work>/<CODE>/zone. Returns the folder."""
+    coast = m["flux"]["coast"]
+    out = os.path.join(p["work"], "zone")
+    cmd = [sys.executable, os.path.join(HERE, "sea_zone.py"), os.path.join(p["scene"], "scene.gltf"), out,
+           "--sea", str(coast["water"]), "--wade", str(coast["wade"])]
+    if coast.get("zone_ignore"):
+        cmd += ["--ignore", ",".join(coast["zone_ignore"])]
+    print("  " + run(cmd).strip().splitlines()[-1])
+    return out
+
+
+def zone_shelf(wade):
+    """The seabed by metres from land: none deeper than CE's floor (which it
+    keeps) out to the wading line, then down to 25 m, Flux's open sea."""
+    w = float(wade)
+    return f"0:0,{w:g}:0,{w + 2:g}:3,{w + 15:g}:10,{w + 50:g}:20,{w + 90:g}:25"
+
+
 def stage_land(code, m, p):
     cmd = [sys.executable, os.path.join(HERE, "build_landscape.py"), os.path.join(p["scene"], "scene.gltf"),
            os.path.join(p["scene"], "materials.spec.json"), p["land"], "--shader", ",".join(m["shaders"]),
@@ -139,7 +159,13 @@ def stage_land(code, m, p):
     coast = (m.get("flux") or {}).get("coast") or {}
     if coast.get("seabed"):
         cmd += ["--sea", str(coast["water"])]
-        if isinstance(coast["seabed"], str):
+        if coast.get("wade"):
+            # The wading zone (sea_zone.py): CE's own floor out to `wade` m
+            # from land, where players can walk, deep water past it, behind
+            # the wall stage_collision adds on the same line.
+            zone = sea_zone(code, m, p)
+            cmd += ["--zone", zone, "--shelf", coast.get("shelf") or zone_shelf(coast["wade"])]
+        elif isinstance(coast["seabed"], str):
             cmd += ["--shelf", coast["seabed"]]
     out = run(cmd)
     print("  " + "\n  ".join(l for l in out.splitlines()
@@ -207,6 +233,15 @@ def stage_collision(code, m, p):
     made = run([sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
                 os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
                 "--scene", os.path.join(p["scene"], "scene.gltf")]).strip().splitlines()[-1]
+    # The wading wall (sea_zone.py, made with the landscape): players stop
+    # where the seabed falls away.
+    wall = os.path.join(p["work"], "zone", "wall.json")
+    if ((m.get("flux") or {}).get("coast") or {}).get("wade") and os.path.exists(wall):
+        w, e = json.load(open(wall, encoding="utf-8")), json.load(open(extra, encoding="utf-8"))
+        e["triangles"] += w["triangles"]
+        e["materials"] += w["materials"]
+        json.dump(e, open(extra, "w", encoding="utf-8"))
+        made += f"; wading wall {len(w['triangles'])} triangle(s)"
     run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
     out = run([mjolnir, "level", "collision", scene, "--out", sbsp, "--own-bsp", "--bsp-index", "0", "--paks", PAKS])
     placed = [l.strip() for l in out.splitlines() if l.strip().startswith("scenery")]
@@ -634,7 +669,8 @@ def stage_assemble(code, m, p):
         # and as a second sea under a player wading in the swell (Yoyorast,
         # 2026-10-16). Under the shelf, a dropout leaves the shallows' floor
         # bare and only the open sea covered.
-        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 900.0),
+        # With a wading zone the seabed runs to 25 m (zone_shelf): under it.
+        flux["sink"] = {"by": m["flux"]["coast"].get("sink", 2600.0 if m["flux"]["coast"].get("wade") else 900.0),
                         "ids": [item["id"] for item in level.get("decor") or []
                                 if f"/SM_{code}_Water." in str(item.get("mesh", ""))]}
         print(f"  {code}: flux coast {flux['coast']['res']} at {flux['coast']['cell']} cm, sea at {flux['coast']['water']}")
