@@ -267,11 +267,38 @@ fn pack(a: PackArgs) -> Result<()> {
             members.push((format!("content/{file}"), std::fs::read(&path)?));
         }
     }
+    // A remastered map's data beside its level file (the loader reads them
+    // relative to it): the foliage placements the level names, and its
+    // decals' textures.
+    let mut extra = Vec::new();
+    if let Some(file) = level.pointer("/foliage/file").and_then(|v| v.as_str()) {
+        if file.contains(['/', '\\']) || file.starts_with('.') {
+            bail!("foliage.file {file:?} must be a plain file name beside the level file");
+        }
+        extra.push((file.to_string(), a.dir.join(file)));
+    }
+    let decals = a.dir.join("decals");
+    if decals.is_dir() {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&decals)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_file())
+            .collect();
+        files.sort();
+        for p in files {
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            extra.push((format!("decals/{name}"), p));
+        }
+    }
     members.push(("map/level.json".into(), level_bytes));
     members.push((
         "map/registration.json".into(),
         serde_json::to_vec_pretty(&reg)?,
     ));
+    for (rel, path) in extra {
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+        members.push((format!("map/{rel}"), bytes));
+    }
     if let Some(readme) = &a.readme {
         members.push(("docs/README.md".into(), std::fs::read(readme)?));
     }
