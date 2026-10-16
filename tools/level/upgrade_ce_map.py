@@ -776,6 +776,50 @@ def ce_haze(level, reach=None):
     return None
 
 
+def horizon_skirt(code, m, p, level):
+    """A map's land to the horizon (`horizon`: {z: cm, reach: cm}): four
+    flat strips round the map's bounds (scene.gltf's, so none crosses the
+    map), `z` just under its rim, out `reach` (50 km), in its ground's own
+    material (its landscape's slot; CE's lightmap off: the strips have
+    none), for the haze to fade into the sky. Past Infinity's rim there was
+    nothing under the sky but a black band (2026-10-16)."""
+    hz = m.get("horizon")
+    if not hz:
+        return []
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+    data = open(os.path.join(p["scene"], doc["buffers"][0]["uri"]), "rb").read()
+    lo, hi = np.array([np.inf, np.inf]), np.array([-np.inf, -np.inf])
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            if "sky" in doc["materials"][prim["material"]]["name"].lower():
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            xy = np.stack([pos[:, 0] * 100, pos[:, 2] * 100], 1)
+            lo, hi = np.minimum(lo, xy.min(0)), np.maximum(hi, xy.max(0))
+    # The ground's material: the landscape's own slot on the terrain item
+    # (terrain slot i is the glTF's material i - 1).
+    land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
+    names = [mt["name"] for mt in doc["materials"]]
+    terrain = next(i for i in level["decor"] if f"/SM_{code}_Terrain." in str(i.get("mesh", "")))
+    entry = terrain["materials"][names.index(land["slot"]) + 1]
+    mat = json.loads(json.dumps(entry))
+    for k in ("HasLightmap", "HasBake"):
+        mat.setdefault("scalars", {})[k] = 0.0
+    origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+    R, z = float(hz.get("reach", 5000000.0)), float(hz["z"])
+    rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0], -R, hi[0], lo[1]), (lo[0], hi[1], hi[0], R)]
+    out = []
+    for i, (x0, y0, x1, y1) in enumerate(rects):
+        out.append({"id": f"horizon_{i}", "mesh": "/Engine/BasicShapes/Plane.Plane",
+                    "pos": [round((x0 + x1) / 2 - origin[0]), round((y0 + y1) / 2 - origin[1]), round(z - origin[2])],
+                    "scale": [round((x1 - x0) / 100.0, 1), round((y1 - y0) / 100.0, 1), 1.0],
+                    "materials": [mat], "cast_shadow": False})
+    print(f"  horizon: 4 strip(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
+    return out
+
+
 def flux_ground(code, level):
     """What the Flux ground capture sees: CE's ground and the cliffs' copy."""
     return [item["id"] for item in level.get("decor") or []
@@ -1057,6 +1101,12 @@ def stage_assemble(code, m, p):
                 haze["color"] = list(coast["haze_color"])
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
+    # A map with no CE fog of its own: `haze` as the height fog itself
+    # (MJOLNIRLevelLoader environment.haze; colour linear).
+    if isinstance(m.get("haze"), dict) and isinstance(level["landscape"].get("pbr"), dict):
+        level["landscape"]["pbr"]["haze"] = dict({"falloff": 0.02, "start": 30000.0, "max_opacity": 1.0},
+                                                 **m["haze"])
+    level["decor"] += horizon_skirt(code, m, p, level)
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
     # environment, a key at a time (skylight.lower, clouds, ...).
     env = level.setdefault("environment", {})

@@ -419,9 +419,13 @@ def swap(a):
                 fy, fs, fnx, fny = foliage_pose(mmul(lf["m"], frame))
                 leaves.append([round(x + o[0], 1), round(y + o[1], 1), round(z + o[2], 1),
                                round(fy, 1), round(fs, 3), round(fnx, 3), round(fny, 3)])
-            for part in r["parts"]:
+            # A part a decor id by its place in the recipe: by its mesh's
+            # number suffix, Big_2, Mid_2 and Trunk_2 shared one, the loader
+            # kept one of them, and Infinity's double trees stood on one
+            # trunk with the other's branches hanging in the air (2026-10-16).
+            for k, part in enumerate(r["parts"]):
                 ox, oy, oz = (v * s for v in part["off"])
-                item = {"id": f"swap_{n}_{part['mesh'].rsplit('_', 1)[-1]}", "mesh": object_path(part["mesh"]),
+                item = {"id": f"swap_{n}_{k}", "mesh": object_path(part["mesh"]),
                         "pos": [round(x + ox * c - oy * sn, 1), round(y + ox * sn + oy * c, 1), round(z + oz, 1)],
                         "rot": [r["pitch"], round(yaw, 1), r["roll"]], "scale": [round(s, 3)] * 3,
                         "scalars": TREE_CALM}
