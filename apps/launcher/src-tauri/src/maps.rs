@@ -92,6 +92,55 @@ fn game_fingerprint(paks: &Path) -> String {
     crate::hub::sha256_hex(parts.join("\n").as_bytes())
 }
 
+/// Every file of a map's cached `map/` folder into its `MJOLNIRMaps` folder
+/// (`level.json`, `registration.json`, and a remastered map's `foliage.bin`
+/// and `decals/`). A file already there at the same size and no older is
+/// left alone: this runs on every launch, and `foliage.bin` runs to ~10 MB.
+/// A file the folder holds that the release has not (a previous version's)
+/// is removed, except the launcher's marker.
+fn copy_map_data(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let mut wanted = std::collections::BTreeSet::new();
+    let mut stack = vec![src.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let rel = path.strip_prefix(src).map_err(std::io::Error::other)?.to_path_buf();
+            let target = dst.join(&rel);
+            let from = fs::metadata(&path)?;
+            let fresh = fs::metadata(&target).ok().is_some_and(|to| {
+                to.len() == from.len()
+                    && matches!((to.modified(), from.modified()), (Ok(t), Ok(f)) if t >= f)
+            });
+            if !fresh {
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::copy(&path, &target)?;
+            }
+            wanted.insert(rel);
+        }
+    }
+    let mut stack = vec![dst.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let rel = path.strip_prefix(dst).map_err(std::io::Error::other)?.to_path_buf();
+            if rel.as_os_str() != MARKER && !wanted.contains(&rel) {
+                fs::remove_file(&path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Make `MJOLNIRMaps` hold exactly the enabled map packs, then rebuild the
 /// registration when what it would register has changed. Returns the log of
 /// a rebuild, empty when none was needed.
@@ -122,10 +171,7 @@ pub fn sync(paks: &Path, enabled: &[Enabled]) -> Result<Vec<String>, String> {
         }
         let dir = layout.maps.join(&map.code);
         fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for file in ["level.json", "registration.json"] {
-            fs::copy(map.data.join(file), dir.join(file))
-                .map_err(|e| format!("{} {file}: {e}", map.code))?;
-        }
+        copy_map_data(&map.data, &dir).map_err(|e| format!("{}: {e}", map.code))?;
         fs::write(dir.join(MARKER), b"installed by the MJOLNIR launcher\n")
             .map_err(|e| e.to_string())?;
     }
@@ -175,9 +221,7 @@ pub fn add_live(paks: &Path, map: &Enabled) -> Result<(), String> {
     let layout = Layout::for_paks(paks);
     let dir = layout.maps.join(&map.code);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for file in ["level.json", "registration.json"] {
-        fs::copy(map.data.join(file), dir.join(file)).map_err(|e| format!("{} {file}: {e}", map.code))?;
-    }
+    copy_map_data(&map.data, &dir).map_err(|e| format!("{}: {e}", map.code))?;
     fs::write(dir.join(MARKER), b"installed by the MJOLNIR launcher\n").map_err(|e| e.to_string())?;
     blam_pack::maps::write_menu_list(&layout).map(|_| ())
 }
@@ -207,6 +251,33 @@ mod tests {
         assert!(!valid_code("BGLX"));
         assert!(!valid_code(".."));
         assert!(!valid_code("B/L"));
+    }
+
+    #[test]
+    fn a_map_folder_mirrors_its_release() {
+        let root = std::env::temp_dir().join(format!("mjolnir-mapdata-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (src, dst) = (root.join("cache"), root.join("BGL"));
+        fs::create_dir_all(src.join("decals")).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(src.join("level.json"), b"{}").unwrap();
+        fs::write(src.join("foliage.bin"), b"MJF3").unwrap();
+        fs::write(src.join("decals").join("a.png"), b"png").unwrap();
+        // A previous version's file goes; the marker stays.
+        fs::write(dst.join("old.bin"), b"x").unwrap();
+        fs::write(dst.join(MARKER), b"m").unwrap();
+
+        copy_map_data(&src, &dst).unwrap();
+        assert_eq!(fs::read(dst.join("foliage.bin")).unwrap(), b"MJF3");
+        assert_eq!(fs::read(dst.join("decals").join("a.png")).unwrap(), b"png");
+        assert!(!dst.join("old.bin").exists());
+        assert!(dst.join(MARKER).exists());
+
+        // A changed file is copied again.
+        fs::write(src.join("foliage.bin"), b"MJF3 v2").unwrap();
+        copy_map_data(&src, &dst).unwrap();
+        assert_eq!(fs::read(dst.join("foliage.bin")).unwrap(), b"MJF3 v2");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
