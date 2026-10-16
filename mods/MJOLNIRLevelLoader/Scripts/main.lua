@@ -3315,6 +3315,77 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     return string.format("coast %dx%d at %d cm, sea at %g", k.res[1], k.res[2], math.floor(k.cell), k.water)
 end
 
+--- Fluid Flux's sea kept out of the tunnels and rooms (level.flux.dry,
+--- upgrade_ce_map.flux_dry_zones). Its surface is one plane at sea level
+--- everywhere, so it stood in a tunnel ramping under it, churning, and its
+--- underwater fog volumes filled the rooms wholly under it (Yoyorast,
+--- 2026-10-16). `cut` [{ rect = { x0, y0, x1, y1 } }]: Flux has one cut
+--- rectangle (its surface materials' SurfaceCutMask: centre x, y, size x,
+--- y in cm), moved to the zone nearest the camera within DRY_NEAR cm; from
+--- outside, the land over a tunnel hides it. `fog` [{ x, y, floor, roof }]
+--- by `cell` cm: inside one (or beside it), between its floor and roof,
+--- the underwater volumes are hidden.
+Effects.DRY_NEAR = 4000.0
+
+function Effects.dryTick()
+    local spec = Current.level and Current.level.flux
+    local dry = type(spec) == "table" and type(spec.dry) == "table" and spec.dry
+    local dom = dry and Current.actors["__flux_coast"]
+    local surf = dom and dom:IsValid() and dom.SurfaceActorRenderer
+    if not (surf and surf:IsValid()) then return end
+    local st = Effects.dry
+    if not st or st.surf ~= surf:GetFullName() then
+        local cell = tonumber(dry.cell) or 100.0
+        st = { surf = surf:GetFullName(), cell = cell, cells = {}, n = 0 }
+        for _, c in ipairs(type(dry.fog) == "table" and dry.fog or {}) do
+            st.cells[string.format("%d,%d", math.floor((c[1] + cell * 0.5) / cell),
+                math.floor((c[2] + cell * 0.5) / cell))] = c
+        end
+        Effects.dry = st
+    end
+    local ok, cam = pcall(function()
+        local gs = findObject("/Script/Engine.Default__GameplayStatics")
+        return gs:GetPlayerController(getWorld(), 0).PlayerCameraManager:GetCameraLocation()
+    end)
+    if not ok or not cam then return end
+    local o = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+    local x, y, z = cam.X - o[1], cam.Y - o[2], cam.Z - o[3]
+    local best, near = nil, Effects.DRY_NEAR
+    for i, zone in ipairs(type(dry.cut) == "table" and dry.cut or {}) do
+        local r = zone.rect
+        local dx, dy = math.max(r[1] - x, 0, x - r[3]), math.max(r[2] - y, 0, y - r[4])
+        local d = math.sqrt(dx * dx + dy * dy)
+        if d < near then best, near = i, d end
+    end
+    -- Again now and then: the surface's own ApplyMask can put its back.
+    st.n = st.n + 1
+    if best ~= st.cut or st.n % 30 == 0 then
+        st.cut = best
+        local r = best and dry.cut[best].rect
+        local v = r and { R = o[1] + (r[1] + r[3]) / 2, G = o[2] + (r[2] + r[4]) / 2, B = r[3] - r[1], A = r[4] - r[2] }
+            or { R = 0, G = 0, B = 0, A = 0 }
+        pcall(function()
+            local mis = surf.MaterialInstances
+            for i = 1, #mis do mis[i]:SetVectorParameterValue(FName("SurfaceCutMask"), v) end
+        end)
+    end
+    local inside = false
+    local cx, cy = math.floor(x / st.cell), math.floor(y / st.cell)
+    for dx = -1, 1 do
+        for dy = -1, 1 do
+            local c = st.cells[string.format("%d,%d", cx + dx, cy + dy)]
+            if c and z > c[3] - 100 and z < c[4] + 50 then inside = true end
+        end
+    end
+    if inside ~= st.inside then
+        st.inside = inside
+        pcall(function()
+            surf.VolumeScattering:SetVisibility(not inside, false)
+            surf.VolumeAbsorbtion:SetVisibility(not inside, false)
+        end)
+    end
+end
+
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
@@ -4955,6 +5026,7 @@ local function watch()
     every(100, "event sounds", drainEvents)
     every(100, "weather", updateWeather)
     every(100, "footprints", Footprints.tick)
+    every(100, "dry zones", Effects.dryTick)
     -- A slider moved in the pause menu is heard within half a second.
     every(500, "sound volume", syncVolumes)
     -- A flag picked up or dropped is a new actor, drawn as a skull until it

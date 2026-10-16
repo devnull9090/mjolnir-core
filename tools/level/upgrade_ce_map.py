@@ -267,6 +267,142 @@ def structure_surf(m, p, level):
 APRON_SHELF = "0:1.5,5:1.5,12:5,22:12,40:25"
 
 
+def flux_dry_zones(m, p, level, cell=100.0):
+    """The tunnels and rooms Fluid Flux's sea must stay out of: its surface
+    is one plane at sea level everywhere, so where a tunnel ramps under it
+    (floor below the sea, roof above) the sea stood inside, its swell
+    churning, and its underwater fog volumes filled the rooms wholly under
+    it (Yoyorast's ramp down to its sunken room, 2026-10-16). Cells with a
+    roof 1.5 to 8 m over a floor less than a metre over the sea (higher, an
+    arch over the beach, open to the sky from the side), joined
+    into zones (rectangles, cm from the canvas origin, with their floor and
+    roof heights) for the loader (Effects.dryTick):
+    `cut`: where the sea plane runs through the open space under land
+    (roof over the sea, land over the cell), split until none takes in
+    open sea: Flux's one cut rectangle goes to the one the camera is near.
+    `fog`: every such space with its floor under the sea, the corridors
+    wholly under it too (the sea is over their roofs, so no cut), by metre
+    cell [x, y, floor, roof]: Flux's underwater volumes hidden while the
+    camera is inside one. CE's own sea floor (the coast's `floor` slots) is
+    no floor here: under a bridge over the sea it made the open water a
+    "tunnel"."""
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    sea = m["flux"]["coast"]["water"]
+    g = os.path.join(p["scene"], "scene.gltf")
+    doc = json.load(open(g, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(g), doc["buffers"][0]["uri"]), "rb").read()
+    # Terrain slot i is the glTF's material i - 1 (cliff_mesh.py).
+    sea_floor = {s - 1 for s in next(iter(((level.get("flux") or {}).get("coast") or {}).get("floor", {}).values()), [])}
+    ups, downs, tops = {}, {}, {}
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"].lower()
+            if any(w in name for w in ("water", "sky", "fog")):
+                continue
+            floor_slot = prim["material"] in sea_floor
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            P = np.stack([pos[:, 0] * 100, pos[:, 2] * 100, pos[:, 1] * 100], 1)
+            T = P[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]
+            T = T[(T[..., 2].min(1) < sea + 2000) & (T[..., 2].max(1) > sea - 1500)]
+            for a, b, c in T:
+                n = np.cross(b - a, c - a)
+                ln = np.linalg.norm(n)
+                det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+                if ln <= 0 or abs(det) < 1e-6:
+                    continue
+                nz = n[2] / ln  # Unreal's axes turn the glTF's normal over: +z faces down
+                for ix in range(math.floor(min(a[0], b[0], c[0]) / cell), math.floor(max(a[0], b[0], c[0]) / cell) + 1):
+                    px = (ix + 0.5) * cell
+                    for iy in range(math.floor(min(a[1], b[1], c[1]) / cell),
+                                    math.floor(max(a[1], b[1], c[1]) / cell) + 1):
+                        py = (iy + 0.5) * cell
+                        w1 = ((b[1] - c[1]) * (px - c[0]) + (c[0] - b[0]) * (py - c[1])) / det
+                        w2 = ((c[1] - a[1]) * (px - c[0]) + (a[0] - c[0]) * (py - c[1])) / det
+                        if min(w1, w2, 1 - w1 - w2) < 0:
+                            continue
+                        z = w1 * a[2] + w2 * b[2] + (1 - w1 - w2) * c[2]
+                        tops[(ix, iy)] = max(tops.get((ix, iy), -1e9), z)
+                        if nz < -0.3 and not floor_slot:
+                            ups.setdefault((ix, iy), []).append(z)
+                        elif nz > 0.3:
+                            downs.setdefault((ix, iy), []).append(z)
+    cut, fog = {}, {}
+    for k, floors in ups.items():
+        for f in floors:
+            roofs = [q for q in downs.get(k, []) if f + 150 < q < f + 800]
+            if not roofs or f >= sea + 100:
+                continue
+            r = min(roofs)
+            if f < sea:
+                lo, hi = fog.get(k, (1e9, -1e9))
+                fog[k] = (min(lo, f), max(hi, r))
+            if r > sea and tops.get(k, -1e9) > sea + 50:
+                lo, hi = cut.get(k, (1e9, -1e9))
+                cut[k] = (min(lo, f), max(hi, r))
+    # Open sea: the highest surface over the cell under the sea.
+    open_sea = {k for k, t in tops.items() if t < sea}
+    # The cut 2 m into the rock round each tunnel (where land is over it):
+    # cut to its cells alone, a sliver of sea showed along a ramp's wall.
+    for _ in range(2):
+        grown = dict(cut)
+        for (cx, cy), v in cut.items():
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    q = (cx + dx, cy + dy)
+                    if q not in grown and tops.get(q, -1e9) > sea + 50:
+                        grown[q] = v
+        cut = grown
+
+    def boxes(cells):
+        xs, ys = [c[0] for c in cells], [c[1] for c in cells]
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        if not any((x, y) in open_sea for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)):
+            return [cells]
+        if len(cells) < 4:
+            return []
+        axis = 0 if x1 - x0 >= y1 - y0 else 1
+        mid = sorted(c[axis] for c in cells)[len(cells) // 2]
+        lo_, hi_ = [c for c in cells if c[axis] < mid], [c for c in cells if c[axis] >= mid]
+        if not lo_ or not hi_:
+            return []
+        return boxes(lo_) + boxes(hi_)
+
+    origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+
+    def zones(cells, split):
+        seen, out = set(), []
+        for start in cells:
+            if start in seen:
+                continue
+            comp, stack = [], [start]
+            seen.add(start)
+            while stack:
+                c = stack.pop()
+                comp.append(c)
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        q = (c[0] + dx, c[1] + dy)
+                        if q in cells and q not in seen:
+                            seen.add(q)
+                            stack.append(q)
+            for part in (boxes(comp) if split else [comp]):
+                if len(part) < 4:
+                    continue
+                xs, ys, zs = [c[0] for c in part], [c[1] for c in part], [cells[c] for c in part]
+                out.append({"rect": [round(min(xs) * cell - origin[0]), round(min(ys) * cell - origin[1]),
+                                     round((max(xs) + 1) * cell - origin[0]), round((max(ys) + 1) * cell - origin[1])],
+                            "z": [round(min(z[0] for z in zs) - origin[2]), round(max(z[1] for z in zs) - origin[2])]})
+        return out
+
+    out = {"cut": zones(cut, True),
+           "fog": [[round(k[0] * cell - origin[0]), round(k[1] * cell - origin[1]), round(v[0] - origin[2]),
+                    round(v[1] - origin[2])] for k, v in sorted(fog.items())], "cell": cell}
+    print(f"  flux: {len(out['cut'])} cut zone(s) over {len(cut)} m2 where the sea runs into tunnels, "
+          f"{len(fog)} m2 of them under it (fog cells)")
+    return out
+
+
 def zone_shelf(wade):
     """The seabed by metres from land: none deeper than CE's floor (which it
     keeps) out to the wading line, then down to 25 m, Flux's open sea."""
@@ -820,6 +956,7 @@ def stage_assemble(code, m, p):
         water = level.setdefault("environment", {}).setdefault("water", {})
         water.setdefault("params", {}).update(m["water"])
     if (m.get("flux") or {}).get("coast"):
+        level.setdefault("flux", {})["dry"] = flux_dry_zones(m, p, level)
         surf = structure_surf(m, p, level)
         if surf:
             fx = level.setdefault("effects", {"placed": [], "camera": []})
