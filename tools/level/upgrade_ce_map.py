@@ -199,6 +199,67 @@ def sea_sand(code, m, level, ids, floor):
     return out
 
 
+SURF = ("/Game/FX/Library/Environment/PNW/Liquids/Splashes/SmallWaveSplash/NS_PNW_SmallWaveSplash_01."
+        "NS_PNW_SmallWaveSplash_01")
+
+
+def structure_surf(m, p, level):
+    """Waves breaking on CE's structures in the sea (a coast's `surf`:
+    `shaders`, substrings of the materials whose waterline takes them; `gap`
+    cm between splashes; `depth` cm of water they need, by the landscape's
+    seabed, so none goes off on the sand where a wall runs up the beach):
+    the game's small wave splash (its own spray, mist and sound, slept far
+    off by its effect type) wherever those surfaces cross the sea.
+    Yoyorast's walls and pillars stood in a flat sea (2026-10-16)."""
+    coast = m["flux"]["coast"]
+    spec = coast.get("surf")
+    if not spec:
+        return []
+    import random
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    sea, gap, depth = coast["water"], float(spec.get("gap", 1500)), float(spec.get("depth", 100))
+    tokens = [t.lower() for t in spec["shaders"]]
+    g = os.path.join(p["scene"], "scene.gltf")
+    doc = json.load(open(g, encoding="utf-8"))
+    data = open(os.path.join(os.path.dirname(g), doc["buffers"][0]["uri"]), "rb").read()
+    land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
+    n, loc = land["size"], land["location"]
+    hts = np.fromfile(os.path.join(p["land"], land["heights"]), "<u2").reshape(n, n).astype(np.float64)
+    floor = loc[2] + (hts - 32768) * land["scale"][2] / 128.0
+
+    def deep(x, y):
+        i, j = round((x - loc[0]) / land["scale"][0]), round((y - loc[1]) / land["scale"][1])
+        return not (0 <= i < n and 0 <= j < n) or floor[j, i] < sea - depth
+
+    pts = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            if not any(t in doc["materials"][prim["material"]]["name"].lower() for t in tokens):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            P = np.stack([pos[:, 0] * 100, pos[:, 2] * 100, pos[:, 1] * 100], 1)
+            for t in P[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]:
+                z = t[:, 2] - sea
+                if not (z.min() < 0 < z.max()):
+                    continue
+                ends = [t[i] + (t[j] - t[i]) * (z[i] / (z[i] - z[j]))
+                        for i, j in ((0, 1), (1, 2), (2, 0)) if (z[i] < 0) != (z[j] < 0)]
+                if len(ends) != 2:
+                    continue
+                k = max(1, int(np.linalg.norm(ends[1] - ends[0]) // (gap / 4)))
+                pts += [tuple((ends[0] + (ends[1] - ends[0]) * (q + 0.5) / k)[:2]) for q in range(k)]
+    pts = [q for q in pts if deep(*q)]
+    random.Random(17).shuffle(pts)
+    keep = []
+    for q in pts:
+        if all((q[0] - r[0]) ** 2 + (q[1] - r[1]) ** 2 >= gap * gap for r in keep):
+            keep.append(q)
+    origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+    print(f"  surf: {len(keep)} splash(es) on {', '.join(spec['shaders'])} ({len(pts)} waterline point(s) deep enough)")
+    return [{"system": SURF, "pos": [round(x - origin[0]), round(y - origin[1]), round(sea - origin[2])]} for x, y in keep]
+
+
 def zone_shelf(wade):
     """The seabed by metres from land: none deeper than CE's floor (which it
     keeps) out to the wading line, then down to 25 m, Flux's open sea."""
@@ -747,6 +808,11 @@ def stage_assemble(code, m, p):
     if m.get("water"):
         water = level.setdefault("environment", {}).setdefault("water", {})
         water.setdefault("params", {}).update(m["water"])
+    if (m.get("flux") or {}).get("coast"):
+        surf = structure_surf(m, p, level)
+        if surf:
+            fx = level.setdefault("effects", {"placed": [], "camera": []})
+            fx.setdefault("placed", []).extend(surf)
     swap_path = os.path.join(p["work"], "swap.json")
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))
