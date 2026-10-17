@@ -3,6 +3,7 @@
 **Author:** MJOLNIR Core
 **Summary:** All nineteen original Halo: Combat Evolved multiplayer maps, rebuilt to run inside Halo Campaign Evolved, with Slayer, Capture the Flag and your fireteam. Install them in one click from the launcher. Alpha testing starts now.
 **Tags:** multiplayer, maps, alpha
+**Image:** /blog-images/classic-multiplayer-alpha/featured.jpg
 
 Halo Campaign Evolved ships a campaign. It doesn't ship Blood Gulch.
 

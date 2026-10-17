@@ -3,6 +3,7 @@
 **Author:** MJOLNIR Core
 **Summary:** The nineteen classic maps are lit by Unreal Engine while still looking like Halo CE. Their lightmaps are baked by our own solver at up to eight times Halo CE's resolution, and since 1.4.0 they have Halo CE's fog, MCC's teleporter and light shaders, and the right brightness. Here is how we got there.
 **Tags:** multiplayer, maps, lighting
+**Image:** /blog-images/lighting-the-classics/featured.jpg
 
 ![Blood Gulch, lit by Unreal Engine with Halo CE's colours](/blog-images/lighting-the-classics/blood-gulch.jpg)
 
