@@ -172,7 +172,7 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                       )}
                     </div>
                     <p className="text-xs text-text-secondary mt-0.5 font-mono">
-                      {item.from ? `v${item.from} → ` : ""}
+                      {item.from && !item.repair ? `v${item.from} → ` : ""}
                       <span className="text-mjolnir-gold">v{item.to}</span>
                     </p>
                   </div>
