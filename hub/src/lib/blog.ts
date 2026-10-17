@@ -15,7 +15,8 @@ export type BlogPost = {
   author: string;
   summary: string;
   tags: string[];
-  /** Site path of the link-preview image (`**Image:**`), or null. */
+  /** Site path of the featured image (`**Image:**`), or null: the link
+   * preview, the picture atop the post and its card on the listing pages. */
   image: string | null;
   body: string;
   sourceUrl: string;
