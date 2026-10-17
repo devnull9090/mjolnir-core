@@ -120,5 +120,6 @@
   "haze": {"color": [0.262, 0.527, 0.807], "density": 0.015, "falloff": 1.5, "height": -6233, "start": 0.0,
            "cutoff": 200000},
   "hub": "ce-gephyrophobia"
- }
+ },
+ "BCK": {"conversion": "C:/haloce/ce_conversions/release11/BCK", "level": "beavercreek.level.json", "sbsp": "beavercreek.sbsp", "shaders": ["beavercreek_ground"], "cliff_shaders": ["beavercreek_cliffs"], "landscape": "LBC", "chunk": 971, "rivers": {"textures": ["beavercreek_flow"], "parent": "M_CE_Water", "spec": {"textures": {"DetailWave": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap0": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap1": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "ReflectionCube": "/Game/MJOLNIR/Maps/BCK/Textures/TC_levels_b30_bitmaps_cubemap_beach.TC_levels_b30_bitmaps_cubemap_beach"}, "scalars": {"WaveAmplitude": 0.0, "DetailStrength": 0.18, "ChopStrength": 0.03, "Clarity": 0.9, "FoamAmount": 0.0, "PerpBrightness": 0.15, "ParaBrightness": 0.6, "ReflectionSaturation": 0.45, "ReflectionStrength": 0.55, "RippleWorld": 0.0, "Roughness": 0.2, "Specular": 0.2, "MinCover": 0.25, "EdgeFilm": 0.05}, "vectors": {"RippleGlobal": [0, 0, 1, 0], "Ripple0": [1, 1.5708, 1.2, 8.0], "Ripple1": [1, 1.45, 0.8, 13.0], "WaterColor": [0.03, 0.045, 0.04, 1], "Absorption": [1.2, 0.75, 0.6, 1]}}}, "haze": "ce", "hub": "ce-battle-creek"}
 }

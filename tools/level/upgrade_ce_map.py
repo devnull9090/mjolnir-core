@@ -674,7 +674,10 @@ def build_cliffs(maps, ps):
         p = ps[code]
         out = os.path.join(p["work"], "river_mesh.json")
         made = run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
-                    os.path.join(p["scene"], "scene_translucent.gltf"), out, "--parent", "M_CE_TransparentAlpha",
+                    os.path.join(p["scene"], "scene_translucent.gltf"), out, "--parent",
+                    # The stream's CE shader: Timberland's a transparent
+                    # chicago, Battle Creek's CE water.
+                    m["rivers"].get("parent", "M_CE_TransparentAlpha"),
                     "--item", "_terrain_1", "--slot-offset", "0", "--texture", m["rivers"]["textures"][0],
                     "--material", "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"], check=False)
         print("  " + made.strip().splitlines()[-1][:160])
@@ -992,6 +995,11 @@ def stage_assemble(code, m, p):
             for i, entry in enumerate(mats or []):
                 tex = json.dumps(entry.get("textures", {}) if isinstance(entry, dict) else {}).lower()
                 if any(t in tex for t in rv.get("textures", [])):
+                    # CE water's background pass (Battle Creek's stream): a
+                    # second copy of the surface; the river mesh is the one.
+                    if "M_CE_WaterBackground" in str(entry.get("parent", "")):
+                        mats[i] = HIDDEN
+                        continue
                     spec = json.loads(json.dumps(rv["spec"]))
                     spec["parent"] = "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"
                     mats[i] = spec
