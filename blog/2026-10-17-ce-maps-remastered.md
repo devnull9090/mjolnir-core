@@ -58,7 +58,13 @@ The canyon walls are the campaign's desert rock, the paths are packed earth,
 and grass covers the valley floor. Halo CE's boulders and trees are the
 campaign's own.
 
-<!-- BGL -->
+![Blood Gulch from the cliff top](/blog-images/ce-maps-remastered/blood-gulch-overview.jpg?before=/blog-images/ce-maps-remastered/blood-gulch-overview-classic.jpg)
+
+![Blood Gulch's red base](/blog-images/ce-maps-remastered/blood-gulch-base.jpg?before=/blog-images/ce-maps-remastered/blood-gulch-base-classic.jpg)
+
+![The valley path](/blog-images/ce-maps-remastered/blood-gulch-valley.jpg?before=/blog-images/ce-maps-remastered/blood-gulch-valley-classic.jpg)
+
+![A boulder by the blue base](/blog-images/ce-maps-remastered/blood-gulch-boulder.jpg?before=/blog-images/ce-maps-remastered/blood-gulch-boulder-classic.jpg)
 
 ## Death Island
 
@@ -66,7 +72,13 @@ Sand beaches with ripples and pebbles, a real ocean with surf, grass on the
 banks and layered cliffs. The island's trees have full canopies, and its
 twenty light fixtures light the bases.
 
-<!-- DTI -->
+![Death Island from above the bay](/blog-images/ce-maps-remastered/death-island-overview.jpg?before=/blog-images/ce-maps-remastered/death-island-overview-classic.jpg)
+
+![The beach at eye level](/blog-images/ce-maps-remastered/death-island-low-beach.jpg?before=/blog-images/ce-maps-remastered/death-island-low-beach-classic.jpg)
+
+![The shore](/blog-images/ce-maps-remastered/death-island-shore.jpg?before=/blog-images/ce-maps-remastered/death-island-shore-classic.jpg)
+
+![A cliff over the beach](/blog-images/ce-maps-remastered/death-island-cliff.jpg?before=/blog-images/ce-maps-remastered/death-island-cliff-classic.jpg)
 
 ## Yoyorast Island
 
@@ -75,28 +87,48 @@ sea floor rises into shallows around the pillars standing in the water, so
 the waves feel them and break around them. Sand rings its islets and grass
 climbs its terraces.
 
-<!-- YOY -->
+![Yoyorast from the bay](/blog-images/ce-maps-remastered/yoyorast-overlook.jpg?before=/blog-images/ce-maps-remastered/yoyorast-overlook-classic.jpg)
+
+![The islet's beach, across the channel](/blog-images/ce-maps-remastered/yoyorast-beach.jpg?before=/blog-images/ce-maps-remastered/yoyorast-beach-classic.jpg)
+
+![Grass against the cliff](/blog-images/ce-maps-remastered/yoyorast-grass.jpg?before=/blog-images/ce-maps-remastered/yoyorast-grass-classic.jpg)
+
+![The islet](/blog-images/ce-maps-remastered/yoyorast-island.jpg?before=/blog-images/ce-maps-remastered/yoyorast-island-classic.jpg)
 
 ## Ice Fields
 
 Snow on the ground and on the rock, glacial stone in the walls and snow
 falling across the bridge.
 
-<!-- ICE -->
+![The bridge](/blog-images/ce-maps-remastered/ice-fields-bridge.jpg?before=/blog-images/ce-maps-remastered/ice-fields-bridge-classic.jpg)
+
+![The tunnel gate](/blog-images/ce-maps-remastered/ice-fields-gate.jpg?before=/blog-images/ce-maps-remastered/ice-fields-gate-classic.jpg)
+
+![The snow field below](/blog-images/ce-maps-remastered/ice-fields-snowfield.jpg?before=/blog-images/ce-maps-remastered/ice-fields-snowfield-classic.jpg)
 
 ## Sidewinder
 
 The frozen canyon under the ring: snow-covered ground, frozen pools, and
 rock and trees in the campaign's winter look.
 
-<!-- SDW -->
+![Under the ring](/blog-images/ce-maps-remastered/sidewinder-ring.jpg?before=/blog-images/ce-maps-remastered/sidewinder-ring-classic.jpg)
+
+![By the glacier wall](/blog-images/ce-maps-remastered/sidewinder-glacier.jpg?before=/blog-images/ce-maps-remastered/sidewinder-glacier-classic.jpg)
+
+![The rock ridge](/blog-images/ce-maps-remastered/sidewinder-ridge.jpg?before=/blog-images/ce-maps-remastered/sidewinder-ridge-classic.jpg)
 
 ## Timberland
 
 A forest floor of grass and weeds, and a river that finally runs: from the
 falls down the whole valley.
 
-<!-- TMB -->
+![The river](/blog-images/ce-maps-remastered/timberland-river.jpg?before=/blog-images/ce-maps-remastered/timberland-river-classic.jpg)
+
+![The valley](/blog-images/ce-maps-remastered/timberland-valley.jpg?before=/blog-images/ce-maps-remastered/timberland-valley-classic.jpg)
+
+![Through the trees](/blog-images/ce-maps-remastered/timberland-forest.jpg?before=/blog-images/ce-maps-remastered/timberland-forest-classic.jpg)
+
+![A lone pine](/blog-images/ce-maps-remastered/timberland-tree.jpg?before=/blog-images/ce-maps-remastered/timberland-tree-classic.jpg)
 
 ## Infinity
 
@@ -104,7 +136,11 @@ The huge open map gets real terrain and grass from end to end, and land and
 haze out to the horizon. In Halo CE, Infinity's rim ended in a black band
 under the sky.
 
-<!-- INF -->
+![Out to the horizon, from above the blue base](/blog-images/ce-maps-remastered/infinity-horizon.jpg?before=/blog-images/ce-maps-remastered/infinity-horizon-classic.jpg)
+
+![A canyon path under the bridges](/blog-images/ce-maps-remastered/infinity-path.jpg?before=/blog-images/ce-maps-remastered/infinity-path-classic.jpg)
+
+![Grass along the canyon floor](/blog-images/ce-maps-remastered/infinity-canyon.jpg?before=/blog-images/ce-maps-remastered/infinity-canyon-classic.jpg)
 
 ## Gephyrophobia
 
@@ -112,7 +148,11 @@ The canyon is the campaign's glacial rock under snow. Halo CE drew the fog
 in the chasm below the bridge as a flat sheet, so the rock stopped dead at a
 hard line. Now it is real height fog, and the walls fade into it.
 
-<!-- GPH -->
+![The bridge](/blog-images/ce-maps-remastered/gephyrophobia-bridge.jpg?before=/blog-images/ce-maps-remastered/gephyrophobia-bridge-classic.jpg)
+
+![The cliff fading into the chasm's fog](/blog-images/ce-maps-remastered/gephyrophobia-chasm.jpg?before=/blog-images/ce-maps-remastered/gephyrophobia-chasm-classic.jpg)
+
+![The red end of the bridge](/blog-images/ce-maps-remastered/gephyrophobia-pylon.jpg?before=/blog-images/ce-maps-remastered/gephyrophobia-pylon-classic.jpg)
 
 ## Battle Creek
 
@@ -120,7 +160,9 @@ The creek is real water now. It runs the length of the canyon in its bed,
 under the overhangs and into the pools at either end. The walls are the
 campaign's rock and the banks are grass.
 
-<!-- BCK -->
+![The creek at water level](/blog-images/ce-maps-remastered/battle-creek-stream.jpg?before=/blog-images/ce-maps-remastered/battle-creek-stream-classic.jpg)
+
+![The creek under the overhangs](/blog-images/ce-maps-remastered/battle-creek-creek.jpg?before=/blog-images/ce-maps-remastered/battle-creek-creek-classic.jpg)
 
 ## Rat Race
 
@@ -129,7 +171,9 @@ tunnels are cut through the same rock as Battle Creek's cliffs, and that
 rock is now the game's own, with real depth, lit by Halo CE's own light as
 the original was.
 
-<!-- RAT -->
+![A tunnel through the rock](/blog-images/ce-maps-remastered/rat-race-tunnel.jpg?before=/blog-images/ce-maps-remastered/rat-race-tunnel-classic.jpg)
+
+![The cave room beside it](/blog-images/ce-maps-remastered/rat-race-room.jpg?before=/blog-images/ce-maps-remastered/rat-race-room-classic.jpg)
 
 ## How it was made
 
@@ -236,6 +280,12 @@ Evolved uses for its own rivers and beaches, running live in the map.
   overhang it would take the rock's top for the river bed. Each river gets a
   bed of its own that only the simulation sees: the lowest surface at every
   point inside the river's banks, and walls it can't climb outside them.
+
+Death Island's heightmap shows the new sea floor: the blue around the island
+is ground Halo CE never had, shelving down from the beach so the surf has
+somewhere to break.
+
+![Death Island's heightmap, with its new sea floor](/blog-images/ce-maps-remastered/death-island-heightmap.jpg)
 
 ### Halo CE's lamps, in Unreal
 
