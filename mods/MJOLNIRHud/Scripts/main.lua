@@ -42,6 +42,7 @@ local Rows = dofile(MOD_DIR .. "\\Scripts\\feed.lua")
 local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
 local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
 local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
+local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -1233,9 +1234,10 @@ end
 --- removed (tearing a trampoline out of a hot per-frame function crashed the
 --- game); a level change collects the hooked function, so each new one is
 --- hooked again. A host's tick runs once per player controller each frame:
---- the second call in a frame does nothing.
+--- the second call in a frame does nothing. The same hook times every frame
+--- for the hitch log (Scripts/hitches.lua), on every map, match or not.
 local TICK_FUNCTION = "/Game/Blueprints/BP_MeteoritePlayerController.BP_MeteoritePlayerController_C:ReceiveTick"
-local FrameHook = { fn = nil, last = -1, errors = 0, nextTry = 0 }
+local FrameHook = { fn = nil, last = -1, errors = 0, hitchErrors = 0, nextTry = 0 }
 
 local function ensureFrameHook()
     if FrameHook.fn and FrameHook.fn:IsValid() then return end
@@ -1246,8 +1248,15 @@ local function ensureFrameHook()
     if not (ok and fn) then return end
     local okValid, isValid = pcall(function() return fn:IsValid() end)
     if not (okValid and isValid) then return end
-    local hooked = pcall(RegisterHook, TICK_FUNCTION, function()
+    local hooked = pcall(RegisterHook, TICK_FUNCTION, function(ctx)
         local t = now()
+        if FrameHook.hitchErrors < 10 then
+            local okH, errH = pcall(Hitches.frame, ctx, t)
+            if not okH then
+                FrameHook.hitchErrors = FrameHook.hitchErrors + 1
+                if FrameHook.hitchErrors == 10 then Log("hitch log off after repeated errors: " .. tostring(errH)) end
+            end
+        end
         if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
         FrameHook.last = t
         local okA, err = pcall(animate, t)
@@ -1344,6 +1353,12 @@ local function tick()
     local pc = playerController()
     local world = pc and pc:GetWorld()
     local code = world and scenarioOf(world)
+    local okHitches, timed = pcall(Hitches.poll, pc, code)
+    if not okHitches then
+        Log("hitch log: " .. tostring(timed))
+    elseif timed then
+        ensureFrameHook()
+    end
     if code ~= lastWorld then
         lastWorld = code
         local running = runningMatch()
@@ -1432,6 +1447,7 @@ local function poll()
     local ok, err = pcall(tick)
     if not ok then Log("tick: " .. tostring(err)) end
     local took = os.clock() - started
+    Hitches.work("Hud", "tick", started, took)
     if took > 0.05 and started - slowReportedAt > 30 then
         slowReportedAt = started
         Log(string.format("slow: the HUD tick held the game thread %.0f ms", took * 1000))
@@ -1439,6 +1455,16 @@ local function poll()
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
 
+pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
+    ExecuteInGameThread(function()
+        local okC, said = pcall(Hitches.command, args)
+        Log(okC and said or ("mjolnir_hitches: " .. tostring(said)))
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)
+    return true
+end)
+
+Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log" })
 logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,
     log = Log,

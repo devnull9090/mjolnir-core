@@ -348,9 +348,25 @@ end
 --- 30 s per loop: a CTF host froze ~250 ms every 3.24 s in Lua, and nothing
 --- said which loop it was (playtest, 2026-10-03). `started` is os.clock()
 --- at the run's start.
+---
+--- Each run that reads a millisecond or more is also handed to MJOLNIRHud's
+--- hitch log (its Scripts/hitches.lua), through a UE4SS shared variable, so
+--- a long frame there names the loops that ran in it.
 local slowAt = {}
 function UI.reportSlow(name, started)
     local took = os.clock() - started
+    if took >= 0.001 then
+        pcall(function()
+            local mod = rawget(_G, "ModRef")
+            local work = mod:GetSharedVariable("MJOLNIR.work")
+            work = type(work) == "string" and work or ""
+            -- Nothing reads it without the HUD: it stops growing.
+            if #work < 4000 then
+                mod:SetSharedVariable("MJOLNIR.work",
+                    string.format("%s%.3f|Lobby|%s|%.0f;", work, started, name, took * 1000))
+            end
+        end)
+    end
     if took > 0.05 and started - (slowAt[name] or -100) > 30 then
         slowAt[name] = started
         log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
