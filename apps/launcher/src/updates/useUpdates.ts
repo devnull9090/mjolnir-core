@@ -34,6 +34,11 @@ export interface UpdateItem {
    * all — worth saying rather than quietly shipping someone a beta.
    */
   prerelease?: boolean;
+  /**
+   * The same version downloaded again, because files are missing from the
+   * install (a map installed by a launcher that dropped its foliage).
+   */
+  repair?: boolean;
   /** Restarts the launcher, so it is applied last and on its own. */
   restarts?: boolean;
   apply: () => Promise<void>;
@@ -145,8 +150,9 @@ export function useUpdates(
           name: u.name,
           from: u.installed_version,
           to: u.latest_version,
-          detail: u.changelog,
+          detail: u.repair ?? u.changelog,
           prerelease: u.channel === "beta",
+          repair: u.repair !== null,
           apply: () =>
             invoke("hub_install", {
               slug: u.slug,

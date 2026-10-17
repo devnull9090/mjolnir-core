@@ -157,6 +157,14 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                           beta
                         </Badge>
                       )}
+                      {item.repair && (
+                        <Badge
+                          tone="amber"
+                          title="Files are missing from this install; the same version is downloaded again."
+                        >
+                          repair
+                        </Badge>
+                      )}
                       {item.restarts && (
                         <Badge tone="amber" title="The launcher will restart itself">
                           restarts

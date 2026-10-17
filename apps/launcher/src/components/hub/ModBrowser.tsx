@@ -145,9 +145,9 @@ export function ModBrowser({
               })
             }
             disabled={!!library.busy}
-            title={`Update to v${update.latest_version}`}
+            title={update.repair ?? `Update to v${update.latest_version}`}
           >
-            {busy ? "Updating…" : `Update → ${update.latest_version}`}
+            {busy ? "Updating…" : update.repair ? "Repair" : `Update → ${update.latest_version}`}
           </ActionButton>
         )}
         <ActionButton
