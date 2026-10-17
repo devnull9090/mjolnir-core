@@ -330,5 +330,5 @@ their grass and decal files beside the level, and they need CE runtime pack
 1.8.0, which the updated launcher installs for you. Maps downloaded in game
 update the same way.
 
-The other ten classic maps are unchanged. They are indoor or built maps,
-with little ground or rock to remaster.
+The other ten classic maps are unchanged. They are mostly indoor or built
+maps, with little ground or rock to remaster.
