@@ -1103,8 +1103,12 @@ def stage_assemble(code, m, p):
                 haze["color"] = list(coast["haze_color"])
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
-    # A map with no CE fog of its own: `haze` as the height fog itself
-    # (MJOLNIRLevelLoader environment.haze; colour linear).
+    # `haze` as an object: the height fog itself (MJOLNIRLevelLoader
+    # environment.haze; colour linear), for a map with no CE fog of its own
+    # (Infinity) or a fog CE draws as a plane: Gephyrophobia's chasm fog is
+    # a slab under the bridge that only CE's materials take, so the glacial
+    # rock and its boulders stopped dead at a hard line; as a height fog at
+    # the plane, thinning fast above it, they fade into it (2026-10-16).
     if isinstance(m.get("haze"), dict) and isinstance(level["landscape"].get("pbr"), dict):
         level["landscape"]["pbr"]["haze"] = dict({"falloff": 0.02, "start": 30000.0, "max_opacity": 1.0},
                                                  **m["haze"])

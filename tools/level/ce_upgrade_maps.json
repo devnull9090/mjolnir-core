@@ -117,7 +117,8 @@
   "cliff_shaders": ["geph_cliff_wall__"],
   "landscape": "LGP", "chunk": 972, "min_z": -50000,
   "biome": "snow", "rocks": "snow", "tess": false,
-  "haze": "ce",
+  "haze": {"color": [0.262, 0.527, 0.807], "density": 0.015, "falloff": 1.5, "height": -6233, "start": 0.0,
+           "cutoff": 200000},
   "hub": "ce-gephyrophobia"
  }
 }
