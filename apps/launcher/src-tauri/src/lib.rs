@@ -793,12 +793,39 @@ fn read_mod_version(mods_dir: &Path, mod_name: &str) -> String {
     "1.0.0".to_string()
 }
 
+/// Every Lua mod UE4SS can see: the `mods.txt` entries in their order, then
+/// the mod folders `mods.txt` does not name, by name. UE4SS starts one of
+/// those only when it carries an `enabled.txt`, so that is what `enabled`
+/// says for them. Without these rows a mod that lost its `mods.txt` line was
+/// on disk, off, and nowhere in the launcher to switch back on.
+pub(crate) fn list_script_mods(mods_dir: &Path) -> Vec<ModEntry> {
+    let mut entries = parse_mods_txt(mods_dir);
+    let Ok(dirs) = fs::read_dir(mods_dir) else {
+        return entries;
+    };
+    let mut unlisted: Vec<ModEntry> = dirs
+        .flatten()
+        .filter(|d| d.path().join("Scripts").is_dir())
+        .filter_map(|d| d.file_name().into_string().ok())
+        .filter(|name| !entries.iter().any(|e| e.name == *name))
+        .map(|name| ModEntry {
+            enabled: mods_dir.join(&name).join("enabled.txt").is_file(),
+            description: read_mod_description(mods_dir, &name),
+            version: read_mod_version(mods_dir, &name),
+            name,
+        })
+        .collect();
+    unlisted.sort_by(|a, b| a.name.cmp(&b.name));
+    entries.extend(unlisted);
+    entries
+}
+
 #[tauri::command]
 fn get_mods() -> Vec<ModEntry> {
     if let Some((install_path, _)) = find_game_install() {
         let mods_dir = mods_dir(&install_path);
         if mods_dir.exists() {
-            return parse_mods_txt(&mods_dir);
+            return list_script_mods(&mods_dir);
         }
     }
     Vec::new()
@@ -807,26 +834,53 @@ fn get_mods() -> Vec<ModEntry> {
 #[tauri::command]
 fn toggle_mod(name: String, enabled: bool) -> Result<(), String> {
     let (install_path, _) = find_game_install().ok_or("Game not found")?;
-    let mods_dir = mods_dir(&install_path);
-    let mods_txt = mods_dir.join("mods.txt");
+    set_mod_enabled(&mods_dir(&install_path), &name, enabled)?;
+    Ok(())
+}
 
-    let content = fs::read_to_string(&mods_txt).map_err(|e| e.to_string())?;
-    let new_content: String = content
+/// Switch a mod on or off in `mods.txt`, adding its line when there is none.
+/// Returns whether a line was added.
+///
+/// UE4SS starts only the mods `mods.txt` names (or that carry an
+/// `enabled.txt`), so rewriting existing lines alone left a mod whose line
+/// had gone missing off for good: a player's lobby never started, the
+/// launcher listed nothing to switch on, and "Install multiplayer" saw the
+/// folder and called it installed. A missing file is created only to switch
+/// a mod on: the runtime install seeds `mods.txt` only when it is absent.
+pub(crate) fn set_mod_enabled(mods_dir: &Path, name: &str, enabled: bool) -> Result<bool, String> {
+    let mods_txt = mods_dir.join("mods.txt");
+    let content = match fs::read_to_string(&mods_txt) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && enabled => String::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.to_string()),
+    };
+    let line_for = || format!("{} : {}", name, if enabled { "1" } else { "0" });
+
+    let mut found = false;
+    let mut lines: Vec<String> = content
         .lines()
         .map(|line| {
             let trimmed = line.trim();
             if let Some(mod_name) = trimmed.split(':').next() {
                 if mod_name.trim() == name {
-                    return format!("{} : {}", name, if enabled { "1" } else { "0" });
+                    found = true;
+                    return line_for();
                 }
             }
             line.to_string()
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect();
+    if !found {
+        lines.push(line_for());
+    }
 
+    let mut new_content = lines.join("\n");
+    if content.ends_with('\n') || !found {
+        new_content.push('\n');
+    }
     fs::write(&mods_txt, new_content).map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(!found)
 }
 
 #[tauri::command]
@@ -2358,5 +2412,94 @@ mod tests {
         assert_eq!(binaries_dir(&root), root.join("Meteorite/Binaries/Win64"));
 
         let _ = fs::remove_dir_all(root.parent().expect("library"));
+    }
+
+    /// An empty `ue4ss/Mods` stand-in for one test.
+    fn fake_mods_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mjolnir-mods-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mods dir");
+        dir
+    }
+
+    #[test]
+    fn switching_a_listed_mod_rewrites_only_its_line() {
+        let dir = fake_mods_dir("rewrite");
+        let txt = dir.join("mods.txt");
+        fs::write(
+            &txt,
+            "BPModLoaderMod : 1\n\n; Built-in keybinds, do not move up!\nKeybinds : 1\nMJOLNIRLobby : 0\n",
+        )
+        .unwrap();
+
+        assert!(!set_mod_enabled(&dir, "MJOLNIRLobby", true).unwrap(), "the line was there");
+        assert_eq!(
+            fs::read_to_string(&txt).unwrap(),
+            "BPModLoaderMod : 1\n\n; Built-in keybinds, do not move up!\nKeybinds : 1\nMJOLNIRLobby : 1\n"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The 2026-10-17 report: the lobby's folder was installed but its line
+    /// was gone, so switching it on changed nothing and it never started.
+    #[test]
+    fn switching_on_a_mod_without_a_line_adds_one() {
+        let dir = fake_mods_dir("append");
+        let txt = dir.join("mods.txt");
+        fs::write(&txt, "MJOLNIRHud : 1\nMJOLNIRMultiplayer : 1").unwrap();
+
+        assert!(set_mod_enabled(&dir, "MJOLNIRLobby", true).unwrap(), "a line was added");
+        assert_eq!(
+            fs::read_to_string(&txt).unwrap(),
+            "MJOLNIRHud : 1\nMJOLNIRMultiplayer : 1\nMJOLNIRLobby : 1\n"
+        );
+        assert!(!set_mod_enabled(&dir, "MJOLNIRLobby", true).unwrap(), "added once");
+        assert_eq!(
+            fs::read_to_string(&txt).unwrap(),
+            "MJOLNIRHud : 1\nMJOLNIRMultiplayer : 1\nMJOLNIRLobby : 1\n"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_mods_txt_is_created_only_to_switch_a_mod_on() {
+        let dir = fake_mods_dir("absent");
+        let txt = dir.join("mods.txt");
+
+        assert!(!set_mod_enabled(&dir, "MJOLNIRLobby", false).unwrap());
+        assert!(!txt.exists(), "switching off leaves the runtime's seed to the runtime");
+        assert!(set_mod_enabled(&dir, "MJOLNIRLobby", true).unwrap());
+        assert_eq!(fs::read_to_string(&txt).unwrap(), "MJOLNIRLobby : 1\n");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn script_mods_include_folders_mods_txt_does_not_name() {
+        let dir = fake_mods_dir("list");
+        fs::write(dir.join("mods.txt"), "MJOLNIRHud : 1\nMJOLNIRMultiplayer : 1\n").unwrap();
+        for name in ["MJOLNIRHud", "MJOLNIRMultiplayer", "MJOLNIRLobby", "MJOLNIRCore"] {
+            fs::create_dir_all(dir.join(name).join("Scripts")).unwrap();
+        }
+        fs::write(dir.join("MJOLNIRCore").join("enabled.txt"), "").unwrap();
+        fs::create_dir_all(dir.join("shared").join("UEHelpers")).unwrap();
+
+        let mods = list_script_mods(&dir);
+        let seen: Vec<(&str, bool)> = mods.iter().map(|m| (m.name.as_str(), m.enabled)).collect();
+        assert_eq!(
+            seen,
+            [
+                ("MJOLNIRHud", true),
+                ("MJOLNIRMultiplayer", true),
+                // UE4SS starts an unlisted mod only for its enabled.txt.
+                ("MJOLNIRCore", true),
+                ("MJOLNIRLobby", false),
+            ],
+            "mods.txt order first, then the unlisted folders by name; no Scripts, no mod"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
