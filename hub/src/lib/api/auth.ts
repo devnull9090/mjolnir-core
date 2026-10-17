@@ -242,6 +242,10 @@ export function hasScope(auth: AuthContext, scope: string): boolean {
  * identity, 403 when a key lacks the scope (cookie sessions carry all
  * scopes), 429 past the write budget. Throws the response so handlers
  * stay a straight line.
+ *
+ * Admins (and their keys) have no write budget: the budget is there for
+ * community uploads, and an official release of ten maps and the runtime
+ * is 33 publish calls against 30 an hour (2026-10-17).
  */
 export async function requireScoped(c: Ctx, scope: string, bucket: string, limit: number) {
   const auth = await authenticate(c);
@@ -251,7 +255,7 @@ export async function requireScoped(c: Ctx, scope: string, bucket: string, limit
       res: c.json({ error: "insufficient_scope", message: `Needs ${scope}.` }, 403),
     });
   }
-  if (!(await rateLimit(c, auth.subject, bucket, limit))) {
+  if (auth.user.role !== "admin" && !(await rateLimit(c, auth.subject, bucket, limit))) {
     throw new HTTPException(429, { res: c.json({ error: "rate_limited" }, 429) });
   }
   return auth;
