@@ -683,6 +683,13 @@ def build_cliffs(maps, ps):
         print("  " + made.strip().splitlines()[-1][:160])
         if "triangle(s) on" in made:
             specs.append(f"SM_{code}_River={out}")
+    # Flux beds (`flux.bed`): the river's ground as Flux's capture alone sees
+    # it (flux_bed).
+    for code, m in maps.items():
+        if (m.get("flux") or {}).get("bed") and m.get("rivers"):
+            bed = flux_bed(code, m, ps[code])
+            if bed:
+                specs.append(f"SM_{code}_FluxBed={bed}")
     specs += shadow_shells(maps, ps)
     if not specs:
         return
@@ -862,6 +869,80 @@ def flux_coast(k, land, code, level):
             "seabed": bool(k.get("seabed"))}
 
 
+PHANTOM = "/Game/FluidFlux/Simulation/Materials/M_PhantomMesh_3.M_PhantomMesh_3"
+# The bed's material in the level: plain and opaque, the decor drawn only into
+# scene captures (MJOLNIRLevelLoader `capture_only`); Flux's phantom
+# material drew in none of ours.
+BED_MATERIAL = "/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"
+
+
+def flux_domain_rect(fx, river):
+    """The river domain's rectangle (cm) and bottom, as flux_spec makes it."""
+    pts = river["positions"] + [f["pos"] for f in fx.get("feeds", [])]
+    margin = fx.get("margin", 600.0)
+    lo = [min(q[i] for q in pts) - margin for i in range(2)]
+    hi = [max(q[i] for q in pts) + margin for i in range(2)]
+    return lo, hi, min(q[2] for q in pts) - 300.0
+
+
+def flux_bed(code, m, p, cell=50.0):
+    """A river's bed for Fluid Flux's ground capture alone (`flux.bed`): the
+    lowest surface at every point over its domain, as a heightfield mesh in
+    Flux's phantom material (drawn only in its capture). Flux captures the
+    ground from above, so wherever rock overhangs a river it takes the rock's
+    top for the bed: Battle Creek's creek runs under overhangs coming down
+    to the water over 61% of its bed, and the water stood in sheets against
+    the rock (2026-10-16). The lowest surface is the bed under an overhang
+    and a wall's foot rising into it at the canyon's sides. Writes
+    <work>/flux_bed.json (cliff_mesh.py's form) and returns its path."""
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    from build_landscape import raster
+    river = json.load(open(os.path.join(p["work"], "river_mesh.json"), encoding="utf-8"))
+    lo, hi, _ = flux_domain_rect(m["flux"], river)
+    doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+    data = open(os.path.join(p["scene"], doc["buffers"][0]["uri"]), "rb").read()
+    tris = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"].lower()
+            if any(w in name for w in ("sky", "water", "fog")):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            P = np.stack([pos[:, 0] * 100, pos[:, 2] * 100, pos[:, 1] * 100], 1)
+            T = P[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]
+            keep = ((T[..., 0].max(1) >= lo[0]) & (T[..., 0].min(1) <= hi[0])
+                    & (T[..., 1].max(1) >= lo[1]) & (T[..., 1].min(1) <= hi[1]))
+            tris.append(T[keep])
+    tris = np.concatenate(tris)
+    nx, ny = int(np.ceil((hi[0] - lo[0]) / cell)) + 1, int(np.ceil((hi[1] - lo[1]) / cell)) + 1
+    size = max(nx, ny)
+    z, _ = raster(tris, np.array(lo), cell, size, [])
+    z = z[:ny, :nx]
+    # Nothing under a point (off the map): high ground, so no water goes.
+    z = np.where(np.isfinite(z), z, np.nanmax(z) + 500.0)
+    xs, ys = lo[0] + np.arange(nx) * cell, lo[1] + np.arange(ny) * cell
+    positions = [[round(float(xs[i]), 1), round(float(ys[j]), 1), round(float(z[j, i]), 1)]
+                 for j in range(ny) for i in range(nx)]
+    idx = []
+    for j in range(ny - 1):
+        for i in range(nx - 1):
+            a, b, c, d = j * nx + i, j * nx + i + 1, (j + 1) * nx + i, (j + 1) * nx + i + 1
+            # Both windings: one-sided, wound the wrong way for a capture
+            # from above, the bed was culled and Flux saw no ground at all.
+            idx += [a, c, b, b, c, d, a, b, c, b, d, c]
+    n = len(positions)
+    out = os.path.join(p["work"], "flux_bed.json")
+    json.dump({"item": "", "slots": [0], "names": ["flux_bed"], "positions": positions,
+               "normals": [[0.0, 0.0, 1.0]] * n, "indices": idx,
+               # UVs a corner (build_ce_cliffs.py takes them per index).
+               "uv0": [[0.0, 0.0]] * len(idx), "uv1": [[0.0, 0.0]] * len(idx),
+               "sections": [0] * (len(idx) // 3), "weight": [1.0] * n, "nanite": False, "material": PHANTOM},
+              open(out, "w", encoding="utf-8"))
+    print(f"  {code}: flux bed {nx} x {ny} at {cell:g} cm, z {z.min() / 100:.1f}..{z.max() / 100:.1f} m")
+    return out
+
+
 def flux_spec(code, fx, river, level):
     """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
     domain round the river mesh, `fx.feeds` adding water where CE's water
@@ -963,7 +1044,9 @@ def stage_assemble(code, m, p):
         level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
                                  "item": spec["item"], "slots": spec["slots"]}]
     river = os.path.join(p["work"], "river_mesh.json")
-    if m.get("rivers") and os.path.exists(river):
+    # `rivers.flux_only`: the river is Fluid Flux's alone; CE's stream (its
+    # slots, the river mesh) goes, the mesh kept only for the domain.
+    if m.get("rivers") and os.path.exists(river) and not m["rivers"].get("flux_only"):
         spec = json.load(open(river, encoding="utf-8"))
         level.setdefault("slot_meshes", []).append({
             "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_River.SM_{code}_River", "item": spec["item"],
@@ -997,7 +1080,7 @@ def stage_assemble(code, m, p):
                 if any(t in tex for t in rv.get("textures", [])):
                     # CE water's background pass (Battle Creek's stream): a
                     # second copy of the surface; the river mesh is the one.
-                    if "M_CE_WaterBackground" in str(entry.get("parent", "")):
+                    if "M_CE_WaterBackground" in str(entry.get("parent", "")) or rv.get("flux_only"):
                         mats[i] = HIDDEN
                         continue
                     spec = json.loads(json.dumps(rv["spec"]))
@@ -1023,6 +1106,14 @@ def stage_assemble(code, m, p):
                     mats[i] = HIDDEN
     if m.get("flux") and os.path.exists(river):
         level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
+        # The bed Flux alone sees (flux_bed), its only ground.
+        if m["flux"].get("bed") and os.path.exists(os.path.join(p["work"], "flux_bed.json")):
+            origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+            level["decor"].append({"id": f"{code.lower()}_flux_bed",
+                                   "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_FluxBed.SM_{code}_FluxBed",
+                                   "pos": [-origin[0], -origin[1], -origin[2]],
+                                   "materials": [BED_MATERIAL], "capture_only": True, "cast_shadow": False})
+            level["flux"]["ground"] = [f"{code.lower()}_flux_bed"]
         print(f"  {code}: flux {level['flux']['domain']['res']} at {level['flux']['domain']['cell']} cm, "
               f"{len(level['flux']['sources'])} source(s)")
     if (m.get("flux") or {}).get("coast"):

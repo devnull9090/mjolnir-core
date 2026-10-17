@@ -1369,6 +1369,11 @@ local function spawnDecorItem(world, origin, item)
             -- surface's albedo for them (TerrainLights).
             comp:SetLightingChannels(TerrainLights.on, true, false)
         end
+        -- `capture_only`: there for Fluid Flux's one ground capture (a
+        -- river's bed, upgrade_ce_map.flux_bed), hidden after it
+        -- (Effects.flux). Neither Flux's phantom material nor a component
+        -- visible in scene captures alone reached its capture.
+        if item.capture_only then comp:SetCastShadow(false) end
     end)
     if not okSetup then
         pcall(function() actor:K2_DestroyActor() end)
@@ -3540,7 +3545,15 @@ function Effects.flux(world)
                 made[#made + 1] = Effects.fluxCoast(w, spec.coast, origin, cls, gs, tag)
             end
             -- The coastline captures half a second after it spawns.
+            local only = {}
+            for _, item in ipairs(Current.level.decor or {}) do
+                local a = type(item) == "table" and item.capture_only and Current.actors[item.id]
+                if a then only[#only + 1] = a end
+            end
             ExecuteInGameThreadWithDelay(3000, function()
+                for _, a in ipairs(only) do
+                    pcall(function() if a:IsValid() then a:SetActorHiddenInGame(true) end end)
+                end
                 for _, u in ipairs(uncut) do
                     pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
                 end
