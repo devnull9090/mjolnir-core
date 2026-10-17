@@ -20,6 +20,14 @@ $cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=
 $lock = New-Object System.Threading.Mutex($false, "MjolnirMeteoriteProject")
 try { [void]$lock.WaitOne() } catch [System.Threading.AbandonedMutexException] { }
 try {
+    # The last run's ShaderCompileWorkers inherit its log's handle and outlive
+    # the editor by seconds: cmd could not open the log, the editor never
+    # ran, and the caller read the last run's log (Yoyorast's landscape after
+    # Death Island's, 2026-10-16). Wait for the file to come free.
+    for ($i = 0; $i -lt 240; $i++) {
+        try { [IO.File]::Open($log, 'OpenOrCreate', 'ReadWrite', 'None').Close(); break }
+        catch { Start-Sleep -Milliseconds 500 }
+    }
     $p = Start-Process -FilePath cmd.exe -ArgumentList $cmd -PassThru -WindowStyle Hidden -WorkingDirectory $project
     if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
     $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal

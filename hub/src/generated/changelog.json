@@ -39,6 +39,66 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.14.0",
+      "tag": "launcher-v0.14.0",
+      "title": "Installs the remastered classic maps",
+      "date": "2026-10-17",
+      "summary": "The launcher installs the remastered classic maps, with their grass and decal files, and updates the CE runtime pack they need. Update the launcher first.",
+      "body": "### Added\n\n- **Maps that carry more than a level.** A remastered map comes with its\n  grass and decal files beside its level. The launcher installs them with\n  the map, keeps them up to date, and removes files a newer version of the\n  map no longer has. This works for maps installed in game too.\n\n### Changed\n\n- **Dependencies are kept up to date.** When a map needs a newer CE\n  runtime pack than the one installed (the remastered maps need 1.8.0), the\n  launcher now updates the runtime pack when it installs the map. Before,\n  the map ran against the older runtime pack and drew without its new\n  materials.\n- **A clearer message in game.** Downloading a map in game when your\n  runtime pack is too old now says which version the map needs and which\n  one you have, instead of saying the runtime pack is not installed.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Maps that carry more than a level. A remastered map comes with its grass and decal files beside its level. The launcher installs them with the map, keeps them up to date, and removes files a newer version of the map no longer has. This works for maps installed in game too."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependencies are kept up to date. When a map needs a newer CE runtime pack than the one installed (the remastered maps need 1.8.0), the launcher now updates the runtime pack when it installs the map. Before, the map ran against the older runtime pack and drew without its new materials.",
+            "A clearer message in game. Downloading a map in game when your runtime pack is too old now says which version the map needs and which one you have, instead of saying the runtime pack is not installed."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.14.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.24.0",
+      "tag": "mods-v0.24.0",
+      "title": "Ten remastered maps",
+      "date": "2026-10-17",
+      "summary": "The level loader draws the ten remastered maps: real terrain and grass, the game's own rock and trees, a living ocean and rivers, and Halo CE's lamps lit by Unreal.",
+      "body": "### Added\n\n- **Remastered maps** (MJOLNIRLevelLoader 0.7.0). Ten maps now\n  draw the way Campaign Evolved draws its own levels. The ground is an\n  Unreal Engine landscape with the campaign's sand, earth and grass, and\n  grass and pebbles grow across it in the wind. Cliffs are drawn in the\n  game's own rock, with its stones set into the walls, and Halo CE's\n  boulders and trees are swapped for the campaign's own.\n- **Water that moves.** Death Island and Yoyorast Island sit in a real\n  ocean whose swell breaks on the beach. Timberland and Battle Creek get\n  rivers that flow along their beds and over their falls.\n- **Tyre tracks and footprints** in the sand and snow of the remastered\n  maps, as on the campaign's beaches.\n- **Snow.** Falling snow on Ice Fields and Sidewinder, kept out of tunnels\n  and rooms.\n- **Halo CE's lamps, lit by Unreal.** The light fixtures CE placed on the\n  remastered maps cast real light and shadow.\n\n### Fixed\n\n- **Sunlight through inside corners.** A thin sliver of sun no longer\n  crawls along the corners where walls meet on converted maps.\n- **Shadows on the ground** no longer change shape as you walk across the\n  new terrain.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Remastered maps (MJOLNIRLevelLoader 0.7.0). Ten maps now draw the way Campaign Evolved draws its own levels. The ground is an Unreal Engine landscape with the campaign's sand, earth and grass, and grass and pebbles grow across it in the wind. Cliffs are drawn in the game's own rock, with its stones set into the walls, and Halo CE's boulders and trees are swapped for the campaign's own.",
+            "Water that moves. Death Island and Yoyorast Island sit in a real ocean whose swell breaks on the beach. Timberland and Battle Creek get rivers that flow along their beds and over their falls.",
+            "Tyre tracks and footprints in the sand and snow of the remastered maps, as on the campaign's beaches.",
+            "Snow. Falling snow on Ice Fields and Sidewinder, kept out of tunnels and rooms.",
+            "Halo CE's lamps, lit by Unreal. The light fixtures CE placed on the remastered maps cast real light and shadow."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Sunlight through inside corners. A thin sliver of sun no longer crawls along the corners where walls meet on converted maps.",
+            "Shadows on the ground no longer change shape as you walk across the new terrain."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.24.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.4.0",

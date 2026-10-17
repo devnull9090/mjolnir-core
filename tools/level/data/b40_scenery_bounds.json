@@ -1,0 +1,917 @@
+[
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_A/SM_Rock_Glacial_Lrg_A.SM_Rock_Glacial_Lrg_A",
+  "min": [
+   -485.1875,
+   -522.875,
+   -57.5
+  ],
+  "max": [
+   444.9375,
+   453.1875,
+   805.5625
+  ],
+  "verts": 109123,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_B/SM_Rock_Glacial_Lrg_B.SM_Rock_Glacial_Lrg_B",
+  "min": [
+   -638.5625,
+   -785.125,
+   -213.375
+  ],
+  "max": [
+   510.5625,
+   707.25,
+   673.375
+  ],
+  "verts": 109962,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_C/SM_Rock_Glacial_Lrg_C.SM_Rock_Glacial_Lrg_C",
+  "min": [
+   -647.75,
+   -1346.8125,
+   -155.125
+  ],
+  "max": [
+   518.75,
+   797.5,
+   1061.3125
+  ],
+  "verts": 110213,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+  "min": [
+   -320.75,
+   -250.4375,
+   -71.875
+  ],
+  "max": [
+   328.1875,
+   278.625,
+   308.125
+  ],
+  "verts": 64230,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+  "min": [
+   -235.1875,
+   -144.125,
+   -29.3125
+  ],
+  "max": [
+   212.625,
+   210.625,
+   262.5
+  ],
+  "verts": 79802,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+  "min": [
+   -238.375,
+   -203.75,
+   -59.1875
+  ],
+  "max": [
+   303.5,
+   227.625,
+   235.9375
+  ],
+  "verts": 58594,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Sma_B/SM_Rock_Glacial_Sma_B.SM_Rock_Glacial_Sma_B",
+  "min": [
+   -58.875,
+   -95.40625,
+   -14.5
+  ],
+  "max": [
+   76.28125,
+   75.0,
+   11.78125
+  ],
+  "verts": 17337,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/InstanceMeshDefinitions/SM_Tree_DouglasFir_SnowDead_A_Tree_Windswept_BranchDead_A.SM_Tree_DouglasFir_SnowDead_A_Tree_Windswept_BranchDead_A",
+  "min": [
+   -593.0625,
+   -13.375,
+   -402.6875
+  ],
+  "max": [
+   502.625,
+   889.5,
+   179.0625
+  ],
+  "verts": 1200,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/InstanceMeshDefinitions/SM_Tree_DouglasFir_SnowDead_A_Tree_Windswept_BranchDead_A_Proxy.SM_Tree_DouglasFir_SnowDead_A_Tree_Windswept_BranchDead_A_Proxy",
+  "min": [
+   -549.875,
+   -2.5625,
+   -417.0625
+  ],
+  "max": [
+   483.8125,
+   876.5625,
+   157.75
+  ],
+  "verts": 535,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Trunk_Tube.SM_Tree_DouglasFir_SnowDead_A_Trunk_Tube",
+  "min": [
+   -255.0,
+   -208.0,
+   -471.8125
+  ],
+  "max": [
+   182.25,
+   283.125,
+   2592.9375
+  ],
+  "verts": 137126,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes.SM_Tree_DouglasFir_SnowDead_A_Tubes",
+  "min": [
+   -300.4375,
+   -859.0,
+   -46.9375
+  ],
+  "max": [
+   264.0625,
+   21.375,
+   602.125
+  ],
+  "verts": 19766,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_10.SM_Tree_DouglasFir_SnowDead_A_Tubes_10",
+  "min": [
+   -720.3125,
+   -50.375,
+   -120.1875
+  ],
+  "max": [
+   24.1875,
+   666.4375,
+   570.5
+  ],
+  "verts": 22335,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_11.SM_Tree_DouglasFir_SnowDead_A_Tubes_11",
+  "min": [
+   -37.125,
+   -239.1875,
+   -73.8125
+  ],
+  "max": [
+   594.3125,
+   544.0,
+   917.5625
+  ],
+  "verts": 23457,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_12.SM_Tree_DouglasFir_SnowDead_A_Tubes_12",
+  "min": [
+   -629.5625,
+   -498.6875,
+   -3.6875
+  ],
+  "max": [
+   564.625,
+   449.125,
+   1676.375
+  ],
+  "verts": 43847,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_13.SM_Tree_DouglasFir_SnowDead_A_Tubes_13",
+  "min": [
+   -594.625,
+   -573.3125,
+   -3.6875
+  ],
+  "max": [
+   178.25,
+   34.9375,
+   1454.25
+  ],
+  "verts": 32898,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_14.SM_Tree_DouglasFir_SnowDead_A_Tubes_14",
+  "min": [
+   -43.125,
+   -52.375,
+   -88.0
+  ],
+  "max": [
+   60.0625,
+   33.5,
+   47.5625
+  ],
+  "verts": 586,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_15.SM_Tree_DouglasFir_SnowDead_A_Tubes_15",
+  "min": [
+   -70.875,
+   -23.875,
+   -41.375
+  ],
+  "max": [
+   17.5625,
+   22.625,
+   30.75
+  ],
+  "verts": 90,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_16.SM_Tree_DouglasFir_SnowDead_A_Tubes_16",
+  "min": [
+   -23.1875,
+   -24.0625,
+   -44.625
+  ],
+  "max": [
+   84.0,
+   25.4375,
+   36.1875
+  ],
+  "verts": 90,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_17.SM_Tree_DouglasFir_SnowDead_A_Tubes_17",
+  "min": [
+   -29.0625,
+   -32.5625,
+   -40.625
+  ],
+  "max": [
+   53.0625,
+   46.0625,
+   49.4375
+  ],
+  "verts": 101,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_18.SM_Tree_DouglasFir_SnowDead_A_Tubes_18",
+  "min": [
+   -36.9375,
+   -32.5625,
+   -53.1875
+  ],
+  "max": [
+   29.4375,
+   30.9375,
+   60.5625
+  ],
+  "verts": 77,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_19.SM_Tree_DouglasFir_SnowDead_A_Tubes_19",
+  "min": [
+   -29.6875,
+   -66.5625,
+   -42.0
+  ],
+  "max": [
+   27.9375,
+   15.75,
+   30.25
+  ],
+  "verts": 81,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_2.SM_Tree_DouglasFir_SnowDead_A_Tubes_2",
+  "min": [
+   -280.0625,
+   -20.0625,
+   -46.25
+  ],
+  "max": [
+   387.5625,
+   1152.5625,
+   1023.5
+  ],
+  "verts": 42104,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_20.SM_Tree_DouglasFir_SnowDead_A_Tubes_20",
+  "min": [
+   -18.3125,
+   -17.5,
+   -42.5625
+  ],
+  "max": [
+   24.8125,
+   64.0625,
+   25.75
+  ],
+  "verts": 81,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_21.SM_Tree_DouglasFir_SnowDead_A_Tubes_21",
+  "min": [
+   -24.5,
+   -74.875,
+   -39.5
+  ],
+  "max": [
+   29.375,
+   17.8125,
+   28.9375
+  ],
+  "verts": 98,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_3.SM_Tree_DouglasFir_SnowDead_A_Tubes_3",
+  "min": [
+   -617.4375,
+   -463.9375,
+   -54.5625
+  ],
+  "max": [
+   179.625,
+   277.0,
+   1241.6875
+  ],
+  "verts": 35694,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_4.SM_Tree_DouglasFir_SnowDead_A_Tubes_4",
+  "min": [
+   -189.125,
+   -33.625,
+   -62.625
+  ],
+  "max": [
+   41.0625,
+   273.8125,
+   389.25
+  ],
+  "verts": 7957,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_5.SM_Tree_DouglasFir_SnowDead_A_Tubes_5",
+  "min": [
+   -26.125,
+   -168.375,
+   -58.0625
+  ],
+  "max": [
+   254.25,
+   74.5,
+   351.25
+  ],
+  "verts": 8229,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_6.SM_Tree_DouglasFir_SnowDead_A_Tubes_6",
+  "min": [
+   -23.4375,
+   -340.1875,
+   -71.75
+  ],
+  "max": [
+   1020.625,
+   433.125,
+   1004.375
+  ],
+  "verts": 36823,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_7.SM_Tree_DouglasFir_SnowDead_A_Tubes_7",
+  "min": [
+   -483.875,
+   -26.4375,
+   -70.375
+  ],
+  "max": [
+   229.1875,
+   940.5,
+   955.875
+  ],
+  "verts": 32292,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_8.SM_Tree_DouglasFir_SnowDead_A_Tubes_8",
+  "min": [
+   -632.8125,
+   -617.3125,
+   -76.6875
+  ],
+  "max": [
+   33.6875,
+   35.25,
+   808.25
+  ],
+  "verts": 21227,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_A/Meshes/SM_Tree_DouglasFir_SnowDead_A_Tubes_9.SM_Tree_DouglasFir_SnowDead_A_Tubes_9",
+  "min": [
+   -186.0,
+   -648.0625,
+   -94.125
+  ],
+  "max": [
+   102.25,
+   21.6875,
+   476.625
+  ],
+  "verts": 16900,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Trunk_Tube.SM_Tree_DouglasFir_SnowDead_B_Trunk_Tube",
+  "min": [
+   -301.3125,
+   -289.0,
+   -569.875
+  ],
+  "max": [
+   275.0,
+   300.0,
+   3280.1875
+  ],
+  "verts": 201920,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes.SM_Tree_DouglasFir_SnowDead_B_Tubes",
+  "min": [
+   -375.25,
+   -1316.625,
+   -11.125
+  ],
+  "max": [
+   518.4375,
+   12.0625,
+   1370.6875
+  ],
+  "verts": 21722,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_10.SM_Tree_DouglasFir_SnowDead_B_Tubes_10",
+  "min": [
+   -473.9375,
+   -477.6875,
+   -4.875
+  ],
+  "max": [
+   399.625,
+   100.3125,
+   1186.125
+  ],
+  "verts": 14056,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_11.SM_Tree_DouglasFir_SnowDead_B_Tubes_11",
+  "min": [
+   -56.0625,
+   -57.125,
+   -99.9375
+  ],
+  "max": [
+   53.75,
+   64.6875,
+   41.0625
+  ],
+  "verts": 796,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_12.SM_Tree_DouglasFir_SnowDead_B_Tubes_12",
+  "min": [
+   -66.0,
+   -60.4375,
+   -109.8125
+  ],
+  "max": [
+   58.9375,
+   59.3125,
+   44.1875
+  ],
+  "verts": 796,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_2.SM_Tree_DouglasFir_SnowDead_B_Tubes_2",
+  "min": [
+   -887.625,
+   -13.9375,
+   -5.5
+  ],
+  "max": [
+   635.8125,
+   1265.6875,
+   1684.3125
+  ],
+  "verts": 19318,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_3.SM_Tree_DouglasFir_SnowDead_B_Tubes_3",
+  "min": [
+   -1167.9375,
+   -566.5,
+   -15.3125
+  ],
+  "max": [
+   441.1875,
+   601.3125,
+   1308.5
+  ],
+  "verts": 17961,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_4.SM_Tree_DouglasFir_SnowDead_B_Tubes_4",
+  "min": [
+   -1330.5,
+   -1211.75,
+   -241.125
+  ],
+  "max": [
+   35.0,
+   37.75,
+   1007.8125
+  ],
+  "verts": 10646,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_5.SM_Tree_DouglasFir_SnowDead_B_Tubes_5",
+  "min": [
+   -761.9375,
+   -281.1875,
+   -8.75
+  ],
+  "max": [
+   781.6875,
+   1229.3125,
+   1554.5
+  ],
+  "verts": 15298,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_6.SM_Tree_DouglasFir_SnowDead_B_Tubes_6",
+  "min": [
+   -948.8125,
+   -1776.625,
+   -20.625
+  ],
+  "max": [
+   1080.0,
+   714.25,
+   3046.1875
+  ],
+  "verts": 19069,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_7.SM_Tree_DouglasFir_SnowDead_B_Tubes_7",
+  "min": [
+   -220.375,
+   -533.3125,
+   -19.625
+  ],
+  "max": [
+   1389.8125,
+   871.4375,
+   1485.8125
+  ],
+  "verts": 12930,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_8.SM_Tree_DouglasFir_SnowDead_B_Tubes_8",
+  "min": [
+   -773.1875,
+   -221.5,
+   -28.0
+  ],
+  "max": [
+   499.8125,
+   1110.6875,
+   1574.9375
+  ],
+  "verts": 11123,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_B/Meshes/SM_Tree_DouglasFir_SnowDead_B_Tubes_9.SM_Tree_DouglasFir_SnowDead_B_Tubes_9",
+  "min": [
+   -968.875,
+   -1256.1875,
+   -11.1875
+  ],
+  "max": [
+   580.25,
+   48.6875,
+   1643.125
+  ],
+  "verts": 8925,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Trunk_Tube.SM_Tree_DouglasFir_SnowDead_C_Trunk_Tube",
+  "min": [
+   -155.375,
+   -163.4375,
+   -246.4375
+  ],
+  "max": [
+   204.4375,
+   188.9375,
+   1736.375
+  ],
+  "verts": 200034,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes.SM_Tree_DouglasFir_SnowDead_C_Tubes",
+  "min": [
+   -560.6875,
+   -513.9375,
+   -52.875
+  ],
+  "max": [
+   21.875,
+   24.75,
+   598.75
+  ],
+  "verts": 13869,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_10.SM_Tree_DouglasFir_SnowDead_C_Tubes_10",
+  "min": [
+   -351.75,
+   -19.0625,
+   -61.3125
+  ],
+  "max": [
+   213.125,
+   371.75,
+   608.6875
+  ],
+  "verts": 10122,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_11.SM_Tree_DouglasFir_SnowDead_C_Tubes_11",
+  "min": [
+   -413.125,
+   -37.375,
+   -65.1875
+  ],
+  "max": [
+   27.625,
+   405.25,
+   684.0625
+  ],
+  "verts": 8272,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_12.SM_Tree_DouglasFir_SnowDead_C_Tubes_12",
+  "min": [
+   -30.4375,
+   -573.75,
+   -47.8125
+  ],
+  "max": [
+   409.1875,
+   53.1875,
+   702.3125
+  ],
+  "verts": 12369,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_13.SM_Tree_DouglasFir_SnowDead_C_Tubes_13",
+  "min": [
+   -39.625,
+   -159.3125,
+   -58.625
+  ],
+  "max": [
+   614.375,
+   344.1875,
+   494.25
+  ],
+  "verts": 12045,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_14.SM_Tree_DouglasFir_SnowDead_C_Tubes_14",
+  "min": [
+   -103.9375,
+   -535.1875,
+   -66.0
+  ],
+  "max": [
+   234.5625,
+   146.0,
+   403.4375
+  ],
+  "verts": 7569,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_15.SM_Tree_DouglasFir_SnowDead_C_Tubes_15",
+  "min": [
+   -511.1875,
+   -546.9375,
+   -66.5625
+  ],
+  "max": [
+   28.9375,
+   30.625,
+   606.375
+  ],
+  "verts": 10864,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_2.SM_Tree_DouglasFir_SnowDead_C_Tubes_2",
+  "min": [
+   -27.125,
+   -30.4375,
+   -38.0625
+  ],
+  "max": [
+   31.125,
+   27.125,
+   25.0625
+  ],
+  "verts": 2795,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_3.SM_Tree_DouglasFir_SnowDead_C_Tubes_3",
+  "min": [
+   -20.25,
+   -17.6875,
+   -41.875
+  ],
+  "max": [
+   46.375,
+   98.4375,
+   86.9375
+  ],
+  "verts": 147,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_4.SM_Tree_DouglasFir_SnowDead_C_Tubes_4",
+  "min": [
+   -38.5,
+   -20.6875,
+   -50.75
+  ],
+  "max": [
+   36.9375,
+   30.8125,
+   29.6875
+  ],
+  "verts": 2795,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_5.SM_Tree_DouglasFir_SnowDead_C_Tubes_5",
+  "min": [
+   -11.1875,
+   -14.1875,
+   -29.25
+  ],
+  "max": [
+   73.875,
+   38.5625,
+   29.75
+  ],
+  "verts": 129,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_6.SM_Tree_DouglasFir_SnowDead_C_Tubes_6",
+  "min": [
+   -64.75,
+   -12.625,
+   -33.9375
+  ],
+  "max": [
+   13.5,
+   39.125,
+   31.625
+  ],
+  "verts": 117,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_7.SM_Tree_DouglasFir_SnowDead_C_Tubes_7",
+  "min": [
+   -30.75,
+   -27.5625,
+   -51.0
+  ],
+  "max": [
+   22.0625,
+   30.75,
+   31.9375
+  ],
+  "verts": 81,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_8.SM_Tree_DouglasFir_SnowDead_C_Tubes_8",
+  "min": [
+   -21.125,
+   -23.75,
+   -42.9375
+  ],
+  "max": [
+   46.4375,
+   17.25,
+   52.0
+  ],
+  "verts": 99,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Env/Bio/Tree/DouglasFir/Tree_DouglasFir_SnowDead_C/Meshes/SM_Tree_DouglasFir_SnowDead_C_Tubes_9.SM_Tree_DouglasFir_SnowDead_C_Tubes_9",
+  "min": [
+   -30.625,
+   -24.375,
+   -44.0625
+  ],
+  "max": [
+   25.5,
+   62.875,
+   112.75
+  ],
+  "verts": 147,
+  "skeletal": false
+ },
+ {
+  "path": "/Game/Levels/Halo1/Solo/B40/PCG/Assemblies/DouglasFir_SnowDead/SM_PineBranchSnow_Large.SM_PineBranchSnow_Large",
+  "min": [
+   -53.5,
+   -81.4375,
+   -44.5625
+  ],
+  "max": [
+   53.5,
+   81.4375,
+   44.5625
+  ],
+  "verts": 8322,
+  "skeletal": false
+ }
+]

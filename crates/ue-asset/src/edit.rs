@@ -522,6 +522,12 @@ fn parse_value(
                 Val::Native(list(4)?.iter().flat_map(|v| (*v as f32).to_le_bytes()).collect())
             }
             "Color" => Val::Native(list(4)?.iter().map(|v| *v as u8).collect()),
+            // Min x,y,z then max x,y,z; written valid (the trailing IsValid byte).
+            "Box" => {
+                let mut b: Vec<u8> = list(6)?.iter().flat_map(|v| v.to_le_bytes()).collect();
+                b.push(1);
+                Val::Native(b)
+            }
             "Guid" => {
                 let hex: String = t.chars().filter(|c| c.is_ascii_hexdigit()).collect();
                 if hex.len() != 32 {

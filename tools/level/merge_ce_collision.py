@@ -202,6 +202,13 @@ def split_blended_ground(staging, materials, surfaces, edges, vertices):
 
 def main():
     staging, out = sys.argv[1:3]
+    # --skip-entries / --extra (tools/level/b30_collision.py's output): the
+    # placements whose CE collision an upgraded map replaced, and the
+    # triangles (CE world units) of what replaced them.
+    extra = None
+    if "--extra" in sys.argv:
+        extra = json.load(open(sys.argv[sys.argv.index("--extra") + 1], encoding="utf-8"))
+    skip = set(extra.get("skip_entries", [])) if extra else set()
     src_json = os.path.join(staging, "bsp", "collision_0.json")
     meta = json.load(open(src_json, encoding="utf-8"))
     order = meta.get("array_order") or ORDER_DEFAULT
@@ -226,8 +233,8 @@ def main():
     materials = meta.setdefault("materials", [])
     split = split_blended_ground(staging, materials, surfaces, edges, vertices)
     cache, added, objects = {}, 0, 0
-    for e in placement["entries"]:
-        if e.get("kind") != "scenery" or not e.get("collision"):
+    for n, e in enumerate(placement["entries"]):
+        if e.get("kind") != "scenery" or not e.get("collision") or n in skip:
             continue
         path = os.path.join(staging, e["collision"])
         if path not in cache:
@@ -262,6 +269,33 @@ def main():
             added += 1
         objects += 1
 
+    def add_triangle(tri, material):
+        a, b, c = tri
+        u = [b[k] - a[k] for k in range(3)]
+        v = [c[k] - a[k] for k in range(3)]
+        n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+        length = math.sqrt(sum(x * x for x in n))
+        if length < 1e-9:
+            return False
+        n = [x / length for x in n]
+        plane = len(planes)
+        planes.append((n[0], n[1], n[2], sum(n[k] * a[k] for k in range(3))))
+        surface = len(surfaces)
+        v0, e0 = len(vertices), len(edges)
+        for j in range(3):
+            vertices.append((tri[j][0], tri[j][1], tri[j][2], e0 + j))
+        for j in range(3):
+            edges.append((v0 + j, v0 + (j + 1) % 3, e0 + (j + 1) % 3, -1, surface, -1))
+        surfaces.append((plane, e0, TWO_SIDED, -1, add_material(materials, material, "scenery " + material)))
+        return True
+
+    extra_added = 0
+    if extra:
+        for tri, material in zip(extra["triangles"], extra["materials"]):
+            extra_added += add_triangle(tri, material)
+        added += extra_added
+        objects += int(extra.get("objects", 0))
+
     blob = bytearray()
     for name in order:
         fmt = FORMATS[name]
@@ -277,7 +311,8 @@ def main():
     meta["scenery_surfaces"] = {"objects": objects, "surfaces": added,
                                 "note": "standalone surfaces after the BSP's own; mjolnir level collision links them into the tree"}
     json.dump(meta, open(out, "w", encoding="utf-8"), indent=1)
-    print(f"{objects} scenery placement(s): {added} collision surface(s) added -> {out}")
+    print(f"{objects} scenery placement(s), {len(skip)} replaced: {added} collision surface(s) added "
+          f"({extra_added} for the replacements) -> {out}")
     for name, (grass, total) in split.items():
         print(f"  {name}: {grass} of {total} surface(s) are grass")
 

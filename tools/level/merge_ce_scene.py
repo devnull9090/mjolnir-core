@@ -26,7 +26,7 @@ with the material of its CE shader:
 
 Writes a self-contained glTF (one .bin beside it) with the BSP's attributes
 on every primitive: POSITION, NORMAL, TANGENT, TEXCOORD_0, TEXCOORD_1 and
-_INCIDENT. With --translucent, the transparent (chicago, water) shaders' sections go
+_INCIDENT. With --translucent, the transparent (chicago, water, glass, plasma) shaders' sections go
 to a second glTF: Unreal only puts a mesh in its translucency pass when the
 mesh's own material slots ask for it, and a rewritten mesh keeps its donor's
 single slot.
@@ -41,7 +41,9 @@ import sys
 import numpy as np
 
 WU_TO_M = 3.048
-TRANSPARENT = ("schi", "scex", "swat", "sgla")
+# Plasma (spla) too: on the opaque mesh M_CE_Plasma drew nothing, and the
+# fallback before it a white rod (Yoyorast's energy beams, 2026-10-13).
+TRANSPARENT = ("schi", "scex", "swat", "sgla", "spla")
 # The placed objects' lighting, one texel block each (see object_lighting).
 OBJECT_LIGHTING_PAGE = "object_lighting.png"
 LUMA = np.array([0.2126, 0.7152, 0.0722])

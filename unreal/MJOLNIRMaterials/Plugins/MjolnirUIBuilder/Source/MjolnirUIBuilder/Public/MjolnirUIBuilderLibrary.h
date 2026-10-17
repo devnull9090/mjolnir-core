@@ -11,6 +11,7 @@
 #include "MjolnirUIBuilderLibrary.generated.h"
 
 class UMaterial;
+class UStaticMesh;
 class UMaterialExpression;
 class UWidget;
 class UUserWidget;
@@ -60,4 +61,65 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
 	static bool ConnectWorldPositionOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
+	 * Connect From's output OutputName ("" for the first) to Material's Pixel
+	 * Depth Offset, which Python's MaterialProperty enum leaves out too: the
+	 * B30 ground masters' parallax sand, drawn at the depth it shows.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
+	 * Connect From's output OutputName ("" for the first) to Material's
+	 * Displacement (Nanite tessellation's height, 0..1 about the material's
+	 * DisplacementScaling centre), which Python's MaterialProperty lacks too.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool ConnectDisplacement(UMaterial* Material, UMaterialExpression* From, const FString& OutputName);
+
+	/**
+	 * Spawn a Landscape in World from a heightmap, as the editor's New
+	 * Landscape tool does: ComponentsX x ComponentsY components of
+	 * SectionsPerComponent^2 sections of QuadsPerSection quads, Heights the
+	 * (ComponentsX * quads + 1) x (ComponentsY * quads + 1) samples, row by row
+	 * (0..65535, 32768 the actor's z), Location its corner and Scale its
+	 * spacing (cm a quad; z 100 spans -256..256 m). No edit layers, no paint
+	 * layers. Holes, when given (one byte a sample, 255 a hole), become the
+	 * visibility layer: the material cuts them with a Landscape Visibility
+	 * Mask (build_ce_materials.py M_CE_Landscape).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Landscape")
+	static class ALandscape* CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
+		int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
+		UMaterialInterface* Material, const TArray<uint8>& Holes);
+
+	/**
+	 * Build Mesh's one LOD from arrays, as an importer would: Positions in cm
+	 * and Normals one a position (every triangle at a position shares its
+	 * normal, so a welded surface displaces without cracks), Indices three a
+	 * triangle into them, UV0 and UV1 one a corner (Indices' order),
+	 * Sections the material slot of each triangle and SlotNames the slots.
+	 * Colors, when given, one a position: the vertex colour (a material's
+	 * per-vertex weight). ShadeNormals, when given, one a corner: a second
+	 * normal for the material, in UV2 (x, y) and UV3 (z) (the vertex normal
+	 * stays the welded one, which Nanite displaces along).
+	 * Normals are kept, tangents built, no lightmap UVs generated (UV1 is
+	 * the caller's). The caller sets Nanite and saves.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static bool BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions, const TArray<FVector>& Normals,
+		const TArray<int32>& Indices, const TArray<FVector2D>& UV0, const TArray<FVector2D>& UV1,
+		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FLinearColor>& Colors,
+		const TArray<FVector>& ShadeNormals);
+
+	/**
+	 * Write every loaded class and struct's unversioned property schema, and
+	 * every enum, to Path as a .usmap (version 3, uncompressed): the stock
+	 * engine's layout, as the cook writes it (editor-only properties left
+	 * out). Against the game's own .usmap it lets a stock-cooked package's
+	 * properties be re-encoded in 343's layout (ue-asset's retarget).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Cook")
+	static bool WriteUsmap(const FString& Path);
 };

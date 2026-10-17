@@ -326,6 +326,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       // uploader must all be the same account (docs/mod_signing_design.md).
       const sig = await checkArchiveSignature(
         scan.files,
+        scan.hashes,
         release.mod_slug as string,
         release.version as string,
       );

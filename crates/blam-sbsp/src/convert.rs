@@ -201,7 +201,7 @@ pub fn convert(
     // it under the donor's own BSP index.
     let (file, kd_roots) = add_to_kd_roots(&file, opts.host.instance, opts.bsp_index)?;
     // What Havok movement actually stands on: the BSP's one static body.
-    let (file, structure) = rebuild_structure_mopp(&file, &[opts.host.instance], &parked)?;
+    let (file, structure) = rebuild_structure_mopp(&file, &[opts.host.instance], &parked, &[])?;
     check_walks(&file)?;
     Ok((
         file,
@@ -1223,11 +1223,13 @@ fn surface_box(c: &Collision, s: usize, fr: Option<&Frame>) -> Option<([f32; 3],
 /// Kept: every shell key and every key of an instance that is neither the
 /// host nor parked, each boxed from its geometry as it is now. Dropped: keys
 /// of parked instances and the host's old keys. Added: one surface key per
-/// host surface (one instance key past 8,191 surfaces).
+/// host surface (one instance key past 8,191 surfaces, or for a host in
+/// `whole`).
 pub fn rebuild_structure_mopp(
     file: &[u8],
     hosts: &[usize],
     parked: &[usize],
+    whole: &[usize],
 ) -> Result<(Vec<u8>, StructureMopp), Error> {
     const BLOCK: &str = "structure_physics.mopp code block";
     let mut report = StructureMopp::default();
@@ -1303,7 +1305,7 @@ pub fn rebuild_structure_mopp(
             let fr = frame_of(e)
                 .ok_or_else(|| Error::Other(format!("host instance {host} has no definition")))?;
             let c = collision_at(layout, file, root, &transplant::definition(fr.3))?;
-            if c.surfaces.len() <= MAX_SURFACE_KEYS {
+            if c.surfaces.len() <= MAX_SURFACE_KEYS && !whole.contains(&host) {
                 for s in 0..c.surfaces.len() {
                     if let Some((lo, hi)) = surface_box(&c, s, Some(&fr)) {
                         prims.push((surface_key(s as u32, host as u32), lo, hi));
@@ -1431,7 +1433,12 @@ pub fn convert_own(
     let (file, group) = compile_group_mopps(&file, &[HOST.group], true)?;
     let mut hosts = vec![HOST.instance];
     hosts.extend(&added.instances);
-    let (file, structure) = rebuild_structure_mopp(&file, &hosts, &[])?;
+    // Each piece as one instance key, which Havok descends through the
+    // piece's own MOPP, fitted to the piece. As surface keys they share the
+    // structure tree's quantisation, about 10 wu a step on Death Island, so
+    // a pawn's query there came back with 10,000-20,000 candidates, and
+    // players fell through the terrain (2026-10-12).
+    let (file, structure) = rebuild_structure_mopp(&file, &hosts, &[], &added.instances)?;
     report.sphere_center = center;
     report.sphere_radius = radius;
     report.group_code = group.groups.first().copied().unwrap_or(0);

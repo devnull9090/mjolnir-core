@@ -48,6 +48,60 @@ namespace
 		{ TEXT("Private/SceneData.ush"),
 		  TEXT("LoadPrimitivePrimitiveSceneDataElement(PrimitiveIndex,  34 + DataIndex)"),
 		  TEXT("LoadPrimitivePrimitiveSceneDataElement(PrimitiveIndex,  35 + DataIndex) /* MJOLNIR: fork */") },
+		// No shader change: MjolnirForkLayouts gives the Nanite raster
+		// shaders' FRasterizePassParameters the fork's offsets, and a
+		// changed source hash keeps the shader cache from handing back
+		// raster shaders bound at the stock ones.
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("#define SHADOW_DEPTH_SHADER DEPTH_ONLY"),
+		  TEXT("#define SHADOW_DEPTH_SHADER DEPTH_ONLY // MJOLNIR: bound at the fork's FRasterizePassParameters offsets") },
+		// The fork's HW raster stages hand the whole clip-space position from
+		// the vertex or mesh shader to the pixel shader in TEXCOORD0 (stock: a
+		// float2 ClipZW, depth-only permutations alone), and its pixel shader
+		// rebuilds SV_Position from it and ViewSizeAndOffset. A material of ours
+		// with world position offset or tessellation pairs our mesh shader with
+		// the fork's own pixel shader, and D3D12 refused the pipeline (linkage
+		// error, TEXCOORD0 missing), a fatal error (2026-10-12; read from the
+		// game's shader library with tools/ue/shader_archive).
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("#include \"NaniteRasterizationCommon.ush\""),
+		  TEXT("#include \"NaniteRasterizationCommon.ush\"\nuint4 ViewSizeAndOffset; // MJOLNIR: the fork's FRasterizePassParameters member") },
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("#if NANITE_HW_RASTER_INTERPOLATE_DEPTH\n\tfloat2 ClipZW\t\t\t\t\t\t\t\t: TEXCOORD0;\n#endif\n\n#if !NANITE_MESH_SHADER\n\tPrimitiveAttributesPacked PrimitivePacked;\n#endif"),
+		  // SV_Position stays where stock has it, last: the fork's
+		  // vertex-shader-path pixel shader reads TEXCOORD0, TEXCOORD1,
+		  // SV_Position in that order (moving SV_Position up broke that link,
+		  // #660), and on the mesh-shader path TEXCOORD1 is per-primitive and
+		  // packs after the vertex outputs either way.
+		  TEXT("\tfloat4 ClipPos : TEXCOORD0; // MJOLNIR: the fork's, every permutation\n\n")
+		  TEXT("#if !NANITE_MESH_SHADER\n\tPrimitiveAttributesPacked PrimitivePacked;\n#endif") },
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("#if NANITE_HW_RASTER_INTERPOLATE_DEPTH\n\tOut.ClipZW = PointClip.zw;\n#endif"),
+		  TEXT("\tOut.ClipPos = PointClip; // MJOLNIR: the fork's") },
+		{ TEXT("Private/Nanite/NaniteRasterizer.usf"),
+		  TEXT("\tfloat4 SvPosition = float4(In.Position.xy, In.ClipZW.x / In.ClipZW.y, In.ClipZW.y);\n#else\n\tfloat4 SvPosition = In.Position;\n#endif"),
+		  TEXT("#endif\n\t// MJOLNIR: the fork's pixel position, from the clip position and the view rect\n")
+		  TEXT("\tfloat2 Ndc = In.ClipPos.xy / In.ClipPos.w;\n")
+		  TEXT("\tfloat2 ViewSize = (float2)ViewSizeAndOffset.xy;\n")
+		  TEXT("\tfloat4 SvPosition = float4((Ndc.x * ViewSize.x + ViewSize.x) * 0.5 + ViewSizeAndOffset.z,\n")
+		  TEXT("\t\t(ViewSize.y - Ndc.y * ViewSize.y) * 0.5 + ViewSizeAndOffset.w, In.ClipPos.z / In.ClipPos.w, In.ClipPos.w);") },
+		// The fork's per-view Nanite data (StructuredBuffer<FPackedNaniteView>)
+		// is 992 bytes, not 896: an eleventh matrix after ViewToTranslatedWorld,
+		// LODScales a float4 followed by a uint2, and a uint4 after Padding1.
+		// Read with the stock layout, our programmable raster shaders took the
+		// fork's TranslatedWorldToView for TranslatedWorldToClip and a matrix
+		// row for ViewRect, and drew nothing (offsets read from the game's
+		// shader library, tools/ue/shader_archive/dxil_reads.py). Existing
+		// fields keep their names, so nothing that reads them changes.
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tfloat4x4\tViewToTranslatedWorld;\n"),
+		  TEXT("\tfloat4x4\tViewToTranslatedWorld;\n\tfloat4x4\tMjolnirForkMatrix; // MJOLNIR: the fork's eleventh matrix (992-byte view)\n") },
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tfloat2\t\tLODScales;\n"),
+		  TEXT("\tfloat2\t\tLODScales;\n\tfloat2\t\tMjolnirForkLODScalesZW; // MJOLNIR: the fork's LODScales is a float4\n\tuint2\t\tMjolnirForkUint2; // MJOLNIR: the fork's\n") },
+		{ TEXT("Private/Nanite/NanitePackedNaniteView.ush"),
+		  TEXT("\tuint\t\tPadding1;\n"),
+		  TEXT("\tuint\t\tPadding1;\n\tuint4\t\tMjolnirForkTail; // MJOLNIR: the fork's\n") },
 	};
 
 	const TCHAR* GDirectories[] = { TEXT("Shared"), TEXT("Private") };
@@ -101,23 +155,40 @@ public:
 				return;
 			}
 		}
+		// Edits to one file apply in turn, each to the text the last left.
+		TMap<FString, FString> Edited;
 		for (const FEdit& Edit : GEdits)
 		{
-			const FString Path = Root / Edit.File;
-			FString Text;
-			FFileHelper::LoadFileToString(Text, *(Engine / Edit.File));
-			const int32 First = Text.Find(Edit.Stock, ESearchCase::CaseSensitive);
-			const int32 Last = Text.Find(Edit.Stock, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+			FString* Text = Edited.Find(Edit.File);
+			if (!Text)
+			{
+				Text = &Edited.Add(Edit.File);
+				FFileHelper::LoadFileToString(*Text, *(Engine / Edit.File));
+			}
+			// Multi-line edits are written with \n; the engine's shaders use CRLF.
+			FString Stock = Edit.Stock;
+			FString Fork = Edit.Fork;
+			if (Text->Contains(TEXT("\r\n")))
+			{
+				Stock.ReplaceInline(TEXT("\n"), TEXT("\r\n"), ESearchCase::CaseSensitive);
+				Fork.ReplaceInline(TEXT("\n"), TEXT("\r\n"), ESearchCase::CaseSensitive);
+			}
+			const int32 First = Text->Find(Stock, ESearchCase::CaseSensitive);
+			const int32 Last = Text->Find(Stock, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
 			if (First == INDEX_NONE || First != Last)
 			{
 				UE_LOG(LogMjolnirForkShaders, Error, TEXT("fork shaders: %s does not hold \"%s\" exactly once (engine changed?); shaders stay stock"), Edit.File, Edit.Stock);
 				return;
 			}
-			Text.ReplaceInline(Edit.Stock, Edit.Fork, ESearchCase::CaseSensitive);
+			Text->ReplaceInline(*Stock, *Fork, ESearchCase::CaseSensitive);
+		}
+		for (const auto& Pair : Edited)
+		{
+			const FString Path = Root / Pair.Key;
 			FString Existing;
-			if (IFileManager::Get().FileSize(*Path) < 0 || !FFileHelper::LoadFileToString(Existing, *Path) || Existing != Text)
+			if (IFileManager::Get().FileSize(*Path) < 0 || !FFileHelper::LoadFileToString(Existing, *Path) || Existing != Pair.Value)
 			{
-				FFileHelper::SaveStringToFile(Text, *Path);
+				FFileHelper::SaveStringToFile(Pair.Value, *Path);
 			}
 		}
 		for (const TCHAR* Dir : GDirectories)

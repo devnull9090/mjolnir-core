@@ -518,6 +518,15 @@ fn version_key(v: &str) -> (Vec<u64>, bool, String) {
     (parts, tag.is_empty(), tag)
 }
 
+/// The lowest version a dependency range accepts (`^1.8.0`, `~1.8`,
+/// `>=1.8.0`, `1.8.0`); None for `*` or anything unreadable, which any
+/// installed version satisfies.
+fn range_floor(range: &str) -> Option<String> {
+    let v = range.trim().trim_start_matches(['^', '~', '=', '>', ' ']);
+    let core = v.split_whitespace().next()?;
+    (!core.is_empty() && core.chars().next()?.is_ascii_digit()).then(|| core.to_string())
+}
+
 /// True when `candidate` is strictly newer than `installed`.
 fn is_newer(candidate: &str, installed: &str) -> bool {
     version_key(candidate) > version_key(installed)
@@ -602,6 +611,24 @@ struct MapData {
     code: String,
     level: Vec<u8>,
     registration: Vec<u8>,
+    /// Every other file under `map/` (a remastered map's `foliage.bin`, its
+    /// `decals/*.png`), by its path under `map/`: the level file names them
+    /// relative to itself, so they go beside it.
+    extra: Vec<(String, Vec<u8>)>,
+}
+
+/// A path under `map/` that stays there: relative, no `..`, no drive or
+/// root, plain file-name characters.
+fn safe_map_path(rel: &str) -> bool {
+    !rel.is_empty()
+        && rel.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        })
 }
 
 fn read_map(
@@ -635,10 +662,24 @@ fn read_map(
     }
     serde_json::from_slice::<serde_json::Value>(&level)
         .map_err(|e| format!("map/level.json: {e}"))?;
+    let mut extra = Vec::new();
+    for (path, data) in members {
+        let Some(rel) = path.strip_prefix("map/") else {
+            continue;
+        };
+        if rel == "level.json" || rel == "registration.json" || rel.is_empty() || rel.ends_with('/') {
+            continue;
+        }
+        if !safe_map_path(rel) {
+            return Err(format!("The map pack's {path} is not a plain file path"));
+        }
+        extra.push((rel.to_string(), data.clone()));
+    }
     Ok(MapData {
         code,
         level,
         registration,
+        extra,
     })
 }
 
@@ -800,17 +841,34 @@ fn install_one_as(
         let Some(dep_slug) = dep["slug"].as_str() else {
             continue;
         };
-        if load_state()
-            .installed
-            .iter()
-            .any(|m| m.slug == dep_slug && cache_complete(m))
-        {
+        // Installed is not enough when the pack asks for a newer one: a
+        // remastered map needs the runtime release that carries its
+        // masters, and an older runtime left it drawing without them.
+        let floor = dep["range"].as_str().and_then(range_floor);
+        if load_state().installed.iter().any(|m| {
+            m.slug == dep_slug
+                && cache_complete(m)
+                && floor.as_deref().is_none_or(|f| version_key(&m.version) >= version_key(f))
+        }) {
             continue;
         }
         if live.is_some() {
-            return Err(format!(
-                "{name} needs {dep_slug}, which is not installed. Install it from the                  MJOLNIR launcher and restart the game."
-            ));
+            let range = dep["range"].as_str().unwrap_or("");
+            let have = load_state()
+                .installed
+                .iter()
+                .find(|m| m.slug == dep_slug)
+                .map(|m| m.version.clone());
+            return Err(match have {
+                Some(v) => format!(
+                    "{name} needs {dep_slug} {range}, and {v} is installed. Update it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+                None => format!(
+                    "{name} needs {dep_slug}, which is not installed. Install it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+            });
         }
         if depth + 1 >= MAX_DEP_DEPTH {
             return Err(format!(
@@ -861,6 +919,14 @@ fn install_one_as(
         ] {
             fs::write(dir.join(file), data).map_err(|e| e.to_string())?;
             container_hashes.insert(format!("map/{file}"), sha256_hex(data));
+        }
+        for (rel, data) in &map.extra {
+            let target = dir.join(rel);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&target, data).map_err(|e| e.to_string())?;
+            container_hashes.insert(format!("map/{rel}"), sha256_hex(data));
         }
     }
 
@@ -2633,6 +2699,30 @@ mod tests {
             "a code is never a path"
         );
         assert!(read_map(&serde_json::json!({}), &members("BGL")).is_err());
+
+        // A remastered map's other files come along, by their path under map/.
+        let mut more = members("BGL");
+        more.push(("map/foliage.bin".to_string(), b"MJF3".to_vec()));
+        more.push(("map/decals/sym_0.png".to_string(), vec![1, 2]));
+        let map = read_map(&manifest, &more).expect("extra files read");
+        let names: Vec<&str> = map.extra.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, ["foliage.bin", "decals/sym_0.png"]);
+        for bad in ["map/../evil.dll", "map/decals/../../x", "map/C:/x", "map/a\\b"] {
+            let mut evil = members("BGL");
+            evil.push((bad.to_string(), vec![0]));
+            assert!(read_map(&manifest, &evil).is_err(), "{bad} must not install");
+        }
+    }
+
+    #[test]
+    fn a_dependency_range_has_a_floor() {
+        assert_eq!(range_floor("^1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor(">=1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor("~1.8").as_deref(), Some("1.8"));
+        assert_eq!(range_floor("1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor("*"), None);
+        assert!(version_key("1.7.0") < version_key("1.8.0"));
+        assert!(version_key("1.10.0") >= version_key("1.8.0"));
     }
 
     #[test]
