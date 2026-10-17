@@ -4765,8 +4765,13 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
-    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
-    local c = kml:GetVectorParameterValue(world, findObject(Footprints.DEFORM_MPC), FName("DeformationCenterWP"))
+    -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
+    -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
+    -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).
+    if not (d.mpc and d.mpc:IsValid()) then d.mpc = findObject(Footprints.DEFORM_MPC) end
+    if not (d.kml and d.kml:IsValid()) then d.kml = findObject("/Script/Engine.Default__KismetMaterialLibrary") end
+    if not (d.mpc and d.kml) then return true end
+    local c = d.kml:GetVectorParameterValue(world, d.mpc, FName("DeformationCenterWP"))
     if c.R ~= d.cx or c.G ~= d.cy then Footprints.deformRect(c.R, c.G) end
     return true
 end
