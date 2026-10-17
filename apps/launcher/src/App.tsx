@@ -8,6 +8,7 @@ import Library from "./components/Library";
 import Header from "./components/Header";
 import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
 import SignInBanner from "./components/SignInBanner";
+import CrashBanner from "./components/CrashBanner";
 import Settings from "./components/Settings";
 import Tools from "./components/Tools";
 import Multiplayer from "./components/Multiplayer";
@@ -155,6 +156,7 @@ function AppBody({
       <div className="flex flex-col flex-1 overflow-hidden">
         <UpdaterBanner updater={updater} onOpenUpdates={() => goTo("updates")} />
         <SignInBanner />
+        <CrashBanner />
         <Header />
         <main className="flex-1 overflow-y-auto p-6">
           {openProfile ? (

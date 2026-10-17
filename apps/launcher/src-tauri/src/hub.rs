@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// The hub API. Override with MJOLNIR_HUB_URL for local development.
-fn hub_api() -> String {
+pub(crate) fn hub_api() -> String {
     std::env::var("MJOLNIR_HUB_URL").unwrap_or_else(|_| "https://mjolnircore.com/api/v1".into())
 }
 
@@ -140,7 +140,7 @@ impl Default for HubState {
     }
 }
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     let mut dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push("com.devnull9090.mjolnir-launcher");
     dir
@@ -168,6 +168,42 @@ fn save_state(state: &HubState) -> Result<(), String> {
         serde_json::to_string_pretty(state).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
+}
+
+/// The installed map pack's name for a scenario code, for naming the map a
+/// crash happened on.
+pub(crate) fn map_name(code: &str) -> Option<String> {
+    load_state()
+        .installed
+        .into_iter()
+        .find(|m| m.map_code.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(code)))
+        .map(|m| m.name)
+}
+
+/// What is installed, for a crash report: each hub mod at its version and
+/// whether the active profile enables it, and each code mod's version.
+pub(crate) fn installed_summary() -> serde_json::Value {
+    let state = load_state();
+    let profile = state.profiles.iter().find(|p| p.name == state.active);
+    let enabled = |slug: &str| profile.is_some_and(|p| p.entries.iter().any(|e| e.slug == slug && e.enabled));
+    let hub_mods: Vec<serde_json::Value> = state
+        .installed
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "slug": m.slug,
+                "version": m.version,
+                "release_id": m.release_id,
+                "enabled": enabled(&m.slug),
+                "map_code": m.map_code,
+            })
+        })
+        .collect();
+    let code_mods: std::collections::BTreeMap<String, String> = load_installed_versions()
+        .into_iter()
+        .map(|(id, record)| (id, record.version))
+        .collect();
+    serde_json::json!({ "hub_mods": hub_mods, "code_mods": code_mods })
 }
 
 fn paks_dir() -> Result<PathBuf, String> {
@@ -1685,6 +1721,13 @@ fn pending_device() -> &'static Mutex<Option<String>> {
 /// Who this launcher is signed in as, without ever handing out the key.
 pub fn auth_status() -> Option<HubUser> {
     load_auth().map(|a| a.user)
+}
+
+/// The paired key, for the crash report upload (crash.rs), which makes its
+/// own requests: `api` sends JSON, and a report is a zip. Still never handed
+/// to the webview.
+pub(crate) fn auth_key() -> Option<String> {
+    load_auth().map(|a| a.key)
 }
 
 /// Begin pairing: returns the code to show and the page to open.

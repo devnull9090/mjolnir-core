@@ -20,6 +20,7 @@ import { useHub } from "../components/HubKit";
 import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
 import { PlayerReports } from "./PlayerReports";
+import { Crashes } from "./Crashes";
 
 export default function ModerationPage() {
   const { client, user, ready, signIn } = useHub();
@@ -404,6 +405,9 @@ export default function ModerationPage() {
                 )}
               </section>
             )}
+
+            {/* ── Crash reports from the launcher (admins) ── */}
+            {isAdmin && <Crashes client={client} onError={setBanner} />}
           </>
         )}
       </main>
