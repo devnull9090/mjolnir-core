@@ -8,7 +8,8 @@ For each map in tools/level/ce_upgrade_maps.json, a staging folder
 
   - from the installed hub release (the launcher's cache, by hub_state.json):
     the cooked textures (pakchunk985-MJOLNIRCOOK-<CODE>_P), the scenery
-    meshes (986) unless the upgrade built its own, and registration.json;
+    meshes (986) unless the upgrade built its own, registration.json, and
+    for an indoor map (no landscape) its map container (997);
   - from the upgrade's work folder (upgrade_ce_map.py): the map container
     (pakchunk997-MJOLNIRMAP), the landscape world's container renamed
     pakchunk<N>-MJOLNIRLAND-<CODE>_P (`map pack` takes the map's own
@@ -69,9 +70,15 @@ def stage(code, m, work, out):
         copy_pair(m["mesh_container"], dst)
     else:
         copy_pair(os.path.join(cache, f"pakchunk986-MJOLNIRMESH-{code}_P"), dst)
-    copy_pair(os.path.join(w, "bake", f"pakchunk997-MJOLNIRMAP-{code}_P"), dst)
-    copy_pair(os.path.join(w, "bake", f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), dst,
-              f"pakchunk{m['chunk']}-MJOLNIRLAND-{code}_P")
+    if m.get("indoor"):
+        # An indoor map (upgrade_ce_map.py `indoor`: Rat Race) keeps the hub
+        # release's map container and has no landscape; only its level file
+        # changes.
+        copy_pair(os.path.join(cache, f"pakchunk997-MJOLNIRMAP-{code}_P"), dst)
+    else:
+        copy_pair(os.path.join(w, "bake", f"pakchunk997-MJOLNIRMAP-{code}_P"), dst)
+        copy_pair(os.path.join(w, "bake", f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), dst,
+                  f"pakchunk{m['chunk']}-MJOLNIRLAND-{code}_P")
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
 
     level = json.load(open(os.path.join(w, "level.json"), encoding="utf-8"))
