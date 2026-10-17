@@ -989,8 +989,13 @@ def flux_spec(code, fx, river, level):
     # No velocity on a Set source: it refills each step what its push
     # carried off, so every one became an endless spring and the river
     # flooded its whole domain in two minutes (2026-10-14).
+    # `hold`: the level sources stay. A creek that is one flat pool at CE's
+    # level (Battle Creek's) has no slope to carry the feed off: with only
+    # the outlet to drain it, the feed overfilled it over its banks and out
+    # to the domain's edge, where the water stopped in a straight line
+    # (2026-10-16).
     sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1,
-                 "prime": True} for q in levels]
+                 "prime": not fx.get("hold")} for q in levels]
     # One Set source stays, at the river's end (`outlet`, or the level point
     # furthest from the first feed): the feed never stops, and with no way
     # out the river would rise until it flooded the valley. Not in a pool
