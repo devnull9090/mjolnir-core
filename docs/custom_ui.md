@@ -37,8 +37,38 @@ headers, 2026-10-01:
   - `CommonTextBlock` (adds `TextScalingCategory`)
   - `SceneComponent` and `PrimitiveComponent`, so no components in a widget
 
+Re-checked 2026-10-17 against `defs/ue/UE-5.5-stock.usmap`, also identical:
+`Overlay`/`OverlaySlot`, `SizeBox`/`SizeBoxSlot`, `ScaleBox`, `Spacer`,
+`SlateBrush` with `SlateBrushOutlineSettings` (so rounded-box brushes cook),
+`SlateFontInfo`, `WidgetTransform`, `Texture`/`Texture2D` (so our own UI
+textures cook; the kill feed's glyphs are in chunk 984).
+
 Re-check after a game update: re-dump the `.usmap` with UE4SS and compare
 again.
+
+## The game's assets from Lua
+
+Our widgets can use the game's own pictures and fonts at runtime, without
+copying them:
+
+- A texture or material: `KismetSystemLibrary:LoadAsset_Blocking` on
+  `Conv_SoftObjPathToSoftObjRef(MakeSoftObjectPath(path))`, then
+  `Image:SetBrushFromTexture` or `SetBrushFromMaterial`. The HUD's weapon
+  silhouettes are channel-packed masks, drawn through the game's own icon
+  material: `SetBrushFromMaterial(MI_HUDCradleIcon_FragGrenade)`,
+  `GetDynamicMaterial()`, `SetTextureParameterValue("InputTexture", tex)`.
+  The image's colour multiplies the material's cyan; it cannot recolour it.
+- A font: `/Game/Fonts/Font_Oxanium` (the menus' face) and
+  `Font_NormativePro`, through `TextBlock:SetFont({ FontObject = font,
+  TypefaceFontName = FName("Bold"), Size = block.Font.Size, ... })`.
+  Oxanium has Light ... ExtraBold; Normative Pro Light, Regular, Medium,
+  Bold and their italics.
+- Keep what you find. `StaticFindObject` by path costs ~2 ms in UE4SS (19 ms
+  the first call), so a lookup per use adds up: the kill feed's first build
+  did half a dozen per line and held the game thread 50-80 ms on every kill
+  (two PCs, 2026-10-17). Keep the handle, check it with `IsValid()` before
+  each use (an object no engine object holds may be collected), and find it
+  again only when that fails.
 
 ## Building a widget
 

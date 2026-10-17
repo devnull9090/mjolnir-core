@@ -69,6 +69,39 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.25.0",
+      "tag": "mods-v0.25.0",
+      "title": "A new kill feed",
+      "date": "2026-10-17",
+      "summary": "The multiplayer kill feed shows each weapon's icon, headshots and players' avatars, with medals, score bars and a new respawn countdown.",
+      "body": "### Added\n\n- **An animated kill feed** (MJOLNIRHud 0.7.0). Each kill is a row: the\n  killer and the victim with their avatars, and between them the weapon,\n  drawn as the game's own HUD icon. Headshots, splatters, stuck grenades and\n  assassinations get their own icon. Joins, quits, kicks, falls, flag\n  captures and medals get rows too. Rows slide in, rise as new ones arrive\n  and fade out. A row that names you has a gold edge, and team kills say\n  BETRAYAL.\n- **Medals.** Double Kill through Killionaire, the killing sprees and First\n  Blood appear in the feed. Your own also come up in the middle of the\n  screen.\n- **Score bars.** The score at the top of the screen is two bars that fill\n  toward the score to win, with the round clock between them.\n- **A bigger respawn countdown.**\n- The feed, the score bars and the countdown use the game's own fonts.\n- `mjolnir_feed_demo` (console, in a match) previews the feed, medals and\n  score bars.\n\n### Fixed\n\n- **Players who joined someone else's match** saw few kills in the feed\n  and on the scoreboard. The host now sends them every kill, death, medal\n  and capture.\n- **The scoreboard's avatars** no longer cost the game time each time the\n  scoreboard redraws.\n\nNeeds CE runtime 1.9.0 for the new look. With an older runtime, the feed\nis plain text lines.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "An animated kill feed (MJOLNIRHud 0.7.0). Each kill is a row: the killer and the victim with their avatars, and between them the weapon, drawn as the game's own HUD icon. Headshots, splatters, stuck grenades and assassinations get their own icon. Joins, quits, kicks, falls, flag captures and medals get rows too. Rows slide in, rise as new ones arrive and fade out. A row that names you has a gold edge, and team kills say BETRAYAL.",
+            "Medals. Double Kill through Killionaire, the killing sprees and First Blood appear in the feed. Your own also come up in the middle of the screen.",
+            "Score bars. The score at the top of the screen is two bars that fill toward the score to win, with the round clock between them.",
+            "A bigger respawn countdown.",
+            "The feed, the score bars and the countdown use the game's own fonts.",
+            "mjolnirfeeddemo (console, in a match) previews the feed, medals and score bars."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Players who joined someone else's match saw few kills in the feed and on the scoreboard. The host now sends them every kill, death, medal and capture.",
+            "The scoreboard's avatars no longer cost the game time each time the scoreboard redraws."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.25.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.25.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.25.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.24.0",
       "tag": "mods-v0.24.0",
       "title": "Ten remastered maps",
