@@ -1002,8 +1002,13 @@ def flux_spec(code, fx, river, level):
     # short of the end: it took all the water and the river stopped there.
     # Feeds along a long river (Timberland's is 280 m) keep it running to the
     # end: from the falls alone it soaked into the bed halfway.
+    # `outlet: false`: none. With an Adjust feed (up to CE's level) nothing
+    # overfills, and a Set source drains its neighbourhood to a film: Battle
+    # Creek's south end lay dry round it (2026-10-16).
     outlet = fx.get("outlet")
-    if not outlet and levels:
+    if outlet is False:
+        outlet = None
+    elif not outlet and levels:
         first = feeds[0]["pos"] if feeds else levels[0]
         outlet = max(levels, key=lambda q: math.hypot(q[0] - first[0], q[1] - first[1]))
     if outlet:
