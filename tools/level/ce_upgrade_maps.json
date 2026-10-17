@@ -109,5 +109,15 @@
   "horizon": {"z": 8000, "reach": 5000000},
   "haze": {"color": [0.288, 0.371, 0.474], "density": 0.03, "start": 15000.0, "cutoff": 6000000},
   "hub": "ce-infinity"
+ },
+ "GPH": {
+  "conversion": "C:/haloce/ce_conversions/release11/GPH",
+  "level": "gephyrophobia.level.json", "sbsp": "gephyrophobia.sbsp",
+  "shaders": ["geph_ground_snow"],
+  "cliff_shaders": ["geph_cliff_wall__"],
+  "landscape": "LGP", "chunk": 972, "min_z": -50000,
+  "biome": "snow", "rocks": "snow", "tess": false,
+  "haze": "ce",
+  "hub": "ce-gephyrophobia"
  }
 }

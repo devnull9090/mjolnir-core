@@ -462,6 +462,8 @@ def stage_land(code, m, p):
            "--name", m["landscape"]]
     if m.get("components"):
         cmd += ["--components", str(m["components"])]
+    if m.get("min_z") is not None:
+        cmd += ["--min-z", str(m["min_z"])]
     if m.get("ground_also"):
         cmd += ["--also", ",".join(m["ground_also"])]
     if m.get("real_base"):

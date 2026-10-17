@@ -304,6 +304,11 @@ MAP_LOOKS["LSW"]["pbr"]["surfaces"].update({
     "GrassD": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
     "GrassN": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
     "GrassO": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"})
+# Gephyrophobia (LGP, 2026-10-16): Ice Fields' snow on its plateaus and the
+# chasm floor; no ice (its base map paints no pond). Without a look of its
+# own it took the beach's sand and grass.
+MAP_LOOKS["LGP"] = _copy.deepcopy(MAP_LOOKS["LIF"])
+MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
 
 
 def edge_bake(tris, centres, step, n, z_low, on, out_dir):
@@ -354,8 +359,12 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     # 0 is "none within reach" (the range starts a metre under the lowest):
     # a wall leaning back from the ground under it has no lip the masters
     # may drape from.
-    lo = float(min(top[finite].min(), bottom[fb].min())) - 100.0
-    hi = float(max(top[finite].max(), bottom[fb].max()))
+    # (Either may be empty: Gephyrophobia's rim has lips and no feet.)
+    known = np.concatenate([top[finite], bottom[fb]])
+    if known.size == 0:
+        known = np.array([0.0])
+    lo = float(known.min()) - 100.0
+    hi = float(known.max())
     t = np.where(finite, (top - lo) / max(hi - lo, 1.0), 0.0)
     b = np.where(fb, (bottom - lo) / max(hi - lo, 1.0), 0.0)
     rgba = np.stack([t, lip, foot, b], -1)
@@ -455,6 +464,7 @@ def main():
     ap.add_argument("--zone", help="a sea_zone.py output folder: the landscape covers its land and wading zone, "
                                    "and the seabed's distance to the shore is its")
     ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
+    ap.add_argument("--min-z", type=float, help="cm: ground wholly under it is left out (stays CE's mesh)")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
     ap.add_argument("--lift", type=float, default=8.0, help="cm above the ground mesh")
@@ -504,6 +514,14 @@ def main():
             blended.append(np.full(len(idx), 1.0 if (slot["material"].get("scalars") or {}).get("Type", 0) > 0.5 else 0.0))
             firsts.append(np.full(len(idx), shaders[0] in slot["pattern"]))
     tris, uv0s, uv1s, pages, blended, firsts = map(np.concatenate, (tris, uv0s, uv1s, pages, blended, firsts))
+    if a.min_z is not None:
+        # Ground wholly under `min_z` stays CE's: Gephyrophobia's snow shader
+        # also floors its chasm 1.1 km down, and the landscape (the lowest
+        # layer, raster) lay down there under the rim, cutting the rim's
+        # snow away to a hole over the fog (2026-10-16).
+        keep = tris[..., 2].max(1) >= a.min_z
+        print(f"min-z: {int((~keep).sum())} ground triangle(s) under {a.min_z / 100:g} m left to CE")
+        tris, uv0s, uv1s, pages, blended, firsts = (v[keep] for v in (tris, uv0s, uv1s, pages, blended, firsts))
     # The square around the first shader's ground (the sea floor runs on for
     # kilometres; the rest of it stays the mesh's).
     lo, hi = tris[firsts][..., :2].reshape(-1, 2).min(0), tris[firsts][..., :2].reshape(-1, 2).max(0)
