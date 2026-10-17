@@ -107,7 +107,7 @@
   "shaders": ["infinity_ground"],
   "landscape": "LIN", "chunk": 973,
   "horizon": {"z": 8000, "reach": 5000000},
-  "haze": {"color": [0.288, 0.371, 0.474], "density": 0.03, "start": 15000.0, "cutoff": 6000000},
+  "haze": {"color": [0.288, 0.371, 0.474], "density": 0.03, "start": 15000.0, "cutoff": 0},
   "hub": "ce-infinity"
  },
  "GPH": {

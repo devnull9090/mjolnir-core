@@ -857,15 +857,32 @@ def horizon_skirt(code, m, p, level):
     mat = json.loads(json.dumps(entry))
     for k in ("HasLightmap", "HasBake"):
         mat.setdefault("scalars", {})[k] = 0.0
+    # The ground's mean colour, not its base map: tiled, the map's own paths
+    # and track repeated out to the horizon (Infinity, 2026-10-17).
+    from PIL import Image
+    px = np.asarray(Image.open(os.path.join(p["land"], "base.png")).convert("RGB"), np.float64) / 255.0
+    ground = np.asarray(Image.open(os.path.join(p["land"], "landmask.png")).convert("L").resize(
+        px.shape[1::-1]), np.float64) < 128
+    mean = px[ground].mean(0) if ground.any() else px.reshape(-1, 3).mean(0)
+    mat["textures"]["Base"] = WHITE
+    mat.setdefault("vectors", {})["MaterialColor"] = [round(float(c), 3) for c in mean] + [1.0]
     origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
     R, z = float(hz.get("reach", 5000000.0)), float(hz["z"])
-    rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0], -R, hi[0], lo[1]), (lo[0], hi[1], hi[0], R)]
+    # The middle strips overlap the side ones by 20 m: edge to edge, a
+    # hairline of sky showed down each seam from above.
+    o = 2000.0
+    rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0] - o, -R, hi[0] + o, lo[1]), (lo[0] - o, hi[1], hi[0] + o, R)]
     out = []
     for i, (x0, y0, x1, y1) in enumerate(rects):
+        # The ground's maps tiled at the map's own size: one copy over a
+        # 50 km strip drew it as streaks to the horizon (Infinity, 2026-10-17).
+        strip = json.loads(json.dumps(mat))
+        strip.setdefault("vectors", {})["BaseXform"] = [round((x1 - x0) / (hi[0] - lo[0]), 2),
+                                                        round((y1 - y0) / (hi[1] - lo[1]), 2), 0.0, 0.0]
         out.append({"id": f"horizon_{i}", "mesh": "/Engine/BasicShapes/Plane.Plane",
                     "pos": [round((x0 + x1) / 2 - origin[0]), round((y0 + y1) / 2 - origin[1]), round(z - origin[2])],
                     "scale": [round((x1 - x0) / 100.0, 1), round((y1 - y0) / 100.0, 1), 1.0],
-                    "materials": [mat], "cast_shadow": False})
+                    "materials": [strip], "cast_shadow": False})
     print(f"  horizon: 4 strip(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
     return out
 
@@ -905,6 +922,7 @@ PHANTOM = "/Game/FluidFlux/Simulation/Materials/M_PhantomMesh_3.M_PhantomMesh_3"
 # The bed's material in the level: plain and opaque, the decor drawn only into
 # scene captures (MJOLNIRLevelLoader `capture_only`); Flux's phantom
 # material drew in none of ours.
+WHITE = "/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"
 BED_MATERIAL = "/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"
 
 
