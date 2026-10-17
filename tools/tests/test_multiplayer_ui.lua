@@ -34,7 +34,7 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant, client, variantFile, listing, identities)
+local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local time, scheduled, held = 5, nil, true
     local written, commands = {}, {}
     -- Hooks by function path; the match log's files in memory, by path; what
@@ -52,12 +52,32 @@ local function runHUD(variant, client, variantFile, listing, identities)
         end, close = function() end }
     end
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
+    -- A remote player's controller on the host: what it is sent.
+    local remote = { sent = {}, IsValid = function() return true end, GetAddress = function() return 4242 end,
+        IsLocalController = function() return false end,
+        Player = { IsValid = function() return true end }, PlayerState = { IsValid = function() return true end } }
+    remote.ClientMessage = function(_, msg, kind) remote.sent[#remote.sent + 1] = kind .. " " .. msg end
     local function block()
         return setmetatable({ IsValid = function() return true end,
             SetText = function(self, v) self.text = v end,
             SetVisibility = function(self, v) self.visibility = v end,
             SetBrushColor = function(self, v) self.color = v end,
-            SetColorAndOpacity = function() end, SetRenderOpacity = function() end,
+            SetColorAndOpacity = function(self, v) self.tint = v end,
+            SetRenderOpacity = function(self, v) self.opacity = v end,
+            SetRenderTranslation = function(self, v) self.translation = v end,
+            SetRenderScale = function(self, v) self.scale = v end,
+            SetWidthOverride = function(self, v) self.width = v end,
+            SetHeightOverride = function(self, v) self.height = v end,
+            SetBrushFromTexture = function(self, tex) self.brush = tex end,
+            -- The weapon's brush: the game's icon material, made dynamic.
+            SetBrushFromMaterial = function(self, m)
+                self.brush = m
+                self.mid = { params = {},
+                    SetTextureParameterValue = function(mid, k, v) mid.params[k] = v end,
+                    SetScalarParameterValue = function(mid, k, v) mid.params[k] = v end }
+            end,
+            GetDynamicMaterial = function(self) return self.mid end,
+            SetFont = function(self, f) self.font = f end,
             SetPadding = function() end, AddToViewport = function() end },
             { __index = function(t, k) local child = block(); rawset(t, k, child); return child end })
     end
@@ -112,10 +132,14 @@ local function runHUD(variant, client, variantFile, listing, identities)
             if path:match("variants[\\/][%w_]+%.mglo$") then
                 return variantFile and io.open(variantFile, "rb") or nil
             end
+            -- A hub avatar MJOLNIRLobby has cached (docs/player_identity.md).
+            if path:match("av_[%w%-]+%.png$") and mode:match("^r") then
+                return { read = function() return "png" end, close = function() end }
+            end
             if path:match("running.txt$") then return { read = function() return "DCN\t" .. variant .. "\tDanger Canyon" end, close = function() end } end
             return io.open(path, mode)
         end },
-        FindAllOf = function() return {} end,
+        FindAllOf = function(class) return class == "PlayerController" and { remote } or {} end,
         FindFirstOf = function(class)
             if class ~= "GameEngine" then return nil end
             return { IsValid = function() return true end,
@@ -127,33 +151,66 @@ local function runHUD(variant, client, variantFile, listing, identities)
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
         StaticFindObject = function(path)
             if path:find("GameplayStatics") then return { GetPlayerController = function() return pc end } end
+            -- The feed's pictures: our glyphs, the game's silhouettes and
+            -- icon material, its fonts.
+            if path:find("^/Game/MJOLNIR/UI/Icons/") or path:find("^/Game/UI/Hud/") or path:find("^/Game/Fonts/") then
+                return { IsValid = function() return true end, path = path,
+                    Blueprint_GetSizeX = function() return 312 end, Blueprint_GetSizeY = function() return 112 end }
+            end
+            if path:find("KismetRenderingLibrary") then
+                return { IsValid = function() return true end,
+                    ImportFileAsTexture2D = function(_, _, file)
+                        return { IsValid = function() return true end, file = file,
+                            GetFullName = function() return "Texture2D /Engine/Transient." .. file:match("(av_[%w%-]+)%.png$") end }
+                    end }
+            end
             if path:find("KismetSystemLibrary") then
                 return { MakeSoftClassPath = function(_, p) return p end,
                     Conv_SoftClassPathToSoftClassRef = function(_, p) return p end,
                     LoadClassAsset_Blocking = function() return { IsValid = function() return true end } end,
                     ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
             end
-            return { Create = function() local w = block(); widgets[#widgets + 1] = w; return w end }
+            return { Create = function()
+                local w = block()
+                -- A UI container from before the feed's rows has none.
+                if legacy and #widgets == 0 then rawset(w, "FeedEdge0", { IsValid = function() return false end }) end
+                widgets[#widgets + 1] = w
+                return w
+            end }
         end }, { __index = _G })
     assert(loadfile("mods/MJOLNIRHud/Scripts/main.lua", "t", env))()
     local function poll() time = time + 1.1; scheduled() end
-    local function incident(name, cause, effect, value)
+    --- Raises an incident without polling; `damage` = { modifier, damage tag }.
+    local function raise(name, cause, effect, value, damage)
         local incidentHook
         for path, fn in pairs(hooks) do
             if path:find("OnIncident_Event", 1, true) then incidentHook = fn end
         end
+        damage = damage or {}
         incidentHook(nil, { get = function() return { Name = { ToString = function() return name end },
             CausePlayerAbsoluteIndex = cause, EffectPlayerAbsoluteIndex = effect, CustomValue = value,
+            DamageReportingInfo = { Modifier = damage.modifier,
+                Type = { TagName = { ToString = function() return damage.damage or "Blam.DamageReporting.Type.Invalid" end } } },
             -- No player, no object: as the game sends index -1.
             CauseObjectActor = cause and cause >= 0 and biped(cause) or nil,
             EffectObjectActor = effect and effect >= 0 and biped(effect) or nil } end })
+    end
+    local function incident(name, cause, effect, value, damage)
+        raise(name, cause, effect, value, damage)
+        poll()
+    end
+    --- Several incidents in one tick, as the game raises a kill's medals.
+    local function burst(list)
+        for _, i in ipairs(list) do raise(i[1], i[2], i[3], i[4], i[5]) end
         poll()
     end
     poll()
-    return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll,
+    return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll, burst = burst,
+        -- Time passes without a poll (the per-frame animation's view).
+        wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
         written = function() return table.concat(written) end, commands = commands,
-        hooks = hooks, asked = asked,
+        hooks = hooks, asked = asked, remote = remote,
         --- The match log's file whose name matches `pattern`, and its name.
         file = function(pattern)
             for path, data in pairs(files) do
@@ -217,11 +274,12 @@ eq(ffa.feed.ScoreTarget.text, "25")
 -- The respawn countdown clears even when the final tick and the spawn never
 -- reach a fireteam client.
 ffa.incident("death", -1, 1, 0)
-eq(ffa.feed.Respawn.text, "Respawning")
+eq(ffa.feed.RespawnBox.visibility, 3)
+eq(ffa.feed.RespawnLabel.text, "RESPAWNING"); eq(ffa.feed.Respawn.text, "")
 for _ = 1, 3 do ffa.incident("respawn_tick", 1, -1, 0) end
-eq(ffa.feed.Respawn.text, "Respawn in 1")
+eq(ffa.feed.RespawnLabel.text, "RESPAWN IN"); eq(ffa.feed.Respawn.text, "1")
 for _ = 1, 3 do ffa.poll() end
-eq(ffa.feed.Respawn.text, "")
+eq(ffa.feed.RespawnBox.visibility, 1)
 
 -- The end of the match: the final standings on every machine, without Tab;
 -- the results for the post-game screen; and, after the standings have been
@@ -256,21 +314,191 @@ eq(hub.board.Title.text, "BRAVO_HUB WINS")
 local hubResults = hub.written()
 -- A joiner's "joined" line names its hub account: at once when the account
 -- is known, otherwise after a short wait for it, under the in-game name.
-local function feedHas(h, text)
-    for i = 0, 5 do
-        if h.feed["Line" .. i].text == text then return true end
+--- The feed row (0..6) showing `lead` ... `tail`, if one is up.
+local function feedRow(h, lead, tail)
+    for i = 0, 6 do
+        local f = h.feed
+        if f["FeedEdge" .. i].visibility == 3 and f["FeedLead" .. i].text == lead
+            and (tail == nil or f["FeedTail" .. i].text == tail) then
+            return i
+        end
     end
-    return false
+    return nil
 end
+local function feedHas(h, lead, tail) return feedRow(h, lead, tail) ~= nil end
 local joins = runHUD("slayer", false, nil, nil, "Charlie\t0000-c\tCharlie Hub\t0\n")
 joins.incident("player_joined", 2, -1, 0); joins.poll()
-assert(feedHas(joins, "Charlie Hub joined the game"), "a known account joins at once")
+assert(feedHas(joins, "Charlie Hub", "joined the game"), "a known account joins at once")
 joins.incident("player_joined", 0, -1, 0); joins.poll()
-assert(not feedHas(joins, "Alpha joined the game"), "an unknown account waits")
+assert(not feedHas(joins, "Alpha", "joined the game"), "an unknown account waits")
 for _ = 1, 8 do joins.poll() end
-assert(feedHas(joins, "Alpha joined the game"), "then joins under its in-game name")
+assert(feedHas(joins, "Alpha", "joined the game"), "then joins under its in-game name")
+local joined = feedRow(joins, "Alpha", "joined the game")
+assert(joins.feed["FeedGlyph" .. joined].brush.path:find("T_MJHud_Joined", 1, true), "the joined glyph")
 assert(hubResults:find("\nplayer\tBravo\t2\t2\t0\t%-\t1\t0000%-b\tbravo_hub\t3\n"), hubResults)
 assert(hubResults:find("\nplayer\tAlpha\t0\t0\t0\t%-\t0\t%-\t%-\t0\n"), hubResults)
+
+-- The kill feed's rows (Scripts/feed.lua, docs/multiplayer_hud.md). The local
+-- player here is Bravo (index 1).
+local DT = "Blam.DamageReporting.Type."
+local kills = runHUD("slayer")
+kills.incident("Kill", 2, 0, 0, { modifier = 1, damage = DT .. "SniperRifle" })
+local r = feedRow(kills, "Charlie", "Alpha")
+assert(r, "a kill line names the killer and the victim")
+local f = kills.feed
+-- The game's own silhouette, through the game's icon material, facing the victim.
+assert(f["FeedWeapon" .. r].brush.path:find("MI_HUDCradleIcon", 1, true), "the game's icon material")
+assert(f["FeedWeapon" .. r].mid.params.InputTexture.path:find("T_UI_SniperRifle_WeaponIcon", 1, true))
+eq(f["FeedWeapon" .. r].scale.X, -1)
+eq(f["FeedWeapon" .. r .. "Box"].visibility, 3); eq(f["FeedWeapon" .. r .. "Box"].width, 28 * 312 / 112)
+assert(f["FeedMod" .. r].brush.path:find("T_MJHud_Headshot", 1, true), "a headshot glyph")
+eq(f["FeedMod" .. r .. "Box"].visibility, 3)
+eq(f["FeedEdge" .. r].color.A, 0) -- no rim: the line does not name the local player
+-- A melee kill by the local player: our glyph in the weapon's place, no
+-- modifier, and the gold rim.
+kills.incident("Kill", 1, 2, 0, { modifier = 0, damage = DT .. "Melee" })
+r = feedRow(kills, "Bravo", "Charlie")
+assert(f["FeedWeapon" .. r].brush.path:find("T_MJHud_Melee", 1, true), "the melee glyph")
+eq(f["FeedWeapon" .. r].scale.X, 1)
+eq(f["FeedMod" .. r .. "Box"].visibility, 1)
+assert(f["FeedEdge" .. r].color.A > 0.5, "the local player's line has a rim")
+-- A weapon the game has no silhouette for is named instead.
+kills.incident("Kill", 0, 2, 0, { damage = DT .. "FlameThrower" })
+r = feedRow(kills, "Alpha", "Charlie")
+eq(f["FeedNote" .. r].text, "Flame Thrower"); eq(f["FeedNote" .. r].visibility, 3)
+-- Newest at the bottom: every row is stacked by its translation, once the
+-- older ones have risen.
+kills.poll()
+eq(f["FeedEdge" .. r].translation.Y, 0)
+eq(f["FeedEdge" .. feedRow(kills, "Bravo", "Charlie")].translation.Y, -48)
+eq(f["FeedEdge" .. feedRow(kills, "Charlie", "Alpha")].translation.Y, -96)
+-- A medal arrives before the kill that earned it, in the same tick; the feed
+-- lists it after the kill, and the local player's comes up in the middle.
+kills.burst({ { "multikill_x2", 1, -1, 0 }, { "Kill", 1, 0, 0, { damage = DT .. "AssaultRifle" } } })
+local medalRow, killRow = feedRow(kills, "Bravo", "Double Kill"), feedRow(kills, "Bravo", "Alpha")
+assert(medalRow and killRow, "the medal and the kill")
+eq(f.Callout.visibility, 3); eq(f.CalloutTitle.text, "DOUBLE KILL")
+kills.poll()
+eq(f["FeedEdge" .. medalRow].translation.Y, 0); eq(f["FeedEdge" .. killRow].translation.Y, -48)
+for _ = 1, 2 do kills.poll() end
+eq(f.Callout.visibility, 1)
+-- Lines leave after six seconds; past six on screen, the oldest goes at once.
+for _ = 1, 6 do kills.poll() end
+for i = 0, 6 do assert(f["FeedEdge" .. i].visibility ~= 3, "row " .. i .. " after its time") end
+local many = {}
+for _ = 1, 8 do many[#many + 1] = { "Kill", 0, 2, 0, { damage = DT .. "Shotgun" } } end
+kills.burst(many)
+kills.poll() -- the oldest pushed out has finished leaving
+local shown = 0
+for i = 0, 6 do if f["FeedEdge" .. i].visibility == 3 then shown = shown + 1 end end
+eq(shown, 6)
+-- The score bar fills toward the score to win (25): Bravo, the local
+-- player, has 2 kills.
+eq(f.ScoreLeftValue.text, "2")
+assert(math.abs(f.ScoreLeftFill.width - 320 * 2 / 25) < 1e-6, "the bar: " .. tostring(f.ScoreLeftFill.width))
+-- Deaths with no killer say what killed them.
+kills.incident("death", -1, 2, 0, { damage = DT .. "FallingDamage" })
+kills.poll()
+r = feedRow(kills, "Charlie", "fell to their death")
+assert(r and f["FeedGlyph" .. r].brush.path:find("T_MJHud_Fall", 1, true), "a fall")
+print("Multiplayer UI: the kill feed's rows, glyphs, medals, callouts and score bars")
+
+-- Hub avatars beside the names, as on the scoreboard: Charlie has a hub
+-- account with a cached picture, Alpha none.
+local faces = runHUD("slayer", false, nil, nil, "Charlie\t0000-c\tCharlie Hub\t0\n")
+faces.incident("Kill", 2, 0, 0, { damage = DT .. "Shotgun" })
+r = feedRow(faces, "Charlie Hub", "Alpha")
+eq(faces.feed["FeedLeadAvatar" .. r .. "Box"].visibility, 3)
+assert(faces.feed["FeedLeadAvatar" .. r].brush.file:find("av_0000%-c%.png$"), "Charlie's avatar")
+eq(faces.feed["FeedTailAvatar" .. r .. "Box"].visibility, 1) -- Alpha has none
+print("Multiplayer UI: hub avatars in the feed")
+
+-- Fireteam clients (Scripts/relay.lua): the host sends the feed's incidents
+-- to every remote player, one message per drain.
+local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
+local wire = Relay.encode({ { name = "kill", cause = 2, effect = 0, value = 0, modifier = 1, damage = DT .. "SniperRifle" },
+    { name = "respawn_tick", cause = 0 }, { name = "multikill_x2", cause = 2, effect = -1, value = 0 } })
+eq(wire, "MJOLNIR|feed|kill,2,0,0,1,SniperRifle;multikill_x2,2,-1,0,0,")
+local back = Relay.decode(wire, 7)
+eq(#back, 2); eq(back[1].name, "kill"); eq(back[1].damage, "SniperRifle"); eq(back[1].modifier, 1)
+eq(back[2].damage, nil); eq(back[2].relayed, true)
+eq(Relay.decode("MJOLNIR|clock|30.0", 7), nil)
+-- One incident from two sources is taken once; two from one source are two.
+local recent = {}
+eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 10 }), false)
+eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 10.6, relayed = true }), true)
+eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 11 }), false)
+eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 11.2 }), false)
+eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 20, relayed = true }), false)
+-- The host sends a kill, with what killed, to its fireteam.
+local relayHost = runHUD("slayer")
+for _ = 1, 3 do relayHost.poll() end -- the host finds its fireteam a few seconds in
+relayHost.incident("Kill", 2, 0, 0, { modifier = 1, damage = DT .. "SniperRifle" })
+local sent = relayHost.remote.sent[#relayHost.remote.sent]
+assert(sent and sent:find("^MJOLNIR MJOLNIR|feed|kill,2,0,0,1,SniperRifle"), "the host's relay: " .. tostring(sent))
+-- A client draws the line and counts the kill from the host's message alone,
+-- and takes a kill it also had from its own handler once.
+local function hear(h, text)
+    h.hooks["/Script/Engine.PlayerController:ClientMessage"](nil,
+        { get = function() return { ToString = function() return text end } end },
+        { get = function() return { ToString = function() return "MJOLNIR" end } end })
+    h.poll()
+end
+local joiner = runHUD("slayer", true)
+hear(joiner, "MJOLNIR|feed|kill,2,0,0,1,SniperRifle;death,2,0,0,0,SniperRifle")
+r = feedRow(joiner, "Charlie", "Alpha")
+assert(r, "the relayed kill line")
+assert(joiner.feed["FeedMod" .. r].brush.path:find("T_MJHud_Headshot", 1, true), "the relayed headshot")
+eq(joiner.board.Name0.text, "Charlie"); eq(joiner.board.Kills0.text, "1")
+joiner.burst({ { "Kill", 0, 2, 0 } })
+hear(joiner, "MJOLNIR|feed|kill,0,2,0,0,")
+local alphaKills = 0
+for i = 0, 2 do if joiner.board["Name" .. i].text == "Alpha" then alphaKills = joiner.board["Kills" .. i].text end end
+eq(alphaKills, "1") -- once, not twice
+-- The host never takes its own relay back.
+hear(relayHost, "MJOLNIR|feed|kill,2,0,0,0,")
+local charlieKills = 0
+for i = 0, 2 do if relayHost.board["Name" .. i].text == "Charlie" then charlieKills = relayHost.board["Kills" .. i].text end end
+eq(charlieKills, "1")
+print("Multiplayer UI: the feed's relay to fireteam clients")
+
+-- An older UI container (no feed rows): the lines go to its six text lines,
+-- newest at the bottom, and the respawn countdown is one line again.
+local old = runHUD("slayer", false, nil, nil, nil, true)
+old.incident("Kill", 2, 0, 0, { modifier = 1, damage = DT .. "SniperRifle" })
+eq(old.feed.Line5.text, "Charlie  [Sniper Rifle]  Alpha")
+old.incident("player_quit", 0, -1, 0)
+eq(old.feed.Line5.text, "Alpha left the game"); eq(old.feed.Line4.text, "Charlie  [Sniper Rifle]  Alpha")
+old.incident("death", -1, 1, 0)
+eq(old.feed.Respawn.text, "Respawning")
+old.incident("respawn_tick", 1, -1, 0)
+eq(old.feed.Respawn.text, "Respawn in 3")
+print("Multiplayer UI: an older UI container gets a text feed")
+
+-- The feed's model on its own: poses are a function of the time.
+local Rows = dofile("mods/MJOLNIRHud/Scripts/feed.lua")
+local state = Rows.new()
+local a = Rows.push(state, { lead = "A" }, 10)
+local x, y, alpha = Rows.pose(a, 10)
+eq(alpha, 0); eq(x, -44); eq(y, 0)
+x, y, alpha = Rows.pose(a, 10 + Rows.ENTER)
+eq(alpha, 1); eq(x, 0)
+local b = Rows.push(state, { lead = "B" }, 11)
+eq(a.slot, 1); eq(b.slot, 0)
+_, y = Rows.pose(a, 11); eq(y, 0)                        -- it starts where it was
+_, y = Rows.pose(a, 11 + Rows.MOVE); eq(y, -Rows.STEP)   -- and rises a row
+assert(Rows.busy(state, 11.1))
+Rows.step(state, 10 + Rows.HOLD + Rows.EXIT)
+eq(#state.entries, 1); eq(b.slot, 0)
+state.hide, b.fresh = {}, false -- as Rows.draw leaves them
+assert(not Rows.busy(state, 13))
+local Icons = dofile("mods/MJOLNIRHud/Scripts/hudicons.lua")
+eq(Icons.forKill(DT .. "PlasmaGrenade", 4).mod, "Stuck")
+eq(Icons.forKill(DT .. "Ghost", 3).mod, "Splatter")
+eq(Icons.forKill(DT .. "WarthogDriver", 3).glyph, "Splatter"); eq(Icons.forKill(DT .. "WarthogDriver", 3).mod, nil)
+eq(Icons.forKill(DT .. "MagnumPistol", 2).glyph, "Assassination")
+eq(Icons.forKill(DT .. "Invalid", nil).glyph, "Skull")
+print("Multiplayer UI: the feed's model and icon choices")
 
 -- A fireteam client shows the same standings and writes its own results,
 -- but only the host travels.

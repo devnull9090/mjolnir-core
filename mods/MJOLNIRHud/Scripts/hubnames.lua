@@ -16,6 +16,7 @@ local file, coversDir
 local known = {}         -- [in-game name] = { id, name, reports }
 local nextLoad = 0
 local textures = {}      -- account id -> texture object name
+local handles = {}       -- account id -> the texture, while it is valid
 
 local function valid(o)
     local ok, v = pcall(function() return o and o:IsValid() end)
@@ -50,13 +51,19 @@ function HubNames.of(name)
 end
 
 --- Account `id`'s avatar as a texture, once MJOLNIRLobby has cached it.
---- Kept by name, never by reference: a transient texture no brush holds is
---- collected.
+--- The texture is kept and checked with IsValid before each use (a
+--- transient texture no brush holds is collected), then found by name: by
+--- path alone, StaticFindObject costs ~2 ms in UE4SS, per avatar, per
+--- scoreboard redraw and kill line.
 function HubNames.avatar(id, world)
     if not id then return nil end
+    if handles[id] and valid(handles[id]) then return handles[id] end
     if textures[id] then
         local ok, tex = pcall(StaticFindObject, textures[id])
-        if ok and valid(tex) then return tex end
+        if ok and valid(tex) then
+            handles[id] = tex
+            return tex
+        end
     end
     local path = coversDir .. "av_" .. id .. ".png"
     local f = io.open(path, "rb")
@@ -68,6 +75,7 @@ function HubNames.avatar(id, world)
     if not (ok and valid(tex)) then return nil end
     local okName, full = pcall(function() return tex:GetFullName() end)
     textures[id] = okName and full and full:match("^%S+%s+(.+)$") or nil
+    handles[id] = tex
     return tex
 end
 
