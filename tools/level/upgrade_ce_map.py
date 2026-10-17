@@ -918,9 +918,28 @@ def flux_bed(code, m, p, cell=50.0):
     nx, ny = int(np.ceil((hi[0] - lo[0]) / cell)) + 1, int(np.ceil((hi[1] - lo[1]) / cell)) + 1
     size = max(nx, ny)
     z, _ = raster(tris, np.array(lo), cell, size, [])
-    z = z[:ny, :nx]
-    # Nothing under a point (off the map): high ground, so no water goes.
-    z = np.where(np.isfinite(z), z, np.nanmax(z) + 500.0)
+    top, _ = raster(tris, np.array(lo), cell, size, [], highest=True)
+    z, top = z[:ny, :nx], top[:ny, :nx]
+    # The lowest surface only inside CE's own water (the river mesh, a metre
+    # round it); everywhere else the top one. On the lowest surface
+    # everywhere, the water ran in under every overhang and wall foot round
+    # the creek and inside the walls, and drew out of the cliff faces as
+    # falls (2026-10-16).
+    rv = np.asarray(river["positions"])[np.asarray(river["indices"]).reshape(-1, 3)]
+    rz, _ = raster(rv, np.array(lo), cell, size, [])
+    wet = np.isfinite(rz[:ny, :nx])
+    k = max(1, int(round(100.0 / cell)))
+    grown = wet.copy()
+    for dy in range(-k, k + 1):
+        for dx in range(-k, k + 1):
+            grown |= np.roll(np.roll(wet, dy, 0), dx, 1)
+    z = np.where(grown, z, top)
+    # Nothing under a point (off the map): high ground, so no water goes. All
+    # of it no more than 4 m over the water: ground far up the domain (off
+    # the map at 37 m, cliff tops) took a sheet of water 6-7 m deep at the
+    # domain's top in Flux, which ran down the canyon walls (2026-10-16).
+    cap = max(q["pos"][2] for q in m["flux"].get("feeds", [])) + 400.0 if m["flux"].get("feeds") else np.nanmax(z)
+    z = np.minimum(np.where(np.isfinite(z), z, cap), cap)
     xs, ys = lo[0] + np.arange(nx) * cell, lo[1] + np.arange(ny) * cell
     positions = [[round(float(xs[i]), 1), round(float(ys[j]), 1), round(float(z[j, i]), 1)]
                  for j in range(ny) for i in range(nx)]
