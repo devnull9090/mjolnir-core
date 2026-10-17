@@ -69,6 +69,34 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.26.0",
+      "tag": "mods-v0.26.0",
+      "title": "Smoother remastered maps",
+      "date": "2026-10-17",
+      "summary": "The remastered maps no longer stutter ten times a second, and the HUD now keeps a log of stutters that you can send us.",
+      "body": "### Fixed\n\n- **Stutter on the remastered maps** (MJOLNIRLevelLoader 0.7.1). On every\n  remastered map except Rat Race, the level loader looked up the ground's\n  footprint settings ten times a second. Each lookup held the game up for\n  about 15 ms, which made a steady stutter. On Death Island, frames that\n  ran long fell from 269 in 44 seconds to 28 in 52 seconds.\n\n### Added\n\n- **A stutter log** (MJOLNIRHud 0.8.0). The HUD times every frame on every\n  map. A frame that takes much longer than the ones around it is written to\n  `hitches.log` in the MJOLNIRHud folder, with where you were looking and\n  which of MJOLNIR's scripts ran in it. Each map ends with a summary. If a\n  map stutters for you, send us that file. `mjolnir_hitches` (console)\n  writes the numbers so far.\n- The level loader and the lobby (MJOLNIRLobby 0.13.2) report how long\n  their scripts take to the stutter log.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutter on the remastered maps (MJOLNIRLevelLoader 0.7.1). On every remastered map except Rat Race, the level loader looked up the ground's footprint settings ten times a second. Each lookup held the game up for about 15 ms, which made a steady stutter. On Death Island, frames that ran long fell from 269 in 44 seconds to 28 in 52 seconds."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A stutter log (MJOLNIRHud 0.8.0). The HUD times every frame on every map. A frame that takes much longer than the ones around it is written to hitches.log in the MJOLNIRHud folder, with where you were looking and which of MJOLNIR's scripts ran in it. Each map ends with a summary. If a map stutters for you, send us that file. mjolnirhitches (console) writes the numbers so far.",
+            "The level loader and the lobby (MJOLNIRLobby 0.13.2) report how long their scripts take to the stutter log."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.26.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.26.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.26.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.25.0",
       "tag": "mods-v0.25.0",
       "title": "A new kill feed",
