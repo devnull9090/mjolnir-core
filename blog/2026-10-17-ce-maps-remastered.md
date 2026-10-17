@@ -3,6 +3,7 @@
 **Author:** MJOLNIR Core
 **Summary:** Nine classic maps and Yoyorast Island now look like they belong in Campaign Evolved: real terrain and grass, the game's own rock and trees, a living ocean and rivers, and Halo CE's lamps lit by Unreal. Drag the pictures to compare, then see how it was built and where the code lives.
 **Tags:** multiplayer, maps, lighting
+**Image:** /blog-images/ce-maps-remastered/featured.jpg
 
 ![Death Island's beach, remastered](/blog-images/ce-maps-remastered/death-island-beach.jpg?before=/blog-images/ce-maps-remastered/death-island-beach-classic.jpg)
 

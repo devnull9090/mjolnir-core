@@ -10,7 +10,7 @@
 // reason: a post is public writing, and half of one is worse than a loud
 // failure at the point someone can still fix it.
 
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,6 +93,20 @@ async function parsePost(fileName) {
     }
   }
 
+  // The link-preview image. It names a file in hub/public, so a typo would
+  // publish a post whose every share shows a broken card.
+  const image = meta.image ?? null;
+  if (image) {
+    if (!/^\/[^\s?#]+\.(jpe?g|png|webp)$/.test(image)) {
+      fail(`${fileName}: image "${image}" must be a site path like /blog-images/<slug>/featured.jpg`);
+    }
+    try {
+      await access(path.join(hubDir, "public", ...image.slice(1).split("/")));
+    } catch {
+      fail(`${fileName}: image ${image} is not in hub/public`);
+    }
+  }
+
   return {
     slug,
     date,
@@ -100,6 +114,7 @@ async function parsePost(fileName) {
     author: meta.author ? toPlainText(meta.author) : "MJOLNIR Core",
     summary,
     tags,
+    image,
     body,
     sourceUrl: `${GITHUB_BLOB}/${fileName}`,
   };
