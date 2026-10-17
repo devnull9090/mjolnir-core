@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 mod changelog;
+mod crash;
 mod hub;
 mod links;
 mod maps;
+mod minidump;
 mod tools;
 mod transfer;
 
@@ -957,6 +959,10 @@ fn set_install_path(path: Option<String>) -> Result<InstallStatus, String> {
 #[tauri::command]
 fn launch_game() -> Result<(), String> {
     let settings = get_settings();
+
+    // The game about to start overwrites UE4SS.log, which is the only log a
+    // crash report has. Kept first for a crash the watcher has not reached.
+    crash::capture_logs();
 
     // Put back any hub container deleted from Paks by hand, and rebuild the
     // map registration (a game update replaces the tables it was built
@@ -1931,6 +1937,9 @@ pub fn run() {
                     links::deliver(app.handle(), url.as_str());
                 }
             }
+
+            // Game crashes, however the game was started (crash.rs).
+            crash::watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1979,6 +1988,11 @@ pub fn run() {
             code_mods_install,
             code_mods_install_defaults,
             changelog::fetch_changelog,
+            crash::crash_list,
+            crash::crash_send,
+            crash::crash_send_dump,
+            crash::crash_decline_dump,
+            crash::crash_dismiss,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
