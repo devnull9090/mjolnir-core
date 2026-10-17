@@ -69,6 +69,7 @@ export default async function BlogPostPage({
     datePublished: post.date,
     author: { "@type": "Organization", name: post.author },
     url: `https://mjolnircore.com/blog/${post.slug}`,
+    ...(post.image && { image: `https://mjolnircore.com${post.image}` }),
   };
 
   return (
@@ -99,6 +100,19 @@ export default async function BlogPostPage({
               <TagChip key={tag} tag={tag} />
             ))}
           </div>
+          {post.image && (
+            // A plain `img` for the reason in Markdown.tsx. Empty alt: the
+            // picture is the post's title card, and the heading above reads it.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={post.image}
+              alt=""
+              fetchPriority="high"
+              width={1200}
+              height={630}
+              className="mt-8 block aspect-[1200/630] w-full rounded-xl border border-border bg-surface object-cover"
+            />
+          )}
         </header>
 
         <article className="py-9">

@@ -26,9 +26,10 @@ Body Markdown starts after the meta block...
 ```
 
 `**Author:**`, `**Tags:**` and `**Image:**` are optional; `**Summary:**` is
-required. `**Image:**` is the link-preview picture (`og:image` and the wide
-Twitter/Discord card): a 1200×630 file under `hub/public`, which the build
-checks exists. Each
+required. `**Image:**` is the featured image: the link preview (`og:image` and
+the wide Twitter/Discord card), the picture at the top of the post, and the
+post's thumbnail on `/blog` and the tag pages. It is a 1200×630 file under
+`hub/public`, which the build checks exists. Each
 tag becomes a filter page at `/blog/tag/<tag>`, so tags are held to slug
 grammar (lowercase letters, digits, hyphens) and the build fails otherwise.
 Reuse existing tags before inventing one: `game-update` marks every update
