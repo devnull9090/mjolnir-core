@@ -12,6 +12,8 @@
  */
 import type {
   AdminUserList,
+  CrashReport,
+  CrashSignature,
   BannedPlayer,
   Comment,
   ConflictPair,
@@ -542,6 +544,31 @@ export class HubClient {
    */
   listUsers(q?: string, limit?: number): Promise<AdminUserList> {
     return this.call({ method: "GET", path: "/admin/users", query: { q, limit } });
+  }
+
+  /** Launcher crash reports grouped by signature and build, most recent first. Admins only. */
+  async listCrashSignatures(build?: string): Promise<CrashSignature[]> {
+    const r = await this.call<{ signatures: CrashSignature[] }>({
+      method: "GET",
+      path: "/admin/crashes",
+      query: { build },
+    });
+    return r.signatures;
+  }
+
+  /** The reports under one signature, newest first. Admins only. */
+  async listCrashReports(signature: string, build?: string): Promise<CrashReport[]> {
+    const r = await this.call<{ reports: CrashReport[] }>({
+      method: "GET",
+      path: `/admin/crashes/${encodeURIComponent(signature)}`,
+      query: { build },
+    });
+    return r.reports;
+  }
+
+  /** Where a browser signed in as an admin downloads a report's bundle or full dump. */
+  crashFileUrl(id: string, file: "bundle" | "dump"): string {
+    return this.absolute(`${PREFIX}/admin/crash-reports/${encodeURIComponent(id)}/${file}`);
   }
 
   // ── Identity ────────────────────────────────────────────────────────

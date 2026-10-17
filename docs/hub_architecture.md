@@ -362,6 +362,9 @@ means an API key or a session cookie; everything else is public and CORS-open.
 | `GET` `POST` `DELETE` | `/v1/account/api-keys`, `/v1/account/signing-keys` | auth — and `/{id}` to revoke |
 | `GET` | `/v1/account/me` | auth |
 | `POST` | `/v1/code-mods/sync` | auth — mirrors the signed code-mod set onto hub pages |
+| `POST` | `/v1/crashes` | auth (any scope) — the launcher files a game crash ([crash reports](crash_reports.md)) |
+| `PUT` | `/v1/crashes/{id}/bundle` · `/v1/crashes/{id}/dump` | auth — the report's owner; the dump only when the hub asked |
+| `GET` | `/v1/admin/crashes`, `/v1/admin/crashes/{signature}`, `/v1/admin/crash-reports/{id}/{file}` | admins — grouped signatures, their reports, file downloads |
 
 Upload is a **direct `PUT` of the archive** rather than the presigned R2 URL this section
 originally called for. The Worker has to hold the bytes anyway to scan them, and a 50 MB cap

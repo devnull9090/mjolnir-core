@@ -3798,6 +3798,339 @@
           "user_id",
           "reason"
         ]
+      },
+      "CrashReportCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "bundle_upload": {
+            "$ref": "#/components/schemas/CrashUpload"
+          },
+          "wants_dump": {
+            "type": "boolean"
+          },
+          "dump_upload": {
+            "$ref": "#/components/schemas/CrashUpload"
+          }
+        },
+        "required": [
+          "id",
+          "wants_dump"
+        ]
+      },
+      "CrashUpload": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "PUT"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "A path under /api/v1 (send the key) or an absolute presigned URL (do not)."
+          },
+          "max_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "url",
+          "max_bytes"
+        ],
+        "description": "Absent when the bundle is already stored."
+      },
+      "CrashReportCreate": {
+        "type": "object",
+        "properties": {
+          "crash_id": {
+            "type": "string",
+            "pattern": "^UECC-[A-Za-z0-9_-]{1,120}$",
+            "description": "UE's crash folder name.",
+            "example": "UECC-Windows-A13FF88D473CDE7854D7F18E02EFDA14_0000"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "example": "ccfab15f14e59877"
+          },
+          "build_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "crash_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "example": "Crash"
+          },
+          "fault": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400,
+            "example": "UE4SS.dll+0x2580d7 (0xc0000005)"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crashed_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+            "example": "2026-10-17T04:28:33Z"
+          },
+          "seconds_since_start": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "launcher_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bundle_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8388608
+          },
+          "bundle_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "dump_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "crash_id",
+          "signature",
+          "build_version",
+          "crash_type",
+          "fault",
+          "crashed_at",
+          "bundle_bytes",
+          "bundle_sha256"
+        ]
+      },
+      "CrashFileStored": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "bytes"
+        ]
+      },
+      "CrashSignature": {
+        "type": "object",
+        "properties": {
+          "signature": {
+            "type": "string"
+          },
+          "build_version": {
+            "type": "string"
+          },
+          "crash_type": {
+            "type": "string"
+          },
+          "fault": {
+            "type": "string"
+          },
+          "reports": {
+            "type": "integer"
+          },
+          "players": {
+            "type": "integer"
+          },
+          "dumps": {
+            "type": "integer"
+          },
+          "maps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first_seen": {
+            "type": "string"
+          },
+          "last_seen": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signature",
+          "build_version",
+          "crash_type",
+          "fault",
+          "reports",
+          "players",
+          "dumps",
+          "maps",
+          "first_seen",
+          "last_seen"
+        ]
+      },
+      "CrashReport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "crash_id": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "crash_type": {
+            "type": "string"
+          },
+          "fault": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crashed_at": {
+            "type": "string"
+          },
+          "seconds_since_start": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "launcher_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bundle_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dump_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dump_zip_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "has_bundle": {
+            "type": "boolean"
+          },
+          "has_dump": {
+            "type": "boolean"
+          },
+          "dump_wanted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "crash_id",
+          "user",
+          "crash_type",
+          "fault",
+          "error_message",
+          "crashed_at",
+          "seconds_since_start",
+          "mode",
+          "map",
+          "role",
+          "launcher_version",
+          "bundle_bytes",
+          "dump_bytes",
+          "dump_zip_bytes",
+          "has_bundle",
+          "has_dump",
+          "dump_wanted",
+          "created_at"
+        ]
       }
     },
     "parameters": {}
@@ -8656,6 +8989,478 @@
           },
           "404": {
             "description": "No ban in force.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crashes": {
+      "post": {
+        "tags": [
+          "crashes"
+        ],
+        "summary": "File a crash report",
+        "description": "The launcher's summary of one game crash. Upload the bundle where `bundle_upload` says; when `wants_dump` is true and the player agrees, the zipped full dump goes where `dump_upload` says. Filing the same `crash_id` again answers 200 with the report already made. Any signed-in key.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrashReportCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Filed before.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashReportCreated"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Filed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crashes/{id}/bundle": {
+      "put": {
+        "tags": [
+          "crashes"
+        ],
+        "summary": "Upload a crash report's bundle",
+        "description": "The zip the report announced: its SHA-256 must match `bundle_sha256`. At most 8 MiB.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashFileStored"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a zip, or not the one announced.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such report of yours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crashes/{id}/dump": {
+      "put": {
+        "tags": [
+          "crashes"
+        ],
+        "summary": "Upload a crash report's full dump",
+        "description": "The zipped UEMinidump.dmp, only for a report the hub asked (`wants_dump`). At most 90 MiB.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashFileStored"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a zip.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such report of yours.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The hub did not ask for this dump, or has it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Slow down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crashes": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Crash signatures (admin)",
+        "description": "Crash reports grouped by signature and build, most recently seen first: how many, from how many players, how many full dumps, on which maps.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "build",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signatures.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "signatures": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrashSignature"
+                      }
+                    }
+                  },
+                  "required": [
+                    "signatures"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crashes/{signature}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "The reports under one crash signature (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "required": true,
+            "name": "signature",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "build",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reports, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrashReport"
+                      }
+                    }
+                  },
+                  "required": [
+                    "reports"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crash-reports/{id}/{file}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Download a crash report's bundle or full dump (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bundle",
+                "dump"
+              ]
+            },
+            "required": true,
+            "name": "file",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The zip."
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such file.",
             "content": {
               "application/json": {
                 "schema": {

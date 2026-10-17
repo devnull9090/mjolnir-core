@@ -266,6 +266,49 @@ export interface AdminUserList {
   total: number;
 }
 
+/** Crash reports from the launcher sharing one signature and build. Admin-only. */
+export interface CrashSignature {
+  signature: string;
+  build_version: string;
+  /** "Crash", "Assert", "GPUCrash", ... */
+  crash_type: string;
+  /** Where it crashed: `MODULE+0xOFFSET (0xCODE)`, or the assert's message. */
+  fault: string;
+  reports: number;
+  players: number;
+  /** Full dumps held. */
+  dumps: number;
+  maps: string[];
+  first_seen: string;
+  last_seen: string;
+}
+
+/** One player's report of one crash. Admin-only. */
+export interface CrashReport {
+  id: string;
+  crash_id: string;
+  user: { id: string; name: string };
+  crash_type: string;
+  fault: string;
+  error_message: string | null;
+  crashed_at: string;
+  seconds_since_start: number | null;
+  mode: string | null;
+  map: string | null;
+  role: string | null;
+  launcher_version: string | null;
+  /** Size of the stored bundle; null until it is uploaded. */
+  bundle_bytes: number | null;
+  /** The dump's size on the player's disk, unzipped. */
+  dump_bytes: number | null;
+  dump_zip_bytes: number | null;
+  has_bundle: boolean;
+  has_dump: boolean;
+  /** The hub asked this report for its full dump. */
+  dump_wanted: boolean;
+  created_at: string;
+}
+
 /** One field edit as a release's changes.json declares it. */
 export interface DeclaredField {
   field: string;
