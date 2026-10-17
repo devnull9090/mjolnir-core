@@ -4765,8 +4765,13 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
-    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
-    local c = kml:GetVectorParameterValue(world, findObject(Footprints.DEFORM_MPC), FName("DeformationCenterWP"))
+    -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
+    -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
+    -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).
+    if not (d.mpc and d.mpc:IsValid()) then d.mpc = findObject(Footprints.DEFORM_MPC) end
+    if not (d.kml and d.kml:IsValid()) then d.kml = findObject("/Script/Engine.Default__KismetMaterialLibrary") end
+    if not (d.mpc and d.kml) then return true end
+    local c = d.kml:GetVectorParameterValue(world, d.mpc, FName("DeformationCenterWP"))
     if c.R ~= d.cx or c.G ~= d.cy then Footprints.deformRect(c.R, c.G) end
     return true
 end
@@ -4999,6 +5004,10 @@ end
 --- A run that holds the game thread past 50 ms is logged with its name (at
 --- most once every 30 s per loop): a CTF host froze ~250 ms every 3.24 s in
 --- Lua, and nothing said which loop (playtest, 2026-10-03).
+---
+--- Each run that reads a millisecond or more is also handed to MJOLNIRHud's
+--- hitch log (its Scripts/hitches.lua), through a UE4SS shared variable, so
+--- a long frame there names the loops that ran in it.
 local function every(ms, name, fn)
     local reportedAt = -100
     local function run()
@@ -5006,6 +5015,18 @@ local function every(ms, name, fn)
         local ok, err = pcall(fn)
         if not ok then Log(name .. " error: " .. tostring(err)) end
         local took = os.clock() - started
+        if took >= 0.001 then
+            pcall(function()
+                local mod = rawget(_G, "ModRef")
+                local work = mod:GetSharedVariable("MJOLNIR.work")
+                work = type(work) == "string" and work or ""
+                -- Nothing reads it without the HUD: it stops growing.
+                if #work < 4000 then
+                    mod:SetSharedVariable("MJOLNIR.work",
+                        string.format("%s%.3f|LevelLoader|%s|%.0f;", work, started, name, took * 1000))
+                end
+            end)
+        end
         if took > 0.05 and started - reportedAt > 30 then
             reportedAt = started
             Log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
