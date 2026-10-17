@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  Source of hub/public/blog-images/ce-maps-remastered/featured.jpg, the post's
+  link-preview image. The shipped image is the ?split render: each panel shows
+  the hub version on its left half and the remastered map on its right, as the
+  post's sliders do. Without ?split every panel is the remastered map alone.
+  Rendered at 2x by headless Chrome, then downscaled:
+
+    chrome --headless=new --hide-scrollbars --allow-file-access-from-files \
+      --force-device-scale-factor=2 --window-size=1200,630 \
+      --virtual-time-budget=8000 --screenshot=render.png \
+      "file:///C:/path/to/blog/featured/ce-maps-remastered.html?split"
+
+  then resize render.png to 1200x630 (Lanczos) and save as JPEG, quality 88.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600;800;900&family=Geist+Mono:wght@500;600&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #06080f; }
+  .canvas { position: relative; width: 1200px; height: 630px; overflow: hidden; background: #06080f; font-family: "Geist", "Bahnschrift", sans-serif; }
+  .panel { position: absolute; top: 0; height: 630px; background-repeat: no-repeat; }
+  .shade-top { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(6,8,15,0.55) 0%, rgba(6,8,15,0) 18%); }
+  .shade-bottom { position: absolute; inset: 0; background: linear-gradient(to top, rgba(6,8,15,0.98) 0%, rgba(6,8,15,0.92) 22%, rgba(6,8,15,0.55) 40%, rgba(6,8,15,0) 60%); }
+  .seams { position: absolute; inset: 0; }
+  .label { position: absolute; top: 22px; font-family: "Geist Mono", monospace; font-weight: 600; font-size: 12px; letter-spacing: 0.2em; color: #f3e3b5; text-shadow: 0 1px 6px rgba(0,0,0,0.9); white-space: nowrap; }
+  .label::before { content: ""; display: inline-block; width: 14px; height: 2px; background: #d4a843; vertical-align: middle; margin-right: 8px; position: relative; top: -1px; }
+  .brand { position: absolute; left: 34px; bottom: 26px; display: flex; align-items: center; gap: 26px; }
+  .logo-wrap { position: relative; width: 196px; height: 196px; flex: none; }
+  .logo-wrap::before { content: ""; position: absolute; inset: -30px; background: radial-gradient(circle, rgba(212,168,67,0.30) 0%, rgba(212,168,67,0.10) 38%, rgba(212,168,67,0) 66%); }
+  .logo-wrap img { position: relative; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.8)); }
+  .kicker { font-family: "Geist Mono", monospace; font-weight: 600; font-size: 14px; letter-spacing: 0.24em; color: #d4a843; margin-bottom: 10px; }
+  .title { font-weight: 900; font-size: 64px; line-height: 0.98; letter-spacing: -0.02em; color: #f5f6f8; text-shadow: 0 2px 20px rgba(0,0,0,0.7); }
+  .title .gold { color: #d4a843; }
+  .sub { margin-top: 14px; font-weight: 400; font-size: 21px; color: #c9ced6; letter-spacing: 0.005em; }
+  .frame { position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgba(212,168,67,0.25); pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="canvas" id="c"></div>
+<script>
+  const IMG = "../../hub/public/blog-images/ce-maps-remastered/";
+  const LOGO = "../../hub/public/logo-transparent.png";
+  const SPLIT = new URLSearchParams(location.search).has("split");
+  // name, file, focal x %, focal y %, zoom (image height as a multiple of the canvas).
+  // Each file has a "-classic" twin from the same camera, so one crop fits both.
+  const maps = [
+    ["BLOOD GULCH", "blood-gulch-overview", 47, 85, 1.4],
+    ["DEATH ISLAND", "death-island-beach", 48, 50, 1.0],
+    ["SIDEWINDER", "sidewinder-ring", 47, 20, 1.12],
+    ["TIMBERLAND", "timberland-forest", 50, 50, 1.0],
+  ];
+  const W = 1200, H = 630, N = maps.length, S = 90, GAP = 3;
+  // Seam i runs from (b+S, 0) at the top to (b, H) at the bottom: panels lean "/".
+  const bottoms = [-S - 20];
+  for (let i = 1; i < N; i++) bottoms.push(Math.round(i * W / N - S / 2));
+  bottoms.push(W + 20);
+  const c = document.getElementById("c");
+  let html = "";
+  let seams = "";
+  let splits = "";
+  for (let i = 0; i < N; i++) {
+    const [, file, fx, fy, zoom] = maps[i];
+    const lb = bottoms[i], rb = bottoms[i + 1];
+    const left = lb, width = (rb + S) - lb;
+    const l = i === 0 ? 0 : GAP, r = i === N - 1 ? 0 : GAP;
+    const bg = `background-position:${fx}% ${fy}%;background-size:auto ${Math.round(H * zoom)}px`;
+    const poly = `polygon(${S + l}px 0, ${width - r}px 0, ${width - S - r}px ${H}px, ${l}px ${H}px)`;
+    html += `<div class="panel" style="left:${left}px;width:${width}px;clip-path:${poly};background-image:url('${IMG}${file}.jpg');${bg}"></div>`;
+    if (SPLIT) {
+      // Split at the middle of the panel's on-canvas part, parallel to its seams.
+      const mid = (Math.max(0, lb + S / 2) + Math.min(W, rb + S / 2)) / 2 - left;
+      const half = `polygon(${S + l}px 0, ${mid + S / 2}px 0, ${mid - S / 2}px ${H}px, ${l}px ${H}px)`;
+      html += `<div class="panel" style="left:${left}px;width:${width}px;clip-path:${half};background-image:url('${IMG}${file}-classic.jpg');${bg}"></div>`;
+      splits += `<line x1="${left + mid + S / 2}" y1="0" x2="${left + mid - S / 2}" y2="${H}" stroke="#fff" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>`;
+    }
+  }
+  for (let i = 1; i < N; i++) {
+    const b = bottoms[i];
+    seams += `<line x1="${b + S}" y1="0" x2="${b}" y2="${H}" stroke="#d4a843" stroke-width="2"/>`;
+  }
+  html += `<div class="shade-top"></div><div class="shade-bottom"></div>`;
+  html += `<svg class="seams" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="0.55" stop-color="#fff" stop-opacity="1"/><stop offset="0.8" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient><mask id="m"><rect width="${W}" height="${H}" fill="url(#fade)"/></mask></defs>
+    <g mask="url(#m)">${splits}${seams}</g></svg>`;
+  for (let i = 0; i < N; i++) {
+    const x = (i === 0 ? 0 : bottoms[i] + S) + 22;
+    html += `<div class="label" style="left:${x}px">${maps[i][0]}</div>`;
+  }
+  const sub = SPLIT
+    ? "Before and after, from the same camera"
+    : "Real terrain, grass, rock and water, in Campaign Evolved's look";
+  html += `<div class="brand">
+    <div class="logo-wrap"><img src="${LOGO}"></div>
+    <div>
+      <div class="kicker">HALO CAMPAIGN EVOLVED</div>
+      <div class="title">Ten Halo CE maps,<br><span class="gold">remastered</span></div>
+      <div class="sub">${sub}</div>
+    </div>
+  </div><div class="frame"></div>`;
+  c.innerHTML = html;
+</script>
+</body>
+</html>

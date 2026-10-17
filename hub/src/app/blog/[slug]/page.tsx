@@ -38,6 +38,15 @@ export async function generateMetadata({
       type: "article",
       publishedTime: post.date,
       authors: [post.author],
+      images: post.image ? [{ url: post.image, alt: post.title }] : undefined,
+    },
+    twitter: {
+      // Same rule as the mod pages: the wide card is an empty box without an
+      // image, so a post with none asks for the small one.
+      card: post.image ? "summary_large_image" : "summary",
+      title: post.title,
+      description: post.summary,
+      images: post.image ? [post.image] : undefined,
     },
   };
 }
