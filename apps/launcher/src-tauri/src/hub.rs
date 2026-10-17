@@ -2401,7 +2401,8 @@ pub fn code_mods_install_defaults() -> Result<Vec<String>, String> {
 /// map needs before it can start. A mod missing from disk is installed; one
 /// the launcher installed and nobody edited is brought up to date (a map
 /// built today may need today's loader); one the player edited is left as
-/// it is. Returns the ids it installed or updated.
+/// it is. Switching on adds the mod's `mods.txt` line if it has lost one.
+/// Returns the ids it installed, updated or switched on.
 fn ensure_code_mods(ids: &[&str]) -> Result<Vec<String>, String> {
     let status = code_mods_status()?;
     require_signed(&status)?;
@@ -2418,7 +2419,9 @@ fn ensure_code_mods(ids: &[&str]) -> Result<Vec<String>, String> {
             install_entry(&row.entry, &mods_dir)?;
             changed.push(id.to_string());
         }
-        crate::toggle_mod(id.to_string(), true)?;
+        if crate::set_mod_enabled(&mods_dir, id, true)? && !changed.iter().any(|c| c == id) {
+            changed.push(id.to_string());
+        }
     }
     Ok(changed)
 }
@@ -2521,7 +2524,7 @@ const RUNTIME_SLUG: &str = "mjolnir-ce-runtime";
 pub fn multiplayer_ready() -> Result<PathBuf, String> {
     let (install, _) = crate::find_game_install().ok_or("The game was not found.")?;
     let mods_dir = crate::mods_dir(&install);
-    let listed = crate::parse_mods_txt(&mods_dir);
+    let listed = crate::list_script_mods(&mods_dir);
     let missing: Vec<&str> = MAP_CODE_MODS
         .iter()
         .copied()
