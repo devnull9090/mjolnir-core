@@ -1358,12 +1358,20 @@ return m * saturate((h - Edge) * 100.0);
 # detail's, over CE's bump map; seams (dark in the base) are rougher than
 # plate; the Forerunner kit's scratch mask (Wear, world space, Surface.w)
 # wears the plate brighter and smoother.
+# Metal (SurfaceMetal: metallic, iridescence, scratch tile cm, plate
+# roughness): bare metal as the game's Forerunner kit has it
+# (/Game/Env/HS/FR/Gen +MLIP_FR_Gen_Metal: roughness 0.38, its greeble map
+# T_FR_Gen_Metal_01_ORHG's fine scratches in the roughness and a touch of
+# relief, wear 0.5-0.6, iridescence at 0.4), over CE's panel pattern, which
+# keeps the map's look: the kit's own flat tints on CE's flat geometry would
+# draw blank walls. With SurfaceMetal.z 0 the old scratch mask (Wear's .r).
 # Roughness (Surface.z the plate's) and specular are the material's again
 # (0 and 1 otherwise, CE's matte). Texture2DSample only (the hit shaders).
 SURFACE_CODE = r"""
 Rough = 1.0;
 Spec = 0.0;
 Wear = 0.0;
+Metal = 0.0;
 if (Surface.x <= 0.0) return BumpN;
 float2 t = Texel.xy;
 float3 lw = float3(0.299, 0.587, 0.114);
@@ -1382,19 +1390,52 @@ float3 n = normalize(float3(BumpN.xy + slope, BumpN.z));
 // Wear: the kit's scratches over the plate, from the side the wall faces.
 float3 nw = normalize(Nw);
 float3 bw = pow(abs(nw), 4.0); bw /= max(bw.x + bw.y + bw.z, 1e-4);
-float s = Texture2DSample(WearT, WearTSampler, W.yz / 140.0).r * bw.x
-        + Texture2DSample(WearT, WearTSampler, W.xz / 140.0).r * bw.y
-        + Texture2DSample(WearT, WearTSampler, W.xy / 140.0).r * bw.z;
-Wear = saturate(s * 1.6 - 0.25) * Surface.w;
+float kit = SurfaceMetal.z;
+float T = kit > 0.0 ? kit : 140.0;
+float4 sx = Texture2DSample(WearT, WearTSampler, W.yz / T);
+float4 sy = Texture2DSample(WearT, WearTSampler, W.xz / T);
+float4 sz = Texture2DSample(WearT, WearTSampler, W.xy / T);
+float4 sm = sx * bw.x + sy * bw.y + sz * bw.z;
 float seam = 1.0 - smoothstep(0.08, 0.3, c);
+float grain = 0.0;
+if (kit > 0.0)
+{
+    // The kit's greeble map: roughness in .g (mean ~0.28; scratches bright),
+    // height in .b. Scratches a little brighter and rougher, the relief a
+    // touch (its "Greeble - Normal Strength" 0.1).
+    grain = sm.g - 0.28;
+    Wear = saturate(grain * 2.5) * Surface.w;
+    float2 gt = float2(1.0 / 2048.0, 1.0 / 2048.0);
+    float3 ax = abs(nw);
+    float2 guv = ax.z > max(ax.x, ax.y) ? W.xy / T : (ax.x > ax.y ? W.yz / T : W.xz / T);
+    float gx = Texture2DSample(WearT, WearTSampler, guv + float2(gt.x, 0)).b
+             - Texture2DSample(WearT, WearTSampler, guv - float2(gt.x, 0)).b;
+    float gy = Texture2DSample(WearT, WearTSampler, guv + float2(0, gt.y)).b
+             - Texture2DSample(WearT, WearTSampler, guv - float2(0, gt.y)).b;
+    n = normalize(n + float3(-gx, -gy, 0.0) * 0.6);
+}
+else
+{
+    Wear = saturate(sm.r * 1.6 - 0.25) * Surface.w;
+}
 // Paint stays matte: on a saturated base the sheen reflected the grey sky
 // over it and Yoyorast's red trim drew rust (2026-10-12). Bare metal (grey
 // in CE's map) takes the sheen.
 float3 bc = Texture2DSample(BaseT, BaseTSampler, UV).rgb;
 float mxc = max(bc.r, max(bc.g, bc.b));
 float paint = smoothstep(0.15, 0.4, (mxc - min(bc.r, min(bc.g, bc.b))) / max(mxc, 1e-3));
-Rough = saturate(lerp(lerp(Surface.z, 0.85, seam) - Wear * 0.25, 0.95, paint));
-Spec = 0.35 * Surface.x * (1.0 - paint);
+if (kit > 0.0)
+{
+    float plate = SurfaceMetal.w + grain * 0.35 + Wear * 0.15;
+    Rough = saturate(lerp(lerp(plate, 0.8, seam), 0.95, paint));
+    Spec = 0.5 * Surface.x * (1.0 - paint);
+    Metal = SurfaceMetal.x * Surface.x * (1.0 - paint) * (1.0 - seam * 0.7);
+}
+else
+{
+    Rough = saturate(lerp(lerp(Surface.z, 0.85, seam) - Wear * 0.25, 0.95, paint));
+    Spec = 0.35 * Surface.x * (1.0 - paint);
+}
 return n;
 """
 
@@ -1404,7 +1445,22 @@ return n;
 SURFACE_BASE_CODE = r"""
 if (Surface.x <= 0.0) return B;
 float4 o = B;
-o.rgb = lerp(o.rgb, saturate(o.rgb * 1.35 + 0.06), Wear * 0.6);
+float kit = SurfaceMetal.z;
+o.rgb = lerp(o.rgb, saturate(o.rgb * 1.35 + 0.06), Wear * (kit > 0.0 ? 0.25 : 0.6));
+// The kit's iridescence (thin film, "Thickness" 0.05): a faint shift of
+// hue with the angle the plate is seen at, on bare metal only.
+if (kit > 0.0 && SurfaceMetal.y > 0.0)
+{
+    float3 bc = o.rgb;
+    float mxc = max(bc.r, max(bc.g, bc.b));
+    float paint = smoothstep(0.15, 0.4, (mxc - min(bc.r, min(bc.g, bc.b))) / max(mxc, 1e-3));
+    float3 v = normalize(Cam - W);
+    float ndv = saturate(abs(dot(normalize(Nw), v)));
+    float ph = (1.0 - ndv) * 1.6;
+    float3 film = 0.5 + 0.5 * cos(6.2832 * (ph + float3(0.0, 0.33, 0.67)));
+    float lum = dot(bc, float3(0.299, 0.587, 0.114));
+    o.rgb = lerp(bc, film * lum * 1.15, SurfaceMetal.y * 0.35 * (1.0 - paint));
+}
 return o;
 """
 
@@ -1588,6 +1644,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
                           description="footprint normal")
     # Structures (SURFACE_CODE): relief from the base map, roughness, wear.
     surface = g.vector4("Surface", (0.0, 3.0, 0.45, 0.6))
+    surface_metal = g.vector4("SurfaceMetal", (0.0, 0.0, 0.0, 0.38))
     world_pos = g.node(unreal.MaterialExpressionWorldPosition, x=-2000)
     nw_vertex = g.node(unreal.MaterialExpressionVertexNormalWS)
     base_t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name="Base", texture=white,
@@ -1600,10 +1657,11 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
         ("BumpN", bump_n, ""), ("BaseT", base_t, ""), ("UV", uv0, ""), ("MicroT", micro_t, ""),
         ("MUV", scaled("MicroScale", "MicroAspect"), ""), ("HasMicro", g.scalar("HasMicro", 0.0), ""),
         ("Texel", g.vector4("SurfaceTexel", (1.0 / 256.0, 1.0 / 256.0, 1.0 / 128.0, 1.0 / 128.0)), ""),
-        ("Surface", surface, ""), ("W", world_pos, ""), ("Nw", nw_vertex, ""), ("WearT", wear_t, "")],
+        ("Surface", surface, ""), ("W", world_pos, ""), ("Nw", nw_vertex, ""), ("WearT", wear_t, ""),
+        ("SurfaceMetal", surface_metal, "")],
         description="structure surface")
     outs = []
-    for oname in ("Rough", "Spec", "Wear"):
+    for oname in ("Rough", "Spec", "Wear", "Metal"):
         o = unreal.CustomOutput()
         o.set_editor_property("output_name", oname)
         o.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
@@ -1612,7 +1670,9 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     bump_n = surf
     base_tex = base
     base = g.custom(SURFACE_BASE_CODE, [("B", base, base_pin), ("Surface", surface, ""), ("W", world_pos, ""),
-                                        ("Nw", nw_vertex, ""), ("Wear", surf, "Wear")],
+                                        ("Nw", nw_vertex, ""), ("Wear", surf, "Wear"),
+                                        ("SurfaceMetal", surface_metal, ""),
+                                        ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), "")],
                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT4, description="structure wear")
     base_pin = ""
     link(bump_n, "", bump_w, "")
@@ -1688,6 +1748,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
     # left CE's matte constants on them.
     mel.connect_material_property(surf, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(surf, "Spec", unreal.MaterialProperty.MP_SPECULAR)
+    mel.connect_material_property(surf, "Metal", unreal.MaterialProperty.MP_METALLIC)
     if masked:
         # shader_environment tests the bump map's alpha; object shaders the
         # base map's (AlphaFromBase 1).

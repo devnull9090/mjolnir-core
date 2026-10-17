@@ -70,7 +70,13 @@ RIVER_SPLASH = ("/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverS
 STRUCTURE = ("metal", "panel", "tech", "steel", "plate", "strip", "circuit", "generator", "pipe", "grate",
              "girder", "beam", "rivet", "vent")
 SURFACE = [1.0, 2.5, 0.55, 0.5]
-SURFACE_WEAR = "/Game/Env/HS/FR/Gen/+Materials/T_FR_Gen_Scratch_01_Mask.T_FR_Gen_Scratch_01_Mask"
+# The game's Forerunner metal (build_ce_materials.py SURFACE_CODE): its kit's
+# greeble map (343 left it under a prototyping folder; a game update may move
+# it, and the loader then drops it and the plate draws without scratches)
+# and SurfaceMetal: metallic, iridescence, scratch tile (cm), plate
+# roughness (the kit's 0.38).
+SURFACE_WEAR = "/Game/_Prototyping/Users/ChiyoLai/T_FR_Gen_Metal_01_ORHG.T_FR_Gen_Metal_01_ORHG"
+SURFACE_METAL = [0.3, 0.1, 300.0, 0.5]
 # Grass sways in one steady wind.
 WIND = {"dir": [0.9, 0.4], "strength": 0.4}
 # cm the visible ground rides over the mesh, less half the sand's parallax
@@ -1491,6 +1497,7 @@ def mark_structures(level):
             entry["parent"] = entry["parent"].replace("/Game/MJOLNIR/CE/", "/Game/MJOLNIR/CETrial/")
             entry.setdefault("vectors", {})["Surface"] = SURFACE
             entry.setdefault("textures", {})["SurfaceWear"] = SURFACE_WEAR
+            entry["vectors"]["SurfaceMetal"] = SURFACE_METAL
             n += 1
     return n
 
