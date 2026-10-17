@@ -3060,6 +3060,15 @@ if (Sea.w > 0.5)
 // wall, 2026-10-13).
 float facing = max(FillDir.x + FillDir.y * Nr.z, 0.0);
 Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
+// Indoors (Indoor.x: the loader's cliff.indoor gain times the scene's light
+// scale): CE's lightmap is the light, as CE drew it (lightmap times colour,
+// linear). A tunnel has no sun, and lit by Unreal alone (a few placed
+// lights, no fill) Rat Race's rock went near black (2026-10-17).
+if (Indoor.x > 0.0)
+{
+    float3 lmLin = pow(max(Texture2DSample(LM, LMSampler, TC1).rgb, 1e-4), 2.2);
+    Emissive += max(albedo, 0.0) * lmLin * Indoor.x * ao;
+}
 
 Normal = Nr;
 Rough = saturate(rough);
@@ -3221,6 +3230,8 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         ("Fill", g.vector4("CliffFill", (1.0, 0.8, 0.62, 0.0)), ""),
         # FillDir: the fill on a wall, its change with the normal's z.
         ("FillDir", g.vector4("CliffFillDir", (0.75, -0.35, 0.0, 0.0)), ""),
+        # Indoor: CE's lightmap as the light, its gain (scene units; 0 off).
+        ("Indoor", g.vector4("CliffIndoor", (0.0, 0.0, 0.0, 0.0)), ""),
         # A cladding rock's own CE light (custom primitive data 0..2, gamma),
         # used when CladLight.a is 2.
         ("CladLM", cpd3(g), ""),

@@ -54,7 +54,20 @@ CLIFF_FILL_DIR = [0.75, 0.0, 0.0, 0.0]
 # lavender patches, and even at 0.2 their triplanar rock smeared into
 # streaks down every overhang (Yoyorast, 2026-10-16; 0.06 still streaked).
 TESS = {"disp": 0.6, "cladding": True, "clad_disp": 0.0}
-GAME = os.environ.get("HCE_GAME", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved")
+# Indoor maps (`indoor`: Rat Race's tunnels): no Landscape, no grass or
+# swapped scenery, the conversion's own map container and collision; only
+# the cliffs in the game's rock (and the level file's structures, lights,
+# decals). INDOOR_CLIFF is the cliff entry build_landscape.py would write
+# (Battle Creek's: the same CE cliff shader), under the map's `cliff`, with
+# everything that reads the landscape off: the turf, soil and stains at a
+# wall's lip (CliffDrape.w), the sand at its foot (CliffFoot.w) and the sand's
+# bounce (CliffFill.w), which would light a tunnel from nowhere.
+INDOOR_SKIP = ("land", "foliage", "swap", "collision", "bake")
+INDOOR_CLIFF = {"tiles": [500, 1400, 2500, 4], "mix": [0.6, 1.6, 1.4, 1.0], "look": [2.2, 0.85, 0.3, 1.5],
+                "far": [2500, 9000, 0.6, 0], "ce_tint": [0.5, 0, 0, 0], "tint": [0.8, 0.66, 0.56, 1.0],
+                "rough": [0.6, 1.0, 0, 0], "fill": [1.0, 0.8, 0.62, 0.0], "drape": [35, 35, 700, 0.0],
+                "foot": [35, 150, 0.45, 0.0]}
+GAME =os.environ.get("HCE_GAME", "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved")
 PAKS = os.path.join(GAME, "Meteorite", "Content", "Paks")
 UE4SS = os.path.join(GAME, "Meteorite", "Binaries", "Win64", "ue4ss")
 LAUNCHER_STATE = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher", "hub_state.json")
@@ -121,6 +134,21 @@ def paths(code, m, work):
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": m.get("base_level") or os.path.join(conv, m["level"]), "out_level": os.path.join(w, "level.json")}
+
+
+def indoor_landscape(code, m, p):
+    """An indoor map's landscape.json (INDOOR_CLIFF): the cliff entry alone,
+    its slots every terrain slot whose primary detail map is a cliff's (as
+    build_landscape.py finds them), for cliff_mesh.py and the level file."""
+    level = json.load(open(p["level"], encoding="utf-8"))
+    terrain = next(i for i in level["decor"] if str(i.get("id", "")).endswith("_terrain"))
+    details = sorted({t["Primary"].rsplit(".", 1)[-1] for t in
+                      (mt.get("textures") or {} for mt in terrain.get("materials") or [] if isinstance(mt, dict))
+                      if "detail_cliff" in t.get("Primary", "")})
+    cliff = dict(INDOOR_CLIFF, details=details, **(m.get("cliff") or {}))
+    os.makedirs(p["land"], exist_ok=True)
+    json.dump({"cliff": cliff}, open(os.path.join(p["land"], "landscape.json"), "w", encoding="utf-8"), indent=1)
+    print(f"  {code}: indoor, cliffs by {', '.join(details)}")
 
 
 def staging(p):
@@ -582,6 +610,9 @@ def bake_sbsp(m, p):
 
 
 def stage_editor(code, m, p):
+    if m.get("indoor"):
+        print(f"  {code}: indoor, no landscape world")
+        return
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env={"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"],
                           "MJ_LANDSCAPE_CHUNK": str(m["chunk"])})
@@ -704,10 +735,11 @@ def build_cliffs(maps, ps):
 
 
 def stage_cook(maps):
-    worlds = "+".join(f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}" for m in maps)
+    worlds = "+".join(f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}" for m in maps
+                      if not m.get("indoor"))
     # StaticMesh too: chunk 983 carries the tessellated cliffs.
     out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"),
-                     ["-Map", worlds, "-Classes", "Material,MaterialInstanceConstant,StaticMesh"])
+                     (["-Map", worlds] if worlds else []) + ["-Classes", "Material,MaterialInstanceConstant,StaticMesh"])
     if "BUILD SUCCESSFUL" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
     log = open(os.path.join(PROJECT, "Saved_cook.log"), encoding="utf-8", errors="replace").read()
@@ -1052,9 +1084,11 @@ def flux_spec(code, fx, river, level):
 
 def stage_assemble(code, m, p):
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
-    fol = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
+    fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    if m.get("indoor"):
+        level["landscape"]["indoor"] = True
     # `ground_looks`: some ground slots' own parameters over the ground's
     # (MJOLNIRLevelLoader cut.looks), by shader name substring: Ice Fields'
     # ice patches as ice.
@@ -1088,12 +1122,16 @@ def stage_assemble(code, m, p):
         mesh = os.path.join(p["work"], "cliff_mesh.json")
         if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
             spec = json.load(open(mesh, encoding="utf-8"))
-            cliff["tess"] = dict(TESS, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
+            # `tess` as an object: the map's own over TESS (Rat Race's
+            # tunnels: a wall pushed 30 cm into a 3 m passage).
+            own = m["tess"] if isinstance(m.get("tess"), dict) else {}
+            cliff["tess"] = dict(TESS, **own, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
                                  item=spec["item"], slots=spec["slots"])
     if os.path.exists(os.path.join(p["work"], "shadow_shell.json")):
         level["shadow_shell"] = {"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_ShadowShell.SM_{code}_ShadowShell"}
-    level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
-    shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
+    if fol:
+        level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
+        shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
     # Rivers: CE's flowing water (a transparent shader scrolling a stream
     # texture, not shader_water) drawn by M_CE_Ocean instead: still (no
     # swell), its ripples running along CE's own UVs, clear over its bed.
@@ -1300,7 +1338,8 @@ def stage_assemble(code, m, p):
     for f in files:
         shutil.copyfile(f, os.path.join(out, os.path.basename(f)))
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
-    print(f"  {code}: level file with {len(level['foliage']['groups'])} foliage group(s), {structures} structure slot(s), "
+    print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
+          f"{structures} structure slot(s), "
           f"{len(lights)} light(s), {len(decals)} CE decal(s), {len(grime)} grime decal(s)")
 
 
@@ -1647,6 +1686,18 @@ def hub_map_container(m, prefix="pakchunk997-"):
 def stage_install(code, m, p):
     if "HaloCampaignEvolved" in run(["tasklist"], check=False):
         sys.exit("close the game before installing")
+    data = os.path.join(UE4SS, "MJOLNIRMaps", code)
+    if m.get("indoor"):
+        # The hub copy's own containers; only the level file changes.
+        os.makedirs(data, exist_ok=True)
+        shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
+        decals = os.path.join(p["work"], "decals")
+        if os.path.isdir(decals) and os.listdir(decals):
+            os.makedirs(os.path.join(data, "decals"), exist_ok=True)
+            for f in os.listdir(decals):
+                shutil.copyfile(os.path.join(decals, f), os.path.join(data, "decals", f))
+        print(f"  {code}: level file installed (indoor)")
+        return
     base = hub_map_container(m)
     for e in ("utoc", "ucas"):
         shutil.copyfile(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.{e}"), f"{base}.{e}")
@@ -1700,6 +1751,9 @@ def main():
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
     for p in ps.values():
         os.makedirs(p["work"], exist_ok=True)
+    for c, m in maps.items():
+        if m.get("indoor"):
+            indoor_landscape(c, m, ps[c])
     for stage in STAGES:
         if stage not in stages:
             continue
@@ -1714,6 +1768,8 @@ def main():
         if stage == "install":
             install_shared()
         for c, m in maps.items():
+            if m.get("indoor") and stage in INDOOR_SKIP:
+                continue
             globals()[f"stage_{stage}"](c, m, ps[c])
     print("done")
 

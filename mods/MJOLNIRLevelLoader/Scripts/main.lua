@@ -4216,6 +4216,10 @@ function Land.cliffs(world, spec)
                         -- The fill is light: exposed as the level's lights are.
                         local f = cliff.fill
                         if type(f) == "table" then vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() }) end
+                        -- Indoors: CE's lightmap is the rock's light (`indoor`, its gain).
+                        if spec.indoor then
+                            vec(mid, "CliffIndoor", { (tonumber(cliff.indoor) or 1.0) * lightScale(), 0, 0, 0 })
+                        end
                         vec(mid, "CliffFillDir", cliff.fill_dir)
                         if sea then vec(mid, "LandSea", { sea, 0, cliff.wet or 60, 1 }) end
                         -- The tessellated copy's section: the same rock.
@@ -4399,6 +4403,14 @@ end
 function Land.apply(world)
     local spec = Current.level and Current.level.landscape
     if type(spec) ~= "table" then return end
+    -- An indoor map (upgrade_ce_map.py `indoor`: Rat Race's tunnels): no
+    -- Landscape, only its cliffs in the game's rock.
+    if spec.indoor then
+        local cok, cliffs = pcall(Land.cliffs, world, spec)
+        Log("landscape: indoor, " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs)
+            or tostring(cliffs)))
+        return
+    end
     local land = FindFirstOf("Landscape")
     if not (land and land:IsValid()) then
         Log("landscape: the level names one but the world has none")
@@ -4764,7 +4776,8 @@ end
 function Footprints.tick()
     if Footprints.deformTick() then return end
     local land = Current.level and Current.level.landscape
-    if not (Footprints.on and Current.furnished and type(land) == "table") then return end
+    -- Not indoors: no Landscape to find, and looking for one every tick costs.
+    if not (Footprints.on and Current.furnished and type(land) == "table" and not land.indoor) then return end
     local world = getWorld()
     if not (world and Footprints.targets(world)) then return end
     local me = not Footprints.hold and getPawn()
