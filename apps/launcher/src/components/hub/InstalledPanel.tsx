@@ -168,7 +168,7 @@ export function InstalledPanel({
                         })
                       }
                     >
-                      {busy === entry.slug ? "Updating…" : "Update"}
+                      {busy === entry.slug ? "Updating…" : update.repair ? "Repair" : "Update"}
                     </ActionButton>
                   )}
                   <button

@@ -132,7 +132,7 @@ export function ModDetail({
                           })
                         }
                       >
-                        {busy ? "Updating…" : `Update to ${update.latest_version}`}
+                        {busy ? "Updating…" : update.repair ? "Repair" : `Update to ${update.latest_version}`}
                       </ActionButton>
                     )}
                     <ActionButton
