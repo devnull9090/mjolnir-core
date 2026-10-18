@@ -893,26 +893,6 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 	return Placed;
 }
 
-namespace
-{
-	// The rotation UE4SS gives an actor spawned from Lua with
-	// World:SpawnActor(class, location, { Pitch, Yaw, Roll }): FRotator's own
-	// quaternion with the sign of one term of Y turned (fitted to seven
-	// probes, 2026-10-18: pitch alone comes out negated, yaw and roll as
-	// given, mixed angles compose differently). The loader's decor stands
-	// this way, and players know it so.
-	FQuat DecorRotation(double Pitch, double Yaw, double Roll)
-	{
-		const double P = FMath::DegreesToRadians(Pitch) / 2, Y = FMath::DegreesToRadians(Yaw) / 2,
-			R = FMath::DegreesToRadians(Roll) / 2;
-		const double SP = FMath::Sin(P), CP = FMath::Cos(P), SY = FMath::Sin(Y), CY = FMath::Cos(Y),
-			SR = FMath::Sin(R), CR = FMath::Cos(R);
-		FQuat Q(CR * SP * SY - SR * CP * CY, CR * SP * CY - SR * CP * SY, CR * CP * SY - SR * SP * CY,
-			CR * CP * CY + SR * SP * SY);
-		Q.Normalize();
-		return Q;
-	}
-}
 
 int32 UMjolnirUIBuilderLibrary::BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
 	const TArray<FVector>& Locations, const TArray<FVector>& Rotations, const TArray<FVector>& Scales,
@@ -941,7 +921,11 @@ int32 UMjolnirUIBuilderLibrary::BakeDecor(UWorld* World, const TArray<FString>& 
 		}
 		FActorSpawnParameters Params;
 		Params.Name = FName(*(TEXT("MJDecor_") + Ids[I]));
-		const FTransform T(DecorRotation(Rotations[I].X, Rotations[I].Y, Rotations[I].Z), Locations[I], Scales[I]);
+		// The rotation the level file asks for. The loader's SpawnActor rotation
+		// came out wrong through UE4SS (one sign of the quaternion turned), and
+		// a tilted tree's 20 to 60 pieces, each turned about its own pivot,
+		// stood apart: a trunk with a gap in it (Death Island, 2026-10-18).
+		const FTransform T(FRotator(Rotations[I].X, Rotations[I].Y, Rotations[I].Z), Locations[I], Scales[I]);
 		AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), T, Params);
 		if (!Actor)
 		{

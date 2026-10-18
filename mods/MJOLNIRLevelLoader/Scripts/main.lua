@@ -466,25 +466,18 @@ local function resolveMesh(path)
         Resolved[path] = loaded
         return loaded
     end
+    -- The soft path does not take a name with a number (SM_..._Big_6):
+    -- UE4SS's LoadAsset does, for what the game's AssetRegistry lists (none
+    -- of our own packages, which the soft path loads).
+    ok, loaded = pcall(function() return LoadAsset(path) end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
     local mesh = findObject(path)
     if mesh then
         Resolved[path] = mesh
         return mesh
-    end
-    ok, loaded = pcall(function() return LoadAsset(path) end)
-    if not (ok and loaded and loaded:IsValid()) then
-        -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists,
-        -- which leaves out every package of ours (the converted levels'
-        -- cooked materials and textures, pakchunk988). A soft-path blocking
-        -- load goes straight to the package store instead.
-        ok, loaded = pcall(function()
-            local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
-            return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
-        end)
-    end
-    if ok and loaded and loaded:IsValid() then
-        Resolved[path] = loaded
-        return loaded
     end
     Unresolved[path] = true
     Log("asset not found, not tried again on this map: " .. path)
@@ -1371,6 +1364,11 @@ local function spawnDecorItem(world, origin, item)
     end
 
     local okSetup, err = pcall(function()
+        -- The rotation asked for, set exactly: through UE4SS, SpawnActor's
+        -- comes out wrong (pitch alone negated, mixed angles composed
+        -- otherwise), and a tilted tree's pieces, each turned about its own
+        -- pivot, stood apart: a trunk with a gap (Death Island, 2026-10-18).
+        actor:K2_SetActorRotation({ Pitch = rot[1] or 0.0, Yaw = rot[2] or 0.0, Roll = rot[3] or 0.0 }, false)
         local comp = actor.StaticMeshComponent
         -- Order matters: SetStaticMesh silently refuses on a registered
         -- component whose mobility is Static, and StaticMeshActor ships Static.

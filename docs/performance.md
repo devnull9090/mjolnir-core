@@ -440,9 +440,14 @@ lookup in the loader, same procedure:
   - **Rotation.** UE4SS does not give an actor spawned from Lua the rotation
     it was asked for: pitch alone comes out negated, and mixed angles compose
     differently (one term of the quaternion's Y has its sign turned; fitted
-    to seven probes). The trees players know stand that way, so `BakeDecor`
-    turns each piece the same way. A baked piece reads back exactly the
-    rotation the loader's copy had.
+    to seven probes). The first bake copied that, to match. But a tilted
+    tree is 20 to 60 pieces, each turned about its own pivot, and turned
+    wrong they stood apart: the user found a Death Island tree with a gap in
+    its trunk, and the loader's copy had it too. `BakeDecor` now uses the
+    rotation the level file asks for, and the loader sets it exactly after
+    spawning (`K2_SetActorRotation`), which fixes the swapped trees on
+    Battle Creek and Infinity as well. A piece with no pitch was never
+    affected.
   - **Numbered names.** 147 tree meshes are named like `SM_..._Big_6`, which
     Unreal stores as `SM_..._Big` plus a number. The editor's `create_asset`
     lost the number (every stand-in became one `SM_..._Big`;

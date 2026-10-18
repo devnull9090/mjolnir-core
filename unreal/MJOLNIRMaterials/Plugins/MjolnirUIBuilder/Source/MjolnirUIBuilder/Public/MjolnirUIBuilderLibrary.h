@@ -161,11 +161,8 @@ public:
 	 * Bake a level file's decor (MJOLNIRLevelLoader spawnDecorItem: a mesh
 	 * actor each, no collision) into World: per piece its id (the actor is
 	 * named MJDecor_<id>), mesh, location (cm), rotation (pitch, yaw, roll as
-	 * the level file has them), scale and flags (2 static: no wind). The
-	 * rotation is turned as UE4SS turns the loader's SpawnActor rotation,
-	 * which is not the rotator's own (see DecorRotation), so the pieces stand
-	 * exactly as the loader stood them. Tagged FluxHide. Returns the pieces
-	 * placed, or -1.
+	 * the level file has them), scale and flags (2 static: no wind).
+	 * Tagged FluxHide. Returns the pieces placed, or -1.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
 	static int32 BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
