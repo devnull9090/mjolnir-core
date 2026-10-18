@@ -43,6 +43,7 @@ local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
 local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
 local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
+local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
@@ -1481,7 +1482,28 @@ pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
     return true
 end)
 
-Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log" })
+pcall(RegisterConsoleCommandHandler, "mjolnir_bench", function(_, args, ar)
+    ExecuteInGameThread(function()
+        local okC, said = pcall(Bench.command, args)
+        Log(okC and said or ("mjolnir_bench: " .. tostring(said)))
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)
+    return true
+end)
+
+Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log", settings = Bench.settings })
+-- Benches (Scripts/bench.lua) take their turns on the hitch log's frames.
+Bench.init({
+    log = Log,
+    file = MOD_DIR .. "\\bench.log",
+    pc = playerController,
+    liveFor = Hitches.liveSeconds,
+    map = function()
+        local pc = playerController()
+        return pc and scenarioOf(pc:GetWorld()) or "?"
+    end,
+})
+Hitches.listen(Bench.frame)
 -- Match chat (Scripts/chat.lua): what it needs of the match, read as used.
 Chat.init({
     dir = MOD_DIR,
