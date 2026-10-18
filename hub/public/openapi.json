@@ -4508,6 +4508,12 @@
             "minItems": 1,
             "maxItems": 12
           },
+          "base_times": {
+            "$ref": "#/components/schemas/BenchTimes"
+          },
+          "view": {
+            "$ref": "#/components/schemas/BenchView"
+          },
           "client_version": {
             "type": "string",
             "maxLength": 40
@@ -4676,11 +4682,92 @@
             "exclusiveMinimum": 0,
             "maximum": 10000,
             "example": 6.42
+          },
+          "times": {
+            "$ref": "#/components/schemas/BenchTimes"
           }
         },
         "required": [
           "name",
           "ms"
+        ]
+      },
+      "BenchTimes": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "game": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "game_cp": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "draw": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "draw_cp": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "rhit": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "gpu": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        }
+      },
+      "BenchView": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "z": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "pitch",
+          "yaw"
         ]
       },
       "Bench": {
@@ -4803,6 +4890,12 @@
               "$ref": "#/components/schemas/BenchResult"
             }
           },
+          "base_times": {
+            "$ref": "#/components/schemas/BenchTimes"
+          },
+          "view": {
+            "$ref": "#/components/schemas/BenchView"
+          },
           "foliage_delta_ms": {
             "type": [
               "number",
@@ -4841,6 +4934,8 @@
           "base_min_ms",
           "base_max_ms",
           "results",
+          "base_times",
+          "view",
           "foliage_delta_ms",
           "client_version",
           "created_at"
@@ -10427,7 +10522,7 @@
           "benches"
         ],
         "summary": "Send a bench the caller's game ran",
-        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
+        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at, the camera's place, and stat unit's game thread, render thread and GPU times for each condition. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
         "requestBody": {
           "content": {
             "application/json": {

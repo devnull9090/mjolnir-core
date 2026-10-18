@@ -68,6 +68,37 @@ file, and the numbers can be compared with ours.
 The bench runs on the HUD's frame hook. `mjolnir_hitches off` pauses that
 hook, and the bench with it.
 
+### Where a frame goes
+
+Each row also carries `stat unit`'s split for its turns, averaged over every
+timed frame, and `bench.log` records the held camera (`view:`):
+
+```
+bench on BGL: base 7.93 ms (126 fps), 4 runs from 7.20 to 9.86  [game 7.36, draw 2.97, rhit 4.48, gpu 5.70]
+bench on BGL:   no foliage                   6.50 ms  -1.43 ms  -18.0%  [game 5.97, draw 2.70, rhit 3.94, gpu 4.87]
+```
+
+(Blood Gulch at 1280x720 on PC 1 seconds after loading, 2026-10-18: a CPU-bound
+frame, GPU 5.7 ms of 7.9.)
+
+A frame is as slow as the slowest of the game thread, the render thread (Draw)
+and the GPU, so a cost that lands on the GPU saves nothing while the game
+thread is the slow one. Game includes the game thread's wait for the GPU (see
+above); the report also carries `game_cp` and `draw_cp`, the critical paths
+without waits, and RHIT.
+
+Nothing reflected holds these numbers, so MJOLNIRHud reads them through
+`native\mjolnir_frame_times.dll` (`native/frame_times`, built in CI like the
+other native halves). It finds `FStatUnitData::DrawStat` in the exe by a byte
+pattern and decodes the engine globals that function reads
+(`GGameThreadTime`, `GRenderThreadTime`, `GRHIThreadTime`, their critical
+paths, and `GDynamicRHI->RHIGetGPUFrameCycles(0)`) from its RIP-relative loads.
+They update every frame with `stat unit` off. After a game update that
+changes DrawStat the pattern stops matching: the bench still runs, its rows
+have no split, and `bench.log` says `no frame times`. After each game update
+run `python tools/pe/statunit_pattern.py "<Win64>/HaloCampaignEvolved.exe"`:
+it says whether the pattern still matches once and, if not, prints a new one.
+
 ### `/bench` and the hub
 
 A player types `/bench` in match chat. It refuses in the first two minutes on
@@ -85,10 +116,12 @@ MJOLNIRLobby posts it to `POST /api/v1/benches` with the launcher's key
 (scope `lobbies:write`, as match reports), so any player signed in to the hub
 through the launcher can send one. A hub that does not have the route yet
 answers 404, which keeps the file for a later try. The hub stores the settings
-line's fields with the sender's account (migrations/0021). Only admins read
-them: the moderation page's **Benchmarks** tab (`/moderation#benchmarks`)
-averages foliage runs by GPU, map, height drawn and foliage quality, and lists
-recent runs with who sent each; `GET /admin/benches` and
+line's fields with the sender's account (migrations/0021), and from MJOLNIRHud
+0.11.0 the held camera and each condition's frame split (migrations/0022).
+Only admins read them: the moderation page's **Benchmarks** tab
+(`/moderation#benchmarks`) averages foliage runs by GPU, map, height drawn and
+foliage quality, and lists recent runs with who sent each, which of game,
+draw and GPU bound the frame, and where the camera stood; `GET /admin/benches` and
 `GET /admin/benches/summary` serve the same data. A run taken in the first two
 minutes on a map is kept but left out of the averages.
 

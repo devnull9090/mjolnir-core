@@ -73,6 +73,10 @@ native/map_registry/obj/
 mods/MJOLNIRLobby/native/*.dll
 mods/MJOLNIRLobby/native/*.txt
 native/lobby/obj/
+# Built by native/frame_times/build.ps1; never committed
+mods/MJOLNIRHud/native/*.dll
+mods/MJOLNIRHud/native/*.txt
+native/frame_times/obj/
 
 # Match history files the HUD and Lobby write at runtime (docs/match_stats.md).
 mods/MJOLNIRHud/match_*.json

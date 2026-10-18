@@ -283,6 +283,29 @@ export interface CrashSignature {
   last_seen: string;
 }
 
+/**
+ * stat unit's split of a bench frame in ms, a mean over a condition's turns.
+ * Game includes the game thread's wait for the GPU; the `_cp` figures are
+ * critical paths, without waits. Draw is the render thread.
+ */
+export interface BenchTimes {
+  game?: number;
+  game_cp?: number;
+  draw?: number;
+  draw_cp?: number;
+  rhit?: number;
+  gpu?: number;
+}
+
+/** Where a bench held the camera: world position in cm, pitch and yaw in degrees. */
+export interface BenchView {
+  x: number;
+  y: number;
+  z: number;
+  pitch: number;
+  yaw: number;
+}
+
 /** One player's /bench run (docs/performance.md). Admin-only. */
 export interface BenchReport {
   id: string;
@@ -307,7 +330,11 @@ export interface BenchReport {
   base_ms: number;
   base_min_ms: number | null;
   base_max_ms: number | null;
-  results: { name: string; ms: number }[];
+  results: { name: string; ms: number; times?: BenchTimes | null }[];
+  /** stat unit's split of the base frame; null from clients before MJOLNIRHud 0.11.0. */
+  base_times: BenchTimes | null;
+  /** The held camera; null from clients before MJOLNIRHud 0.11.0. */
+  view: BenchView | null;
   /** "no foliage" less the base: negative, the frame time the foliage costs. */
   foliage_delta_ms: number | null;
   client_version: string | null;
