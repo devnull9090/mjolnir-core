@@ -244,20 +244,46 @@ What this says:
   saves 1.40 ms on Blood Gulch and 1.56 ms on Death Island, mostly GPU
   (6.7 → 5.1 ms on BGL).
 - **At the player's internal resolution our maps should cost about 17% more
-  GPU time than the campaign, not 4 times.** On a card about 3x slower than
-  a 5090 (their 19.6 ms against our 6.3 ms of GPU on BGL), B30's beach
-  would read about 16-17 ms, roughly 60 fps of engine frames.
+  GPU time than the campaign, not 4 times.** Their GPU reads 12.2-16.5 ms on
+  Blood Gulch where PC 1's fit gives 6.3 ms at that resolution, so their card
+  is about 2-2.6x slower here. B30's beach would then read about 10-14 ms,
+  70-100 fps of engine frames.
 - **So the 240 fps is most likely presented frames, not engine frames.**
   58.8% is an upscaler's Balanced preset, and the game has a Frame Generation
   option (on, on this box). FSR frame generation doubles what an overlay
-  counts; `/bench` counts engine frames. A lighter view (interiors) would add
-  to it. This was not measured here: there is no presented-frame counter on
-  PC 1, and the FSR path cannot run on an NVIDIA card. The DLSS one
-  (`r.Streamline.DLSSG.Enable 1`) stays on in our maps.
-- **The player's wind cost is out of proportion.** Wind is 0.95 of 1.4-1.6 ms
-  of foliage here (about 60%) and was 5.2 of 5.5 ms (95%) in their run. If
-  that repeats, world position offset on grass costs far more on their GPU
-  (RDNA 4) than on ours. One run so far, so this is a lead.
+  counts (140-200 fps from the estimate above); `/bench` counts engine frames.
+  A lighter view (interiors) would add to it. This was not measured here:
+  there is no presented-frame counter on PC 1, and the FSR path cannot run on
+  an NVIDIA card. The DLSS one (`r.Streamline.DLSSG.Enable 1`) stays on in
+  our maps.
+
+### The player's own benches
+
+The player sent five Blood Gulch benches through `/bench` on 2026-10-18
+(2560x1440 borderless at 58.824%, Epic, vsync off, no fps limit, RX 9060 XT,
+`gpuScore` 521 against the 5090's 2060). The last two came from MJOLNIRHud
+0.11.0, so they carry the held camera and the frame split:
+
+| Sent (UTC) | Time in world | View | Base | Game / Draw / RHIT / GPU | No foliage | No foliage shadows | No foliage wind |
+|---|---|---|---|---|---|---|---|
+| 07:55 | 185 s | (22101, 38552, 554) yaw -36 | 17.72 ms (56 fps) | 1.5 / 1.7 / 1.8 / 16.5 | -4.16 ms | -2.67 ms | -3.67 ms |
+| 08:02 | 569 s | (12199, 23602, 708) yaw 89 | 13.48 ms (74 fps) | 1.6 / 1.6 / 1.8 / 12.2 | -1.68 ms | -0.24 ms | -1.08 ms |
+
+The three earlier runs (MJOLNIRHud 0.10.0, no split or camera) read 19.64,
+8.19 and 17.27 ms bases, the first of them at 123 s in.
+
+- **Their frame is the GPU and nothing else.** Game, Draw and RHIT are all
+  under 2 ms; the render thread's critical path (`draw_cp` 12.5 and 16.8 ms)
+  is the GPU wait. On their PC the wait lands on the render thread, where on
+  PC 1 it lands on Game. Any GPU saving shows in full in their frame time.
+- **Foliage costs them 1.7-4.2 ms depending on where they stand**, against
+  1.4-1.6 ms on PC 1. That is in line with a slower card, view by view.
+- **Wind is not out of proportion after all.** Across their five runs, wind
+  is 41-94% of the foliage cost (1.1 ms of 1.7 at the 08:02 view, 64%, close
+  to PC 1's 60%). The first run's 95% (5.2 of 5.5 ms) was 123 s after
+  loading, inside the warm-up. Their two 0.11.0 runs are 3-4 ms of wind at a
+  grassy view and 1 ms at a plainer one: a large share of their frame, but
+  not an AMD-only cost. Shadows vary as much, from 0.24 to 2.67 ms.
 
 ### What costs what on our maps (PC 1, 1710x962)
 
@@ -307,7 +333,7 @@ out.
 
 | Fix | Expected saving |
 |---|---|
-| Wind off at High/Epic on slower GPUs (by `gpuScore`, or per vendor if more AMD benches repeat the 95%) | 0.95 ms here (12%); about 5 ms of the player's 19.6 ms |
+| Wind off at High/Epic on slower GPUs (by `gpuScore`) | 0.95 ms here (12%); 1.1-3.7 ms of the player's 13.5-17.7 ms (8-21%) |
 | Lua spike budgets: split `pulses`, `footprints`, `weather` and the Hud tick so no run takes more than a few ms | removes the 50-150 ms frames, the only large hitches standing still |
 | A foliage density and cull pass on Epic | part of the remaining 0.45-0.6 ms of foliage outside wind; more on slower GPUs |
 | Placed lights: `shadow_distance` back toward 2500-4000, or no shadows on small fill lights | 0.25-0.75 ms near bases |
