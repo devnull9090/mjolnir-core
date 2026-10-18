@@ -128,6 +128,54 @@ landscape = unreal.MjolnirUIBuilderLibrary.create_landscape(
     spec["sections"], spec["quads"], heights.tolist(), master, holes)
 if not landscape:
     raise RuntimeError("create_landscape failed")
+
+
+def standin(entry):
+    """An editor-only stand-in for a game mesh at its path: a box of the game
+    mesh's bounds with its slots (tools/level/foliage_bake.py). Never cooked
+    (DefaultGame.ini DirectoriesToNeverCook): in game the world's reference
+    resolves to the game's own mesh."""
+    path = entry["path"].split(".", 1)[0]
+    folder, name = path.rsplit("/", 1)
+    mesh = unreal.load_asset(path) if eal.does_asset_exist(path) else None
+    if not mesh:
+        mesh = tools.create_asset(name, folder, unreal.StaticMesh, None)
+    (ox, oy, oz), (ex, ey, ez) = entry["origin"], entry["extent"]
+    corners = [unreal.Vector(ox + sx * ex, oy + sy * ey, oz + sz * ez)
+               for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    normals = [unreal.Vector(sx, sy, sz) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    # The six faces, two triangles each, wound outward (corner index =
+    # 4 * x + 2 * y + z, 0 the minimum on that axis).
+    quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    indices = [i for a, b, c, d in quads for i in (a, b, c, a, c, d)]
+    uv = [unreal.Vector2D(0, 0)] * len(indices)
+    slots = [unreal.Name(s) for s in entry["slots"]]
+    if not unreal.MjolnirUIBuilderLibrary.build_static_mesh(mesh, corners, normals, indices, uv, uv,
+                                                            [0] * (len(indices) // 3), slots, [], []):
+        raise RuntimeError(f"stand-in {path} did not build")
+    eal.save_loaded_asset(mesh)
+    return mesh
+
+
+# The map's foliage baked into the world (MJ_FOLIAGE: tools/level/foliage_bake.py's
+# spec), as MJOLNIRLevelLoader's Foliage.spawn would place it at runtime.
+FOLIAGE = os.environ.get("MJ_FOLIAGE")
+if FOLIAGE:
+    fspec = json.load(open(FOLIAGE, encoding="utf-8"))
+    # Scanned first, as the world's folder above: a stand-in the registry has
+    # not reached yet would be made afresh over its file, and the editor's
+    # overwrite prompt crashes it unattended.
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(
+        sorted({e["path"].rsplit("/", 1)[0] for e in fspec["standins"]}), True)
+    for entry in fspec["standins"]:
+        standin(entry)
+    groups = fspec["groups"]
+    placed = unreal.MjolnirUIBuilderLibrary.bake_foliage(
+        world, fspec["bin"], fspec["actor"], [g["mesh"] for g in groups], [g["bands"] for g in groups],
+        [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
+    if placed < 0:
+        raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
+    unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(fspec['standins'])} stand-in(s)")
 if not les.save_current_level():
     raise RuntimeError("save_current_level failed")
 

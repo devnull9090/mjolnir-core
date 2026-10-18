@@ -19,6 +19,10 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Engine/StaticMesh.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Engine/CollisionProfile.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
 #include "Modules/ModuleManager.h"
@@ -683,3 +687,156 @@ bool UMjolnirUIBuilderLibrary::SetCollectionIds(UMaterialParameterCollection* Co
 		*Collection->StateId.ToString());
 	return true;
 }
+
+namespace
+{
+	// MJOLNIRLevelLoader's Foliage.rotation: turned Yaw (radians) about the
+	// vertical, then tilted so the clump's up is the ground normal (Nx, Ny, up).
+	FQuat FoliageRotation(double Yaw, double Nx, double Ny)
+	{
+		const double Hz = FMath::Sin(Yaw / 2), Hw = FMath::Cos(Yaw / 2);
+		const double S2 = Nx * Nx + Ny * Ny;
+		if (S2 < 1e-6)
+		{
+			return FQuat(0, 0, Hz, Hw);
+		}
+		const double Nz = FMath::Sqrt(FMath::Max(1 - S2, 0.0));
+		const double Half = FMath::Acos(FMath::Min(Nz, 1.0)) / 2;
+		const double K = FMath::Sin(Half) / FMath::Sqrt(S2);
+		const double Ax = -Ny * K, Ay = Nx * K, Aw = FMath::Cos(Half);
+		return FQuat(Ax * Hw + Ay * Hz, Ay * Hw - Ax * Hz, Aw * Hz, Aw * Hw);
+	}
+
+	// A grassy clump's quality tier by its turn in its band (mod 12): Low
+	// draws tier 0 (3 in 12, the loader's keep 4), Medium 0-1 (4 in 12,
+	// keep 3), High 0-2 (6 in 12, keep 2), Epic all.
+	const int32 FoliageTier[12] = { 0, 3, 2, 3, 0, 3, 1, 3, 0, 3, 2, 3 };
+}
+
+int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,
+	const TArray<FString>& Meshes, const TArray<int32>& Bands, const TArray<FVector2D>& Cull,
+	const TArray<int32>& Flags)
+{
+	TArray<uint8> Raw;
+	if (!World || !FFileHelper::LoadFileToArray(Raw, *BinPath) || Raw.Num() < 12 || Bands.Num() != Meshes.Num()
+		|| Cull.Num() != Meshes.Num() || Flags.Num() != Meshes.Num())
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: no foliage file at %s, or inconsistent groups"), *BinPath);
+		return -1;
+	}
+	const FString Magic = FString::ConstructFromPtrSize(reinterpret_cast<const ANSICHAR*>(Raw.GetData()), 4);
+	const bool bTilted = Magic == TEXT("MJF2") || Magic == TEXT("MJF3");
+	const bool bColoured = Magic == TEXT("MJF3");
+	if (!bTilted && Magic != TEXT("MJFG"))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: %s is not a foliage file"), *BinPath);
+		return -1;
+	}
+	const int32 Stride = bColoured ? 19 : bTilted ? 16 : 14;
+	int64 Pos = 4;
+	auto U32 = [&Raw, &Pos]() { uint32 V; FMemory::Memcpy(&V, Raw.GetData() + Pos, 4); Pos += 4; return V; };
+	U32();
+	const uint32 Count = U32();
+
+	FActorSpawnParameters Params;
+	Params.Name = FName(*ActorName);
+	AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Params);
+	if (!Actor)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: could not spawn %s"), *ActorName);
+		return -1;
+	}
+	Actor->SetActorLabel(ActorName);
+	USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"), RF_Transactional);
+	Root->SetMobility(EComponentMobility::Movable);
+	Actor->SetRootComponent(Root);
+	Actor->AddInstanceComponent(Root);
+	Root->RegisterComponent();
+
+	int32 Placed = 0, Components = 0;
+	for (uint32 G = 0; G < Count; ++G)
+	{
+		if (Pos + 4 > Raw.Num())
+		{
+			break;
+		}
+		const uint32 Size = U32();
+		const int64 Start = Pos;
+		Pos += int64(Size) * Stride;
+		if (Pos > Raw.Num())
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d runs past the end of the file"), G + 1);
+			return -1;
+		}
+		if (int32(G) >= Meshes.Num() || Meshes[G].IsEmpty() || Size == 0)
+		{
+			continue;
+		}
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Meshes[G]);
+		if (!Mesh)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no mesh %s"), G + 1, *Meshes[G]);
+			return -1;
+		}
+		const int32 NBands = FMath::Max(1, Bands[G]);
+		const bool bGrassy = (Flags[G] & 4) != 0;
+		const int32 NTiers = bGrassy ? 4 : 1;
+		TArray<TArray<FTransform>> Dealt;
+		Dealt.SetNum(NBands * NTiers);
+		for (uint32 K = 0; K < Size; ++K)
+		{
+			const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
+			float X, Y, Z;
+			FMemory::Memcpy(&X, R, 4);
+			FMemory::Memcpy(&Y, R + 4, 4);
+			FMemory::Memcpy(&Z, R + 8, 4);
+			const double Yaw = R[12] * PI / 128;
+			const double S = R[13] / 100.0;
+			const double Nx = bTilted ? int8(R[14]) / 127.0 : 0.0;
+			const double Ny = bTilted ? int8(R[15]) / 127.0 : 0.0;
+			const int32 Band = K % NBands;
+			const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
+			Dealt[Band * NTiers + Tier].Add(FTransform(FoliageRotation(Yaw, Nx, Ny), FVector(X, Y, Z), FVector(S)));
+		}
+		for (int32 B = 0; B < NBands; ++B)
+		{
+			// As Foliage.spawn: bands culled at distances spread over the
+			// group's range, in whole centimetres.
+			const double Far = NBands > 1 ? Cull[G].X + (Cull[G].Y - Cull[G].X) * (B + 1) / NBands : Cull[G].Y;
+			for (int32 T = 0; T < NTiers; ++T)
+			{
+				const TArray<FTransform>& Instances = Dealt[B * NTiers + T];
+				if (Instances.Num() == 0)
+				{
+					continue;
+				}
+				const FName Name(*FString::Printf(TEXT("MJFol_%d_%d_%d"), G + 1, B + 1, T));
+				UHierarchicalInstancedStaticMeshComponent* C =
+					NewObject<UHierarchicalInstancedStaticMeshComponent>(Actor, Name, RF_Transactional);
+				C->SetMobility(EComponentMobility::Movable);
+				C->SetupAttachment(Root);
+				C->SetStaticMesh(Mesh);
+				C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+				C->SetCastShadow((Flags[G] & 1) != 0);
+				C->SetEvaluateWorldPositionOffset((Flags[G] & 2) == 0);
+				// Rigid: the wind's offset does not invalidate the virtual
+				// shadow map's cached pages (Foliage.spawn).
+				C->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+				C->InstanceStartCullDistance = FMath::FloorToInt(FMath::Min(Cull[G].X, Far));
+				C->InstanceEndCullDistance = FMath::FloorToInt(Far);
+				Actor->AddInstanceComponent(C);
+				C->RegisterComponent();
+				C->AddInstances(Instances, false, false);
+				C->BuildTreeIfOutdated(false, true);
+				Placed += Instances.Num();
+				++Components;
+			}
+		}
+	}
+	Actor->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("BakeFoliage: %d clump(s) in %d component(s) from %s"), Placed, Components,
+		*BinPath);
+	return Placed;
+}
+

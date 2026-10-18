@@ -3736,9 +3736,100 @@ function Foliage.quality()
     return Foliage.QUALITY[math.max(0, math.min(3, q))] or Foliage.QUALITY[3]
 end
 
+--- A group's material on one of its meshes (a spawned band or a baked
+--- one): `material`, `tint`/`tint_param`/`params`/`scalars` as tinted
+--- instances, one a slot shared by the group's meshes (`mids`, returned).
+function Foliage.dress(world, kml, g, group, comp, mids)
+    local material = type(group.material) == "string" and resolveMesh(group.material)
+    if material then comp:SetMaterial(0, material) end
+    if type(group.tint) == "table" and kml then
+        -- One tinted instance a slot, shared by the bands.
+        if not mids then
+            mids = {}
+            for i = 0, comp:GetNumMaterials() - 1 do
+                local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
+                -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
+                -- tints through "Color Tint", the Megascans one through
+                -- "Color Overlay".
+                local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
+                mid:SetVectorParameterValue(FName(param),
+                    { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                -- `params`: more vector parameters by name, e.g. a
+                -- B30 grass's "Subsurface Color Tint" with its tint.
+                if type(group.params) == "table" then
+                    for name, v in pairs(group.params) do
+                        if type(v) == "table" then
+                            mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+                        end
+                    end
+                end
+                for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
+                    if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
+                end
+                mids[i] = mid
+            end
+        end
+        for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
+    elseif type(group.scalars) == "table" then
+        -- `scalars`: values on the mesh's own materials (scalarMid),
+        -- e.g. a swapped tree's leaf clusters.
+        for i = 0, comp:GetNumMaterials() - 1 do
+            local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
+            if mid then comp:SetMaterial(i, mid) end
+        end
+    end
+    return mids
+end
+
+--- A level whose foliage is `baked` (tools/level/foliage_bake.py,
+--- upgrade_ce_map.py `bake_foliage`) carries its groups in the world as
+--- hierarchical instanced meshes named MJFol_<group>_<band>_<tier>: this
+--- gives them what Foliage.spawn gives its own, the group's materials and
+--- tints, its cull distances scaled and its wind stilled by the quality,
+--- and hides the grassy groups' tiers above the quality (tier 0 at Low, 0-1
+--- Medium, 0-2 High: the loader's keep 4, 3, 2). `quality` nil hides them
+--- all (`mjolnir_foliage off`). One FindAllOf, no handles kept.
+--- Returns the meshes and clumps drawn.
+Foliage.TIERS = { [4] = 0, [3] = 1, [2] = 2, [1] = 3 }
+function Foliage.dressBaked(world, foliage, quality)
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local top = quality and (Foliage.TIERS[quality.keep] or 3) or -1
+    local mids, comps, drawn = {}, 0, 0
+    for _, comp in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
+        local g, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_%d+_(%d+)$")
+        g, tier = tonumber(g), tonumber(tier)
+        local group = g and foliage.groups[g]
+        if type(group) == "table" then
+            local shown = tier <= top
+            comp:SetVisibility(shown, false)
+            if shown then
+                -- Back to the mesh's own materials first: a reload dressed
+                -- the last load's tinted instances again, and the grass
+                -- drew dark grey (2026-10-18).
+                pcall(function()
+                    local mesh = comp.StaticMesh
+                    for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
+                end)
+                mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
+                if quality.cull < 1 then
+                    comp:SetCullDistances(math.floor(comp.InstanceStartCullDistance * quality.cull),
+                        math.floor(comp.InstanceEndCullDistance * quality.cull))
+                end
+                if quality.still then pcall(function() comp:SetEvaluateWorldPositionOffset(false) end) end
+                comps, drawn = comps + 1, drawn + comp:GetInstanceCount()
+            end
+        end
+    end
+    return comps, drawn
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
-    if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+    if type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+        return
+    end
+    if not Foliage.on then
+        if foliage.baked == true then Foliage.dressBaked(world, foliage, nil) end
         return
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
@@ -3762,6 +3853,10 @@ function Foliage.spawn(world)
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
+        if foliage.baked == true and not (group.cliff == true and coloured) then
+            pos = pos + size * (coloured and 19 or tilted and 16 or 14)
+            goto continue
+        end
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
         if group.cliff == true and coloured then
             pos = Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
@@ -3801,44 +3896,7 @@ function Foliage.spawn(world)
             -- (2026-10-12); the shadows stay, they just do not sway.
             pcall(function() comp.ShadowCacheInvalidationBehavior = SHADOW_CACHE_RIGID end)
             comp:SetCastShadow(group.shadow ~= false)
-            local material = type(group.material) == "string" and resolveMesh(group.material)
-            if material then comp:SetMaterial(0, material) end
-            if type(group.tint) == "table" and kml then
-                -- One tinted instance a slot, shared by the bands.
-                if not mids then
-                    mids = {}
-                    for i = 0, comp:GetNumMaterials() - 1 do
-                        local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
-                        -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
-                        -- tints through "Color Tint", the Megascans one through
-                        -- "Color Overlay".
-                        local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
-                        mid:SetVectorParameterValue(FName(param),
-                            { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
-                        -- `params`: more vector parameters by name, e.g. a
-                        -- B30 grass's "Subsurface Color Tint" with its tint.
-                        if type(group.params) == "table" then
-                            for name, v in pairs(group.params) do
-                                if type(v) == "table" then
-                                    mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
-                                end
-                            end
-                        end
-                        for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
-                            if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
-                        end
-                        mids[i] = mid
-                    end
-                end
-                for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
-            elseif type(group.scalars) == "table" then
-                -- `scalars`: values on the mesh's own materials (scalarMid),
-                -- e.g. a swapped tree's leaf clusters.
-                for i = 0, comp:GetNumMaterials() - 1 do
-                    local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
-                    if mid then comp:SetMaterial(i, mid) end
-                end
-            end
+            mids = Foliage.dress(world, kml, g, group, comp, mids)
             comps[#comps + 1] = comp
         end
         if #comps > 0 then
@@ -3867,9 +3925,17 @@ function Foliage.spawn(world)
         end
         ::continue::
     end
-    local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
-    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s), %.1f s%s",
-        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", os.clock() - started, wind and ", wind on" or ""))
+    local baked, centre = "", n > 0 and { sx / n, sy / n }
+    if foliage.baked == true then
+        local comps, drawn = Foliage.dressBaked(world, foliage, quality)
+        baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
+        -- The wind's flowmap centres on the clumps: assemble's mean of them.
+        if drawn > 0 and type(foliage.centre) == "table" then centre = foliage.centre end
+    end
+    local wind = centre and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, centre)
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s, %.1f s%s",
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked, os.clock() - started,
+        wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
@@ -5249,6 +5315,16 @@ local function status()
     else
         Log("no level loaded")
     end
+    -- The live heap: two full collections, as a finalized UE4SS handle
+    -- survives one (docs/performance.md). Then back to generational.
+    local held = 0
+    for _ in pairs(Current.actors or {}) do held = held + 1 end
+    local before = collectgarbage("count")
+    collectgarbage("collect")
+    collectgarbage("collect")
+    Log(string.format("lua heap: %.1f MB live (%.1f MB before collecting), %d actor handle(s) held",
+        collectgarbage("count") / 1024, before / 1024, held))
+    pcall(collectgarbage, "generational", 5, 100)
 end
 
 local function reload()

@@ -135,4 +135,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
 	static bool SetCollectionIds(class UMaterialParameterCollection* Collection, const FString& StateId,
 		const TArray<FString>& ScalarIds, const TArray<FString>& VectorIds);
+
+	/**
+	 * Bake a converted map's foliage file (tools/level/scatter_foliage.py:
+	 * MJFG/MJF2/MJF3, as MJOLNIRLevelLoader's Foliage.spawn reads it) into
+	 * World as one actor, ActorName, of hierarchical instanced meshes. Per
+	 * group, in the file's order: Meshes the mesh ("" leaves the group out,
+	 * e.g. the cladding rocks), Bands how many meshes its clumps are dealt
+	 * to in turn, culled over Cull (start, end cm) as the loader culls them,
+	 * and Flags 1 cast shadows, 2 static (no wind), 4 grassy: dealt again
+	 * over four quality tiers (3, 1, 2 and 6 clumps in 12) so the loader can
+	 * thin it below Epic by hiding tiers. Each component is named
+	 * MJFol_<group>_<band>_<tier> (1-based group and band, tier 0..3), which
+	 * the loader reads back. Returns the clumps placed, or -1.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
+	static int32 BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,
+		const TArray<FString>& Meshes, const TArray<int32>& Bands, const TArray<FVector2D>& Cull,
+		const TArray<int32>& Flags);
 };

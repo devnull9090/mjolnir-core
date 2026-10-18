@@ -19,6 +19,7 @@ goes, what was measured, what was changed, and what is left.
 | `mjolnir_bench` | The cost of the loader's foliage, its shadows and its wind, as an A/B at a held camera. `mjolnir_bench send` also sends it, as `/bench` does. | MJOLNIRHud `Scripts/bench.lua`, `bench.log` |
 | `mjolnir_bench <cvar> <value>` | The same A/B for any console variable against its current value. | same |
 | `mjolnir_hitches` | Per-map median, p95, p99 and worst frame, every hitch with where the camera was and which of our Lua loops ran. Each map's heading in `hitches.log` now carries the settings line. | MJOLNIRHud `Scripts/hitches.lua`, `hitches.log` |
+| `mjolnir_level_status` | Also the loader's live Lua heap (after two full collections) and how many actor handles it holds. | MJOLNIRLevelLoader |
 | `r.ScreenPercentage 200` | Makes a fast GPU the bottleneck, so GPU costs show in frame time. | console |
 
 These were tried and do **not** work in Shipping: `stat gpu`, `stat scenerendering`
@@ -216,6 +217,8 @@ from `AddInstance` at load. Baking would save the 6 s foliage spawn and part
 of the 14–16 s dressing, at the cost of a per-map cook pipeline, which has been
 fragile for this fork ([ue_mesh_write.md](ue_mesh_write.md): stock-UE cooks
 do not load). It is worth doing for load time, not for "slow with grass".
+Done for Death Island on 2026-10-18 (see "Baked foliage" below): 4.6 s off
+the load frame, frame rate unchanged.
 
 **Nanite?** The rocks already are, and they cost almost nothing. The grass
 is not, and we cannot rebuild the game's meshes as Nanite. Nanite foliage
@@ -296,7 +299,94 @@ The loader now makes ~36 KB of garbage a second. The other frames over 50 ms
 on Death Island name none of our loops: the first seconds after the map
 loads, and GPU work.
 
+## Baked foliage (2026-10-18)
+
+Death Island's grass, ground cover, pebbles, shells, driftwood and the
+swapped trees' leaf clusters (57 of its 75 foliage groups, 534,835 clumps)
+are now cooked into its landscape world instead of spawned by the loader.
+
+How it works:
+
+- `bake_foliage: true` on a map in `tools/level/ce_upgrade_maps.json`. The
+  editor stage runs `tools/level/foliage_bake.py`, which writes the spec: the
+  foliage file with the leaf clusters appended (as assemble appends them,
+  so group numbers match the level file), each group's mesh, bands, cull and
+  flags, and a stand-in per game mesh.
+- **Stand-ins.** The world names the game's own meshes (`/Game/Env/...`,
+  `/Game/Megascans/...`). Each gets an editor-only box of the game mesh's
+  bounds with its slots (read with `mjolnir ue get`), never cooked
+  (`DirectoriesToNeverCook`). The cook builds each component's cluster tree
+  and cached bounds from the mesh's bounds, so the box has to match. In game
+  the reference resolves to the game's mesh, the same trick as the
+  deformation MPC.
+- `Scripts/build_ce_landscape.py` calls `MjolnirUIBuilderLibrary.BakeFoliage`
+  (C++), which reads foliage.bin and places the clumps exactly as
+  `Foliage.spawn` does: same rotation, the same deal into bands, the same
+  whole-centimetre cull distances, Rigid shadow caching, no collision. It
+  takes half a second in the editor.
+- **Foliage quality.** Grassy groups are dealt once more into four tiers (3,
+  1, 2 and 6 clumps in 12). The loader hides the tiers above the quality:
+  tier 0 at Low, 0–1 at Medium, 0–2 at High. That is the old keep-1-in-4/3/2.
+  The engine's own density scaling would not do: the game's scalability sets
+  `foliage.DensityScale` 0 at Low, which clears every instance at load.
+- **The loader** (MJOLNIRLevelLoader 0.7.5): assemble marks the level file's
+  foliage `baked` and writes `centre`, the clumps' mean position for the wind
+  flowmap. `Foliage.spawn` then skips the baked groups and `Foliage.dressBaked`
+  does one pass over the `MJFol_<group>_<band>_<tier>` components: tints and
+  material overrides (the same dynamic instances as before), cull scaled by
+  quality, wind off when `still`, tiers hidden. `mjolnir_foliage off` hides
+  them. The pass resets each mesh to its own materials first, or a reload
+  tinted the last load's tinted instances and the grass went dark grey.
+- **Not baked:** the 7,696 cliff cladding rocks. Their material is built at
+  runtime from the landscape's textures and the CE light under each rock
+  (custom primitive data), and our materials drew black on instanced meshes.
+  They are still loader actors.
+- MJOLNIRHud's `mjolnir_bench` now measures every visible instanced mesh, so
+  it covers baked foliage too (MJOLNIRHud 0.11.2).
+
+Before and after, PC 1 (RTX 5090), 3840x2160 borderless, Epic, same procedure:
+fresh launch, Enter once, `mjolnir_auto host DTI slayer private`.
+
+| | Runtime (before) | Baked (after) |
+|---|---|---|
+| `foliage:` line | 6.1 s (6.2 s on a second load) | 1.5 s (the cladding rocks and the dressing pass) |
+| Long load frame | 15.5 s (15.3 s) | 10.7 s (10.8 s at Low) |
+| Instanced meshes | 245 | 788 (245 drawn at Low) |
+| Clumps drawn, Epic / Low | 534,835 / 161,520 | 534,835 / 161,581 |
+| LevelLoader Lua heap, live (two full collections) | 5.3 MB | 5.2 MB |
+| Actor handles the loader holds | 8,581 | 8,524 |
+| 5 min standing, median / p95 / p99 | 13 / 14 / 15 ms | 12 / 13 / 14 ms |
+| Hitches in those 5 min (under 50 / 50-100 / 100-250 ms) | 28 (6 / 15 / 7) | 30 (12 / 13 / 5) |
+| Lua in those 5 min (worst loop) | Hud tick 2 ms | Hud tick 3 ms |
+| `mjolnir_bench` at the test camera: base | 16.42 ms | 15.53 ms |
+| no foliage / foliage cost | 13.80 / 2.62 ms | 13.20 / 2.33 ms |
+| foliage wind / shadows | 1.33 / 0.59 ms | 0.90 / 0.49 ms |
+
+What this says:
+
+- **Load: 4.6–4.8 s off the load frame.** The foliage step went from 6.1 s
+  to 1.5 s, and what is left of it is the 7,696 cladding actors.
+- **Heap: no real change.** Since the generational GC and the shared
+  out-parameter table (PR #206) the loader's live heap is 5 MB either way.
+  The handles it holds are the cladding rocks and the decor; only 57 actor
+  handles went.
+- **Frame rate: no regression.** The two benches came from two launches.
+  The no-foliage frame also differs by 0.6 ms between them, so the baked
+  build reading 0.3 ms less for foliage is within launch-to-launch noise.
+  The extra components (788 against 245, from the tiers) did not raise
+  Draw or RHIT. The two 5-minute windows spawned at different points, so
+  their medians are not a like-for-like comparison either.
+- **Looks the same.** At the test camera the mean pixel difference from the
+  runtime shot is 1.7/255 (1.2 over the grass), with the same mean grass
+  colour; what differs is waves and clouds. Low thins it as before.
+
 ## What is left
+
+- **Bake the cladding rocks** (7,696 actors, most of the remaining 1.5 s
+  foliage step). They need the runtime material on baked actors, applied without
+  keeping a handle per rock.
+- **Bake the other remastered maps** (`bake_foliage` per map, a full
+  editor, cook, bake, assemble run each).
 
 - **The HUD's first tick of a match** holds the game thread 68–77 ms once
   (hooking incidents, making the widgets, the first name-tag sweep). It is

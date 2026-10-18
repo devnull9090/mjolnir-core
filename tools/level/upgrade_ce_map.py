@@ -613,9 +613,17 @@ def stage_editor(code, m, p):
     if m.get("indoor"):
         print(f"  {code}: indoor, no landscape world")
         return
+    env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
+    # `bake_foliage`: the grass, ground cover and leaf clusters placed in the
+    # world here (tools/level/foliage_bake.py) instead of by the loader at
+    # runtime; assemble then marks the level file's foliage `baked`.
+    if m.get("bake_foliage"):
+        spec = os.path.join(p["work"], "foliage_bake", "spec.json")
+        print("  " + run([sys.executable, os.path.join(HERE, "foliage_bake.py"), p["work"], spec, "--paks", PAKS,
+                          "--mjolnir", os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))]).strip().splitlines()[-1][:160])
+        env["MJ_FOLIAGE"] = spec
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
-                     env={"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"],
-                          "MJ_LANDSCAPE_CHUNK": str(m["chunk"])})
+                     env=env)
     # The editor's own log too: its console capture has stopped short of the
     # end (Death Island, 2026-10-13) with the world built.
     log = "".join(open(f, encoding="utf-8", errors="replace").read() for f in (
@@ -623,6 +631,8 @@ def stage_editor(code, m, p):
         if os.path.exists(f))
     if "landscape built" not in log or os.path.normcase(p["land"]) not in os.path.normcase(log.replace("/", "\\")):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
+    if m.get("bake_foliage") and "landscape foliage:" not in log:
+        sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
 
 
@@ -1101,6 +1111,8 @@ def flux_spec(code, fx, river, level):
 
 
 def stage_assemble(code, m, p):
+    # Read now: further down `m` is reused for a slot's material.
+    baked = bool(m.get("bake_foliage"))
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
@@ -1362,6 +1374,9 @@ def stage_assemble(code, m, p):
     os.makedirs(out, exist_ok=True)
     for f in files:
         shutil.copyfile(f, os.path.join(out, os.path.basename(f)))
+    if baked and level.get("foliage"):
+        mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
+        print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "
@@ -1674,6 +1689,30 @@ def append_foliage(path, records):
         raw += struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256, max(1, min(255, round(sc * 100))),
                            max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))), 255, 255, 255)
     open(path, "wb").write(bytes(raw))
+
+
+def mark_baked_foliage(foliage, path):
+    """The level file's foliage, baked into the world by the editor stage
+    (foliage_bake.py): `baked` tells the loader to leave every group but the
+    cliffs' cladding to the world, and `centre` is where the clumps lie on
+    average, which the loader's wind flowmap centres on (it took that from
+    the clumps it placed)."""
+    import struct
+    raw = open(path, "rb").read()
+    tilted, coloured = raw[:4] in (b"MJF2", b"MJF3"), raw[:4] == b"MJF3"
+    stride = 19 if coloured else 16 if tilted else 14
+    _, count = struct.unpack_from("<II", raw, 4)
+    pos, sx, sy, n = 12, 0.0, 0.0, 0
+    for g in range(count):
+        (size,) = struct.unpack_from("<I", raw, pos)
+        pos += 4
+        if not (foliage["groups"][g] or {}).get("cliff"):
+            for k in range(size):
+                x, y = struct.unpack_from("<ff", raw, pos + k * stride)
+                sx, sy, n = sx + x, sy + y, n + 1
+        pos += size * stride
+    foliage["baked"] = True
+    foliage["centre"] = [round(sx / max(n, 1), 1), round(sy / max(n, 1), 1)]
 
 
 def bake_pulses(level):
