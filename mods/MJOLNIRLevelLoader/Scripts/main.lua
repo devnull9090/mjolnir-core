@@ -3788,18 +3788,21 @@ end
 --- tints, its cull distances scaled and its wind stilled by the quality,
 --- and hides the grassy groups' tiers above the quality (tier 0 at Low, 0-1
 --- Medium, 0-2 High: the loader's keep 4, 3, 2). `quality` nil hides them
---- all (`mjolnir_foliage off`). One FindAllOf, no handles kept.
---- Returns the meshes and clumps drawn.
+--- all (`mjolnir_foliage off`). Cull and wind are worked out afresh from
+--- the level file each time (the components keep the last load's), as
+--- Foliage.spawn and BakeFoliage work them out. One FindAllOf, no handles
+--- kept. Returns the baked meshes found, then the meshes and clumps drawn.
 Foliage.TIERS = { [4] = 0, [3] = 1, [2] = 2, [1] = 3 }
 function Foliage.dressBaked(world, foliage, quality)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local top = quality and (Foliage.TIERS[quality.keep] or 3) or -1
-    local mids, comps, drawn = {}, 0, 0
+    local mids, found, comps, drawn = {}, 0, 0, 0
     for _, comp in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
-        local g, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_%d+_(%d+)$")
-        g, tier = tonumber(g), tonumber(tier)
+        local g, b, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_(%d+)_(%d+)$")
+        g, b, tier = tonumber(g), tonumber(b), tonumber(tier)
         local group = g and foliage.groups[g]
         if type(group) == "table" then
+            found = found + 1
             local shown = tier <= top
             comp:SetVisibility(shown, false)
             if shown then
@@ -3811,16 +3814,19 @@ function Foliage.dressBaked(world, foliage, quality)
                     for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
                 end)
                 mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
-                if quality.cull < 1 then
-                    comp:SetCullDistances(math.floor(comp.InstanceStartCullDistance * quality.cull),
-                        math.floor(comp.InstanceEndCullDistance * quality.cull))
-                end
-                if quality.still then pcall(function() comp:SetEvaluateWorldPositionOffset(false) end) end
+                local gc = type(group.cull) == "table" and group.cull
+                    or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
+                gc = { gc[1] * quality.cull, gc[2] * quality.cull }
+                local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
+                local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
+                comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
+                local sway = not (group.static or quality.still)
+                pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
                 comps, drawn = comps + 1, drawn + comp:GetInstanceCount()
             end
         end
     end
-    return comps, drawn
+    return found, comps, drawn
 end
 
 function Foliage.spawn(world)
@@ -3849,11 +3855,25 @@ function Foliage.spawn(world)
     Foliage.cliffGroups = {}
     local quality = Foliage.quality()
     local total, sx, sy, n = 0, 0, 0, 0
+    -- Baked: the world's own, dressed; spawned as before if the world turns
+    -- out to carry none (a hub map container put back under a baked level
+    -- file would otherwise leave the map bare).
+    local baked, centre = nil, nil
+    if foliage.baked == true then
+        local found, comps, drawn = Foliage.dressBaked(world, foliage, quality)
+        if found > 0 then
+            baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
+            -- The wind's flowmap centres on the clumps: assemble's mean of them.
+            centre = drawn > 0 and type(foliage.centre) == "table" and foliage.centre or nil
+        else
+            Log("foliage: the level file says baked, but the world carries none; spawning it")
+        end
+    end
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
-        if foliage.baked == true and not (group.cliff == true and coloured) then
+        if baked and not (group.cliff == true and coloured) then
             pos = pos + size * (coloured and 19 or tilted and 16 or 14)
             goto continue
         end
@@ -3925,16 +3945,10 @@ function Foliage.spawn(world)
         end
         ::continue::
     end
-    local baked, centre = "", n > 0 and { sx / n, sy / n }
-    if foliage.baked == true then
-        local comps, drawn = Foliage.dressBaked(world, foliage, quality)
-        baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
-        -- The wind's flowmap centres on the clumps: assemble's mean of them.
-        if drawn > 0 and type(foliage.centre) == "table" then centre = foliage.centre end
-    end
+    centre = centre or n > 0 and { sx / n, sy / n }
     local wind = centre and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, centre)
     Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s, %.1f s%s",
-        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked, os.clock() - started,
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked or "", os.clock() - started,
         wind and ", wind on" or ""))
 end
 

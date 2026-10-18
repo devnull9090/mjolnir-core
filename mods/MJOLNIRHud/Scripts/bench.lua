@@ -146,16 +146,19 @@ end
 -- Conditions
 --------------------------------------------------------------------------------
 
---- The level's foliage: every drawn hierarchical instanced mesh, the
---- loader's (on the StaticMeshActors Foliage.spawn spawns) or baked into
---- the map's world (MJFol_*, MJOLNIRLevelLoader Foliage.dressBaked). Hidden
---- ones (tiers above the foliage quality) are left out, so the bench never
---- shows them. One FindAllOf per bench, never per frame (~20 ms on a
+--- The level loader's foliage: the hierarchical instanced meshes it spawns
+--- on StaticMeshActors (MJOLNIRLevelLoader Foliage.spawn) or the ones baked
+--- into the map's world (MJFol_*, Foliage.dressBaked), not the game's own.
+--- Hidden ones (tiers above the foliage quality) are left out, so the bench
+--- never shows them. One FindAllOf per bench, never per frame (~20 ms on a
 --- converted map).
 local function foliage()
     local out = {}
     for _, c in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
-        if c:IsValid() and c:IsVisible() then
+        local owner = c:IsValid() and c:GetOwner()
+        local ours = c:IsValid() and (c:GetFName():ToString():match("^MJFol_")
+            or owner and owner:IsValid() and owner:GetClass():GetFName():ToString() == "StaticMeshActor")
+        if ours and c:IsVisible() then
             out[#out + 1] = { c = c, shadow = c.CastShadow, wind = c.bEvaluateWorldPositionOffset }
         end
     end
