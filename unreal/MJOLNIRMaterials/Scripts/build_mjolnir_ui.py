@@ -1590,16 +1590,20 @@ CHAT_AVATAR = 28
 def chat_line(bp, i):
     line = widget(bp, unreal.Border, f"ChatLine{i}", "ChatLines")
     rounded(line, 6, CHAT_FILL)
-    line.set_editor_property("padding", unreal.Margin(12, 5, 14, 6))
+    line.set_editor_property("padding", unreal.Margin(12, 7, 16, 7))
     line.set_visibility(unreal.SlateVisibility.COLLAPSED)
     line.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 0, 0))
     line.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
     row = widget(bp, unreal.HorizontalBox, f"ChatLineBox{i}", line.get_name())
     tag = hidden_text(widget(bp, unreal.TextBlock, f"ChatTag{i}", row.get_name()))
     text_style(tag, "[TEAM]", 17, ACCENT, "Bold")
-    tag.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 8, 0))
+    tag.get_editor_property("slot").set_padding(unreal.Margin(0, 6, 8, 0))
     face = icon_box(bp, f"ChatAvatar{i}", row.get_name(), CHAT_AVATAR, CHAT_AVATAR)
-    face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 8, 0))
+    # Centred on the first line of text: Normative Pro's 22 px line is about
+    # 42 px tall, so a 28 px picture at the top of the row sat high (and,
+    # beside the text's drop shadow, a little left). A message that wraps
+    # keeps its name and picture on its first line.
+    face.get_editor_property("slot").set_padding(unreal.Margin(2, 7, 8, 0))
     face.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_TOP)
     round_image(face.get_content(), CHAT_AVATAR)
     name = widget(bp, unreal.TextBlock, f"ChatName{i}", row.get_name())

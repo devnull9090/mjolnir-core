@@ -478,8 +478,14 @@ function Chat.frame(t)
         local okT, s = pcall(function() return W.ChatInput:GetText():ToString() end)
         if okT and s then
             -- The letter that opened the box arrives in it a moment later.
-            if openKey and t - openedAt < 0.25 and s:sub(1, 1):lower() == openKey then
-                pcall(function() W.ChatInput:SetText(FText(s:sub(2))) end)
+            -- Only when it is all there is, and only just after opening: the
+            -- letter does not always arrive (the input mode changes under
+            -- it), and then a quick first "t" of the message is the player's
+            -- ("test" came out "est", 2026-10-17).
+            if openKey and t - openedAt < 0.15 and s:lower() == openKey then
+                pcall(function() W.ChatInput:SetText(FText("")) end)
+                openKey = nil
+            elseif openKey and (t - openedAt >= 0.15 or #s > 1) then
                 openKey = nil
             elseif #s > Chat.MAX_BYTES then
                 pcall(function() W.ChatInput:SetText(FText(Chat.clean(s))) end)
