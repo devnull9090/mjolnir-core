@@ -19,8 +19,10 @@
  * reported; ranking built on them later should weigh hosts accordingly.
  *
  * Chat is kept apart (migrations/0020): the host's game sends every match's
- * chat log, private games' too, and only moderators read it, to judge the
- * player reports filed from that match. It is never public.
+ * chat log, private games' too. A public match's chat shows on its match
+ * page (players are told in game that public matches post their chat); a
+ * private game's is read only by moderators, to judge the player reports
+ * filed from it.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { createRoute, z } from "@hono/zod-openapi";
@@ -221,10 +223,29 @@ const MatchEventSchema = z
   })
   .openapi("MatchEvent");
 
+const MatchChatEntrySchema = z
+  .object({
+    t_ms: z.number(),
+    /** The sender's player index; -1 for a line no player sent. */
+    index: z.number(),
+    /** The sender's in-game name. */
+    name: z.string(),
+    /** The hub name the host's game showed; only with `user`. */
+    display_name: z.string().nullable(),
+    /** The sender's hub account, only when the line's account is the one linked to that seat. */
+    user: LinkedUserSchema.nullable(),
+    team: z.enum(["red", "blue"]).nullable(),
+    channel: z.enum(["all", "team"]),
+    text: z.string(),
+  })
+  .openapi("MatchChatEntry");
+
 const MatchDetailSchema = MatchSummarySchema.omit({ player: true })
   .extend({
     players: z.array(MatchPlayerSchema),
     events: z.array(MatchEventSchema),
+    /** The match's chat, in order; empty when the host's game sent none. */
+    chat: z.array(MatchChatEntrySchema),
   })
   .openapi("MatchDetail");
 
@@ -260,6 +281,7 @@ export type MatchSummary = z.infer<typeof MatchSummarySchema>;
 export type MatchDetail = z.infer<typeof MatchDetailSchema>;
 export type MatchPlayer = z.infer<typeof MatchPlayerSchema>;
 export type MatchEvent = z.infer<typeof MatchEventSchema>;
+export type MatchChatEntry = z.infer<typeof MatchChatEntrySchema>;
 export type PlayerTotals = z.infer<typeof PlayerTotalsSchema>;
 export type MatchChatTranscript = z.infer<typeof MatchChatTranscriptSchema>;
 type MatchReport = z.infer<typeof MatchReportSchema>;
@@ -438,7 +460,7 @@ export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches:
 }
 
 export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> {
-  const [head, players, events] = await db.batch([
+  const [head, players, events, chat] = await db.batch([
     db.prepare(
       `SELECT ${SUMMARY_COLUMNS}
        FROM matches m
@@ -454,6 +476,20 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
        ORDER BY p.place, p.player_index`,
     ).bind(id),
     db.prepare(`SELECT * FROM match_events WHERE match_id = ?1 ORDER BY seq`).bind(id),
+    // Only the log the match's own host sent. A line names an account only
+    // when it is the one linked to the sender's seat: the host's word is
+    // not enough to put an account's name to a line on a public page.
+    db.prepare(
+      `SELECT l.*, u.id AS u_id, u.display_name AS u_display_name, u.discord_username AS u_username,
+              u.discord_id AS u_discord_id, u.discord_avatar AS u_avatar
+       FROM matches m
+       JOIN match_chat_logs cl ON cl.host_match_id = m.host_match_id AND cl.reporter_user_id = m.reporter_user_id
+       JOIN match_chat_lines l ON l.host_match_id = cl.host_match_id
+       LEFT JOIN match_players p ON p.match_id = m.id AND p.player_index = l.player_index AND p.user_id = l.user_id
+       LEFT JOIN users u ON u.id = p.user_id AND u.banned_at IS NULL
+       WHERE m.id = ?1
+       ORDER BY l.seq`,
+    ).bind(id),
   ]);
   const row = head.results[0] as Row | undefined;
   if (!row) return null;
@@ -478,6 +514,19 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
       cause_pos: pos(r, "cause"),
       effect_pos: pos(r, "effect"),
     })),
+    chat: (chat.results as Row[]).map((r) => {
+      const user = linkedUser(r);
+      return {
+        t_ms: r.t_ms as number,
+        index: r.player_index as number,
+        name: r.name as string,
+        display_name: user ? ((r.display_name as string) ?? null) : null,
+        user,
+        team: (r.team as "red" | "blue" | null) ?? null,
+        channel: r.channel as "all" | "team",
+        text: r.text as string,
+      };
+    }),
   };
 }
 
@@ -842,7 +891,8 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
         "The host's game records every chat line its match carried and sends the whole log, at " +
         "checkpoints during the match and once more at the end; each send replaces the last. " +
         "`host_match_id` is the host's own id for the match, as POST /matches takes it, but the " +
-        "match need not be reported: a private game's chat is kept too. Only moderators read it " +
+        "match need not be reported: a private game's chat is kept too. A reported public match " +
+        "shows its chat on its match page (GET /matches/{id}); otherwise only moderators read it " +
         "(GET /moderation/match-chat/{host_match_id}), to judge reports filed from the match. " +
         "Needs the `lobbies:write` scope.",
       request: { body: { content: { "application/json": { schema: MatchChatLogSchema } } } },
@@ -942,7 +992,7 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
       method: "get",
       path: "/matches/{id}",
       tags: ["matches"],
-      summary: "One match: standings and every event, in order",
+      summary: "One match: standings, every event and the chat, in order",
       request: { params: z.object({ id: z.string() }) },
       responses: {
         200: { description: "The match.", content: { "application/json": { schema: MatchDetailSchema } } },

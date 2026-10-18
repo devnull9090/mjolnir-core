@@ -1719,6 +1719,48 @@ def build_chat():
     gap(hint, top=6)
     hint.set_visibility(unreal.SlateVisibility.COLLAPSED)
     shadowed(hint)
+
+    # The chat rules, shown the first time a player opens chat; chat opens
+    # only once they agree. Lua fills the text (Scripts/chat.lua RULES), so
+    # the wording can change without a new container.
+    rules = panel(bp, "ChatRules", "Root", alpha=0.94, padding=(48, 40, 48, 36))
+    rounded(rules, 12, (0.005, 0.018, 0.03, 0.94), padding=0)
+    rules.set_editor_property("padding", unreal.Margin(48, 40, 48, 36))
+    place(rules, (0.5, 0.5), (0.5, 0.5))
+    rules.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    size = sized(bp, "ChatRulesSize", rules.get_name(), width=1080)
+    stack = widget(bp, unreal.VerticalBox, "ChatRulesStack", size.get_name())
+    title = widget(bp, unreal.TextBlock, "ChatRulesTitle", stack.get_name())
+    text_style(title, "MATCH CHAT IS MODERATED", 34, ACCENT, "Bold")
+    body = widget(bp, unreal.TextBlock, "ChatRulesBody", stack.get_name())
+    text_style(body, "", 22, WHITE)
+    wrapped(body)
+    gap(body, top=18)
+    listed = widget(bp, unreal.TextBlock, "ChatRulesList", stack.get_name())
+    text_style(listed, "", 21, WHITE)
+    wrapped(listed)
+    gap(listed, top=18)
+    note = widget(bp, unreal.TextBlock, "ChatRulesNote", stack.get_name())
+    text_style(note, "", 19, GREY)
+    wrapped(note)
+    gap(note, top=18)
+    actions = widget(bp, unreal.HorizontalBox, "ChatRulesActions", stack.get_name())
+    gap(actions, top=28)
+    events = []
+    for key, label, event in (("ChatRulesAccept", "I AGREE", "chat_accept"),
+                              ("ChatRulesDecline", "NOT NOW", "chat_decline")):
+        button = menu_button(bp, key, label, actions.get_name(), size=26)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", event))
+    keys = widget(bp, unreal.TextBlock, "ChatRulesKeys", stack.get_name())
+    text_style(keys, "ENTER  AGREE      ESC  NOT NOW", 15, GREY, "Bold")
+    gap(keys, top=14)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
     finish(bp, name)
 
 

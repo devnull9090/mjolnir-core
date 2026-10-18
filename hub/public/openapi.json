@@ -3316,6 +3316,12 @@
             "items": {
               "$ref": "#/components/schemas/MatchEvent"
             }
+          },
+          "chat": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchChatEntry"
+            }
           }
         },
         "required": [
@@ -3339,7 +3345,8 @@
           "event_count",
           "host",
           "players",
-          "events"
+          "events",
+          "chat"
         ]
       },
       "MatchPlayer": {
@@ -3534,6 +3541,82 @@
           "modifier",
           "cause_pos",
           "effect_pos"
+        ]
+      },
+      "MatchChatEntry": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "number"
+          },
+          "index": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "all",
+              "team"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "t_ms",
+          "index",
+          "name",
+          "display_name",
+          "user",
+          "team",
+          "channel",
+          "text"
         ]
       },
       "PlayerTotals": {
@@ -8519,7 +8602,7 @@
           "matches"
         ],
         "summary": "Send the chat log of a match the caller hosted",
-        "description": "The host's game records every chat line its match carried and sends the whole log, at checkpoints during the match and once more at the end; each send replaces the last. `host_match_id` is the host's own id for the match, as POST /matches takes it, but the match need not be reported: a private game's chat is kept too. Only moderators read it (GET /moderation/match-chat/{host_match_id}), to judge reports filed from the match. Needs the `lobbies:write` scope.",
+        "description": "The host's game records every chat line its match carried and sends the whole log, at checkpoints during the match and once more at the end; each send replaces the last. `host_match_id` is the host's own id for the match, as POST /matches takes it, but the match need not be reported: a private game's chat is kept too. A reported public match shows its chat on its match page (GET /matches/{id}); otherwise only moderators read it (GET /moderation/match-chat/{host_match_id}), to judge reports filed from the match. Needs the `lobbies:write` scope.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -8704,7 +8787,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "One match: standings and every event, in order",
+        "summary": "One match: standings, every event and the chat, in order",
         "parameters": [
           {
             "schema": {

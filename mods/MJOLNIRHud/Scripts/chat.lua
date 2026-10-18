@@ -36,6 +36,27 @@ Chat.RATE = { count = 5, seconds = 6 }   -- per sender, on the host
 Chat.MAX_RECORD = 5000
 
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRChat.WBP_MJOLNIRChat_C"
+
+--- The chat rules a player agrees to before their first line. Agreeing is
+--- remembered beside this mod (chat_rules.txt holds the version agreed to);
+--- a new RULES.version asks again.
+local RULES = {
+    version = 1,
+    body = "Everything said in match chat is recorded and logged to your player account. "
+        .. "Public matches post their chat logs to the MJOLNIR hub with the match, and moderators "
+        .. "read the chat when a player is reported.",
+    list = "Keep it civil:\n"
+        .. "  -  No harassment, bullying, threats or hate speech: nothing aimed at anyone's race, ethnicity, "
+        .. "religion, nationality, gender, sexuality or disability.\n"
+        .. "  -  No slurs, sexual content, or graphic or violent content.\n"
+        .. "  -  No spam, flooding, scams or advertising.\n"
+        .. "  -  No one's personal information, your own included.\n"
+        .. "  -  No impersonating other players, hosts or moderators.\n"
+        .. "  -  No cheating, exploits or selling accounts.\n"
+        .. "Trash talk about the game is fine. Taking it out on a person is not.",
+    note = "Breaking the rules can get you reported, kicked by the host, and banned from public matches. "
+        .. "You can always leave chat closed: T opens it, and nothing you don't send is recorded.",
+}
 local SHOWN, HIDDEN, COLLAPSED, VISIBLE = 3, 2, 1, 0
 local PASS = 4 -- SelfHitTestInvisible
 local GREY = { R = 0.62, G = 0.74, B = 0.82, A = 1 }
@@ -152,6 +173,7 @@ end
 local ctx = nil          -- Chat.init's deps
 local Commands = nil     -- Scripts/commands.lua, loaded by Chat.init
 local suggest = { text = nil, list = {}, tab = nil, shown = 0 } -- the slash command list under the box
+local rules = { open = false, channel = nil, agreed = nil, hooked = false } -- the rules panel
 local drawSuggestions     -- set below the slash commands; close() clears the list
 local W = nil            -- the widget
 local nextWidgetTry = 0
@@ -332,10 +354,90 @@ local function close()
 end
 Chat.close = close
 
-local function openBox(channel, key)
-    if open or not ctx.match() or gameUI then return end
+--------------------------------------------------------------------------------
+-- The chat rules (RULES)
+--------------------------------------------------------------------------------
+
+local function rulesFile()
+    return ctx.dir .. "\\chat_rules.txt"
+end
+
+local function agreed()
+    if rules.agreed == nil then
+        local f = io.open(rulesFile(), "rb")
+        local text = f and f:read("*a") or ""
+        if f then f:close() end
+        rules.agreed = tonumber(text:match("^%s*(%d+)")) == RULES.version
+    end
+    return rules.agreed
+end
+
+local function cursor(on)
+    pcall(function() ctx.pc().bShowMouseCursor = on end)
+end
+
+local openBox -- below: agreeing opens the box the player asked for
+
+local function hideRules()
+    if not rules.open then return end
+    rules.open = false
+    if valid(W) then setVisibility(W.ChatRules, COLLAPSED) end
+    cursor(false)
+end
+
+local function agree()
+    if not rules.open then return end
+    local channel = rules.channel
+    local f = io.open(rulesFile(), "wb")
+    if f then
+        f:write(tostring(RULES.version), "\n")
+        f:close()
+    end
+    rules.agreed = true
+    hideRules()
+    ctx.log("chat: rules agreed")
+    openBox(channel, nil)
+end
+
+local function notNow()
+    if not rules.open then return end
+    hideRules()
+    typing(false)
+end
+
+--- Clicks on the panel's buttons arrive through the widget's MJ_Event.
+local function hookRules()
+    if rules.hooked then return end
+    rules.hooked = pcall(RegisterHook, CLASS .. ":MJ_Event", function(_, name)
+        local okN, event = pcall(function() return name:get():ToString() end)
+        if not okN then return end
+        ExecuteInGameThread(function()
+            if event == "chat_accept" then agree() elseif event == "chat_decline" then notNow() end
+        end)
+    end)
+end
+
+local function showRules(w, channel)
+    hookRules()
+    rules.open, rules.channel = true, channel
+    setText(w.ChatRulesBody, RULES.body)
+    setText(w.ChatRulesList, RULES.list)
+    setText(w.ChatRulesNote, RULES.note)
+    setVisibility(w.ChatRules, VISIBLE)
+    -- The panel takes the keyboard (Enter agrees, Esc is not now) and shows
+    -- the mouse for its buttons; the viewport ignores both meanwhile.
+    typing(true, w.ChatRulesAccept)
+    cursor(true)
+end
+
+openBox = function(channel, key)
+    if open or rules.open or not ctx.match() or gameUI then return end
     local w = ensureWidget()
     if not w then return end
+    if not agreed() then
+        showRules(w, channel)
+        return
+    end
     gate()
     if channel == "team" and not ctx.teams() then channel = "all" end
     open, openedAt, openKey = channel, ctx.now(), key
@@ -610,6 +712,7 @@ function Chat.tick(match)
     ensureWidget()
     -- The pause menu came up over the box (ESC opens it too): the box goes.
     if open and gameUI then close() end
+    if rules.open and gameUI then notNow() end
     if ctx.hidden() and valid(W) then setVisibility(W, COLLAPSED) elseif valid(W) then setVisibility(W, PASS) end
 end
 
@@ -644,6 +747,10 @@ end
 --- The match is over or left: close the box, write and queue the record.
 function Chat.finish()
     close()
+    if rules.open then
+        hideRules()
+        typing(false)
+    end
     if record then
         record.id = record.id or ctx.matchId()
         writeRecord(true)
@@ -692,8 +799,8 @@ function Chat.init(deps)
         { Key.T, once("T", function() openBox("all", "t") end) },
         { Key.Y, once("Y", function() openBox("team", "y") end) },
         { Key.HOME, once("HOME", function() openBox("all", nil) end) },
-        { Key.RETURN, once("RETURN", function() if open then send() end end) },
-        { Key.ESCAPE, once("ESCAPE", function() if open then close() end end) },
+        { Key.RETURN, once("RETURN", function() if open then send() elseif rules.open then agree() end end) },
+        { Key.ESCAPE, once("ESCAPE", function() if open then close() elseif rules.open then notNow() end end) },
         { Key.TAB, once("TAB", function() if open then complete() end end) },
     }
     for _, b in ipairs(binds) do

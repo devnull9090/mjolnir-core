@@ -683,6 +683,18 @@ local function say(h, pc, text)
         { get = function() return pc end },
         { get = function() return { ToString = function() return text end } end })
 end
+--- The first T shows the chat rules; Enter agrees and opens the box the
+--- player asked for, as `open` (a key bind) would have.
+local function agreeFirst(h, open)
+    open()
+    local w = h.widgets[3]
+    eq(w.ChatRules.visibility, 0)
+    eq(w.ChatInputBar.visibility == 4, false) -- no box before agreeing
+    h.wait(0.3)
+    h.binds.RETURN()
+    eq(w.ChatRules.visibility, 1)
+    h.wait(0.3)
+end
 local function chatWidget(h)
     for _, w in ipairs(h.widgets) do if rawget(w, "ChatLine0") or rawget(w, "ChatInput") then return w end end
     return h.widgets[3]
@@ -720,8 +732,19 @@ assert(record, "the host's chat record")
 assert(record:find('"name":"Charlie","user_id":"0000-c","display":"Charlie Hub","team":"blue","channel":"all","text":"hello there"', 1, true), record)
 assert(record:find('"channel":"team","text":"blue only"', 1, true), record)
 assert(not record:find("spam 4", 1, true), "a dropped line was recorded")
--- The host's own line goes straight out, without the RPC.
+-- The host's own line goes straight out, without the RPC. The first time,
+-- the rules come first: Esc is "not now" and chat stays shut; Enter agrees,
+-- once, remembered beside the mod.
 chatHost.binds.T()
+eq(cw.ChatRules.visibility, 0)
+assert(cw.ChatRulesBody.text:find("recorded and logged to your player account", 1, true), cw.ChatRulesBody.text)
+chatHost.wait(0.3)
+chatHost.binds.ESCAPE()
+eq(cw.ChatRules.visibility, 1); eq(chatHost.modes[#chatHost.modes], "game")
+assert(not chatHost.file("^chat_rules%.txt$"), "declining was remembered")
+chatHost.wait(0.3)
+agreeFirst(chatHost, chatHost.binds.T)
+eq(chatHost.file("^chat_rules%.txt$"), "1\n")
 eq(cw.ChatInputBar.visibility, 4); eq(cw.ChatChannel.text, "ALL")
 cw.ChatInput.text = "from the host"
 chatHost.binds.RETURN()
@@ -732,7 +755,7 @@ print("Multiplayer UI: chat relayed, filtered by team, limited and recorded by t
 -- A client sends over ServerExecRPC and draws what the host relays.
 local chatClient = runHUD("slayer", true)
 for _ = 1, 3 do chatClient.poll() end
-chatClient.binds.Y() -- team chat in free for all is all chat
+agreeFirst(chatClient, chatClient.binds.Y) -- team chat in free for all is all chat
 local ccw = chatWidget(chatClient)
 eq(ccw.ChatChannel.text, "ALL")
 eq(chatClient.modes[#chatClient.modes], "ui") -- the viewport ignores keys while typing
@@ -745,7 +768,7 @@ chatClient.binds.RETURN() -- closed: nothing more
 eq(chatClient.asked[#chatClient.asked], "MJOLNIR|say|a|hi all")
 hear(chatClient, "MJOLNIR|chat|a|-|2|Charlie|hey")
 eq(ccw.ChatText9.text, "hey"); eq(ccw.ChatName9.text, "Charlie:")
-assert(not chatClient.file("^chat_"), "a client recorded chat")
+assert(not chatClient.file("^chat_%x+%.json$"), "a client recorded chat")
 print("Multiplayer UI: a client's chat")
 
 -- Slash commands (Scripts/commands.lua).
@@ -804,7 +827,7 @@ print("Multiplayer UI: slash commands parse, suggest, resolve players and keep h
 local cmdHost = runHUD("slayer", false, nil, "lobby-1")
 for _ = 1, 4 do cmdHost.poll() end
 local hw = chatWidget(cmdHost)
-cmdHost.binds.T()
+agreeFirst(cmdHost, cmdHost.binds.T)
 hw.ChatInput.text = "/k"
 cmdHost.poll()
 eq(hw.ChatSugName0.text, "/kick <player>"); eq(hw.ChatSuggest.visibility, 4)
@@ -846,7 +869,7 @@ eq(cmdHost.commands[#cmdHost.commands], "mjolnir_auto kick Charlie")
 local cmdClient = runHUD("slayer", true)
 for _ = 1, 3 do cmdClient.poll() end
 local cw2 = chatWidget(cmdClient)
-cmdClient.binds.T()
+agreeFirst(cmdClient, cmdClient.binds.T)
 cw2.ChatInput.text = "/suicide"
 cmdClient.binds.RETURN()
 eq(cmdClient.asked[#cmdClient.asked], "MJOLNIR|cmd|/suicide")

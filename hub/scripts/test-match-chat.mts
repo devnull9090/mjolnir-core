@@ -298,3 +298,104 @@ test("player reports carry the log's line count", async () => {
   assert.equal(byId.get("r1"), 2);
   assert.equal(byId.get("r2"), null);
 });
+
+// ── A public match's chat on its match page ───────────────────────────
+
+const PUBLIC = "b0b0b0b0b0b0b0b0b0b0";
+
+async function reportMatch(key: string, hostMatchId: string) {
+  return call("POST", "/matches", key, {
+    host_match_id: hostMatchId,
+    lobby_id: `lobby-${hostMatchId}`,
+    map_code: "BGL",
+    game_type: "slayer",
+    team_game: true,
+    started_at: Math.floor(Date.now() / 1000) - 600,
+    duration_ms: 300_000,
+    end_reason: "game_over",
+    host_index: 0,
+    players: [
+      { index: 0, name: "HostSteam", team: "blue", score: 5, kills: 5 },
+      { index: 1, name: "SubjectSteam", team: "red", score: 3, kills: 3 },
+      { index: 2, name: "Stranger", team: "red", score: 1, kills: 1 },
+    ],
+  });
+}
+
+test("a public match's page carries its chat, linking only linked seats' accounts", async () => {
+  const subject = "mjc_test_subject";
+  const reported = await reportMatch(host, PUBLIC);
+  assert.equal(reported.status, 201);
+  const matchId = reported.body.id as string;
+  const claim = await call("POST", "/matches/claims", subject, {
+    host_match_id: PUBLIC,
+    player_index: 1,
+    name: "SubjectSteam",
+  });
+  assert.equal(claim.body.linked, true);
+  const sent = await call("POST", "/matches/chat", host, {
+    host_match_id: PUBLIC,
+    map_code: "BGL",
+    lines: [
+      line({ index: 0, name: "HostSteam", user_id: "host", display: "host display", team: "blue", t_ms: 1000, text: "glhf" }),
+      line({ index: 1, name: "SubjectSteam", user_id: "subject", display: "subject display", team: "red", t_ms: 2000, text: "push top", channel: "team" }),
+      // The host names an account the seat is not linked to: no link.
+      line({ index: 2, name: "Stranger", user_id: "other", display: "other display", team: "red", t_ms: 3000, text: "hi" }),
+      // A linked seat, but the line names someone else's account.
+      line({ index: 1, name: "SubjectSteam", user_id: "mod", display: "mod display", team: "red", t_ms: 4000, text: "x" }),
+    ],
+  });
+  assert.equal(sent.status, 201);
+
+  const r = await call("GET", `/matches/${matchId}`, null);
+  assert.equal(r.status, 200);
+  const chat = r.body.chat as {
+    t_ms: number;
+    index: number;
+    name: string;
+    display_name: string | null;
+    user: { id: string; name: string } | null;
+    team: string | null;
+    channel: string;
+    text: string;
+  }[];
+  assert.deepEqual(
+    chat.map((l) => [l.t_ms, l.index, l.name, l.user?.id ?? null, l.display_name, l.channel, l.text]),
+    [
+      [1000, 0, "HostSteam", "host", "host display", "all", "glhf"],
+      [2000, 1, "SubjectSteam", "subject", "subject display", "team", "push top"],
+      [3000, 2, "Stranger", null, null, "all", "hi"],
+      [4000, 1, "SubjectSteam", null, null, "all", "x"],
+    ],
+  );
+  assert.equal(chat[1].user?.name, "subject display");
+  assert.equal(chat[1].team, "red");
+});
+
+test("a match with no chat log has an empty chat", async () => {
+  const id = "c1c1c1c1c1c1c1c1";
+  const reported = await reportMatch(host, id);
+  const r = await call("GET", `/matches/${reported.body.id as string}`, null);
+  assert.deepEqual(r.body.chat, []);
+});
+
+test("a log sent under a public match's id by another account stays off its page", async () => {
+  const id = "d2d2d2d2d2d2d2d2";
+  assert.equal((await call("POST", "/matches/chat", other, { host_match_id: id, lines: [line({ text: "planted" })] })).status, 201);
+  const reported = await reportMatch(host, id);
+  assert.equal(reported.status, 201);
+  const r = await call("GET", `/matches/${reported.body.id as string}`, null);
+  assert.deepEqual(r.body.chat, []);
+});
+
+test("a private game's log is not on any public page", async () => {
+  // MATCH has a chat log but was never reported as a match.
+  const list = await call("GET", "/matches?limit=50", null);
+  assert.equal(list.status, 200);
+  assert.ok(!JSON.stringify(list.body).includes("gg ez"));
+  assert.equal((await call("GET", `/matches/${MATCH}`, null)).status, 404);
+  for (const m of list.body.matches as { id: string }[]) {
+    const page = await call("GET", `/matches/${m.id}`, null);
+    assert.ok(!JSON.stringify(page.body).includes("gg ez"));
+  }
+});
