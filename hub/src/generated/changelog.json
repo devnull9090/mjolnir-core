@@ -41,6 +41,35 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.15.0",
+      "tag": "launcher-v0.15.0",
+      "title": "Offers to send crash reports, and restarts mods UE4SS stopped loading",
+      "date": "2026-10-17",
+      "summary": "When the game crashes, the launcher offers to send a crash report so we can find the cause. It also repairs mods that stopped starting.",
+      "body": "### Added\n\n- **Crash reports.** When the game crashes, a bar at the top of the launcher\n  asks whether to send a report to the MJOLNIR team. Nothing is sent unless\n  you click Send report. \"What's sent?\" lists what goes: where the game\n  crashed, a trimmed crash dump without the game's memory, the UE4SS log from\n  that session, and your installed mods. Your PC's and Epic account's IDs and\n  your Windows user name are removed first. Sending needs the hub sign-in.\n- For a crash that is new to us, the launcher then asks whether you will also\n  send the full crash dump, about 50 MB. It is a copy of the game's memory\n  when it crashed, so it is only ever sent on that second yes.\n- **Settings → Crash Reports** lists your recent crashes, each with a Send\n  button. Crashes from before this update are listed there but never asked\n  about.\n\n### Fixed\n\n- **\"MJOLNIR MODS DID NOT START\" in the multiplayer lobby.** When a mod's line\n  went missing from mods.txt, UE4SS stopped starting that mod and the launcher\n  could not put it back. Switching a mod on now adds its line, so installing a\n  map or \"Install multiplayer\" repairs the file. Script mods now also lists mod\n  folders that mods.txt leaves out, so you can switch them on.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Crash reports. When the game crashes, a bar at the top of the launcher asks whether to send a report to the MJOLNIR team. Nothing is sent unless you click Send report. \"What's sent?\" lists what goes: where the game crashed, a trimmed crash dump without the game's memory, the UE4SS log from that session, and your installed mods. Your PC's and Epic account's IDs and your Windows user name are removed first. Sending needs the hub sign-in.",
+            "For a crash that is new to us, the launcher then asks whether you will also send the full crash dump, about 50 MB. It is a copy of the game's memory when it crashed, so it is only ever sent on that second yes.",
+            "Settings → Crash Reports lists your recent crashes, each with a Send button. Crashes from before this update are listed there but never asked about."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "\"MJOLNIR MODS DID NOT START\" in the multiplayer lobby. When a mod's line went missing from mods.txt, UE4SS stopped starting that mod and the launcher could not put it back. Switching a mod on now adds its line, so installing a map or \"Install multiplayer\" repairs the file. Script mods now also lists mod folders that mods.txt leaves out, so you can switch them on."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.15.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.15.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.15.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.14.1",
       "tag": "launcher-v0.14.1",
       "title": "Puts back the remastered maps' grass",
