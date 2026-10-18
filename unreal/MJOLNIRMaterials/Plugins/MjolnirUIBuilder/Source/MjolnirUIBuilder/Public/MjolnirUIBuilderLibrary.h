@@ -145,9 +145,12 @@ public:
 	 * to in turn, culled over Cull (start, end cm) as the loader culls them,
 	 * and Flags 1 cast shadows, 2 static (no wind), 4 grassy: dealt again
 	 * over four quality tiers (3, 1, 2 and 6 clumps in 12) so the loader can
-	 * thin it below Epic by hiding tiers. Each component is named
+	 * thin it below Epic by hiding tiers, 8 cladding: a mesh actor a rock,
+	 * MJClad_<group>_<rock>, instead (16: with the record's colour bytes as
+	 * custom primitive data 0-2). Each component is named
 	 * MJFol_<group>_<band>_<tier> (1-based group and band, tier 0..3), which
-	 * the loader reads back. Returns the clumps placed, or -1.
+	 * the loader reads back. Everything is tagged FluxHide. Returns the
+	 * clumps and rocks placed, or -1.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
 	static int32 BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,

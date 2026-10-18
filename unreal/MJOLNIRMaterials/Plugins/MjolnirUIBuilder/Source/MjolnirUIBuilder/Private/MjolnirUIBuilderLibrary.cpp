@@ -21,6 +21,7 @@
 #include "Engine/StaticMesh.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/CollisionProfile.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "MeshDescription.h"
@@ -747,6 +748,9 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 		return -1;
 	}
 	Actor->SetActorLabel(ActorName);
+	// Out of Flux's ground capture, as the loader tags every actor it spawns.
+	const FName FluxHide(TEXT("FluxHide"));
+	Actor->Tags.Add(FluxHide);
 	USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"), RF_Transactional);
 	Root->SetMobility(EComponentMobility::Movable);
 	Actor->SetRootComponent(Root);
@@ -777,6 +781,54 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 		{
 			UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no mesh %s"), G + 1, *Meshes[G]);
 			return -1;
+		}
+		if (Flags[G] & 8)
+		{
+			// Cladding: a mesh actor a rock, named MJClad_<group>_<rock>,
+			// as Foliage.spawnCladding spawns them (our cliff materials drew
+			// black on instanced meshes in this game). Flag 16: the record's
+			// colour bytes, the CE light under the rock, as custom primitive
+			// data 0-2 (M_CE_CliffPBR's CladLight.a 2).
+			for (uint32 K = 0; K < Size; ++K)
+			{
+				const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
+				float X, Y, Z;
+				FMemory::Memcpy(&X, R, 4);
+				FMemory::Memcpy(&Y, R + 4, 4);
+				FMemory::Memcpy(&Z, R + 8, 4);
+				const double S = R[13] / 100.0;
+				const double Nx = bTilted ? int8(R[14]) / 127.0 : 0.0;
+				const double Ny = bTilted ? int8(R[15]) / 127.0 : 0.0;
+				FActorSpawnParameters RockParams;
+				RockParams.Name = FName(*FString::Printf(TEXT("MJClad_%d_%d"), G + 1, K + 1));
+				const FTransform T(FoliageRotation(R[12] * PI / 128, Nx, Ny), FVector(X, Y, Z), FVector(S));
+				AStaticMeshActor* Rock = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), T, RockParams);
+				if (!Rock)
+				{
+					UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: rock %d did not spawn"), G + 1, K + 1);
+					return -1;
+				}
+				Rock->Tags.Add(FluxHide);
+				UStaticMeshComponent* C = Rock->GetStaticMeshComponent();
+				C->SetMobility(EComponentMobility::Movable);
+				C->SetStaticMesh(Mesh);
+				C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+				C->SetCastShadow((Flags[G] & 1) != 0);
+				// Out of Lumen's bounce: lit by the cliffs' fill (emissive)
+				// the rocks bounced the whole scene orange.
+				C->bAffectDynamicIndirectLighting = false;
+				if ((Flags[G] & 16) && bColoured)
+				{
+					C->SetDefaultCustomPrimitiveDataFloat(0, R[16] / 255.0f);
+					C->SetDefaultCustomPrimitiveDataFloat(1, R[17] / 255.0f);
+					C->SetDefaultCustomPrimitiveDataFloat(2, R[18] / 255.0f);
+				}
+				Rock->SetActorTransform(T);
+				++Placed;
+				++Components;
+			}
+			continue;
 		}
 		const int32 NBands = FMath::Max(1, Bands[G]);
 		const bool bGrassy = (Flags[G] & 4) != 0;

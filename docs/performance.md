@@ -217,8 +217,8 @@ from `AddInstance` at load. Baking would save the 6 s foliage spawn and part
 of the 14–16 s dressing, at the cost of a per-map cook pipeline, which has been
 fragile for this fork ([ue_mesh_write.md](ue_mesh_write.md): stock-UE cooks
 do not load). It is worth doing for load time, not for "slow with grass".
-Done for Death Island on 2026-10-18 (see "Baked foliage" below): 4.6 s off
-the load frame, frame rate unchanged.
+Done for Death Island on 2026-10-18 (see "Baked foliage" below): the load
+frame went from 15.5 s to 9.1 s, the frame rate is unchanged.
 
 **Nanite?** The rocks already are, and they cost almost nothing. The grass
 is not, and we cannot rebuild the game's meshes as Nanite. Nanite foliage
@@ -301,9 +301,10 @@ loads, and GPU work.
 
 ## Baked foliage (2026-10-18)
 
-Death Island's grass, ground cover, pebbles, shells, driftwood and the
-swapped trees' leaf clusters (57 of its 75 foliage groups, 534,835 clumps)
-are now cooked into its landscape world instead of spawned by the loader.
+Death Island's grass, ground cover, pebbles, shells, driftwood, the
+swapped trees' leaf clusters (534,835 clumps) and its 7,696 cliff cladding
+rocks, all 75 foliage groups, are now cooked into its landscape world
+instead of spawned by the loader.
 
 How it works:
 
@@ -337,15 +338,25 @@ How it works:
   quality, wind off when `still`, tiers hidden. `mjolnir_foliage off` hides
   them. The pass resets each mesh to its own materials first, or a reload
   tinted the last load's tinted instances and the grass went dark grey.
-- **Not baked:** the 7,696 cliff cladding rocks. Their material is built at
-  runtime from the landscape's textures and the CE light under each rock
-  (custom primitive data), and our materials drew black on instanced meshes.
-  They are still loader actors.
+- **Cladding rocks** are mesh actors, `MJClad_<group>_<rock>`, not
+  instances: our cliff materials drew black on instanced meshes in this
+  game. Each carries what `Foliage.spawnCladding` gave it: the CE light under
+  it as custom primitive data 0-2, no collision, out of Lumen's bounce. Their
+  material is still built at runtime from the landscape's textures, so the
+  loader collects them with one `FindAllOf`, `Land.cliffs` gives each light
+  group its material, and then the handles are dropped.
+- Everything baked is tagged `FluxHide`, as the loader tags its own actors,
+  so Flux's ground capture does not see it.
+- If the world turns out to carry no baked meshes or rocks (a hub map
+  container put back under a baked level file), the loader spawns them as
+  before. That path was tested for the rocks.
 - MJOLNIRHud's `mjolnir_bench` now measures every visible instanced mesh, so
   it covers baked foliage too (MJOLNIRHud 0.11.2).
 
 Before and after, PC 1 (RTX 5090), 3840x2160 borderless, Epic, same procedure:
 fresh launch, Enter once, `mjolnir_auto host DTI slayer private`.
+
+Grass and ground cover first (rocks still spawned by the loader):
 
 | | Runtime (before) | Baked (after) |
 |---|---|---|
@@ -365,7 +376,7 @@ fresh launch, Enter once, `mjolnir_auto host DTI slayer private`.
 What this says:
 
 - **Load: 4.6–4.8 s off the load frame.** The foliage step went from 6.1 s
-  to 1.5 s, and what is left of it is the 7,696 cladding actors.
+  to 1.5 s, and what was left of it was the 7,696 cladding actors.
 - **Heap: no real change.** Since the generational GC and the shared
   out-parameter table (PR #206) the loader's live heap is 5 MB either way.
   The handles it holds are the cladding rocks and the decor; only 57 actor
@@ -380,11 +391,30 @@ What this says:
   runtime shot is 1.7/255 (1.2 over the grass), with the same mean grass
   colour; what differs is waves and clouds. Low thins it as before.
 
+Then the cladding rocks too (all 75 groups baked), same procedure:
+
+| | Rocks spawned (grass baked) | Everything baked |
+|---|---|---|
+| `foliage:` line | 1.5 s | 0.2 s |
+| Long load frame | 10.7 s (9.8 s on another launch) | 9.1 s |
+| LevelLoader Lua heap, live | 5.2 MB | 2.5 MB |
+| Actor handles the loader holds | 8,524 | 828 |
+| 5 min at the test camera, median / p95 / worst | | 16 / 17 / 21 ms, no hitches |
+| `mjolnir_bench` at the test camera: base / foliage cost | 15.53 / 2.33 ms | 16.39 / 2.61 ms |
+
+- **Load: another 1.3 s.** From the first runtime build, Death Island's load
+  frame went from 15.5 s to 9.1 s, and the foliage step from 6.1 s to 0.2 s.
+- **Heap halved, handles down by 90%.** The loader no longer holds a handle
+  per rock. What it holds now is the decor (790 pieces) and its own actors.
+- **Frame rate unchanged.** The bench base moved by 0.9 ms between launches
+  (15.53 to 16.39) with the same foliage on screen, and the runtime build read
+  16.42. That is launch-to-launch noise, not the bake.
+- **Rocks look the same.** At a camera close to a cluster of 122 rocks,
+  (-9309, -12608, 5046), pitch -14.9, yaw -123.2, the mean pixel difference
+  between spawned and baked rocks is 0.24/255.
+
 ## What is left
 
-- **Bake the cladding rocks** (7,696 actors, most of the remaining 1.5 s
-  foliage step). They need the runtime material on baked actors, applied without
-  keeping a handle per rock.
 - **Bake the other remastered maps** (`bake_foliage` per map, a full
   editor, cook, bake, assemble run each).
 

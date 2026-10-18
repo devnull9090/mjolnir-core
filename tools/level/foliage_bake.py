@@ -20,9 +20,10 @@ bounds from the mesh's bounds; the bounds come from the game's package
 
 The spec: `bin`, the foliage file with the swapped trees' leaf clusters
 appended as assemble appends them (so group numbers match the level file's);
-`groups`, per group its mesh ("" for groups left to the loader: the cliffs'
-cladding rocks, whose material the loader builds at runtime), bands, cull
-and flags (1 shadow, 2 static, 4 grassy: thinned by quality); `standins`.
+`groups`, per group its mesh, bands, cull and flags (1 shadow, 2 static,
+4 grassy: thinned by quality, 8 the cliffs' cladding: a mesh actor a rock,
+whose material the loader still builds at runtime, 16 with the CE light
+under each rock); `standins`.
 """
 import argparse
 import json
@@ -113,10 +114,11 @@ def main():
 
     spec_groups, meshes = [], {}
     for g in groups:
-        mesh = g.get("mesh") if isinstance(g.get("mesh"), str) and not g.get("cliff") else ""
+        mesh = g.get("mesh") if isinstance(g.get("mesh"), str) else ""
         cull = g.get("cull") if isinstance(g.get("cull"), list) else CULL
         flags = (1 if g.get("shadow") is not False else 0) | (2 if g.get("static") else 0) \
-            | (4 if g.get("rule") in GRASSY else 0)
+            | (4 if g.get("rule") in GRASSY else 0) | (8 if g.get("cliff") else 0) \
+            | (16 if g.get("cliff") and g.get("lm") else 0)
         spec_groups.append({"mesh": mesh, "bands": max(1, int(g.get("bands") or 1)),
                             "cull": [float(cull[0]), float(cull[1])], "flags": flags})
         if mesh:

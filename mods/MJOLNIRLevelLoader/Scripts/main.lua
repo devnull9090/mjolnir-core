@@ -3829,13 +3829,35 @@ function Foliage.dressBaked(world, foliage, quality)
     return found, comps, drawn
 end
 
+--- The cladding rocks a baked world carries (MJClad_<group>_<rock>, mesh
+--- actors: BakeFoliage's flag 8), by group, from one FindAllOf. `shown`
+--- false hides them (`mjolnir_foliage off`). The lists go to
+--- Foliage.cliffGroups for Land.cliffs, which drops them once the rocks
+--- have their material: the loader keeps no handle a rock.
+function Foliage.bakedRocks(shown)
+    local rocks, found = {}, 0
+    for _, actor in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        local g = tonumber(actor:GetFName():ToString():match("^MJClad_(%d+)_%d+$"))
+        if g then
+            local list = rocks[g] or {}
+            list[#list + 1] = actor
+            rocks[g], found = list, found + 1
+            if shown ~= nil then actor:SetActorHiddenInGame(not shown) end
+        end
+    end
+    return rocks, found
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
     if type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
         return
     end
     if not Foliage.on then
-        if foliage.baked == true then Foliage.dressBaked(world, foliage, nil) end
+        if foliage.baked == true then
+            Foliage.dressBaked(world, foliage, nil)
+            Foliage.bakedRocks(false)
+        end
         return
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
@@ -3869,12 +3891,22 @@ function Foliage.spawn(world)
             Log("foliage: the level file says baked, but the world carries none; spawning it")
         end
     end
+    -- Baked cladding rocks likewise: spawned only for a group the world
+    -- turns out not to carry.
+    local rocks, rocked = {}, 0
+    if foliage.baked == true and coloured then rocks, rocked = Foliage.bakedRocks(true) end
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
         if baked and not (group.cliff == true and coloured) then
             pos = pos + size * (coloured and 19 or tilted and 16 or 14)
+            goto continue
+        end
+        if group.cliff == true and coloured and rocks[g] then
+            pos = pos + size * 19
+            Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = rocks[g], base = group.base,
+                light = group.light, lm = group.lm, baked = true }
             goto continue
         end
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
@@ -3947,9 +3979,9 @@ function Foliage.spawn(world)
     end
     centre = centre or n > 0 and { sx / n, sy / n }
     local wind = centre and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, centre)
-    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s, %.1f s%s",
-        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked or "", os.clock() - started,
-        wind and ", wind on" or ""))
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s%s, %.1f s%s",
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked or "",
+        rocked > 0 and string.format(", %d baked rock(s)", rocked) or "", os.clock() - started, wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
@@ -4425,6 +4457,8 @@ function Land.cliffs(world, spec)
                     pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)
                 end
             end
+            -- Baked rocks are the world's: no handle kept once dressed.
+            if group.baked then group.actors = {} end
             changed = changed + 1
             Land.cliffMids[#Land.cliffMids + 1] = mid
         end
