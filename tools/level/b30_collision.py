@@ -306,7 +306,16 @@ def main():
         pts, faces = hull_of(mesh, a.hulls, points)
         world = (np.asarray(pts) * scale) @ matrix + origin
         ce = to_ce(world)
+        # The hull is wound outward in Unreal's frame; to_ce mirrors Y, which
+        # turns it inward (merge_ce_collision.py takes the plane from the
+        # winding). The sim's projectile test accepts a two-sided surface only
+        # from the side its plane faces (FUN_1802f0170, CU4), so an inward
+        # hull stopped bullets on its far wall, from inside: shots went
+        # "through" swapped rocks and trunks. Wind every face back outward,
+        # a mirroring scale included.
+        mirrored = np.linalg.det(np.diag(np.broadcast_to(np.asarray(scale, dtype=np.float64), (3,))) @ np.asarray(matrix)) * -1 < 0
         for f in faces:
+            f = (f[0], f[2], f[1]) if mirrored else tuple(f)
             tris.append(ce[list(f)].round(4).tolist())
             mats.append(material)
         counts[material] = counts.get(material, 0) + 1

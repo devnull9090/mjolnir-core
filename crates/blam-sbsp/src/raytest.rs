@@ -108,6 +108,24 @@ pub fn inside(c: &Collision, s: usize, p: [f32; 3]) -> bool {
     !(pos && neg)
 }
 
+/// The simulation's own point-in-polygon test for a two-sided crossing
+/// (`FUN_1802f0170`, CU4): `p` projected on the axes of `n` (the crossed
+/// plane, negated for a signed reference), and inside only if every edge of
+/// the surface's loop, walked as [`unpack16::polygon`] walks it, has `p` on
+/// its left: the loop must wind counter-clockwise seen from `n`. No
+/// tolerance, and no allowance for the other winding.
+pub fn inside_wound(c: &Collision, s: usize, p: [f32; 3], n: [f32; 3]) -> bool {
+    let poly = unpack16::polygon(c, s);
+    if poly.len() < 3 {
+        return false;
+    }
+    let (u, v) = projection_axes(n);
+    (0..poly.len()).all(|k| {
+        let (a, b) = (poly[k], poly[(k + 1) % poly.len()]);
+        (p[u] - a[u]) * (b[v] - a[v]) - (b[u] - a[u]) * (p[v] - a[v]) <= 0.0
+    })
+}
+
 /// Where a walk is: a leaf, or `None` for solid.
 type Terminal = Option<usize>;
 
@@ -118,6 +136,8 @@ struct Walk<'c> {
     /// Where the walk was last; `None` before the first leaf or solid.
     prev: Option<Terminal>,
     plane: Option<usize>,
+    /// Use the simulation's one-winding polygon test ([`inside_wound`]).
+    wound: bool,
 }
 
 impl Walk<'_> {
@@ -144,7 +164,10 @@ impl Walk<'_> {
                 continue;
             }
             if let Some(s) = descend(c, r, p) {
-                if inside(c, s, p) {
+                let n = c.planes.get(plane)?.n;
+                let n = if (r.plane as u32) & LEAF != 0 { n.map(|x| -x) } else { n };
+                let ok = if self.wound { inside_wound(c, s, p, n) } else { inside(c, s, p) };
+                if ok {
                     return Some(s);
                 }
             }
@@ -206,6 +229,16 @@ impl Walk<'_> {
 
 /// The first surface the segment `o .. o + d` hits through the tree.
 pub fn tree(c: &Collision, o: [f32; 3], d: [f32; 3]) -> Option<Hit> {
+    walk(c, o, d, false)
+}
+
+/// [`tree`] with the simulation's own polygon test for two-sided crossings
+/// ([`inside_wound`]): what a projectile meets.
+pub fn tree_game(c: &Collision, o: [f32; 3], d: [f32; 3]) -> Option<Hit> {
+    walk(c, o, d, true)
+}
+
+fn walk(c: &Collision, o: [f32; 3], d: [f32; 3], wound: bool) -> Option<Hit> {
     if c.bsp3d_nodes.is_empty() {
         return None;
     }
@@ -215,6 +248,7 @@ pub fn tree(c: &Collision, o: [f32; 3], d: [f32; 3]) -> Option<Hit> {
         d,
         prev: None,
         plane: None,
+        wound,
     };
     match w.rec(0, 0.0, 1.0, 0) {
         Ok(()) => None,
