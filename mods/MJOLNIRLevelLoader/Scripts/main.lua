@@ -5042,9 +5042,11 @@ end
 -- thread 30-200 ms, the pulses most often, being the most frequent (MJOLNIRHud
 -- hitch log, 2026-10-18). A smaller step size made it worse: the heap ran to
 -- 230 MB and the step that finished the cycle took 205 ms. Generational, a
--- young collection takes only what was made since the last, a few ms.
--- UE4SS ships Lua 5.4.7, whose generational mode is sound.
-pcall(collectgarbage, "generational")
+-- young collection takes only what was made since the last. At the default
+-- 20% of the heap that was ~3.5 MB, an 11 ms run every ~97 s; at 5% it is a
+-- quarter of that, four times as often. UE4SS ships Lua 5.4.7, whose
+-- generational mode is sound.
+pcall(collectgarbage, "generational", 5, 100)
 
 --- Run `fn` on the game thread every `ms`, from the game thread: each run
 --- schedules the next. An async loop that hands work to the game thread

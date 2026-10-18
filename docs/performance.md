@@ -225,10 +225,82 @@ are fewer clumps, shorter cull distances, and wind.
 **Is our Lua slow?** Mostly no. The hitch log names every loop that reads
 1 ms or more. Apart from the dry zones loop above and the lobby's main-menu
 watch (10–21 ms every 1.5 s at the menu only), long frames show "none of our
-timed loops". The frame budget is in the GPU.
+timed loops". The frame budget is in the GPU. The occasional 50–200 ms Lua
+run was the garbage collector, not any loop: see below.
+
+## Lua garbage collection hitches (2026-10-18)
+
+A player said our maps feel choppy. With the player standing still on Death
+Island, the only 50–150 ms frames that the campaign does not have came from
+our Lua, per the hitch log: `LevelLoader pulses` 150 ms, `LevelLoader
+footprints` 70–91 ms, `LevelLoader weather` 53 ms, and `Hud tick` 7–9 ms
+every few seconds. None of those loops does that much work. Death Island
+has no weather, so the weather loop returns in its first lines there, and
+the pulses loop sets 25 material parameters. Each long run was the Lua
+collector finishing a cycle inside whichever loop allocated next.
+
+How that was found (a temporary `PROF` log of each slow run with the Lua
+heap before and after, and probes run inside the mod's own Lua state):
+
+- **Every long run shrank the heap.** `footprints 55 ms, heap 95.8 → 94.0 MB`;
+  `pulses 29 ms, heap 108 → 93 MB`. The HUD's 4–6 ms ticks came every ~15 s,
+  each halving its heap (10 → 5 MB).
+- **LevelLoader made ~240 KB of garbage a second**, ~200 KB of it the 25 Hz
+  pulses: a `getWorld()` (~1.5 KB of object handles) and a
+  `SetScalarParameterValue` method lookup per flare (~250 bytes each, 25
+  flares). The HUD made ~350 KB a second on a live set of 0.5 MB.
+- **UE4SS keeps every out-parameter table.** `K2_SetActorTransform(t, false,
+  {}, true)` hands UE4SS a fresh `{}` for the sweep hit result, and UE4SS
+  keeps a registry reference to it for good: 7,733 `FHitResult` tables
+  (8 tables and 5 userdata each, 62,000 tables in all) were live after Death
+  Island loaded, most from the cladding rocks. That was most of the
+  loader's live set, marked again on every cycle. Passing `nil` or leaving
+  the argument out is an error.
+- **A full collection of the loader's state took 112–183 ms**, scaling with
+  the garbage swept and the finalizers of the dead handles run. A cycle with
+  no garbage, stepped one increment at a time, cost 33 ms in all with a 10 ms
+  worst step.
+- **A smaller incremental step size did not help.** At 1 KB (from 8 KB) the
+  heap ran to 231 MB and one step then freed 62 MB in 205 ms.
+
+The changes (MJOLNIRLevelLoader 0.7.3, MJOLNIRHud 0.11.1):
+
+- Both mods run the collector in **generational mode** (UE4SS ships Lua
+  5.4.7). The loader takes young collections at 5% of the heap: at the
+  default 20% each one was an 11 ms run every ~97 s.
+- Every hit-result out parameter in the loader gets **one shared table**
+  (`Current.hit`); the footprint canvas draws reuse their three.
+- The **pulses** keep each instance's setter (UE4SS returns a function bound
+  to the object it was read from) and the world the level was furnished in
+  (`Current.world`): no garbage per flare.
+- **Moving sounds** read the time through the library the pulses keep, not a
+  `GameplayStatics` StaticFindObject (~1 ms) every 100 ms, and move a part
+  only when it moved. **Weather** copies follow the camera once it has
+  moved half a metre.
+
+Before and after, Death Island, standing still, PC 1, 1280x720 windowed,
+`mjolnir_auto host DTI slayer private`, `mjolnir_hitches reset`, then
+3–6 minutes (the "Lua on DTI so far" line). "After" is two windows, 6:16 and
+3:18, with the final code:
+
+| Loop | Before (worst) | After (worst) |
+|---|---|---|
+| LevelLoader pulses | 39 ms (150 ms earlier the same day) | 1–2 ms |
+| LevelLoader footprints | 55 ms (70–91 ms earlier) | 2–3 ms |
+| LevelLoader weather | 53 ms earlier | 1 ms |
+| LevelLoader dry zones | 5 ms | 2 ms |
+| Hud tick | 6 ms (7–9 ms earlier) | 1–2 ms |
+| Worst frame in the window | 54 ms | 17 ms, no hitches |
+
+The loader now makes ~36 KB of garbage a second. The other frames over 50 ms
+on Death Island name none of our loops: the first seconds after the map
+loads, and GPU work.
 
 ## What is left
 
+- **The HUD's first tick of a match** holds the game thread 68–77 ms once
+  (hooking incidents, making the widgets, the first name-tag sweep). It is
+  one frame at the start, not a beat, so it was left for now.
 - **Measure weaker PCs.** Every number above is from a 5090. `/bench` on
   PC 2, and from players, fills the Benchmarks tab with real hardware.
 - **Pick the foliage tier from the GPU.** `sg.FoliageQuality` only helps
