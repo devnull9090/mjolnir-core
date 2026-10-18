@@ -1457,7 +1457,12 @@ local function spawnDecorItem(world, origin, item)
     -- for ray tracing every frame and re-renders its shadow pages; Ice
     -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
     -- shadows jumped as the player walked (2026-10-13).
-    if item.static then
+    -- A swapped tree's piece (its sway calmed, scenery_swap.py TREE_CALM)
+    -- too: each piece bends about its own pivot, and a 10 m trunk piece's
+    -- tip moved far enough to part from the next, the trunk breaking apart
+    -- and joining again in the wind (Infinity, 2026-10-18). Its leaf
+    -- clusters (foliage) still flutter.
+    if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
         pcall(function() actor.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
     end
     -- After the materials: the strength is set on them.
@@ -5107,7 +5112,10 @@ local function spawnDecor(world)
                     local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
                     if mid then comp:SetMaterial(i, mid) end
                 end
-                if item.static then comp:SetEvaluateWorldPositionOffset(false) end
+                -- Still, as spawnDecorItem keeps them (a swapped tree's piece).
+                if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
+                    comp:SetEvaluateWorldPositionOffset(false)
+                end
             end)
         elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then
             local actor, err = spawnDecorItem(world, origin, item)
