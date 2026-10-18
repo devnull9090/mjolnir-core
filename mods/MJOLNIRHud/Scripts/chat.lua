@@ -150,6 +150,9 @@ end
 --------------------------------------------------------------------------------
 
 local ctx = nil          -- Chat.init's deps
+local Commands = nil     -- Scripts/commands.lua, loaded by Chat.init
+local suggest = { text = nil, list = {}, tab = nil, shown = 0 } -- the slash command list under the box
+local drawSuggestions     -- set below the slash commands; close() clears the list
 local W = nil            -- the widget
 local nextWidgetTry = 0
 local open = nil         -- "all" | "team" while the box is open
@@ -316,6 +319,8 @@ end
 local function close()
     if not open then return end
     open = nil
+    drawSuggestions("")
+    suggest.text, suggest.tab = nil, nil
     if valid(W) then
         pcall(function() W.ChatInput:SetText(FText("")) end)
         setVisibility(W.ChatInputBar, COLLAPSED)
@@ -387,12 +392,133 @@ local function send()
     close()
     local text = Chat.clean(okT and raw or "")
     if text == "" then return end
+    if Commands and Commands.parse(text) then
+        Chat.command(text)
+        return
+    end
     if ctx.isHost() then
         hostTake(ctx.localName() or "Host", channel, text, nil)
     else
         local pc = ctx.pc()
         if pc then pcall(function() pc:ServerExecRPC(Chat.encodeSay(channel, text)) end) end
     end
+end
+
+--------------------------------------------------------------------------------
+-- Slash commands (Scripts/commands.lua)
+--------------------------------------------------------------------------------
+
+local function systemLine(text)
+    push({ text = text, color = GREY, system = true })
+end
+
+--- What the commands may do, on this machine.
+local function commandCx(isHost)
+    return {
+        isHost = isHost,
+        players = ctx.players,
+        kick = function(name, ban) ctx.console("mjolnir_auto " .. (ban and "ban " or "kick ") .. name) end,
+        unban = function(name) ctx.console("mjolnir_auto unban " .. name) end,
+        blam = function(line) Commands.queueBlam(line) end,
+    }
+end
+
+--- A command on the host: from its own box (`pc` nil), or from a client's
+--- RPC. The client's seat must be its own: a joiner reads index 0 (the
+--- host's) for a few seconds after it is seated (docs/match_stats.md), and
+--- /suicide on that index would kill the host.
+local function hostCommand(sender, text, pc)
+    local who = { name = sender, here = pc == nil }
+    if who.here then
+        who.index = ctx.localIndex()
+    else
+        if record and not Chat.allow(record.seen, "cmd:" .. sender, ctx.now()) then return end
+        local seat = ctx.seatOf(sender)
+        local okI, index = pcall(function() return pc.PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex end)
+        if seat and type(seat.index) == "number" and seat.index ~= ctx.localIndex() and okI and index == seat.index then
+            who.index = seat.index
+        end
+    end
+    local ok, answer = pcall(Commands.run, commandCx(who.here), who, text)
+    if not ok then
+        ctx.log("chat command: " .. tostring(answer))
+        answer = { "That command failed." }
+    end
+    for _, line in ipairs(answer) do
+        if who.here then
+            systemLine(line)
+        else
+            pcall(function() pc:ClientMessage(Chat.encodeLine({ channel = "all", name = "", index = -1, text = line }),
+                FName("MJOLNIR"), 0) end)
+        end
+    end
+end
+
+--- A "/" line from this machine's box. Never chat: not relayed, not
+--- recorded.
+function Chat.command(text)
+    local name = Commands.parse(text)
+    local c = Commands.find(name)
+    if ctx.isHost() then
+        hostCommand(ctx.localName() or "Host", text, nil)
+    elseif c and c.here then
+        for _, line in ipairs(Commands.run(commandCx(false), { here = false }, text)) do systemLine(line) end
+    elseif c and c.who == "host" then
+        systemLine("/" .. c.name .. " is for the host.")
+    elseif not c then
+        systemLine("Unknown command /" .. tostring(name) .. ". Type /help for the list.")
+    else
+        local pc = ctx.pc()
+        if pc then pcall(function() pc:ServerExecRPC(Commands.PREFIX .. text) end) end
+    end
+end
+
+--- The command list under the box, for the text typed so far.
+drawSuggestions = function(text)
+    if not (valid(W) and Commands) then return end
+    if text ~= suggest.text then
+        suggest.text = text
+        local names = {}
+        -- Every command that names a player names someone else.
+        for _, p in ipairs(ctx.players()) do
+            if p.index ~= ctx.localIndex() then names[#names + 1] = p.display or p.name end
+        end
+        table.sort(names)
+        -- Tab cycling keeps its list while the text is its own completion.
+        if not (suggest.tab and suggest.tab.text == text) then
+            suggest.list, suggest.tab = Commands.suggest(text or "", ctx.isHost(), names), nil
+        end
+    end
+    local list = suggest.list
+    local n = math.min(#list, Commands.ROWS)
+    for i = 0, Commands.ROWS - 1 do
+        local item = list[i + 1]
+        if item then
+            setText(W["ChatSugName" .. i], item.label)
+            setText(W["ChatSugHelp" .. i], item.help or "")
+            local on = suggest.tab and suggest.tab.i == i + 1
+            pcall(function() W["ChatSugRow" .. i]:SetBrushColor(on and { R = 0.12, G = 0.32, B = 0.43, A = 0.9 }
+                or { R = 0, G = 0, B = 0, A = 0 }) end)
+            setVisibility(W["ChatSugRow" .. i], SHOWN)
+        elseif i < suggest.shown then
+            setVisibility(W["ChatSugRow" .. i], COLLAPSED)
+        end
+    end
+    if (n > 0) ~= (suggest.shown > 0) then setVisibility(W.ChatSuggest, n > 0 and PASS or COLLAPSED) end
+    suggest.shown = n
+end
+
+--- Tab: complete the highlighted suggestion; again, the next one.
+local function complete()
+    if not (open and valid(W)) or #suggest.list == 0 then return end
+    local tab = suggest.tab
+    local i = tab and (tab.i % #suggest.list) + 1 or 1
+    local text = suggest.list[i].complete
+    -- "/kick " wants a player next: the players are the new list. A finished
+    -- completion keeps its list, so Tab again moves to the next one.
+    suggest.tab = text:sub(-1) ~= " " and { i = i, text = text } or nil
+    pcall(function() W.ChatInput:SetText(FText(text)) end)
+    suggest.text = nil
 end
 
 --- A line to show here (from the host, or the host's own).
@@ -406,10 +532,14 @@ end
 -- The RPC hooks call these (off the game thread's work: they only queue)
 --------------------------------------------------------------------------------
 
---- ServerExecRPC on the host; true when `text` was a chat line.
+--- ServerExecRPC on the host; true when `text` was a chat line or a
+--- command.
 function Chat.heardSay(pc, text)
-    if type(text) ~= "string" or text:sub(1, #Chat.SAY) ~= Chat.SAY then return false end
-    if #says < 32 then says[#says + 1] = { pc = pc, text = text } end
+    if type(text) ~= "string" then return false end
+    local isSay = text:sub(1, #Chat.SAY) == Chat.SAY
+    local isCmd = Commands ~= nil and text:sub(1, #Commands.PREFIX) == Commands.PREFIX
+    if not (isSay or isCmd) then return false end
+    if #says < 32 then says[#says + 1] = { pc = pc, text = text, cmd = isCmd } end
     return true
 end
 
@@ -447,12 +577,23 @@ function Chat.tick(match)
         local heard = says
         says = {}
         for _, s in ipairs(heard) do
-            local channel, text = Chat.decodeSay(s.text)
             local okN, sender = pcall(function() return s.pc.PlayerState:GetPlayerName():ToString() end)
-            if channel and okN and sender and sender ~= "" then hostTake(sender, channel, text, s.pc) end
+            if okN and sender and sender ~= "" then
+                if s.cmd then
+                    local text = Chat.clean(s.text:sub(#Commands.PREFIX + 1))
+                    if Commands.parse(text) then hostCommand(sender, text, s.pc) end
+                else
+                    local channel, text = Chat.decodeSay(s.text)
+                    if channel then hostTake(sender, channel, text, s.pc) end
+                end
+            end
         end
         inbox = {}
         writeRecord(false)
+        if Commands then
+            Commands.prepareBlam()
+            Commands.pumpBlam()
+        end
     else
         says = {}
         local heard = inbox
@@ -490,7 +631,12 @@ function Chat.frame(t)
             elseif #s > Chat.MAX_BYTES then
                 pcall(function() W.ChatInput:SetText(FText(Chat.clean(s))) end)
             end
+            drawSuggestions(s)
         end
+        -- Tab moves Slate's focus on from a text box: take it back.
+        pcall(function()
+            if not W.ChatInput:HasKeyboardFocus() then W.ChatInput:SetKeyboardFocus() end
+        end)
     end
     draw(t)
 end
@@ -528,9 +674,16 @@ end
 
 --- deps: { dir, log, now, pc, createWidget, font, match, isHost, teams,
 --- teamColor, localTeam, localName, seatOf, colorOf, controllers, matchId,
---- queue, hidden }.
+--- queue, hidden, players, localIndex, console }.
 function Chat.init(deps)
     ctx = deps
+    local okC, loaded = pcall(dofile, deps.dir .. "\\Scripts\\commands.lua")
+    if okC and type(loaded) == "table" then
+        Commands = loaded
+        Commands.initBlam(deps.dir:match("^(.*)\\[^\\]*$") or deps.dir)
+    else
+        deps.log("chat: slash commands not loaded: " .. tostring(loaded))
+    end
     if not (Key and RegisterKeyBind) then return end
     -- Synchronous binds: their callbacks run on the game thread
     -- (MJOLNIRFlyCam). A bind fires whatever has focus, so each checks the
@@ -541,6 +694,7 @@ function Chat.init(deps)
         { Key.HOME, once("HOME", function() openBox("all", nil) end) },
         { Key.RETURN, once("RETURN", function() if open then send() end end) },
         { Key.ESCAPE, once("ESCAPE", function() if open then close() end end) },
+        { Key.TAB, once("TAB", function() if open then complete() end end) },
     }
     for _, b in ipairs(binds) do
         if b[1] then pcall(RegisterKeyBind, b[1], {}, b[2]) end

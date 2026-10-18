@@ -1585,6 +1585,7 @@ CHAT_ROWS = 10
 CHAT_WIDTH = 920
 CHAT_FILL = (0.012, 0.03, 0.045, 0.62)
 CHAT_AVATAR = 28
+CHAT_SUGGEST_ROWS = 6  # Scripts/commands.lua ROWS
 
 
 def chat_line(bp, i):
@@ -1671,6 +1672,29 @@ def build_chat():
     for i in range(CHAT_ROWS):
         chat_line(bp, i)
 
+    # Slash commands (Scripts/commands.lua): what "/" can do, under the
+    # lines and over the box, the one Tab completes highlighted.
+    suggest = widget(bp, unreal.Border, "ChatSuggest", stack.get_name())
+    rounded(suggest, 8, (0.0, 0.03, 0.05, 0.92), padding=6)
+    gap(suggest, top=8)
+    suggest.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    rows = widget(bp, unreal.VerticalBox, "ChatSugRows", suggest.get_name())
+    rows.set_visibility(passes)
+    for i in range(CHAT_SUGGEST_ROWS):
+        row = widget(bp, unreal.Border, f"ChatSugRow{i}", rows.get_name())
+        rounded(row, 5, (0.0, 0.0, 0.0, 0.0))
+        row.set_editor_property("padding", unreal.Margin(10, 4, 10, 4))
+        row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        line = widget(bp, unreal.HorizontalBox, f"ChatSugLine{i}", row.get_name())
+        line.set_visibility(passes)
+        label = widget(bp, unreal.TextBlock, f"ChatSugName{i}", line.get_name())
+        text_style(label, "", 20, ACCENT, "Bold")
+        hint_text = widget(bp, unreal.TextBlock, f"ChatSugHelp{i}", line.get_name())
+        text_style(hint_text, "", 18, GREY)
+        hint_text.get_editor_property("slot").set_padding(unreal.Margin(14, 1, 0, 0))
+        for w in (label, hint_text):
+            w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
     bar = widget(bp, unreal.Border, "ChatInputBar", stack.get_name())
     rounded(bar, 8, (0.0, 0.03, 0.05, 0.92), padding=0)
     bar.set_editor_property("padding", unreal.Margin(16, 6, 16, 6))
@@ -1691,7 +1715,7 @@ def build_chat():
     middle(box)
 
     hint = widget(bp, unreal.TextBlock, "ChatHint", stack.get_name())
-    text_style(hint, "ENTER  SEND      ESC  CANCEL", 15, GREY, "Bold")
+    text_style(hint, "ENTER  SEND      ESC  CANCEL      /  COMMANDS      TAB  COMPLETE", 15, GREY, "Bold")
     gap(hint, top=6)
     hint.set_visibility(unreal.SlateVisibility.COLLAPSED)
     shadowed(hint)

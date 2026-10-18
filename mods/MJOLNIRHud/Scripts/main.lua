@@ -1520,6 +1520,22 @@ Chat.init({
         return FEED.name
     end,
     avatar = function(index) return Match and avatarOf(index) end,
+    -- Slash commands (Scripts/commands.lua): the players still in the match,
+    -- this machine's seat, and the console the Lobby's kick and ban answer on.
+    players = function()
+        local out = {}
+        for index, p in pairs(Match and Match.players or {}) do
+            if p.name and not p.left then out[#out + 1] = { index = index, name = p.name, display = p.display } end
+        end
+        return out
+    end,
+    localIndex = function() return LOCAL_PLAYER end,
+    console = function(command)
+        local pc = playerController()
+        pcall(function()
+            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):ExecuteConsoleCommand(pc:GetWorld(), command, pc)
+        end)
+    end,
     controllers = Relay.controllers,
     matchId = function() return MatchLog.currentId() or (Match and Match.logId) end,
     queue = MatchLog.queue,

@@ -25,6 +25,47 @@ MJOLNIR's own cooked widgets ([custom_ui.md](custom_ui.md)):
 The console opens on `~` only. `MJOLNIRConsoleEnabler` takes Tab out of
 `InputSettings.ConsoleKeys`, as Halo CE on PC had it.
 
+## Slash commands
+
+`Scripts/commands.lua`. A chat line starting with `/` is a command: it is
+never relayed or recorded. Typing `/` lists the commands you may use under
+the box; **Tab** completes the highlighted one, then a player's name, and
+again for the next match.
+
+| Command | Who | What |
+|---|---|---|
+| `/help` | everyone | the list, here |
+| `/players` | everyone | who is in the match |
+| `/suicide` (`/respawn`) | everyone | kill your player, to respawn when stuck |
+| `/kick <player>` | host | MJOLNIRLobby's kick |
+| `/ban <player>` | host | kick, and keep them out (`bans.json`) |
+| `/unban <name>` | host | |
+| `/slay <player>` | host | kill a player |
+| `/tp <player>` | host | teleport to a player (experimental) |
+| `/bring <player>` | host | teleport a player to you (experimental) |
+
+- **The host runs every command.** A client sends `MJOLNIR|cmd|<line>` over
+  `ServerExecRPC`; the host takes the sender from the RPC's controller and
+  answers them alone with a system line. Host commands run only from the
+  host's own box: a client's `/kick` is refused whatever it says. A client's
+  `/suicide` needs a seat that is really theirs (index not the host's, and
+  the controller's `BlamAbsolutePlayerIndex` agreeing): a joiner reads the
+  host's index 0 for a few seconds after joining.
+- **A player** is named by hub name or in-game name: exact first, then the
+  only one it starts, then the only one it is in.
+- **Kick, ban, unban** call MJOLNIRLobby's `mjolnir_auto kick|ban|unban`
+  through the console. The Lobby takes an exact name before a partial one.
+- **Kill and teleport** are Blam script, sent through MJOLNIRBlamConsole's
+  mailbox (`native\request.txt`, ids from 7000000, one line a poll):
+  `(unit_kill (player_get <index>))`; a teleport is `objects_attach` then
+  `objects_detach` a poll later, so the child is left where its parent
+  stands. `/suicide` was verified on a host on 2026-10-17. That
+  `player_get <n>` is the player with absolute index `n` is proven only for
+  the host's own seat; the two-PC test must check it before `/slay` or a
+  teleport is trusted.
+- Six suggestions show at a time (the host has nine commands); typing more
+  narrows them.
+
 ## Chat
 
 `Scripts/chat.lua`. **T** opens all chat, **Y** team chat (all chat in free

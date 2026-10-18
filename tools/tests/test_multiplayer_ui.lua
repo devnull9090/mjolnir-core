@@ -110,8 +110,11 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local binds = {}
     -- The input modes the chat set (UI-only while typing).
     local modes = {}
+    local pumps = { 0 }
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
         Key = setmetatable({}, { __index = function(_, k) return k end }),
+        -- MJOLNIRBlamConsole's native half: each pump counted.
+        package = { loadlib = function() return function() pumps[1] = pumps[1] + 1 end end },
         RegisterKeyBind = function(key, _, fn) binds[key] = fn end,
         -- The HUD's own modules run in this environment too, as in the game.
         dofile = function(path) return assert(loadfile((path:gsub("\\", "/")), "t", env))() end,
@@ -123,6 +126,8 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             if own and (own:match("^match_") or own:match("^claim_") or own:match("^chat_")) then
                 return memfile(path, mode)
             end
+            -- The Blam console's mailbox (slash commands): never the real file.
+            if path:match("MJOLNIRBlamConsole[\\/]native[\\/]request%.txt$") then return memfile(path, mode) end
             if path:match("MJOLNIRLobby[\\/]listing%.txt$") then
                 if listing and mode:match("^r") then
                     return { read = function() return listing .. "\n" end, close = function() end }
@@ -223,7 +228,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
         written = function() return table.concat(written) end, commands = commands,
-        hooks = hooks, asked = asked, remote = remote, binds = binds, widgets = widgets, modes = modes,
+        hooks = hooks, asked = asked, remote = remote, binds = binds, widgets = widgets, modes = modes, pumps = pumps,
         --- The match log's file whose name matches `pattern`, and its name.
         file = function(pattern)
             for path, data in pairs(files) do
@@ -742,3 +747,115 @@ hear(chatClient, "MJOLNIR|chat|a|-|2|Charlie|hey")
 eq(ccw.ChatText9.text, "hey"); eq(ccw.ChatName9.text, "Charlie:")
 assert(not chatClient.file("^chat_"), "a client recorded chat")
 print("Multiplayer UI: a client's chat")
+
+-- Slash commands (Scripts/commands.lua).
+local Commands = dofile("mods/MJOLNIRHud/Scripts/commands.lua")
+local cname, crest = Commands.parse("  /Kick  bob smith ")
+eq(cname, "kick"); eq(crest, "bob smith")
+eq(Commands.parse("hello /kick"), nil)
+local function labels(list)
+    local out = {}
+    for _, i in ipairs(list) do out[#out + 1] = i.label end
+    return table.concat(out, ",")
+end
+eq(labels(Commands.suggest("/", false)), "/help,/players,/suicide")
+eq(labels(Commands.suggest("/k", true)), "/kick <player>")
+eq(Commands.suggest("/k", true)[1].complete, "/kick ")
+eq(labels(Commands.suggest("/k", false)), "") -- host commands are not offered to clients
+eq(labels(Commands.suggest("/kick ch", true, { "Alpha", "Charlie Hub" })), "Charlie Hub")
+eq(Commands.suggest("/kick ch", true, { "Alpha", "Charlie Hub" })[1].complete, "/kick Charlie Hub")
+local roster = { { index = 0, name = "Alpha" }, { index = 1, name = "Bob" }, { index = 2, name = "Bobby" },
+    { index = 3, name = "x9", display = "Charlie Hub" } }
+eq(Commands.resolve(roster, "bob").index, 1)       -- exact beats a longer name
+eq(Commands.resolve(roster, "char").index, 3)      -- the hub name counts
+eq(Commands.resolve(roster, "X9").index, 3)        -- and the in-game one
+local none, why = Commands.resolve(roster, "b")
+eq(none, nil); assert(why:find("Bob, Bobby", 1, true), why)
+local function runAs(who, text)
+    local said = { kicked = {}, blam = {} }
+    local cx = { isHost = who.here, players = function() return roster end,
+        kick = function(n, ban) said.kicked[#said.kicked + 1] = (ban and "ban " or "kick ") .. n end,
+        unban = function(n) said.unbanned = n end,
+        blam = function(line) said.blam[#said.blam + 1] = line end }
+    said.answer = table.concat(Commands.run(cx, who, text), " | ")
+    return said
+end
+local r = runAs({ here = true, index = 0 }, "/kick bob")
+eq(r.kicked[1], "kick Bob"); eq(r.answer, "Kicked Bob.")
+eq(runAs({ here = true, index = 0 }, "/ban char").kicked[1], "ban x9")
+eq(runAs({ here = false, index = 2 }, "/kick bob").answer, "/kick is for the host.") -- never from a client
+eq(#runAs({ here = false, index = 2 }, "/kick bob").kicked, 0)
+eq(runAs({ here = true, index = 1 }, "/kick bob").answer, "You can't kick yourself.")
+eq(runAs({ here = false, index = 2 }, "/suicide").blam[1], "(unit_kill (player_get 2))")
+eq(runAs({ here = false }, "/suicide").answer, "You are not seated yet. Try again in a few seconds.")
+eq(#runAs({ here = false }, "/suicide").blam, 0)
+eq(runAs({ here = true, index = 0 }, "/slay bobby").blam[1], "(unit_kill (player_get 2))")
+local tp = runAs({ here = true, index = 0 }, "/tp bobby")
+eq(tp.blam[1], '(objects_attach (player_get 2) "" (player_get 0) "")')
+eq(tp.blam[2], "(objects_detach (player_get 2) (player_get 0))")
+eq(runAs({ here = true, index = 0 }, "/bring bobby").blam[1], '(objects_attach (player_get 0) "" (player_get 2) "")')
+assert(runAs({ here = true, index = 0 }, "/nope").answer:find("Unknown command /nope", 1, true))
+assert(runAs({ here = false, index = 2 }, "/help").answer:find("/suicide", 1, true))
+assert(not runAs({ here = false, index = 2 }, "/help").answer:find("/kick", 1, true))
+print("Multiplayer UI: slash commands parse, suggest, resolve players and keep host commands to the host")
+
+-- In a match: the host's own /kick reaches the Lobby; a client's /suicide
+-- goes to the host, which kills that client's seat through the Blam mailbox.
+local cmdHost = runHUD("slayer", false, nil, "lobby-1")
+for _ = 1, 4 do cmdHost.poll() end
+local hw = chatWidget(cmdHost)
+cmdHost.binds.T()
+hw.ChatInput.text = "/k"
+cmdHost.poll()
+eq(hw.ChatSugName0.text, "/kick <player>"); eq(hw.ChatSuggest.visibility, 4)
+cmdHost.binds.TAB()
+eq(hw.ChatInput.text, "/kick ")
+cmdHost.poll()
+cmdHost.wait(0.3)
+cmdHost.binds.TAB()
+eq(hw.ChatInput.text, "/kick Alpha")
+cmdHost.wait(0.3) -- past the binds' double-fire guard
+cmdHost.binds.TAB() -- the next player
+eq(hw.ChatInput.text, "/kick Charlie")
+cmdHost.binds.RETURN()
+eq(cmdHost.commands[#cmdHost.commands], "mjolnir_auto kick Charlie")
+eq(hw.ChatSuggest.visibility, 1)
+assert(not cmdHost.remote.sent[#cmdHost.remote.sent] or not cmdHost.remote.sent[#cmdHost.remote.sent]:find("/kick", 1, true),
+    "a command was relayed as chat")
+cmdHost.poll()
+eq(hw.ChatText9.text, "Kicked Charlie.")
+-- The remote controller is Charlie, index 2 in the mock's roster.
+cmdHost.remote.PlayerState.BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 2 }
+local pumpsBefore = cmdHost.pumps[1]
+say(cmdHost, cmdHost.remote, "MJOLNIR|cmd|/suicide")
+cmdHost.poll()
+eq(cmdHost.file("^request%.txt$"):match("\n(.*)\n$"), "(unit_kill (player_get 2))")
+assert(cmdHost.pumps[1] > pumpsBefore, "the mailbox was not pumped")
+-- A client that still reads the host's seat is told to wait, and nobody dies.
+cmdHost.remote.PlayerState.BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 1 }
+local sentBefore = #cmdHost.remote.sent
+say(cmdHost, cmdHost.remote, "MJOLNIR|cmd|/suicide")
+cmdHost.poll()
+assert(cmdHost.remote.sent[sentBefore + 1]:find("not seated yet", 1, true), tostring(cmdHost.remote.sent[sentBefore + 1]))
+-- A client's host command is refused.
+say(cmdHost, cmdHost.remote, "MJOLNIR|cmd|/kick Bravo")
+cmdHost.poll()
+assert(cmdHost.remote.sent[#cmdHost.remote.sent]:find("is for the host", 1, true))
+eq(cmdHost.commands[#cmdHost.commands], "mjolnir_auto kick Charlie")
+
+local cmdClient = runHUD("slayer", true)
+for _ = 1, 3 do cmdClient.poll() end
+local cw2 = chatWidget(cmdClient)
+cmdClient.binds.T()
+cw2.ChatInput.text = "/suicide"
+cmdClient.binds.RETURN()
+eq(cmdClient.asked[#cmdClient.asked], "MJOLNIR|cmd|/suicide")
+cmdClient.wait(0.3)
+cmdClient.binds.T()
+cw2.ChatInput.text = "/kick Alpha"
+cmdClient.wait(0.3)
+cmdClient.binds.RETURN()
+eq(cmdClient.asked[#cmdClient.asked], "MJOLNIR|cmd|/suicide") -- not sent: host only
+cmdClient.poll()
+eq(cw2.ChatText9.text, "/kick is for the host.")
+print("Multiplayer UI: slash commands in a match, on the host and a client")
