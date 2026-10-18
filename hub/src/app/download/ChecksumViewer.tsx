@@ -5,7 +5,8 @@ import { Copy, Check, Hash, ExternalLink } from "lucide-react";
 
 interface ChecksumInfo {
   version: string;
-  msi_name: string;
+  /** Null for every current release: the launcher no longer ships an MSI. */
+  msi_name: string | null;
   msi_hash: string | null;
   nsis_name: string;
   nsis_hash: string | null;
@@ -19,7 +20,8 @@ export default function ChecksumViewer() {
 
   useEffect(() => {
     fetch("/api/releases/latest")
-      .then((res) => res.json())
+      // A 503 (checksums.txt unreadable) shows nothing rather than a release that is not there.
+      .then((res) => (res.ok ? res.json() : null))
       .then((json) => setData(json))
       .catch((err) => console.error("Failed to load release checksums:", err))
       .finally(() => setLoading(false));
