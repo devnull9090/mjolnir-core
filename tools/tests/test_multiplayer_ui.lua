@@ -55,7 +55,8 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     -- A remote player's controller on the host: what it is sent.
     local remote = { sent = {}, IsValid = function() return true end, GetAddress = function() return 4242 end,
         IsLocalController = function() return false end,
-        Player = { IsValid = function() return true end }, PlayerState = { IsValid = function() return true end } }
+        Player = { IsValid = function() return true end }, PlayerState = { IsValid = function() return true end,
+            GetPlayerName = function() return { ToString = function() return "Charlie" end } end } }
     remote.ClientMessage = function(_, msg, kind) remote.sent[#remote.sent + 1] = kind .. " " .. msg end
     local function block()
         return setmetatable({ IsValid = function() return true end,
@@ -78,6 +79,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             end,
             GetDynamicMaterial = function(self) return self.mid end,
             SetFont = function(self, f) self.font = f end,
+            GetText = function(self) return { ToString = function() return self.text or "" end } end,
             SetPadding = function() end, AddToViewport = function() end },
             { __index = function(t, k) local child = block(); rawset(t, k, child); return child end })
     end
@@ -101,9 +103,14 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local pc = { IsValid = function() return true end, GetWorld = function() return world end,
         IsInputKeyDown = function() return held end,
         ServerExecRPC = function(_, msg) asked[#asked + 1] = msg end,
-        PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 1 } } }
+        PlayerState = { BlamPlayerStateComponent = { BlamAbsolutePlayerIndex = 1 },
+            GetPlayerName = function() return { ToString = function() return "Bravo" end } end } }
     local env
+    -- The chat's key binds (Scripts/chat.lua), by key name.
+    local binds = {}
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
+        Key = setmetatable({}, { __index = function(_, k) return k end }),
+        RegisterKeyBind = function(key, _, fn) binds[key] = fn end,
         -- The HUD's own modules run in this environment too, as in the game.
         dofile = function(path) return assert(loadfile((path:gsub("\\", "/")), "t", env))() end,
         print = function() end, os = { clock = function() return time end, time = function() return 1000 end,
@@ -111,7 +118,9 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         io = { open = function(path, mode)
             mode = mode or "r"
             local own = path:match("MJOLNIRHud[\\/]([%w_]+%.%w+)$")
-            if own and (own:match("^match_") or own:match("^claim_")) then return memfile(path, mode) end
+            if own and (own:match("^match_") or own:match("^claim_") or own:match("^chat_")) then
+                return memfile(path, mode)
+            end
             if path:match("MJOLNIRLobby[\\/]listing%.txt$") then
                 if listing and mode:match("^r") then
                     return { read = function() return listing .. "\n" end, close = function() end }
@@ -210,7 +219,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
         written = function() return table.concat(written) end, commands = commands,
-        hooks = hooks, asked = asked, remote = remote,
+        hooks = hooks, asked = asked, remote = remote, binds = binds, widgets = widgets,
         --- The match log's file whose name matches `pattern`, and its name.
         file = function(pattern)
             for path, data in pairs(files) do
@@ -633,3 +642,94 @@ eq(BuildLine.game("5.5.4-1112544+++Meteorite+Rel-i343-Meteorite-2607-CU3"), "CU3
 eq(BuildLine.game("5.5.4-1200000+++Meteorite+Main"), "1200000")
 eq(BuildLine.game(nil), nil)
 print("Multiplayer UI: the build line")
+
+-- Match chat (Scripts/chat.lua): the wire, the host's relay and record, and
+-- a client's send.
+local Chat = dofile("mods/MJOLNIRHud/Scripts/chat.lua")
+eq(Chat.clean("  hi|there\n  you "), "hi/there you")
+eq(Chat.clean(nil), "")
+local accents = Chat.clean(string.rep("\195\169", 100)) -- 200 bytes of é
+eq(#accents, 160); assert(accents:match("^[\195\169]+$") and #accents % 2 == 0, "cut on a character")
+local cut = Chat.clean(string.rep("a", 159) .. "\195\169")
+eq(#cut, 159) -- the half character goes
+local ch, said = Chat.decodeSay(Chat.encodeSay("team", "gg"))
+eq(ch, "team"); eq(said, "gg")
+eq(Chat.decodeSay("MJOLNIR|say|a|   "), nil)
+eq(Chat.decodeSay("MJOLNIR|matchid"), nil)
+local line = Chat.decodeLine(Chat.encodeLine({ channel = "team", team = "Red", index = 2, name = "Char|lie", text = "go a|b" }))
+eq(line.channel, "team"); eq(line.team, "Red"); eq(line.index, 2); eq(line.name, "Char/lie"); eq(line.text, "go a/b")
+line = Chat.decodeLine(Chat.encodeLine({ channel = "all", index = -1, name = "", text = "note" }))
+eq(line.team, nil); eq(line.index, nil); eq(line.name, "")
+local seen = {}
+for i = 1, 5 do eq(Chat.allow(seen, "x", i * 0.1), true) end
+eq(Chat.allow(seen, "x", 0.6), false)
+eq(Chat.allow(seen, "y", 0.6), true)
+eq(Chat.allow(seen, "x", 7), true)
+eq(Chat.encodeRecord("ab12", "BGL", 100, { { t_ms = 1500.4, index = 2, name = "C\"x", channel = "team", text = "hi", teamName = "red" } }),
+    '{"host_match_id":"ab12","map_code":"BGL","started_at":100,"lines":[{"t_ms":1500,"index":2,"name":"C\\"x",'
+    .. '"user_id":null,"display":null,"team":"red","channel":"team","text":"hi"}]}')
+
+local function say(h, pc, text)
+    h.hooks["/Script/Engine.PlayerController:ServerExecRPC"](
+        { get = function() return pc end },
+        { get = function() return { ToString = function() return text end } end })
+end
+local function chatWidget(h)
+    for _, w in ipairs(h.widgets) do if rawget(w, "ChatLine0") or rawget(w, "ChatInput") then return w end end
+    return h.widgets[3]
+end
+-- The host (Bravo) relays a client's all chat to everyone and shows it, and
+-- keeps it under the match's id.
+local chatHost = runHUD("team_slayer", false, nil, "lobby-1", "Charlie\t0000-c\tCharlie Hub\t0\n")
+chatHost.teams[1] = "Red"; chatHost.teams[2] = "Blue"
+chatHost.incident("player_spawn", 1, -1, 0); chatHost.incident("player_spawn", 2, -1, 0)
+for _ = 1, 4 do chatHost.poll() end
+local before = #chatHost.remote.sent
+say(chatHost, chatHost.remote, "MJOLNIR|say|a|hello  there")
+chatHost.poll()
+eq(chatHost.remote.sent[before + 1], "MJOLNIR MJOLNIR|chat|a|Blue|2|Charlie Hub|hello there")
+local cw = chatWidget(chatHost)
+eq(cw.ChatText9.text, "hello there"); eq(cw.ChatName9.text, "Charlie Hub:")
+eq(cw.ChatLine9.visibility, 3)
+-- Team chat goes to the sender's team only: the host is Red.
+say(chatHost, chatHost.remote, "MJOLNIR|say|t|blue only")
+chatHost.poll()
+eq(chatHost.remote.sent[#chatHost.remote.sent], "MJOLNIR MJOLNIR|chat|t|Blue|2|Charlie Hub|blue only")
+eq(cw.ChatText9.text, "hello there")
+-- Flooding: the sixth line in a few seconds is dropped, and the sender told.
+for i = 1, 4 do say(chatHost, chatHost.remote, "MJOLNIR|say|a|spam " .. i) end
+chatHost.poll()
+local told = chatHost.remote.sent[#chatHost.remote.sent]
+assert(told:find("slow down", 1, true), told)
+for _ = 1, 6 do chatHost.poll() end
+local chatId = chatHost.file("^match_current%.txt$")
+local record = chatHost.file("^chat_" .. chatId .. "%.json$")
+assert(record, "the host's chat record")
+assert(record:find('"name":"Charlie","user_id":"0000-c","display":"Charlie Hub","team":"blue","channel":"all","text":"hello there"', 1, true), record)
+assert(record:find('"channel":"team","text":"blue only"', 1, true), record)
+assert(not record:find("spam 4", 1, true), "a dropped line was recorded")
+-- The host's own line goes straight out, without the RPC.
+chatHost.binds.T()
+eq(cw.ChatInputBar.visibility, 4); eq(cw.ChatChannel.text, "ALL")
+cw.ChatInput.text = "from the host"
+chatHost.binds.RETURN()
+eq(cw.ChatInputBar.visibility, 1)
+eq(chatHost.remote.sent[#chatHost.remote.sent], "MJOLNIR MJOLNIR|chat|a|Red|1|Bravo|from the host")
+print("Multiplayer UI: chat relayed, filtered by team, limited and recorded by the host")
+
+-- A client sends over ServerExecRPC and draws what the host relays.
+local chatClient = runHUD("slayer", true)
+for _ = 1, 3 do chatClient.poll() end
+chatClient.binds.Y() -- team chat in free for all is all chat
+local ccw = chatWidget(chatClient)
+eq(ccw.ChatChannel.text, "ALL")
+chatClient.binds.T() -- already open: nothing
+ccw.ChatInput.text = "  hi all  "
+chatClient.binds.RETURN()
+eq(chatClient.asked[#chatClient.asked], "MJOLNIR|say|a|hi all")
+chatClient.binds.RETURN() -- closed: nothing more
+eq(chatClient.asked[#chatClient.asked], "MJOLNIR|say|a|hi all")
+hear(chatClient, "MJOLNIR|chat|a|-|2|Charlie|hey")
+eq(ccw.ChatText9.text, "hey"); eq(ccw.ChatName9.text, "Charlie:")
+assert(not chatClient.file("^chat_"), "a client recorded chat")
+print("Multiplayer UI: a client's chat")

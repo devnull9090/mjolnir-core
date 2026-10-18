@@ -2769,6 +2769,227 @@
           "name"
         ]
       },
+      "MatchChatLog": {
+        "type": "object",
+        "properties": {
+          "host_match_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,64}$"
+          },
+          "map_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z0-9]{3}$"
+          },
+          "started_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchChatLineInput"
+            },
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "host_match_id",
+          "lines"
+        ]
+      },
+      "MatchChatLineInput": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 21600000
+          },
+          "index": {
+            "type": "integer",
+            "minimum": -1,
+            "maximum": 15
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The sender's in-game (Steam or Xbox) name."
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64,
+            "description": "The hub account the host's game resolved for the sender, when it had one."
+          },
+          "display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64,
+            "description": "That account's hub name."
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "all",
+              "team"
+            ],
+            "default": "all"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "t_ms",
+          "index",
+          "name",
+          "text"
+        ]
+      },
+      "MatchChatTranscript": {
+        "type": "object",
+        "properties": {
+          "host_match_id": {
+            "type": "string"
+          },
+          "map_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "received_at": {
+            "type": "string"
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchChatLine"
+            }
+          }
+        },
+        "required": [
+          "host_match_id",
+          "map_code",
+          "started_at",
+          "received_at",
+          "reporter",
+          "lines"
+        ]
+      },
+      "MatchChatLine": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "number"
+          },
+          "t_ms": {
+            "type": "number"
+          },
+          "index": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "all",
+              "team"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "t_ms",
+          "index",
+          "name",
+          "user_id",
+          "display_name",
+          "team",
+          "channel",
+          "text"
+        ]
+      },
       "MatchSummary": {
         "type": "object",
         "properties": {
@@ -3673,6 +3894,13 @@
               "null"
             ]
           },
+          "chat_lines": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Lines in the match's chat log, when the host's game sent one; read it at GET /moderation/match-chat/{host_match_id}."
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -3713,6 +3941,7 @@
           "match_id",
           "reporter_in_match",
           "subject_in_match",
+          "chat_lines",
           "status",
           "decided_by",
           "decided_at",
@@ -8273,6 +8502,192 @@
           },
           "409": {
             "description": "Someone else claimed that seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matches/chat": {
+      "post": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "Send the chat log of a match the caller hosted",
+        "description": "The host's game records every chat line its match carried and sends the whole log, at checkpoints during the match and once more at the end; each send replaces the last. `host_match_id` is the host's own id for the match, as POST /matches takes it, but the match need not be reported: a private game's chat is kept too. Only moderators read it (GET /moderation/match-chat/{host_match_id}), to judge reports filed from the match. Needs the `lobbies:write` scope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchChatLog"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replaced the log this account sent before.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "host_match_id": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "host_match_id",
+                    "lines"
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "host_match_id": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "host_match_id",
+                    "lines"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That match id is another account's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/moderation/match-chat/{host_match_id}": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "summary": "A match's chat log (moderators)",
+        "description": "Every line the host's game sent for the match, in order, with the hub account the host resolved for each sender when it had one. What a log says is the host's word.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16,64}$"
+            },
+            "required": true,
+            "name": "host_match_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchChatTranscript"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a match id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Moderators only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No log for that match.",
             "content": {
               "application/json": {
                 "schema": {

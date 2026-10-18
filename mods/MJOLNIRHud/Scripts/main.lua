@@ -1452,6 +1452,7 @@ local function tick()
     -- The per-frame hook animates between polls; the poll draws too, so the
     -- HUD still moves (at its rate) if the hook never armed.
     animate(now())
+    pcall(Chat.frame, now())
 end
 
 --- A tick that holds the game thread past 50 ms is logged (at most every

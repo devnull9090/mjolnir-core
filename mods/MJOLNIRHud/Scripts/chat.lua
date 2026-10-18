@@ -36,6 +36,7 @@ local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRChat.WBP_MJOLNIRChat_C"
 local SHOWN, HIDDEN, COLLAPSED, VISIBLE = 3, 2, 1, 0
 local PASS = 4 -- SelfHitTestInvisible
 local GREY = { R = 0.62, G = 0.74, B = 0.82, A = 1 }
+local WHITE = { R = 1, G = 1, B = 1, A = 1 }
 local ACCENT = { R = 0.46, G = 0.79, B = 0.94, A = 1 }
 
 --------------------------------------------------------------------------------
@@ -161,6 +162,7 @@ local says = {}          -- client lines for the host, from the RPC hook
 local record = nil       -- the host's { lines, seen, dirty, nextWrite, startedAt }
 local hinted = false
 local dirty = true
+local rowState = {}      -- row -> what it shows now (draw)
 
 local function valid(o)
     local ok, v = pcall(function() return o and o:IsValid() end)
@@ -237,23 +239,36 @@ local function draw(t)
         end
         if #shown >= Chat.ROWS then break end
     end
+    -- Each row is touched only when what it shows changes: a dozen engine
+    -- calls a frame for nothing would add up.
     local first = Chat.ROWS - #shown
     for i = 0, Chat.ROWS - 1 do
         local row = W["ChatLine" .. i]
         local s = shown[i - first + 1]
+        local state = rowState[i] or {}
+        rowState[i] = state
         if s then
-            if dirty then
-                local l = s.l
+            local l = s.l
+            if dirty or state.line ~= l then
+                state.line = l
                 setText(W["ChatName" .. i], l.system and "" or (l.name .. ":"))
                 pcall(function() W["ChatName" .. i]:SetColorAndOpacity({ SpecifiedColor = l.color, ColorUseRule = 0 }) end)
                 setText(W["ChatText" .. i], l.text)
-                pcall(function() W["ChatText" .. i]:SetColorAndOpacity({ SpecifiedColor = l.system and GREY or { R = 1, G = 1, B = 1, A = 1 }, ColorUseRule = 0 }) end)
+                pcall(function() W["ChatText" .. i]:SetColorAndOpacity({ SpecifiedColor = l.system and GREY or WHITE, ColorUseRule = 0 }) end)
                 setVisibility(W["ChatTag" .. i], l.channel == "team" and SHOWN or COLLAPSED)
                 setVisibility(W["ChatName" .. i], l.system and COLLAPSED or SHOWN)
             end
-            setVisibility(row, SHOWN)
-            pcall(function() row:SetRenderOpacity(s.alpha) end)
-        else
+            if state.shown ~= true then
+                state.shown = true
+                setVisibility(row, SHOWN)
+            end
+            local alpha = math.floor(s.alpha * 50 + 0.5) / 50
+            if state.alpha ~= alpha then
+                state.alpha = alpha
+                pcall(function() row:SetRenderOpacity(alpha) end)
+            end
+        elseif state.shown ~= false then
+            state.shown, state.line, state.alpha = false, nil, nil
             setVisibility(row, COLLAPSED)
         end
     end
@@ -467,7 +482,7 @@ function Chat.finish()
     end
     record, lines, inbox, says = nil, {}, {}, {}
     hinted = false
-    W = nil
+    W, rowState = nil, {}
     dirty = true
 end
 
@@ -490,6 +505,7 @@ end
 --- queue, hidden }.
 function Chat.init(deps)
     ctx = deps
+    if not (Key and RegisterKeyBind) then return end
     -- Synchronous binds: their callbacks run on the game thread
     -- (MJOLNIRFlyCam). A bind fires whatever has focus, so each checks the
     -- box first.
