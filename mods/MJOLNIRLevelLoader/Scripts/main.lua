@@ -242,6 +242,17 @@ local Current = {
     -- source material, shared by every decor piece and foliage group that
     -- asks for the same values.
     scalarMids = {},
+    -- The world the level was furnished in (spawnDecor), for the loops that
+    -- need a world context: getWorld() reads a dozen properties and leaves
+    -- ~1.5 KB of handles behind a call.
+    world = nil,
+    -- The one table every call with a hit-result out parameter is handed
+    -- (K2_SetActorTransform's SweepHitResult and the like). UE4SS keeps a
+    -- registry reference to an out parameter's table and never lets it go:
+    -- a fresh {} a call left 7,733 FHitResult tables (13 objects each) live
+    -- on Death Island, all marked again by every garbage collection, and a
+    -- 10 Hz loop added one a run. One shared table: nothing piles up.
+    hit = {},
 }
 
 local function resetState()
@@ -266,6 +277,8 @@ local function resetState()
     Current.scalarMids = {}
     Current.water = nil
     Current.weatherHidden = nil
+    Current.weatherAt = nil
+    Current.world = nil
     Current.fluxPending = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
@@ -1404,8 +1417,11 @@ local function spawnDecorItem(world, origin, item)
             local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
             local okM, mid = pcall(function() return actor.StaticMeshComponent:GetMaterial(0) end)
             if okM and mid and mid:IsValid() and base then
+                -- The setter kept: UE4SS hands back a new function handle at
+                -- every method lookup (~250 bytes), and one bound to its
+                -- object, so it is this instance's own.
                 Current.pulses[#Current.pulses + 1] = {
-                    mid = mid, param = FName(pulse.param), base = base,
+                    mid = mid, set = mid.SetScalarParameterValue, param = FName(pulse.param), base = base,
                     fn = pulse["function"] or 2, period = pulse.period or 1.0,
                 }
             end
@@ -1580,7 +1596,7 @@ local function spawnEnvironment(world)
         place("__sky_fog", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
             pcall(function()
                 actor:K2_SetActorLocation({ X = high.X, Y = high.Y, Z = high.Z + (skyFog.height or 400000.0) },
-                    false, {}, false)
+                    false, Current.hit, false)
             end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
@@ -1605,7 +1621,7 @@ local function spawnEnvironment(world)
     local haze = env.haze
     if type(haze) == "table" and type(haze.color) == "table" then
         place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
-            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, {}, false) end)
+            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, Current.hit, false) end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
             c.FogCutoffDistance = haze.cutoff or 80000
@@ -1879,7 +1895,7 @@ local function attachFlagMesh(world, actor, ctf, name, pos, rot, scale)
     comp:SetStaticMesh(mesh)
     comp:SetCollisionEnabled(COLLISION_NONE)
     comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
-        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, {}, false)
+        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, Current.hit, false)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
     FlagMeshes[actor:GetFullName()] = comp
     hideSkull(actor)
@@ -1904,7 +1920,7 @@ local function pinFlag(comp, flag, stand, name, actor)
         X = stand.pos[1] + p[1] * math.cos(yaw) - p[2] * math.sin(yaw),
         Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
         Z = stand.pos[3] + p[3],
-    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, {}, false)
+    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, Current.hit, false)
     HomeFlags[name] = { comp = comp, flag = flag, actor = actor }
 end
 
@@ -1915,7 +1931,7 @@ local function unpinFlag(name)
     local p = home.flag.pos or { 0, 0, 0 }
     home.comp:SetAbsolute(false, false, false)
     home.comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
 end
 
 local function teamName(team)
@@ -2151,9 +2167,9 @@ local function seatPackMesh(actor, comp, hp)
     -- straight up from the crate's lowest corner, in the crate's frame.
     local p = hp.pos or { 0, 0, 0 }
     local up = (p[3] or 0) + lowest
-    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, {}, false)
+    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, Current.hit, false)
     comp:SetAbsolute(false, true, false)
-    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, {}, false)
+    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, Current.hit, false)
 end
 
 local function dressHealthPack(world, actor, hp)
@@ -2179,7 +2195,7 @@ local function dressHealthPack(world, actor, hp)
     comp:SetCollisionEnabled(COLLISION_NONE)
     local p, s = hp.pos or { 0, 0, 0 }, hp.scale or 1.0
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
     comp:SetRelativeScale3D({ X = s, Y = s, Z = s })
     pcall(seatPackMesh, actor, comp, hp)
     PackMeshes[key] = comp
@@ -2732,11 +2748,17 @@ local function updateWeather()
     local changed = hidden ~= (Current.weatherHidden or false)
     Current.weatherHidden = hidden
     if changed then Log(hidden and "weather: under a roof, hidden" or "weather: in the open, shown") end
+    -- Moved when the camera has gone half a metre: each move is a call that
+    -- leaves a reference behind (Current.hit), ten a second a copy.
+    local last = Current.weatherAt
+    local follow = w.follow ~= false and not (last and math.abs(here.X - last.X) < 50
+        and math.abs(here.Y - last.Y) < 50 and math.abs(here.Z - last.Z) < 50)
+    if follow then Current.weatherAt = here end
     local missing = {}
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
         if comp and comp:IsValid() then
-            if w.follow ~= false then comp:K2_SetWorldLocation(here, false, {}, true) end
+            if follow then comp:K2_SetWorldLocation(here, false, Current.hit, true) end
             if changed then pcall(function() comp:SetVisibility(not hidden, false) end) end
         else
             missing[#missing + 1] = i
@@ -3089,7 +3111,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
                     end)
                 end
                 actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
-                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, Current.hit, true)
                 actors[#actors + 1] = actor
                 Current.actors[string.format("__clad_%d_%d", g, k)] = actor
             end
@@ -4565,8 +4587,15 @@ function Footprints.draw(world, fn, rt)
     if not (rt and rt:IsValid()) then return false end
     local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
     -- UE4SS hands the out parameters back shifted: the canvas (and size) in
-    -- the first table, the drawing context in the second.
-    local c1, c2, c3 = {}, {}, {}
+    -- the first table, the drawing context in the second. The same three
+    -- tables every draw (UE4SS keeps each out parameter's table: Current.hit),
+    -- emptied first so a begin that fails does not hand back the last
+    -- canvas and context.
+    Footprints.out = Footprints.out or { {}, {}, {} }
+    for _, t in ipairs(Footprints.out) do
+        for k in pairs(t) do t[k] = nil end
+    end
+    local c1, c2, c3 = Footprints.out[1], Footprints.out[2], Footprints.out[3]
     krl:BeginDrawCanvasToRenderTarget(world, rt, c1, c2, c3)
     local canvas = c1.Canvas
     if not (canvas and canvas:IsValid()) then
@@ -4877,6 +4906,7 @@ end
 
 local function spawnDecor(world)
     local level = Current.level
+    Current.world = world
     spawnEnvironment(world)
     spawnSounds(world)
     preloadEventSounds()
@@ -5005,6 +5035,19 @@ local function tick()
     end
 end
 
+-- The Lua collector in generational mode. Incremental, it let ~40 MB of
+-- garbage pile up between cycles, and finishing one (sweeping it, and
+-- running the finalizers of the thousands of object handles UE4SS hands
+-- out) landed in a single step: whichever loop allocated next held the game
+-- thread 30-200 ms, the pulses most often, being the most frequent (MJOLNIRHud
+-- hitch log, 2026-10-18). A smaller step size made it worse: the heap ran to
+-- 230 MB and the step that finished the cycle took 205 ms. Generational, a
+-- young collection takes only what was made since the last. At the default
+-- 20% of the heap that was ~3.5 MB, an 11 ms run every ~97 s; at 5% it is a
+-- quarter of that, four times as often. UE4SS ships Lua 5.4.7, whose
+-- generational mode is sound.
+pcall(collectgarbage, "generational", 5, 100)
+
 --- Run `fn` on the game thread every `ms`, from the game thread: each run
 --- schedules the next. An async loop that hands work to the game thread
 --- (LoopAsync + ExecuteInGameThread) can deadlock UE4SS, the async thread
@@ -5061,16 +5104,20 @@ end
 
 local KismetSystem = nil
 
---- Every pulsing decor material, at the game's time.
+--- Every pulsing decor material, at the game's time. 25 times a second
+--- with Death Island's 25 flares, so nothing here may leave garbage: a
+--- getWorld() and a method lookup a flare made ~8 KB a run, 200 KB a
+--- second, and the collections that bought cost 30-150 ms runs (MJOLNIRHud
+--- hitch log, 2026-10-18).
 local function updatePulses()
     if #Current.pulses == 0 then return end
-    local world = getWorld()
-    if not world then return end
+    local world = Current.world
+    if not (world and world:IsValid()) then return end
     KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local t = KismetSystem:GetGameTimeInSeconds(world)
     for _, p in ipairs(Current.pulses) do
         if p.mid:IsValid() then
-            p.mid:SetScalarParameterValue(p.param, p.base * ceWave(p.fn, t / p.period))
+            p.set(p.mid, p.param, p.base * ceWave(p.fn, t / p.period))
         end
     end
 end
@@ -5118,19 +5165,27 @@ local function watch()
     -- (build_ce_materials.py DEVICE_WPO_CODE).
     every(100, "moving sounds", function()
         if #Current.movingSounds == 0 then return end
-        local world = getWorld()
-        local gs = findObject("/Script/Engine.Default__GameplayStatics")
-        if not (world and gs) then return end
-        local now = gs:GetTimeSeconds(world)
+        local world = Current.world
+        if not (world and world:IsValid()) then return end
+        -- The world's time (as GameplayStatics' GetTimeSeconds), through
+        -- the library pulses keep: a StaticFindObject a run cost ~1 ms.
+        KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local now = KismetSystem:GetGameTimeInSeconds(world)
         for _, m in ipairs(Current.movingSounds) do
             if m.comp:IsValid() then
                 local p = m.period > 0 and ((now / m.period + m.position) % 1.0) or m.position
                 local sc = m.s0 + (m.s1 - m.s0) * p
-                local at = {}
+                local at = m.at or {}
+                m.at = at
+                local moved = false
                 for k = 1, 3 do
-                    at[k] = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    local v = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    if at[k] == nil or math.abs(v - at[k]) > 1 then at[k], moved = v, true end
                 end
-                m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, {}, false)
+                -- A held part (period 0) is placed once.
+                if moved then
+                    m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.hit, false)
+                end
             end
         end
     end)

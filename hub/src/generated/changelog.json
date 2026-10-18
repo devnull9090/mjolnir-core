@@ -41,6 +41,28 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.30.0",
+      "tag": "mods-v0.30.0",
+      "title": "Smoother frames on the classic maps",
+      "date": "2026-10-18",
+      "summary": "The occasional stutter on the classic maps, a frame of 50 to 200 ms every minute or two even standing still, is gone. It came from MJOLNIR's own scripts cleaning up their memory, not from the maps.",
+      "body": "### Fixed\n\n- **Stutters while standing still** (MJOLNIRLevelLoader 0.7.3). Every\n  minute or two the level script's memory cleanup ran in one go and held a\n  frame for 30 to 200 ms. The cleanup now runs a little at a time, and the\n  script makes far less to clean up. The flashing beacon lights on Death\n  Island alone made about 200 KB of it a second, and every rock placed on\n  the cliffs left a little behind that was never freed. On Death Island no\n  script now holds a frame for more than 3 ms, and the worst frame in a\n  five-minute test was 17 ms.\n- **A short HUD hitch every 15 seconds** (MJOLNIRHud 0.11.1). The kill feed\n  and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now\n  holds one for at most 2 ms.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutters while standing still (MJOLNIRLevelLoader 0.7.3). Every minute or two the level script's memory cleanup ran in one go and held a frame for 30 to 200 ms. The cleanup now runs a little at a time, and the script makes far less to clean up. The flashing beacon lights on Death Island alone made about 200 KB of it a second, and every rock placed on the cliffs left a little behind that was never freed. On Death Island no script now holds a frame for more than 3 ms, and the worst frame in a five-minute test was 17 ms.",
+            "A short HUD hitch every 15 seconds (MJOLNIRHud 0.11.1). The kill feed and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now holds one for at most 2 ms."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.30.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.30.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.30.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.29.0",
       "tag": "mods-v0.29.0",
       "title": "/bench shows where the frame goes",
