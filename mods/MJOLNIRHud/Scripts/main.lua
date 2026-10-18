@@ -1456,6 +1456,14 @@ local function tick()
     pcall(Chat.frame, now())
 end
 
+-- The Lua collector in generational mode. The HUD keeps ~0.5 MB but makes
+-- ~350 KB of garbage a second (object handles, at every frame and poll), and
+-- the incremental collector finished a cycle every ~15 s by sweeping ~5 MB of
+-- it in one step: a 4-6 ms tick every 15 s, standing still (MJOLNIRHud hitch
+-- log, 2026-10-18). Young collections take what was made since the last:
+-- the worst tick was 2-3 ms. UE4SS ships Lua 5.4.7.
+pcall(collectgarbage, "generational")
+
 --- A tick that holds the game thread past 50 ms is logged (at most every
 --- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said
 --- which mod's loop it was (playtest, 2026-10-03).
