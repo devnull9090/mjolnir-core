@@ -397,6 +397,8 @@ export interface PlayerReport {
   /** Null when the match is not on the hub. */
   reporter_in_match: boolean | null;
   subject_in_match: boolean | null;
+  /** Lines in the match's chat log, when the host's game sent one. */
+  chat_lines: number | null;
   status: "open" | "upheld" | "dismissed";
   decided_by: string | null;
   decided_at: string | null;
@@ -412,6 +414,34 @@ export interface ReportedPlayer {
   counted_reports: number;
   ban: MatchmakingBan | null;
   reports: PlayerReport[];
+}
+
+/** One chat line as the host's game recorded it. */
+export interface MatchChatLine {
+  seq: number;
+  /** Milliseconds into the match. */
+  t_ms: number;
+  /** The sender's player index; -1 for a line no player sent. */
+  index: number;
+  /** The sender's in-game (Steam or Xbox) name. */
+  name: string;
+  /** The hub account the host's game resolved for the sender. */
+  user_id: string | null;
+  display_name: string | null;
+  team: "red" | "blue" | null;
+  channel: "all" | "team";
+  text: string;
+}
+
+/** A match's chat log. Moderators only. */
+export interface MatchChatLog {
+  host_match_id: string;
+  map_code: string | null;
+  started_at: string | null;
+  received_at: string;
+  /** The host whose game sent it. */
+  reporter: { id: string; name: string; avatar_url: string | null } | null;
+  lines: MatchChatLine[];
 }
 
 export interface BannedPlayer {

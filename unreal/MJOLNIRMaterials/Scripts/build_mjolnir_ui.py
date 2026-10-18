@@ -23,6 +23,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRMapDownload a map this PC does not have: its hub screenshot and
                          details, DOWNLOAD, and the download's progress
                          (docs/live_map_install.md)
+  WBP_MJOLNIRChat        match chat: the lines above the kill feed and the
+                         box you type in (MJOLNIRHud Scripts/chat.lua)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
@@ -1557,6 +1559,211 @@ def build_game_settings():
     finish_screen(bp, name)
 
 
+# Match chat (MJOLNIRHud, Scripts/chat.lua): CHAT_ROWS lines, oldest at the
+# top, at the left of the screen above the kill feed, and the box you type
+# in. Lua fills the lines from the bottom, collapses the rest, and fades
+# them out a few seconds after they arrive; while the box is open every
+# line shows on a dark panel.
+#
+#   Chat               VerticalBox at the left edge, growing up
+#    ChatPanel         rounded Border: clear, dark while typing
+#     ChatLines        the lines
+#      ChatLine<i>     rounded Border: one line's own dark fill
+#       ChatTag<i>     [TEAM], collapsed for all chat
+#       ChatAvatar<i>  the sender's hub avatar, round (collapsed without one)
+#       ChatName<i>    the sender, in their colour
+#       ChatText<i>    what they said, wrapped
+#    ChatInputBar      rounded Border, collapsed until T (all) or Y (team)
+#     ChatChannel      ALL or TEAM
+#     ChatInput        the EditableTextBox; Lua focuses it
+#    ChatHint          ENTER to send, ESC to cancel
+#
+# Every container passes the mouse through (SelfHitTestInvisible) and the
+# lines take nothing; only the input box is hit-testable, because Slate
+# gives keyboard focus only along a path of visible widgets.
+CHAT_ROWS = 10
+CHAT_WIDTH = 920
+CHAT_FILL = (0.012, 0.03, 0.045, 0.62)
+CHAT_AVATAR = 28
+CHAT_SUGGEST_ROWS = 6  # Scripts/commands.lua ROWS
+
+
+def chat_line(bp, i):
+    line = widget(bp, unreal.Border, f"ChatLine{i}", "ChatLines")
+    rounded(line, 6, CHAT_FILL)
+    line.set_editor_property("padding", unreal.Margin(12, 7, 16, 7))
+    line.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    line.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 0, 0))
+    line.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    row = widget(bp, unreal.HorizontalBox, f"ChatLineBox{i}", line.get_name())
+    tag = hidden_text(widget(bp, unreal.TextBlock, f"ChatTag{i}", row.get_name()))
+    text_style(tag, "[TEAM]", 17, ACCENT, "Bold")
+    tag.get_editor_property("slot").set_padding(unreal.Margin(0, 6, 8, 0))
+    face = icon_box(bp, f"ChatAvatar{i}", row.get_name(), CHAT_AVATAR, CHAT_AVATAR)
+    # Centred on the first line of text: Normative Pro's 22 px line is about
+    # 42 px tall, so a 28 px picture at the top of the row sat high (and,
+    # beside the text's drop shadow, a little left). A message that wraps
+    # keeps its name and picture on its first line.
+    face.get_editor_property("slot").set_padding(unreal.Margin(2, 7, 8, 0))
+    face.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_TOP)
+    round_image(face.get_content(), CHAT_AVATAR)
+    name = widget(bp, unreal.TextBlock, f"ChatName{i}", row.get_name())
+    text_style(name, "", 22, WHITE, "Bold")
+    shadowed(name)
+    text = widget(bp, unreal.TextBlock, f"ChatText{i}", row.get_name())
+    text_style(text, "", 22, WHITE)
+    # A fixed wrap width: auto-wrap in a row sized to its content wraps at
+    # almost nothing ("Press T to / chat"). A short line keeps a short row.
+    text.set_editor_property("wrap_text_at", CHAT_WIDTH - 260)
+    shadowed(text)
+    text.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+    for w in (row, name, text):
+        w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+
+def chat_input_style(box):
+    try:
+        style = box.get_editor_property("widget_style")
+        for state in ("background_image_normal", "background_image_hovered", "background_image_focused",
+                      "background_image_read_only"):
+            brush = style.get_editor_property(state)
+            brush.set_editor_property("resource_object", None)
+            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(0.0, 0.0, 0.0, 0.0)))
+            style.set_editor_property(state, brush)
+        style.set_editor_property("foreground_color", unreal.SlateColor(unreal.LinearColor(*WHITE)))
+        style.set_editor_property("padding", unreal.Margin(4, 6, 4, 6))
+        inner = style.get_editor_property("text_style")
+        font = inner.get_editor_property("font")
+        font.set_editor_property("size", 24)
+        inner.set_editor_property("font", font)
+        style.set_editor_property("text_style", inner)
+        box.set_editor_property("widget_style", style)
+    except Exception as e:  # a style field this engine lacks: the stock look
+        unreal.log_warning(f"MJOLNIR UI: chat input style: {e}")
+
+
+def build_chat():
+    name = "WBP_MJOLNIRChat"
+    bp = fresh_widget(name)
+    passes = unreal.SlateVisibility.SELF_HIT_TEST_INVISIBLE
+    viewport = widget(bp, unreal.CanvasPanel, "Viewport")
+    fit = widget(bp, unreal.ScaleBox, "Fit", "Viewport")
+    stretch(fit)
+    fit.set_stretch(unreal.Stretch.SCALE_TO_FIT)
+    design = sized(bp, "Design", "Fit", width=2560, height=1440)
+    root = widget(bp, unreal.CanvasPanel, "Root", "Design")
+    for w in (viewport, fit, design, root):
+        w.set_visibility(passes)
+
+    chat = widget(bp, unreal.VerticalBox, "Chat", "Root")
+    place(chat, (0.018, 0.55), (0.0, 1.0))
+    chat.set_visibility(passes)
+    size = sized(bp, "ChatSize", "Chat", width=CHAT_WIDTH)
+    size.set_visibility(passes)
+    stack = widget(bp, unreal.VerticalBox, "ChatStack", size.get_name())
+    stack.set_visibility(passes)
+
+    chat_panel = widget(bp, unreal.Border, "ChatPanel", stack.get_name())
+    rounded(chat_panel, 8, (0.005, 0.018, 0.03, 0.0), padding=8)
+    chat_panel.set_visibility(passes)
+    lines = widget(bp, unreal.VerticalBox, "ChatLines", chat_panel.get_name())
+    lines.set_visibility(passes)
+    for i in range(CHAT_ROWS):
+        chat_line(bp, i)
+
+    # Slash commands (Scripts/commands.lua): what "/" can do, under the
+    # lines and over the box, the one Tab completes highlighted.
+    suggest = widget(bp, unreal.Border, "ChatSuggest", stack.get_name())
+    rounded(suggest, 8, (0.0, 0.03, 0.05, 0.92), padding=6)
+    gap(suggest, top=8)
+    suggest.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    rows = widget(bp, unreal.VerticalBox, "ChatSugRows", suggest.get_name())
+    rows.set_visibility(passes)
+    for i in range(CHAT_SUGGEST_ROWS):
+        row = widget(bp, unreal.Border, f"ChatSugRow{i}", rows.get_name())
+        rounded(row, 5, (0.0, 0.0, 0.0, 0.0))
+        row.set_editor_property("padding", unreal.Margin(10, 4, 10, 4))
+        row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        line = widget(bp, unreal.HorizontalBox, f"ChatSugLine{i}", row.get_name())
+        line.set_visibility(passes)
+        label = widget(bp, unreal.TextBlock, f"ChatSugName{i}", line.get_name())
+        text_style(label, "", 20, ACCENT, "Bold")
+        hint_text = widget(bp, unreal.TextBlock, f"ChatSugHelp{i}", line.get_name())
+        text_style(hint_text, "", 18, GREY)
+        hint_text.get_editor_property("slot").set_padding(unreal.Margin(14, 1, 0, 0))
+        for w in (label, hint_text):
+            w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+    bar = widget(bp, unreal.Border, "ChatInputBar", stack.get_name())
+    rounded(bar, 8, (0.0, 0.03, 0.05, 0.92), padding=0)
+    bar.set_editor_property("padding", unreal.Margin(16, 6, 16, 6))
+    gap(bar, top=8)
+    bar.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    row = widget(bp, unreal.HorizontalBox, "ChatInputRow", bar.get_name())
+    row.set_visibility(passes)
+    channel = widget(bp, unreal.TextBlock, "ChatChannel", row.get_name())
+    text_style(channel, "ALL", 22, ACCENT, "Bold")
+    middle(channel)
+    channel.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+    channel.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+    box = widget(bp, unreal.EditableTextBox, "ChatInput", row.get_name())
+    box.set_editor_property("hint_text", unreal.Text("Say something"))
+    box.set_editor_property("clear_keyboard_focus_on_commit", False)
+    chat_input_style(box)
+    fill(box, 1)
+    middle(box)
+
+    hint = widget(bp, unreal.TextBlock, "ChatHint", stack.get_name())
+    text_style(hint, "ENTER  SEND      ESC  CANCEL      /  COMMANDS      TAB  COMPLETE", 15, GREY, "Bold")
+    gap(hint, top=6)
+    hint.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    shadowed(hint)
+
+    # The chat rules, shown the first time a player opens chat; chat opens
+    # only once they agree. Lua fills the text (Scripts/chat.lua RULES), so
+    # the wording can change without a new container.
+    rules = panel(bp, "ChatRules", "Root", alpha=0.94, padding=(48, 40, 48, 36))
+    rounded(rules, 12, (0.005, 0.018, 0.03, 0.94), padding=0)
+    rules.set_editor_property("padding", unreal.Margin(48, 40, 48, 36))
+    place(rules, (0.5, 0.5), (0.5, 0.5))
+    rules.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    size = sized(bp, "ChatRulesSize", rules.get_name(), width=1080)
+    stack = widget(bp, unreal.VerticalBox, "ChatRulesStack", size.get_name())
+    title = widget(bp, unreal.TextBlock, "ChatRulesTitle", stack.get_name())
+    text_style(title, "MATCH CHAT IS MODERATED", 34, ACCENT, "Bold")
+    body = widget(bp, unreal.TextBlock, "ChatRulesBody", stack.get_name())
+    text_style(body, "", 22, WHITE)
+    wrapped(body)
+    gap(body, top=18)
+    listed = widget(bp, unreal.TextBlock, "ChatRulesList", stack.get_name())
+    text_style(listed, "", 21, WHITE)
+    wrapped(listed)
+    gap(listed, top=18)
+    note = widget(bp, unreal.TextBlock, "ChatRulesNote", stack.get_name())
+    text_style(note, "", 19, GREY)
+    wrapped(note)
+    gap(note, top=18)
+    actions = widget(bp, unreal.HorizontalBox, "ChatRulesActions", stack.get_name())
+    gap(actions, top=28)
+    events = []
+    for key, label, event in (("ChatRulesAccept", "I AGREE", "chat_accept"),
+                              ("ChatRulesDecline", "NOT NOW", "chat_decline")):
+        button = menu_button(bp, key, label, actions.get_name(), size=26)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", event))
+    keys = widget(bp, unreal.TextBlock, "ChatRulesKeys", stack.get_name())
+    text_style(keys, "ENTER  AGREE      ESC  NOT NOW", 15, GREY, "Bold")
+    gap(keys, top=14)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish(bp, name)
+
+
 def build_label():
     full = f"{ROOT}/PAL_MJOLNIR_UI"
     if eal.does_asset_exist(full):
@@ -1580,5 +1787,6 @@ build_find_games()
 build_post_game()
 build_map_download()
 build_game_settings()
+build_chat()
 build_label()
 unreal.log("MJOLNIR UI built")

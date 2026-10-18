@@ -27,8 +27,8 @@ import { positionMarks } from "../_components/positions";
 import mapPreviews from "../_components/map-previews.json";
 
 /**
- * One match: the final scoreboard, the timeline of what happened, and where
- * the kills and deaths were. Seats link to their player's history: the hub
+ * One match: the final scoreboard, the timeline of what happened, where
+ * the kills and deaths were, and what the players said. Seats link to their player's history: the hub
  * account's when the seat is linked, the in-game name's otherwise.
  */
 const loadMatch = cache((id: string) => {
@@ -56,6 +56,52 @@ const TEAM_STYLE: Record<string, string> = {
   red: "border-l-red-500",
   blue: "border-l-sky-500",
 };
+
+const TEAM_TEXT: Record<string, string> = {
+  red: "text-red-400",
+  blue: "text-sky-400",
+};
+
+/**
+ * What players said, in order. A line names a hub account only when it is
+ * the one linked to the sender's seat; otherwise the in-game name.
+ */
+function Chat({ match }: { match: MatchDetail }) {
+  if (!match.chat.length) return null;
+  return (
+    <section className="mt-10">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-text-dim mb-3">Chat · {match.chat.length}</h2>
+      <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-border px-4 py-3 text-sm space-y-1">
+        {match.chat.map((l, i) => {
+          const colour = match.team_game ? (TEAM_TEXT[l.team ?? ""] ?? "text-foreground") : "text-foreground";
+          const who = l.user ? l.user.name : l.name;
+          return (
+            <div key={i} className="flex gap-3">
+              <span className="w-12 shrink-0 text-right text-text-dim tabular-nums">{duration(l.t_ms)}</span>
+              <span className="min-w-0 break-words">
+                {l.channel === "team" && <span className="mr-1.5 text-[11px] font-bold text-text-dim">[TEAM]</span>}
+                {l.index >= 0 ? (
+                  <Link
+                    href={playerHref(l)}
+                    title={l.user ? `In game: ${l.name}` : undefined}
+                    className={`inline-flex items-center gap-1.5 align-middle font-semibold hover:underline ${colour}`}
+                  >
+                    {l.user && <Avatar name={l.name} user={l.user} size="w-4 h-4" />}
+                    {who}
+                  </Link>
+                ) : (
+                  <span className="font-semibold text-text-muted">{who}</span>
+                )}
+                <span className="text-text-dim">: </span>
+                <span className="text-text-muted whitespace-pre-wrap">{l.text}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null }) {
   const groups: { label: string | null; team: string | null; players: MatchPlayer[]; total: number | null }[] =
@@ -218,6 +264,8 @@ export default async function MatchPage({
           matchId={match.id}
           otherCount={other}
         />
+
+        <Chat match={match} />
       </main>
 
       <Footer />

@@ -43,6 +43,7 @@ local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
 local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
 local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
+local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -935,6 +936,7 @@ local function hookMatchLog()
     logHooked = pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
+            if okM and Chat.heardSay(self:get(), text) then return end
             if not okM or text ~= ASK or not MatchLog.recording() then return end
             local pc = self:get()
             -- Off the RPC, as MJOLNIRLobby answers its messages.
@@ -956,6 +958,7 @@ local function hookMatchLog()
             local okK, name = pcall(function() return kind:get():ToString() end)
             if not okK or name ~= "MJOLNIR" then return end
             local okS, text = pcall(function() return s:get():ToString() end)
+            if okS and Chat.heardLine(text) then return end
             if okS and type(text) == "string" and text:sub(1, 14) == "MJOLNIR|match|" and #Told < 8 then
                 Told[#Told + 1] = text
             end
@@ -1268,6 +1271,7 @@ local function ensureFrameHook()
         if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
         FrameHook.last = t
         local okA, err = pcall(animate, t)
+        if okA and Match then okA, err = pcall(Chat.frame, t) end
         if not okA then
             FrameHook.errors = FrameHook.errors + 1
             if FrameHook.errors == 10 then Log("frame animation off after repeated errors: " .. tostring(err)) end
@@ -1280,6 +1284,8 @@ local function ensureFrameHook()
 end
 
 local function endMatch()
+    local okChat, errChat = pcall(Chat.finish)
+    if not okChat then Log("chat: " .. tostring(errChat)) end
     if Match and MatchLog.recording() then
         logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
     end
@@ -1402,6 +1408,8 @@ local function tick()
     if Match.joins and #Match.joins > 0 then announceJoins() end
     -- Before the drain: the host's log is recording by the first incident.
     logSafely("tick", matchLogTick, pc)
+    local okChat, errChat = pcall(Chat.tick, Match)
+    if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
@@ -1444,6 +1452,7 @@ local function tick()
     -- The per-frame hook animates between polls; the poll draws too, so the
     -- HUD still moves (at its rate) if the hook never armed.
     animate(now())
+    pcall(Chat.frame, now())
 end
 
 --- A tick that holds the game thread past 50 ms is logged (at most every
@@ -1473,6 +1482,65 @@ pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
 end)
 
 Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log" })
+-- Match chat (Scripts/chat.lua): what it needs of the match, read as used.
+Chat.init({
+    dir = MOD_DIR,
+    log = Log,
+    now = now,
+    pc = playerController,
+    createWidget = createWidget,
+    font = Icons.font,
+    match = function() return Match ~= nil end,
+    isHost = function() return Match ~= nil and Match.host == true end,
+    teams = function() return Match ~= nil and Match.mode.teams == true end,
+    localTeam = function()
+        return Match and Match.mode.teams and Scoreboard.team(stats(LOCAL_PLAYER).team) or nil
+    end,
+    teamColor = function()
+        return TEAM_COLORS[Match and Scoreboard.team(stats(LOCAL_PLAYER).team) or ""] or FEED.name
+    end,
+    localName = function()
+        local okN, name = pcall(function() return playerController().PlayerState:GetPlayerName():ToString() end)
+        return okN and name or nil
+    end,
+    seatOf = function(name)
+        if not (Match and name) then return nil end
+        for index, p in pairs(Match.players) do
+            if p.name == name then
+                local team = Match.mode.teams and Scoreboard.team(p.team) or nil
+                return { index = index, team = team, teamName = team and string.lower(team) or nil,
+                    display = p.display, userId = p.userId }
+            end
+        end
+        return nil
+    end,
+    colorOf = function(index, team)
+        if team and TEAM_COLORS[team] then return TEAM_COLORS[team] end
+        if index == LOCAL_PLAYER then return YOU end
+        return FEED.name
+    end,
+    avatar = function(index) return Match and avatarOf(index) end,
+    -- Slash commands (Scripts/commands.lua): the players still in the match,
+    -- this machine's seat, and the console the Lobby's kick and ban answer on.
+    players = function()
+        local out = {}
+        for index, p in pairs(Match and Match.players or {}) do
+            if p.name and not p.left then out[#out + 1] = { index = index, name = p.name, display = p.display } end
+        end
+        return out
+    end,
+    localIndex = function() return LOCAL_PLAYER end,
+    console = function(command)
+        local pc = playerController()
+        pcall(function()
+            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):ExecuteConsoleCommand(pc:GetWorld(), command, pc)
+        end)
+    end,
+    controllers = Relay.controllers,
+    matchId = function() return MatchLog.currentId() or (Match and Match.logId) end,
+    queue = MatchLog.queue,
+    hidden = function() return HudHidden end,
+})
 logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,
     log = Log,

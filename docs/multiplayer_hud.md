@@ -19,8 +19,90 @@ MJOLNIR's own cooked widgets ([custom_ui.md](custom_ui.md)):
   Awaiting assignment. Each section is sorted by score. A gold YOU marker
   identifies the local player in addition to the row highlight.
 
+- **`WBP_MJOLNIRChat`**: match chat, above the kill feed (see
+  [Chat](#chat) below).
+
 The console opens on `~` only. `MJOLNIRConsoleEnabler` takes Tab out of
 `InputSettings.ConsoleKeys`, as Halo CE on PC had it.
+
+## Slash commands
+
+`Scripts/commands.lua`. A chat line starting with `/` is a command: it is
+never relayed or recorded. Typing `/` lists the commands you may use under
+the box; **Tab** completes the highlighted one, then a player's name, and
+again for the next match.
+
+| Command | Who | What |
+|---|---|---|
+| `/help` | everyone | the list, here |
+| `/players` | everyone | who is in the match |
+| `/suicide` (`/respawn`) | everyone | kill your player, to respawn when stuck |
+| `/kick <player>` | host | MJOLNIRLobby's kick |
+| `/ban <player>` | host | kick, and keep them out (`bans.json`) |
+| `/unban <name>` | host | |
+| `/slay <player>` | host | kill a player |
+| `/tp <player>` | host | teleport to a player (experimental) |
+| `/bring <player>` | host | teleport a player to you (experimental) |
+
+- **The host runs every command.** A client sends `MJOLNIR|cmd|<line>` over
+  `ServerExecRPC`; the host takes the sender from the RPC's controller and
+  answers them alone with a system line. Host commands run only from the
+  host's own box: a client's `/kick` is refused whatever it says. A client's
+  `/suicide` needs a seat that is really theirs (index not the host's, and
+  the controller's `BlamAbsolutePlayerIndex` agreeing): a joiner reads the
+  host's index 0 for a few seconds after joining.
+- **A player** is named by hub name or in-game name: exact first, then the
+  only one it starts, then the only one it is in.
+- **Kick, ban, unban** call MJOLNIRLobby's `mjolnir_auto kick|ban|unban`
+  through the console. The Lobby takes an exact name before a partial one.
+- **Kill and teleport** are Blam script, sent through MJOLNIRBlamConsole's
+  mailbox (`native\request.txt`, ids from 7000000, one line a poll):
+  `(unit_kill (player_get <index>))`; a teleport is `objects_attach` then
+  `objects_detach` a poll later, so the child is left where its parent
+  stands. `/suicide` was verified on a host on 2026-10-17. That
+  `player_get <n>` is the player with absolute index `n` is proven only for
+  the host's own seat; the two-PC test must check it before `/slay` or a
+  teleport is trusted.
+- Six suggestions show at a time (the host has nine commands); typing more
+  narrows them.
+
+## Chat
+
+`Scripts/chat.lua`. **T** opens all chat, **Y** team chat (all chat in free
+for all), **Home** all chat. **Enter** sends, **Esc** cancels. Lines show for
+nine seconds, then fade; while the box is open the last ten show on a dark
+panel. A line is at most 160 bytes. Each line shows the sender's hub avatar,
+round, as the feed and the scoreboard do; MJOLNIRLobby may cache the
+picture after the line arrives, so a row asks for it again once a second
+for its first 15 seconds.
+
+- **Typing does not move the player.** The Blam simulation takes its keys
+  from the game viewport, and a key the text box does not use (W, Space, G)
+  bubbles up to it from the focused box. While the box is open the chat sets
+  UI-only input (`WidgetBlueprintLibrary:SetInputMode_UIOnlyEx`, the box
+  focused, held keys flushed), which makes the viewport ignore input as the
+  Unreal console does while it is open; closing sets game-only input again.
+  Two things that do not stop it (tried 2026-10-17 on a real keyboard):
+  `BlamInputProcessorLocalPlayerSubsystem:SetUIActive`, which the pause menu
+  sets (the pause menu freezes the player by pausing the game), and emptying
+  GameInput's keyboard readings, which the game never asks for.
+- **The game's own chat** (`WBP_HUD_Main.ChatWidget`, `IA_OpenChat` on Home)
+  is PlayFab party chat, which never connects in games joined by connection
+  string. It draws nothing.
+- **The wire.** A client sends `MJOLNIR|say|<a|t>|<text>` over
+  `ServerExecRPC`. The host names the sender from the controller the RPC came
+  in on, never from the text, and sends
+  `MJOLNIR|chat|<a|t>|<Red|Blue|->|<index>|<name>|<text>` to every player, or
+  only to the sender's team for team chat. The host allows five lines in six
+  seconds from one sender, and tells a flooder to slow down.
+- **The record.** The host keeps every line it relays, with the sender's
+  in-game name, the hub account MJOLNIRLobby resolved for it, team and
+  channel. It writes `chat_<match id>.json` beside the mod every few seconds,
+  and at the end of the match names it in `match_outbox.txt`. MJOLNIRLobby
+  sends it to `POST /matches/chat`. Private matches are recorded too, because
+  a player report cites the match id whether the game was listed or not.
+  Moderators read the log beside each report on `/moderation`; it is never
+  public (`GET /moderation/match-chat/{host_match_id}`).
 
 ## The kill feed
 

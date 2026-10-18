@@ -154,6 +154,11 @@ const PlayerReportSchema = z
       description: "Whether the reporter's account is linked to a seat of that match; null without one.",
     }),
     subject_in_match: z.boolean().nullable(),
+    chat_lines: z.number().int().nullable().openapi({
+      description:
+        "Lines in the match's chat log, when the host's game sent one; read it at " +
+        "GET /moderation/match-chat/{host_match_id}.",
+    }),
     status: z.enum(["open", "upheld", "dismissed"]),
     decided_by: z.string().nullable(),
     decided_at: z.string().nullable(),
@@ -524,7 +529,7 @@ export function registerPlayerRoutes(app: OpenAPIHono<ApiEnv>) {
                 p.id AS p_id, p.discord_id AS p_discord_id, p.discord_username AS p_discord_username,
                 p.discord_avatar AS p_discord_avatar, p.display_name AS p_display_name,
                 COALESCE(d.display_name, d.discord_username) AS decider,
-                m.id AS match_id,
+                m.id AS match_id, cl.line_count AS chat_lines,
                 (SELECT COUNT(*) FROM match_players mp
                   WHERE mp.match_id = m.id AND mp.user_id = r.reporter_id) AS reporter_seats,
                 (SELECT COUNT(*) FROM match_players mp
@@ -534,6 +539,7 @@ export function registerPlayerRoutes(app: OpenAPIHono<ApiEnv>) {
          JOIN users p ON p.id = r.reporter_id
          LEFT JOIN users d ON d.id = r.decided_by
          LEFT JOIN matches m ON m.host_match_id = r.host_match_id
+         LEFT JOIN match_chat_logs cl ON cl.host_match_id = r.host_match_id
          WHERE r.subject_id IN (${marks})
          ORDER BY r.created_at DESC`,
       )
@@ -564,6 +570,7 @@ export function registerPlayerRoutes(app: OpenAPIHono<ApiEnv>) {
             match_id: (r.match_id as string) ?? null,
             reporter_in_match: r.match_id ? (r.reporter_seats as number) > 0 : null,
             subject_in_match: r.match_id ? (r.subject_seats as number) > 0 : null,
+            chat_lines: (r.chat_lines as number) ?? null,
             status: r.status as "open" | "upheld" | "dismissed",
             decided_by: (r.decider as string) ?? null,
             decided_at: (r.decided_at as string) ?? null,

@@ -107,6 +107,11 @@ to the last week and never ahead of the hub's. Reporting the same id twice from
 the same account is a no-op; from another, 409. A listing id that still exists
 must be the caller's.
 
+Chat: the host's game also sends each match's chat log (`POST /matches/chat`,
+migrations/0020); a reported public match shows it on `/matches/<id>`, naming a
+hub account only for a line from a seat linked to that account, while a
+private game's log is read only by moderators from the report queue.
+
 Pages: `/matches` (filters by game type and map, player search),
 `/matches/<id>` (scoreboard by team, the timeline, and the kill and death
 positions over the map, per player with `?p=<index>`), `/players/<name>`
