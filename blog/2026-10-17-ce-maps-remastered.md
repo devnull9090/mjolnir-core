@@ -20,6 +20,9 @@ The ten are Blood Gulch, Death Island, Ice Fields, Sidewinder, Timberland,
 Infinity, Gephyrophobia, Battle Creek and Rat Race, plus the Custom Edition
 community's Yoyorast Island.
 
+**Update, October 18:** Danger Canyon has joined them, as
+version 2.0.0 with CE runtime pack 1.10.0.
+
 Every comparison below is the current hub version of a map (left) against
 the remastered one (right), from the same camera. Drag the divider to compare.
 
@@ -164,6 +167,21 @@ campaign's rock and the banks are grass.
 ![The creek at water level](/blog-images/ce-maps-remastered/battle-creek-stream.jpg?before=/blog-images/ce-maps-remastered/battle-creek-stream-classic.jpg)
 
 ![The creek under the overhangs](/blog-images/ce-maps-remastered/battle-creek-creek.jpg?before=/blog-images/ce-maps-remastered/battle-creek-creek-classic.jpg)
+
+## Danger Canyon
+
+Added on October 18. The canyon floor is real terrain under grass and
+weeds, the walls are the campaign's rock, and Halo CE's granite boulders
+and pines are now the game's own. The bridge structure and the bases are
+untouched.
+
+![The bridge, from the canyon rim](/blog-images/ce-maps-remastered/danger-canyon-front.jpg?before=/blog-images/ce-maps-remastered/danger-canyon-front-classic.jpg)
+
+![The canyon floor](/blog-images/ce-maps-remastered/danger-canyon-floor.jpg?before=/blog-images/ce-maps-remastered/danger-canyon-floor-classic.jpg)
+
+![Behind the blue base](/blog-images/ce-maps-remastered/danger-canyon-base.jpg?before=/blog-images/ce-maps-remastered/danger-canyon-base-classic.jpg)
+
+![A boulder under the bridge](/blog-images/ce-maps-remastered/danger-canyon-bridge.jpg?before=/blog-images/ce-maps-remastered/danger-canyon-bridge-classic.jpg)
 
 ## Rat Race
 
@@ -318,8 +336,7 @@ change. If you want to help, start here:
 
 Each script opens with a description of what it does, and most decisions in
 the code carry a comment saying what went wrong without them. Some good
-first projects: another map through the pipeline (Danger Canyon has
-outdoor ground), new scatter rules for a biome, or better
+first projects: another map through the pipeline, new scatter rules for a biome, or better
 placement for the rocks on steep walls. Open an issue or a pull request on
 GitHub, or find us on Discord.
 
@@ -331,5 +348,8 @@ their grass and decal files beside the level, and they need CE runtime pack
 1.8.0, which the updated launcher installs for you. Maps downloaded in game
 update the same way.
 
-The other ten classic maps are unchanged. They are mostly indoor or built
+Danger Canyon needs CE runtime pack 1.10.0, which the launcher installs the
+same way.
+
+The other nine classic maps are unchanged. They are mostly indoor or built
 maps, with little ground or rock to remaster.
