@@ -3421,14 +3421,16 @@ function Effects.flux(world)
     for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
         if Current.actors[key] and Current.actors[key]:IsValid() then return end
     end
-    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
-        local a = Current.actors[key]
-        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-    end
     if Current.fluxPending then return end
     Current.fluxPending = true
     local name, level = Current.worldName, Current.level
-    ExecuteInGameThreadWithDelay(tonumber(spec.delay_ms) or 4000, function()
+    -- A coast goes in a third of a second after the decor, so its sea is up
+    -- by the time the screen fades in: 4 s after, CE's water showed for ~3 s
+    -- and then the sea changed in front of the player (Death Island,
+    -- 2026-10-18). Its capture came out the same. A river keeps 4 s: that
+    -- wait is what its capture of the ground was proved with (Timberland).
+    local delay = tonumber(spec.delay_ms) or (type(spec.domain) == "table" and 4000 or 300)
+    ExecuteInGameThreadWithDelay(delay, function()
         local w = getWorld()
         if not w or Current.worldName ~= name or Current.level ~= level then return end
         Current.fluxPending = false
@@ -3588,6 +3590,15 @@ function Effects.flux(world)
             Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
                 .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
         end)
+        -- CE's water (`hide`) goes once Flux's is up, not before: until then
+        -- the level has its old water rather than none. It is out of the
+        -- ground capture already (FluxHide, with every actor not `ground`).
+        if ok then
+            for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+                local a = Current.actors[key]
+                if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+            end
+        end
         if not ok then Log("flux: " .. tostring(err)) end
     end)
 end
