@@ -206,7 +206,13 @@ local function setVisible(w, visible)
     pcall(function() w:SetVisibility(visible and VISIBLE or COLLAPSED) end)
 end
 
+--- A stored biped may be gone: a dead or departed player's body is destroyed
+--- and freed, and reading through its handle is an access violation pcall
+--- cannot catch (crash 2026-10-17, BGL, after a player dropped).
 local function bipedTeam(actor)
+    if not actor then return nil end
+    local okV, valid = pcall(function() return actor:IsValid() end)
+    if not (okV and valid) then return nil end
     local ok, team = pcall(function()
         return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
     end)
@@ -548,6 +554,7 @@ HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     eventLine(inc.cause, "Left", FEED.words, "left the game")
     stats(inc.cause).left = true
+    stats(inc.cause).biped = nil
     boardDirty = true
 end
 
@@ -555,6 +562,7 @@ HANDLERS.player_booted_player = function(inc)
     if type(inc.effect) ~= "number" or inc.effect < 0 then return end
     eventLine(inc.effect, "Kicked", FEED.kicked, "was kicked")
     stats(inc.effect).left = true
+    stats(inc.effect).biped = nil
     boardDirty = true
 end
 
