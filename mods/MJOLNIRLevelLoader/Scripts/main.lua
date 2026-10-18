@@ -3853,8 +3853,10 @@ function Foliage.spawn(world)
     if type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
         return
     end
+    -- Only a landscape world (upgrade_ce_map.py) can carry baked foliage.
+    local landWorld = type(Current.level.landscape) == "table"
     if not Foliage.on then
-        if foliage.baked == true then
+        if landWorld then
             Foliage.dressBaked(world, foliage, nil)
             Foliage.bakedRocks(false)
         end
@@ -3877,24 +3879,28 @@ function Foliage.spawn(world)
     Foliage.cliffGroups = {}
     local quality = Foliage.quality()
     local total, sx, sy, n = 0, 0, 0, 0
-    -- Baked: the world's own, dressed; spawned as before if the world turns
-    -- out to carry none (a hub map container put back under a baked level
-    -- file would otherwise leave the map bare).
+    -- Baked: what the world carries decides, not the level file's `baked`.
+    -- The launcher puts the hub's level.json back on every launch and leaves
+    -- installed containers alone, so a baked world under an older level file
+    -- spawned every clump and rock a second time: trees with a swaying copy
+    -- of their leaves, rocks flickering in each other (2026-10-18). A level
+    -- file that says baked over a world without them spawns them as before.
     local baked, centre = nil, nil
-    if foliage.baked == true then
+    if landWorld then
         local found, comps, drawn = Foliage.dressBaked(world, foliage, quality)
         if found > 0 then
             baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
-            -- The wind's flowmap centres on the clumps: assemble's mean of them.
-            centre = drawn > 0 and type(foliage.centre) == "table" and foliage.centre or nil
-        else
+            -- The wind's flowmap centres on the clumps: assemble's mean of
+            -- them (it spans 4 km, so the origin serves a level without one).
+            centre = drawn > 0 and (type(foliage.centre) == "table" and foliage.centre or { 0, 0 }) or nil
+        elseif foliage.baked == true then
             Log("foliage: the level file says baked, but the world carries none; spawning it")
         end
     end
     -- Baked cladding rocks likewise: spawned only for a group the world
-    -- turns out not to carry.
+    -- does not carry.
     local rocks, rocked = {}, 0
-    if foliage.baked == true and coloured then rocks, rocked = Foliage.bakedRocks(true) end
+    if landWorld and coloured then rocks, rocked = Foliage.bakedRocks(true) end
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)

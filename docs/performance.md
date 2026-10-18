@@ -347,9 +347,17 @@ How it works:
   group its material, and then the handles are dropped.
 - Everything baked is tagged `FluxHide`, as the loader tags its own actors,
   so Flux's ground capture does not see it.
-- If the world turns out to carry no baked meshes or rocks (a hub map
-  container put back under a baked level file), the loader spawns them as
-  before. That path was tested for the rocks.
+- **What the world carries decides, not the level file.** The launcher copies
+  the hub's `level.json` into `MJOLNIRMaps/<CODE>` on every launch and leaves
+  installed containers alone. With the old rule (spawn unless the level says
+  `baked`), a baked world under the hub's level file got every clump and rock
+  a second time: trees with a second, swaying copy of their leaves (no calm
+  settings) and rocks flickering inside each other. On a map with a
+  landscape world the loader now looks for `MJFol_*` and `MJClad_*` first
+  and spawns only the groups the world does not carry, whatever the level
+  file says. Tested with the hub's level file over the baked world (nothing
+  spawned twice), and with a baked level file over an unbaked world (rocks
+  spawned).
 - MJOLNIRHud's `mjolnir_bench` now measures every visible instanced mesh, so
   it covers baked foliage too (MJOLNIRHud 0.11.2).
 
