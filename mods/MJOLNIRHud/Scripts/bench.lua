@@ -1,8 +1,9 @@
 -- Frame-time benches: what one thing costs, measured in the game.
 --
 -- `mjolnir_bench` holds the camera where it is and takes turns between the
--- map as it is and the map with one thing taken away: the grass, the
--- grass's shadows, the grass's wind. `mjolnir_bench <cvar> <value>` does the
+-- map as it is and the map with one thing taken away: the loader's
+-- foliage (grass, tufts, pebbles, shells, leaves: every instanced mesh it
+-- scatters), the foliage's shadows, its wind. `mjolnir_bench <cvar> <value>` does the
 -- same between a console variable's current value and another (say
 -- `mjolnir_bench r.Shadow.Virtual.Enable 0`). Each turn settles for 2.5 s
 -- and is then timed for 6 s; the conditions alternate with the baseline,
@@ -115,10 +116,10 @@ end
 -- Conditions
 --------------------------------------------------------------------------------
 
---- The level loader's grass: the hierarchical instanced meshes on the
+--- The level loader's foliage: the hierarchical instanced meshes on the
 --- StaticMeshActors it spawns (MJOLNIRLevelLoader Foliage.spawn). One
 --- FindAllOf per bench, never per frame (~20 ms on a converted map).
-local function grass()
+local function foliage()
     local cls = object("/Script/Engine.HierarchicalInstancedStaticMeshComponent")
     local out = {}
     if not cls then return out end
@@ -142,15 +143,15 @@ local function each(list, fn)
     end
 end
 
-local function grassConditions(list)
+local function foliageConditions(list)
     return {
-        { name = "no grass",
+        { name = "no foliage",
             apply = function() each(list, function(g) g.c:SetVisibility(false, false) end) end,
             undo = function() each(list, function(g) g.c:SetVisibility(true, false) end) end },
-        { name = "no grass shadows",
+        { name = "no foliage shadows",
             apply = function() each(list, function(g) if g.shadow then g.c:SetCastShadow(false) end end) end,
             undo = function() each(list, function(g) if g.shadow then g.c:SetCastShadow(true) end end) end },
-        { name = "no grass wind",
+        { name = "no foliage wind",
             apply = function() each(list, function(g) if g.wind then g.c:SetEvaluateWorldPositionOffset(false) end end) end,
             undo = function() each(list, function(g) if g.wind then g.c:SetEvaluateWorldPositionOffset(true) end end) end },
     }
@@ -220,6 +221,9 @@ local function finish(r, why)
     run = nil
     unlockView(r)
     if why then
+        -- Stopped mid-turn: put back what this turn took away.
+        local step = r.steps[r.i]
+        if step and step.applied then pcall(step.undo) end
         say("bench stopped: " .. why)
         return
     end
@@ -228,6 +232,7 @@ end
 
 local function begin(r, t)
     local step = r.steps[r.i]
+    step.applied = true
     local ok, err = pcall(step.apply)
     if not ok then return finish(r, step.name .. ": " .. tostring(err)) end
     r.phase, r.at, r.frames = "settle", t, 0
@@ -247,6 +252,7 @@ function Bench.frame(t)
     local ms = (t - r.at) * 1000 / r.frames
     r.ms[step.key] = r.ms[step.key] or {}
     table.insert(r.ms[step.key], ms)
+    step.applied = false
     local ok, err = pcall(step.undo)
     if not ok then return finish(r, step.name .. " undo: " .. tostring(err)) end
     r.i = r.i + 1
@@ -308,9 +314,9 @@ function Bench.command(args)
         return start(list, string.format("%s %s against %s", a, b, was))
     end
     if a then return "usage: mjolnir_bench | mjolnir_bench <cvar> <value> | mjolnir_bench stop" end
-    local list = grass()
-    if #list == 0 then return "no level loader grass on this map; try mjolnir_bench <cvar> <value>" end
-    return start(grassConditions(list), string.format("grass (%d meshes)", #list))
+    local list = foliage()
+    if #list == 0 then return "no level loader foliage on this map; try mjolnir_bench <cvar> <value>" end
+    return start(foliageConditions(list), string.format("foliage (%d meshes)", #list))
 end
 
 function Bench.running() return run ~= nil end

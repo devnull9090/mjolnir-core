@@ -14,7 +14,7 @@ goes, what was measured, what was changed, and what is left.
 | Tool | What it tells you | Where |
 |---|---|---|
 | `stat unit` | Frame, Game, Draw (render thread), RHIT, GPU Time, Draws, Prims. Works in this Shipping build. | console |
-| `mjolnir_bench` | The cost of the grass, its shadows and its wind, as an A/B at a held camera. | MJOLNIRHud `Scripts/bench.lua`, `bench.log` |
+| `mjolnir_bench` | The cost of the loader's foliage, its shadows and its wind, as an A/B at a held camera. | MJOLNIRHud `Scripts/bench.lua`, `bench.log` |
 | `mjolnir_bench <cvar> <value>` | The same A/B for any console variable against its current value. | same |
 | `mjolnir_hitches` | Per-map median, p95, p99 and worst frame, every hitch with where the camera was and which of our Lua loops ran. Each map's heading in `hitches.log` now carries the settings line. | MJOLNIRHud `Scripts/hitches.lua`, `hitches.log` |
 | `r.ScreenPercentage 200` | Makes a fast GPU the bottleneck, so GPU costs show in frame time. | console |
@@ -50,9 +50,9 @@ camera is held for about a minute while it takes turns (2.5 s to settle,
 
 ```
 bench on DTI: base 7.94 ms (126 fps), 4 runs from 7.91 to 7.96
-bench on DTI:   no grass                     6.42 ms  -1.52 ms  -19.2%
-bench on DTI:   no grass shadows             7.29 ms  -0.65 ms  -8.2%
-bench on DTI:   no grass wind                7.04 ms  -0.90 ms  -11.4%
+bench on DTI:   no foliage                   6.42 ms  -1.52 ms  -19.2%
+bench on DTI:   no foliage shadows           7.29 ms  -0.65 ms  -8.2%
+bench on DTI:   no foliage wind              7.04 ms  -0.90 ms  -11.4%
 ```
 
 (Death Island's beach camera, after the cull fix, 2026-10-17.)
@@ -68,7 +68,9 @@ hook, and the bench with it.
 
 ## What was measured (Death Island)
 
-ABAB, 6 s windows, after warm-up.
+ABAB, 6 s windows, after warm-up. "Grass" in these tables is every instanced
+mesh the loader scatters (grass, tufts, pebbles, shells, driftwood, tree
+leaves); grass and tufts are about 97% of the 535,000 instances.
 
 **Beach view (the DTI test camera), 100%:**
 
@@ -124,7 +126,10 @@ What this says:
   help weak PCs made this worse. Distances are now whole centimetres. After
   the fix, 0 of 245 components are uncullable.
 - **No wind at Low and Medium foliage quality** (`Foliage.QUALITY.still`): -9% of
-  GPU frame time on the overview. High and Epic are unchanged.
+  GPU frame time on the overview. High and Epic are unchanged. It covers every
+  foliage group, trees' leaf clusters included. At Medium, the beach bench now reads
+  base 6.86 ms, no foliage -0.38 ms, no foliage wind +0.03 ms. The loader's
+  `foliage:` log line says `still` when it applies.
 - **Dry zones loop** (MJOLNIRLevelLoader): looked up the GameplayStatics CDO and
   built a name string every 100 ms, 12–13 ms of game thread per second.
   It now reads the camera through the cached controller and compares by
