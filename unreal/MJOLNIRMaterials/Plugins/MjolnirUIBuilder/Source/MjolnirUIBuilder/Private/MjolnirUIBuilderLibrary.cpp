@@ -17,6 +17,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "Engine/StaticMesh.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
@@ -26,6 +27,7 @@
 #include "LandscapeInfo.h"
 #include "LandscapeImportHelper.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "UObject/EnumProperty.h"
 #include "UObject/FieldPathProperty.h"
 #include "UObject/PropertyOptional.h"
@@ -622,5 +624,62 @@ bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<F
 	Mesh->MarkPackageDirty();
 	UE_LOG(LogMjolnirUI, Display, TEXT("BuildStaticMesh: %s, %d vertices, %d triangles, %d slot(s)"),
 		*Mesh->GetPathName(), Positions.Num(), Tris, SlotNames.Num());
+	return true;
+}
+
+// A cooked GUID's 16 bytes (four little-endian words) from 32 hex digits.
+static bool GuidFromCookedHex(const FString& Hex, FGuid& Out)
+{
+	if (Hex.Len() != 32)
+	{
+		return false;
+	}
+	uint32 Words[4];
+	for (int32 W = 0; W < 4; ++W)
+	{
+		uint32 Value = 0;
+		for (int32 B = 3; B >= 0; --B)
+		{
+			const FString Byte = Hex.Mid(W * 8 + B * 2, 2);
+			Value = (Value << 8) | FParse::HexNumber(*Byte);
+		}
+		Words[W] = Value;
+	}
+	Out = FGuid(Words[0], Words[1], Words[2], Words[3]);
+	return true;
+}
+
+bool UMjolnirUIBuilderLibrary::SetCollectionIds(UMaterialParameterCollection* Collection, const FString& StateId,
+	const TArray<FString>& ScalarIds, const TArray<FString>& VectorIds)
+{
+	if (!Collection || ScalarIds.Num() != Collection->ScalarParameters.Num()
+		|| VectorIds.Num() != Collection->VectorParameters.Num())
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("SetCollectionIds: the collection or its parameter counts do not match"));
+		return false;
+	}
+	FGuid Guid;
+	if (!GuidFromCookedHex(StateId, Guid))
+	{
+		return false;
+	}
+	Collection->StateId = Guid;
+	for (int32 I = 0; I < ScalarIds.Num(); ++I)
+	{
+		if (!GuidFromCookedHex(ScalarIds[I], Collection->ScalarParameters[I].Id))
+		{
+			return false;
+		}
+	}
+	for (int32 I = 0; I < VectorIds.Num(); ++I)
+	{
+		if (!GuidFromCookedHex(VectorIds[I], Collection->VectorParameters[I].Id))
+		{
+			return false;
+		}
+	}
+	Collection->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("SetCollectionIds: %s state %s"), *Collection->GetPathName(),
+		*Collection->StateId.ToString());
 	return true;
 }

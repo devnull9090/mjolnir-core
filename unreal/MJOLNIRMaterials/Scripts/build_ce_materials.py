@@ -2236,6 +2236,19 @@ def build_flare(defaults):
     tex = g.texture("Flare", defaults["T_CE_White"], uv)
     tint = g.vector("Tint")
     gain = g.scalar("Brightness", DISPLAY_GAIN)
+    # `Pulse` (function, period s, phase s): the light's object function
+    # (a beacon's 1 s cosine), CE's WAVE on the material's own clock. The
+    # loader set Brightness from Lua 25 times a second for every flare
+    # (MJOLNIRLevelLoader updatePulses); function 0 (the default) is CE's
+    # "one", a steady flare.
+    pulse = g.custom(WAVE + "float k = CE_WAVE(Pulse.x, CE_PHASE(Pulse, Time));" + WAVE_END + "return k;",
+                     [("Pulse", g.vector("Pulse", (0.0, 1.0, 0.0, 0.0)), ""),
+                      ("Time", g.node(unreal.MaterialExpressionTime, x=-2000), "")],
+                     output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="CE flare pulse")
+    pulsed = g.node(unreal.MaterialExpressionMultiply, x=-300)
+    link(gain, "", pulsed, "A")
+    link(pulse, "", pulsed, "B")
+    gain = pulsed
     rgb = g.mask(tex, r=True, g=True, b=True)
     mul = g.node(unreal.MaterialExpressionMultiply, x=-300)
     link(rgb, "", mul, "A")
@@ -2299,6 +2312,8 @@ LAND_PBR_CODE = r"""
 #define LP_ROT(uv, k) (float2((uv).x * 0.8 - (uv).y * 0.6, (uv).x * 0.6 + (uv).y * 0.8) * (k) + 0.31)
 #define LP_NRM(T, S, a, b, w) (lerp(Texture2DSample(T, S, a).rg, Texture2DSample(T, S, b).rg, w) * 2.0 - 1.0)
 
+// The deformation map's centre from the game's globals (FootFromMPC).
+if (FootFromMpc > 0.5) FootRect.xy = FootMpc.xy;
 float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
 // The landscape reads the bakes over its rectangle; the terrain mesh
 // (MeshUV) its own base map and lightmap page by its own UVs, which hold the
@@ -2632,7 +2647,62 @@ return saturate((h - Edge) * 100.0);
 """
 
 
-def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
+# The game's deformation globals (HaloLandscapeDeformations'
+# MPC_DeformationGlobals, as `mjolnir ue get` reads it from the game): the
+# names and defaults in the game's order, and its GUIDs. A cooked material
+# finds a collection's values by the collection's StateId and reads them at
+# offsets fixed by this order, so the stand-in matches both. It is never
+# cooked (Config/DefaultGame.ini): in game the reference is the game's own.
+DEFORM_GLOBALS = "/HaloLandscapeDeformations/Toolkit"
+DEFORM_STATE = "7c58bf3eb2f3fe40ac74d15ab4e2b472"
+DEFORM_SCALARS = [
+    ("DeformationWPtoUVScale", 0.000195, "d4df17f027bebc45918df34f464d8317"),
+    ("MaxDeformationHeight", 30.0, "700534e2ad6c534cac978bc7fa1b211b"),
+    ("NormalStrength", 1.0, "3aa8d257c3beec4ca057468a4de22509"),
+    ("DeformationMaskMidPoint", 1.0, "fa13fd0fa4e50f4fa437b6810bb21b30"),
+    ("NormalShiftStep", 0.0002, "8497caf8f504754c8aa03e131420a037"),
+    ("LODWorldNormalShiftStep", 3.0, "39ef9a90e7b1894f92ca1e45c991110f"),
+    ("MeltingMaskDefaultValue", 0.0, "a4d47e3916c8c24abbd98c86e3ff4531"),
+    ("DeformationIsEnabled", 1.0, "0250c368426df64fbef56005000c62af"),
+    ("DeformationMaskIsEnabled", 1.0, "3cad558008888e40b85fe33188060cf0"),
+    ("MeltingMaskIsEnabled", 1.0, "55167b2c7addc34bb5e833175c13ed09"),
+    ("UseRVTForOutsideDeformations", 1.0, "0e72e44516733e488fb5cba22a65ef04"),
+    ("DeformationFadeRadius", 0.1, "2940e3725a876a4b809c1d2de080e14e"),
+    ("MeltingFadeRadius", 0.1, "64916e4d44081841b6e1f82f90588c61"),
+]
+DEFORM_VECTORS = [("DeformationCenterWP", (0.0, 0.0, 0.0, 0.0), "1147289e10441146a3e73d1f5cf73c4e")]
+
+
+def deform_globals():
+    """The stand-in MPC_DeformationGlobals (Plugins/HaloLandscapeDeformations)."""
+    # Kept, not made afresh: the masters built before point at it.
+    path = f"{DEFORM_GLOBALS}/MPC_DeformationGlobals"
+    mpc = unreal.load_asset(path) if eal.does_asset_exist(path) else assets.create_asset(
+        "MPC_DeformationGlobals", DEFORM_GLOBALS, unreal.MaterialParameterCollection,
+        unreal.MaterialParameterCollectionFactoryNew())
+    scalars = []
+    for name, value, _ in DEFORM_SCALARS:
+        p = unreal.CollectionScalarParameter()
+        p.set_editor_property("parameter_name", name)
+        p.set_editor_property("default_value", value)
+        scalars.append(p)
+    vectors = []
+    for name, value, _ in DEFORM_VECTORS:
+        p = unreal.CollectionVectorParameter()
+        p.set_editor_property("parameter_name", name)
+        p.set_editor_property("default_value", unreal.LinearColor(*value))
+        vectors.append(p)
+    mpc.set_editor_property("scalar_parameters", scalars)
+    mpc.set_editor_property("vector_parameters", vectors)
+    # Last: any edit makes the collection a new StateId.
+    if not unreal.MjolnirUIBuilderLibrary.set_collection_ids(
+            mpc, DEFORM_STATE, [i for _, _, i in DEFORM_SCALARS], [i for _, _, i in DEFORM_VECTORS]):
+        raise RuntimeError("could not give the deformation globals the game's ids")
+    eal.save_loaded_asset(mpc)
+    return mpc
+
+
+def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True, deform=None):
     """M_CE_LandscapePBR: a converted map's landscape drawn as B30's beach is
     (LAND_PBR_CODE): Unreal-lit Megascans layers, masked by the landscape's
     holes. MJOLNIRLevelLoader sets every texture (the game's own, which this
@@ -2699,6 +2769,13 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True):
         ("MeshUV", g.scalar("MeshUV", 0.0), ""), ("Plain", g.scalar("PlainSand", 0.0), ""),
         tex("FootRT", grey, linear),
         ("FootRect", g.vector4("FootRect", (0.0, 0.0, 4096.0, 4096.0)), ""),
+        # FootFromMPC 1: the deformation map's centre straight from the
+        # game's globals (DeformationCenterWP), as the campaign's own ground
+        # reads it, in place of FootRect's, which the loader had to follow
+        # from Lua every time the manager moved its map.
+        ("FootMpc", g.node(unreal.MaterialExpressionCollectionParameter, x=-2000, collection=deform,
+                           parameter_name="DeformationCenterWP") if deform else g.vector4("FootMpcNone", (0.0, 0.0, 0.0, 0.0)), ""),
+        ("FootFromMpc", g.scalar("FootFromMPC", 0.0), ""),
         # Foot: strength, relief, texel, occlusion.
         ("Foot", g.vector4("FootParams", (0.0, 4.0, 1.0 / 4096.0, 0.6)), ""),
         ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), ""),
@@ -3401,8 +3478,12 @@ def build_hidden():
 if TRIAL_ROOT:
     build_hidden()
     build_environment("M_CE_Landscape", False, defaults, land=True)
-    build_landscape_pbr(defaults)
-    build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False)
+    deform = deform_globals()
+    build_landscape_pbr(defaults, deform=deform)
+    build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False, deform=deform)
+    # The flares with their pulse in the material (upgrade_ce_map.py
+    # bake_pulses points a remastered map's flares here).
+    build_flare(defaults)
     build_cliff_pbr(defaults)
     build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True, shade_uv=True)
     # The cladding rocks tessellated: their own vertex normals.

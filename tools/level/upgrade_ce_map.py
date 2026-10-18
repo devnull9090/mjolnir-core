@@ -1105,6 +1105,10 @@ def stage_assemble(code, m, p):
     fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    # The masters this pipeline builds read the deformation map's centre from
+    # the game's globals (FootFromMPC): the loader stops following it.
+    if isinstance(level["landscape"].get("pbr"), dict):
+        level["landscape"]["pbr"]["foot_mpc"] = True
     if m.get("indoor"):
         level["landscape"]["indoor"] = True
     # `ground_looks`: some ground slots' own parameters over the ground's
@@ -1340,6 +1344,9 @@ def stage_assemble(code, m, p):
                 if first is not None and i != first and isinstance(m, dict) and "M_CE_Water" in m.get("parent", ""):
                     mats[i] = json.loads(json.dumps(mats[first]))
     structures = mark_structures(level)
+    pulses = bake_pulses(level)
+    if pulses:
+        print(f"  {code}: {pulses} flare pulse(s) in the material")
     lights = ce_lights(p)
     if lights:
         level["lights"] = lights
@@ -1667,6 +1674,25 @@ def append_foliage(path, records):
         raw += struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256, max(1, min(255, round(sc * 100))),
                            max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))), 255, 255, 255)
     open(path, "wb").write(bytes(raw))
+
+
+def bake_pulses(level):
+    """A pulsing flare's object function (gen_ce_level's `pulse`) as the
+    trial M_CE_Flare's `Pulse` vector (function, period, phase), which runs
+    CE's wave on the material's clock: the loader no longer sets each
+    flare's Brightness from Lua 25 times a second."""
+    n = 0
+    for item in level.get("decor") or []:
+        pulse = item.get("pulse") if isinstance(item, dict) else None
+        mats = item.get("materials") if isinstance(item, dict) else None
+        if not (isinstance(pulse, dict) and pulse.get("param") == "Brightness" and mats
+                and str(mats[0].get("parent", "")).startswith("/Game/MJOLNIR/CE/M_CE_Flare")):
+            continue
+        mats[0]["parent"] = mats[0]["parent"].replace("/Game/MJOLNIR/CE/", "/Game/MJOLNIR/CETrial/")
+        mats[0].setdefault("vectors", {})["Pulse"] = [float(pulse["function"]), float(pulse["period"]), 0.0, 0.0]
+        del item["pulse"]
+        n += 1
+    return n
 
 
 def mark_structures(level):

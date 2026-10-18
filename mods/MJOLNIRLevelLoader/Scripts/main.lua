@@ -4770,16 +4770,32 @@ function Footprints.deformStart(world)
             g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
         end
     end
-    Footprints.deformHook()
+    -- `foot_mpc` (upgrade_ce_map.py): the sand reads the map's centre from
+    -- the game's globals itself (FootFromMPC), as the campaign's ground does,
+    -- and nothing here follows the manager.
+    if land.pbr.foot_mpc == true then
+        Footprints.deform.fromMpc = true
+        local rect = { R = 0, G = 0, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+        ldl:SetLandscapeMaterialScalarParameterValue(FName("FootFromMPC"), 1.0)
+        ldl:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+        for _, g in ipairs(Land.groundMids or {}) do
+            if g:IsValid() then
+                g:SetScalarParameterValue(FName("FootFromMPC"), 1.0)
+                g:SetVectorParameterValue(FName("FootRect"), rect)
+            end
+        end
+    else
+        Footprints.deformHook()
+    end
     Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
-        Footprints.hooked and ", recentres followed" or ""))
+        Footprints.deform.fromMpc and ", centre read by the sand" or Footprints.hooked and ", recentres followed" or ""))
 end
 
 --- The map's centre to the sand: FootRect on the landscape and the mesh's
 --- ground in its holes.
 function Footprints.deformRect(x, y)
     local d = Footprints.deform
-    if not (d and d.land:IsValid()) then return end
+    if not (d and not d.fromMpc and d.land:IsValid()) then return end
     d.cx, d.cy = x, y
     local rect = { R = x, G = y, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
     d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
@@ -4816,6 +4832,7 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
+    if d.fromMpc then return true end
     -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
     -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
     -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).
