@@ -2,10 +2,13 @@
 --
 -- T opens all chat, Y team chat (all chat in free for all), Home (the game's
 -- own chat key, whose party chat never connects in our games) all chat.
--- ENTER sends, ESC cancels. While the box is open the Blam simulation does
--- not read the keyboard: the pause menu's own gate,
--- BlamInputProcessorLocalPlayerSubsystem:SetUIActive, is set for as long as
--- the box is open and given back as the game last left it.
+-- ENTER sends, ESC cancels. While the box is open the player does not move:
+-- the Blam simulation takes its keys from the game viewport, and a key the
+-- text box does not use (W, Space, G...) bubbles up to it. The box puts the
+-- game in UI-only input, which makes the viewport ignore input, as the
+-- Unreal console does while it is open, and gives game input back when it
+-- closes (two PCs, 2026-10-17). Neither the pause menu's SetUIActive gate
+-- nor emptying GameInput's keyboard readings stopped it.
 --
 -- The host relays every line, so it can keep the record moderators read
 -- when a player is reported (docs/player_identity.md):
@@ -153,8 +156,7 @@ local open = nil         -- "all" | "team" while the box is open
 local openedAt = 0
 local openKey = nil      -- the letter that opened the box, swallowed if it lands in it
 local lastKey = {}       -- key -> time, against a bind firing twice
-local gameUI = false     -- the game's own SetUIActive, as last set
-local ours = false       -- our SetUIActive(true) is in force
+local gameUI = false     -- the game's own SetUIActive, as last set: the pause menu is up
 local gateHooked = false
 local lines = {}         -- shown lines { name, text, color, team?, at, system? }
 local inbox = {}         -- host lines for a client, from the RPC hook
@@ -177,22 +179,31 @@ local function setText(block, text)
     pcall(function() block:SetText(FText(text)) end)
 end
 
+--- The pause menu sets this gate when it opens and clears it when it
+--- closes: the box stays shut while it is up.
 local function gate()
     if gateHooked then return end
     gateHooked = pcall(RegisterHook, "/Script/BlamEngine.BlamInputProcessorLocalPlayerSubsystem:SetUIActive",
         function(_, b)
             local okB, v = pcall(function() return b:get() end)
-            -- Ours are made with `ours` already set the way they leave it.
-            if okB and not Chat.settingGate then gameUI = v == true end
+            if okB then gameUI = v == true end
         end)
 end
 
-local function setGate(active)
-    local sub = FindFirstOf("BlamInputProcessorLocalPlayerSubsystem")
-    if not valid(sub) then return end
-    Chat.settingGate = true
-    pcall(function() sub:SetUIActive(active) end)
-    Chat.settingGate = false
+--- UI-only input with the box focused while typing, game input after.
+--- Flushing drops keys held as the mode changes: W held when T opened the
+--- box would otherwise walk on.
+local function typing(on, focus)
+    local pc = ctx.pc()
+    if not pc then return end
+    pcall(function()
+        local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        if on then
+            wbl:SetInputMode_UIOnlyEx(pc, focus, 0, true)
+        else
+            wbl:SetInputMode_GameOnly(pc, true)
+        end
+    end)
 end
 
 --------------------------------------------------------------------------------
@@ -311,13 +322,7 @@ local function close()
         setVisibility(W.ChatHint, COLLAPSED)
         pcall(function() W.ChatPanel:SetBrushColor({ R = 0.005, G = 0.018, B = 0.03, A = 0.0 }) end)
     end
-    if ours then
-        ours = false
-        -- Give the gate back as the game last left it: the pause menu may
-        -- have opened over the box.
-        setGate(gameUI)
-    end
-    pcall(function() StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary"):SetFocusToGameViewport() end)
+    typing(false)
     dirty = true
 end
 Chat.close = close
@@ -329,14 +334,13 @@ local function openBox(channel, key)
     gate()
     if channel == "team" and not ctx.teams() then channel = "all" end
     open, openedAt, openKey = channel, ctx.now(), key
-    setGate(true)
-    ours = true
     pcall(function() w.ChatInput:SetText(FText("")) end)
     setText(w.ChatChannel, channel == "team" and "TEAM" or "ALL")
     pcall(function() w.ChatChannel:SetColorAndOpacity({ SpecifiedColor = channel == "team" and ctx.teamColor() or ACCENT, ColorUseRule = 0 }) end)
     setVisibility(w.ChatInputBar, PASS)
     setVisibility(w.ChatHint, SHOWN)
     pcall(function() w.ChatPanel:SetBrushColor({ R = 0.005, G = 0.018, B = 0.03, A = 0.55 }) end)
+    typing(true, w.ChatInput)
     pcall(function() w.ChatInput:SetKeyboardFocus() end)
     dirty = true
 end

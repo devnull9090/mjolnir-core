@@ -35,12 +35,16 @@ round, as the feed and the scoreboard do; MJOLNIRLobby may cache the
 picture after the line arrives, so a row asks for it again once a second
 for its first 15 seconds.
 
-- **Typing does not move the player.** The Blam simulation reads the
-  keyboard through GameInput, so no UE-side input mode stops it. The pause
-  menu stops it with `BlamInputProcessorLocalPlayerSubsystem:SetUIActive`
-  (seen live, 2026-10-17), and the chat sets the same gate while its box is
-  open. On close the gate goes back to what the game last set, so a pause
-  menu opened over the box stays in force.
+- **Typing does not move the player.** The Blam simulation takes its keys
+  from the game viewport, and a key the text box does not use (W, Space, G)
+  bubbles up to it from the focused box. While the box is open the chat sets
+  UI-only input (`WidgetBlueprintLibrary:SetInputMode_UIOnlyEx`, the box
+  focused, held keys flushed), which makes the viewport ignore input as the
+  Unreal console does while it is open; closing sets game-only input again.
+  Two things that do not stop it (tried 2026-10-17 on a real keyboard):
+  `BlamInputProcessorLocalPlayerSubsystem:SetUIActive`, which the pause menu
+  sets (the pause menu freezes the player by pausing the game), and emptying
+  GameInput's keyboard readings, which the game never asks for.
 - **The game's own chat** (`WBP_HUD_Main.ChatWidget`, `IA_OpenChat` on Home)
   is PlayFab party chat, which never connects in games joined by connection
   string. It draws nothing.
@@ -58,7 +62,6 @@ for its first 15 seconds.
   a player report cites the match id whether the game was listed or not.
   Moderators read the log beside each report on `/moderation`; it is never
   public (`GET /moderation/match-chat/{host_match_id}`).
-- **Esc** also opens the pause menu, as it does without chat.
 
 ## The kill feed
 

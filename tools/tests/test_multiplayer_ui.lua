@@ -108,6 +108,8 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local env
     -- The chat's key binds (Scripts/chat.lua), by key name.
     local binds = {}
+    -- The input modes the chat set (UI-only while typing).
+    local modes = {}
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
         Key = setmetatable({}, { __index = function(_, k) return k end }),
         RegisterKeyBind = function(key, _, fn) binds[key] = fn end,
@@ -179,7 +181,9 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
                     LoadClassAsset_Blocking = function() return { IsValid = function() return true end } end,
                     ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
             end
-            return { Create = function()
+            return { SetInputMode_UIOnlyEx = function(_, _, focus) modes[#modes + 1] = focus and "ui" or "ui-nofocus" end,
+                SetInputMode_GameOnly = function() modes[#modes + 1] = "game" end,
+                Create = function()
                 local w = block()
                 -- A UI container from before the feed's rows has none.
                 if legacy and #widgets == 0 then rawset(w, "FeedEdge0", { IsValid = function() return false end }) end
@@ -219,7 +223,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
         written = function() return table.concat(written) end, commands = commands,
-        hooks = hooks, asked = asked, remote = remote, binds = binds, widgets = widgets,
+        hooks = hooks, asked = asked, remote = remote, binds = binds, widgets = widgets, modes = modes,
         --- The match log's file whose name matches `pattern`, and its name.
         file = function(pattern)
             for path, data in pairs(files) do
@@ -726,10 +730,12 @@ for _ = 1, 3 do chatClient.poll() end
 chatClient.binds.Y() -- team chat in free for all is all chat
 local ccw = chatWidget(chatClient)
 eq(ccw.ChatChannel.text, "ALL")
+eq(chatClient.modes[#chatClient.modes], "ui") -- the viewport ignores keys while typing
 chatClient.binds.T() -- already open: nothing
 ccw.ChatInput.text = "  hi all  "
 chatClient.binds.RETURN()
 eq(chatClient.asked[#chatClient.asked], "MJOLNIR|say|a|hi all")
+eq(chatClient.modes[#chatClient.modes], "game")
 chatClient.binds.RETURN() -- closed: nothing more
 eq(chatClient.asked[#chatClient.asked], "MJOLNIR|say|a|hi all")
 hear(chatClient, "MJOLNIR|chat|a|-|2|Charlie|hey")
