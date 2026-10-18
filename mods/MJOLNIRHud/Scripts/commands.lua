@@ -15,6 +15,8 @@
 --   kick, ban, unban   MJOLNIRLobby's own (`mjolnir_auto kick|ban|unban`)
 --   suicide, slay      (unit_kill (player_get <index>)) through the Blam
 --                      console's mailbox (MJOLNIRBlamConsole), one line a poll
+--   bench              Scripts/bench.lua's foliage bench, sent to the hub
+--                      (POST /benches); runs where it is typed
 --   tp, bring          objects_attach then objects_detach, a poll apart:
 --                      the attached object takes its parent's place
 --                      (experimental: not tried with two players yet)
@@ -30,6 +32,7 @@ Commands.ROWS = 6 -- build_mjolnir_ui.py CHAT_SUGGEST_ROWS
 local LIST = {
     { name = "help", who = "all", help = "List the commands", here = true },
     { name = "players", who = "all", help = "List the players in the match", here = true },
+    { name = "bench", who = "all", help = "Time this map with and without its foliage, and send it to the hub", here = true },
     { name = "suicide", who = "all", help = "Kill your player, to respawn when stuck", aliases = { "respawn" } },
     { name = "kick", who = "host", args = "<player>", help = "Send a player back to their menu", player = true },
     { name = "ban", who = "host", args = "<player>", help = "Kick a player and keep them out of your games", player = true },
@@ -168,6 +171,7 @@ function Commands.run(cx, who, text)
         -- Typed on a client, these never reach the host; on the host itself
         -- they run here like any other.
         if c.name == "help" then return Commands.helpLines(cx.isHost) end
+        if c.name == "bench" then return cx.bench() end
         local out = {}
         for _, p in ipairs(cx.players()) do out[#out + 1] = (p.display or p.name) end
         table.sort(out)

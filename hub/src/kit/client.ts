@@ -13,6 +13,8 @@
 import type {
   AdminUserList,
   CrashReport,
+  BenchReport,
+  BenchSummaryRow,
   CrashSignature,
   BannedPlayer,
   Comment,
@@ -570,6 +572,20 @@ export class HubClient {
       query: { build },
     });
     return r.reports;
+  }
+
+  /** Players' /bench runs, newest first, by map and part of a GPU name. Admins only. */
+  async listBenches(query: { map?: string; gpu?: string; before?: string; limit?: number } = {}): Promise<{
+    benches: BenchReport[];
+    next: string | null;
+  }> {
+    return this.call({ method: "GET", path: "/admin/benches", query });
+  }
+
+  /** Foliage benches averaged by GPU, map, height drawn and foliage quality. Admins only. */
+  async benchSummary(map?: string): Promise<BenchSummaryRow[]> {
+    const r = await this.call<{ rows: BenchSummaryRow[] }>({ method: "GET", path: "/admin/benches/summary", query: { map } });
+    return r.rows;
   }
 
   /** Where a browser signed in as an admin downloads a report's bundle or full dump. */

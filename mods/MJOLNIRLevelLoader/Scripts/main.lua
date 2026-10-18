@@ -3339,9 +3339,12 @@ function Effects.dryTick()
     local surf = dom and dom:IsValid() and dom.SurfaceActorRenderer
     if not (surf and surf:IsValid()) then return end
     local st = Effects.dry
-    if not st or st.surf ~= surf:GetFullName() then
+    -- By address, and the camera through getPlayerController: a name
+    -- string and a GameplayStatics StaticFindObject every 100 ms read
+    -- 12-13 ms a second (hitch log, 2026-10-17).
+    if not st or st.surf ~= surf:GetAddress() then
         local cell = tonumber(dry.cell) or 100.0
-        st = { surf = surf:GetFullName(), cell = cell, cells = {}, n = 0 }
+        st = { surf = surf:GetAddress(), cell = cell, cells = {}, n = 0 }
         for _, c in ipairs(type(dry.fog) == "table" and dry.fog or {}) do
             st.cells[string.format("%d,%d", math.floor((c[1] + cell * 0.5) / cell),
                 math.floor((c[2] + cell * 0.5) / cell))] = c
@@ -3349,8 +3352,7 @@ function Effects.dryTick()
         Effects.dry = st
     end
     local ok, cam = pcall(function()
-        local gs = findObject("/Script/Engine.Default__GameplayStatics")
-        return gs:GetPlayerController(getWorld(), 0).PlayerCameraManager:GetCameraLocation()
+        return getPlayerController().PlayerCameraManager:GetCameraLocation()
     end)
     if not ok or not cam then return end
     local o = (Current.level.canvas or {}).origin or { 0, 0, 0 }
@@ -3685,7 +3687,11 @@ end
 --- below Epic the grass groups keep one clump in `keep` and every group
 --- culls at `cull` of its distance, so a lower setting pays less for B30's
 --- grass (Blood Gulch's valley: ~2 ms of a 14 ms frame at Epic, 4K).
-Foliage.QUALITY = { [0] = { keep = 4, cull = 0.45 }, [1] = { keep = 3, cull = 0.6 },
+--- `still`: no wind at Low and Medium. Swaying grass was half of Death
+--- Island's grass cost on the GPU (1.2 of 2.5 ms, RTX 5090, 2026-10-17);
+--- WorldPositionOffsetDisableDistance does nothing in this build, so the
+--- sway is all or none.
+Foliage.QUALITY = { [0] = { keep = 4, cull = 0.45, still = true }, [1] = { keep = 3, cull = 0.6, still = true },
     [2] = { keep = 2, cull = 0.8 }, [3] = { keep = 1, cull = 1.0 } }
 Foliage.GRASSY = { grass = true, ["short grass"] = true, ["lip grass"] = true, weeds = true, tufts = true }
 
@@ -3747,10 +3753,15 @@ function Foliage.spawn(world)
             comp.Mobility = MOBILITY_MOVABLE
             comp:SetStaticMesh(mesh)
             comp:SetCollisionEnabled(COLLISION_NONE)
-            -- `static` (a group's): no wind, as decor's `static`.
-            if group.static then pcall(function() comp:SetEvaluateWorldPositionOffset(false) end) end
+            -- `static` (a group's): no wind, as decor's `static`; nor at a
+            -- foliage quality that is `still`.
+            if group.static or quality.still then pcall(function() comp:SetEvaluateWorldPositionOffset(false) end) end
             local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
-            comp:SetCullDistances(math.min(gc[1], far), far)
+            -- Whole centimetres: UE4SS passes a fractional number to an int32
+            -- parameter as 0, and a 0 end distance never culls. A third of a
+            -- band's range (7333.3) left 51,000 of Death Island's clumps
+            -- drawn across the whole map (2026-10-17).
+            comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
             -- Rigid: the wind's vertex offset does not invalidate the virtual
             -- shadow map's cached pages. Swaying grass re-rendered its
             -- shadows every frame, ~1.5 ms of GPU on Yoyorast at 4K
@@ -3824,8 +3835,8 @@ function Foliage.spawn(world)
         ::continue::
     end
     local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
-    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f), %.1f s%s",
-        total, count, n, quality.keep, quality.cull, os.clock() - started, wind and ", wind on" or ""))
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s), %.1f s%s",
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", os.clock() - started, wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)

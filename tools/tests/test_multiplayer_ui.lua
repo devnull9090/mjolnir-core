@@ -781,7 +781,7 @@ local function labels(list)
     for _, i in ipairs(list) do out[#out + 1] = i.label end
     return table.concat(out, ",")
 end
-eq(labels(Commands.suggest("/", false)), "/help,/players,/suicide")
+eq(labels(Commands.suggest("/", false)), "/help,/players,/bench,/suicide")
 eq(labels(Commands.suggest("/k", true)), "/kick <player>")
 eq(Commands.suggest("/k", true)[1].complete, "/kick ")
 eq(labels(Commands.suggest("/k", false)), "") -- host commands are not offered to clients
@@ -799,7 +799,8 @@ local function runAs(who, text)
     local cx = { isHost = who.here, players = function() return roster end,
         kick = function(n, ban) said.kicked[#said.kicked + 1] = (ban and "ban " or "kick ") .. n end,
         unban = function(n) said.unbanned = n end,
-        blam = function(line) said.blam[#said.blam + 1] = line end }
+        blam = function(line) said.blam[#said.blam + 1] = line end,
+        bench = function() said.benched = true; return { "Benching." } end }
     said.answer = table.concat(Commands.run(cx, who, text), " | ")
     return said
 end
@@ -820,6 +821,9 @@ eq(runAs({ here = true, index = 0 }, "/bring bobby").blam[1], '(objects_attach (
 assert(runAs({ here = true, index = 0 }, "/nope").answer:find("Unknown command /nope", 1, true))
 assert(runAs({ here = false, index = 2 }, "/help").answer:find("/suicide", 1, true))
 assert(not runAs({ here = false, index = 2 }, "/help").answer:find("/kick", 1, true))
+-- /bench runs where it is typed, for anyone, host or not.
+local benched = runAs({ here = false, index = 2 }, "/bench")
+assert(benched.benched); eq(benched.answer, "Benching.")
 print("Multiplayer UI: slash commands parse, suggest, resolve players and keep host commands to the host")
 
 -- In a match: the host's own /kick reaches the Lobby; a client's /suicide

@@ -4443,6 +4443,457 @@
           "dump_wanted",
           "created_at"
         ]
+      },
+      "BenchReport": {
+        "type": "object",
+        "properties": {
+          "bench_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,64}$"
+          },
+          "map_code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{3}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "foliage",
+              "cvar"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "example": "foliage (245 meshes)"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/BenchSettings"
+          },
+          "seconds_in_world": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2592000
+          },
+          "base_ms": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "base_min_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "base_max_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BenchResult"
+            },
+            "minItems": 1,
+            "maxItems": 12
+          },
+          "client_version": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "bench_id",
+          "map_code",
+          "kind",
+          "label",
+          "settings",
+          "base_ms",
+          "results"
+        ]
+      },
+      "BenchSettings": {
+        "type": "object",
+        "properties": {
+          "viewport_w": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "viewport_h": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "window_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "fullscreen",
+              "borderless",
+              "windowed",
+              null
+            ]
+          },
+          "vsync": {
+            "type": "boolean",
+            "default": false
+          },
+          "fps_limit": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "0 or absent: none."
+          },
+          "screen_percentage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 400
+          },
+          "sg": {
+            "type": "object",
+            "properties": {
+              "ViewDistance": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "AntiAliasing": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Shadow": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "GlobalIllumination": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Reflection": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "PostProcess": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Texture": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Effects": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Foliage": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "Shading": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              }
+            },
+            "default": {}
+          },
+          "gpu_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120,
+            "example": "NVIDIA GeForce RTX 5090"
+          },
+          "gpu_score": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "cpu": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "cpu_threads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1024
+          }
+        },
+        "required": [
+          "viewport_w",
+          "viewport_h"
+        ]
+      },
+      "BenchResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "no foliage"
+          },
+          "ms": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000,
+            "example": 6.42
+          }
+        },
+        "required": [
+          "name",
+          "ms"
+        ]
+      },
+      "Bench": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "map_code": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpu_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gpu_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpu": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cpu_threads": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "viewport_w": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "viewport_h": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "window_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vsync": {
+            "type": "boolean"
+          },
+          "fps_limit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "screen_percentage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sg": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "seconds_in_world": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "base_ms": {
+            "type": "number"
+          },
+          "base_min_ms": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "base_max_ms": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BenchResult"
+            }
+          },
+          "foliage_delta_ms": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user",
+          "map_code",
+          "kind",
+          "label",
+          "gpu_name",
+          "gpu_score",
+          "cpu",
+          "cpu_threads",
+          "viewport_w",
+          "viewport_h",
+          "window_mode",
+          "vsync",
+          "fps_limit",
+          "screen_percentage",
+          "sg",
+          "seconds_in_world",
+          "base_ms",
+          "base_min_ms",
+          "base_max_ms",
+          "results",
+          "foliage_delta_ms",
+          "client_version",
+          "created_at"
+        ]
+      },
+      "BenchSummaryRow": {
+        "type": "object",
+        "properties": {
+          "gpu_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_code": {
+            "type": "string"
+          },
+          "viewport_h": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "foliage_quality": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reports": {
+            "type": "number"
+          },
+          "base_ms": {
+            "type": "number",
+            "description": "Mean of the reports' base frame times."
+          },
+          "foliage_delta_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Mean of what the foliage cost."
+          }
+        },
+        "required": [
+          "gpu_name",
+          "map_code",
+          "viewport_h",
+          "foliage_quality",
+          "reports",
+          "base_ms",
+          "foliage_delta_ms"
+        ]
       }
     },
     "parameters": {}
@@ -9959,6 +10410,273 @@
           },
           "404": {
             "description": "No such file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/benches": {
+      "post": {
+        "tags": [
+          "benches"
+        ],
+        "summary": "Send a bench the caller's game ran",
+        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BenchReport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sent before.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "duplicate"
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "duplicate"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid report.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many reports.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/benches": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Recent bench reports, by map and GPU (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{3}$"
+            },
+            "required": false,
+            "name": "map",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 80,
+              "description": "Part of the GPU's name."
+            },
+            "required": false,
+            "description": "Part of the GPU's name.",
+            "name": "gpu",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "`next` from the previous page."
+            },
+            "required": false,
+            "description": "`next` from the previous page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "benches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Bench"
+                      }
+                    },
+                    "next": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "benches",
+                    "next"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/benches/summary": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Foliage benches averaged by GPU, map, resolution and foliage quality (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z0-9]{3}$"
+            },
+            "required": false,
+            "name": "map",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One row per GPU, map, height drawn and foliage quality.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BenchSummaryRow"
+                      }
+                    }
+                  },
+                  "required": [
+                    "rows"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
             "content": {
               "application/json": {
                 "schema": {

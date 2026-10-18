@@ -25,6 +25,7 @@ import { registerMapRoutes } from "./maps";
 import { registerMatchRoutes } from "./matches";
 import { registerPlayerRoutes } from "./players";
 import { registerCrashRoutes } from "./crashes";
+import { registerBenchRoutes } from "./benches";
 import {
   ErrorSchema,
   HealthSchema,
@@ -456,6 +457,8 @@ registerMatchRoutes(app);
 registerPlayerRoutes(app);
 // Crash reports from the launcher (docs/crash_reports.md).
 registerCrashRoutes(app);
+// Frame-time benches players send from the game (docs/performance.md).
+registerBenchRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

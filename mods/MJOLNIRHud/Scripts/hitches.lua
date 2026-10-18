@@ -206,6 +206,7 @@ function Hitches.frame(ctx, t)
     collect(s)
     local from = state.last
     state.last = t
+    if s.live and state.listener then pcall(state.listener, t) end
     if not from then return end
     local ms = math.floor((t - from) * 1000 + 0.5)
     if ms >= LONG_MS then return longFrame(s, from, t, ms) end
@@ -273,7 +274,12 @@ function Hitches.poll(pc, world)
         summary(S, "", false)
         state.world, state.last = world, nil
         S = timed and fresh(world) or nil
-        if S then append({ "", os.date("== %Y-%m-%d %H:%M:%S ") .. world .. " ==" }) end
+        if S then
+            local lines = { "", os.date("== %Y-%m-%d %H:%M:%S ") .. world .. " ==" }
+            local okS, settings = pcall(function() return state.settings and state.settings() end)
+            if okS and settings then lines[3] = settings end
+            append(lines)
+        end
     end
     if not (S and pc) then
         state.pc = nil
@@ -314,9 +320,22 @@ function Hitches.command(args)
     return "hitch summary written to UE4SS.log and hitches.log"
 end
 
+--- `fn(t)` every timed frame of the local player once in the world
+--- (Scripts/bench.lua).
+function Hitches.listen(fn) state.listener = fn end
+
+--- Seconds since the player entered this world; nil before.
+function Hitches.liveSeconds()
+    if not (S and S.live) then return nil end
+    return os.clock() - S.liveAt
+end
+
 function Hitches.init(opts)
     log = opts.log or log
     filePath = opts.file
+    -- `settings`: a line naming the resolution, quality and GPU, written
+    -- under each map's heading in hitches.log (Bench.settings).
+    state.settings = opts.settings
     -- Past the cap the file starts again, the one before kept as hitches.old.log.
     local f = filePath and io.open(filePath, "rb")
     if f then
