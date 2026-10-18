@@ -46,6 +46,8 @@ local queue = function() end
 
 --- The bench under way: steps, the step now, its phase, the results.
 local run = nil
+--- When Bench.frame last ran (os.clock).
+local lastFrame = -100
 
 local function object(path)
     local ok, o = pcall(StaticFindObject, path)
@@ -399,6 +401,7 @@ end
 
 --- Every local frame (Hitches.listen), with os.clock.
 function Bench.frame(t)
+    lastFrame = t
     local r = run
     if not r then return end
     if r.phase == "settle" then
@@ -437,6 +440,9 @@ end
 local function start(conditions, what, opts)
     local pc = pcOf()
     if not (pc and pc:GetWorld()) then return "no player in a world to bench" end
+    -- Turns advance only on the hitch log's frames: without them a held
+    -- camera would never be let go.
+    if os.clock() - lastFrame > 2 then return "the frame timing is off (mjolnir_hitches on), so no bench" end
     local steps, order = interleave(conditions)
     local r = { steps = steps, order = order, i = 1, ms = {}, map = mapOf(), what = what, kind = opts.kind,
         send = opts.send, notify = opts.notify, settings = Bench.settingsTable(), live = liveFor() }

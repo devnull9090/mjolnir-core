@@ -99,8 +99,9 @@ minutes on a map is kept but left out of the averages.
 | Beach camera | 14.5 ms (69 fps) | -2.54 ms (-17.5%) | -0.58 ms | -1.28 ms |
 | Island overview | 14.8 ms (68 fps) | -2.69 ms (-18.1%) | -0.25 ms | -1.29 ms |
 
-A 5090 holds under 70 fps at 4K on Death Island, so a mid-range card at 1440p
-is well below 60 with the foliage on.
+A 5090 holds under 70 fps at 4K on Death Island. By the ratio of GPU
+throughput, a mid-range card at 1440p should be well below 60 with the foliage
+on; `/benchmarks` is where that gets measured rather than estimated.
 
 The tables below are from the 1710x1073 runs.
 
