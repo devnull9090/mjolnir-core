@@ -3421,14 +3421,16 @@ function Effects.flux(world)
     for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
         if Current.actors[key] and Current.actors[key]:IsValid() then return end
     end
-    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
-        local a = Current.actors[key]
-        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-    end
     if Current.fluxPending then return end
     Current.fluxPending = true
     local name, level = Current.worldName, Current.level
-    ExecuteInGameThreadWithDelay(tonumber(spec.delay_ms) or 4000, function()
+    -- A coast goes in a third of a second after the decor, so its sea is up
+    -- by the time the screen fades in: 4 s after, CE's water showed for ~3 s
+    -- and then the sea changed in front of the player (Death Island,
+    -- 2026-10-18). Its capture came out the same. A river keeps 4 s: that
+    -- wait is what its capture of the ground was proved with (Timberland).
+    local delay = tonumber(spec.delay_ms) or (type(spec.domain) == "table" and 4000 or 300)
+    ExecuteInGameThreadWithDelay(delay, function()
         local w = getWorld()
         if not w or Current.worldName ~= name or Current.level ~= level then return end
         Current.fluxPending = false
@@ -3588,6 +3590,15 @@ function Effects.flux(world)
             Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
                 .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
         end)
+        -- CE's water (`hide`) goes once Flux's is up, not before: until then
+        -- the level has its old water rather than none. It is out of the
+        -- ground capture already (FluxHide, with every actor not `ground`).
+        if ok then
+            for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+                local a = Current.actors[key]
+                if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+            end
+        end
         if not ok then Log("flux: " .. tostring(err)) end
     end)
 end
@@ -4759,16 +4770,32 @@ function Footprints.deformStart(world)
             g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
         end
     end
-    Footprints.deformHook()
+    -- `foot_mpc` (upgrade_ce_map.py): the sand reads the map's centre from
+    -- the game's globals itself (FootFromMPC), as the campaign's ground does,
+    -- and nothing here follows the manager.
+    if land.pbr.foot_mpc == true then
+        Footprints.deform.fromMpc = true
+        local rect = { R = 0, G = 0, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+        ldl:SetLandscapeMaterialScalarParameterValue(FName("FootFromMPC"), 1.0)
+        ldl:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+        for _, g in ipairs(Land.groundMids or {}) do
+            if g:IsValid() then
+                g:SetScalarParameterValue(FName("FootFromMPC"), 1.0)
+                g:SetVectorParameterValue(FName("FootRect"), rect)
+            end
+        end
+    else
+        Footprints.deformHook()
+    end
     Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
-        Footprints.hooked and ", recentres followed" or ""))
+        Footprints.deform.fromMpc and ", centre read by the sand" or Footprints.hooked and ", recentres followed" or ""))
 end
 
 --- The map's centre to the sand: FootRect on the landscape and the mesh's
 --- ground in its holes.
 function Footprints.deformRect(x, y)
     local d = Footprints.deform
-    if not (d and d.land:IsValid()) then return end
+    if not (d and not d.fromMpc and d.land:IsValid()) then return end
     d.cx, d.cy = x, y
     local rect = { R = x, G = y, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
     d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
@@ -4805,6 +4832,7 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
+    if d.fromMpc then return true end
     -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
     -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
     -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).

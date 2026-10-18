@@ -122,4 +122,17 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Cook")
 	static bool WriteUsmap(const FString& Path);
+
+	/**
+	 * Give Collection the game's own GUIDs: its StateId and each parameter's
+	 * Id, in order, each as the 32 hex digits of the GUID's bytes as cooked
+	 * (four little-endian words, as `mjolnir ue get` prints them). A cooked
+	 * material finds a collection's values at runtime by the collection's
+	 * StateId, so a stand-in for a game collection (the deformation
+	 * globals, Scripts/build_ce_materials.py) must carry the game's. Call
+	 * it after the last edit to the collection: an edit makes a new StateId.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
+	static bool SetCollectionIds(class UMaterialParameterCollection* Collection, const FString& StateId,
+		const TArray<FString>& ScalarIds, const TArray<FString>& VectorIds);
 };

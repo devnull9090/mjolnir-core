@@ -1,0 +1,12 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Halo Landscape Deformations (stand-ins)",
+	"Description": "Editor-time stand-ins for assets of the game's own HaloLandscapeDeformations plugin, at the game's paths, so our masters can read them as the campaign's landscape materials do (Scripts/build_ce_materials.py deform_globals). Never cooked (Config/DefaultGame.ini DirectoriesToNeverCook): in game the references resolve to the game's assets.",
+	"Category": "MJOLNIR",
+	"CreatedBy": "MJOLNIR",
+	"CanContainContent": true,
+	"EnabledByDefault": true,
+	"Installed": false
+}
