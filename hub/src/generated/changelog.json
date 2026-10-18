@@ -39,6 +39,44 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.27.0",
+      "tag": "mods-v0.27.0",
+      "title": "Match chat",
+      "date": "2026-10-18",
+      "summary": "Multiplayer matches have text chat, with team chat, slash commands and hub avatars. Every line is kept for moderators, and public matches show their chat on the hub.",
+      "body": "### Added\n\n- **Match chat** (MJOLNIRHud 0.9.0). Press **T** for all chat, **Y** for\n  team chat, or **Home**. **Enter** sends and **Esc** cancels. Lines appear\n  above the kill feed with the sender's hub avatar and team colour, then fade\n  after a few seconds. While you type, your player stands still.\n- **Chat rules.** The first time you open chat, it shows the rules and asks\n  you to agree. Chat is recorded and logged to your player account, and\n  public matches post their chat to the hub. Keep it civil.\n- **Slash commands.** Type `/` in chat to see the commands you can use, and\n  **Tab** to complete one or a player's name.\n  - Everyone: `/help`, `/players`, and `/suicide` to respawn when you're\n    stuck.\n  - The host: `/kick`, `/ban`, `/unban` and `/slay`, plus `/tp` and `/bring`\n    to teleport (experimental).\n- **Chat for moderators.** The host keeps every line of a match, private\n  matches included, and sends it to the hub (MJOLNIRLobby 0.13.3). A player\n  report shows its match's chat to moderators. A public match's page on the\n  hub shows its chat too.\n\n### Fixed\n\n- **A host crash after a player left** (MJOLNIRHud 0.8.1, in this release).\n  The HUD read the team of a player's body after the game had freed it, which\n  crashed the host on Blood Gulch about 45 seconds after a client left.\n- **Kicking by name** (MJOLNIRLobby 0.13.3). Kicking \"Bob\" no longer kicks\n  \"Bobby\" when Bobby is listed first.\n\n### Notes\n\n- Chat needs **CE runtime 1.11.0**, which the launcher installs with the\n  maps. Without it the HUD runs as before, with no chat.\n- The game's own chat key (Home) used Xbox party chat, which never connects\n  in MJOLNIR games. That is why it never showed anything.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Match chat (MJOLNIRHud 0.9.0). Press T for all chat, Y for team chat, or Home. Enter sends and Esc cancels. Lines appear above the kill feed with the sender's hub avatar and team colour, then fade after a few seconds. While you type, your player stands still.",
+            "Chat rules. The first time you open chat, it shows the rules and asks you to agree. Chat is recorded and logged to your player account, and public matches post their chat to the hub. Keep it civil.",
+            "Slash commands. Type / in chat to see the commands you can use, and Tab to complete one or a player's name.",
+            "Chat for moderators. The host keeps every line of a match, private matches included, and sends it to the hub (MJOLNIRLobby 0.13.3). A player report shows its match's chat to moderators. A public match's page on the hub shows its chat too."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A host crash after a player left (MJOLNIRHud 0.8.1, in this release). The HUD read the team of a player's body after the game had freed it, which crashed the host on Blood Gulch about 45 seconds after a client left.",
+            "Kicking by name (MJOLNIRLobby 0.13.3). Kicking \"Bob\" no longer kicks \"Bobby\" when Bobby is listed first."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Chat needs CE runtime 1.11.0, which the launcher installs with the maps. Without it the HUD runs as before, with no chat.",
+            "The game's own chat key (Home) used Xbox party chat, which never connects in MJOLNIR games. That is why it never showed anything."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.27.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.27.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.27.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.15.0",
