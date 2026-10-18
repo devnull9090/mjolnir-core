@@ -1646,10 +1646,14 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
-            ExecuteInGameThreadWithDelay(1000, function()
+            -- Both as soon as they can be: the capture on the first tick after
+            -- the load lets go (the delay has run out by then), the haze a few
+            -- frames after it. At 1 s and 2 s it came up ~2 s after the
+            -- player spawned (2026-10-18), once the load itself was short.
+            ExecuteInGameThreadWithDelay(50, function()
                 local sky = Current.actors.__sky
                 if sky and sky:IsValid() then pcall(function() sky.LightComponent:RecaptureSky() end) end
-                ExecuteInGameThreadWithDelay(2000, function()
+                ExecuteInGameThreadWithDelay(250, function()
                     if actor:IsValid() then pcall(function() actor.Component:SetFogMaxOpacity(haze.max_opacity or 0.7) end) end
                 end)
             end)
