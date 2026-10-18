@@ -1,10 +1,12 @@
 # Performance: measuring it and what costs what
 
-**Status:** 2026-10-17. Measured on PC 1 (RTX 5090, Ryzen 9 7950X3D, Epic) on
+**Status:** 2026-10-18. Measured on PC 1 (RTX 5090, Ryzen 9 7950X3D, Epic) on
 Death Island, the heaviest remastered map: 535,000 grass clumps in 245
 instanced meshes, 7,700 cliff-cladding rocks, 790 decor pieces. Most runs were
 at 1710x1073 (a borderless window over Remote Desktop; the 200% runs render
-3420x2146), and the last at 3840x2160.
+3420x2146), and the last at 3840x2160. On 2026-10-18 the campaign (B30) was
+measured against Blood Gulch and Death Island at the same settings
+([Campaign against our maps](#campaign-against-our-maps-2026-10-18)).
 
 Players report that the remastered maps play fine without grass and rocks and
 slow down with them. This page covers the tools for seeing where frame time
@@ -185,6 +187,144 @@ What this says:
   Nanite.
 - **Keep virtual shadow maps.** `mjolnir_bench r.Shadow.Virtual.Enable 0`
   read +1.76 ms (+22%) at the beach view: the fallback shadow maps cost more.
+
+## Campaign against our maps (2026-10-18)
+
+A player (RX 9060 XT, 2560x1440 at 58.8% screen percentage, Epic) reported
+up to 240 fps in the campaign and about 51-58 fps on our maps, choppy. Their
+`/bench` on Blood Gulch read 19.6 ms base, foliage 5.5 ms, of which wind was
+5.2 ms. This section measures the campaign and both maps on PC 1 at one
+set of settings, to see where that gap comes from.
+
+**Settings, every run:** 1710x1073 borderless (Remote Desktop's display;
+the bench camera letterboxes it to 1710x962, see below), every `sg.*` at 3
+(Epic), `r.ScreenPercentage` 100, vsync off, no fps limit, MJOLNIRHud
+0.11.0 (stat unit split from `mjolnir_frame_times.dll`). The game's own
+Frame Generation setting was on (`bFrameGeneration=True`), which does not
+touch these numbers: the bench and `stat unit` read engine frame times, not
+presented frames. Each map had more than 3 minutes to warm up first.
+
+- **Campaign:** The Silent Cartographer (B30) at the user's checkpoint
+  (Resume Solo Game), the beach beside the Warthog at (18930, -16518, 810).
+- **Blood Gulch:** `mjolnir_auto host BGL slayer private`, the spawn view
+  at (9313, 27259, 226), grass and a tree in view.
+- **Death Island:** `mjolnir_auto host DTI slayer private`. The spawn is
+  indoors, so a CameraActor was set as the view target at the beach test
+  camera (2323, -13154, 2784), which the bench then holds.
+
+### The table
+
+From `bench.log` (each base is 4 alternated 6 s windows; the three bases per
+map agree within 0.08 ms):
+
+| | Campaign (B30) | Blood Gulch | Death Island |
+|---|---|---|---|
+| Base frame | 8.29-8.34 ms (120 fps) | 8.09-8.17 ms (123 fps) | 8.02-8.04 ms (124 fps) |
+| Game / Draw / RHIT / GPU | 5.0 / 4.2 / **6.3** / 5.95 | **8.0** / 2.8 / 3.7 / 6.7 | **7.9** / 3.0 / 4.1 / 6.5 |
+| Bound by | RHI thread | GPU (Game is waiting on it) | GPU |
+| `r.ScreenPercentage 200` | 13.47 ms, GPU 11.65 | 12.87 ms, GPU 11.48 | 12.51 ms, GPU 10.99 |
+| `r.ScreenPercentage 50` | 8.22 ms, GPU 4.31 | 6.86 ms, GPU 5.43 | 6.87 ms, GPU 5.38 |
+| GPU: fixed + per megapixel | 3.8 ms + 1.19 ms/MP | 5.0 ms + 0.98 ms/MP | 5.0 ms + 0.91 ms/MP |
+| GPU at the player's 1.27 MP | 5.3 ms | 6.3 ms | 6.2 ms |
+| `stat unit` Draws / Prims | 964 / 123K | 859 / 278K | 1,090 / 501K |
+| Hitches, 3 min standing | 2, worst 22 ms, no Lua | 1, 78 ms: LevelLoader footprints 70 ms | 2, worst 158 ms: LevelLoader pulses 150 ms |
+
+The fixed and per-megapixel GPU figures are a straight line through the 50%
+and 200% points (0.41 and 6.58 MP drawn); it predicts the 100% GPU time
+within 0.2 ms on all three.
+
+What this says:
+
+- **At the same settings the campaign is not lighter.** On PC 1 the three
+  run within 0.3 ms of each other, and at 200% our maps cost slightly less
+  GPU time than the campaign's beach. B30 is held back by its RHI thread
+  (6.3 ms), ours by the GPU.
+- **Ours carry about 1.1 ms more GPU work that does not shrink with
+  resolution** (5.4 against 4.3 ms at 50%). That is the foliage: removing it
+  saves 1.40 ms on Blood Gulch and 1.56 ms on Death Island, mostly GPU
+  (6.7 → 5.1 ms on BGL).
+- **At the player's internal resolution our maps should cost about 17% more
+  GPU time than the campaign, not 4 times.** On a card about 3x slower than
+  a 5090 (their 19.6 ms against our 6.3 ms of GPU on BGL), B30's beach
+  would read about 16-17 ms, roughly 60 fps of engine frames.
+- **So the 240 fps is most likely presented frames, not engine frames.**
+  58.8% is an upscaler's Balanced preset, and the game has a Frame Generation
+  option (on, on this box). FSR frame generation doubles what an overlay
+  counts; `/bench` counts engine frames. A lighter view (interiors) would add
+  to it. This was not measured here: there is no presented-frame counter on
+  PC 1, and the FSR path cannot run on an NVIDIA card. The DLSS one
+  (`r.Streamline.DLSSG.Enable 1`) stays on in our maps.
+- **The player's wind cost is out of proportion.** Wind is 0.95 of 1.4-1.6 ms
+  of foliage here (about 60%) and was 5.2 of 5.5 ms (95%) in their run. If
+  that repeats, world position offset on grass costs far more on their GPU
+  (RDNA 4) than on ours. One run so far, so this is a lead.
+
+### What costs what on our maps (PC 1, 1710x962)
+
+| Rank | Cost | Saving when removed | How measured |
+|---|---|---|---|
+| 1 | Foliage (grass, tufts, leaves) | -1.40 ms BGL, -1.56 ms DTI (17-19%) | `mjolnir_bench` |
+| | of which wind | -0.95 ms on both | same |
+| | of which shadows | -0.53 ms BGL, -0.71 ms DTI | same |
+| 2 | CE placed lights' shadows (DTI, outside a base, 6 lights at 12-37 m) | -0.75 ms all 20 shadows off; -0.25 ms at the engine's 25 m shadow distance instead of our 80 m | held camera, two bases 1 min apart; `mjolnir_bench r.LightMaxShadowDistanceScale 0.3125` |
+| 3 | Fluid Flux coast (DTI beach) | at most -0.38 ms (GPU 6.48 → 6.16) | held camera, two bases 1 min apart, the sea not drawn at all, so an upper bound |
+
+- The lights cost nothing at the beach, 90-190 m from any of them
+  (`r.LightMaxShadowDistanceScale 0.3125` read +0.02 ms there): only views
+  near a base pay.
+- **Keep virtual shadow maps:** `r.Shadow.Virtual.Enable 0` read +3.04 ms
+  (+37%) on Blood Gulch, as it did on Death Island (+1.76 ms).
+- Rows 2 and 3 are two bases taken a minute apart with the light shadows or
+  the Flux actors (domain, surface, wave) switched by Lua between them, not
+  the bench's alternated turns; the baselines repeat within 0.1 ms, so the
+  sign and size hold, the second decimal does not.
+
+### Choppy: what the hitches show
+
+Hitch counts come from `mjolnir_hitches reset` windows with nothing else
+running. A bench makes its own hitches (a 200 ms frame each time it switches
+a condition, on every map, the campaign included), so its minutes are left
+out.
+
+- **Standing still, the worst frames on our maps are our own Lua.** The
+  campaign's worst in 3 minutes was 22 ms. Blood Gulch's one hitch was
+  `LevelLoader footprints` at 70 ms and Death Island's worst was
+  `LevelLoader pulses` at 150 ms. The same session's log also has
+  `LevelLoader weather` at 53 ms and footprints at 82 and 91 ms. Across
+  `hitches.log` (all sessions since the logger shipped), `Hud tick` reached
+  95 ms. Most hitches name none of our loops, but every 50-150 ms frame in
+  today's quiet windows does.
+- **No first-sight stalls on a warm cache.** Two passes of a teleport tour
+  over eight Death Island views (bases, the overview, both shores) read 15
+  hitches, worst 26 ms, then 9, worst 27 ms. The same teleports hitched on
+  both passes, so they are camera cuts, not new pipeline states. PC 1 has
+  played these maps many times, so its driver shader cache is warm. A first
+  run on a new PC, or after a driver update, is untested, so runtime PSO
+  compiles of our cooked materials (chunks 983/990) are neither confirmed
+  nor ruled out.
+
+### Recommended fixes (none made in this session)
+
+| Fix | Expected saving |
+|---|---|
+| Wind off at High/Epic on slower GPUs (by `gpuScore`, or per vendor if more AMD benches repeat the 95%) | 0.95 ms here (12%); about 5 ms of the player's 19.6 ms |
+| Lua spike budgets: split `pulses`, `footprints`, `weather` and the Hud tick so no run takes more than a few ms | removes the 50-150 ms frames, the only large hitches standing still |
+| A foliage density and cull pass on Epic | part of the remaining 0.45-0.6 ms of foliage outside wind; more on slower GPUs |
+| Placed lights: `shadow_distance` back toward 2500-4000, or no shadows on small fill lights | 0.25-0.75 ms near bases |
+| Flux coast: lower `res` or update rate | under 0.38 ms; last |
+
+For the tools:
+
+- **The bench camera letterboxes non-16:9 windows.** `lockView` spawns a
+  CameraActor with `bConstrainAspectRatio` on, so on 1710x1073 every bench
+  drew 1710x962. Comparisons on one PC hold; a 16:10 player's absolute
+  numbers read about 10% light. Set the component's `bConstrainAspectRatio`
+  to false.
+- **Ask the player** whether Frame Generation is on, and what their overlay
+  counts. A campaign-side bench players can run (`/bench` lives in match
+  chat) would let the hub compare their campaign and our maps directly.
+- **A cold-cache run** (a new PC, or after clearing the driver's shader
+  cache) with `mjolnir_hitches` while walking, to settle the PSO question.
 
 ## Changes from this investigation
 
