@@ -34,12 +34,45 @@ const SG_NAMES = [
   "Texture", "Effects", "Foliage", "Shading",
 ] as const;
 
+/** One frame time a thread or the GPU took: 0 when it did nothing. */
+const THREAD_MS = z.number().min(0).max(10000);
+
+/**
+ * `stat unit`'s split of a frame, each the mean over a condition's turns:
+ * the frame is as slow as the slowest of the game thread, the render thread
+ * (Draw) and the GPU. Game includes the game thread's wait for the GPU, as
+ * stat unit's does in this build; the `_cp` figures are the critical paths,
+ * without waits.
+ */
+const BenchTimesSchema = z
+  .object({
+    game: THREAD_MS.optional(),
+    game_cp: THREAD_MS.optional(),
+    draw: THREAD_MS.optional(),
+    draw_cp: THREAD_MS.optional(),
+    rhit: THREAD_MS.optional(),
+    gpu: THREAD_MS.optional(),
+  })
+  .openapi("BenchTimes");
+
 const BenchResultSchema = z
   .object({
     name: z.string().trim().min(1).max(80).openapi({ example: "no foliage" }),
     ms: MS.openapi({ example: 6.42 }),
+    times: BenchTimesSchema.nullable().optional(),
   })
   .openapi("BenchResult");
+
+/** The held camera: world position in cm, pitch and yaw in degrees. */
+const BenchViewSchema = z
+  .object({
+    x: z.number().min(-1e7).max(1e7),
+    y: z.number().min(-1e7).max(1e7),
+    z: z.number().min(-1e7).max(1e7),
+    pitch: z.number().min(-360).max(360),
+    yaw: z.number().min(-360).max(360),
+  })
+  .openapi("BenchView");
 
 const BenchSettingsSchema = z
   .object({
@@ -69,6 +102,8 @@ const BenchReportSchema = z
     base_min_ms: MS.nullable().optional(),
     base_max_ms: MS.nullable().optional(),
     results: z.array(BenchResultSchema).min(1).max(12),
+    base_times: BenchTimesSchema.nullable().optional(),
+    view: BenchViewSchema.nullable().optional(),
     client_version: z.string().max(40).optional(),
   })
   .openapi("BenchReport");
@@ -97,6 +132,8 @@ const BenchSchema = z
     base_min_ms: z.number().nullable(),
     base_max_ms: z.number().nullable(),
     results: z.array(BenchResultSchema),
+    base_times: BenchTimesSchema.nullable(),
+    view: BenchViewSchema.nullable(),
     foliage_delta_ms: z.number().nullable(),
     client_version: z.string().nullable(),
     created_at: z.string(),
@@ -118,6 +155,7 @@ const BenchSummaryRowSchema = z
 export type Bench = z.infer<typeof BenchSchema>;
 export type BenchSummaryRow = z.infer<typeof BenchSummaryRowSchema>;
 type BenchReport = z.infer<typeof BenchReportSchema>;
+type BenchTimes = z.infer<typeof BenchTimesSchema>;
 type Row = Record<string, unknown>;
 
 /** The "no foliage" result less the base: what a foliage bench is for. */
@@ -159,7 +197,18 @@ function toBench(r: Row): Bench {
     base_ms: Number(r.base_ms),
     base_min_ms: n(r.base_min_ms),
     base_max_ms: n(r.base_max_ms),
-    results: parse<{ name: string; ms: number }[]>(r.results_json, []),
+    results: parse<{ name: string; ms: number; times?: BenchTimes | null }[]>(r.results_json, []),
+    base_times: parse<BenchTimes | null>(r.base_times_json, null),
+    view:
+      r.view_x === null || r.view_x === undefined
+        ? null
+        : {
+            x: Number(r.view_x),
+            y: Number(r.view_y),
+            z: Number(r.view_z),
+            pitch: Number(r.view_pitch),
+            yaw: Number(r.view_yaw),
+          },
     foliage_delta_ms: n(r.foliage_delta_ms),
     client_version: s(r.client_version),
     created_at: String(r.created_at),
@@ -242,7 +291,8 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
       description:
         "The game's /bench chat command times the map as it is against the map without its foliage, " +
         "the foliage's shadows and its wind, at a held camera, and sends the result with the settings it " +
-        "ran at. `bench_id` is the game's own id for the run: sending it again returns the report made " +
+        "ran at, the camera's place, and stat unit's game thread, render thread and GPU times for each " +
+        "condition. `bench_id` is the game's own id for the run: sending it again returns the report made " +
         "the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
       request: { body: { content: { "application/json": { schema: BenchReportSchema } } } },
       responses: {
@@ -276,9 +326,9 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
           `INSERT INTO bench_reports (id, user_id, bench_id, map_code, kind, label, gpu_name, gpu_score, cpu,
              cpu_threads, viewport_w, viewport_h, window_mode, vsync, fps_limit, screen_percentage, sg_json,
              foliage_quality, seconds_in_world, base_ms, base_min_ms, base_max_ms, results_json,
-             foliage_delta_ms, client_version)
+             foliage_delta_ms, client_version, view_x, view_y, view_z, view_pitch, view_yaw, base_times_json)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-             ?21, ?22, ?23, ?24, ?25)`,
+             ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)`,
         )
         .bind(
           id, auth.user.id, body.bench_id, body.map_code, body.kind, body.label,
@@ -287,6 +337,8 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
           s.screen_percentage ?? null, JSON.stringify(s.sg), s.sg.Foliage ?? null,
           body.seconds_in_world ?? null, body.base_ms, body.base_min_ms ?? null, body.base_max_ms ?? null,
           JSON.stringify(body.results), foliageDelta(body), body.client_version ?? null,
+          body.view?.x ?? null, body.view?.y ?? null, body.view?.z ?? null, body.view?.pitch ?? null,
+          body.view?.yaw ?? null, body.base_times ? JSON.stringify(body.base_times) : null,
         )
         .run();
       return c.json({ id, duplicate: false }, 201);

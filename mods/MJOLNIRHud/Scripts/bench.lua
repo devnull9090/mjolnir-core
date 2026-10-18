@@ -26,6 +26,12 @@
 -- Turns are driven from the HUD's frame hook (Hitches.listen), never
 -- ExecuteWithDelay: a failing delayed callback took a game-thread hook down
 -- with it (2026-10-17).
+--
+-- Each turn also records where its frame went: `stat unit`'s Game, Draw,
+-- RHIT and GPU, read every frame by native\mjolnir_frame_times.dll
+-- (native/frame_times) and averaged over the turn. A report carries them per
+-- condition, so the hub shows which of them a saving came off, and the held
+-- camera's place, so two runs on one map can be told apart.
 
 local Bench = {}
 
@@ -48,6 +54,9 @@ local queue = function() end
 local run = nil
 --- When Bench.frame last ran (os.clock).
 local lastFrame = -100
+--- native\mjolnir_frame_times.dll's two calls, or nil without it.
+local timesSample, timesFlush = nil, nil
+local TIMES = { "game", "game_cp", "draw", "draw_cp", "rhit", "gpu" }
 
 local function object(path)
     local ok, o = pcall(StaticFindObject, path)
@@ -192,6 +201,42 @@ local function cvarCondition(name, value)
 end
 
 --------------------------------------------------------------------------------
+-- Frame times (stat unit's Game, Draw, RHIT, GPU)
+--------------------------------------------------------------------------------
+
+local function loadTimes()
+    if not (dirPath and package and package.loadlib) then return end
+    local dll = dirPath .. "\\native\\mjolnir_frame_times.dll"
+    local s, err = package.loadlib(dll, "mjolnir_frame_times_sample")
+    local f = s and package.loadlib(dll, "mjolnir_frame_times_flush")
+    if not (s and f) then
+        log("bench: no frame times (" .. tostring(err or "no flush export") .. ")")
+        return
+    end
+    timesSample, timesFlush = s, f
+end
+
+--- The means since the last call, in ms by TIMES name, or nil and why.
+local function flushTimes()
+    if not timesFlush then return nil, "no frame times DLL" end
+    local ok, err = pcall(timesFlush)
+    if not ok then return nil, tostring(err) end
+    local f = io.open(dirPath .. "\\native\\frame_times.txt", "rb")
+    if not f then return nil, "no frame_times.txt" end
+    local line = f:read("*l") or ""
+    f:close()
+    local frames = line:match("^ok (%d+)")
+    if not frames then return nil, line end
+    if tonumber(frames) == 0 then return nil, "no frames" end
+    local out, i = {}, 0
+    for v in line:gmatch(" (%-?[%d.]+)") do
+        if i > 0 then out[TIMES[i]] = tonumber(v) end
+        i = i + 1
+    end
+    return out
+end
+
+--------------------------------------------------------------------------------
 -- Camera
 --------------------------------------------------------------------------------
 
@@ -251,6 +296,7 @@ local function lockView(r)
     r.camera:K2_SetActorLocationAndRotation(at, rot, false, {}, true)
     pcall(hideOwnBody, r, pc)
     pc:SetViewTargetWithBlend(r.camera, 0, 0, 0, false)
+    r.view = { x = at.X, y = at.Y, z = at.Z, pitch = rot.Pitch, yaw = rot.Yaw }
     return string.format("(%.0f, %.0f, %.0f) pitch %.1f yaw %.1f", at.X, at.Y, at.Z, rot.Pitch, rot.Yaw)
 end
 
@@ -273,17 +319,41 @@ local function mean(list)
     return sum / #list
 end
 
+--- A condition's frame times, each the mean of its turns; nil when no turn
+--- had them.
+local function meanTimes(list)
+    if not list or #list == 0 then return nil end
+    local out = {}
+    for _, name in ipairs(TIMES) do
+        local values = {}
+        for _, t in ipairs(list) do values[#values + 1] = t[name] end
+        if #values == #list then out[name] = mean(values) end
+    end
+    return out
+end
+
+local function timesText(t)
+    if not t then return "" end
+    return string.format("  [game %.2f, draw %.2f, rhit %.2f, gpu %.2f]", t.game or 0, t.draw or 0, t.rhit or 0,
+        t.gpu or 0)
+end
+
 local function report(r)
     local base = r.ms.base
     local b = mean(base)
     local lo, hi = math.huge, 0
     for _, v in ipairs(base) do lo, hi = math.min(lo, v), math.max(hi, v) end
-    say(string.format("bench on %s: base %.2f ms (%.0f fps), %d runs from %.2f to %.2f", r.map, b, 1000 / b, #base, lo, hi))
-    r.summary = { base = b, lo = lo, hi = hi, results = {} }
+    local bt = meanTimes(r.times.base)
+    say(string.format("bench on %s: base %.2f ms (%.0f fps), %d runs from %.2f to %.2f%s", r.map, b, 1000 / b, #base,
+        lo, hi, timesText(bt)))
+    if r.timesWhy then say("bench: no frame times: " .. r.timesWhy) end
+    r.summary = { base = b, lo = lo, hi = hi, base_times = bt, results = {} }
     for _, name in ipairs(r.order) do
         local m = mean(r.ms[name])
-        say(string.format("bench on %s:   %-28s %.2f ms  %+.2f ms  %+.1f%%", r.map, name, m, m - b, (m - b) * 100 / b))
-        table.insert(r.summary.results, { name = name, ms = m })
+        local t = meanTimes(r.times[name])
+        say(string.format("bench on %s:   %-28s %.2f ms  %+.2f ms  %+.1f%%%s", r.map, name, m, m - b,
+            (m - b) * 100 / b, timesText(t)))
+        table.insert(r.summary.results, { name = name, ms = m, times = t })
     end
 end
 
@@ -345,6 +415,7 @@ local function submit(r)
         bench_id = id, map_code = r.map, kind = r.kind, label = r.what, settings = settings,
         seconds_in_world = r.live and math.floor(r.live) or nil,
         base_ms = s.base, base_min_ms = s.lo, base_max_ms = s.hi, results = s.results,
+        base_times = s.base_times, view = r.view,
         client_version = version,
     })
     local f = dirPath and io.open(dirPath .. "\\bench_" .. id .. ".json", "wb")
@@ -367,6 +438,10 @@ local function chatLines(r, sent)
     if by["no foliage"] then
         lines[#lines + 1] = string.format("Foliage costs %.1f ms (%.0f%%): its shadows %.1f, its wind %.1f.",
             by["no foliage"], by["no foliage"] * 100 / s.base, by["no foliage shadows"] or 0, by["no foliage wind"] or 0)
+    end
+    local bt = s.base_times
+    if bt and bt.gpu and bt.draw and bt.game then
+        lines[#lines + 1] = string.format("Game thread %.1f ms, render thread %.1f, GPU %.1f.", bt.game, bt.draw, bt.gpu)
     end
     if r.send then
         lines[#lines + 1] = sent and "Sending it to the MJOLNIR team. Thanks!"
@@ -405,15 +480,27 @@ function Bench.frame(t)
     local r = run
     if not r then return end
     if r.phase == "settle" then
-        if t - r.at >= SETTLE_S then r.phase, r.at, r.frames = "sample", t, 0 end
+        if t - r.at >= SETTLE_S then
+            r.phase, r.at, r.frames = "sample", t, 0
+            -- The settle's frames are not this turn's.
+            if timesSample then flushTimes() end
+        end
         return
     end
     r.frames = r.frames + 1
+    if timesSample then pcall(timesSample) end
     if t - r.at < SAMPLE_S then return end
     local step = r.steps[r.i]
     local ms = (t - r.at) * 1000 / r.frames
     r.ms[step.key] = r.ms[step.key] or {}
     table.insert(r.ms[step.key], ms)
+    local times, why = flushTimes()
+    if times then
+        r.times[step.key] = r.times[step.key] or {}
+        table.insert(r.times[step.key], times)
+    else
+        r.timesWhy = why
+    end
     step.applied = false
     local ok, err = pcall(step.undo)
     if not ok then return finish(r, step.name .. " undo: " .. tostring(err)) end
@@ -444,8 +531,11 @@ local function start(conditions, what, opts)
     -- camera would never be let go.
     if os.clock() - lastFrame > 2 then return "the frame timing is off (mjolnir_hitches on), so no bench" end
     local steps, order = interleave(conditions)
-    local r = { steps = steps, order = order, i = 1, ms = {}, map = mapOf(), what = what, kind = opts.kind,
+    local r = { steps = steps, order = order, i = 1, ms = {}, times = {}, map = mapOf(), what = what, kind = opts.kind,
         send = opts.send, notify = opts.notify, settings = Bench.settingsTable(), live = liveFor() }
+    -- The DLL's first call scans the exe for its addresses: here, before
+    -- any turn is timed.
+    if timesFlush then flushTimes() end
     local okV, view = pcall(lockView, r)
     if not okV then
         unlockView(r)
@@ -523,6 +613,7 @@ function Bench.init(opts)
     pcOf = opts.pc or pcOf
     liveFor = opts.liveFor or liveFor
     mapOf = opts.map or mapOf
+    loadTimes()
 end
 
 return Bench
