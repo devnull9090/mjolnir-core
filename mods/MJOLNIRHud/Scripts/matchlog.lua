@@ -297,6 +297,12 @@ end
 
 MatchLog.ASK_SECONDS = ASK_SECONDS
 
+--- Names `<kind>_<id>.json` beside this mod in the outbox (Scripts/chat.lua
+--- queues its record this way).
+function MatchLog.queue(kind, id)
+    appendOutbox(kind, id)
+end
+
 --- deps: { modDir, log, version }.
 function MatchLog.init(deps)
     dir = deps.modDir
@@ -312,6 +318,8 @@ function MatchLog.init(deps)
             appendOutbox("match", cut)
             log("match log: " .. cut .. " was cut short; its checkpoint is queued")
         end
+        -- Its chat, written as it came (Scripts/chat.lua), private or not.
+        if readFile(dir .. "\\chat_" .. cut .. ".json") then appendOutbox("chat", cut) end
         os.remove(dir .. "\\match_current.txt")
     end
 end

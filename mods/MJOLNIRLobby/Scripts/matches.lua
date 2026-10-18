@@ -25,6 +25,7 @@ local DONE = { [200] = true, [201] = true, [400] = true, [409] = true, [413] = t
 local KINDS = {
     match = { file = "match_", path = "/matches" },
     claim = { file = "claim_", path = "/matches/claims" },
+    chat = { file = "chat_", path = "/matches/chat" },
 }
 
 local hudDir, Games, log

@@ -27,6 +27,7 @@ import type {
   MapMetadata,
   MapMetadataPatch,
   MapQuery,
+  MatchChatLog,
   Media,
   MediaOwner,
   MediaStatus,
@@ -511,6 +512,11 @@ export class HubClient {
       path: `/moderation/player-reports/${encodeURIComponent(id)}`,
       body: { action, note: note || undefined },
     });
+  }
+
+  /** The chat log the host's game sent for a match, by the host's match id. Moderators only. */
+  getMatchChatLog(hostMatchId: string): Promise<MatchChatLog> {
+    return this.call({ method: "GET", path: `/moderation/match-chat/${encodeURIComponent(hostMatchId)}` });
   }
 
   /** Matchmaking bans in force. Moderators only. */
