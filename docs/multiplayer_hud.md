@@ -19,8 +19,46 @@ MJOLNIR's own cooked widgets ([custom_ui.md](custom_ui.md)):
   Awaiting assignment. Each section is sorted by score. A gold YOU marker
   identifies the local player in addition to the row highlight.
 
+- **`WBP_MJOLNIRChat`**: match chat, above the kill feed (see
+  [Chat](#chat) below).
+
 The console opens on `~` only. `MJOLNIRConsoleEnabler` takes Tab out of
 `InputSettings.ConsoleKeys`, as Halo CE on PC had it.
+
+## Chat
+
+`Scripts/chat.lua`. **T** opens all chat, **Y** team chat (all chat in free
+for all), **Home** all chat. **Enter** sends, **Esc** cancels. Lines show for
+nine seconds, then fade; while the box is open the last ten show on a dark
+panel. A line is at most 160 bytes. Each line shows the sender's hub avatar,
+round, as the feed and the scoreboard do; MJOLNIRLobby may cache the
+picture after the line arrives, so a row asks for it again once a second
+for its first 15 seconds.
+
+- **Typing does not move the player.** The Blam simulation reads the
+  keyboard through GameInput, so no UE-side input mode stops it. The pause
+  menu stops it with `BlamInputProcessorLocalPlayerSubsystem:SetUIActive`
+  (seen live, 2026-10-17), and the chat sets the same gate while its box is
+  open. On close the gate goes back to what the game last set, so a pause
+  menu opened over the box stays in force.
+- **The game's own chat** (`WBP_HUD_Main.ChatWidget`, `IA_OpenChat` on Home)
+  is PlayFab party chat, which never connects in games joined by connection
+  string. It draws nothing.
+- **The wire.** A client sends `MJOLNIR|say|<a|t>|<text>` over
+  `ServerExecRPC`. The host names the sender from the controller the RPC came
+  in on, never from the text, and sends
+  `MJOLNIR|chat|<a|t>|<Red|Blue|->|<index>|<name>|<text>` to every player, or
+  only to the sender's team for team chat. The host allows five lines in six
+  seconds from one sender, and tells a flooder to slow down.
+- **The record.** The host keeps every line it relays, with the sender's
+  in-game name, the hub account MJOLNIRLobby resolved for it, team and
+  channel. It writes `chat_<match id>.json` beside the mod every few seconds,
+  and at the end of the match names it in `match_outbox.txt`. MJOLNIRLobby
+  sends it to `POST /matches/chat`. Private matches are recorded too, because
+  a player report cites the match id whether the game was listed or not.
+  Moderators read the log beside each report on `/moderation`; it is never
+  public (`GET /moderation/match-chat/{host_match_id}`).
+- **Esc** also opens the pause menu, as it does without chat.
 
 ## The kill feed
 

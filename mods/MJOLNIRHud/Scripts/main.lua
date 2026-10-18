@@ -1519,6 +1519,7 @@ Chat.init({
         if index == LOCAL_PLAYER then return YOU end
         return FEED.name
     end,
+    avatar = function(index) return Match and avatarOf(index) end,
     controllers = Relay.controllers,
     matchId = function() return MatchLog.currentId() or (Match and Match.logId) end,
     queue = MatchLog.queue,

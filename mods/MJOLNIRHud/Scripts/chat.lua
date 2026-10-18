@@ -257,6 +257,22 @@ local function draw(t)
                 pcall(function() W["ChatText" .. i]:SetColorAndOpacity({ SpecifiedColor = l.system and GREY or WHITE, ColorUseRule = 0 }) end)
                 setVisibility(W["ChatTag" .. i], l.channel == "team" and SHOWN or COLLAPSED)
                 setVisibility(W["ChatName" .. i], l.system and COLLAPSED or SHOWN)
+                state.avatar, state.nextAvatar = false, nil
+            end
+            -- The sender's hub avatar, round, as the feed and the board show
+            -- it. MJOLNIRLobby may cache the picture after the line arrives,
+            -- so a row without one asks again, once a second, for a while.
+            if not state.avatar and not l.system and t >= (state.nextAvatar or 0) and t - l.at < 15 then
+                state.nextAvatar = t + 1
+                local tex = ctx.avatar and ctx.avatar(l.index)
+                if tex then
+                    state.avatar = true
+                    pcall(function() W["ChatAvatar" .. i]:SetBrushFromTexture(tex, false) end)
+                end
+                setVisibility(W["ChatAvatar" .. i .. "Box"], tex and SHOWN or COLLAPSED)
+            elseif l.system and state.avatar ~= nil then
+                state.avatar = nil
+                setVisibility(W["ChatAvatar" .. i .. "Box"], COLLAPSED)
             end
             if state.shown ~= true then
                 state.shown = true
@@ -378,7 +394,7 @@ end
 --- A line to show here (from the host, or the host's own).
 function Chat.show(l)
     local color = ctx.colorOf(l.index, l.team)
-    push({ name = l.name ~= "" and l.name or nil, text = l.text, color = color, channel = l.channel,
+    push({ name = l.name ~= "" and l.name or nil, index = l.index, text = l.text, color = color, channel = l.channel,
         system = (l.name == nil or l.name == "") })
 end
 

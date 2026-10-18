@@ -691,6 +691,9 @@ eq(chatHost.remote.sent[before + 1], "MJOLNIR MJOLNIR|chat|a|Blue|2|Charlie Hub|
 local cw = chatWidget(chatHost)
 eq(cw.ChatText9.text, "hello there"); eq(cw.ChatName9.text, "Charlie Hub:")
 eq(cw.ChatLine9.visibility, 3)
+-- The sender's hub avatar, as the feed draws it.
+assert(cw.ChatAvatar9.brush and cw.ChatAvatar9.brush.file:find("av_0000%-c%.png$"), "the chat line's avatar")
+eq(cw.ChatAvatar9Box.visibility, 3)
 -- Team chat goes to the sender's team only: the host is Red.
 say(chatHost, chatHost.remote, "MJOLNIR|say|t|blue only")
 chatHost.poll()

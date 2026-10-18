@@ -1570,6 +1570,7 @@ def build_game_settings():
 #     ChatLines        the lines
 #      ChatLine<i>     rounded Border: one line's own dark fill
 #       ChatTag<i>     [TEAM], collapsed for all chat
+#       ChatAvatar<i>  the sender's hub avatar, round (collapsed without one)
 #       ChatName<i>    the sender, in their colour
 #       ChatText<i>    what they said, wrapped
 #    ChatInputBar      rounded Border, collapsed until T (all) or Y (team)
@@ -1583,6 +1584,7 @@ def build_game_settings():
 CHAT_ROWS = 10
 CHAT_WIDTH = 920
 CHAT_FILL = (0.012, 0.03, 0.045, 0.62)
+CHAT_AVATAR = 28
 
 
 def chat_line(bp, i):
@@ -1596,14 +1598,19 @@ def chat_line(bp, i):
     tag = hidden_text(widget(bp, unreal.TextBlock, f"ChatTag{i}", row.get_name()))
     text_style(tag, "[TEAM]", 17, ACCENT, "Bold")
     tag.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 8, 0))
+    face = icon_box(bp, f"ChatAvatar{i}", row.get_name(), CHAT_AVATAR, CHAT_AVATAR)
+    face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 8, 0))
+    face.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_TOP)
+    round_image(face.get_content(), CHAT_AVATAR)
     name = widget(bp, unreal.TextBlock, f"ChatName{i}", row.get_name())
     text_style(name, "", 22, WHITE, "Bold")
     shadowed(name)
     text = widget(bp, unreal.TextBlock, f"ChatText{i}", row.get_name())
     text_style(text, "", 22, WHITE)
-    wrapped(text)
+    # A fixed wrap width: auto-wrap in a row sized to its content wraps at
+    # almost nothing ("Press T to / chat"). A short line keeps a short row.
+    text.set_editor_property("wrap_text_at", CHAT_WIDTH - 260)
     shadowed(text)
-    fill(text, 1)
     text.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
     for w in (row, name, text):
         w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
