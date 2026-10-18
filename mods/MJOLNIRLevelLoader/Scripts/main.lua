@@ -450,12 +450,28 @@ local function resolveMesh(path)
         Resolved[path] = nil
     end
     if Unresolved[path] then return nil end
+    -- A soft-path blocking load first: it hands back an object already in
+    -- memory in ~0.03 ms and loads one in ~1 ms, where StaticFindObject
+    -- took ~21 ms a path, loaded or not. Death Island's terrain resolves 124
+    -- textures: 3.5 s of its load frame were these lookups (2026-10-18).
+    local ok, loaded = pcall(function()
+        local ksl = Resolved["\0ksl"]
+        if not (ksl and ksl:IsValid()) then
+            ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            Resolved["\0ksl"] = ksl
+        end
+        return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+    end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
     local mesh = findObject(path)
     if mesh then
         Resolved[path] = mesh
         return mesh
     end
-    local ok, loaded = pcall(function() return LoadAsset(path) end)
+    ok, loaded = pcall(function() return LoadAsset(path) end)
     if not (ok and loaded and loaded:IsValid()) then
         -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists,
         -- which leaves out every package of ours (the converted levels'
@@ -5064,9 +5080,33 @@ local function spawnDecor(world)
         return
     end
     local origin = level.canvas.origin
+    -- Swapped scenery baked into a landscape world (BakeDecor, MJDecor_<id>):
+    -- the world's own. It gets its `scalars` and `static` here, back from
+    -- the mesh's own materials (a reload would stack instances), and no
+    -- handle is kept. One FindAllOf; what the world lacks is spawned.
+    local baked, nBaked = {}, 0
+    if type(level.landscape) == "table" then
+        for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+            local id = a:GetFName():ToString():match("^MJDecor_(.+)$")
+            if id then baked[id] = a end
+        end
+    end
     for index, item in ipairs(decor) do
         local id = (type(item) == "table" and item.id) or ("#" .. index)
-        if not (Current.actors[id] and Current.actors[id]:IsValid()) then
+        local own = baked[id]
+        if own then
+            nBaked = nBaked + 1
+            pcall(function()
+                local comp = own.StaticMeshComponent
+                local mesh = comp.StaticMesh
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local src = mesh:GetMaterial(i)
+                    local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
+                    if mid then comp:SetMaterial(i, mid) end
+                end
+                if item.static then comp:SetEvaluateWorldPositionOffset(false) end
+            end)
+        elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then
             local actor, err = spawnDecorItem(world, origin, item)
             if actor then
                 Current.actors[id] = actor
@@ -5077,8 +5117,9 @@ local function spawnDecor(world)
             end
         end
     end
-    Log(string.format("level '%s': %d decor spawned, %d failed",
-        tostring(level.name), Current.spawned, Current.failed))
+    Log(string.format("level '%s': %d decor spawned, %d failed%s",
+        tostring(level.name), Current.spawned, Current.failed,
+        nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
     if type(level.slot_meshes) == "table" then
         local sok, sn = pcall(Land.slotMeshes, world, level)
         Log("slot meshes: " .. tostring(sok and sn or sn))

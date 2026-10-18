@@ -52,6 +52,17 @@ def leaf_group(swap):
     return group
 
 
+def bakeable(d):
+    """A swapped scenery piece the world can carry as it is: a game mesh with
+    at most `scalars` (the loader's runtime material values) and `static`.
+    Anything with its own materials, tint, pulse or capture role stays the
+    loader's."""
+    return (isinstance(d, dict) and isinstance(d.get("mesh"), str) and isinstance(d.get("id"), str)
+            and isinstance(d.get("pos"), list) and d["mesh"].startswith(("/Game/Env/", "/Game/Megascans/"))
+            and not any(k in d for k in ("materials", "tint", "pulse", "capture_only", "cast_shadow",
+                                         "sort_priority")))
+
+
 def mesh_info(mjolnir, paks, path):
     """The game mesh's bounds and slot names, from its cooked package."""
     pkg = path.split(".", 1)[0]
@@ -95,7 +106,9 @@ def main():
     ap.add_argument("out", help="the spec to write")
     ap.add_argument("--paks", default=os.environ.get("HCE_PAKS", PAKS))
     ap.add_argument("--mjolnir", default=os.environ.get("MJOLNIR", "mjolnir"))
+    ap.add_argument("--origin", default="0,0,0", help="the level's canvas origin (cm), which decor sits on")
     a = ap.parse_args()
+    origin = [float(v) for v in a.origin.split(",")]
 
     fol = json.load(open(os.path.join(a.work, "foliage", "foliage.json"), encoding="utf-8"))
     groups = list(fol["groups"])
@@ -104,8 +117,10 @@ def main():
     bin_path = os.path.join(out_dir, "foliage_bake.bin")
     shutil.copyfile(os.path.join(a.work, "foliage", "foliage.bin"), bin_path)
     swap_path = os.path.join(a.work, "swap.json")
+    decor = []
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))
+        decor = [d for d in swap.get("decor") or [] if bakeable(d)]
         leaves = (swap.get("leaves") or {}).get("records") or []
         if leaves:
             from upgrade_ce_map import append_foliage
@@ -123,16 +138,29 @@ def main():
                             "cull": [float(cull[0]), float(cull[1])], "flags": flags})
         if mesh:
             meshes[mesh] = None
+    spec_decor = []
+    for d in decor:
+        meshes[d["mesh"]] = None
+        rot = list(d.get("rot") or [0, 0, 0]) + [0, 0, 0]
+        scale = d.get("scale") if isinstance(d.get("scale"), list) and len(d["scale"]) >= 3 else [1, 1, 1]
+        spec_decor.append({"id": d["id"], "mesh": d["mesh"], "loc": [origin[i] + d["pos"][i] for i in range(3)],
+                           "rot": rot[:3], "scale": scale[:3], "flags": 2 if d.get("static") else 0})
+    # The game meshes' bounds, kept between runs: one `ue get` a mesh.
+    cache_path = os.path.join(out_dir, "mesh_info.json")
+    cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}
     standins = []
     for mesh in sorted(meshes):
         if not mesh.startswith(("/Game/Env/", "/Game/Megascans/")):
             sys.exit(f"{mesh}: not under a never-cooked stand-in folder (/Game/Env, /Game/Megascans)")
-        info = mesh_info(a.mjolnir, a.paks, mesh)
-        standins.append(dict(info, path=mesh))
+        if mesh not in cache:
+            cache[mesh] = mesh_info(a.mjolnir, a.paks, mesh)
+        standins.append(dict(cache[mesh], path=mesh))
+    json.dump(cache, open(cache_path, "w", encoding="utf-8"), indent=1)
     json.dump({"bin": bin_path.replace("\\", "/"), "actor": "MJOLNIR_Foliage", "groups": spec_groups,
-               "standins": standins}, open(a.out, "w", encoding="utf-8"), indent=1)
+               "decor": spec_decor, "standins": standins}, open(a.out, "w", encoding="utf-8"), indent=1)
     baked = sum(1 for g in spec_groups if g["mesh"])
-    print(f"foliage bake: {baked} of {len(spec_groups)} group(s), {len(standins)} stand-in mesh(es) -> {a.out}")
+    print(f"foliage bake: {baked} of {len(spec_groups)} group(s), {len(spec_decor)} decor piece(s), "
+          f"{len(standins)} stand-in mesh(es) -> {a.out}")
 
 
 if __name__ == "__main__":

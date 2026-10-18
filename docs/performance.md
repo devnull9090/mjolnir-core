@@ -218,7 +218,8 @@ of the 14–16 s dressing, at the cost of a per-map cook pipeline, which has bee
 fragile for this fork ([ue_mesh_write.md](ue_mesh_write.md): stock-UE cooks
 do not load). It is worth doing for load time, not for "slow with grass".
 Done for Death Island on 2026-10-18 (see "Baked foliage" below): the load
-frame went from 15.5 s to 9.1 s, the frame rate is unchanged.
+frame went from 15.5 s to 9.1 s, the frame rate is unchanged. With the
+scenery baked and a faster asset lookup it is 0.9 s.
 
 **Nanite?** The rocks already are, and they cost almost nothing. The grass
 is not, and we cannot rebuild the game's meshes as Nanite. Nanite foliage
@@ -421,10 +422,56 @@ Then the cladding rocks too (all 75 groups baked), same procedure:
   (-9309, -12608, 5046), pitch -14.9, yaw -123.2, the mean pixel difference
   between spawned and baked rocks is 0.24/255.
 
+Then the swapped B30 scenery (760 tree and rock pieces), and a faster asset
+lookup in the loader, same procedure:
+
+| | Rocks baked | Scenery baked too | And the faster lookup |
+|---|---|---|---|
+| Decor step (CE terrain, flares, scenery) | 7.1 s | 4.1 s | 0.3 s |
+| CE terrain's 94 materials | 2.9 s | 3.1 s | 0.25 s |
+| LevelLoader tick (the load frame) | 9.2 s | 6.3 s | 0.9 s |
+| LevelLoader Lua heap, live | 2.5 MB | 2.3 MB | 2.3 MB |
+| Actor handles the loader holds | 828 | 68 | 68 |
+| `mjolnir_bench` base at the test camera | 16.39 ms | | 16.33 ms |
+
+- **Scenery** is baked as `MJDecor_<id>` mesh actors (`BakeDecor`). The loader
+  finds them with one `FindAllOf`, gives the 736 tree pieces their calm wind
+  values (`scalars`) and keeps no handle. Two things had to be matched:
+  - **Rotation.** UE4SS does not give an actor spawned from Lua the rotation
+    it was asked for: pitch alone comes out negated, and mixed angles compose
+    differently (one term of the quaternion's Y has its sign turned; fitted
+    to seven probes). The trees players know stand that way, so `BakeDecor`
+    turns each piece the same way. A baked piece reads back exactly the
+    rotation the loader's copy had.
+  - **Numbered names.** 147 tree meshes are named like `SM_..._Big_6`, which
+    Unreal stores as `SM_..._Big` plus a number. The editor's `create_asset`
+    lost the number (every stand-in became one `SM_..._Big`;
+    `CreateStandInMesh` makes them by full path now). `mjolnir level bake`
+    hashed the world's imported package names without their numbers too, so
+    the world asked for `SM_..._Big` and every numbered piece drew nothing
+    (fixed in `crates/blam-cli/src/level.rs`).
+- **The terrain's 3 s was asset lookups, not materials.** A spike timed the
+  terrain's 94 materials: making them, setting their parameters and
+  assigning them took 0.01 s; resolving their 124 textures took 2.8 s.
+  UE4SS's `StaticFindObject` costs ~21 ms a path in this build, loaded or
+  not, and the loader called it first for every asset. A soft-path
+  `LoadAsset_Blocking` returns an object already in memory in ~0.03 ms and
+  loads one in ~1 ms, so `resolveMesh` now tries that first. It speeds up
+  every converted map, baked or not: Blood Gulch, nothing baked, went from
+  8.6 s to 4.3 s on the same launch procedure. The terrain's materials did
+  not need baking after all.
+
+Death Island overall, from the first runtime build: the loader's load frame
+went from 15.5 s to 0.9 s, its live heap from 5.3 MB to 2.3 MB, the handles
+it holds from 8,581 to 68, at the same frame rate and look.
+
 ## What is left
 
 - **Bake the other remastered maps** (`bake_foliage` per map, a full
   editor, cook, bake, assemble run each).
+- **Other `StaticFindObject` calls.** The loader still calls it (through
+  `findObject`) for classes and default objects in about 50 places; most run
+  once a load. Any in a loop that runs often is worth the same treatment.
 
 - **The HUD's first tick of a match** holds the game thread 68–77 ms once
   (hooking incidents, making the widgets, the first name-tag sweep). It is

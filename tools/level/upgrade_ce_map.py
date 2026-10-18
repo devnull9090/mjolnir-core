@@ -614,12 +614,14 @@ def stage_editor(code, m, p):
         print(f"  {code}: indoor, no landscape world")
         return
     env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
-    # `bake_foliage`: the grass, ground cover and leaf clusters placed in the
-    # world here (tools/level/foliage_bake.py) instead of by the loader at
-    # runtime; assemble then marks the level file's foliage `baked`.
+    # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
+    # in the world here (tools/level/foliage_bake.py) instead of by the
+    # loader at runtime; assemble then marks the level file's foliage `baked`.
     if m.get("bake_foliage"):
         spec = os.path.join(p["work"], "foliage_bake", "spec.json")
+        origin = (json.load(open(p["level"], encoding="utf-8")).get("canvas") or {}).get("origin") or [0, 0, 0]
         print("  " + run([sys.executable, os.path.join(HERE, "foliage_bake.py"), p["work"], spec, "--paks", PAKS,
+                          "--origin", ",".join(str(v) for v in origin),
                           "--mjolnir", os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))]).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],

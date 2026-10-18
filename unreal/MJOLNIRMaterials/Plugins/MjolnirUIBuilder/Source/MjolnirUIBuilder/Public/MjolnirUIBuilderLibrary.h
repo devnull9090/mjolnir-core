@@ -156,4 +156,30 @@ public:
 	static int32 BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,
 		const TArray<FString>& Meshes, const TArray<int32>& Bands, const TArray<FVector2D>& Cull,
 		const TArray<int32>& Flags);
+
+	/**
+	 * Bake a level file's decor (MJOLNIRLevelLoader spawnDecorItem: a mesh
+	 * actor each, no collision) into World: per piece its id (the actor is
+	 * named MJDecor_<id>), mesh, location (cm), rotation (pitch, yaw, roll as
+	 * the level file has them), scale and flags (2 static: no wind). The
+	 * rotation is turned as UE4SS turns the loader's SpawnActor rotation,
+	 * which is not the rotator's own (see DecorRotation), so the pieces stand
+	 * exactly as the loader stood them. Tagged FluxHide. Returns the pieces
+	 * placed, or -1.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
+	static int32 BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
+		const TArray<FVector>& Locations, const TArray<FVector>& Rotations, const TArray<FVector>& Scales,
+		const TArray<int32>& Flags);
+
+	/**
+	 * The StaticMesh at ObjectPath ("/Game/.../SM_X_6.SM_X_6"), made (empty,
+	 * in a new package) when there is none: for a stand-in of a game mesh
+	 * (Scripts/build_ce_landscape.py). Made here rather than with AssetTools'
+	 * create_asset, whose name came through Python as an FName and lost a
+	 * trailing number: 147 of Death Island's tree pieces (SM_..._Big_6) all
+	 * became one SM_..._Big, and the baked pieces drew nothing (2026-10-18).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static UStaticMesh* CreateStandInMesh(const FString& ObjectPath);
 };

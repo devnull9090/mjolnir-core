@@ -136,10 +136,11 @@ def standin(entry):
     (DefaultGame.ini DirectoriesToNeverCook): in game the world's reference
     resolves to the game's own mesh."""
     path = entry["path"].split(".", 1)[0]
-    folder, name = path.rsplit("/", 1)
-    mesh = unreal.load_asset(path) if eal.does_asset_exist(path) else None
-    if not mesh:
-        mesh = tools.create_asset(name, folder, unreal.StaticMesh, None)
+    # Made by its full path in C++: create_asset dropped a trailing _<n>
+    # from the name (SM_..._Big_6 became SM_..._Big).
+    mesh = unreal.MjolnirUIBuilderLibrary.create_stand_in_mesh(entry["path"])
+    if not mesh or mesh.get_path_name() != entry["path"]:
+        raise RuntimeError(f"stand-in {entry['path']} came out as {mesh.get_path_name() if mesh else None}")
     (ox, oy, oz), (ex, ey, ez) = entry["origin"], entry["extent"]
     corners = [unreal.Vector(ox + sx * ex, oy + sy * ey, oz + sz * ez)
                for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
@@ -175,7 +176,18 @@ if FOLIAGE:
         [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
     if placed < 0:
         raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
-    unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(fspec['standins'])} stand-in(s)")
+    # The swapped scenery (decor the loader would spawn: game meshes, no
+    # materials of their own), a mesh actor a piece, MJDecor_<id>.
+    decor = fspec.get("decor") or []
+    if decor:
+        pieces = unreal.MjolnirUIBuilderLibrary.bake_decor(
+            world, [d["id"] for d in decor], [d["mesh"] for d in decor], [unreal.Vector(*d["loc"]) for d in decor],
+            [unreal.Vector(*d["rot"]) for d in decor], [unreal.Vector(*d["scale"]) for d in decor],
+            [d["flags"] for d in decor])
+        if pieces < 0:
+            raise RuntimeError(f"bake_decor failed for {FOLIAGE}")
+    unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
+               f"{len(fspec['standins'])} stand-in(s)")
 if not les.save_current_level():
     raise RuntimeError("save_current_level failed")
 

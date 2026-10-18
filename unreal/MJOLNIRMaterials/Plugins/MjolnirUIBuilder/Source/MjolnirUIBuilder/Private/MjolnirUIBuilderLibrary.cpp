@@ -32,6 +32,7 @@
 #include "LandscapeInfo.h"
 #include "LandscapeImportHelper.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
 #include "Misc/Parse.h"
 #include "UObject/EnumProperty.h"
 #include "UObject/FieldPathProperty.h"
@@ -890,5 +891,100 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 	UE_LOG(LogMjolnirUI, Display, TEXT("BakeFoliage: %d clump(s) in %d component(s) from %s"), Placed, Components,
 		*BinPath);
 	return Placed;
+}
+
+namespace
+{
+	// The rotation UE4SS gives an actor spawned from Lua with
+	// World:SpawnActor(class, location, { Pitch, Yaw, Roll }): FRotator's own
+	// quaternion with the sign of one term of Y turned (fitted to seven
+	// probes, 2026-10-18: pitch alone comes out negated, yaw and roll as
+	// given, mixed angles compose differently). The loader's decor stands
+	// this way, and players know it so.
+	FQuat DecorRotation(double Pitch, double Yaw, double Roll)
+	{
+		const double P = FMath::DegreesToRadians(Pitch) / 2, Y = FMath::DegreesToRadians(Yaw) / 2,
+			R = FMath::DegreesToRadians(Roll) / 2;
+		const double SP = FMath::Sin(P), CP = FMath::Cos(P), SY = FMath::Sin(Y), CY = FMath::Cos(Y),
+			SR = FMath::Sin(R), CR = FMath::Cos(R);
+		FQuat Q(CR * SP * SY - SR * CP * CY, CR * SP * CY - SR * CP * SY, CR * CP * SY - SR * SP * CY,
+			CR * CP * CY + SR * SP * SY);
+		Q.Normalize();
+		return Q;
+	}
+}
+
+int32 UMjolnirUIBuilderLibrary::BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
+	const TArray<FVector>& Locations, const TArray<FVector>& Rotations, const TArray<FVector>& Scales,
+	const TArray<int32>& Flags)
+{
+	const int32 N = Ids.Num();
+	if (!World || Meshes.Num() != N || Locations.Num() != N || Rotations.Num() != N || Scales.Num() != N
+		|| Flags.Num() != N)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: inconsistent arrays"));
+		return -1;
+	}
+	const FName FluxHide(TEXT("FluxHide"));
+	TMap<FString, UStaticMesh*> Loaded;
+	for (int32 I = 0; I < N; ++I)
+	{
+		UStaticMesh*& Mesh = Loaded.FindOrAdd(Meshes[I]);
+		if (!Mesh)
+		{
+			Mesh = LoadObject<UStaticMesh>(nullptr, *Meshes[I]);
+		}
+		if (!Mesh)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: %s: no mesh %s"), *Ids[I], *Meshes[I]);
+			return -1;
+		}
+		FActorSpawnParameters Params;
+		Params.Name = FName(*(TEXT("MJDecor_") + Ids[I]));
+		const FTransform T(DecorRotation(Rotations[I].X, Rotations[I].Y, Rotations[I].Z), Locations[I], Scales[I]);
+		AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), T, Params);
+		if (!Actor)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: %s did not spawn"), *Ids[I]);
+			return -1;
+		}
+		Actor->Tags.Add(FluxHide);
+		UStaticMeshComponent* C = Actor->GetStaticMeshComponent();
+		C->SetMobility(EComponentMobility::Movable);
+		C->SetStaticMesh(Mesh);
+		C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+		if (Flags[I] & 2)
+		{
+			C->SetEvaluateWorldPositionOffset(false);
+		}
+		Actor->SetActorTransform(T);
+	}
+	UE_LOG(LogMjolnirUI, Display, TEXT("BakeDecor: %d piece(s) of %d mesh(es)"), N, Loaded.Num());
+	return N;
+}
+
+UStaticMesh* UMjolnirUIBuilderLibrary::CreateStandInMesh(const FString& ObjectPath)
+{
+	FString PackageName = ObjectPath, AssetName;
+	if (!ObjectPath.Split(TEXT("."), &PackageName, &AssetName))
+	{
+		AssetName = FPackageName::GetShortName(ObjectPath);
+	}
+	if (UStaticMesh* Found = LoadObject<UStaticMesh>(nullptr, *(PackageName + TEXT(".") + AssetName), nullptr,
+		LOAD_NoWarn | LOAD_Quiet))
+	{
+		return Found;
+	}
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("CreateStandInMesh: no package %s"), *PackageName);
+		return nullptr;
+	}
+	UStaticMesh* Mesh = NewObject<UStaticMesh>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+	FAssetRegistryModule::AssetCreated(Mesh);
+	Package->MarkPackageDirty();
+	return Mesh;
 }
 
