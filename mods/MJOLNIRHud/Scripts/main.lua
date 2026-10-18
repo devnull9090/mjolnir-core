@@ -1496,6 +1496,11 @@ Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log", settings = Bench.se
 Bench.init({
     log = Log,
     file = MOD_DIR .. "\\bench.log",
+    -- /bench's report goes out as bench_<id>.json through the outbox
+    -- MJOLNIRLobby sends match records from.
+    dir = MOD_DIR,
+    queue = MatchLog.queue,
+    version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
     pc = playerController,
     liveFor = Hitches.liveSeconds,
     map = function()
@@ -1562,6 +1567,7 @@ Chat.init({
     matchId = function() return MatchLog.currentId() or (Match and Match.logId) end,
     queue = MatchLog.queue,
     hidden = function() return HudHidden end,
+    bench = Bench.chat,
 })
 logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,

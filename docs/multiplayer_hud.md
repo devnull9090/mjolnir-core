@@ -36,6 +36,7 @@ again for the next match.
 |---|---|---|
 | `/help` | everyone | the list, here |
 | `/players` | everyone | who is in the match |
+| `/bench` | everyone | time this map with and without its foliage (about a minute, camera held) and send it to the hub's [benchmarks](https://mjolnircore.com/benchmarks) ([performance.md](performance.md)); runs on the player's own machine |
 | `/suicide` (`/respawn`) | everyone | kill your player, to respawn when stuck |
 | `/kick <player>` | host | MJOLNIRLobby's kick |
 | `/ban <player>` | host | kick, and keep them out (`bans.json`) |

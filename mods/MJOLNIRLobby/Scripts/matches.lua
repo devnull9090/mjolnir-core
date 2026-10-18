@@ -8,6 +8,8 @@
 --
 --   match <id>   match_<id>.json  -> POST /matches         (the host)
 --   claim <id>   claim_<id>.json  -> POST /matches/claims  (a participant)
+--   chat <id>    chat_<id>.json   -> POST /matches/chat    (the host)
+--   bench <id>   bench_<id>.json  -> POST /benches         (anyone's /bench)
 --
 -- A file goes once the hub has it, or once the hub says it never will (a
 -- bad or conflicting report). Anything else, no connection or an old
@@ -26,6 +28,8 @@ local KINDS = {
     match = { file = "match_", path = "/matches" },
     claim = { file = "claim_", path = "/matches/claims" },
     chat = { file = "chat_", path = "/matches/chat" },
+    -- A player's /bench (MJOLNIRHud Scripts/bench.lua): POST /benches.
+    bench = { file = "bench_", path = "/benches" },
 }
 
 local hudDir, Games, log
@@ -114,7 +118,7 @@ local function send(entry)
             problem("not sent: " .. Games.explain(status, data))
         elseif status == 404 then
             waitUntil[entry.key] = os.time() + RETRY_SIGN_IN
-            problem("not sent yet: the hub does not take match reports yet")
+            problem("not sent yet: the hub does not take " .. entry.kind .. " reports yet")
         else
             waitUntil[entry.key] = os.time() + (status == 429 and RETRY * 5 or RETRY)
             problem("not sent yet: " .. Games.explain(status, data))

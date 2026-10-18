@@ -522,6 +522,8 @@ local function commandCx(isHost)
         kick = function(name, ban) ctx.console("mjolnir_auto " .. (ban and "ban " or "kick ") .. name) end,
         unban = function(name) ctx.console("mjolnir_auto unban " .. name) end,
         blam = function(line) Commands.queueBlam(line) end,
+        -- The result comes back a minute later, as system lines.
+        bench = function() return ctx.bench(function(said) for _, l in ipairs(said) do systemLine(l) end end) end,
     }
 end
 
