@@ -1364,15 +1364,16 @@ local function spawnDecorItem(world, origin, item)
     end
 
     local okSetup, err = pcall(function()
-        -- The rotation asked for, set exactly: through UE4SS, SpawnActor's
-        -- comes out wrong (pitch alone negated, mixed angles composed
-        -- otherwise), and a tilted tree's pieces, each turned about its own
-        -- pivot, stood apart: a trunk with a gap (Death Island, 2026-10-18).
-        actor:K2_SetActorRotation({ Pitch = rot[1] or 0.0, Yaw = rot[2] or 0.0, Roll = rot[3] or 0.0 }, false)
         local comp = actor.StaticMeshComponent
         -- Order matters: SetStaticMesh silently refuses on a registered
         -- component whose mobility is Static, and StaticMeshActor ships Static.
         comp.Mobility = MOBILITY_MOVABLE
+        -- The rotation asked for, set exactly (once Movable: a Static actor
+        -- refuses it): through UE4SS, SpawnActor's comes out wrong (pitch
+        -- alone negated, mixed angles composed otherwise), and a tilted
+        -- tree's pieces, each turned about its own pivot, stood apart: a
+        -- trunk with a gap, a branch hanging in the air (2026-10-18).
+        actor:K2_SetActorRotation({ Pitch = rot[1] or 0.0, Yaw = rot[2] or 0.0, Roll = rot[3] or 0.0 }, false)
         comp:SetStaticMesh(mesh)
         local s = item.scale
         if type(s) == "table" and #s >= 3 then
