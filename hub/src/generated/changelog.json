@@ -41,6 +41,35 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.29.0",
+      "tag": "mods-v0.29.0",
+      "title": "/bench shows where the frame goes",
+      "date": "2026-10-18",
+      "summary": "/bench now says whether your game thread, render thread or GPU is holding the frame back, and where you were standing, so the MJOLNIR team can tell what to optimize for your hardware.",
+      "body": "### Changed\n\n- **`/bench` measures where each frame's time goes** (MJOLNIRHud 0.11.0).\n  Each part of the bench (with foliage, without it, without its shadows, without its\n  wind) now records the game thread, render thread and GPU times that `stat\n  unit` shows. A saving on the GPU does nothing while your CPU is the slow\n  part, so this tells us which part a fix has to target. Your chat\n  shows the split for your normal frame.\n- **`/bench` sends the camera's position.** Two benches on one map can read\n  very differently depending on where you stand. The report now says where\n  that was.\n- **`mjolnir_bench`** prints the same split on every row of `bench.log`.\n\n### Notes\n\n- The split comes from a small native file in the MJOLNIRHud folder,\n  `native\\mjolnir_frame_times.dll`. If a game update moves what it reads, the\n  bench still runs and just leaves the split out.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "/bench measures where each frame's time goes (MJOLNIRHud 0.11.0). Each part of the bench (with foliage, without it, without its shadows, without its wind) now records the game thread, render thread and GPU times that stat unit shows. A saving on the GPU does nothing while your CPU is the slow part, so this tells us which part a fix has to target. Your chat shows the split for your normal frame.",
+            "/bench sends the camera's position. Two benches on one map can read very differently depending on where you stand. The report now says where that was.",
+            "mjolnirbench prints the same split on every row of bench.log."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "The split comes from a small native file in the MJOLNIRHud folder, native\\mjolnirframetimes.dll. If a game update moves what it reads, the bench still runs and just leaves the split out."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.29.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.29.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.29.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.28.0",
       "tag": "mods-v0.28.0",
       "title": "Faster foliage and /bench",
